@@ -1,7 +1,13 @@
 # Architecture: S3 File Portal
 
-**Last Updated:** 2026-05-23 (single shared role + session tags)  
+**Last Updated:** 2026-06-08 (monorepo migration complete; Bucket 2 access model redesigned; IaC scope clarified)  
 **Status:** Living document — update as decisions are made.
+
+> **Implementation status as of 2026-06-08:**
+> - **Built and working:** File browser (SPEC-001, SPEC-002) — React SPA in `apps/portal/`, browses a test bucket using static or anonymous credentials.
+> - **IaC written, not yet applied:** OpenTofu config for static assets S3 bucket, CloudFront, and GitHub Actions OIDC role (SPEC-003). `tofu apply` has not been run against a real AWS account.
+> - **Not yet built:** Authentication (Cognito + Amplify + STS), personal/shared S3 data buckets, IAM portal role, Bucket 2 access management, GitHub Actions CI/CD pipeline (SPEC-004).
+> - **Under redesign:** Bucket 2 access model — see Key Decisions section in CLAUDE.md.
 
 ## System Overview
 
@@ -17,8 +23,8 @@ IAM roles are needed.
 
 **Two-bucket model:** Users interact with two distinct S3 buckets with different access
 control mechanisms. Bucket 1 (personal) is self-contained — IAM enforces per-user prefix
-isolation using the Cognito username. Bucket 2 (shared) access is governed by IAM policies
-that are managed by a separate IaC process. Access to these prefixes is dynamic and can change frequently.
+isolation using the Cognito username. Bucket 2 (shared) access is governed by a
+user-managed access key model — see Bucket 2 section below.
 
 **User-configured connections.** Users configure which Bucket 2 prefixes they connect to
 themselves via the UI. The app validates access before saving. Connection configurations
@@ -28,6 +34,8 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
 ---
 
 ## System Diagram
+
+> **This diagram shows the target vision.** Authentication, the Connection Manager, and the two-bucket S3 model are not yet implemented. Current state: a single file browser hitting a test bucket with static or anonymous credentials.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -60,13 +68,12 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
    │ AssumeRole  │              └─────────────┘   └──────┬──────┘
    │ WithWebId   │                                       │
    └──────┬──────┘                              ┌────────▼────────┐
-          │                                     │   Terraform     │
-          ▼                                     │   IaC Pipeline  │
-   ┌─────────────┐                              │ (daily deploy)  │
-   │  IAM Role   │                              │                 │
-   │ (trust: UP) │──────────────────────────────│ manages IAM     │
-   └─────────────┘                              │ prefix grants   │
-                                                └─────────────────┘
+          │                                     │  Bucket 2 Access│
+          ▼                                     │  Mgmt (TBD:     │
+   ┌─────────────┐                              │  user-managed   │
+   │  IAM Role   │                              │  keys, backend  │
+   │ (trust: UP) │                              │  TBD)           │
+   └─────────────┘                              └─────────────────┘
 ```
 
 **Key architectural principles:**
@@ -244,52 +251,33 @@ const configKey = `${username}/.config/connections.json`;
 
 ### Bucket 2 — Shared Bucket
 
-> **Status: access model under review.** The switch to a single shared role with session
-> tags changes how per-user prefix grants on Bucket 2 can be expressed in IAM. This section
-> will be updated when the shared bucket spec is written.
+> **Status: access model redesigned — not yet specced or built.**
+>
+> The original design (daily Terraform-managed IAM policy deployment) has been replaced.
+> The new model is **user-managed access keys**: a user can create a key for a prefix
+> and grant or revoke access to that key for other users. This will likely require a
+> backend service or cloud process. The exact design, spec, and implementation are pending.
+>
+> **Do not build anything referencing the old daily-IAM-pipeline model.** When the shared
+> bucket spec is written it will define the new access mechanism from scratch.
 
-Users can access one or more prefixes in this bucket. Access is granted and revoked by a
-Terraform IaC pipeline that runs on a daily deployment cycle.
+The prefix structure remains the same concept — users access named prefixes in a shared
+bucket — but the mechanism for controlling that access is TBD.
 
 ```
 s3://shared-bucket/
-  project-alpha/                  ← alice and bob both have IAM access
+  project-alpha/                  ← example prefix; access control model TBD
     data/
       results.csv
-  project-beta/                   ← only alice has IAM access
+  project-beta/
     reports/
       summary.pdf
-  project-gamma/                  ← alice's access was revoked in last Terraform deploy
 ```
 
-**Access cadence:** Changes to access take effect on the next daily Terraform deployment.
-Real-time revocation is not supported in this architecture.
-
-**Terraform-managed IAM policy statement example (per user, per prefix):**
-```json
-{
-  "Effect": "Allow",
-  "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
-  "Resource": [
-    "arn:aws:s3:::shared-bucket",
-    "arn:aws:s3:::shared-bucket/project-alpha/*",
-    "arn:aws:s3:::shared-bucket/project-beta/*"
-  ],
-  "Condition": {
-    "StringLike": {
-      "s3:prefix": ["project-alpha/*", "project-beta/*", ""]
-    }
-  }
-}
-```
-
-**Frontend prefix discovery:** The user manually configures which Bucket 2 prefixes they
-want to connect to via the Connection Manager UI. The app attempts to list the given prefix;
-if IAM denies it, the connection is rejected and not saved. Saved connections are persisted
-to `{username}/.config/connections.json` in Bucket 1.
-
-This means the IAM policy is the source of truth for access — the frontend never assumes
-a connection is valid, it always validates against the live bucket.
+**Frontend prefix discovery** will work similarly to the original design — users configure
+which prefixes they connect to via the Connection Manager UI, and the app validates access
+before saving — but the underlying IAM or key-based mechanism that enforces this is part
+of the future spec.
 
 ---
 
@@ -356,19 +344,20 @@ User enters: bucket prefix → "project-alpha/"
 ## AWS Resource Inventory
 
 > Fill in actual values as resources are provisioned. Use placeholders until then.
+> **IaC coverage note:** Resources marked ✓ IaC are managed by `infra/` (SPEC-003). Resources marked ✗ IaC must be provisioned manually or via a future IaC spec before the app can run in production.
 
-| Resource | Name / ARN Pattern | Purpose | Notes |
-|---|---|---|---|
-| Cognito User Pool | `us-east-1_XXXXXXXXX` | Auth + AD federation | Hosts the login UI |
-| Cognito User Pool Client | `XXXXXXXXXXXXXXXXXXXXXXXXXX` | App client for Amplify | No client secret (SPA) |
-| IAM Role (shared) | `arn:aws:iam:::role/S3PortalRole` | S3 access for all authenticated users | Single role; per-user isolation via session tags |
-| S3 Bucket — Personal | `personal-bucket-name` | Per-user private files + connection config | CORS required |
-| S3 Bucket — Shared | `shared-bucket-name` | Terraform-managed shared prefixes | CORS required |
-| S3 Bucket — Static Assets | `portal-static-assets` | Hosts built SPA files | Private; accessed via CloudFront OAC only |
-| CloudFront Distribution | `*.cloudfront.net` / custom domain | Serves the SPA; routes all paths to index.html | OAC origin; custom error response 403/404 → index.html |
-| ACM Certificate | `arn:aws:acm:us-east-1:...` | HTTPS for custom domain | Must be in us-east-1 for CloudFront |
-| Terraform IaC Pipeline | External — daily deploy | Manages IAM prefix grants on Shared bucket; sets `custom:iamRoleArn` on users | Owned by same team |
-| Active Directory | External — managed by IT | Identity provider | Federated via SAML/OIDC into Cognito |
+| Resource | Name / ARN Pattern | Purpose | IaC | Notes |
+|---|---|---|---|---|
+| Cognito User Pool | `us-east-1_XXXXXXXXX` | Auth + AD federation | ✗ future spec | Hosts the login UI |
+| Cognito User Pool Client | `XXXXXXXXXXXXXXXXXXXXXXXXXX` | App client for Amplify | ✗ future spec | No client secret (SPA) |
+| IAM Role (shared) | `arn:aws:iam:::role/S3PortalRole` | S3 access for all authenticated users | ✗ future spec | Single role; per-user isolation via session tags |
+| S3 Bucket — Personal | `personal-bucket-name` | Per-user private files + connection config | ✗ future spec | CORS required |
+| S3 Bucket — Shared | `shared-bucket-name` | Shared prefixes; access model TBD | ✗ future spec | CORS required |
+| S3 Bucket — Static Assets | `portal-static-assets` | Hosts built SPA files | ✓ SPEC-003 | Private; accessed via CloudFront OAC only |
+| CloudFront Distribution | `*.cloudfront.net` / custom domain | Serves the SPA; routes all paths to index.html | ✓ SPEC-003 | OAC origin; custom error response 403/404 → index.html |
+| GitHub Actions OIDC Role | `arn:aws:iam:::role/S3PortalDeployRole` | Allows CI/CD to deploy without stored credentials | ✓ SPEC-003 | Scoped to main branch of repo |
+| ACM Certificate | `arn:aws:acm:us-east-1:...` | HTTPS for custom domain | ✗ manual | Must be in us-east-1 for CloudFront; DNS validation is manual |
+| Active Directory | External — managed by IT | Identity provider | ✗ external | Federated via SAML/OIDC into Cognito |
 
 > Note: No Cognito Identity Pool is used. Web Identity federation is performed directly
 > against a single shared IAM role using the User Pool JWT. Per-user S3 isolation is
@@ -557,13 +546,14 @@ bundle. Store them in your CI/CD system's secret store or AWS SSM Parameter Stor
 commit values to the repository.
 
 The per-user IAM role ARN is **not** a build-time variable — it is read from the user's
-Cognito token at runtime (see Cognito Custom Attributes section).
+Cognito token at runtime. (A Cognito Custom Attributes section will be written as part of
+the auth spec — not yet documented.)
 
 ### Environments
 
 | Environment | `VITE_APP_URL` | Notes |
 |---|---|---|
-| Local dev | `http://localhost:5173` | Uses static IAM credentials until auth spec lands |
+| Local dev | `http://localhost:5173` | Uses static IAM credentials or anonymous (unsigned) requests against a test bucket. Auth not implemented. |
 | Production | `https://your-custom-domain.com` | Deployed via CI/CD; CloudFront + ACM cert |
 
 Add staging environment here when it is provisioned.
@@ -575,9 +565,7 @@ Add staging environment here when it is provisioned.
 - **No backend / API proxy.** All AWS calls come from the browser. If a use case arises
   that requires elevated permissions beyond what user-scoped IAM can express, a Lambda or
   API Gateway layer would need to be added — treat this as a significant architecture change.
-- **Bucket 2 access is real-time.** Users whose access is revoked
-  will lose it immediately. The UI should not present access as
-  guaranteed; connection validation happens on load but reflects IAM state at that moment.
+- **Bucket 2 access model is TBD.** The original daily-IAM-pipeline design has been abandoned. The replacement is user-managed access keys with a backend service or cloud process. Do not implement anything for Bucket 2 access management until the spec is written.
 - **connections.json is the user's own data.** If a user manually deletes or corrupts it,
   their connections are lost. The UI should handle a missing config file as an empty state,
   not an error.
@@ -610,5 +598,11 @@ Add staging environment here when it is provisioned.
 
 | Spec | Feature | Status |
 |---|---|---|
-| SPEC-001 | Personal bucket — file listing (no auth) | Completed |
-| Future specs | TBD — defined incrementally as work is planned | Not yet written |
+| SPEC-001 | File listing against test bucket (no auth) | Completed |
+| SPEC-002 | Public bucket file browser — root prefix scoping, anonymous client fallback | Completed |
+| SPEC-003 | OpenTofu IaC — static assets S3, CloudFront, GitHub Actions OIDC role | Completed (not yet applied to AWS) |
+| SPEC-004 | GitHub Actions deploy pipeline — SPA build+deploy, IaC plan/apply with approval gate | Draft |
+| Future | Authentication — Cognito + Amplify + STS, personal prefix scoping | Not yet written |
+| Future | Data infrastructure IaC — Cognito User Pool, IAM portal role, personal/shared S3 buckets | Not yet written |
+| Future | Bucket 2 access management — user-managed keys, backend TBD | Not yet written |
+| Future | File upload, download, delete | Not yet written |

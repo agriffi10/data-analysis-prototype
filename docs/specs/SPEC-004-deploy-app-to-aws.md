@@ -2,7 +2,7 @@
 
 **ID:** SPEC-004  
 **Status:** Draft  
-**Last Updated:** 2026-05-23 (added manual approval gate for tofu apply)  
+**Last Updated:** 2026-05-23 (added manual approval gate for tofu apply; updated for monorepo apps/portal/ layout)  
 **Depends On:** SPEC-003 (GitHub Actions OIDC role and static assets bucket must exist before the workflow can run)
 
 ---
@@ -55,14 +55,16 @@ Both workflows must obtain temporary AWS credentials via the GitHub OIDC provide
 ### FR-002: App Build and Deploy Workflow
 
 #### Description:
-On every push to `main`, the SPA is built with production environment variables and the compiled output is synced to the static assets S3 bucket, followed by a CloudFront cache invalidation.
+On every push to `main`, the SPA is built with production environment variables and the compiled output is synced to the static assets S3 bucket, followed by a CloudFront cache invalidation. The repo is a monorepo — the React app lives in `apps/portal/` and build commands must use the correct working directory.
 
 #### Acceptance Criteria:
 - [ ] Workflow file is at `.github/workflows/deploy-app.yml`
 - [ ] Workflow triggers on `push` to the `main` branch only
-- [ ] Job steps in order: checkout → Node.js setup (version pinned to match project) → `npm ci` → `npm run build` → AWS credentials via OIDC → `aws s3 sync dist/ s3://$BUCKET --delete` → `aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"`
+- [ ] `npm ci` is run from the **repo root** (installs all workspace dependencies including `apps/portal/`)
+- [ ] `npm run lint`, `npm run test`, and `npm run build` are run with `working-directory: apps/portal` (or equivalent `--workspace=apps/portal` flag from root)
 - [ ] All `VITE_*` environment variables are injected into the build step from GitHub Actions variables (not secrets, as they are not sensitive)
 - [ ] `VITE_APP_URL` is set to the production CloudFront domain (or custom domain if configured)
+- [ ] The S3 sync step uploads from `apps/portal/dist/`: `aws s3 sync apps/portal/dist/ s3://$S3_STATIC_BUCKET --delete`
 - [ ] The bucket name and CloudFront distribution ID are stored as GitHub Actions variables (`S3_STATIC_BUCKET`, `CLOUDFRONT_DISTRIBUTION_ID`)
 - [ ] The workflow runs `npm run lint` before the build step; a lint failure blocks the deploy
 - [ ] The workflow runs `npm run test` before the build step; a test failure blocks the deploy
@@ -166,12 +168,13 @@ jobs:
     steps:
       - checkout
       - setup Node (pin version from .nvmrc or package.json engines)
-      - npm ci
-      - npm run lint          # blocks on failure
-      - npm run test          # blocks on failure
-      - npm run build         # VITE_* vars injected from GitHub variables
+      - npm ci                              # run from REPO ROOT — installs all workspaces
+      - npm run lint                        # working-directory: apps/portal
+      - npm run test                        # working-directory: apps/portal
+      - npm run build                       # working-directory: apps/portal
+                                            # VITE_* vars injected from GitHub variables
       - configure-aws-credentials (OIDC, role: AWS_DEPLOY_ROLE_ARN)
-      - aws s3 sync dist/ s3://$S3_STATIC_BUCKET --delete
+      - aws s3 sync apps/portal/dist/ s3://$S3_STATIC_BUCKET --delete
       - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
 ```
 
@@ -231,7 +234,7 @@ jobs:
 - Verify the workflow runs successfully on a push to `main` (requires SPEC-003 infrastructure to exist)
 
 #### Checkpoint
-Push a trivial change to `main`. The Actions run completes: lint passes, tests pass, build succeeds, files appear in the static assets S3 bucket, CloudFront invalidation shows as `Completed` in the AWS console. The app loads at the CloudFront domain.
+Push a trivial change to `main`. The Actions run completes: `npm ci` succeeds at root, lint and tests pass from `apps/portal/`, build produces `apps/portal/dist/`, files appear in the static assets S3 bucket, CloudFront invalidation shows as `Completed` in the AWS console. The app loads at the CloudFront domain.
 
 ---
 
