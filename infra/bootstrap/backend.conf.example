@@ -1,0 +1,9 @@
+# Copy to backend.conf and fill in your bootstrap resource names.
+# backend.conf is gitignored — never commit it.
+# Run: tofu init -backend-config=backend.conf
+
+bucket         = "your-tofu-state-bucket-name"
+key            = "s3-upload-portal/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "your-tofu-state-lock-table"
+encrypt        = true
