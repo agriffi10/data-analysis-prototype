@@ -131,8 +131,8 @@ AWS credentials are obtained via OIDC at runtime — no AWS keys are stored.
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | future IaC output |
 | `VITE_COGNITO_DOMAIN` | future IaC output |
 | `VITE_IAM_ROLE_ARN` | future IaC output |
-| `VITE_S3_PERSONAL_BUCKET` | future IaC output |
-| `VITE_S3_SHARED_BUCKET` | future IaC output |
+| `VITE_S3_USER_SPACE_BUCKET` | future IaC output |
+| `VITE_S3_SHARED_SPACE_BUCKET` | future IaC output |
 
 > **Note:** Cognito and IAM variables are placeholders until those resources are provisioned (deferred from SPEC-003 scope). Set them to empty strings for now; the app will build but auth won't function until they're populated.
 

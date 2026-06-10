@@ -1,12 +1,12 @@
 # Architecture: S3 File Portal
 
-**Last Updated:** 2026-06-08 (monorepo migration complete; Bucket 2 access model redesigned; IaC scope clarified)  
+**Last Updated:** 2026-06-10 (Cognito standalone — AD federation removed; bucket concepts renamed to user-space/shared-space)  
 **Status:** Living document — update as decisions are made.
 
 > **Implementation status as of 2026-06-08:**
 > - **Built and working:** File browser (SPEC-001, SPEC-002) — React SPA in `apps/portal/`, browses a test bucket using static or anonymous credentials.
 > - **IaC written, not yet applied:** OpenTofu config for static assets S3 bucket, CloudFront, and GitHub Actions OIDC role (SPEC-003). `tofu apply` has not been run against a real AWS account.
-> - **Not yet built:** Authentication (Cognito + Amplify + STS), personal/shared S3 data buckets, IAM portal role, Bucket 2 access management, GitHub Actions CI/CD pipeline (SPEC-004).
+> - **Not yet built:** Authentication (Cognito + Amplify + STS), user-space/shared-space S3 data buckets, IAM portal role, shared-space access management, GitHub Actions CI/CD pipeline (SPEC-004).
 > - **Under redesign:** Bucket 2 access model — see Key Decisions section in CLAUDE.md.
 
 ## System Overview
@@ -22,8 +22,8 @@ uses `${aws:PrincipalTag/username}` to scope each user to their own S3 prefix. N
 IAM roles are needed.
 
 **Two-bucket model:** Users interact with two distinct S3 buckets with different access
-control mechanisms. Bucket 1 (personal) is self-contained — IAM enforces per-user prefix
-isolation using the Cognito username. Bucket 2 (shared) access is governed by a
+control mechanisms. Bucket 1 (user-space) is self-contained — IAM enforces per-user prefix
+isolation using the Cognito username. Bucket 2 (shared-space) access is governed by a
 user-managed access key model — see Bucket 2 section below.
 
 **User-configured connections.** Users configure which Bucket 2 prefixes they connect to
@@ -58,7 +58,7 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
    ┌─────────────┐                     ▼                  ▼
    │   Cognito   │              ┌─────────────┐   ┌─────────────┐
    │  User Pool  │              │  Bucket 1   │   │  Bucket 2   │
-   │  (AD-fed)   │              │ (Personal)  │   │  (Shared)   │
+   │ (Standalone)│              │(User Space) │   │(Shared Spc) │
    └──────┬──────┘              │             │   │             │
           │                     │ {username}/ │   │ {prefix}/   │
           │ JWT                 │  files/     │   │  files/     │
@@ -91,10 +91,8 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
 
 ## Authentication Flow
 
-> **MVP note:** Active Directory federation is the target production architecture but is not
-> required for initial development. The MVP uses native Cognito User Pool users
-> (username + password). The token shape and STS flow are identical — AD federation is an
-> infrastructure concern that does not change any frontend code.
+> **Note:** This app uses native Cognito User Pool users (username + password). There is no
+> external IdP — no Active Directory or SAML/OIDC federation.
 
 ```
 1. User lands on app → Amplify checks for active session
@@ -103,13 +101,9 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
       │
       └─ No session → Redirect to Cognito Hosted UI
 
-2. Cognito Hosted UI → User enters AD credentials
+2. Cognito Hosted UI → User enters credentials (username + password)
       │
-      └─ Cognito federates to Active Directory via SAML/OIDC
-             │
-             └─ AD validates credentials → Returns group memberships as claims
-                    │
-                    └─ Cognito issues JWT (id_token, access_token, refresh_token)
+      └─ Cognito validates credentials → Issues JWT (id_token, access_token, refresh_token)
 
 3. App reads Cognito username → calls STS AssumeRoleWithWebIdentity manually
       │    passing: id_token, shared role ARN (env var), username as session tag
@@ -198,13 +192,13 @@ Both are enforced at the IAM layer — no application-level access control exist
 
 ---
 
-### Bucket 1 — Personal Bucket
+### Bucket 1 — User Space
 
 Each user has exactly one prefix, named after their Cognito username. IAM enforces strict
 isolation — a user can only ever read, write, or list their own prefix.
 
 ```
-s3://personal-bucket/
+s3://user-space/
   alice/                          ← alice's root, only alice can access
     documents/
       report.pdf
@@ -228,8 +222,8 @@ prefix with a single policy statement — no per-user policy changes needed.
   "Effect": "Allow",
   "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
   "Resource": [
-    "arn:aws:s3:::personal-bucket",
-    "arn:aws:s3:::personal-bucket/${aws:PrincipalTag/username}/*"
+    "arn:aws:s3:::user-space",
+    "arn:aws:s3:::user-space/${aws:PrincipalTag/username}/*"
   ],
   "Condition": {
     "StringLike": {
@@ -243,13 +237,13 @@ prefix with a single policy statement — no per-user policy changes needed.
 ```ts
 import { getCurrentUser } from 'aws-amplify/auth';
 const { username } = await getCurrentUser();
-const personalRootPrefix = `${username}/`;
+const userSpaceRootPrefix = `${username}/`;
 const configKey = `${username}/.config/connections.json`;
 ```
 
 ---
 
-### Bucket 2 — Shared Bucket
+### Bucket 2 — Shared Space
 
 > **Status: access model redesigned — not yet specced or built.**
 >
@@ -265,7 +259,7 @@ The prefix structure remains the same concept — users access named prefixes in
 bucket — but the mechanism for controlling that access is TBD.
 
 ```
-s3://shared-bucket/
+s3://shared-space/
   project-alpha/                  ← example prefix; access control model TBD
     data/
       results.csv
@@ -284,7 +278,7 @@ of the future spec.
 ## Connection Configuration
 
 User-configured Bucket 2 connections are stored as a single JSON file in the user's
-personal prefix. The file is read on app load and written any time connections are
+user-space prefix. The file is read on app load and written any time connections are
 added, validated, or removed.
 
 **S3 key:** `{username}/.config/connections.json`
@@ -296,7 +290,7 @@ added, validated, or removed.
 export type BucketConnection = {
   id: string;               // uuid — stable identifier for this connection
   label: string;            // user-provided display name, e.g. "Project Alpha Data"
-  bucket: string;           // S3 bucket name (always VITE_S3_SHARED_BUCKET for now)
+  bucket: string;           // S3 bucket name (always VITE_S3_SHARED_SPACE_BUCKET for now)
   prefix: string;           // e.g. "project-alpha/"
   region: string;           // AWS region of the bucket
   validatedAt: string;      // ISO timestamp of last successful validation
@@ -313,7 +307,7 @@ export type ConnectionConfig = {
 ```ts
 // On app init, after auth — load saved connections
 const key = `${username}/.config/connections.json`;
-const result = await getObject({ bucket: personalBucket, key });
+const result = await getObject({ bucket: userSpaceBucket, key });
 const config: ConnectionConfig = result.success ? JSON.parse(result.data) : { version: 1, connections: [] };
 ```
 
@@ -321,7 +315,7 @@ const config: ConnectionConfig = result.success ? JSON.parse(result.data) : { ve
 ```ts
 // After adding/removing a connection
 await putObject({
-  bucket: personalBucket,
+  bucket: userSpaceBucket,
   key: `${username}/.config/connections.json`,
   body: JSON.stringify(config),
   contentType: 'application/json',
@@ -332,7 +326,7 @@ await putObject({
 ```
 User enters: bucket prefix → "project-alpha/"
       │
-      └─ App attempts: ListObjectsV2 on shared-bucket with prefix "project-alpha/"
+      └─ App attempts: ListObjectsV2 on shared-space with prefix "project-alpha/"
              │
              ├─ Success (even empty) → connection is valid → save to connections.json
              │
@@ -348,16 +342,16 @@ User enters: bucket prefix → "project-alpha/"
 
 | Resource | Name / ARN Pattern | Purpose | IaC | Notes |
 |---|---|---|---|---|
-| Cognito User Pool | `us-east-1_XXXXXXXXX` | Auth + AD federation | ✗ future spec | Hosts the login UI |
+| Cognito User Pool | `us-east-1_XXXXXXXXX` | Standalone auth (native users) | ✗ future spec | Hosts the login UI |
 | Cognito User Pool Client | `XXXXXXXXXXXXXXXXXXXXXXXXXX` | App client for Amplify | ✗ future spec | No client secret (SPA) |
 | IAM Role (shared) | `arn:aws:iam:::role/S3PortalRole` | S3 access for all authenticated users | ✗ future spec | Single role; per-user isolation via session tags |
-| S3 Bucket — Personal | `personal-bucket-name` | Per-user private files + connection config | ✗ future spec | CORS required |
-| S3 Bucket — Shared | `shared-bucket-name` | Shared prefixes; access model TBD | ✗ future spec | CORS required |
+| S3 Bucket — User Space | `user-space-bucket-name` | Per-user private files + connection config | ✗ future spec | CORS required |
+| S3 Bucket — Shared Space | `shared-space-bucket-name` | Shared prefixes; access model TBD | ✗ future spec | CORS required |
 | S3 Bucket — Static Assets | `portal-static-assets` | Hosts built SPA files | ✓ SPEC-003 | Private; accessed via CloudFront OAC only |
 | CloudFront Distribution | `*.cloudfront.net` / custom domain | Serves the SPA; routes all paths to index.html | ✓ SPEC-003 | OAC origin; custom error response 403/404 → index.html |
 | GitHub Actions OIDC Role | `arn:aws:iam:::role/S3PortalDeployRole` | Allows CI/CD to deploy without stored credentials | ✓ SPEC-003 | Scoped to main branch of repo |
 | ACM Certificate | `arn:aws:acm:us-east-1:...` | HTTPS for custom domain | ✗ manual | Must be in us-east-1 for CloudFront; DNS validation is manual |
-| Active Directory | External — managed by IT | Identity provider | ✗ external | Federated via SAML/OIDC into Cognito |
+
 
 > Note: No Cognito Identity Pool is used. Web Identity federation is performed directly
 > against a single shared IAM role using the User Pool JWT. Per-user S3 isolation is
@@ -465,8 +459,8 @@ Full map of all `VITE_` variables. Every variable must also appear in `.env.exam
 | `VITE_AWS_REGION` | S3 client, STS, Amplify | `us-east-1` | Must match all resource regions |
 | `VITE_AWS_ACCESS_KEY_ID` | S3 client (SPEC-001 dev only) | IAM user key | Temporary — removed when auth spec lands |
 | `VITE_AWS_SECRET_ACCESS_KEY` | S3 client (SPEC-001 dev only) | IAM user secret | Temporary — removed when auth spec lands |
-| `VITE_S3_PERSONAL_BUCKET` | S3 service functions | `personal-bucket-name` | Bucket 1 — personal files + config |
-| `VITE_S3_SHARED_BUCKET` | S3 service functions | `shared-bucket-name` | Bucket 2 — Terraform-managed |
+| `VITE_S3_USER_SPACE_BUCKET` | S3 service functions | `user-space-bucket-name` | Bucket 1 — user files + config |
+| `VITE_S3_SHARED_SPACE_BUCKET` | S3 service functions | `shared-space-bucket-name` | Bucket 2 — shared-space |
 | `VITE_IAM_ROLE_ARN` | STS role assumption | `arn:aws:iam::123456789:role/S3PortalRole` | Single shared role — same for all users |
 | `VITE_COGNITO_USER_POOL_ID` | Amplify config | `us-east-1_XXXXXX` | — |
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | Amplify config | `XXXXXXXXXX` | — |
@@ -575,7 +569,7 @@ Add staging environment here when it is provisioned.
   allowed chars: `a-z A-Z 0-9 = , . @ - _`. Standard email-format usernames are within the
   allowed set. Validate this when real Cognito users are provisioned.
 - **Shared bucket access model is TBD.** The single-role + session tag approach changes how
-  per-user prefix grants on Bucket 2 can be expressed. To be resolved in the shared bucket spec.
+  per-user prefix grants on Bucket 2 can be expressed. To be resolved in the shared-space spec.
 - **File size limits.** For files over ~5MB, multipart upload should be used. Initial upload
   spec will enforce a simple size cap; multipart is a later enhancement.
 
@@ -589,8 +583,7 @@ Add staging environment here when it is provisioned.
 - Audit logging (S3 access logs, CloudTrail)
 - Staging environment and environment promotion pipeline
 - Real-time access revocation (would require backend)
-- Shared bucket (Bucket 2) access model with single-role + session tag architecture
-- AD federation via SAML/OIDC into Cognito (infrastructure concern; no frontend changes needed)
+- Shared-space (Bucket 2) access model with single-role + session tag architecture
 
 ---
 

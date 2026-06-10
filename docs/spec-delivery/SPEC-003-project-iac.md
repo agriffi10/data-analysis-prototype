@@ -32,7 +32,7 @@ data buckets are provisioned separately and are not managed by this IaC project.
 Expanded from SPEC-001/002 dev variables into a full production variable map. Each variable
 is annotated with its source (IaC output, separately provisioned, or local dev only).
 New variables documented: `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID`,
-`VITE_COGNITO_DOMAIN`, `VITE_IAM_ROLE_ARN`, `VITE_S3_PERSONAL_BUCKET`, `VITE_S3_SHARED_BUCKET`,
+`VITE_COGNITO_DOMAIN`, `VITE_IAM_ROLE_ARN`, `VITE_S3_USER_SPACE_BUCKET`, `VITE_S3_SHARED_SPACE_BUCKET`,
 `VITE_APP_URL`.
 
 ## First-apply checklist
