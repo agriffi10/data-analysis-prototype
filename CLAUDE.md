@@ -170,8 +170,8 @@ tofu output          # view output values (use to populate .env.local)
 | S3 File Listing | `@docs/specs/SPEC-001-s3-file-listing.md` | Completed |
 | Browse Prefixes (Public Bucket File Browser) | `@docs/specs/SPEC-002-browse-prefixes.md` | Completed |
 | Project IaC (OpenTofu) | `@docs/specs/SPEC-003-project-iac.md` | Completed |
-| GitHub Actions CI (test + build) | `@docs/specs/SPEC-004-github-actions-ci.md` | Draft |
-| Deploy App to AWS (GitHub Actions + OpenTofu) | `@docs/specs/SPEC-005-deploy-app-to-aws.md` | Draft |
+| GitHub Actions CI (test + build) | `@docs/specs/SPEC-004-github-actions-ci.md` | Completed |
+| Deploy App to AWS (GitHub Actions + OpenTofu) | `@docs/specs/SPEC-005-deploy-app-to-aws.md` | Completed |
 
 Add new specs to this table as they are created.
 

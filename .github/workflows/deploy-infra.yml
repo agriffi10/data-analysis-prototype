@@ -1,0 +1,109 @@
+name: Deploy Infrastructure
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['infra/**']
+  push:
+    branches: [main]
+    paths: ['infra/**']
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          opentofu_version: '~1.8'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: OpenTofu init
+        working-directory: infra
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ secrets.TF_VAR_state_bucket }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: OpenTofu validate
+        working-directory: infra
+        run: tofu validate
+
+      - name: OpenTofu plan
+        working-directory: infra
+        run: tofu plan -no-color 2>&1 | tee /tmp/plan.txt
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
+          TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
+          TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
+          TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan.txt', 'utf8').slice(0, 65000);
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## OpenTofu Plan\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
+            });
+
+  apply:
+    if: github.event_name == 'push'
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          opentofu_version: '~1.8'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: OpenTofu init
+        working-directory: infra
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ secrets.TF_VAR_state_bucket }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: OpenTofu apply
+        working-directory: infra
+        run: tofu apply -auto-approve
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
+          TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
+          TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
+          TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
