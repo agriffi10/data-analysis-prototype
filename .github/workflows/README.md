@@ -40,6 +40,7 @@ Go to **Settings → Secrets and variables → Actions → Secrets**.
 | `AWS_DEPLOY_ROLE_ARN` | `tofu output github_actions_role_arn` |
 | `S3_STATIC_BUCKET` | `tofu output s3_static_assets_bucket_name` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | `tofu output cloudfront_distribution_id` |
+| `VITE_IAM_ROLE_ARN` | Future IaC output — IAM role ARN for STS web identity federation |
 | `TF_VAR_state_bucket` | Name of your bootstrap S3 state bucket |
 | `TF_VAR_state_lock_table` | Name of your bootstrap DynamoDB lock table |
 
@@ -52,12 +53,6 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `AWS_REGION` | e.g. `us-east-1` | Must match region of all provisioned resources |
 | `VITE_APP_URL` | `tofu output cloudfront_domain` | Set after first deploy; use `https://` URL |
 | `TF_VAR_github_repo` | `owner/repo-name` | Scopes OIDC trust; must match exactly |
-| `VITE_COGNITO_USER_POOL_ID` | Future IaC output | Set to empty string until Cognito is provisioned |
-| `VITE_COGNITO_USER_POOL_CLIENT_ID` | Future IaC output | Set to empty string until Cognito is provisioned |
-| `VITE_COGNITO_DOMAIN` | Future IaC output | Set to empty string until Cognito is provisioned |
-| `VITE_IAM_ROLE_ARN` | Future IaC output | Set to empty string until IAM portal role is provisioned |
-| `VITE_S3_PERSONAL_BUCKET` | Future IaC output | Set to empty string until personal bucket is provisioned |
-| `VITE_S3_SHARED_BUCKET` | Future IaC output | Set to empty string until shared bucket is provisioned |
 
 > **Chicken-and-egg note for `VITE_APP_URL`:** On the very first deploy, the CloudFront domain isn't known yet. Set `VITE_APP_URL` to a placeholder (or empty string), let the first deploy complete, then update the variable to the value from `tofu output cloudfront_domain` and redeploy.
 
@@ -82,5 +77,6 @@ Several workflow values are derived rather than stored as separate GitHub variab
 
 - `VITE_AWS_REGION` is set to `${{ vars.AWS_REGION }}` in the build step — no separate variable needed.
 - `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed.
-- `TF_VAR_app_url` is set to `${{ vars.VITE_APP_URL }}` — declared in `infra/variables.tf` for use in Cognito OAuth callback URLs when auth IaC is added.
+- `TF_VAR_app_url` is set to `${{ vars.VITE_APP_URL }}` — declared in `infra/variables.tf` for Cognito OAuth callback URLs when auth IaC is added.
+- `VITE_IAM_ROLE_ARN`, `VITE_COGNITO_*`, `VITE_S3_PERSONAL_BUCKET`, and `VITE_S3_SHARED_BUCKET` are not yet injected into the build — they will be added to the workflow when the corresponding infrastructure is provisioned.
 - `TF_VAR_state_bucket` and `TF_VAR_state_lock_table` are stored as **secrets** (not variables) because they are used both as OpenTofu input variables (scoping IAM permissions in `iam.tf`) and as backend configuration passed to `tofu init`.

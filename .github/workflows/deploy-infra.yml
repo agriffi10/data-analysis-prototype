@@ -23,7 +23,7 @@ jobs:
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          opentofu_version: '~1.8'
+          tofu_version: '~1.8'
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -82,7 +82,7 @@ jobs:
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          opentofu_version: '~1.8'
+          tofu_version: '~1.8'
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
