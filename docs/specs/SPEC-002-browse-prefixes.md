@@ -1,8 +1,8 @@
 # Spec: Browse Prefixes — File Browser Against Test Bucket
 
 **ID:** SPEC-002  
-**Status:** Draft  
-**Last Updated:** 2026-05-23  
+**Status:** Completed 
+**Last Updated:** 2026-05-23
 **Depends On:** SPEC-001
 
 ---

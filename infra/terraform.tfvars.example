@@ -1,6 +1,8 @@
 # Copy this file to terraform.tfvars and fill in your values.
 # terraform.tfvars is gitignored — never commit it.
 
-aws_region   = "us-east-1"
-project_name = "s3-upload-portal"
-github_repo  = "your-org/s3-upload-portal"
+aws_region        = "us-east-1"
+project_name      = "s3-upload-portal"
+github_repo       = "your-org/s3-upload-portal"
+state_bucket      = "your-tofu-state-bucket-name"
+state_lock_table  = "your-tofu-lock-table-name"

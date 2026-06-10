@@ -1,7 +1,7 @@
 # Spec: S3 File Listing
 
 **ID:** SPEC-001  
-**Status:** In Progress  
+**Status:** Completed  
 **Last Updated:** 2026-05-21  
 **Depends On:** None (no auth in this phase)
 

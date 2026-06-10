@@ -1,7 +1,7 @@
 # Spec: Project IaC — OpenTofu AWS Infrastructure
 
 **ID:** SPEC-003  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-05-23  
 **Depends On:** None (infrastructure is independent of application code)
 

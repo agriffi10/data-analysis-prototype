@@ -170,7 +170,8 @@ tofu output          # view output values (use to populate .env.local)
 | S3 File Listing | `@docs/specs/SPEC-001-s3-file-listing.md` | Completed |
 | Browse Prefixes (Public Bucket File Browser) | `@docs/specs/SPEC-002-browse-prefixes.md` | Completed |
 | Project IaC (OpenTofu) | `@docs/specs/SPEC-003-project-iac.md` | Completed |
-| Deploy App to AWS (GitHub Actions) | `@docs/specs/SPEC-004-deploy-app-to-aws.md` | Draft |
+| GitHub Actions CI (test + build) | `@docs/specs/SPEC-004-github-actions-ci.md` | Draft |
+| Deploy App to AWS (GitHub Actions + OpenTofu) | `@docs/specs/SPEC-005-deploy-app-to-aws.md` | Draft |
 
 Add new specs to this table as they are created.
 
@@ -209,4 +210,4 @@ Add new specs to this table as they are created.
 4. Read the completed specs under [`@docs/spec-delivery/<spec>.md`]
 5. Confirm the phase to implement before writing any code.
 6. After completing a phase, stop and summarize what was built and what the checkpoint test is.
-7. When a spec is completed, update this document and the spec. Use the template at [`@docs/templates/spec-completion-template`] to create a file at [`@docs/spec-delivery/SPEC-<XXX>-<spec>.md`] for the completed spec.
+7. When a spec is completed: (a) set its **Status** field to `Completed`, (b) update the Active Specs table in this file, (c) use the template at [`@docs/templates/spec-completion-template`] to create a delivery doc at [`@docs/spec-delivery/SPEC-<XXX>-<spec>.md`].

@@ -9,10 +9,10 @@ the state that tracks all other resources.
 
 ## Step 1 — Create the state S3 bucket
 
-Choose a globally unique bucket name (e.g. `acme-s3-portal-tofu-state`).
+Choose a globally unique bucket name (e.g. `dat-prod-tf-state`).
 
 ```bash
-STATE_BUCKET="acme-s3-portal-tofu-state"
+STATE_BUCKET="dat-prod-tf-state"
 AWS_REGION="us-east-1"
 
 aws s3api create-bucket \
@@ -44,7 +44,7 @@ aws s3api put-bucket-encryption \
 ## Step 2 — Create the DynamoDB lock table
 
 ```bash
-LOCK_TABLE="acme-s3-portal-tofu-lock"
+LOCK_TABLE="dat-prod-tf-state-lock"
 
 aws dynamodb create-table \
   --table-name "$LOCK_TABLE" \
@@ -64,14 +64,7 @@ Copy `backend.conf.example` to `backend.conf` (gitignored) and fill in your valu
 cp backend.conf.example backend.conf
 ```
 
-Edit `infra/backend.conf`:
-```
-bucket         = "acme-s3-portal-tofu-state"
-key            = "s3-upload-portal/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "acme-s3-portal-tofu-lock"
-encrypt        = true
-```
+Update `infra/backend.conf`
 
 ---
 
