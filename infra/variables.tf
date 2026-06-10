@@ -23,3 +23,9 @@ variable "state_lock_table" {
   description = "Name of the DynamoDB table used for OpenTofu state locking (created by the bootstrap process, not managed by this IaC)."
   type        = string
 }
+
+variable "app_url" {
+  description = "Public URL of the deployed app (e.g. the CloudFront domain). Used for Cognito OAuth callback URLs when auth IaC is added."
+  type        = string
+  default     = ""
+}
