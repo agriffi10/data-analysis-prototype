@@ -70,8 +70,8 @@ Navigate to: **GitHub repo → Settings → Secrets and variables → Actions �
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | future `tofu output cognito_user_pool_client_id` |
 | `VITE_COGNITO_DOMAIN` | future `tofu output cognito_domain` |
 | `VITE_IAM_ROLE_ARN` | future `tofu output iam_role_arn` |
-| `VITE_S3_PERSONAL_BUCKET` | future `tofu output s3_personal_bucket_name` |
-| `VITE_S3_SHARED_BUCKET` | future `tofu output s3_shared_bucket_name` |
+| `VITE_S3_USER_SPACE_BUCKET` | future `tofu output s3_user_space_bucket_name` |
+| `VITE_S3_SHARED_SPACE_BUCKET` | future `tofu output s3_shared_space_bucket_name` |
 
 Set these to empty strings for now so the build doesn't fail on a missing variable reference.
 

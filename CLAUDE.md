@@ -7,7 +7,7 @@ Keep it lean. Deep documentation lives in `docs/` — reference with `@docs/file
 
 ## Project Overview
 
-A web portal that allows authenticated users to upload and download files to/from their designated S3 bucket. Authentication is handled by AWS Cognito federated to an external Active Directory.
+A web portal that allows authenticated users to upload and download files to/from their designated S3 bucket. Authentication is handled by AWS Cognito (standalone User Pool — no external IdP).
 
 **Status:** Greenfield — early development.
 
@@ -187,7 +187,7 @@ Add new specs to this table as they are created.
 - **Monorepo — npm workspaces**: SPA (`apps/portal/`) and IaC (`infra/`) co-located in one repo. `packages/` reserved for future shared packages. npm workspaces chosen for simplicity — no Turborepo or pnpm needed at current scale.
 - **OpenTofu for IaC**: Open-source Terraform fork. HCL syntax, AWS provider, S3 remote state backend. Chosen over CDK/Pulumi/SST.
 - **No Cognito Identity Pool**: Web Identity federation is performed directly via STS `AssumeRoleWithWebIdentity` using the User Pool JWT. Per-user S3 isolation via IAM session tags.
-- **IaC scope — hosting layer only (SPEC-003)**: The current IaC provisions only the hosting infrastructure: static assets S3 bucket, CloudFront distribution, and the GitHub Actions OIDC deployment role. Data infrastructure (Cognito User Pool, shared IAM portal role, personal S3 bucket, shared S3 bucket) was out of scope for SPEC-003 and will be added to the IaC in a future spec. Do not assume these resources exist in AWS until that spec is complete.
+- **IaC scope — hosting layer only (SPEC-003)**: The current IaC provisions only the hosting infrastructure: static assets S3 bucket, CloudFront distribution, and the GitHub Actions OIDC deployment role. Data infrastructure (Cognito User Pool, shared IAM portal role, user-space S3 bucket, shared-space S3 bucket) was out of scope for SPEC-003 and will be added to the IaC in a future spec. Do not assume these resources exist in AWS until that spec is complete.
 - **Bucket 2 access model redesigned**: The original design used a daily Terraform-managed IAM policy pipeline to grant/revoke prefix access. This has been replaced by a user-managed access key model — users will create keys and grant/revoke access to other users themselves. A backend service or cloud process will likely be required. This model is not yet designed or specced. Do not build anything referencing the old daily-IAM-pipeline model.
 - **Current dev working state**: Until auth is implemented, the app targets a single publicly accessible or statically credentialed test bucket. `VITE_AWS_ACCESS_KEY_ID` being absent causes the S3 client to fall back to anonymous (unsigned) requests (SPEC-002). Authentication, user prefix scoping, and multi-bucket support are all deferred.
 

@@ -22,10 +22,10 @@ OpenTofu is the chosen IaC tool — it is the community-maintained open-source f
 - OpenTofu project structure under `infra/`
 - S3 + DynamoDB backend bootstrap for remote state (one-time manual step, documented)
 - AWS provider configuration
-- Cognito User Pool and User Pool Client (native users for MVP; AD federation is an infrastructure-only change later)
+- Cognito User Pool and User Pool Client (standalone — native users, no external IdP)
 - Shared IAM Role with trust policy (Web Identity federation from the Cognito User Pool) and S3 permission policy using `${aws:PrincipalTag/username}` session tags
-- S3 Personal Bucket (Bucket 1) with CORS and bucket policy
-- S3 Shared Bucket (Bucket 2) with CORS and bucket policy (stub policy — Terraform-managed prefix grants are outside this spec)
+- S3 User Space Bucket (Bucket 1) with CORS and bucket policy
+- S3 Shared Space Bucket (Bucket 2) with CORS and bucket policy (stub policy — prefix grants are outside this spec)
 - S3 Static Assets Bucket (hosts the built SPA) — private, no public access
 - CloudFront Origin Access Control (OAC) and Distribution serving the static assets bucket
 - ACM Certificate in `us-east-1` for the CloudFront distribution (if a custom domain is provided; optional)
@@ -35,7 +35,6 @@ OpenTofu is the chosen IaC tool — it is the community-maintained open-source f
 
 ### Out of Scope
 
-- Active Directory / SAML federation into Cognito (infrastructure concern, deferred)
 - Terraform-managed per-user IAM prefix grants on Bucket 2 (owned by separate IaC pipeline)
 - DNS / Route53 record creation (document the required CNAME manually if a custom domain is used)
 - Staging environment (single prod environment only per this spec)
@@ -101,34 +100,34 @@ A single shared IAM role that all authenticated users assume. The trust policy g
 - [ ] An IAM role named `S3PortalRole` (or via variable) is created with the trust policy described in `docs/architecture.md`
 - [ ] Trust policy grants `sts:AssumeRoleWithWebIdentity` AND `sts:TagSession` to the Cognito User Pool as federated principal — both actions are required; omitting `sts:TagSession` causes auth to fail silently
 - [ ] Trust policy condition scopes to `authenticated` users and the specific User Pool Client ID
-- [ ] Permission policy grants `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` on the personal bucket scoped to `${aws:PrincipalTag/username}/*`
+- [ ] Permission policy grants `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` on the user-space bucket scoped to `${aws:PrincipalTag/username}/*`
 - [ ] `outputs.tf` exports `iam_role_arn`
 
 ---
 
-### FR-005: S3 Personal Bucket
+### FR-005: S3 User Space Bucket
 
 #### Description:
-The personal bucket stores each user's files under their username prefix, plus their `connections.json` config. CORS is required for browser-based SDK access.
+The user-space bucket stores each user's files under their username prefix, plus their `connections.json` config. CORS is required for browser-based SDK access.
 
 #### Acceptance Criteria:
 - [ ] An S3 bucket is created with public access blocked and versioning disabled (optional at this stage)
 - [ ] CORS configuration is applied matching the spec in `docs/architecture.md` (allowed methods: GET, PUT, POST, DELETE, HEAD; allowed origin from `var.app_url` and `var.cloudfront_domain` variable; exposed headers: ETag, x-amz-*)
 - [ ] A bucket policy denies access to any principal except the shared IAM role and the AWS account root
-- [ ] `outputs.tf` exports `s3_personal_bucket_name`
+- [ ] `outputs.tf` exports `s3_user_space_bucket_name`
 
 ---
 
-### FR-006: S3 Shared Bucket
+### FR-006: S3 Shared Space Bucket
 
 #### Description:
-The shared bucket hosts team/project prefixes whose access is managed by a separate IaC pipeline. This spec provisions the bucket itself with CORS; it does not manage prefix-level IAM grants.
+The shared-space bucket hosts team/project prefixes whose access is managed by a separate IaC pipeline. This spec provisions the bucket itself with CORS; it does not manage prefix-level IAM grants.
 
 #### Acceptance Criteria:
 - [ ] An S3 bucket is created with public access blocked
-- [ ] CORS configuration is applied (same settings as the personal bucket)
+- [ ] CORS configuration is applied (same settings as the user-space bucket)
 - [ ] A comment in the resource block notes that prefix-level IAM grants are managed by the separate Terraform IaC pipeline
-- [ ] `outputs.tf` exports `s3_shared_bucket_name`
+- [ ] `outputs.tf` exports `s3_shared_space_bucket_name`
 
 ---
 
@@ -187,8 +186,8 @@ All variables are declared in `infra/variables.tf` and documented in `infra/terr
 | `cognito_user_pool_client_id` | `VITE_COGNITO_USER_POOL_CLIENT_ID` |
 | `cognito_domain` | `VITE_COGNITO_DOMAIN` |
 | `iam_role_arn` | `VITE_IAM_ROLE_ARN` |
-| `s3_personal_bucket_name` | `VITE_S3_PERSONAL_BUCKET` |
-| `s3_shared_bucket_name` | `VITE_S3_SHARED_BUCKET` |
+| `s3_user_space_bucket_name` | `VITE_S3_USER_SPACE_BUCKET` |
+| `s3_shared_space_bucket_name` | `VITE_S3_SHARED_SPACE_BUCKET` |
 | `aws_region` | `VITE_AWS_REGION` |
 | `cloudfront_domain` | `VITE_APP_URL` (after first deploy) |
 | `cloudfront_distribution_id` | Used by SPEC-004 deployment workflow |
@@ -244,7 +243,7 @@ infra/
 
 ### Phase 3: S3 buckets
 
-- Add personal bucket, shared bucket, and static assets bucket resources with CORS and bucket policies
+- Add user-space bucket, shared-space bucket, and static assets bucket resources with CORS and bucket policies
 - Add outputs for all bucket names
 
 #### Checkpoint
@@ -268,6 +267,6 @@ infra/
 ## Open Questions
 
 - [ ] Should the Cognito Hosted UI be configured with a custom logo or CSS? Deferred — confirm plain Hosted UI is acceptable for MVP.
-- [ ] Should versioning be enabled on the personal bucket? Useful for accidental-delete recovery but adds cost. Decision needed before Phase 3.
+- [ ] Should versioning be enabled on the user-space bucket? Useful for accidental-delete recovery but adds cost. Decision needed before Phase 3.
 - [ ] What value should `app_url` be on the first apply (before CloudFront domain is known)? Recommend using `http://localhost:5173` for the bootstrap apply, then updating after CloudFront is deployed.
 - [ ] Is a custom domain in scope for the initial deployment, or plain CloudFront domain only?
