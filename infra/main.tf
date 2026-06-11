@@ -30,4 +30,10 @@ module "auth" {
   environment           = var.environment
   app_url               = var.app_url
   cognito_domain_prefix = var.cognito_domain_prefix
+
+  # The deploy role grants itself the cognito-idp permissions (modules/base
+  # policies). Without this ordering, Tofu's parallel apply can call
+  # CreateUserPool before that grant takes effect, failing with AccessDenied.
+  # Force the base policy to settle before any Cognito resource is created.
+  depends_on = [module.base]
 }
