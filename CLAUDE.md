@@ -178,7 +178,7 @@ tofu output          # view output values (use to populate .env.local)
 | Deploy App to AWS (GitHub Actions + OpenTofu) | `@docs/specs/SPEC-005-deploy-app-to-aws.md` | Completed |
 | Cognito User Pool IaC (`auth` module) | `@docs/specs/SPEC-006-cognito-iac.md` | Completed |
 | Login Flow (Hosted UI + Amplify) | `@docs/specs/SPEC-007-login-flow.md` | Completed |
-| Auth-Gated Layout (react-router) | `@docs/specs/SPEC-008-auth-gated-layout.md` | Draft |
+| Auth-Gated Layout (react-router) | `@docs/specs/SPEC-008-auth-gated-layout.md` | Completed |
 | Sign-Up End to End | `@docs/specs/SPEC-009-signup-end-to-end.md` | Draft |
 | User-Space Bucket IaC (`data` module) | `@docs/specs/SPEC-010-user-space-bucket-iac.md` | Draft |
 | Scoped Credentials (Identity Pool ABAC + Portal Role) | `@docs/specs/SPEC-011-portal-iam-role.md` | Draft |
