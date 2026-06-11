@@ -1,6 +1,7 @@
 import { ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { s3Client } from '../../lib/s3Client';
-import type { FileList, ServiceResult } from '../../types/s3.types';
+import type { FileList } from '../../types/s3.types';
+import type { ServiceResult } from '../../types/service.types';
 
 export async function listFiles(
   bucket: string,

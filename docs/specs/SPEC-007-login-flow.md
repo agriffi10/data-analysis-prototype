@@ -1,8 +1,8 @@
 # Spec: User Login Flow — Cognito Hosted UI + Amplify
 
 **ID:** SPEC-007
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-11
 **Depends On:** SPEC-006 (Cognito User Pool must exist and be applied)
 
 ## Overview
@@ -192,4 +192,4 @@ Manual end-to-end against the real SPEC-006 pool with a console-created test use
 - [x] **Resolved (2026-06-10):** first test user is created via AWS console/CLI for Phase 2 verification (signup UX is owned by SPEC-009).
 - [x] **Resolved (2026-06-10):** `localhost:5173` callback URL is guaranteed by SPEC-006 FR-003 — no action here beyond the Phase 2 sanity check.
 - [x] **Resolved (2026-06-10):** auth errors surface as a simple inline banner under the header.
-- [ ] Verify during Phase 2 that Amplify v6 `signOut()` with an OAuth (Hosted UI) config actually redirects through the Cognito `/logout` endpoint and invalidates the Hosted UI cookie session. If it does not, call the logout endpoint explicitly in `startSignOut()` and document it.
+- [x] **Resolved (2026-06-11):** Verified during Phase 2 manual E2E — Amplify v6 `signOut()` with the OAuth (Hosted UI) config redirects through the Cognito `/logout` endpoint and invalidates the Hosted UI cookie session (a subsequent sign-in re-prompts for credentials). No explicit logout-endpoint call needed in `startSignOut()`.
