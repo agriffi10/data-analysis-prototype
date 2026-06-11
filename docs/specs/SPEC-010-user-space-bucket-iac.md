@@ -80,8 +80,8 @@ Per the CLAUDE.md decision, the GitHub Actions deploy role must be able to manag
 
 #### Acceptance Criteria:
 
-- [ ] The policy template under `infra/modules/base/policies/` is extended with the S3 bucket-management actions needed to create/read/update/tag/delete the user-space bucket and its configuration (CORS, encryption, public access block, ownership controls)
-- [ ] Permissions scoped to the user-space bucket ARN pattern, not `s3:*` on `*`
+- [ ] The policy template under `infra/modules/base/policies/` grants the deploy role `s3:*` **scoped to the user-space bucket ARN** (`arn:aws:s3:::{bucket}` and `/*`), mirroring the static-assets bucket statement. A curated action list is intentionally avoided: the AWS provider's `aws_s3_bucket` read/refresh calls many `GetBucket*` sub-resource APIs (policy, ACL, logging, lifecycle, replication, …) on every plan/apply even when those features are unset, so an enumerated list breaks (e.g. `GetBucketPolicy` 403)
+- [ ] Permissions scoped to the user-space bucket ARN pattern, **not** `s3:*` on `*`
 - [ ] A `deploy-infra.yml` PR run plans this spec successfully using the deploy role
 - [ ] Apply ordering is enforced so the deploy-role grant lands before the bucket is created: `module.data` declares `depends_on = [module.base]`, and the bucket waits on a `time_sleep` (`hashicorp/time` provider) to absorb the IAM eventual-consistency window — preventing a transient `AccessDenied` when the deploy role uses its freshly-added S3 permission in the same apply. The bucket name is computed once as a root `local` and the ARN is passed to `base` as a constructed string, so there is no `data`→`base` dependency cycle
 
