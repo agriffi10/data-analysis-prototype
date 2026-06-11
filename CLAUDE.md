@@ -181,7 +181,7 @@ tofu output          # view output values (use to populate .env.local)
 | Login Flow (Hosted UI + Amplify) | `@docs/specs/SPEC-007-login-flow.md` | Completed |
 | Auth-Gated Layout (react-router) | `@docs/specs/SPEC-008-auth-gated-layout.md` | Completed |
 | Sign-Up End to End | `@docs/specs/SPEC-009-signup-end-to-end.md` | Completed |
-| User-Space Bucket IaC (`data` module) | `@docs/specs/SPEC-010-user-space-bucket-iac.md` | Draft |
+| User-Space Bucket IaC (`data` module) | `@docs/specs/SPEC-010-user-space-bucket-iac.md` | Completed |
 | Scoped Credentials (Identity Pool ABAC + Portal Role) | `@docs/specs/SPEC-011-portal-iam-role.md` | Draft |
 | Pre-Signup Username Validation (Lambda) | `@docs/specs/SPEC-012-pre-signup-validation.md` | Draft |
 | Prefix-Scoped S3 Access + Browser Switchover | `@docs/specs/SPEC-013-prefix-scoped-access.md` | Draft |

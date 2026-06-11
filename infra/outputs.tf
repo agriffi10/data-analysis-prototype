@@ -42,3 +42,8 @@ output "s3_user_space_bucket_name" {
   description = "Name of the user-space S3 bucket (Bucket 1). Set VITE_S3_USER_SPACE_BUCKET to this value (consumed by the build starting SPEC-013)."
   value       = module.data.user_space_bucket_name
 }
+
+output "cognito_identity_pool_id" {
+  description = "Cognito Identity Pool ID. Set VITE_COGNITO_IDENTITY_POOL_ID to this value (SPEC-011)."
+  value       = module.auth.identity_pool_id
+}

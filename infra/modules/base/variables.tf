@@ -32,3 +32,8 @@ variable "user_space_bucket_arn" {
   description = "ARN of the user-space (Bucket 1) S3 bucket the deploy role manages (SPEC-010). Passed as a constructed string from the root module to avoid a dependency cycle with the data module."
   type        = string
 }
+
+variable "portal_role_arn" {
+  description = "ARN of the shared portal IAM role the deploy role manages (SPEC-011). Passed as a constructed string from the root module to avoid a dependency cycle with the data module."
+  type        = string
+}

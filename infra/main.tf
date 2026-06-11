@@ -10,8 +10,16 @@
 # module creates the bucket with it, and the base module's deploy policy is scoped
 # to its ARN — passed as a constructed string to avoid a data→base dependency
 # cycle (the deploy role must be able to manage a bucket the data module creates).
+data "aws_caller_identity" "current" {}
+
 locals {
   user_space_bucket_name = var.user_space_bucket_name != "" ? var.user_space_bucket_name : "${var.project_name}-prod-user-space"
+
+  # Portal role name computed once and shared like the bucket name: the data
+  # module creates the role, and base's deploy policy is scoped to its ARN
+  # (constructed string -> no data->base cycle).
+  portal_role_name = var.portal_role_name != "" ? var.portal_role_name : "${var.project_name}-portal-user-role"
+  portal_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.portal_role_name}"
 }
 
 module "app" {
@@ -30,8 +38,9 @@ module "base" {
   aws_region        = var.aws_region
   static_bucket_arn = module.app.static_assets_bucket_arn
 
-  # Constructed (not module.data output) so base has no dependency on data.
+  # Constructed (not module.data outputs) so base has no dependency on data.
   user_space_bucket_arn = "arn:aws:s3:::${local.user_space_bucket_name}"
+  portal_role_arn       = local.portal_role_arn
 }
 
 module "auth" {
@@ -55,9 +64,14 @@ module "data" {
   project_name           = var.project_name
   app_url                = var.app_url
   user_space_bucket_name = local.user_space_bucket_name
+  portal_role_name       = local.portal_role_name
 
-  # Same ordering as auth: the deploy role grants itself the S3 bucket-management
+  # Identity Pool ID from auth — used as the portal role's trust audience and the
+  # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
+  identity_pool_id = module.auth.identity_pool_id
+
+  # Same ordering as auth: the deploy role grants itself the S3 + IAM-role
   # permissions (modules/base policy). Force that grant to settle before the
-  # user-space bucket is created, or a first apply can hit AccessDenied.
+  # bucket/role are created, or a first apply can hit AccessDenied.
   depends_on = [module.base]
 }
