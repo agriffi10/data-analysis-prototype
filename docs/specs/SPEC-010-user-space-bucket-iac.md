@@ -138,6 +138,55 @@ infra/
 
 `tofu validate` passes; `deploy-infra.yml` PR plan succeeds showing the bucket + CORS + deploy role policy change and nothing else. After merge/apply: bucket visible in console with public access blocked, `get-bucket-cors` returns the expected config, `tofu output s3_user_space_bucket_name` returns `dat-prod-user-space`.
 
+> **Checkpoint result (verified 2026-06-11):** ✅ Passed against the live account.
+> `dat-prod-user-space` exists with all four public-access-block settings on,
+> AES256 encryption, and the expected CORS (`GET/PUT/POST/DELETE/HEAD`, CloudFront
+> + localhost origins, `ETag`/SSE/request-id exposed). `tofu output
+> s3_user_space_bucket_name` → `dat-prod-user-space`.
+
+## Deployment Notes
+
+### First-apply recovery: `GetBucketPolicy` 403 + refresh deadlock (2026-06-11)
+
+The first `deploy-infra` apply on merge **failed**, and the situation needed a
+one-time manual unblock. Captured here so the next environment doesn't repeat it.
+
+**What happened.** The deploy-role policy initially used an *enumerated* S3 action
+list. `module.base` (the policy) applied before `module.data`, so the deploy role
+gained those actions and then created the bucket — but the AWS provider's
+`aws_s3_bucket` read calls a broad family of `GetBucket*` APIs (`GetBucketPolicy`,
+ACL, logging, lifecycle, replication, …) to populate computed attributes, even for
+features we never set. The enumerated list lacked `GetBucketPolicy`, so the
+post-create read 403'd and the apply errored **after the bucket physically
+existed**. Because the bucket was now in state, every subsequent apply failed at
+the **plan/refresh** step (reading the existing bucket with the still-old policy)
+*before* it could apply the policy fix — a deadlock the pipeline can't self-heal.
+
+**The fix in code.** The deploy-role statement was changed to `s3:*` scoped to the
+bucket ARN (`arn:aws:s3:::dat-prod-user-space` + `/*`), mirroring the static-assets
+bucket — see FR-004. A curated list is not used because the provider's refresh
+touches more sub-resources than we configure.
+
+**One-time manual recovery** (needed only because a partial apply had already run):
+
+```bash
+# 1. Out-of-band, grant the deploy role full access to just this bucket so the
+#    next plan/refresh can read it (admin creds):
+aws iam put-role-policy --role-name dat-deploy-role --policy-name temp-userspace-unblock \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":["arn:aws:s3:::dat-prod-user-space","arn:aws:s3:::dat-prod-user-space/*"]}]}'
+
+# 2. Re-run the deploy-infra apply. It refreshes cleanly, then re-renders the
+#    deploy policy to `s3:*` on the bucket and reconciles the bucket.
+
+# 3. Remove the temp policy (the rendered deploy-policy now covers it):
+aws iam delete-role-policy --role-name dat-deploy-role --policy-name temp-userspace-unblock
+```
+
+This was executed on 2026-06-11; the apply went green and the temp policy was
+removed. A clean (greenfield) apply does **not** need any of this — the `s3:*`
+scope is correct from the start, so the bucket's create-then-read succeeds on the
+first try.
+
 ## Open Questions
 
 - [x] **Resolved (2026-06-10):** accept the literal `prod` in the default bucket name; introduce `var.environment` only when a staging environment is specced.
