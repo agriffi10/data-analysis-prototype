@@ -1,8 +1,8 @@
 # Spec: Sign-Up End to End — Account Creation to Authenticated Session
 
 **ID:** SPEC-009
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-11
 **Depends On:** SPEC-006 (self-signup enabled on the pool), SPEC-007 (login flow), SPEC-008 (gated layout)
 
 ## Overview
@@ -168,5 +168,5 @@ The full E2E script passes against CloudFront with a real email address, every s
 ## Open Questions
 
 - [x] **Resolved (2026-06-10):** username constraints are enforced server-side by a pre-signup trigger Lambda — SPEC-012. Guidance here (FR-001) mirrors that rule.
-- [ ] Does the Hosted UI auto-sign-in after code confirmation, or require one explicit login? Verify during Phase 2 and document actual behavior in FR-003 / the E2E script.
+- [x] **Resolved (2026-06-11):** the Hosted UI does **not** auto-sign-in after code confirmation — one explicit login is required before reaching `/files`. Verified in the SPEC-009 E2E run against deployed CloudFront; reflected in FR-003 and `docs/testing/auth-e2e.md`.
 - [x] **Resolved (2026-06-10):** no signup monitoring for MVP; revisit before any public exposure.
