@@ -1,8 +1,8 @@
 # Spec: Auth-Gated Layout — Protect the S3 Interface
 
 **ID:** SPEC-008
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-11
 **Depends On:** SPEC-007 (auth state must exist)
 
 ## Overview
@@ -15,7 +15,8 @@ Restrict the S3 file browser to authenticated users. This spec introduces client
 
 - Add `react-router-dom` dependency (new — record in CLAUDE.md tech stack table)
 - Route structure: public landing page (`/`), protected files page (`/files`)
-- `ProtectedLayout` route guard that redirects unauthenticated users away from protected routes
+- `RootLayout` — a generalized layout that renders the shared header (SPEC-007) on **every** page
+- `ProtectedLayout` route guard, nested inside `RootLayout`, that redirects unauthenticated users away from protected routes
 - Post-login redirect to `/files` (including returning to the originally requested protected URL)
 - Move the file browser rendering from `App.tsx` into a `/files` route page
 - Loading state handling so protected content never flashes before auth resolves
@@ -58,16 +59,25 @@ Unauthenticated visitors get a simple landing page that explains the portal and 
 - [ ] An authenticated user visiting `/` is redirected to `/files`
 - [ ] The landing page renders no S3 data and makes no S3 calls
 
-### FR-003: Protected Layout Route Guard
+### FR-003: Layered Layouts — Shared Chrome + Auth Gate
 
 #### Description:
 
-A shared layout wraps all protected routes and enforces the auth gate in one place.
+Layouts are split into two nested layers so that the header is shared by every
+page while the auth gate is enforced in one place:
+
+- **`RootLayout`** — a generalized layout that renders the persistent, auth-aware
+  header (SPEC-007) plus an `<Outlet />`. It wraps **all** routes (public landing,
+  protected files, not-found), so the header appears everywhere.
+- **`ProtectedLayout`** — a gate-only sub-layout nested inside `RootLayout`. It
+  renders no chrome of its own (the parent already did); it only decides whether
+  the protected page content mounts based on auth state.
 
 #### Acceptance Criteria:
 
-- [ ] `ProtectedLayout` renders the shared header (SPEC-007) plus an `<Outlet />` for child routes
-- [ ] While auth status is `loading`, the layout renders a loading indicator — protected content is never mounted (no flash, no S3 requests fire)
+- [ ] `RootLayout` renders the shared header (SPEC-007) plus an `<Outlet />`, and wraps every route
+- [ ] `ProtectedLayout` is nested inside `RootLayout` and renders an `<Outlet />` for protected child routes (no header of its own)
+- [ ] While auth status is `loading`, `ProtectedLayout` renders a loading indicator — protected content is never mounted (no flash, no S3 requests fire)
 - [ ] When `unauthenticated`, navigating to any protected route redirects to `/` — the file browser component is never mounted
 - [ ] When `authenticated`, child routes render normally
 - [ ] Signing out while on a protected route immediately redirects to `/`
@@ -107,14 +117,21 @@ No new data types. Route definitions are code, not data.
 ## API / Interface Contract
 
 ```tsx
-// Route structure (createBrowserRouter or JSX routes)
-// /            → LandingPage           (public; redirects to /files if authed)
-// /files       → ProtectedLayout > FilesPage
-// *            → NotFoundPage
+// Route structure (JSX routes) — RootLayout wraps everything; ProtectedLayout
+// nests inside it and gates only the protected children.
+// RootLayout (header for all pages)
+//   /          → LandingPage           (public; redirects to /files if authed)
+//   ProtectedLayout (auth gate)
+//     /files   → FilesPage
+//   *          → NotFoundPage
+
+// src/components/RootLayout.tsx
+// Renders <Header /> + <Outlet />. No auth logic — shared chrome only.
 
 // src/components/ProtectedLayout.tsx
 // Reads useAuth(); returns <Navigate to="/" /> when unauthenticated,
 // loading indicator when loading, <Outlet /> when authenticated.
+// Renders no header (RootLayout already did).
 ```
 
 ## Environment Variables
@@ -126,14 +143,18 @@ None new.
 ```
 apps/portal/src/
 ├── main.tsx                       ← router + provider composition
-├── App.tsx                        ← REMOVED or reduced to route definitions
+├── App.tsx                        ← reduced to route definitions
+├── lib/
+│   └── returnPath.ts              ← NEW: sessionStorage return-path helper (FR-004)
 ├── routes/                        ← NEW: page-level route components (default exports allowed)
 │   ├── LandingPage.tsx
 │   ├── FilesPage.tsx
 │   └── NotFoundPage.tsx
 └── components/
-    ├── Header.tsx                 ← from SPEC-007, rendered in layouts
-    ├── ProtectedLayout.tsx        ← NEW: auth guard + Outlet
+    ├── Header.tsx                 ← from SPEC-007, rendered by RootLayout
+    ├── RootLayout.tsx             ← NEW: shared chrome (Header) + Outlet for all pages
+    ├── RootLayout.test.tsx
+    ├── ProtectedLayout.tsx        ← NEW: gate-only sub-layout (Outlet/redirect/loading)
     └── ProtectedLayout.test.tsx
 ```
 
@@ -152,9 +173,10 @@ apps/portal/src/
 
 ### Phase 2: Guard and return path
 
-- Implement `ProtectedLayout` with loading/unauthenticated/authenticated branches (FR-003)
+- Introduce `RootLayout` (shared Header + Outlet) wrapping all routes; move the header out of the pages into it (FR-003)
+- Implement `ProtectedLayout` as a nested gate-only sub-layout with loading/unauthenticated/authenticated branches (FR-003)
 - Implement post-login return path (FR-004); redirect authed users off `/`
-- Add `ProtectedLayout.test.tsx` covering all three auth states
+- Add `RootLayout.test.tsx` and `ProtectedLayout.test.tsx` (the latter covering all three auth states)
 
 #### Checkpoint
 
