@@ -1,6 +1,6 @@
 # Architecture: S3 File Portal
 
-**Last Updated:** 2026-06-10 (Cognito standalone — AD federation removed; bucket concepts renamed to user-space/shared-space)  
+**Last Updated:** 2026-06-11 (added the file-operations arc SPEC-015→020: download/upload/metadata/delete/move/rename/multipart; state management → TanStack Query + Context)  
 **Status:** Living document — update as decisions are made.
 
 > **Implementation status as of 2026-06-08:**
@@ -248,6 +248,27 @@ prefix with a single policy statement — no per-user policy changes needed.
   }
 }
 ```
+
+**How file operations map onto these actions (SPEC-015→020):**
+
+The four actions above already cover almost the entire filesystem experience —
+only multipart needs more:
+
+- **Download** (SPEC-015): presigned `GetObject` — covered by `s3:GetObject`.
+- **Metadata** (SPEC-017): `HeadObject` — authorized by `s3:GetObject`.
+- **Upload ≤5 MB / create folder** (SPEC-016): `PutObject` — covered.
+- **Delete** (SPEC-018): `DeleteObject` / `DeleteObjects` — covered (except the
+  `*/DO_NOT_DELETE.txt` deny in SPEC-013 FR-001).
+- **Move / rename** (SPEC-019): `CopyObject` + `DeleteObject`. A same-bucket copy
+  needs `s3:GetObject` (source) + `s3:PutObject` (destination), both inside the
+  user's own prefix — **no new IAM**. There is no S3 move/rename; the app presents
+  them but performs copy-then-delete (recursive and non-atomic for folders).
+- **Multipart upload >5 MB** (SPEC-020): `CreateMultipartUpload`/`UploadPart`/
+  `CompleteMultipartUpload` are authorized by `s3:PutObject`, but the policy must
+  additionally grant `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`,
+  and `s3:ListMultipartUploadParts`. SPEC-020 also adds a bucket lifecycle rule to
+  abort incomplete multipart uploads after 7 days (the first lifecycle rule on the
+  user-space bucket; SPEC-010 deferred these).
 
 **Frontend prefix derivation:**
 ```ts
@@ -576,14 +597,26 @@ Add staging environment here when it is provisioned.
   and the pool is case-insensitive (SPEC-006).
 - **Shared bucket access model is TBD.** The single-role + principal-tag approach changes how
   per-user prefix grants on Bucket 2 can be expressed. To be resolved in the shared-space spec.
-- **File size limits.** For files over ~5MB, multipart upload should be used. Initial upload
-  spec will enforce a simple size cap; multipart is a later enhancement.
+- **File size limits.** SPEC-016 caps single-`PutObject` uploads at 5 MB; SPEC-020 lifts
+  this with multipart upload (`@aws-sdk/lib-storage`), a default 5 GiB max, and a queue.
+- **Move and rename are non-atomic.** S3 has neither operation. The portal presents them
+  but performs `CopyObject` + `DeleteObject` (rename = move within the same parent). For a
+  folder this is *recursive* over every contained key and can *partially fail* — a per-key
+  copy failure must never delete that source and must never abort the remaining keys
+  (SPEC-019). The same is true of recursive folder delete (SPEC-018). There is no
+  transactional rollback; the UI reports which keys succeeded and which failed.
+- **No overwrite protection from S3.** Versioning is off (SPEC-010), so writing an existing
+  key destroys the prior object. The app guards this in the UI with warn-and-confirm
+  (HEAD-check → Overwrite or Rename) on upload and move/rename (SPEC-016/019) — there is no
+  server-side safety net.
+- **Listing pagination.** `ListObjectsV2` returns at most 1,000 keys per call. The browser
+  paginates with `ContinuationToken` via TanStack Query's `useInfiniteQuery` and a "Load
+  more" control (SPEC-015); code must never assume a single page is the whole folder.
 
 ---
 
 ## Deferred / Future Scope
 
-- Multipart upload for large files
 - File preview (PDF, image rendering in-browser)
 - Admin UI (user management, access audit)
 - Audit logging (S3 access logs, CloudTrail)
@@ -611,5 +644,10 @@ Add staging environment here when it is provisioned.
 | SPEC-012 | Pre-signup username validation — Cognito trigger Lambda | Draft |
 | SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Draft |
 | SPEC-014 | User prefix marker — app writes `{username}/DO_NOT_DELETE.txt` on first login | Draft |
+| SPEC-015 | File download + data foundation (TanStack Query, pagination, presigned URLs) | Draft |
+| SPEC-016 | File upload (≤5 MB) + create folder | Draft |
+| SPEC-017 | File metadata panel (HeadObject) | Draft |
+| SPEC-018 | Delete files and folders (multi-select, recursive) | Draft |
+| SPEC-019 | Move & rename (files and folders) — copy+delete | Draft |
+| SPEC-020 | Multipart upload (large files) + upload queue | Draft |
 | Future | Shared-space bucket (Bucket 2) — user-managed access keys, model TBD | Not yet written |
-| Future | File upload, download, delete | Not yet written |
