@@ -69,8 +69,9 @@ This is an npm workspaces monorepo. The React SPA lives in `apps/portal/`. Infra
 | Frontend | React 18, Vite |
 | Language | TypeScript (strict mode) |
 | Styling | TailwindCSS |
-| AWS SDK | `@aws-sdk/client-s3` (v3, modular) |
-| Auth | AWS Cognito + Amplify (`aws-amplify` v6) — deferred, not yet implemented |
+| AWS SDK | `@aws-sdk/client-s3` (v3, modular). No STS SDK — scoped credentials come from Amplify via the Identity Pool (SPEC-011) |
+| Auth | AWS Cognito + Amplify (`aws-amplify` v6) — IaC + login/signup specced in SPEC-006–009 |
+| Routing | `react-router-dom` v7 (library mode) — introduced by SPEC-008 |
 | State | React Context (no Redux unless complexity demands it) |
 | Testing | Vitest + React Testing Library |
 | Linting | ESLint + Prettier |
@@ -175,6 +176,15 @@ tofu output          # view output values (use to populate .env.local)
 | Project IaC (OpenTofu) | `@docs/specs/SPEC-003-project-iac.md` | Completed |
 | GitHub Actions CI (test + build) | `@docs/specs/SPEC-004-github-actions-ci.md` | Completed |
 | Deploy App to AWS (GitHub Actions + OpenTofu) | `@docs/specs/SPEC-005-deploy-app-to-aws.md` | Completed |
+| Cognito User Pool IaC (`auth` module) | `@docs/specs/SPEC-006-cognito-iac.md` | Draft |
+| Login Flow (Hosted UI + Amplify) | `@docs/specs/SPEC-007-login-flow.md` | Draft |
+| Auth-Gated Layout (react-router) | `@docs/specs/SPEC-008-auth-gated-layout.md` | Draft |
+| Sign-Up End to End | `@docs/specs/SPEC-009-signup-end-to-end.md` | Draft |
+| User-Space Bucket IaC (`data` module) | `@docs/specs/SPEC-010-user-space-bucket-iac.md` | Draft |
+| Scoped Credentials (Identity Pool ABAC + Portal Role) | `@docs/specs/SPEC-011-portal-iam-role.md` | Draft |
+| Pre-Signup Username Validation (Lambda) | `@docs/specs/SPEC-012-pre-signup-validation.md` | Draft |
+| Prefix-Scoped S3 Access + Browser Switchover | `@docs/specs/SPEC-013-prefix-scoped-access.md` | Draft |
+| User Prefix Marker (DO_NOT_DELETE.txt) | `@docs/specs/SPEC-014-user-prefix-marker.md` | Draft |
 
 Add new specs to this table as they are created.
 
@@ -189,10 +199,14 @@ Add new specs to this table as they are created.
 - **S3 SDK direct from browser**: Acceptable for this use case. Session tag scoping will enforce per-user isolation once auth is added. No backend proxy needed.
 - **Monorepo — npm workspaces**: SPA (`apps/portal/`) and IaC (`infra/`) co-located in one repo. `packages/` reserved for future shared packages. npm workspaces chosen for simplicity — no Turborepo or pnpm needed at current scale.
 - **OpenTofu for IaC**: Open-source Terraform fork. HCL syntax, AWS provider, S3 remote state backend. Chosen over CDK/Pulumi/SST.
-- **No Cognito Identity Pool**: Web Identity federation is performed directly via STS `AssumeRoleWithWebIdentity` using the User Pool JWT. Per-user S3 isolation via IAM session tags.
+- **Cognito Identity Pool with ABAC (reversed 2026-06-10 — was "No Identity Pool")**: The original direct-STS design required the browser to pass session tags, which is spoofable, and the Lambda-claim alternative required the Cognito Essentials V2 trigger. A Cognito Identity Pool with *attributes for access control* maps the username claim to the `username` principal tag server-side — unspoofable, free, no Lambdas, native Amplify v6 support (`fetchAuthSession()` returns scoped credentials). Still one shared IAM role for all users; per-user S3 isolation via `${aws:PrincipalTag/username}` (SPEC-011).
 - **IaC scope — hosting layer only (SPEC-003)**: The current IaC provisions only the hosting infrastructure: static assets S3 bucket, CloudFront distribution, and the GitHub Actions OIDC deployment role. Data infrastructure (Cognito User Pool, shared IAM portal role, user-space S3 bucket, shared-space S3 bucket) was out of scope for SPEC-003 and will be added to the IaC in a future spec. Do not assume these resources exist in AWS until that spec is complete.
 - **Bucket 2 access model redesigned**: The original design used a daily Terraform-managed IAM policy pipeline to grant/revoke prefix access. This has been replaced by a user-managed access key model — users will create keys and grant/revoke access to other users themselves. A backend service or cloud process will likely be required. This model is not yet designed or specced. Do not build anything referencing the old daily-IAM-pipeline model.
 - **IaC organized as bounded-context modules**: `infra/modules/app/` (hosting) and `infra/modules/base/` (OIDC + deploy role). New infrastructure domains get their own module (e.g. `auth/` for Cognito, `data/` for personal/shared buckets) — do not group resources by AWS service type into shared files. IAM policies live as `.tftpl` JSON templates under the owning module's `policies/` folder, rendered with `templatefile()`.
+- **Session tags are asserted server-side, never by the client**: The browser never passes `Tags` or any self-asserted identity to STS — client-supplied tags are spoofable. The Identity Pool's principal tag mapping stamps `username` from the verified token claim (SPEC-011). The earlier pre-token-generation-Lambda and `custom:portal_role_arn` designs are superseded and must not be built.
+- **Cognito trigger Lambdas are permitted**: The "no server-side backend" decision means no API layer the SPA calls. Cognito lifecycle triggers (e.g. the SPEC-012 pre-signup username validator) are configuration of the auth service, not a backend, and are allowed.
+- **Usernames are validated at signup**: A pre-signup Lambda enforces `^[a-zA-Z0-9._@-]{3,64}$` (SPEC-012) and the User Pool is case-insensitive (SPEC-006), because the username becomes the user's S3 prefix and IAM principal tag.
+- **Infra specs must account for deploy role permissions**: The GitHub Actions deploy role (`infra/modules/base/`) applies all IaC via `deploy-infra.yml`. Any spec that provisions new infrastructure must include expanding the deploy role's IAM permissions to manage those new resource types (update the `.tftpl` policies under `infra/modules/base/policies/`) as in-scope work — not an afterthought or open question.
 - **Current dev working state**: Until auth is implemented, the app targets a single publicly accessible or statically credentialed test bucket. `VITE_AWS_ACCESS_KEY_ID` being absent causes the S3 client to fall back to anonymous (unsigned) requests (SPEC-002). Authentication, user prefix scoping, and multi-bucket support are all deferred.
 
 ---

@@ -6,20 +6,21 @@
 > **Implementation status as of 2026-06-08:**
 > - **Built and working:** File browser (SPEC-001, SPEC-002) — React SPA in `apps/portal/`, browses a test bucket using static or anonymous credentials.
 > - **IaC written, not yet applied:** OpenTofu config for static assets S3 bucket, CloudFront, and GitHub Actions OIDC role (SPEC-003). `tofu apply` has not been run against a real AWS account.
-> - **Not yet built:** Authentication (Cognito + Amplify + STS), user-space/shared-space S3 data buckets, IAM portal role, shared-space access management, GitHub Actions CI/CD pipeline (SPEC-004).
+> - **Not yet built:** Authentication (Cognito User Pool + Identity Pool + Amplify), user-space/shared-space S3 data buckets, IAM portal role, shared-space access management. (Specced in drafts SPEC-006–014.)
 > - **Under redesign:** Bucket 2 access model — see Key Decisions section in CLAUDE.md.
 
 ## System Overview
 
 A single-page application (SPA) that allows authenticated users to manage files in AWS S3.
 There is **no backend server**. All AWS API calls are made directly from the browser using
-temporary IAM credentials obtained by assuming a single shared IAM role via Web Identity
-federation from the Cognito User Pool JWT. No Cognito Identity Pool is required.
+temporary IAM credentials for a single shared IAM role, issued by a **Cognito Identity Pool**
+that federates the Cognito User Pool token (Amplify v6 handles this exchange natively).
 
-Per-user access isolation is achieved through **IAM session tags** — the app passes the
-Cognito username as a session tag when assuming the role, and the role's permission policy
-uses `${aws:PrincipalTag/username}` to scope each user to their own S3 prefix. No per-user
-IAM roles are needed.
+Per-user access isolation is achieved through **IAM principal tags** — the Identity Pool's
+*attributes for access control* maps the user's username claim to a `username` principal tag
+**server-side** on every credential issuance, and the role's permission policy uses
+`${aws:PrincipalTag/username}` to scope each user to their own S3 prefix. The browser never
+asserts its own identity to STS, so tags cannot be spoofed. No per-user IAM roles are needed.
 
 **Two-bucket model:** Users interact with two distinct S3 buckets with different access
 control mechanisms. Bucket 1 (user-space) is self-contained — IAM enforces per-user prefix
@@ -64,26 +65,36 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
           │ JWT                 │  files/     │   │  files/     │
           ▼                     │  .config/   │   │             │
    ┌─────────────┐              │   connections│  │             │
-   │     STS     │              │   .json     │   │             │
-   │ AssumeRole  │              └─────────────┘   └──────┬──────┘
-   │ WithWebId   │                                       │
-   └──────┬──────┘                              ┌────────▼────────┐
-          │                                     │  Bucket 2 Access│
-          ▼                                     │  Mgmt (TBD:     │
-   ┌─────────────┐                              │  user-managed   │
-   │  IAM Role   │                              │  keys, backend  │
-   │ (trust: UP) │                              │  TBD)           │
-   └─────────────┘                              └─────────────────┘
+   │  Identity   │              │   .json     │   │             │
+   │    Pool     │              └─────────────┘   └──────┬──────┘
+   │ (tag: user- │                                       │
+   │  name claim)│                              ┌────────▼────────┐
+   └──────┬──────┘                              │  Bucket 2 Access│
+          │                                     │  Mgmt (TBD:     │
+          ▼                                     │  user-managed   │
+   ┌─────────────┐                              │  keys, backend  │
+   │  IAM Role   │                              │  TBD)           │
+   │ (trust: IdP │                              └─────────────────┘
+   │   pool)     │
+   └─────────────┘
 ```
 
 **Key architectural principles:**
-- The browser holds temporary STS credentials issued by assuming a single shared IAM role
-  via the Cognito User Pool JWT (Web Identity federation). No Identity Pool needed.
-- All users assume the same role. Per-user isolation is enforced by passing the Cognito
-  username as a session tag (`username`) on every `AssumeRoleWithWebIdentity` call. The
-  role's permission policy uses `${aws:PrincipalTag/username}` to scope S3 access.
-- The IAM role trust policy accepts tokens from this account's Cognito User Pool and
-  explicitly permits `sts:TagSession` so session tags are accepted.
+- The browser holds temporary credentials for a single shared IAM role, issued by the
+  Cognito Identity Pool (enhanced flow) in exchange for the User Pool token. Amplify v6
+  returns them from `fetchAuthSession()` — no manual STS calls, no STS SDK dependency.
+- All users assume the same role. Per-user isolation is enforced by the Identity Pool
+  mapping the username claim to the `username` principal tag (attributes for access
+  control). The role's permission policy uses `${aws:PrincipalTag/username}`.
+- **Tags are asserted server-side, never by the client** (SPEC-011): client-supplied
+  session tags would be spoofable by any authenticated user. The Identity Pool stamps
+  them from the verified token. (This is why the original "No Identity Pool" decision
+  was reversed — see CLAUDE.md Key Decisions.)
+- The app never handles the role ARN — role binding is Identity Pool configuration.
+  Per-user role variation, if ever needed, comes via Identity Pool role-mapping rules.
+- The IAM role trust policy federates from `cognito-identity.amazonaws.com`, scoped to
+  this Identity Pool and authenticated identities, and explicitly permits
+  `sts:TagSession` so principal tags are accepted.
 - Bucket 2 prefix access model is under review — to be defined in a future spec.
 - No long-lived credentials exist anywhere in the frontend.
 
@@ -105,18 +116,19 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
       │
       └─ Cognito validates credentials → Issues JWT (id_token, access_token, refresh_token)
 
-3. App reads Cognito username → calls STS AssumeRoleWithWebIdentity manually
-      │    passing: id_token, shared role ARN (env var), username as session tag
+3. Amplify exchanges the User Pool token with the Identity Pool (enhanced flow)
+      │    GetId → GetCredentialsForIdentity — no app code, no role ARN involved
       │
-      └─ STS validates JWT against User Pool OIDC endpoint
+      └─ Identity Pool validates the User Pool token
              │
-             └─ Trust policy on role confirms: issuer = this User Pool ✓
+             └─ Principal tag mapping stamps { username: "alice" } from the token claim
                     │
-                    └─ STS stamps session tag { username: "alice" } onto credentials
+                    └─ Trust policy on portal role confirms: aud = this Identity Pool,
+                       amr = authenticated ✓ (sts:TagSession permitted)
                            │
-                           └─ STS issues temporary credentials (1hr TTL)
+                           └─ Temporary credentials issued (1hr TTL)
                                   │
-                                  └─ App stores credentials in memory
+                                  └─ Amplify caches credentials; app reads via fetchAuthSession()
                                          │
                                          └─ Passed to S3Client on each request
                                                 │
@@ -126,10 +138,10 @@ are stored as JSON within the user's own prefix in Bucket 1 — no separate data
 
 ### IAM Role Trust Policy
 
-The role trust policy grants `sts:AssumeRoleWithWebIdentity` and `sts:TagSession` to tokens
-issued by this account's Cognito User Pool, scoped to authenticated users only.
-`sts:TagSession` is required — without it, STS will reject the call when session tags are
-passed, causing auth to fail silently.
+The portal role trusts the **Identity Pool** (not the User Pool directly). It grants
+`sts:AssumeRoleWithWebIdentity` and `sts:TagSession` to authenticated identities from this
+pool. `sts:TagSession` is required — without it, credential issuance fails once the
+principal tag mapping is configured.
 
 ```json
 {
@@ -138,7 +150,7 @@ passed, causing auth to fail silently.
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "cognito-idp.{region}.amazonaws.com/{userPoolId}"
+        "Federated": "cognito-identity.amazonaws.com"
       },
       "Action": [
         "sts:AssumeRoleWithWebIdentity",
@@ -146,10 +158,10 @@ passed, causing auth to fail silently.
       ],
       "Condition": {
         "StringEquals": {
-          "cognito-idp.{region}.amazonaws.com/{userPoolId}:aud": "{userPoolClientId}"
+          "cognito-identity.amazonaws.com:aud": "{identityPoolId}"
         },
         "ForAnyValue:StringLike": {
-          "cognito-idp.{region}.amazonaws.com/{userPoolId}:amr": "authenticated"
+          "cognito-identity.amazonaws.com:amr": "authenticated"
         }
       }
     }
@@ -157,25 +169,29 @@ passed, causing auth to fail silently.
 }
 ```
 
+The `username` principal tag is configured on the Identity Pool itself (*attributes for
+access control* — `aws_cognito_identity_pool_provider_principal_tag`), mapping the User
+Pool username claim to the tag key `username`.
+
 ### Token lifecycle
 - Amplify handles JWT refresh automatically via the refresh_token
-- STS credentials must be re-assumed when they expire (1hr TTL) — handle this by
-  calling `fetchAuthSession({ forceRefresh: true })` before SDK operations that fail
-  with credential expiry errors
-- No manual token management needed in application code outside of this pattern
+- Amplify also caches and refreshes the AWS credentials from the Identity Pool; on SDK
+  operations failing with credential expiry errors, call
+  `fetchAuthSession({ forceRefresh: true })` and retry once
+- No manual token or credential management needed in application code outside this pattern
 
 ### Relevant Amplify calls
 ```ts
-// Get current session — use to extract the id token string for the STS call
+// Get current session — credentials come from the Identity Pool exchange
 import { fetchAuthSession } from 'aws-amplify/auth';
 const session = await fetchAuthSession();
-const idTokenString = session.tokens?.idToken?.toString(); // passed to STS
+const credentials = session.credentials; // AWS credentials for the portal role
 
-// Get current user — provides the username used as session tag and S3 prefix
+// Get current user — provides the username used as the S3 prefix
 import { getCurrentUser } from 'aws-amplify/auth';
 const { username } = await getCurrentUser();
 
-// Force JWT refresh (call when STS credentials have expired, then re-assume role)
+// Force refresh (when AWS credentials have expired)
 const session = await fetchAuthSession({ forceRefresh: true });
 
 // Sign out
@@ -214,7 +230,7 @@ s3://user-space/
 **IAM policy statement (on the shared portal role):**
 
 `${aws:PrincipalTag/username}` expands at evaluation time to the value of the `username`
-session tag passed during `AssumeRoleWithWebIdentity`. This scopes every user to their own
+principal tag stamped by the Identity Pool at credential issuance. This scopes every user to their own
 prefix with a single policy statement — no per-user policy changes needed.
 
 ```json
@@ -342,10 +358,11 @@ User enters: bucket prefix → "project-alpha/"
 
 | Resource | Name / ARN Pattern | Purpose | IaC | Notes |
 |---|---|---|---|---|
-| Cognito User Pool | `us-east-1_XXXXXXXXX` | Standalone auth (native users) | ✗ future spec | Hosts the login UI |
-| Cognito User Pool Client | `XXXXXXXXXXXXXXXXXXXXXXXXXX` | App client for Amplify | ✗ future spec | No client secret (SPA) |
-| IAM Role (shared) | `arn:aws:iam:::role/S3PortalRole` | S3 access for all authenticated users | ✗ future spec | Single role; per-user isolation via session tags |
-| S3 Bucket — User Space | `user-space-bucket-name` | Per-user private files + connection config | ✗ future spec | CORS required |
+| Cognito User Pool | `us-east-1_XXXXXXXXX` | Standalone auth (native users) | ✓ SPEC-006 (draft) | Hosts the login UI; pre-signup Lambda (SPEC-012) |
+| Cognito User Pool Client | `XXXXXXXXXXXXXXXXXXXXXXXXXX` | App client for Amplify | ✓ SPEC-006 (draft) | No client secret (SPA) |
+| Cognito Identity Pool | `us-east-1:xxxx-...` | Exchanges User Pool token for AWS credentials; maps username claim → `username` principal tag | ✓ SPEC-011 (draft) | Authenticated identities only; enhanced flow |
+| IAM Role (shared) | `arn:aws:iam:::role/{project}-portal-user-role` | S3 access for all authenticated users | ✓ SPEC-011 (draft) | Single role; trusts the Identity Pool; per-user isolation via principal tags |
+| S3 Bucket — User Space | `dat-prod-user-space` | Per-user private files + connection config | ✓ SPEC-010 (draft) | CORS required |
 | S3 Bucket — Shared Space | `shared-space-bucket-name` | Shared prefixes; access model TBD | ✗ future spec | CORS required |
 | S3 Bucket — Static Assets | `portal-static-assets` | Hosts built SPA files | ✓ SPEC-003 | Private; accessed via CloudFront OAC only |
 | CloudFront Distribution | `*.cloudfront.net` / custom domain | Serves the SPA; routes all paths to index.html | ✓ SPEC-003 | OAC origin; custom error response 403/404 → index.html |
@@ -353,16 +370,17 @@ User enters: bucket prefix → "project-alpha/"
 | ACM Certificate | `arn:aws:acm:us-east-1:...` | HTTPS for custom domain | ✗ manual | Must be in us-east-1 for CloudFront; DNS validation is manual |
 
 
-> Note: No Cognito Identity Pool is used. Web Identity federation is performed directly
-> against a single shared IAM role using the User Pool JWT. Per-user S3 isolation is
-> enforced via IAM session tags, not separate roles.
+> Note: A Cognito Identity Pool performs the token-for-credentials exchange and stamps
+> the `username` principal tag server-side (attributes for access control). Per-user S3
+> isolation is enforced via that tag on a single shared role, not separate roles.
 
 ---
 
 ## Amplify Configuration
 
 Amplify is initialized once in `src/lib/amplify.ts` and imported at the top of `src/main.tsx`
-before the React tree mounts. No Identity Pool configuration is needed.
+before the React tree mounts. The `identityPoolId` makes Amplify perform the Identity Pool
+credential exchange automatically.
 
 ```ts
 // src/lib/amplify.ts
@@ -373,6 +391,7 @@ Amplify.configure({
     Cognito: {
       userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID,
       userPoolClientId: import.meta.env.VITE_COGNITO_USER_POOL_CLIENT_ID,
+      identityPoolId: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID,
       loginWith: {
         oauth: {
           domain: import.meta.env.VITE_COGNITO_DOMAIN,
@@ -399,54 +418,41 @@ import App from './App';
 
 ## S3 Client Configuration
 
-The S3 client uses credentials from `fetchAuthSession()` post-auth. The client must be
-reconstructed (or credentials refreshed) when STS credentials expire.
-
-Amplify v6 does **not** populate `session.credentials` unless an Identity Pool is configured.
-Since this architecture uses direct Web Identity federation (no Identity Pool), the STS call
-must be made manually after obtaining the JWT from Amplify.
+The S3 client uses credentials from `fetchAuthSession()` post-auth. With the Identity Pool
+configured in Amplify, `session.credentials` is populated automatically — no STS SDK and no
+manual role assumption (SPEC-011).
 
 ```ts
-// src/lib/s3Client.ts — post-auth pattern
+// src/lib/s3Client.ts — post-auth pattern (SPEC-011)
 import { S3Client } from '@aws-sdk/client-s3';
-import { STSClient, AssumeRoleWithWebIdentityCommand } from '@aws-sdk/client-sts';
-import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth';
+import { fetchAuthSession } from 'aws-amplify/auth';
 
-export async function getS3Client(forceRefresh = false): Promise<S3Client> {
-  const [session, { username }] = await Promise.all([
-    fetchAuthSession({ forceRefresh }),
-    getCurrentUser(),
-  ]);
-
-  const idTokenString = session.tokens?.idToken?.toString();
-  if (!idTokenString) throw new Error('No id token — user may not be authenticated');
-
-  const sts = new STSClient({ region: import.meta.env.VITE_AWS_REGION });
-  const { Credentials } = await sts.send(new AssumeRoleWithWebIdentityCommand({
-    RoleArn: import.meta.env.VITE_IAM_ROLE_ARN,
-    RoleSessionName: username,          // appears in CloudTrail — human-readable audit trail
-    WebIdentityToken: idTokenString,
-    Tags: [{ Key: 'username', Value: username }], // drives ${aws:PrincipalTag/username} in policies
-  }));
-  if (!Credentials) throw new Error('STS returned no credentials');
-
-  return new S3Client({
-    region: import.meta.env.VITE_AWS_REGION,
-    credentials: {
-      accessKeyId: Credentials.AccessKeyId!,
-      secretAccessKey: Credentials.SecretAccessKey!,
-      sessionToken: Credentials.SessionToken,
-      expiration: Credentials.Expiration,
-    },
-  });
+export async function getS3Client(
+  forceRefresh = false
+): Promise<ServiceResult<S3Client>> {
+  const session = await fetchAuthSession({ forceRefresh });
+  if (!session.credentials) {
+    return {
+      success: false,
+      error: { message: 'No AWS credentials — sign in required' },
+    };
+  }
+  return {
+    success: true,
+    data: new S3Client({
+      region: import.meta.env.VITE_AWS_REGION,
+      credentials: session.credentials,
+    }),
+  };
 }
 ```
 
-> **RoleSessionName constraint:** Max 64 characters, allowed chars: `a-z A-Z 0-9 = , . @ - _`.
-> Standard email-format usernames (`alice.smith@company.com`) are within the allowed character
-> set but verify length. If usernames can exceed 64 chars, truncate or hash before passing.
+> On S3 calls failing with credential-expiry errors, retry once with
+> `getS3Client(true)` — Amplify refreshes the underlying session and credentials.
 >
-> Note: `@aws-sdk/client-sts` must be added as a dependency when this pattern is implemented.
+> **Username constraint:** the username is the S3 prefix and `username` tag value. It is
+> enforced at signup as `^[a-zA-Z0-9._@-]{3,64}$` by the SPEC-012 pre-signup Lambda, and
+> the User Pool is case-insensitive (SPEC-006).
 
 ---
 
@@ -461,7 +467,7 @@ Full map of all `VITE_` variables. Every variable must also appear in `.env.exam
 | `VITE_AWS_SECRET_ACCESS_KEY` | S3 client (SPEC-001 dev only) | IAM user secret | Temporary — removed when auth spec lands |
 | `VITE_S3_USER_SPACE_BUCKET` | S3 service functions | `user-space-bucket-name` | Bucket 1 — user files + config |
 | `VITE_S3_SHARED_SPACE_BUCKET` | S3 service functions | `shared-space-bucket-name` | Bucket 2 — shared-space |
-| `VITE_IAM_ROLE_ARN` | STS role assumption | `arn:aws:iam::123456789:role/S3PortalRole` | Single shared role — same for all users |
+| `VITE_COGNITO_IDENTITY_POOL_ID` | Amplify config (credential exchange) | `us-east-1:xxxx-...` | Identity Pool — replaces the former `VITE_IAM_ROLE_ARN` |
 | `VITE_COGNITO_USER_POOL_ID` | Amplify config | `us-east-1_XXXXXX` | — |
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | Amplify config | `XXXXXXXXXX` | — |
 | `VITE_COGNITO_DOMAIN` | Amplify OAuth config | `your-domain.auth.us-east-1.amazoncognito.com` | — |
@@ -565,10 +571,10 @@ Add staging environment here when it is provisioned.
   not an error.
 - **SPA with client-side routing.** If deployed to S3 + CloudFront, CloudFront must serve
   `index.html` for all routes (configure custom error response for 403/404).
-- **Session tag username must satisfy RoleSessionName constraints.** Max 64 characters;
-  allowed chars: `a-z A-Z 0-9 = , . @ - _`. Standard email-format usernames are within the
-  allowed set. Validate this when real Cognito users are provisioned.
-- **Shared bucket access model is TBD.** The single-role + session tag approach changes how
+- **Usernames are constrained at signup.** The username is the S3 prefix and `username`
+  principal tag value; the SPEC-012 pre-signup Lambda enforces `^[a-zA-Z0-9._@-]{3,64}$`
+  and the pool is case-insensitive (SPEC-006).
+- **Shared bucket access model is TBD.** The single-role + principal-tag approach changes how
   per-user prefix grants on Bucket 2 can be expressed. To be resolved in the shared-space spec.
 - **File size limits.** For files over ~5MB, multipart upload should be used. Initial upload
   spec will enforce a simple size cap; multipart is a later enhancement.
@@ -594,8 +600,16 @@ Add staging environment here when it is provisioned.
 | SPEC-001 | File listing against test bucket (no auth) | Completed |
 | SPEC-002 | Public bucket file browser — root prefix scoping, anonymous client fallback | Completed |
 | SPEC-003 | OpenTofu IaC — static assets S3, CloudFront, GitHub Actions OIDC role | Completed (not yet applied to AWS) |
-| SPEC-004 | GitHub Actions deploy pipeline — SPA build+deploy, IaC plan/apply with approval gate | Draft |
-| Future | Authentication — Cognito + Amplify + STS, personal prefix scoping | Not yet written |
-| Future | Data infrastructure IaC — Cognito User Pool, IAM portal role, personal/shared S3 buckets | Not yet written |
-| Future | Bucket 2 access management — user-managed keys, backend TBD | Not yet written |
+| SPEC-004 | GitHub Actions CI — test + build | Completed |
+| SPEC-005 | Deploy app to AWS — GitHub Actions deploy workflows (app + infra) | Completed |
+| SPEC-006 | Cognito User Pool IaC — `infra/modules/auth/` (pool, SPA client, Hosted UI domain) | Draft |
+| SPEC-007 | Login flow — Hosted UI redirect + Amplify v6 session management | Draft |
+| SPEC-008 | Auth-gated layout — react-router, protected `/files` route | Draft |
+| SPEC-009 | Sign-up end to end — Hosted UI signup, email verification, E2E acceptance script | Draft |
+| SPEC-010 | User-space bucket IaC — `infra/modules/data/` (bucket, CORS, encryption) | Draft |
+| SPEC-011 | Scoped credentials — Identity Pool ABAC + portal role (trust only, no S3 perms) | Draft |
+| SPEC-012 | Pre-signup username validation — Cognito trigger Lambda | Draft |
+| SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Draft |
+| SPEC-014 | User prefix marker — app writes `{username}/DO_NOT_DELETE.txt` on first login | Draft |
+| Future | Shared-space bucket (Bucket 2) — user-managed access keys, model TBD | Not yet written |
 | Future | File upload, download, delete | Not yet written |
