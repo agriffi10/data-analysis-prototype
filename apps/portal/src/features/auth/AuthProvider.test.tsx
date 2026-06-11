@@ -14,12 +14,18 @@ import { useAuth } from './useAuth';
 vi.mock('./auth.service', () => ({
   getCurrentAuthUser: vi.fn(),
   startSignIn: vi.fn(),
+  startSignUp: vi.fn(),
   startSignOut: vi.fn(),
 }));
 vi.mock('../../lib/amplify', () => ({ isAmplifyConfigured: true }));
 vi.mock('aws-amplify/utils', () => ({ Hub: { listen: vi.fn() } }));
 
-import { getCurrentAuthUser, startSignIn, startSignOut } from './auth.service';
+import {
+  getCurrentAuthUser,
+  startSignIn,
+  startSignUp,
+  startSignOut,
+} from './auth.service';
 import { Hub } from 'aws-amplify/utils';
 
 const mockGetUser = getCurrentAuthUser as unknown as MockedFunction<
@@ -27,6 +33,9 @@ const mockGetUser = getCurrentAuthUser as unknown as MockedFunction<
 >;
 const mockStartSignIn = startSignIn as unknown as MockedFunction<
   () => Promise<unknown>
+>;
+const mockStartSignUp = startSignUp as unknown as MockedFunction<
+  () => unknown
 >;
 const mockStartSignOut = startSignOut as unknown as MockedFunction<
   () => Promise<unknown>
@@ -36,13 +45,14 @@ const mockHubListen = Hub.listen as unknown as MockedFunction<
 >;
 
 function TestConsumer() {
-  const { status, user, error, signIn, signOut } = useAuth();
+  const { status, user, error, signIn, signUp, signOut } = useAuth();
   return (
     <div>
       <span data-testid="status">{status}</span>
       <span data-testid="username">{user?.username ?? ''}</span>
       <span data-testid="error">{error ?? ''}</span>
       <button onClick={() => void signIn()}>signin</button>
+      <button onClick={() => signUp()}>signup</button>
       <button onClick={() => void signOut()}>signout</button>
     </div>
   );
@@ -110,6 +120,43 @@ describe('AuthProvider', () => {
       screen.getByText('signin').click();
     });
     expect(mockStartSignIn).toHaveBeenCalledOnce();
+  });
+
+  it('signUp() delegates to the sign-up service', async () => {
+    mockGetUser.mockResolvedValue({ success: false, error: { message: 'none' } });
+    mockStartSignUp.mockReturnValue({ success: true, data: undefined });
+
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
+    );
+
+    await act(async () => {
+      screen.getByText('signup').click();
+    });
+    expect(mockStartSignUp).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces an error when sign-up is not configured, without throwing', async () => {
+    mockGetUser.mockResolvedValue({ success: false, error: { message: 'none' } });
+    mockStartSignUp.mockReturnValue({
+      success: false,
+      error: { message: 'Sign-up is not configured.' },
+    });
+
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
+    );
+
+    await act(async () => {
+      screen.getByText('signup').click();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('error').textContent).toBe(
+        'Sign-up is not configured.',
+      ),
+    );
   });
 
   it('surfaces an error when sign-in fails, without throwing', async () => {

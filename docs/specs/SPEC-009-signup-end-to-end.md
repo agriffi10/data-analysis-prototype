@@ -110,12 +110,19 @@ No new types. Reuses `AuthUser`/`AuthContextValue` from SPEC-007.
 
 ```ts
 // src/features/auth/auth.service.ts — addition
-// Builds the Hosted UI signup URL from env config; full-page navigation.
-startSignUp(): void;
+// Builds the Hosted UI signup URL from env config and navigates (full page).
+// Returns ServiceResult (never throws) to match startSignIn/startSignOut and the
+// project no-throw convention: a missing-config case returns an error instead of
+// navigating to a broken URL. Synchronous — on success the browser leaves the page.
+startSignUp(): ServiceResult<void>;
 // → window.location.assign(
 //     `https://${domain}/signup?client_id=${clientId}&response_type=code` +
 //     `&scope=openid+email+profile&redirect_uri=${encodeURIComponent(appUrl)}`
 //   )
+
+// Exposed through the auth context like signIn/signOut, so the landing page calls
+// useAuth().signUp() and config errors surface via the SPEC-007 error banner:
+// AuthContextValue gains `signUp: () => void`.
 ```
 
 ## Environment Variables

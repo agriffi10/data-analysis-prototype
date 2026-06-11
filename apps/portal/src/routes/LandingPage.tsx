@@ -5,7 +5,7 @@ import { takeReturnPath } from '../lib/returnPath';
 // Public landing page (`/`). Renders no S3 data and makes no S3 calls — it only
 // explains the portal and offers sign-in via the SPEC-007 auth context.
 export default function LandingPage() {
-  const { status, signIn } = useAuth();
+  const { status, signIn, signUp } = useAuth();
 
   // An authenticated visitor never sees the landing page — send them to the
   // route they originally requested (FR-004), or to /files by default (FR-002).
@@ -20,13 +20,28 @@ export default function LandingPage() {
         <p className="mt-3 text-gray-600">
           Securely upload and download files in your personal S3 space.
         </p>
-        <button
-          type="button"
-          onClick={() => void signIn()}
-          className="mt-8 rounded-md bg-gray-900 px-5 py-2.5 font-medium text-white hover:bg-gray-700"
-        >
-          Sign in
-        </button>
+        <div className="mt-8 flex flex-col items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void signIn()}
+            className="w-48 rounded-md bg-gray-900 px-5 py-2.5 font-medium text-white hover:bg-gray-700"
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            onClick={() => signUp()}
+            className="w-48 rounded-md border border-gray-300 bg-white px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Create account
+          </button>
+        </div>
+        {/* Username guidance — mirrors the SPEC-012 pre-signup rule exactly,
+            since the username becomes the user's S3 prefix and audit identity. */}
+        <p className="mt-4 text-xs text-gray-500">
+          Your username becomes your private file space: 3&ndash;64 characters,
+          letters and numbers plus <code>. _ @ -</code> only.
+        </p>
       </div>
     </div>
   );

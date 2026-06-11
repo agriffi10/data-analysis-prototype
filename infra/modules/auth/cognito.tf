@@ -21,6 +21,15 @@ resource "aws_cognito_user_pool" "portal" {
   # Signup requires an email verification code.
   auto_verified_attributes = ["email"]
 
+  # Email verification uses a 6-digit code (not a link), so the user can enter it
+  # on the Hosted UI. Customise the email so recipients recognise it. `{####}` is
+  # the Cognito placeholder for the generated code (SPEC-009 FR-002).
+  verification_message_template {
+    default_email_option = "CONFIRM_WITH_CODE"
+    email_subject        = "Your S3 Portal verification code"
+    email_message        = "Your S3 Portal verification code is {####}"
+  }
+
   # Email is a required standard attribute.
   schema {
     name                = "email"

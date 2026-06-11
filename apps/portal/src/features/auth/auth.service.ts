@@ -51,6 +51,40 @@ export async function startSignIn(): Promise<ServiceResult<void>> {
   }
 }
 
+/**
+ * Begins Hosted UI sign-up via a full-page navigation to the Cognito `/signup`
+ * endpoint. Amplify's `signInWithRedirect` only targets the login screen, so the
+ * authorization-code URL is built by hand from the same env config Amplify uses
+ * (domain, SPA client id, app URL) — `response_type=code` + the openid/email/
+ * profile scopes, matching the User Pool client (SPEC-006). Returns an error
+ * instead of navigating to a broken URL when that config is missing. Synchronous:
+ * on success the browser leaves the page, so nothing after the call runs.
+ */
+export function startSignUp(): ServiceResult<void> {
+  const domain = import.meta.env.VITE_COGNITO_DOMAIN as string | undefined;
+  const clientId = import.meta.env.VITE_COGNITO_USER_POOL_CLIENT_ID as
+    | string
+    | undefined;
+  const appUrl = import.meta.env.VITE_APP_URL as string | undefined;
+
+  if (!domain || !clientId || !appUrl) {
+    return {
+      success: false,
+      error: {
+        message: 'Sign-up is not configured. Set the Cognito environment variables.',
+      },
+    };
+  }
+
+  const url =
+    `https://${domain}/signup?client_id=${clientId}` +
+    `&response_type=code&scope=openid+email+profile` +
+    `&redirect_uri=${encodeURIComponent(appUrl)}`;
+
+  window.location.assign(url);
+  return { success: true, data: undefined };
+}
+
 /** Signs out locally and through the Hosted UI logout endpoint. */
 export async function startSignOut(): Promise<ServiceResult<void>> {
   try {

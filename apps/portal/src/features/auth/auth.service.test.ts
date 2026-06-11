@@ -4,11 +4,13 @@ import {
   expect,
   vi,
   beforeEach,
+  afterEach,
   type MockedFunction,
 } from 'vitest';
 import {
   getCurrentAuthUser,
   startSignIn,
+  startSignUp,
   startSignOut,
 } from './auth.service';
 
@@ -101,6 +103,50 @@ describe('startSignIn', () => {
     if (result.success) return;
     expect(result.error.message).toBe('redirect blocked');
     expect(result.error.code).toBe('RedirectError');
+  });
+});
+
+describe('startSignUp', () => {
+  const DOMAIN = 'example.auth.us-east-1.amazoncognito.com';
+  let assignMock: MockedFunction<(url: string) => void>;
+
+  beforeEach(() => {
+    // jsdom forbids redefining window.location.assign, so stub the whole global.
+    assignMock = vi.fn();
+    vi.stubGlobal('location', { assign: assignMock });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('navigates to the Hosted UI /signup URL built from env config', () => {
+    vi.stubEnv('VITE_COGNITO_DOMAIN', DOMAIN);
+    vi.stubEnv('VITE_COGNITO_USER_POOL_CLIENT_ID', 'abc123');
+    vi.stubEnv('VITE_APP_URL', 'http://localhost:5173');
+
+    const result = startSignUp();
+
+    expect(result.success).toBe(true);
+    expect(assignMock).toHaveBeenCalledWith(
+      `https://${DOMAIN}/signup?client_id=abc123&response_type=code` +
+        `&scope=openid+email+profile` +
+        `&redirect_uri=${encodeURIComponent('http://localhost:5173')}`,
+    );
+  });
+
+  it('returns an error and does not navigate when config is missing', () => {
+    vi.stubEnv('VITE_COGNITO_DOMAIN', '');
+    vi.stubEnv('VITE_COGNITO_USER_POOL_CLIENT_ID', '');
+    vi.stubEnv('VITE_APP_URL', '');
+
+    const result = startSignUp();
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.message).toMatch(/not configured/i);
+    expect(assignMock).not.toHaveBeenCalled();
   });
 });
 
