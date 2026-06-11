@@ -67,9 +67,12 @@
       "Resource": "${oidc_provider_arn}"
     },
     {
-      "Sid": "CognitoCreatePool",
+      "Sid": "CognitoGlobalActions",
       "Effect": "Allow",
-      "Action": "cognito-idp:CreateUserPool",
+      "Action": [
+        "cognito-idp:CreateUserPool",
+        "cognito-idp:DescribeUserPoolDomain"
+      ],
       "Resource": "*"
     },
     {
@@ -85,7 +88,6 @@
         "cognito-idp:UpdateUserPoolClient",
         "cognito-idp:DeleteUserPoolClient",
         "cognito-idp:CreateUserPoolDomain",
-        "cognito-idp:DescribeUserPoolDomain",
         "cognito-idp:UpdateUserPoolDomain",
         "cognito-idp:DeleteUserPoolDomain",
         "cognito-idp:TagResource",
