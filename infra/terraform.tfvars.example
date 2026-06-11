@@ -6,3 +6,10 @@ project_name      = "s3-upload-portal"
 github_repo       = "your-org/s3-upload-portal"
 state_bucket      = "your-tofu-state-bucket-name"
 state_lock_table  = "your-tofu-lock-table-name"
+
+# Optional — defaults shown. Used in resource names as {project_name}-{environment}.
+# environment = "prod"
+
+# Optional — Hosted UI domain prefix (must be globally unique across all AWS).
+# Defaults to {project_name}-{environment}-portal when unset.
+# cognito_domain_prefix = ""

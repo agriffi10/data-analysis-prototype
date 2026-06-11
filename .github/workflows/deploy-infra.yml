@@ -25,6 +25,10 @@ jobs:
         with:
           tofu_version: '~1.8'
 
+      - name: OpenTofu format check
+        working-directory: infra
+        run: tofu fmt -check -recursive
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

@@ -1,8 +1,8 @@
 # Spec: Cognito User Pool IaC — `auth` Module
 
 **ID:** SPEC-006
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-11
 **Depends On:** SPEC-003 (IaC project), SPEC-005 (deploy-infra workflow applies changes)
 
 ## Overview

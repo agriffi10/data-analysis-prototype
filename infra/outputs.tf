@@ -22,3 +22,18 @@ output "aws_region" {
   description = "AWS region where resources are deployed. Maps to VITE_AWS_REGION."
   value       = var.aws_region
 }
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID. Set VITE_COGNITO_USER_POOL_ID to this value."
+  value       = module.auth.user_pool_id
+}
+
+output "cognito_user_pool_client_id" {
+  description = "Cognito SPA app client ID. Set VITE_COGNITO_USER_POOL_CLIENT_ID to this value."
+  value       = module.auth.user_pool_client_id
+}
+
+output "cognito_domain" {
+  description = "Cognito Hosted UI domain. Set VITE_COGNITO_DOMAIN to this value."
+  value       = module.auth.user_pool_domain
+}
