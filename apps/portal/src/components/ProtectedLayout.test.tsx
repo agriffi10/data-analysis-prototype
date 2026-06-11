@@ -29,6 +29,7 @@ const authValue = (status: AuthStatus): AuthContextValue => ({
   user: status === 'authenticated' ? { username: 'alice' } : null,
   error: null,
   signIn: vi.fn(),
+  signUp: vi.fn(),
   signOut: vi.fn(),
 });
 

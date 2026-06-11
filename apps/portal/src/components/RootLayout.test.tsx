@@ -24,6 +24,7 @@ beforeEach(() => {
     user: null,
     error: null,
     signIn: vi.fn(),
+    signUp: vi.fn(),
     signOut: vi.fn(),
   });
 });

@@ -7,7 +7,12 @@ import {
 } from 'react';
 import { Hub } from 'aws-amplify/utils';
 import { AuthContext } from './authContext';
-import { getCurrentAuthUser, startSignIn, startSignOut } from './auth.service';
+import {
+  getCurrentAuthUser,
+  startSignIn,
+  startSignUp,
+  startSignOut,
+} from './auth.service';
 import { isAmplifyConfigured } from '../../lib/amplify';
 import type { AuthStatus, AuthUser } from './auth.types';
 
@@ -75,6 +80,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!result.success) setError(result.error.message);
   }, []);
 
+  const signUp = useCallback(() => {
+    setError(null);
+    const result = startSignUp();
+    if (!result.success) setError(result.error.message);
+  }, []);
+
   const signOut = useCallback(async () => {
     setError(null);
     const result = await startSignOut();
@@ -82,8 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ status, user, error, signIn, signOut }),
-    [status, user, error, signIn, signOut],
+    () => ({ status, user, error, signIn, signUp, signOut }),
+    [status, user, error, signIn, signUp, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
