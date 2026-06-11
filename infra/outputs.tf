@@ -37,3 +37,8 @@ output "cognito_domain" {
   description = "Cognito Hosted UI domain. Set VITE_COGNITO_DOMAIN to this value."
   value       = module.auth.user_pool_domain
 }
+
+output "s3_user_space_bucket_name" {
+  description = "Name of the user-space S3 bucket (Bucket 1). Set VITE_S3_USER_SPACE_BUCKET to this value (consumed by the build starting SPEC-013)."
+  value       = module.data.user_space_bucket_name
+}

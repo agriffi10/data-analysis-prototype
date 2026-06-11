@@ -27,3 +27,8 @@ variable "static_bucket_arn" {
   description = "ARN of the static assets bucket the deploy role manages (from the app module)."
   type        = string
 }
+
+variable "user_space_bucket_arn" {
+  description = "ARN of the user-space (Bucket 1) S3 bucket the deploy role manages (SPEC-010). Passed as a constructed string from the root module to avoid a dependency cycle with the data module."
+  type        = string
+}

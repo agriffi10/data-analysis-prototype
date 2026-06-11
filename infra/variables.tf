@@ -41,3 +41,9 @@ variable "cognito_domain_prefix" {
   type        = string
   default     = ""
 }
+
+variable "user_space_bucket_name" {
+  description = "Override for the user-space (Bucket 1) S3 name. When empty, defaults to {project_name}-prod-user-space. Override only if that global name is already taken (S3 names are globally unique)."
+  type        = string
+  default     = ""
+}
