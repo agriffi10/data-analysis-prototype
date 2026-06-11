@@ -106,6 +106,52 @@
       "Resource": "arn:aws:cognito-idp:${aws_region}:*:userpool/*"
     },
     {
+      "Sid": "CognitoIdentityGlobalActions",
+      "Effect": "Allow",
+      "Action": "cognito-identity:CreateIdentityPool",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CognitoIdentityManage",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-identity:DescribeIdentityPool",
+        "cognito-identity:UpdateIdentityPool",
+        "cognito-identity:DeleteIdentityPool",
+        "cognito-identity:GetIdentityPoolRoles",
+        "cognito-identity:SetIdentityPoolRoles",
+        "cognito-identity:GetPrincipalTagAttributeMap",
+        "cognito-identity:SetPrincipalTagAttributeMap",
+        "cognito-identity:TagResource",
+        "cognito-identity:UntagResource",
+        "cognito-identity:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:cognito-identity:${aws_region}:*:identitypool/*"
+    },
+    {
+      "Sid": "IAMPortalRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRoleTags",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PassRole"
+      ],
+      "Resource": "${portal_role_arn}"
+    },
+    {
       "Sid": "TofuStateS3",
       "Effect": "Allow",
       "Action": [

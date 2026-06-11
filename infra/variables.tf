@@ -47,3 +47,9 @@ variable "user_space_bucket_name" {
   type        = string
   default     = ""
 }
+
+variable "portal_role_name" {
+  description = "Override for the shared portal IAM role name (SPEC-011). When empty, defaults to {project_name}-portal-user-role."
+  type        = string
+  default     = ""
+}

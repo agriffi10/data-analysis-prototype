@@ -35,6 +35,7 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   policy = templatefile("${path.module}/policies/github-actions-deploy.json.tftpl", {
     static_bucket_arn     = var.static_bucket_arn
     user_space_bucket_arn = var.user_space_bucket_arn
+    portal_role_arn       = var.portal_role_arn
     deploy_role_arn       = aws_iam_role.github_actions_deploy.arn
     oidc_provider_arn     = aws_iam_openid_connect_provider.github_actions.arn
     state_bucket          = var.state_bucket
