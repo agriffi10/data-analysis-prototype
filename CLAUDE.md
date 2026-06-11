@@ -176,7 +176,7 @@ tofu output          # view output values (use to populate .env.local)
 | Project IaC (OpenTofu) | `@docs/specs/SPEC-003-project-iac.md` | Completed |
 | GitHub Actions CI (test + build) | `@docs/specs/SPEC-004-github-actions-ci.md` | Completed |
 | Deploy App to AWS (GitHub Actions + OpenTofu) | `@docs/specs/SPEC-005-deploy-app-to-aws.md` | Completed |
-| Cognito User Pool IaC (`auth` module) | `@docs/specs/SPEC-006-cognito-iac.md` | Draft |
+| Cognito User Pool IaC (`auth` module) | `@docs/specs/SPEC-006-cognito-iac.md` | Completed |
 | Login Flow (Hosted UI + Amplify) | `@docs/specs/SPEC-007-login-flow.md` | Draft |
 | Auth-Gated Layout (react-router) | `@docs/specs/SPEC-008-auth-gated-layout.md` | Draft |
 | Sign-Up End to End | `@docs/specs/SPEC-009-signup-end-to-end.md` | Draft |

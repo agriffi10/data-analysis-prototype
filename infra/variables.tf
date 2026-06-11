@@ -9,6 +9,12 @@ variable "project_name" {
   default     = "dat"
 }
 
+variable "environment" {
+  description = "Deployment environment, used in resource names as {project_name}-{environment} (e.g. dat-prod-user-pool)."
+  type        = string
+  default     = "prod"
+}
+
 variable "github_repo" {
   description = "GitHub repository in owner/name format (e.g. acme/s3-upload-portal). Scopes the GitHub Actions OIDC trust policy to this repo's main branch and pull requests."
   type        = string
@@ -26,6 +32,12 @@ variable "state_lock_table" {
 
 variable "app_url" {
   description = "Public URL of the deployed app (e.g. the CloudFront domain). Used for Cognito OAuth callback URLs when auth IaC is added."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_domain_prefix" {
+  description = "Hosted UI domain prefix (must be globally unique across all AWS accounts). When empty, defaults to {project_name}-{environment}-portal."
   type        = string
   default     = ""
 }

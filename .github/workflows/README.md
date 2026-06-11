@@ -6,7 +6,7 @@ This directory contains three workflows:
 |---|---|---|
 | `ci.yml` | Push to any branch; PR → `main` | Lint, unit tests, production build |
 | `deploy-app.yml` | Push to `main` | Build SPA with env vars, sync to S3, invalidate CloudFront |
-| `deploy-infra.yml` | PR → `main` (paths: `infra/**`); push to `main` (paths: `infra/**`) | `tofu plan` on PRs (posts as PR comment); `tofu plan` + `tofu apply` on merge |
+| `deploy-infra.yml` | PR → `main` (paths: `infra/**`); push to `main` (paths: `infra/**`) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
 
 All deploy workflows authenticate to AWS via GitHub OIDC — no long-lived credentials are stored.
 
@@ -67,7 +67,9 @@ The app should load at the CloudFront domain once the invalidation completes (ty
 
 ### Step 5 — Test the infra workflow
 
-Open a PR that changes a file under `infra/`. The `deploy-infra.yml` `plan` job will run `tofu plan` and post its output as a comment on the PR. Merge the PR to trigger `plan` → `apply` automatically.
+Open a PR that changes a file under `infra/`. The `deploy-infra.yml` `plan` job will run `tofu fmt -check -recursive` (fails the job if any `.tf` file is unformatted — run `tofu fmt -recursive` in `infra/` to fix), then `tofu plan`, posting the plan output as a comment on the PR. Merge the PR to trigger `plan` → `apply` automatically.
+
+> To enforce this as a merge gate, mark the `deploy-infra.yml` `plan` job a **required status check** under **Settings → Branches → Branch protection rules** for `main`.
 
 ---
 
