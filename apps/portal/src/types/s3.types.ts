@@ -19,6 +19,6 @@ export type FileList = {
   folders: S3FolderItem[];
 };
 
-export type ServiceResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: { message: string; code?: string } };
+// ServiceResult now lives in service.types.ts (it is not S3-specific).
+// Re-exported here for back-compat with existing imports.
+export type { ServiceResult } from './service.types';
