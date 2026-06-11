@@ -8,8 +8,21 @@
 # role, its prefix-scoped permission policy, and the bucket policy restricting
 # access to that role all arrive in SPEC-011/013.
 
+# IAM propagation guard. The module-level `depends_on = [module.base]` orders the
+# API calls so the deploy-role policy (which grants S3 bucket management) is
+# written before this module runs — but IAM is eventually consistent, so the
+# deploy role using that grant to create the bucket in the same apply can race
+# the propagation and hit a transient AccessDenied. This pause closes that window.
+# It runs only on initial creation (no delay on later applies).
+resource "time_sleep" "wait_for_deploy_policy" {
+  create_duration = "30s"
+}
+
 resource "aws_s3_bucket" "user_space" {
   bucket = var.user_space_bucket_name
+
+  # Wait out the IAM propagation window after the deploy policy settles.
+  depends_on = [time_sleep.wait_for_deploy_policy]
 }
 
 # Block all public access — all four settings on.
