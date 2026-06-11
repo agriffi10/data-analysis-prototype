@@ -48,10 +48,13 @@ This is an npm workspaces monorepo. The React SPA lives in `apps/portal/`. Infra
 │       └── tsconfig*.json
 ├── infra/                     ← OpenTofu IaC (SPEC-003)
 │   ├── bootstrap/
-│   ├── main.tf (or *.tf)
+│   ├── main.tf                ← module composition (bounded-context modules)
+│   ├── moved.tf               ← state migrations from the flat→module refactor
 │   ├── variables.tf
 │   ├── outputs.tf
-│   └── ...
+│   └── modules/
+│       ├── app/               ← SPA hosting: static bucket, CloudFront, OAC
+│       └── base/              ← OIDC provider + deploy role (policies/ = .tftpl templates)
 └── packages/                  ← reserved for future shared packages (currently empty)
 ```
 
@@ -189,6 +192,7 @@ Add new specs to this table as they are created.
 - **No Cognito Identity Pool**: Web Identity federation is performed directly via STS `AssumeRoleWithWebIdentity` using the User Pool JWT. Per-user S3 isolation via IAM session tags.
 - **IaC scope — hosting layer only (SPEC-003)**: The current IaC provisions only the hosting infrastructure: static assets S3 bucket, CloudFront distribution, and the GitHub Actions OIDC deployment role. Data infrastructure (Cognito User Pool, shared IAM portal role, user-space S3 bucket, shared-space S3 bucket) was out of scope for SPEC-003 and will be added to the IaC in a future spec. Do not assume these resources exist in AWS until that spec is complete.
 - **Bucket 2 access model redesigned**: The original design used a daily Terraform-managed IAM policy pipeline to grant/revoke prefix access. This has been replaced by a user-managed access key model — users will create keys and grant/revoke access to other users themselves. A backend service or cloud process will likely be required. This model is not yet designed or specced. Do not build anything referencing the old daily-IAM-pipeline model.
+- **IaC organized as bounded-context modules**: `infra/modules/app/` (hosting) and `infra/modules/base/` (OIDC + deploy role). New infrastructure domains get their own module (e.g. `auth/` for Cognito, `data/` for personal/shared buckets) — do not group resources by AWS service type into shared files. IAM policies live as `.tftpl` JSON templates under the owning module's `policies/` folder, rendered with `templatefile()`.
 - **Current dev working state**: Until auth is implemented, the app targets a single publicly accessible or statically credentialed test bucket. `VITE_AWS_ACCESS_KEY_ID` being absent causes the S3 client to fall back to anonymous (unsigned) requests (SPEC-002). Authentication, user prefix scoping, and multi-bucket support are all deferred.
 
 ---
