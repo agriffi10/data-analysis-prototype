@@ -6,7 +6,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names"
   type        = string
-  default     = "s3-upload-portal"
+  default     = "dat"
 }
 
 variable "github_repo" {
