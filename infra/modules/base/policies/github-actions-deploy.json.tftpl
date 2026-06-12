@@ -208,7 +208,10 @@
         "logs:TagResource",
         "logs:UntagResource"
       ],
-      "Resource": "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup:*"
+      "Resource": [
+        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup",
+        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup:*"
+      ]
     },
     {
       "Sid": "PreSignupLambdaLogsDescribe",
