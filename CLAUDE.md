@@ -236,7 +236,8 @@ Add new specs to this table as they are created.
 2. Read the file at [`@docs/architecture.md`]
 3. Read the spec for the feature being worked on (`@docs/specs/<spec>.md`).
 4. Read the completed specs under [`@docs/spec-delivery/<spec>.md`]
-5. Before writing code for a new spec, start from an up-to-date `main` and branch from there: `git checkout main && git pull` (or `git fetch origin && git switch -c <branch> origin/main`), then create the feature branch (e.g. `feature-<short-name>`). This avoids branching off a stale `main` that's missing a just-merged spec's work. If you already have a branch that predates a recently merged spec, recreate or rebase it onto the latest `main`.
-6. Confirm the phase to implement before writing any code.
-7. After completing a phase, stop and summarize what was built and what the checkpoint test is.
-8. When a spec is completed: (a) set its **Status** field to `Completed`, (b) update the Active Specs table in this file, (c) use the template at [`@docs/templates/spec-completion-template`] to create a delivery doc at [`@docs/spec-delivery/SPEC-<XXX>-<spec>.md`].
+5. Before starting any spec, check that the most recent GitHub Actions workflow runs on `main` succeeded (`gh run list --branch main --limit 10`) — confirm the prior spec's deploy ran smoothly. If any run failed (especially `Deploy Infrastructure` / `Deploy Lambdas` / `Deploy App`), investigate (`gh run view <id> --log-failed`) and resolve it before building on top of a broken `main`.
+6. Before writing code for a new spec, start from an up-to-date `main` and branch from there: `git checkout main && git pull` (or `git fetch origin && git switch -c <branch> origin/main`), then create the feature branch (e.g. `feature-<short-name>`). This avoids branching off a stale `main` that's missing a just-merged spec's work. If you already have a branch that predates a recently merged spec, recreate or rebase it onto the latest `main`.
+7. Confirm the phase to implement before writing any code.
+8. After completing a phase, stop and summarize what was built and what the checkpoint test is.
+9. When a spec is completed: (a) set its **Status** field to `Completed`, (b) update the Active Specs table in this file, (c) use the template at [`@docs/templates/spec-completion-template`] to create a delivery doc at [`@docs/spec-delivery/SPEC-<XXX>-<spec>.md`].

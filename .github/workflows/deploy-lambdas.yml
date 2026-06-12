@@ -65,6 +65,25 @@ jobs:
           FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${{ matrix.lambda.name }}"
           KEY="${{ matrix.lambda.name }}/${GITHUB_SHA}.zip"
 
+          # The function + artifacts bucket are created by deploy-infra.yml. When a
+          # merge touches both infra/ and lambdas/, both workflows fire on the same
+          # push and this one can win the race — so wait for the infrastructure to
+          # exist (up to ~5 min) before deploying, instead of failing with
+          # NoSuchBucket / ResourceNotFound.
+          for attempt in $(seq 1 30); do
+            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null \
+               && aws lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
+              echo "Infrastructure ready for ${FUNCTION}."
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Bucket ${BUCKET} or function ${FUNCTION} not ready after ~5 min. Run Deploy Infrastructure first."
+              exit 1
+            fi
+            echo "Waiting for infrastructure (attempt ${attempt}/30)…"
+            sleep 10
+          done
+
           aws s3 cp "build/${{ matrix.lambda.name }}.zip" "s3://${BUCKET}/${KEY}"
           aws lambda update-function-code \
             --function-name "$FUNCTION" \
