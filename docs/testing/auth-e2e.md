@@ -95,6 +95,53 @@ e.g. `e2e.tester`. The username becomes the user's S3 prefix and audit identity.
 
 ---
 
+## Verifying Scoped Credentials & the `username` Principal Tag (SPEC-011)
+
+Run this **before Cleanup** (the test user must still exist), after #17 is deployed
+and you've signed in with a **fresh** session. It proves the Identity Pool issues
+scoped AWS credentials and stamps the `username` principal tag server-side.
+
+**Prerequisites**
+- [ ] #17 deployed; the build has `VITE_COGNITO_IDENTITY_POOL_ID` set (see GitHub Actions variables).
+- [ ] Signed in on the new build. If you had a cached pre-identity-pool session, sign out and back in — credentials are issued at token exchange, and a stale session won't have them.
+
+**1. Credentials are issued (browser)**
+
+DevTools → Network, filter `cognito-identity`. After sign-in you should see
+`GetId` and `GetCredentialsForIdentity` return **200** — that is the User-Pool-token
+→ AWS-credentials exchange. (The Identity Pool's *Identities* list in the console
+also shows a new identity after the user's first sign-in.)
+   - [ ] Pass
+
+**2. The `username` principal tag (CloudTrail — authoritative, FR-002)**
+
+CloudTrail can lag a few minutes after sign-in. Then:
+
+```bash
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --max-results 5 \
+  --query 'Events[].CloudTrailEvent' --output text \
+  | grep -o '"principalTags":{[^}]*}'
+```
+
+Expect a `principalTags` map containing `"username":"<your-cognito-username>"`.
+   - [ ] `principalTags.username` == the signed-in username
+
+> **If `principalTags` is absent or has no `username`:** the claim key is wrong.
+> In `infra/modules/auth/identity-pool.tf`, change
+> `principal_tags = { username = "username" }` → `{ username = "cognito:username" }`,
+> re-apply, sign in again, and re-check. (This is the open FR-002 item.)
+
+**3. S3 is still denied — expected**
+
+The portal role has **no permissions** until SPEC-013, so any S3 call made with
+these credentials returns `AccessDenied`. That is correct at this stage; scoped
+per-prefix access turns on in SPEC-013. The SPEC-011 checkpoint is "credentials
+issued + `username` tag in CloudTrail," not "S3 works."
+
+---
+
 ## Cleanup
 
 Delete the test user so the script is repeatable and the directory stays clean:
