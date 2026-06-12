@@ -187,6 +187,47 @@ describe('root prefix clamping', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('uses rootLabel for the root crumb, hiding the raw prefix segment (SPEC-013)', () => {
+    // The username is the navigation floor but must never be shown to the user.
+    render(
+      <FileBrowser
+        bucket="my-bucket"
+        prefix="alice/"
+        rootPrefix="alice/"
+        rootLabel="My Files"
+      />,
+    );
+    const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
+    expect(within(nav).getByText('My Files')).toBeInTheDocument();
+    // The raw username segment is never rendered.
+    expect(within(nav).queryByText('alice')).not.toBeInTheDocument();
+  });
+
+  it('keeps showing the username segment as the floor label when browsing deeper, still hidden', () => {
+    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
+      ...base,
+      folders:
+        prefix === 'alice/'
+          ? [{ type: 'folder', prefix: 'alice/docs/', name: 'docs' }]
+          : [],
+    }));
+    render(
+      <FileBrowser
+        bucket="my-bucket"
+        prefix="alice/"
+        rootPrefix="alice/"
+        rootLabel="My Files"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /open folder docs/i }));
+
+    const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
+    expect(within(nav).getByRole('button', { name: 'My Files' })).toBeInTheDocument();
+    expect(within(nav).queryByText('alice')).not.toBeInTheDocument();
+    expect(within(nav).getByText('docs')).toHaveAttribute('aria-current', 'page');
+  });
+
   it('does not show path segments above rootPrefix when browsing deeper', () => {
     mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
       ...base,

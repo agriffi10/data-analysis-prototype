@@ -1,22 +1,23 @@
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { listFiles } from './fileBrowser.service';
 
-vi.mock('../../lib/s3Client', () => ({
-  s3Client: {
-    send: vi.fn(),
-  },
+// The service now obtains an authenticated client via getS3Client() (SPEC-013).
+// Mock that + the client's send. vi.hoisted lets the mock factory reference these.
+const { mockSend, mockGetS3Client, mockStaticSend } = vi.hoisted(() => ({
+  mockSend: vi.fn(),
+  mockGetS3Client: vi.fn(),
+  mockStaticSend: vi.fn(),
 }));
 
-import { s3Client } from '../../lib/s3Client';
-
-// S3Client.send is a heavily-overloaded generic; cast to a simpler mock type
-// so mockResolvedValueOnce / mockRejectedValueOnce work under strict TS.
-const mockSend = s3Client.send as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+vi.mock('../../lib/s3Client', () => ({
+  s3Client: { send: mockStaticSend }, // dev-only fallback; unused on the auth path
+  getS3Client: mockGetS3Client,
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: an authenticated client whose send is mockSend.
+  mockGetS3Client.mockResolvedValue({ success: true, data: { send: mockSend } });
 });
 
 describe('listFiles', () => {
@@ -72,10 +73,7 @@ describe('listFiles', () => {
         { Key: 'zebra.txt', Size: 10, LastModified: new Date() },
         { Key: 'apple.txt', Size: 10, LastModified: new Date() },
       ],
-      CommonPrefixes: [
-        { Prefix: 'monkeys/' },
-        { Prefix: 'ants/' },
-      ],
+      CommonPrefixes: [{ Prefix: 'monkeys/' }, { Prefix: 'ants/' }],
     });
 
     const result = await listFiles('my-bucket');
@@ -106,10 +104,7 @@ describe('listFiles', () => {
   });
 
   it('returns empty lists when bucket/prefix is empty', async () => {
-    mockSend.mockResolvedValueOnce({
-      Contents: [],
-      CommonPrefixes: [],
-    });
+    mockSend.mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
 
     const result = await listFiles('my-bucket');
 
@@ -133,7 +128,9 @@ describe('listFiles', () => {
   });
 
   it('returns success: false on SDK error without throwing', async () => {
-    const sdkError = Object.assign(new Error('Access Denied'), { name: 'AccessDenied' });
+    const sdkError = Object.assign(new Error('Access Denied'), {
+      name: 'AccessDenied',
+    });
     mockSend.mockRejectedValueOnce(sdkError);
 
     const result = await listFiles('my-bucket');
@@ -143,6 +140,8 @@ describe('listFiles', () => {
 
     expect(result.error.message).toBe('Access Denied');
     expect(result.error.code).toBe('AccessDenied');
+    // A non-expiry error must NOT trigger a credential refresh/retry.
+    expect(mockGetS3Client).toHaveBeenCalledTimes(1);
   });
 
   it('sends a ListObjectsV2Command with the correct bucket and prefix', async () => {
@@ -160,5 +159,36 @@ describe('listFiles', () => {
         },
       }),
     );
+  });
+
+  it('retries once with refreshed credentials on an expired-token error', async () => {
+    mockSend
+      .mockRejectedValueOnce(
+        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
+      )
+      .mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
+
+    const result = await listFiles('my-bucket', 'alice/');
+
+    expect(result.success).toBe(true);
+    // Two client acquisitions: the normal one, then a forced refresh.
+    expect(mockGetS3Client).toHaveBeenCalledTimes(2);
+    expect(mockGetS3Client).toHaveBeenNthCalledWith(1);
+    expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces the credential error when getS3Client fails (not signed in)', async () => {
+    mockGetS3Client.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'No AWS credentials — sign in required' },
+    });
+
+    const result = await listFiles('my-bucket', 'alice/');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.message).toBe('No AWS credentials — sign in required');
+    expect(mockSend).not.toHaveBeenCalled();
   });
 });
