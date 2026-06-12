@@ -27,6 +27,18 @@ data "archive_file" "pre_signup_placeholder" {
   }
 }
 
+# IAM propagation guard: this spec grants the deploy role lambda/iam/logs perms
+# (modules/base) in the same apply that then creates these resources. The
+# module-level depends_on (auth -> base) orders the calls so the deploy policy is
+# written first, but IAM is eventually consistent; this fresh time_sleep (created
+# this apply) absorbs the propagation window — same rationale as the identity-pool
+# guard. EVERY resource that needs a freshly-granted permission must depend on it
+# (the exec role -> iam:CreateRole, the log group -> logs:CreateLogGroup) — not
+# just the function — or those calls race the propagation and hit AccessDenied.
+resource "time_sleep" "wait_for_lambda_perms" {
+  create_duration = "60s"
+}
+
 # ── Execution role ────────────────────────────────────────────────────────────
 # Logs only — the function makes no AWS API calls. Trust + permissions are JSON
 # template files under policies/, rendered with templatefile() (same convention
@@ -34,6 +46,8 @@ data "archive_file" "pre_signup_placeholder" {
 resource "aws_iam_role" "pre_signup" {
   name               = "${local.pre_signup_function_name}-role"
   assume_role_policy = templatefile("${path.module}/policies/pre-signup-trust.json.tftpl", {})
+
+  depends_on = [time_sleep.wait_for_lambda_perms]
 }
 
 resource "aws_iam_role_policy" "pre_signup_logs" {
@@ -50,15 +64,8 @@ resource "aws_iam_role_policy" "pre_signup_logs" {
 resource "aws_cloudwatch_log_group" "pre_signup" {
   name              = "/aws/lambda/${local.pre_signup_function_name}"
   retention_in_days = 14
-}
 
-# IAM propagation guard: this spec grants the deploy role lambda/iam/logs perms
-# (modules/base) in the same apply that then creates these resources. The
-# module-level depends_on (auth -> base) orders the calls, but IAM is eventually
-# consistent; this fresh time_sleep (created this apply) absorbs the propagation
-# window — same rationale as the identity-pool guard.
-resource "time_sleep" "wait_for_lambda_perms" {
-  create_duration = "30s"
+  depends_on = [time_sleep.wait_for_lambda_perms]
 }
 
 resource "aws_lambda_function" "pre_signup" {
