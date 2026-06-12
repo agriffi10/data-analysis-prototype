@@ -2,52 +2,46 @@
 # A Cognito pre-signup trigger that enforces the username rule server-side at
 # registration (^[a-zA-Z0-9._@-]{3,64}$). The username becomes the user's S3
 # prefix and `username` principal tag, so an unsafe username must never be
-# created. Code lives in lambda/pre-signup/index.mjs; rule rationale is there.
+# created.
+#
+# Code ownership split: Terraform owns the function INFRASTRUCTURE (role, runtime
+# config, log group, pool trigger) and bootstraps it with a placeholder zip.
+# GitHub Actions (.github/workflows/deploy-lambdas.yml) owns the actual CODE —
+# it builds the Python package from /lambdas/pre-signup, uploads it to the lambda
+# artifacts bucket, and calls update-function-code. `ignore_changes` on the code
+# attributes keeps `tofu apply` from reverting CI's deployed code.
 
 locals {
   pre_signup_function_name = "${var.project_name}-${var.environment}-pre-signup"
 }
 
-# Package the handler with archive_file — no build step (pure ESM, no deps).
-data "archive_file" "pre_signup" {
+# Placeholder package so the function is valid at create time. The real code is
+# deployed by CI; this stub only ever runs if a deploy has not happened yet.
+data "archive_file" "pre_signup_placeholder" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda/pre-signup"
-  output_path = "${path.module}/lambda/pre-signup.zip"
+  output_path = "${path.module}/build/pre-signup-placeholder.zip"
+
+  source {
+    content  = "def handler(event, context):\n    raise Exception('pre-signup Lambda code not yet deployed by CI')\n"
+    filename = "pre_signup.py"
+  }
 }
 
 # ── Execution role ────────────────────────────────────────────────────────────
-# Logs only — the function makes no AWS API calls.
+# Logs only — the function makes no AWS API calls. Trust + permissions are JSON
+# template files under policies/, rendered with templatefile() (same convention
+# as the base and data modules).
 resource "aws_iam_role" "pre_signup" {
-  name = "${local.pre_signup_function_name}-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect    = "Allow"
-        Principal = { Service = "lambda.amazonaws.com" }
-        Action    = "sts:AssumeRole"
-      }
-    ]
-  })
+  name               = "${local.pre_signup_function_name}-role"
+  assume_role_policy = templatefile("${path.module}/policies/pre-signup-trust.json.tftpl", {})
 }
 
 resource "aws_iam_role_policy" "pre_signup_logs" {
   name = "logs"
   role = aws_iam_role.pre_signup.id
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-        ]
-        Resource = "${aws_cloudwatch_log_group.pre_signup.arn}:*"
-      }
-    ]
+  policy = templatefile("${path.module}/policies/pre-signup-permissions.json.tftpl", {
+    log_group_arn = aws_cloudwatch_log_group.pre_signup.arn
   })
 }
 
@@ -70,14 +64,18 @@ resource "time_sleep" "wait_for_lambda_perms" {
 resource "aws_lambda_function" "pre_signup" {
   function_name = local.pre_signup_function_name
   role          = aws_iam_role.pre_signup.arn
-  runtime       = "nodejs20.x"
-  handler       = "index.handler"
+  runtime       = "python3.12"
+  handler       = "pre_signup.handler"
 
-  filename         = data.archive_file.pre_signup.output_path
-  source_code_hash = data.archive_file.pre_signup.output_base64sha256
+  # Bootstrap with the placeholder; CI replaces the code via update-function-code.
+  filename         = data.archive_file.pre_signup_placeholder.output_path
+  source_code_hash = data.archive_file.pre_signup_placeholder.output_base64sha256
 
-  # Ensure the log group exists first so Lambda writes into the retention-managed
-  # group rather than auto-creating an unmanaged one.
+  lifecycle {
+    # CI owns the code — never revert it on apply.
+    ignore_changes = [filename, source_code_hash]
+  }
+
   depends_on = [
     aws_iam_role_policy.pre_signup_logs,
     aws_cloudwatch_log_group.pre_signup,

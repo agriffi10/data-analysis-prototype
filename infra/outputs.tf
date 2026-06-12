@@ -47,3 +47,13 @@ output "cognito_identity_pool_id" {
   description = "Cognito Identity Pool ID. Set VITE_COGNITO_IDENTITY_POOL_ID to this value (SPEC-011)."
   value       = module.auth.identity_pool_id
 }
+
+output "lambda_artifacts_bucket_name" {
+  description = "Lambda deployment artifacts bucket (SPEC-012). The deploy-lambdas workflow uploads packages here before update-function-code."
+  value       = module.lambda_artifacts.bucket_name
+}
+
+output "pre_signup_function_name" {
+  description = "Name of the pre-signup validation Lambda (SPEC-012). The deploy-lambdas workflow targets this for update-function-code."
+  value       = module.auth.pre_signup_function_name
+}

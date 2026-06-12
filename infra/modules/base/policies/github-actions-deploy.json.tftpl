@@ -163,6 +163,7 @@
         "lambda:GetRuntimeManagementConfig",
         "lambda:UpdateFunctionCode",
         "lambda:UpdateFunctionConfiguration",
+        "lambda:PublishVersion",
         "lambda:DeleteFunction",
         "lambda:ListVersionsByFunction",
         "lambda:GetPolicy",
@@ -209,6 +210,15 @@
         "logs:UntagResource"
       ],
       "Resource": "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup:*"
+    },
+    {
+      "Sid": "S3LambdaArtifactsBucketManage",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "${lambda_artifacts_bucket_arn}",
+        "${lambda_artifacts_bucket_arn}/*"
+      ]
     },
     {
       "Sid": "TofuStateS3",

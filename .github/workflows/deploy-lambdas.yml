@@ -1,0 +1,74 @@
+name: Deploy Lambdas
+
+# Builds and deploys the actual Lambda code (Terraform only manages the function
+# infrastructure + a placeholder; see infra/modules/auth/lambda.tf). For each
+# function under lambdas/, this installs the shared requirements, zips the
+# package, uploads it to the artifacts bucket, and runs update-function-code.
+
+on:
+  push:
+    branches: [main]
+    paths: ['lambdas/**']
+  workflow_dispatch:
+
+# Resource names are derived deterministically from the same project/environment
+# the IaC uses (defaults match infra/variables.tf). Override via repo Variables
+# only if you changed TF_VAR_project_name / TF_VAR_environment.
+env:
+  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
+  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      matrix:
+        # One entry per function. `name` is both the lambdas/ subdir and the
+        # function-name suffix ({project}-{env}-{name}).
+        lambda:
+          - name: pre-signup
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          BUILD_DIR="build/${{ matrix.lambda.name }}"
+          rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
+          # Shared deps for all lambdas (no-op when requirements.txt is empty).
+          pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
+          cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
+          (cd "$BUILD_DIR" && zip --quiet --recurse-paths "../${{ matrix.lambda.name }}.zip" .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload artifact and deploy
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="${PROJECT_NAME}-lambda-artifacts-${ACCOUNT_ID}"
+          FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${{ matrix.lambda.name }}"
+          KEY="${{ matrix.lambda.name }}/${GITHUB_SHA}.zip"
+
+          aws s3 cp "build/${{ matrix.lambda.name }}.zip" "s3://${BUCKET}/${KEY}"
+          aws lambda update-function-code \
+            --function-name "$FUNCTION" \
+            --s3-bucket "$BUCKET" \
+            --s3-key "$KEY" \
+            --publish
+          aws lambda wait function-updated --function-name "$FUNCTION"
