@@ -82,5 +82,23 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
   }
 }
 
-# No bucket policy yet — SPEC-013 adds the policy restricting access to the portal
-# role (and break-glass account root) once that role exists.
+# ── Bucket Policy — defense in depth (SPEC-013 FR-002) ───────────────────────
+# Denies S3 *data* actions (object CRUD + ListBucket) to every principal except
+# the portal role and the account root (break-glass). This is belt-and-suspenders
+# on top of the role's identity policy: even a misconfigured principal can't read
+# or write user data. Bucket *configuration* actions (PutBucketPolicy, lifecycle,
+# etc.) are intentionally NOT denied, so the deploy role keeps managing the bucket
+# via its identity policy and a bad policy can never lock out the IaC (root can
+# always recover). Uses aws:PrincipalArn rather than relying on absence of grants.
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket_policy" "user_space" {
+  bucket = aws_s3_bucket.user_space.id
+
+  policy = templatefile("${path.module}/policies/user-space-bucket-policy.json.tftpl", {
+    bucket_arn       = aws_s3_bucket.user_space.arn
+    portal_role_arn  = aws_iam_role.portal.arn
+    portal_role_name = var.portal_role_name
+    account_id       = data.aws_caller_identity.current.account_id
+  })
+}

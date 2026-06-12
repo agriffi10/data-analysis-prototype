@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UserPrefixObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "${bucket_arn}/$${aws:PrincipalTag/username}/*"
+    },
+    {
+      "Sid": "UserPrefixList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "$${aws:PrincipalTag/username}/",
+            "$${aws:PrincipalTag/username}/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ProtectPrefixMarker",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": "${bucket_arn}/*/DO_NOT_DELETE.txt"
+    }
+  ]
+}

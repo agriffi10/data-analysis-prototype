@@ -36,3 +36,19 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
     authenticated = aws_iam_role.portal.arn
   }
 }
+
+# ── Prefix-Scoped Permission Policy (SPEC-013 FR-001) ────────────────────────
+# Turns on real S3 access: each session may read/write/delete only under its own
+# {username}/ prefix, where {username} is the `username` principal tag the Identity
+# Pool stamps server-side (SPEC-011) — never asserted by the client. A session
+# without the tag matches nothing, so it gets an implicit deny (no access). The
+# tag variable is escaped as $${aws:PrincipalTag/username} in the template so
+# templatefile() emits it literally instead of interpolating it.
+resource "aws_iam_role_policy" "portal_permissions" {
+  name = "user-space-access"
+  role = aws_iam_role.portal.id
+
+  policy = templatefile("${path.module}/policies/portal-role-permissions.json.tftpl", {
+    bucket_arn = aws_s3_bucket.user_space.arn
+  })
+}
