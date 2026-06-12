@@ -172,12 +172,18 @@ end-to-end check with two real users.
 
 1. Sign up two users via the Hosted UI (or reuse existing): **alice** and **bob**
    (any names matching `^[a-zA-Z0-9._@-]{3,64}$`).
-2. As an admin, seed one object in each prefix so there is something to read:
+2. Seed one object in each prefix so there is something to read. The bucket policy
+   (SPEC-013 FR-002) denies data writes to everyone except the portal role and the
+   **account root**, so seed as **root** (a regular IAM admin user gets
+   `AccessDenied` — that is the policy working). Alternatively, each user can seed
+   their *own* file from the signed-in app (step 4 below) since their session is the
+   portal role.
 
 ```bash
-BUCKET=$(cd infra && tofu output -raw s3_user_space_bucket_name)
-echo "alice data"  > /tmp/a.txt && aws s3 cp /tmp/a.txt "s3://$BUCKET/alice/hello.txt"
-echo "bob data"    > /tmp/b.txt && aws s3 cp /tmp/b.txt "s3://$BUCKET/bob/hello.txt"
+# As account root (regular IAM admins are denied by the bucket policy):
+BUCKET=dat-prod-user-space   # = `tofu output -raw s3_user_space_bucket_name`
+echo "alice data" > /tmp/a.txt && aws s3 cp /tmp/a.txt "s3://$BUCKET/alice/hello.txt"
+echo "bob data"   > /tmp/b.txt && aws s3 cp /tmp/b.txt "s3://$BUCKET/bob/hello.txt"
 ```
 
 ### Steps (as alice)
@@ -189,24 +195,30 @@ echo "bob data"    > /tmp/b.txt && aws s3 cp /tmp/b.txt "s3://$BUCKET/bob/hello.
 2. **Brand-new user empty state.** A user with no objects yet sees the empty
    state ("This folder is empty."), not an error.
    - [ ] empty prefix renders the empty state.
-3. **Cross-user denied (hand-crafted SDK calls).** In the browser dev console on
-   the signed-in app, run scoped-credential calls against `bob/` and the bucket
-   root. Each must fail with `AccessDenied`:
+3. **Cross-user denied (hand-crafted SDK calls).** Run scoped-credential calls
+   against `bob/` and the bucket root from alice's session — each must fail with
+   `AccessDenied`. Run this against a **dev build** (`npm run dev`) pointed at the
+   real Cognito + bucket: the production bundle's console can't `import()` bare
+   module specifiers (and `import.meta` isn't valid in the console), so the dev
+   server is what makes the dynamic imports resolve. Bucket/region are hardcoded
+   for the same reason — `import.meta.env` is inlined at build time, not available
+   at the console:
 
 ```js
-// In the app's dev console (uses the live Identity Pool credentials):
+// Run in the dev-server (npm run dev) console while signed in as alice:
 const { fetchAuthSession } = await import('aws-amplify/auth');
 const { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } =
   await import('@aws-sdk/client-s3');
 const { credentials } = await fetchAuthSession();
-const s3 = new S3Client({ region: import.meta.env.VITE_AWS_REGION, credentials });
-const bucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET;
+const s3 = new S3Client({ region: 'us-east-1', credentials });
+const bucket = 'dat-prod-user-space';
 
-// Each of these should throw AccessDenied:
-await s3.send(new GetObjectCommand({ Bucket: bucket, Key: 'bob/hello.txt' }));      // GET bob/
-await s3.send(new PutObjectCommand({ Bucket: bucket, Key: 'bob/x.txt', Body: 'x' }));// PUT bob/
-await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: 'bob/' }));        // LIST bob/
-await s3.send(new ListObjectsV2Command({ Bucket: bucket }));                        // LIST root (no prefix)
+// Each of these should throw AccessDenied (AccessDenied is returned whether or
+// not bob/ has any objects, so a second user's data isn't even required):
+await s3.send(new GetObjectCommand({ Bucket: bucket, Key: 'bob/hello.txt' }));       // GET bob/
+await s3.send(new PutObjectCommand({ Bucket: bucket, Key: 'bob/x.txt', Body: 'x' })); // PUT bob/
+await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: 'bob/' }));         // LIST bob/
+await s3.send(new ListObjectsV2Command({ Bucket: bucket }));                         // LIST root (no prefix)
 ```
 
    - [ ] `GetObject bob/hello.txt` → `AccessDenied`
@@ -249,3 +261,4 @@ aws cognito-idp admin-delete-user \
 | Date | Executed by | App URL / env | Result | Notes (incl. Hosted UI auto-login behavior) |
 |---|---|---|---|---|
 | 2026-06-11 | Andrew Griffith | Deployed CloudFront | Core flow PASS | Hosted UI requires **one explicit login** after code confirmation (not auto-sign-in) — FR-003 resolved. Not run this pass: re-login (10), wrong-code/resend (14), duplicate signup (15), forgot-password (16); test-user cleanup pending. Re-run these in a future pass. |
+| 2026-06-12 | Andrew Griffith | Deployed CloudFront | SPEC-013 FR-003 PASS | Signed-in test user lists their own seeded object (seeded via root) in the deployed `/files` browser, no errors — authenticated user-space path + prefix scoping + bucket policy all work end to end (the bucket-policy Deny does **not** block own-prefix access). FR-004 cross-user denial proven at the policy layer via `aws iam simulate-principal-policy`; live negative-path run (dev-server console) still to be executed. |
