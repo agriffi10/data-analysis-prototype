@@ -644,7 +644,7 @@ Add staging environment here when it is provisioned.
 | SPEC-010 | User-space bucket IaC — `infra/modules/data/` (bucket, CORS, encryption) | Draft |
 | SPEC-011 | Scoped credentials — Identity Pool ABAC + portal role (trust only, no S3 perms) | Draft |
 | SPEC-012 | Pre-signup username validation — Cognito trigger Lambda | Completed |
-| SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Draft |
+| SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Completed |
 | SPEC-014 | User prefix marker — app writes `{username}/DO_NOT_DELETE.txt` on first login | Draft |
 | SPEC-015 | File download + data foundation (TanStack Query, pagination, presigned URLs) | Draft |
 | SPEC-016 | File upload (≤5 MB) + create folder | Draft |

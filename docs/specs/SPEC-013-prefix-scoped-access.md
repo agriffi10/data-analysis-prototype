@@ -1,8 +1,8 @@
 # Spec: Prefix-Scoped S3 Access — Policy + File Browser Switchover
 
 **ID:** SPEC-013
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-12
 **Depends On:** SPEC-010 (bucket), SPEC-011 (identity-tagged credentials), SPEC-012 (validated usernames)
 
 > **Note:** Do not start this spec until SPEC-011's principal tag mapping is verified in CloudTrail — the policy below is a no-op (denies everything) without the `username` principal tag.
