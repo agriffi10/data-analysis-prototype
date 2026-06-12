@@ -17,3 +17,8 @@ output "identity_pool_id" {
   description = "Cognito Identity Pool ID. Maps to VITE_COGNITO_IDENTITY_POOL_ID; consumed by the data module's roles attachment + portal role trust."
   value       = aws_cognito_identity_pool.portal.id
 }
+
+output "pre_signup_function_name" {
+  description = "Name of the pre-signup validation Lambda (SPEC-012). The deploy-lambdas workflow targets this for update-function-code."
+  value       = aws_lambda_function.pre_signup.function_name
+}

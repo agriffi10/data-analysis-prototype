@@ -1,8 +1,8 @@
 # Spec: Pre-Signup Username Validation — Cognito Trigger Lambda
 
 **ID:** SPEC-012
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-12
 **Depends On:** SPEC-006 (User Pool), SPEC-009 (signup flow this validates)
 
 ## Overview
@@ -15,9 +15,10 @@ This spec replaces an earlier, larger draft ("Custom Attributes + Token Claims")
 
 ### In Scope
 
-- Pre-signup Lambda (Node.js 20.x) validating username length and charset
-- Lambda IaC in `infra/modules/auth/` (code, execution role, log group, trigger wiring)
-- Deploy role permission expansion (Lambda + execution role + logs + trigger config)
+- Pre-signup Lambda (Python 3.12) validating username length and charset
+- Lambda **infrastructure** IaC in `infra/modules/auth/` (execution role, log group, trigger wiring, placeholder function); the Python source lives at the repo root under `lambdas/`
+- A shared Lambda artifacts S3 bucket (`infra/modules/lambda-artifacts/`) and a `deploy-lambdas.yml` GitHub Actions workflow that builds + deploys the code
+- Deploy role permission expansion (Lambda + execution role + logs + trigger config + artifacts bucket + `update-function-code`)
 - Alignment of SPEC-009's landing-page guidance text with the enforced rule
 
 ### Out of Scope
@@ -39,10 +40,10 @@ One authoritative username rule, enforced server-side and documented for users.
 
 #### Acceptance Criteria:
 
-- [ ] Allowed pattern: `^[a-zA-Z0-9._@-]{3,64}$` (S3-prefix-safe and IAM-tag-safe; no `/`, no spaces, no `=` or `,` to keep prefixes clean)
-- [ ] The pattern is defined once in the Lambda and quoted verbatim in a code comment + this spec
-- [ ] SPEC-009's landing-page guidance text (FR-001 there) is updated to state the same rule
-- [ ] Rejection raises an error from the Lambda whose message is user-readable on the Hosted UI signup page (e.g. "Username must be 3–64 characters using only letters, numbers, . _ @ -")
+- [x] Allowed pattern: `^[a-zA-Z0-9._@-]{3,64}$` (S3-prefix-safe and IAM-tag-safe; no `/`, no spaces, no `=` or `,` to keep prefixes clean)
+- [x] The pattern is defined once in the Lambda and quoted verbatim in a code comment + this spec
+- [x] SPEC-009's landing-page guidance text (FR-001 there) already states the same rule — verified, no change needed
+- [x] Rejection raises an error from the Lambda whose message is user-readable on the Hosted UI signup page (e.g. "Username must be 3–64 characters using only letters, numbers, . _ @ -")
 
 ### FR-002: Pre-Signup Lambda
 
@@ -52,18 +53,19 @@ The trigger itself — validate and pass through, or reject.
 
 #### Acceptance Criteria:
 
-- [ ] Code at `infra/modules/auth/lambda/pre-signup/index.mjs`, packaged with `archive_file` — no build step
-- [ ] Valid username: returns the event unchanged (does **not** auto-confirm or auto-verify — normal email verification flow proceeds)
-- [ ] Invalid username: throws with the FR-001 message; signup is blocked
-- [ ] No AWS API calls — pure validation; execution role grants logs only
-- [ ] Wired to `lambda_config.pre_sign_up` on the User Pool; pool granted `lambda:InvokeFunction`
-- [ ] CloudWatch log group with 14-day retention
+- [x] Python source at `lambdas/pre-signup/pre_signup.py` (handler `pre_signup.handler`); shared deps in `lambdas/requirements.txt`
+- [x] Terraform owns the function infrastructure and bootstraps it with a placeholder zip + `ignore_changes` on the code; `deploy-lambdas.yml` builds the package, uploads it to the artifacts bucket, and runs `update-function-code` (code deploy lives entirely in CI)
+- [x] Valid username: returns the event unchanged (does **not** auto-confirm or auto-verify — normal email verification flow proceeds)
+- [x] Invalid username: raises with the FR-001 message; signup is blocked
+- [x] No AWS API calls — pure validation; execution role grants logs only (trust + permissions as `.tftpl` templates under `policies/`)
+- [x] Wired to `lambda_config.pre_sign_up` on the User Pool; pool granted `lambda:InvokeFunction`
+- [x] CloudWatch log group with 14-day retention
 
 ### FR-003: Deploy Role Permissions
 
 #### Acceptance Criteria:
 
-- [ ] `infra/modules/base/policies/` extended: `lambda` actions scoped to this function name pattern, `iam` for its execution role (scoped), `logs` for its log group (scoped), plus the `cognito-idp` trigger-config update actions
+- [x] `infra/modules/base/policies/` extended: `lambda` actions (incl. `UpdateFunctionCode`/`PublishVersion`) scoped to the function name pattern, `iam` for its execution role (scoped, incl. `PassRole`), `logs` for its log group (scoped), `s3` for the artifacts bucket (scoped), plus the `cognito-idp` trigger-config update actions (`UpdateUserPool`, already granted)
 - [ ] `deploy-infra.yml` PR plan succeeds with the deploy role
 
 ---
@@ -76,18 +78,19 @@ None.
 
 ## API / Interface Contract
 
-```js
-// infra/modules/auth/lambda/pre-signup/index.mjs
-const USERNAME_PATTERN = /^[a-zA-Z0-9._@-]{3,64}$/;
+```python
+# lambdas/pre-signup/pre_signup.py
+import re
 
-export const handler = async (event) => {
-  if (!USERNAME_PATTERN.test(event.userName)) {
-    throw new Error(
-      'Username must be 3-64 characters using only letters, numbers, . _ @ -'
-    );
-  }
-  return event;
-};
+USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9._@-]{3,64}$")
+
+
+def handler(event, context):
+    if not USERNAME_PATTERN.fullmatch(event.get("userName", "")):
+        raise Exception(
+            "Username must be 3-64 characters using only letters, numbers, . _ @ -"
+        )
+    return event
 ```
 
 ## Environment Variables
@@ -97,13 +100,19 @@ None.
 ## File & Folder Structure
 
 ```
-infra/modules/auth/
-├── cognito.tf                  ← + lambda_config.pre_sign_up
-├── lambda.tf                   ← NEW: function, execution role, permission, log group
-└── lambda/
-    └── pre-signup/index.mjs    ← NEW
+lambdas/                                ← NEW: Lambda source (repo root)
+├── requirements.txt                    ← shared Python deps (empty for pre-signup)
+└── pre-signup/pre_signup.py            ← handler `pre_signup.handler`
 
-infra/modules/base/policies/    ← extended deploy role policy
+infra/modules/auth/
+├── cognito.tf                          ← + lambda_config.pre_sign_up
+├── lambda.tf                           ← NEW: placeholder function, exec role, permission, log group
+└── policies/                           ← NEW: exec-role trust + permissions .tftpl
+
+infra/modules/lambda-artifacts/         ← NEW: shared artifacts bucket (CI upload target)
+infra/modules/base/policies/            ← extended deploy role policy (lambda/iam/logs/artifacts)
+
+.github/workflows/deploy-lambdas.yml    ← NEW: build + update-function-code
 ```
 
 ## Implementation Phases

@@ -1,12 +1,13 @@
 # GitHub Actions Workflows
 
-This directory contains three workflows:
+This directory contains four workflows:
 
 | File | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Push to any branch; PR → `main` | Lint, unit tests, production build |
 | `deploy-app.yml` | Push to `main` | Build SPA with env vars, sync to S3, invalidate CloudFront |
 | `deploy-infra.yml` | PR → `main` (paths: `infra/**`); push to `main` (paths: `infra/**`) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
+| `deploy-lambdas.yml` | Push to `main` (paths: `lambdas/**`); manual dispatch | Build each Python Lambda package, upload to the artifacts bucket, `update-function-code` (SPEC-012) |
 
 All deploy workflows authenticate to AWS via GitHub OIDC — no long-lived credentials are stored.
 
@@ -88,3 +89,12 @@ Several workflow values are derived rather than stored as separate GitHub variab
 - `VITE_S3_USER_SPACE_BUCKET` is provisioned by SPEC-010 (`tofu output s3_user_space_bucket_name`) and will be injected into the `deploy-app.yml` build starting SPEC-013 (the file browser switchover); it is not consumed by the build before then. `VITE_S3_SHARED_SPACE_BUCKET` remains a future spec.
 - `VITE_IAM_ROLE_ARN` has been **removed** (SPEC-011): the Cognito Identity Pool issues scoped credentials and the app never handles a role ARN. `VITE_COGNITO_IDENTITY_POOL_ID` replaces it and is injected into the `deploy-app.yml` build from a GitHub Actions **variable**.
 - `TF_VAR_state_bucket` and `TF_VAR_state_lock_table` are stored as **secrets** (not variables) because they are used both as OpenTofu input variables (scoping IAM permissions in `iam.tf`) and as backend configuration passed to `tofu init`.
+
+### `deploy-lambdas.yml` (SPEC-012)
+
+Terraform owns the Lambda *infrastructure* (function, execution role, log group, Cognito trigger) and bootstraps the function with a placeholder; this workflow owns the *code*. On a push to `main` touching `lambdas/**` (or manual dispatch) it builds each function's Python package, uploads it to the artifacts bucket, and runs `aws lambda update-function-code`. The function declares `ignore_changes` on its code, so a later `tofu apply` never reverts a CI deploy.
+
+- **Prerequisite:** the IaC must be applied first — the function and the `*-lambda-artifacts-*` bucket must exist before this workflow can deploy to them. New lambdas land via `deploy-infra.yml`, then their code via this workflow.
+- **Reuses** the existing `AWS_DEPLOY_ROLE_ARN` secret and `AWS_REGION` variable — no new required config.
+- **Resource names are derived**, not stored: `{project}-{env}-{name}` for the function and `{project}-lambda-artifacts-{accountId}` for the bucket. `accountId` comes from `sts get-caller-identity`; `project`/`env` come from optional Variables `TF_VAR_project_name` / `TF_VAR_environment` (defaults `dat` / `prod`, matching `infra/variables.tf`). Set those Variables only if you overrode the Terraform defaults.
+- **Adding a lambda:** create `lambdas/<name>/<module>.py`, add the function infra under the owning Terraform module, then add a `{ name: <name> }` entry to the `matrix.lambda` list in this workflow.

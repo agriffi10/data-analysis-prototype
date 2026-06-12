@@ -183,7 +183,7 @@ tofu output          # view output values (use to populate .env.local)
 | Sign-Up End to End | `@docs/specs/SPEC-009-signup-end-to-end.md` | Completed |
 | User-Space Bucket IaC (`data` module) | `@docs/specs/SPEC-010-user-space-bucket-iac.md` | Completed |
 | Scoped Credentials (Identity Pool ABAC + Portal Role) | `@docs/specs/SPEC-011-portal-iam-role.md` | Completed |
-| Pre-Signup Username Validation (Lambda) | `@docs/specs/SPEC-012-pre-signup-validation.md` | Draft |
+| Pre-Signup Username Validation (Lambda) | `@docs/specs/SPEC-012-pre-signup-validation.md` | Completed |
 | Prefix-Scoped S3 Access + Browser Switchover | `@docs/specs/SPEC-013-prefix-scoped-access.md` | Draft |
 | User Prefix Marker (DO_NOT_DELETE.txt) | `@docs/specs/SPEC-014-user-prefix-marker.md` | Draft |
 | File Download + Data Foundation (TanStack Query) | `@docs/specs/SPEC-015-file-download-and-data-foundation.md` | Draft |

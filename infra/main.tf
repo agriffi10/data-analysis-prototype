@@ -20,6 +20,12 @@ locals {
   # (constructed string -> no data->base cycle).
   portal_role_name = var.portal_role_name != "" ? var.portal_role_name : "${var.project_name}-portal-user-role"
   portal_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.portal_role_name}"
+
+  # Lambda artifacts bucket name computed once and shared the same cycle-free way:
+  # the lambda-artifacts module creates the bucket, and base's deploy policy is
+  # scoped to its ARN (constructed string -> no lambda-artifacts->base cycle).
+  lambda_artifacts_bucket_name = "${var.project_name}-lambda-artifacts-${data.aws_caller_identity.current.account_id}"
+  lambda_artifacts_bucket_arn  = "arn:aws:s3:::${local.lambda_artifacts_bucket_name}"
 }
 
 module "app" {
@@ -39,8 +45,9 @@ module "base" {
   static_bucket_arn = module.app.static_assets_bucket_arn
 
   # Constructed (not module.data outputs) so base has no dependency on data.
-  user_space_bucket_arn = "arn:aws:s3:::${local.user_space_bucket_name}"
-  portal_role_arn       = local.portal_role_arn
+  user_space_bucket_arn       = "arn:aws:s3:::${local.user_space_bucket_name}"
+  portal_role_arn             = local.portal_role_arn
+  lambda_artifacts_bucket_arn = local.lambda_artifacts_bucket_arn
 }
 
 module "auth" {
@@ -73,5 +80,16 @@ module "data" {
   # Same ordering as auth: the deploy role grants itself the S3 + IAM-role
   # permissions (modules/base policy). Force that grant to settle before the
   # bucket/role are created, or a first apply can hit AccessDenied.
+  depends_on = [module.base]
+}
+
+module "lambda_artifacts" {
+  source = "./modules/lambda-artifacts"
+
+  bucket_name = local.lambda_artifacts_bucket_name
+
+  # Same ordering as auth/data: the deploy role grants itself this bucket's
+  # management (modules/base policy). Force that grant to settle before the
+  # bucket is created, or a first apply can hit AccessDenied.
   depends_on = [module.base]
 }

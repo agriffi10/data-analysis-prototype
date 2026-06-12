@@ -1,0 +1,3 @@
+# Shared Python dependencies for every Lambda under lambdas/.
+# deploy-lambdas.yml installs these into each function's package before zipping.
+# The pre-signup validator uses only the standard library, so this is currently empty.

@@ -21,6 +21,12 @@ resource "aws_cognito_user_pool" "portal" {
   # Signup requires an email verification code.
   auto_verified_attributes = ["email"]
 
+  # Pre-signup trigger enforces the username rule server-side (SPEC-012). Defined
+  # in lambda.tf; the User Pool is granted invoke via aws_lambda_permission there.
+  lambda_config {
+    pre_sign_up = aws_lambda_function.pre_signup.arn
+  }
+
   # Email verification uses a 6-digit code (not a link), so the user can enter it
   # on the Hosted UI. Customise the email so recipients recognise it. `{####}` is
   # the Cognito placeholder for the generated code (SPEC-009 FR-002).

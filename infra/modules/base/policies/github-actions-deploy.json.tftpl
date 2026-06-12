@@ -152,6 +152,75 @@
       "Resource": "${portal_role_arn}"
     },
     {
+      "Sid": "PreSignupLambdaManage",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:PublishVersion",
+        "lambda:DeleteFunction",
+        "lambda:ListVersionsByFunction",
+        "lambda:GetPolicy",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-pre-signup"
+    },
+    {
+      "Sid": "PreSignupLambdaExecRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRoleTags",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/${project_name}-*-pre-signup-role"
+    },
+    {
+      "Sid": "PreSignupLambdaLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:ListTagsForResource",
+        "logs:TagResource",
+        "logs:UntagResource"
+      ],
+      "Resource": "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup:*"
+    },
+    {
+      "Sid": "S3LambdaArtifactsBucketManage",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "${lambda_artifacts_bucket_arn}",
+        "${lambda_artifacts_bucket_arn}/*"
+      ]
+    },
+    {
       "Sid": "TofuStateS3",
       "Effect": "Allow",
       "Action": [
