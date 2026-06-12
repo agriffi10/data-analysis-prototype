@@ -380,6 +380,7 @@ User enters: bucket prefix → "project-alpha/"
 | Resource | Name / ARN Pattern | Purpose | IaC | Notes |
 |---|---|---|---|---|
 | Cognito User Pool | `us-east-1_XXXXXXXXX` | Standalone auth (native users) | ✓ SPEC-006 (draft) | Hosts the login UI; pre-signup Lambda (SPEC-012) |
+| Lambda — Pre-Signup Trigger | `{project}-{env}-pre-signup` | Validates username `^[a-zA-Z0-9._@-]{3,64}$` at signup | ✓ SPEC-012 | nodejs20.x; logs-only exec role; 14-day log retention; no AWS API calls |
 | Cognito User Pool Client | `XXXXXXXXXXXXXXXXXXXXXXXXXX` | App client for Amplify | ✓ SPEC-006 (draft) | No client secret (SPA) |
 | Cognito Identity Pool | `us-east-1:xxxx-...` | Exchanges User Pool token for AWS credentials; maps username claim → `username` principal tag | ✓ SPEC-011 (draft) | Authenticated identities only; enhanced flow |
 | IAM Role (shared) | `arn:aws:iam:::role/{project}-portal-user-role` | S3 access for all authenticated users | ✓ SPEC-011 (draft) | Single role; trusts the Identity Pool; per-user isolation via principal tags |
@@ -641,7 +642,7 @@ Add staging environment here when it is provisioned.
 | SPEC-009 | Sign-up end to end — Hosted UI signup, email verification, E2E acceptance script | Draft |
 | SPEC-010 | User-space bucket IaC — `infra/modules/data/` (bucket, CORS, encryption) | Draft |
 | SPEC-011 | Scoped credentials — Identity Pool ABAC + portal role (trust only, no S3 perms) | Draft |
-| SPEC-012 | Pre-signup username validation — Cognito trigger Lambda | Draft |
+| SPEC-012 | Pre-signup username validation — Cognito trigger Lambda | Completed |
 | SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Draft |
 | SPEC-014 | User prefix marker — app writes `{username}/DO_NOT_DELETE.txt` on first login | Draft |
 | SPEC-015 | File download + data foundation (TanStack Query, pagination, presigned URLs) | Draft |

@@ -1,8 +1,8 @@
 # Spec: Pre-Signup Username Validation — Cognito Trigger Lambda
 
 **ID:** SPEC-012
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-12
 **Depends On:** SPEC-006 (User Pool), SPEC-009 (signup flow this validates)
 
 ## Overview
