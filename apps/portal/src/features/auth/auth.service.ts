@@ -1,6 +1,6 @@
 import {
   getCurrentUser,
-  fetchUserAttributes,
+  fetchAuthSession,
   signInWithRedirect,
   signOut,
 } from 'aws-amplify/auth';
@@ -27,12 +27,18 @@ export async function getCurrentAuthUser(): Promise<ServiceResult<AuthUser>> {
   try {
     const { username } = await getCurrentUser();
 
+    // Email comes from the ID token's claims (we request the `email` OAuth scope),
+    // NOT from fetchUserAttributes()/GetUser: the Hosted UI access token lacks the
+    // `aws.cognito.signin.user.admin` scope that GetUser requires, so calling it
+    // 400s with "Access Token does not have required scopes". Reading the claim
+    // avoids that failed request entirely. Email stays best-effort.
     let email: string | undefined;
     try {
-      const attributes = await fetchUserAttributes();
-      email = attributes.email;
+      const session = await fetchAuthSession();
+      const claim = session.tokens?.idToken?.payload?.email;
+      email = typeof claim === 'string' ? claim : undefined;
     } catch {
-      // Attributes are optional; username alone is a valid authenticated user.
+      // The session/claim is optional; username alone is a valid authenticated user.
     }
 
     return { success: true, data: { username, email } };

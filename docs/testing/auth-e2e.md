@@ -115,6 +115,14 @@ also shows a new identity after the user's first sign-in.)
 
 **2. The `username` principal tag (CloudTrail — authoritative, FR-002)**
 
+> The credential exchange (and therefore the taggable event) only fires once the
+> app calls `fetchAuthSession()`. If sign-in produces no STS event, confirm the
+> app actually requested credentials (step 1's `GetCredentialsForIdentity`).
+>
+> Look for the **`AssumeRoleWithWebIdentity`** event from **`eventSource:
+> sts.amazonaws.com`** — *not* the `CognitoAuthentication` event (that one is just
+> the Hosted UI login on `cognito-idp`; it never carries the principal tag).
+
 CloudTrail can lag a few minutes after sign-in. Then:
 
 ```bash
