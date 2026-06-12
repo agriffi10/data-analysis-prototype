@@ -97,6 +97,11 @@ e.g. `e2e.tester`. The username becomes the user's S3 prefix and audit identity.
 
 ## Verifying Scoped Credentials & the `username` Principal Tag (SPEC-011)
 
+> **Verified 2026-06-12:** `AssumeRoleWithWebIdentity` showed `principalTags.username
+> == "agriffith"` with the mapping value `cognito:username` (the FR-002 claim key).
+> Credentials issued; role `dat-portal-user-role` assumed. S3 still denied (no
+> policy until SPEC-013) — as expected.
+
 Run this **before Cleanup** (the test user must still exist), after #17 is deployed
 and you've signed in with a **fresh** session. It proves the Identity Pool issues
 scoped AWS credentials and stamps the `username` principal tag server-side.

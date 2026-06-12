@@ -1,8 +1,8 @@
 # Spec: Scoped AWS Credentials — Identity Pool ABAC + Shared Portal Role
 
 **ID:** SPEC-011
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-12
 **Depends On:** SPEC-006 (User Pool), SPEC-007 (login/session), SPEC-010 (data module exists)
 
 > **Note:** This spec deliberately grants the role **no S3 permissions** — those arrive in SPEC-013. Until then, sessions are tagged but can access nothing.
