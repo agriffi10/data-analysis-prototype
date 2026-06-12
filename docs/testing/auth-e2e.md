@@ -155,6 +155,81 @@ issued + `username` tag in CloudTrail," not "S3 works."
 
 ---
 
+## Verifying Prefix Isolation (SPEC-013 FR-004)
+
+Proves the core security property: a signed-in user reads/writes only their own
+`{username}/` prefix in the user-space bucket and is denied everyone else's. The
+role + bucket policies (SPEC-013 Phase 1) are already applied; this is the live
+end-to-end check with two real users.
+
+> **Pre-apply policy evidence (already captured):** `aws iam
+> simulate-principal-policy` against `dat-portal-user-role` shows own-prefix
+> Get/Put/Delete **allowed**, cross-prefix **implicitDeny**, root listing
+> **denied**, and `*/DO_NOT_DELETE.txt` delete **explicitDeny**. The steps below
+> confirm it with real Cognito sessions.
+
+### Setup
+
+1. Sign up two users via the Hosted UI (or reuse existing): **alice** and **bob**
+   (any names matching `^[a-zA-Z0-9._@-]{3,64}$`).
+2. As an admin, seed one object in each prefix so there is something to read:
+
+```bash
+BUCKET=$(cd infra && tofu output -raw s3_user_space_bucket_name)
+echo "alice data"  > /tmp/a.txt && aws s3 cp /tmp/a.txt "s3://$BUCKET/alice/hello.txt"
+echo "bob data"    > /tmp/b.txt && aws s3 cp /tmp/b.txt "s3://$BUCKET/bob/hello.txt"
+```
+
+### Steps (as alice)
+
+1. **Sees own space.** Sign in as alice → `/files` shows `hello.txt` under the
+   root crumb **"My Files"**. The username (`alice/`) is **not** shown anywhere in
+   the breadcrumb or paths.
+   - [ ] alice sees her own file; no `alice/` segment visible in the UI.
+2. **Brand-new user empty state.** A user with no objects yet sees the empty
+   state ("This folder is empty."), not an error.
+   - [ ] empty prefix renders the empty state.
+3. **Cross-user denied (hand-crafted SDK calls).** In the browser dev console on
+   the signed-in app, run scoped-credential calls against `bob/` and the bucket
+   root. Each must fail with `AccessDenied`:
+
+```js
+// In the app's dev console (uses the live Identity Pool credentials):
+const { fetchAuthSession } = await import('aws-amplify/auth');
+const { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } =
+  await import('@aws-sdk/client-s3');
+const { credentials } = await fetchAuthSession();
+const s3 = new S3Client({ region: import.meta.env.VITE_AWS_REGION, credentials });
+const bucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET;
+
+// Each of these should throw AccessDenied:
+await s3.send(new GetObjectCommand({ Bucket: bucket, Key: 'bob/hello.txt' }));      // GET bob/
+await s3.send(new PutObjectCommand({ Bucket: bucket, Key: 'bob/x.txt', Body: 'x' }));// PUT bob/
+await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: 'bob/' }));        // LIST bob/
+await s3.send(new ListObjectsV2Command({ Bucket: bucket }));                        // LIST root (no prefix)
+```
+
+   - [ ] `GetObject bob/hello.txt` → `AccessDenied`
+   - [ ] `PutObject bob/x.txt` → `AccessDenied`
+   - [ ] `ListObjectsV2 prefix=bob/` → `AccessDenied`
+   - [ ] `ListObjectsV2` on the bucket root (no prefix) → `AccessDenied`
+4. **Own access still works.** The same calls against `alice/` succeed
+   (`GetObject alice/hello.txt`, `ListObjectsV2 prefix=alice/`).
+   - [ ] own-prefix Get + List succeed.
+5. **Credential-expiry retry (optional).** Leave the tab idle past credential
+   expiry (or clear them) and navigate a folder; the browser refreshes
+   credentials once transparently and the listing loads without an error banner.
+   - [ ] mid-session expiry recovers via one silent refresh.
+
+### Cleanup (isolation test)
+
+```bash
+aws s3 rm "s3://$BUCKET/alice/hello.txt"
+aws s3 rm "s3://$BUCKET/bob/hello.txt"
+```
+
+---
+
 ## Cleanup
 
 Delete the test user so the script is repeatable and the directory stays clean:

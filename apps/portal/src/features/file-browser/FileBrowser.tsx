@@ -8,6 +8,8 @@ type Props = {
   bucket: string;
   prefix?: string;     // initial prefix; browser starts here on mount
   rootPrefix?: string; // navigation floor; defaults to prefix prop value
+  rootLabel?: string;  // label for the root crumb; hides the raw prefix segment
+                       // (e.g. "My Files" instead of the username) — SPEC-013
 };
 
 type BreadcrumbItem = {
@@ -17,7 +19,11 @@ type BreadcrumbItem = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string): BreadcrumbItem[] {
+function buildBreadcrumbs(
+  prefix: string | undefined,
+  rootPrefix: string,
+  rootLabel?: string,
+): BreadcrumbItem[] {
   if (!rootPrefix) {
     // No root clamping — standard Home-rooted breadcrumb
     const crumbs: BreadcrumbItem[] = [{ label: 'Home', prefix: undefined }];
@@ -34,10 +40,12 @@ function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string): Bread
     return crumbs;
   }
 
-  // Root-clamped breadcrumb: show only segments at or below rootPrefix
+  // Root-clamped breadcrumb: show only segments at or below rootPrefix. The root
+  // crumb uses rootLabel when provided (so the raw prefix segment — e.g. the
+  // username — is never shown), otherwise the last path segment.
   const rootParts = rootPrefix.split('/').filter(Boolean);
-  const rootLabel = rootParts[rootParts.length - 1] ?? rootPrefix;
-  const crumbs: BreadcrumbItem[] = [{ label: rootLabel, prefix: rootPrefix }];
+  const label = rootLabel ?? rootParts[rootParts.length - 1] ?? rootPrefix;
+  const crumbs: BreadcrumbItem[] = [{ label, prefix: rootPrefix }];
 
   if (!prefix || prefix === rootPrefix) return crumbs;
 
@@ -109,12 +117,12 @@ function FileRow({ file }: { file: S3FileItem }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp }: Props) {
+export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
   const { files, folders, isLoading, error } = useFileBrowser(bucket, prefix);
 
-  const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix);
+  const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const isEmpty =
     !isLoading && error === null && files.length === 0 && folders.length === 0;
   const hasContent =

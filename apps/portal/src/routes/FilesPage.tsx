@@ -1,25 +1,52 @@
 import { FileBrowser } from '../features/file-browser';
+import { useAuth } from '../features/auth';
 
-// Env-driven bucket/prefix wiring — unchanged from the pre-router App shell
-// (FR-005). Still the SPEC-002 test bucket; per-user scoping is a future spec.
-const bucket = import.meta.env.VITE_S3_BUCKET_NAME as string | undefined;
-const rawPrefix = (import.meta.env.VITE_S3_ROOT_PREFIX as string | undefined) ?? '';
-const rootPrefix =
-  rawPrefix && !rawPrefix.endsWith('/') ? `${rawPrefix}/` : rawPrefix;
+// Dev-only fallback (SPEC-013): browse a static/public test bucket without auth
+// for local work without AWS. Honoured ONLY in a dev build (matches the service
+// + ProtectedLayout guards), so production always uses the authenticated path.
+const devUnauthenticated =
+  import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
+const devBucket = import.meta.env.VITE_S3_BUCKET_NAME as string | undefined;
+const rawDevPrefix =
+  (import.meta.env.VITE_S3_ROOT_PREFIX as string | undefined) ?? '';
+const devPrefix =
+  rawDevPrefix && !rawDevPrefix.endsWith('/') ? `${rawDevPrefix}/` : rawDevPrefix;
+
+const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as
+  | string
+  | undefined;
 
 // The file browser page (`/files`). Chrome (Header) and the auth gate live in
-// ProtectedLayout — this component only renders the browser content.
+// ProtectedLayout — this component only renders the browser content. In the
+// authenticated flow (SPEC-013) it shows the user's own space in the user-space
+// bucket, rooted at `{username}/`, with the username hidden from the UI.
 export default function FilesPage() {
+  const { user } = useAuth();
+
+  // Authenticated flow: scope to the user's own prefix in the user-space bucket.
+  // The username is the navigation floor but never shown — the root crumb reads
+  // "My Files" and the user only ever sees paths below their own prefix.
+  let bucket = userSpaceBucket;
+  let rootPrefix = user ? `${user.username}/` : '';
+  let rootLabel: string | undefined = 'My Files';
+
+  if (devUnauthenticated) {
+    bucket = devBucket;
+    rootPrefix = devPrefix;
+    rootLabel = undefined; // dev: standard Home-rooted breadcrumb
+  }
+
   return (
     <main className="py-8">
       <div className="mx-auto max-w-4xl px-4">
-        {bucket ? (
+        {bucket && (devUnauthenticated || user) ? (
           <>
             <h1 className="mb-6 text-2xl font-semibold text-gray-900">Files</h1>
             <FileBrowser
               bucket={bucket}
               prefix={rootPrefix}
               rootPrefix={rootPrefix}
+              rootLabel={rootLabel}
             />
           </>
         ) : (
@@ -29,7 +56,7 @@ export default function FilesPage() {
           >
             <p className="font-medium">Configuration error</p>
             <p className="mt-1 text-sm">
-              VITE_S3_BUCKET_NAME is not set. Add it to your .env file.
+              VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.
             </p>
           </div>
         )}
