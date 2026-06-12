@@ -177,6 +177,6 @@ Unit tests pass. Manual: signed in, `getS3Client()` returns a client; an S3 call
 
 ## Open Questions
 
-- [ ] Exact claim key for the username in the principal tag mapping (`username` vs `cognito:username`) — confirm against the provider's claim list during Phase 1 and document in the resource.
+- [x] **Resolved (2026-06-12):** the claim key is **`cognito:username`**. Mapping the tag value to `username` produced a CloudTrail `AssumeRoleWithWebIdentity` event with **no `principalTags`** (that claim doesn't exist in a Cognito User Pool ID token), so the tag was never stamped. Switched the mapping value to `cognito:username` in `infra/modules/auth/identity-pool.tf`; re-verify the principal tag in CloudTrail after the next apply.
 - [x] **Resolved (2026-06-10):** role lives in `modules/data/`; identity pool and tag mapping in `modules/auth/`; roles attachment in `data` — dependency stays one-directional, no cycle.
 - [x] **Resolved (2026-06-10):** `RoleSessionName` sanitization is moot — the Identity Pool sets the session name itself; usernames are constrained at signup instead (SPEC-012).

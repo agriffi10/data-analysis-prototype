@@ -35,16 +35,18 @@ resource "aws_cognito_identity_pool" "portal" {
 # username claim, asserted by AWS at credential issuance (never by the client).
 # SPEC-013's role policy scopes S3 access with ${aws:PrincipalTag/username}.
 #
-# OPEN QUESTION (SPEC-011 FR-002): the exact claim key is unverified. `username`
-# is used here; AWS must confirm it via a CloudTrail AssumeRoleWithWebIdentity
-# event showing principalTags.username == the Cognito username. If the tag comes
-# through empty, switch the value below to "cognito:username" and re-apply.
+# Claim key resolved (SPEC-011 FR-002, 2026-06-12): the tag VALUE must be the
+# `cognito:username` claim. A first attempt mapping to `username` produced a
+# CloudTrail AssumeRoleWithWebIdentity event with NO principalTags at all (the
+# `username` claim doesn't exist in a Cognito User Pool ID token — it's
+# `cognito:username`), so the tag was never stamped. The map key (`username`) is
+# the tag NAME the role policy references; the value is the token claim it reads.
 resource "aws_cognito_identity_pool_provider_principal_tag" "username" {
   identity_pool_id       = aws_cognito_identity_pool.portal.id
   identity_provider_name = "cognito-idp.${data.aws_region.current.name}.amazonaws.com/${aws_cognito_user_pool.portal.id}"
   use_defaults           = false
 
   principal_tags = {
-    username = "username"
+    username = "cognito:username"
   }
 }
