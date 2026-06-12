@@ -19,7 +19,6 @@
         "StringNotLike": {
           "aws:PrincipalArn": [
             "${portal_role_arn}",
-            "arn:aws:sts::${account_id}:assumed-role/${portal_role_name}/*",
             "arn:aws:iam::${account_id}:root"
           ]
         }
