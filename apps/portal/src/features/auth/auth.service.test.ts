@@ -16,14 +16,14 @@ import {
 
 vi.mock('aws-amplify/auth', () => ({
   getCurrentUser: vi.fn(),
-  fetchUserAttributes: vi.fn(),
+  fetchAuthSession: vi.fn(),
   signInWithRedirect: vi.fn(),
   signOut: vi.fn(),
 }));
 
 import {
   getCurrentUser,
-  fetchUserAttributes,
+  fetchAuthSession,
   signInWithRedirect,
   signOut,
 } from 'aws-amplify/auth';
@@ -31,9 +31,14 @@ import {
 const mockGetCurrentUser = getCurrentUser as unknown as MockedFunction<
   () => Promise<unknown>
 >;
-const mockFetchUserAttributes = fetchUserAttributes as unknown as MockedFunction<
+const mockFetchAuthSession = fetchAuthSession as unknown as MockedFunction<
   () => Promise<unknown>
 >;
+
+// Build a fetchAuthSession result whose ID token carries the given email claim.
+const sessionWithEmail = (email?: string) => ({
+  tokens: { idToken: { payload: email ? { email } : {} } },
+});
 const mockSignInWithRedirect = signInWithRedirect as unknown as MockedFunction<
   () => Promise<void>
 >;
@@ -44,9 +49,11 @@ beforeEach(() => {
 });
 
 describe('getCurrentAuthUser', () => {
-  it('returns the username and email when signed in', async () => {
+  it('returns the username and email from the ID token claim when signed in', async () => {
     mockGetCurrentUser.mockResolvedValueOnce({ username: 'alice' });
-    mockFetchUserAttributes.mockResolvedValueOnce({ email: 'alice@example.com' });
+    mockFetchAuthSession.mockResolvedValueOnce(
+      sessionWithEmail('alice@example.com'),
+    );
 
     const result = await getCurrentAuthUser();
 
@@ -55,9 +62,9 @@ describe('getCurrentAuthUser', () => {
     expect(result.data).toEqual({ username: 'alice', email: 'alice@example.com' });
   });
 
-  it('returns the user without email when attributes are unavailable', async () => {
+  it('returns the user without email when the ID token has no email claim', async () => {
     mockGetCurrentUser.mockResolvedValueOnce({ username: 'bob' });
-    mockFetchUserAttributes.mockRejectedValueOnce(new Error('no attributes'));
+    mockFetchAuthSession.mockResolvedValueOnce(sessionWithEmail(undefined));
 
     const result = await getCurrentAuthUser();
 
@@ -78,7 +85,7 @@ describe('getCurrentAuthUser', () => {
     if (result.success) return;
     expect(result.error.message).toBe('No current user');
     expect(result.error.code).toBe('UserUnAuthenticatedException');
-    expect(mockFetchUserAttributes).not.toHaveBeenCalled();
+    expect(mockFetchAuthSession).not.toHaveBeenCalled();
   });
 });
 
