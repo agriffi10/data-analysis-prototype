@@ -58,13 +58,35 @@ resource "aws_s3_bucket_ownership_controls" "user_space" {
 # Versioning is intentionally OFF for the MVP — no version history or undo. This
 # is a deliberate decision: overwrites and deletes are irreversible and the app
 # guards them in the UI (see docs/architecture.md Known Constraints). Revisit if
-# undo/version history is ever required. Lifecycle rules are also deferred until
-# a spec needs them (SPEC-020 adds the first, for incomplete multipart uploads).
+# undo/version history is ever required.
 resource "aws_s3_bucket_versioning" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
   versioning_configuration {
     status = "Disabled"
+  }
+}
+
+# Lifecycle — abort incomplete multipart uploads after 7 days (SPEC-016 FR-006).
+# SPEC-016 uploads via the managed lib-storage Upload, which uses multipart above
+# the 5 MiB part size. A browser killed mid-upload (or a future cancel) can leave
+# in-progress parts that are billable but invisible; this rule sweeps them up.
+# This is the first lifecycle rule on the bucket (SPEC-010 deferred them). The
+# empty filter applies the rule to the whole bucket. The deploy role already holds
+# s3:* on this bucket (modules/base S3UserSpaceBucketManage), so no deploy-role
+# change is needed for s3:PutLifecycleConfiguration.
+resource "aws_s3_bucket_lifecycle_configuration" "user_space" {
+  bucket = aws_s3_bucket.user_space.id
+
+  rule {
+    id     = "abort-incomplete-multipart-uploads"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 

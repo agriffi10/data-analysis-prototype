@@ -37,13 +37,19 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
   }
 }
 
-# ── Prefix-Scoped Permission Policy (SPEC-013 FR-001) ────────────────────────
+# ── Prefix-Scoped Permission Policy (SPEC-013 FR-001, SPEC-016 FR-005) ───────
 # Turns on real S3 access: each session may read/write/delete only under its own
 # {username}/ prefix, where {username} is the `username` principal tag the Identity
 # Pool stamps server-side (SPEC-011) — never asserted by the client. A session
 # without the tag matches nothing, so it gets an implicit deny (no access). The
 # tag variable is escaped as $${aws:PrincipalTag/username} in the template so
 # templatefile() emits it literally instead of interpolating it.
+#
+# SPEC-016 added the multipart actions for lib-storage uploads:
+#   s3:AbortMultipartUpload + s3:ListMultipartUploadParts (object-level, prefix-scoped),
+#   s3:ListBucketMultipartUploads (bucket-level, prefix-conditioned alongside ListBucket).
+# CreateMultipartUpload / UploadPart / CompleteMultipartUpload need NO separate
+# action — they are authorized by the existing s3:PutObject grant.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"
   role = aws_iam_role.portal.id
