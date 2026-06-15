@@ -167,7 +167,7 @@ describe('folder drill-down', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /open folder photos/i }));
 
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'photos/');
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'photos/', undefined);
   });
 });
 
@@ -262,12 +262,12 @@ describe('root prefix clamping', () => {
 
     // Drill into docs/
     fireEvent.click(screen.getByRole('button', { name: /open folder docs/i }));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/docs/');
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/docs/', undefined);
 
     // Navigate back to root via the leftmost breadcrumb crumb
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
     fireEvent.click(within(nav).getByRole('button', { name: 'project-alpha' }));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/');
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/', undefined);
   });
 });
 
@@ -321,12 +321,12 @@ describe('breadcrumb', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /open folder archive/i }),
     );
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'archive/');
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'archive/', undefined);
 
     // navigate back via breadcrumb
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
     fireEvent.click(within(nav).getByRole('button', { name: 'Home' }));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', undefined);
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', undefined, undefined);
   });
 
   it('builds multi-level breadcrumbs for nested prefixes', () => {

@@ -10,6 +10,8 @@ type Props = {
   rootPrefix?: string; // navigation floor; defaults to prefix prop value
   rootLabel?: string;  // label for the root crumb; hides the raw prefix segment
                        // (e.g. "My Files" instead of the username) — SPEC-013
+  markerKey?: string;  // exact key hidden from the listing — the prefix marker
+                       // (SPEC-014 FR-002)
 };
 
 type BreadcrumbItem = {
@@ -117,10 +119,10 @@ function FileRow({ file }: { file: S3FileItem }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel }: Props) {
+export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel, markerKey }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
-  const { files, folders, isLoading, error } = useFileBrowser(bucket, prefix);
+  const { files, folders, isLoading, error } = useFileBrowser(bucket, prefix, markerKey);
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const isEmpty =

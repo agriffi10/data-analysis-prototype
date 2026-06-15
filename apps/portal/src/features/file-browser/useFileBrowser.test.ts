@@ -137,6 +137,67 @@ describe('useFileBrowser', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
   });
 
+  it('hides the prefix marker from the listing by exact key (SPEC-014 FR-002)', async () => {
+    mockListFiles.mockResolvedValue({
+      success: true,
+      data: {
+        files: [
+          {
+            type: 'file',
+            key: 'alice/DO_NOT_DELETE.txt',
+            name: 'DO_NOT_DELETE.txt',
+            size: 100,
+            lastModified: new Date('2024-01-01'),
+          },
+          {
+            type: 'file',
+            key: 'alice/report.pdf',
+            name: 'report.pdf',
+            size: 1024,
+            lastModified: new Date('2024-01-15'),
+          },
+        ],
+        folders: [],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'),
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.files.map((f) => f.key)).toEqual(['alice/report.pdf']);
+  });
+
+  it('shows a like-named file in a subfolder (only the exact root key is hidden)', async () => {
+    mockListFiles.mockResolvedValue({
+      success: true,
+      data: {
+        files: [
+          {
+            type: 'file',
+            key: 'alice/docs/DO_NOT_DELETE.txt',
+            name: 'DO_NOT_DELETE.txt',
+            size: 100,
+            lastModified: new Date('2024-01-01'),
+          },
+        ],
+        folders: [],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useFileBrowser('my-bucket', 'alice/docs/', 'alice/DO_NOT_DELETE.txt'),
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.files.map((f) => f.key)).toEqual([
+      'alice/docs/DO_NOT_DELETE.txt',
+    ]);
+  });
+
   it('clears a previous error and restores data on successful re-fetch', async () => {
     mockListFiles
       .mockResolvedValueOnce({

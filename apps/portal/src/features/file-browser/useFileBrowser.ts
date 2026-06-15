@@ -13,6 +13,9 @@ export type UseFileBrowserResult = {
 export function useFileBrowser(
   bucket: string,
   prefix?: string,
+  // SPEC-014 FR-002: exact key to hide from the listing (the user's root prefix
+  // marker). Matched by exact key, so a like-named file in a subfolder is shown.
+  markerKey?: string,
 ): UseFileBrowserResult {
   const [files, setFiles] = useState<S3FileItem[]>([]);
   const [folders, setFolders] = useState<S3FolderItem[]>([]);
@@ -32,7 +35,11 @@ export function useFileBrowser(
       if (cancelled) return;
 
       if (result.success) {
-        setFiles(result.data.files);
+        setFiles(
+          markerKey
+            ? result.data.files.filter((f) => f.key !== markerKey)
+            : result.data.files,
+        );
         setFolders(result.data.folders);
       } else {
         setError(result.error.message);
@@ -48,7 +55,7 @@ export function useFileBrowser(
     return () => {
       cancelled = true;
     };
-  }, [bucket, prefix, refreshTick]);
+  }, [bucket, prefix, markerKey, refreshTick]);
 
   const refresh = useCallback(() => {
     setRefreshTick((n) => n + 1);
