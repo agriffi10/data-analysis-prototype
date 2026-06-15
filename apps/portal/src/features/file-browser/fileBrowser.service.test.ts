@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listFiles } from './fileBrowser.service';
+import {
+  HeadObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
+import {
+  listFiles,
+  ensurePrefixMarker,
+  deleteObject,
+  isPrefixMarkerKey,
+  __resetPrefixMarkerCache,
+} from './fileBrowser.service';
+import { PREFIX_MARKER_BODY } from './fileBrowser.constants';
 
 // The service now obtains an authenticated client via getS3Client() (SPEC-013).
 // Mock that + the client's send. vi.hoisted lets the mock factory reference these.
@@ -18,7 +30,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: an authenticated client whose send is mockSend.
   mockGetS3Client.mockResolvedValue({ success: true, data: { send: mockSend } });
+  // Reset the once-per-session marker guard so each case starts clean.
+  __resetPrefixMarkerCache();
 });
+
+// A NotFound error as the v3 SDK surfaces it for HeadObject on a missing key.
+function notFoundError() {
+  return Object.assign(new Error('Not Found'), {
+    name: 'NotFound',
+    $metadata: { httpStatusCode: 404 },
+  });
+}
 
 describe('listFiles', () => {
   it('returns files and folders from a successful S3 response', async () => {
@@ -190,5 +212,123 @@ describe('listFiles', () => {
     if (result.success) return;
     expect(result.error.message).toBe('No AWS credentials — sign in required');
     expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('ensurePrefixMarker', () => {
+  it('creates the marker with HEAD-then-PUT when it does not exist', async () => {
+    mockSend
+      .mockRejectedValueOnce(notFoundError()) // HEAD → 404
+      .mockResolvedValueOnce({}); // PUT → ok
+
+    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.created).toBe(true);
+
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+    const put = mockSend.mock.calls[1][0];
+    expect(put).toBeInstanceOf(PutObjectCommand);
+    expect(put.input).toEqual({
+      Bucket: 'us',
+      Key: 'alice/DO_NOT_DELETE.txt',
+      Body: PREFIX_MARKER_BODY,
+      ContentType: 'text/plain',
+    });
+  });
+
+  it('does not overwrite an existing marker (HEAD succeeds → no PUT)', async () => {
+    mockSend.mockResolvedValueOnce({}); // HEAD → exists
+
+    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.created).toBe(false);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+  });
+
+  it('runs at most once per session — repeat calls issue no further HEADs', async () => {
+    mockSend.mockResolvedValueOnce({}); // HEAD → exists (first call only)
+
+    const first = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+    const second = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+
+    expect(first.success && second.success).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns failure (never throws) when PUT fails', async () => {
+    mockSend
+      .mockRejectedValueOnce(notFoundError()) // HEAD → 404
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
+      ); // PUT → fail
+
+    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('AccessDenied');
+  });
+
+  it('retries once with refreshed credentials when HEAD hits an expired token', async () => {
+    mockSend
+      .mockRejectedValueOnce(
+        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
+      ) // HEAD → expiry
+      .mockResolvedValueOnce({}); // HEAD (retry) → exists
+
+    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+
+    expect(result.success).toBe(true);
+    expect(mockGetS3Client).toHaveBeenCalledTimes(2);
+    expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
+  });
+});
+
+describe('isPrefixMarkerKey', () => {
+  it('matches only the exact root marker key', () => {
+    expect(isPrefixMarkerKey('alice/DO_NOT_DELETE.txt', 'alice')).toBe(true);
+    expect(isPrefixMarkerKey('alice/docs/DO_NOT_DELETE.txt', 'alice')).toBe(
+      false,
+    );
+    expect(isPrefixMarkerKey('alice/report.pdf', 'alice')).toBe(false);
+  });
+});
+
+describe('deleteObject', () => {
+  // FR-003: UI-layer defense in depth only — the authoritative protection is the
+  // IAM deny on */DO_NOT_DELETE.txt in SPEC-013 FR-001's role policy.
+  it('rejects deletion of the prefix marker without calling S3', async () => {
+    const result = await deleteObject({
+      bucket: 'us',
+      key: 'alice/DO_NOT_DELETE.txt',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('ProtectedObject');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('deletes a normal object', async () => {
+    mockSend.mockResolvedValueOnce({});
+
+    const result = await deleteObject({
+      bucket: 'us',
+      key: 'alice/report.pdf',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.key).toBe('alice/report.pdf');
+    expect(mockSend).toHaveBeenCalledOnce();
+    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(DeleteObjectCommand);
   });
 });

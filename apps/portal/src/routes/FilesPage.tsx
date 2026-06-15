@@ -1,4 +1,9 @@
-import { FileBrowser } from '../features/file-browser';
+import { useEffect } from 'react';
+import {
+  FileBrowser,
+  ensurePrefixMarker,
+  prefixMarkerKey,
+} from '../features/file-browser';
 import { useAuth } from '../features/auth';
 
 // Dev-only fallback (SPEC-013): browse a static/public test bucket without auth
@@ -29,12 +34,37 @@ export default function FilesPage() {
   let bucket = userSpaceBucket;
   let rootPrefix = user ? `${user.username}/` : '';
   let rootLabel: string | undefined = 'My Files';
+  // The prefix marker is hidden from the listing (SPEC-014 FR-002). Only set in
+  // the authenticated flow — there is no per-user prefix in the dev fallback.
+  let markerKey: string | undefined = user
+    ? prefixMarkerKey(user.username)
+    : undefined;
 
   if (devUnauthenticated) {
     bucket = devBucket;
     rootPrefix = devPrefix;
     rootLabel = undefined; // dev: standard Home-rooted breadcrumb
+    markerKey = undefined;
   }
+
+  // SPEC-014 FR-001: guarantee the user's prefix marker exists on authenticated
+  // load. Best-effort and non-blocking — a failure only logs a warning; the
+  // browser still renders and the marker is retried next session. The service
+  // guards against repeat HEADs within a session.
+  useEffect(() => {
+    if (devUnauthenticated || !user || !userSpaceBucket) return;
+    void (async () => {
+      const result = await ensurePrefixMarker({
+        bucket: userSpaceBucket,
+        username: user.username,
+      });
+      if (!result.success) {
+        console.warn(
+          `[prefix-marker] could not ensure marker: ${result.error.message}`,
+        );
+      }
+    })();
+  }, [user]);
 
   return (
     <main className="py-8">
@@ -47,6 +77,7 @@ export default function FilesPage() {
               prefix={rootPrefix}
               rootPrefix={rootPrefix}
               rootLabel={rootLabel}
+              markerKey={markerKey}
             />
           </>
         ) : (

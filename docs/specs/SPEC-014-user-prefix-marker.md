@@ -1,8 +1,8 @@
 # Spec: User Prefix Marker — DO_NOT_DELETE.txt on First Login
 
 **ID:** SPEC-014
-**Status:** Draft
-**Last Updated:** 2026-06-10
+**Status:** Completed
+**Last Updated:** 2026-06-15
 **Depends On:** SPEC-011 (STS credentials), SPEC-013 (write access to own prefix), SPEC-008 (`/files` route)
 
 > **Note:** Last spec in the 010→014 arc — the app can only write the marker once it has scoped write credentials (SPEC-013).
