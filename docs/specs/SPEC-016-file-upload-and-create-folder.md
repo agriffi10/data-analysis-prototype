@@ -124,7 +124,8 @@ Because uploads now use multipart, the portal role must allow the multipart API 
 
 #### Acceptance Criteria:
 
-- [ ] `infra/modules/data/policies/portal-role-permissions.json.tftpl` (SPEC-013) is extended with `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`, and `s3:ListMultipartUploadParts`, scoped to the same `{bucket}/${aws:PrincipalTag/username}/*` resource (and the bucket ARN for the list-uploads action) as the existing object actions
+- [ ] `infra/modules/data/policies/portal-role-permissions.json.tftpl` (SPEC-013) is extended with `s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts`, scoped to the same `{bucket}/${aws:PrincipalTag/username}/*` object resource as the existing object actions
+- [ ] `s3:ListBucketMultipartUploads` is **not** granted: `@aws-sdk/lib-storage` never lists in-progress uploads, and the action does not support the `s3:prefix` condition key, so it cannot be prefix-scoped — granting it bucket-wide would expose other users' in-progress upload keys (verified via `simulate-principal-policy`)
 - [ ] `CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload` continue to be covered by the existing `s3:PutObject` grant (documented in a comment — no separate action needed)
 - [ ] `docs/architecture.md` Authorization Model policy snippet is updated to include these actions
 - [ ] `tofu validate` + a `deploy-infra.yml` PR plan pass, showing only the policy change

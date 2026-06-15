@@ -46,10 +46,13 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # templatefile() emits it literally instead of interpolating it.
 #
 # SPEC-016 added the multipart actions for lib-storage uploads:
-#   s3:AbortMultipartUpload + s3:ListMultipartUploadParts (object-level, prefix-scoped),
-#   s3:ListBucketMultipartUploads (bucket-level, prefix-conditioned alongside ListBucket).
+#   s3:AbortMultipartUpload + s3:ListMultipartUploadParts (object-level, prefix-scoped).
 # CreateMultipartUpload / UploadPart / CompleteMultipartUpload need NO separate
 # action — they are authorized by the existing s3:PutObject grant.
+# s3:ListBucketMultipartUploads is intentionally NOT granted: lib-storage never
+# lists in-progress uploads (it tracks parts in memory), and that action does not
+# support the s3:prefix condition key, so it cannot be scoped to the user's prefix
+# — granting it bucket-wide would leak other users' in-progress upload keys.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"
   role = aws_iam_role.portal.id
