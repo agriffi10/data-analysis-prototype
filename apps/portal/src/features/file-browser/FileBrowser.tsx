@@ -1,6 +1,20 @@
 import { useState } from 'react';
 import { useFileBrowser } from './useFileBrowser';
+import { getDownloadUrl } from './fileBrowser.service';
 import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
+
+// Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
+// (set on the URL) makes S3 return it as an attachment with the real filename, so
+// a plain anchor click downloads rather than navigates. Survives the await before
+// it because it's a programmatic download, not a popup.
+function triggerBrowserDownload(url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -102,7 +116,15 @@ function FolderRow({
   );
 }
 
-function FileRow({ file }: { file: S3FileItem }) {
+function FileRow({
+  file,
+  onDownload,
+  isDownloading,
+}: {
+  file: S3FileItem;
+  onDownload: (file: S3FileItem) => void;
+  isDownloading: boolean;
+}) {
   return (
     <li className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0">
       <span aria-hidden="true">📄</span>
@@ -113,6 +135,14 @@ function FileRow({ file }: { file: S3FileItem }) {
       <span className="w-32 text-right text-sm text-gray-400">
         {formatDate(file.lastModified)}
       </span>
+      <button
+        className="rounded px-2 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        onClick={() => onDownload(file)}
+        disabled={isDownloading}
+        aria-label={`Download ${file.name}`}
+      >
+        {isDownloading ? 'Downloading…' : 'Download'}
+      </button>
     </li>
   );
 }
@@ -122,7 +152,26 @@ function FileRow({ file }: { file: S3FileItem }) {
 export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel, markerKey }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
-  const { files, folders, isLoading, error } = useFileBrowser(bucket, prefix, markerKey);
+  const { files, folders, isLoading, error, hasMore, loadMore, isLoadingMore } =
+    useFileBrowser(bucket, prefix, markerKey);
+
+  // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
+  // shows a busy state; surfaces a ServiceResult failure inline rather than
+  // throwing. The hidden marker is filtered out, so it never exposes this action.
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  async function handleDownload(file: S3FileItem) {
+    setDownloadingKey(file.key);
+    setDownloadError(null);
+    const result = await getDownloadUrl({ bucket, key: file.key, fileName: file.name });
+    setDownloadingKey(null);
+    if (result.success) {
+      triggerBrowserDownload(result.data.url);
+    } else {
+      setDownloadError(`Could not download ${file.name}: ${result.error.message}`);
+    }
+  }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const isEmpty =
@@ -165,6 +214,23 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
         </ol>
       </nav>
 
+      {/* Download error (SPEC-015) — dismissible, non-blocking */}
+      {downloadError && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          <span>{downloadError}</span>
+          <button
+            className="font-medium text-red-600 hover:underline"
+            onClick={() => setDownloadError(null)}
+            aria-label="Dismiss download error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Loading */}
       {isLoading && (
         <div
@@ -206,9 +272,27 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
             />
           ))}
           {files.map((file) => (
-            <FileRow key={file.key} file={file} />
+            <FileRow
+              key={file.key}
+              file={file}
+              onDownload={handleDownload}
+              isDownloading={downloadingKey === file.key}
+            />
           ))}
         </ul>
+      )}
+
+      {/* Load more — only when the current prefix has further pages (SPEC-015) */}
+      {hasContent && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            onClick={loadMore}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
       )}
     </div>
   );

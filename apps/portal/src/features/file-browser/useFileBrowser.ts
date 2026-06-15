@@ -1,6 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { listFiles } from './fileBrowser.service';
-import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
+import { fileBrowserKeys } from './fileBrowserKeys';
+import { invalidateListing } from '../../lib/queryClient';
+import type {
+  S3FileItem,
+  S3FolderItem,
+  FileListPage,
+} from '../../types/s3.types';
 
 export type UseFileBrowserResult = {
   files: S3FileItem[];
@@ -8,6 +15,11 @@ export type UseFileBrowserResult = {
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
+  // Pagination (SPEC-015 FR-002): hasMore drives the "Load more" control,
+  // loadMore fetches the next page, isLoadingMore disables the control mid-fetch.
+  hasMore: boolean;
+  loadMore: () => void;
+  isLoadingMore: boolean;
 };
 
 export function useFileBrowser(
@@ -17,49 +29,57 @@ export function useFileBrowser(
   // marker). Matched by exact key, so a like-named file in a subfolder is shown.
   markerKey?: string,
 ): UseFileBrowserResult {
-  const [files, setFiles] = useState<S3FileItem[]>([]);
-  const [folders, setFolders] = useState<S3FolderItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshTick, setRefreshTick] = useState(0);
+  const queryClient = useQueryClient();
+  const normalizedPrefix = prefix ?? '';
 
-  useEffect(() => {
-    let cancelled = false;
+  // Server state via TanStack Query (SPEC-015 FR-002). Each page is a
+  // ListObjectsV2 call (MaxKeys 1000) threading the continuation token; pages
+  // accumulate in query.data.pages.
+  const query = useInfiniteQuery({
+    queryKey: fileBrowserKeys.list(bucket, normalizedPrefix),
+    queryFn: async ({ pageParam }) => {
+      // The service never throws; unwrap its ServiceResult and throw here so
+      // TanStack Query treats a failed listing as a query error.
+      const result = await listFiles(bucket, prefix, pageParam);
+      if (!result.success) throw new Error(result.error.message);
+      return result.data;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage: FileListPage) =>
+      lastPage.isTruncated ? lastPage.nextContinuationToken : undefined,
+  });
 
-    async function fetchFiles() {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await listFiles(bucket, prefix);
-
-      if (cancelled) return;
-
-      if (result.success) {
-        setFiles(
-          markerKey
-            ? result.data.files.filter((f) => f.key !== markerKey)
-            : result.data.files,
-        );
-        setFolders(result.data.folders);
-      } else {
-        setError(result.error.message);
-        setFiles([]);
-        setFolders([]);
-      }
-
-      setIsLoading(false);
-    }
-
-    void fetchFiles();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bucket, prefix, markerKey, refreshTick]);
+  // Merge folders/files across all loaded pages and re-sort globally so the
+  // ordering matches the single-page SPEC-002 behavior (folders before files,
+  // each alphabetical). The SPEC-014 root marker is filtered by exact key.
+  const { folders, files } = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    const mergedFolders = pages
+      .flatMap((p) => p.folders)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const mergedFiles = pages
+      .flatMap((p) => p.files)
+      .filter((f) => !markerKey || f.key !== markerKey)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { folders: mergedFolders, files: mergedFiles };
+  }, [query.data, markerKey]);
 
   const refresh = useCallback(() => {
-    setRefreshTick((n) => n + 1);
-  }, []);
+    void invalidateListing(queryClient, bucket, normalizedPrefix);
+  }, [queryClient, bucket, normalizedPrefix]);
 
-  return { files, folders, isLoading, error, refresh };
+  const loadMore = useCallback(() => {
+    void query.fetchNextPage();
+  }, [query]);
+
+  return {
+    files,
+    folders,
+    isLoading: query.isPending,
+    error: query.isError ? (query.error as Error).message : null,
+    refresh,
+    hasMore: query.hasNextPage,
+    loadMore,
+    isLoadingMore: query.isFetchingNextPage,
+  };
 }
