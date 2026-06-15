@@ -245,7 +245,7 @@ prefix with a single policy statement — no per-user policy changes needed.
   },
   {
     "Effect": "Allow",
-    "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads"],
+    "Action": "s3:ListBucket",
     "Resource": "arn:aws:s3:::user-space",
     "Condition": {
       "StringLike": {
@@ -256,10 +256,14 @@ prefix with a single policy statement — no per-user policy changes needed.
 ]
 ```
 
-> The multipart actions (`s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts`,
-> `s3:ListBucketMultipartUploads`) were added in **SPEC-016** for managed
-> (`@aws-sdk/lib-storage`) uploads. `CreateMultipartUpload`/`UploadPart`/
-> `CompleteMultipartUpload` need no separate action — they ride on `s3:PutObject`.
+> The object-level multipart actions (`s3:AbortMultipartUpload`,
+> `s3:ListMultipartUploadParts`) were added in **SPEC-016** for managed
+> (`@aws-sdk/lib-storage`) uploads, prefix-scoped like the other object actions.
+> `CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload` need no separate
+> action — they ride on `s3:PutObject`. `s3:ListBucketMultipartUploads` is
+> deliberately **not** granted: lib-storage never lists uploads, and the action
+> doesn't support `s3:prefix`, so it can't be scoped per-user without leaking
+> other users' in-progress upload keys.
 
 **How file operations map onto these actions (SPEC-015→020):**
 
