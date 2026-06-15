@@ -5,7 +5,9 @@ export {
   ensurePrefixMarker,
   deleteObject,
   isPrefixMarkerKey,
+  getDownloadUrl,
 } from './fileBrowser.service';
+export type { DownloadUrl } from './fileBrowser.types';
 export {
   PREFIX_MARKER_FILENAME,
   PREFIX_MARKER_BODY,

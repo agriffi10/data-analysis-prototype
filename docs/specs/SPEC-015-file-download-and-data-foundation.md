@@ -1,8 +1,8 @@
 # Spec: File Download + File-Operations Data Foundation
 
 **ID:** SPEC-015
-**Status:** Draft
-**Last Updated:** 2026-06-11
+**Status:** Completed
+**Last Updated:** 2026-06-15
 **Depends On:** SPEC-011 (`getS3Client()`), SPEC-013 (browser on authenticated user-space bucket), SPEC-014 (marker filtering)
 
 ## Overview
