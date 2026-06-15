@@ -69,7 +69,7 @@ This is an npm workspaces monorepo. The React SPA lives in `apps/portal/`. Infra
 | Frontend | React 18, Vite |
 | Language | TypeScript (strict mode) |
 | Styling | TailwindCSS |
-| AWS SDK | `@aws-sdk/client-s3` (v3, modular). No STS SDK — scoped credentials come from Amplify via the Identity Pool (SPEC-011). `@aws-sdk/s3-request-presigner` for presigned downloads (SPEC-015); `@aws-sdk/lib-storage` for multipart uploads (SPEC-020) |
+| AWS SDK | `@aws-sdk/client-s3` (v3, modular). No STS SDK — scoped credentials come from Amplify via the Identity Pool (SPEC-011). `@aws-sdk/s3-request-presigner` for presigned downloads (SPEC-015); `@aws-sdk/lib-storage` for managed/multipart uploads (SPEC-016) |
 | Auth | AWS Cognito + Amplify (`aws-amplify` v6) — IaC + login/signup specced in SPEC-006–009 |
 | Routing | `react-router-dom` v7 (library mode) — introduced by SPEC-008 |
 | Server state | TanStack Query (`@tanstack/react-query`) for S3 reads/writes — caching, refetch, invalidation (introduced by SPEC-015) |
@@ -187,11 +187,11 @@ tofu output          # view output values (use to populate .env.local)
 | Prefix-Scoped S3 Access + Browser Switchover | `@docs/specs/SPEC-013-prefix-scoped-access.md` | Completed |
 | User Prefix Marker (DO_NOT_DELETE.txt) | `@docs/specs/SPEC-014-user-prefix-marker.md` | Completed |
 | File Download + Data Foundation (TanStack Query) | `@docs/specs/SPEC-015-file-download-and-data-foundation.md` | Draft |
-| File Upload (≤5 MB) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Draft |
+| File Upload (managed, auto-multipart + progress) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Draft |
 | File Metadata Panel | `@docs/specs/SPEC-017-file-metadata-panel.md` | Draft |
 | Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Draft |
 | Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Draft |
-| Multipart Upload (large files) + Queue | `@docs/specs/SPEC-020-multipart-upload.md` | Draft |
+| Upload Queue (multi-file, concurrency, cancel) | `@docs/specs/SPEC-020-multipart-upload.md` | Draft |
 
 Add new specs to this table as they are created.
 
@@ -205,7 +205,7 @@ Add new specs to this table as they are created.
 
 - **Amplify v6 for Cognito**: Chosen over manual Cognito SDK calls for easier token refresh handling. Auth is deferred — not yet implemented.
 - **State management — TanStack Query + Context (decided 2026-06-11, supersedes "No Redux")**: The original "No Redux; React Context only" call held through the auth specs. The file-operations arc (SPEC-015→020) adds listing caches, refetch-after-mutation, and optimistic updates against S3 — classic async *server* state. `@tanstack/react-query` owns that (caching, invalidation, retry); React Context + `useReducer` owns *UI* state (multi-select, upload queue). Redux is still not used and not needed — Query removes the cross-feature server-state problem that would have motivated it.
-- **File operations are presented as a filesystem, regardless of S3 semantics (decided 2026-06-11)**: Users get download, upload, create-folder, metadata, delete, move, and rename. S3 has no move/rename — both are implemented as `CopyObject` + `DeleteObject` (rename = move within the same parent). Folders are zero-byte `{name}/` marker objects; folder move/rename/delete are *recursive* over every contained key and *non-atomic* (a per-key copy failure never deletes that source and never aborts the rest). Name collisions are handled by warn-and-confirm (HEAD-check → Overwrite or Rename), because versioning is off (SPEC-010) and a blind overwrite would be silent data loss. Downloads use short-lived presigned URLs (`@aws-sdk/s3-request-presigner`); large uploads use multipart via `@aws-sdk/lib-storage`. Single-object CRUD + copy are already covered by SPEC-013's IAM grants; only multipart needs added IAM actions (SPEC-020).
+- **File operations are presented as a filesystem, regardless of S3 semantics (decided 2026-06-11)**: Users get download, upload, create-folder, metadata, delete, move, and rename. S3 has no move/rename — both are implemented as `CopyObject` + `DeleteObject` (rename = move within the same parent). Folders are zero-byte `{name}/` marker objects; folder move/rename/delete are *recursive* over every contained key and *non-atomic* (a per-key copy failure never deletes that source and never aborts the rest). Name collisions are handled by warn-and-confirm (HEAD-check → Overwrite or Rename), because versioning is off (SPEC-010) and a blind overwrite would be silent data loss. Downloads use short-lived presigned URLs (`@aws-sdk/s3-request-presigner`); uploads use the managed `@aws-sdk/lib-storage` `Upload` (single request below a 5 MiB part-size threshold, automatic multipart above it) with live progress. Single-object CRUD + copy are already covered by SPEC-013's IAM grants; multipart needs added IAM actions + an abort-incomplete lifecycle rule, both delivered in **SPEC-016** (SPEC-020 adds only the multi-file queue + cancel on top).
 - **S3 SDK direct from browser**: Acceptable for this use case. Session tag scoping will enforce per-user isolation once auth is added. No backend proxy needed.
 - **Monorepo — npm workspaces**: SPA (`apps/portal/`) and IaC (`infra/`) co-located in one repo. `packages/` reserved for future shared packages. npm workspaces chosen for simplicity — no Turborepo or pnpm needed at current scale.
 - **OpenTofu for IaC**: Open-source Terraform fork. HCL syntax, AWS provider, S3 remote state backend. Chosen over CDK/Pulumi/SST.

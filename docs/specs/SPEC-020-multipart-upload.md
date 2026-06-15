@@ -1,35 +1,41 @@
-# Spec: Multipart Upload (large files) + Upload Queue & Progress
+# Spec: Upload Queue — multi-file, concurrency, cancel
 
 **ID:** SPEC-020
 **Status:** Draft
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-013 (portal role + bucket), SPEC-015 (data foundation), SPEC-016 (single-file upload UI it supersedes)
+**Last Updated:** 2026-06-15
+**Depends On:** SPEC-013 (portal role + bucket), SPEC-015 (data foundation), SPEC-016 (`uploadFile` — managed/auto-multipart upload with `onProgress` + `signal`)
 
 ## Overview
 
-Lift the 5 MB upload cap from SPEC-016 by uploading large files with S3 multipart
-upload, and turn uploading into a proper multi-file experience: a queue with
-per-file progress and the ability to cancel an in-flight upload. The AWS SDK's
-managed `Upload` (`@aws-sdk/lib-storage`) handles part splitting, concurrency,
-and progress events; cancelling aborts the multipart upload so no orphaned parts
-are billed, and a bucket lifecycle rule sweeps up any incomplete uploads that
-slip through. This spec also expands the portal role's IAM policy with the
-multipart actions the single-object grants don't cover.
+SPEC-016 made a **single** upload a complete, correct operation: managed by
+`@aws-sdk/lib-storage` `Upload`, automatically multipart above the 5 MiB part-size
+threshold, reporting progress, with the multipart IAM actions and an
+abort-incomplete lifecycle rule already in place. This spec turns uploading into
+a proper **multi-file experience**: a queue with bounded file concurrency,
+per-file progress, and the ability to **cancel** an in-flight upload.
+
+This spec adds **no new S3 or IAM capability** — `uploadFile` from SPEC-016
+already accepts `onProgress` and an `AbortSignal`, the multipart actions are
+already granted, and the lifecycle rule already sweeps up aborted parts. SPEC-020
+is purely client-side state + UI on top of that service.
 
 ## Scope
 
 ### In Scope
 
-- Multipart upload via `@aws-sdk/lib-storage` `Upload` (auto-multipart above the part-size threshold)
-- Multi-file upload **queue** with per-file progress (%), status, and cancel (abort)
-- Removal of SPEC-016's 5 MB hard cap; a configurable maximum upload size (default 5 GiB)
-- IAM: add `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts` to the SPEC-013 portal-role permission policy
-- IaC: a bucket lifecycle rule on the user-space bucket aborting incomplete multipart uploads after 7 days; deploy-role permission for lifecycle configuration
-- Collision handling per file (warn-and-confirm, reusing SPEC-016)
-- Architecture doc + CLAUDE.md updates for the new IAM actions, lifecycle rule, and dependency
+- Multi-file upload **queue**: selecting/dropping multiple files enqueues them
+- Bounded **file concurrency** (default 3 files at once; the rest wait queued)
+- Per-file **progress** (%, from SPEC-016's `onProgress`), **status**, and a progress bar
+- Per-file **cancel** that aborts just that upload via the `AbortSignal` passed to `uploadFile` (the `Upload` aborts its multipart upload; no orphaned parts)
+- Dismiss a completed / failed / cancelled item from the queue
+- Per-file collision handling (warn-and-confirm, reusing SPEC-016) before each file starts
+- Listing invalidation as each upload completes, so finished files appear
+- Non-blocking: the user can keep browsing while uploads run
+- Multi-file `UploadDropzone` (upgraded from SPEC-016's single-file dropzone)
 
 ### Out of Scope
 
+- The multipart **engine**, progress reporting, multipart **IAM**, and the abort-incomplete **lifecycle rule** — all delivered in **SPEC-016**
 - Resumable uploads across page reloads / browser restarts (multipart state is in-memory only)
 - Recursive directory (folder) upload from the OS
 - Download of large files (already handled by the presigned URL in SPEC-015 — no size limit there)
@@ -39,64 +45,47 @@ multipart actions the single-object grants don't cover.
 
 ## Functional Requirements
 
-### FR-001: IAM — Multipart Actions
+### FR-001: Upload Queue State + Concurrency
 
 #### Description:
 
-The portal role must allow the multipart API calls the single-object grants miss.
+A client-side queue manages multiple uploads with a small concurrency limit.
 
 #### Acceptance Criteria:
 
-- [ ] `infra/modules/data/policies/portal-role-permissions.json.tftpl` (SPEC-013) is extended with `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`, and `s3:ListMultipartUploadParts`, scoped to the same `{bucket}/${aws:PrincipalTag/username}/*` resource (and the bucket ARN for the list-uploads action) as the existing object actions
-- [ ] `UploadPart`/`CompleteMultipartUpload`/`CreateMultipartUpload` continue to be covered by the existing `s3:PutObject` grant (documented in a comment — no separate action needed)
-- [ ] `docs/architecture.md` Authorization Model policy snippet is updated to include these actions
-- [ ] `tofu validate` + a `deploy-infra.yml` PR plan pass, showing only the policy change
-- [ ] After apply, an `aws iam simulate-principal-policy` (or a real large upload from the app) confirms multipart succeeds within the user's prefix and is denied outside it
+- [ ] An upload-queue context (`UploadQueueProvider`, Context + `useReducer`) holds the list of `UploadItem`s and drives them through `queued → uploading → done | failed | cancelled`
+- [ ] Selecting or dropping multiple files enqueues one `UploadItem` per file (id is index/name-based — **no `Math.random` in shared code**)
+- [ ] At most `UPLOAD_CONCURRENCY` (default 3) files upload at once; the rest stay `queued` until a slot frees
+- [ ] Each item uploads via SPEC-016's `uploadFile`, wiring `onProgress` into the item's `loaded`/`total`
+- [ ] As each upload reaches `done`, the current prefix's listing is invalidated so the finished file appears
+- [ ] The reducer transitions and the concurrency gate are unit-tested
 
-### FR-002: Incomplete-Upload Lifecycle Rule
+### FR-002: Per-File Cancel (Abort)
 
 #### Description:
 
-Aborted or abandoned multipart uploads must not accumulate as billable orphaned parts.
+A user can cancel an upload that is queued or in flight.
 
 #### Acceptance Criteria:
 
-- [ ] `infra/modules/data/s3.tf` adds a lifecycle configuration to the user-space bucket with an `abort_incomplete_multipart_upload` of 7 days
-- [ ] The deploy-role policy (`infra/modules/base/policies/`) is extended with `s3:PutLifecycleConfiguration` and `s3:GetLifecycleConfiguration` scoped to the user-space bucket ARN (SPEC-010 did not include these)
-- [ ] `aws s3api get-bucket-lifecycle-configuration` after apply returns the expected rule
-- [ ] This is noted in `docs/architecture.md` (SPEC-010 explicitly deferred lifecycle rules; this is the first one)
+- [ ] Each in-flight item has a Cancel control that aborts **just that upload** via an `AbortController` whose `signal` was passed to `uploadFile`
+- [ ] On cancel, the `Upload` aborts its multipart upload (no orphaned parts billed) and the item moves to `cancelled`; no listed object remains for a cancelled upload
+- [ ] Cancelling a still-`queued` item removes it without starting; cancelling does not disturb other items
+- [ ] A completed / failed / cancelled item can be dismissed from the queue
+- [ ] The abort path is unit-tested (with `lib-storage` / the service mocked)
 
-### FR-003: Multipart Upload Service
+### FR-003: Upload Queue UI
 
 #### Description:
 
-Upload any-size files using the SDK's managed multipart uploader.
+Users see and manage their uploads in a queue panel.
 
 #### Acceptance Criteria:
 
-- [ ] `uploadLargeFile({ bucket, key, body, contentType, overwrite, onProgress, signal })` uses `@aws-sdk/lib-storage` `Upload` with the client from `getS3Client()`; `partSize` 5 MiB, `queueSize` (concurrency) 4
-- [ ] Files at or below the part size still upload correctly (single part) — this path supersedes SPEC-016's `uploadFile` for the upload UI
-- [ ] `onProgress` reports loaded/total so the UI can show a percentage
-- [ ] An `AbortSignal` cancels the upload; on cancel the `Upload` aborts the multipart upload (no orphaned parts) and the service returns a cancelled `ServiceResult` error (not a throw)
-- [ ] Files larger than the configured maximum (default 5 GiB, `VITE_MAX_UPLOAD_BYTES`) are rejected client-side before starting
-- [ ] Collision is resolved before starting via the SPEC-016 warn-and-confirm path (HEAD-check unless `overwrite`)
-- [ ] Credential-expiry mid-upload: the `Upload` surfaces the error; the service attempts one restart with `getS3Client(true)` for not-yet-started uploads and otherwise returns a clear error
-- [ ] Unit tests cover progress reporting, the size cap, the abort path, and collision deferral (with `lib-storage` mocked)
-
-### FR-004: Upload Queue UI
-
-#### Description:
-
-Users add multiple files and watch them upload.
-
-#### Acceptance Criteria:
-
-- [ ] Selecting/dropping multiple files enqueues them; the queue shows each file's name, size, status (queued / uploading / done / failed / cancelled), and a progress bar
-- [ ] Uploads run with a small concurrency limit (e.g. 3 files at once); the rest wait queued
-- [ ] Each in-flight item has a Cancel control that aborts just that upload; a completed/failed item can be dismissed
-- [ ] As each upload completes, the current prefix's listing invalidates so finished files appear
-- [ ] A per-file collision prompt (SPEC-016) appears before that file starts; cancelling it removes the file from the queue
-- [ ] The queue is non-blocking — the user can still browse while uploads run
+- [ ] The queue panel shows each file's name, size, status, and a progress bar (% from `loaded/total`)
+- [ ] A per-file collision prompt (SPEC-016 warn-and-confirm) appears before that file starts; cancelling it removes the file from the queue
+- [ ] The panel is non-blocking — the user can still browse and navigate while uploads run
+- [ ] Files larger than `MAX_UPLOAD_BYTES` (SPEC-016) are rejected on enqueue with the limit message and never enter the active queue
 
 ---
 
@@ -118,18 +107,20 @@ export type UploadItem = {
   error?: string;
 };
 
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB default (VITE override)
-export const MULTIPART_PART_SIZE = 5 * 1024 * 1024;     // 5 MiB
-export const UPLOAD_CONCURRENCY = 3;                    // files in flight
+export const UPLOAD_CONCURRENCY = 3; // files in flight at once
+
+// Size cap + part size live in fileBrowser.types.ts (SPEC-016):
+//   MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE
 ```
 
 ---
 
 ## API / Interface Contract
 
+No new service function. The queue calls SPEC-016's:
+
 ```ts
-// src/features/file-browser/fileBrowser.service.ts (addition)
-uploadLargeFile(params: {
+uploadFile(params: {
   bucket: string;
   key: string;
   body: File | Blob;
@@ -142,53 +133,42 @@ uploadLargeFile(params: {
 
 ## Environment Variables
 
-Add to `.env.example`:
-```
-# Maximum single-file upload size in bytes (default 5368709120 = 5 GiB)
-VITE_MAX_UPLOAD_BYTES=5368709120
-```
+None new (`VITE_MAX_UPLOAD_BYTES` was added in SPEC-016).
 
 ## File & Folder Structure
 
 ```
-infra/modules/data/
-├── s3.tf                                  ← + abort-incomplete-multipart lifecycle rule
-└── policies/portal-role-permissions.json.tftpl  ← + multipart actions
-
-infra/modules/base/policies/               ← + s3:Put/GetLifecycleConfiguration (deploy role)
-
 apps/portal/src/features/file-browser/
-├── fileBrowser.service.ts                 ← + uploadLargeFile
-├── fileBrowser.service.test.ts            ← + multipart/abort/progress tests
-├── upload.types.ts                        ← NEW
-├── uploadQueueContext.ts                  ← NEW
-├── UploadQueueProvider.tsx                ← NEW: queue state + concurrency
-├── UploadQueueProvider.test.tsx           ← NEW
-├── UploadQueuePanel.tsx                   ← NEW: progress UI
-└── UploadDropzone.tsx                     ← updated: multi-file → queue
+├── upload.types.ts                  ← NEW: UploadItem, UploadStatus, UPLOAD_CONCURRENCY
+├── uploadQueueContext.ts            ← NEW
+├── UploadQueueProvider.tsx          ← NEW: queue state + concurrency gate
+├── UploadQueueProvider.test.tsx     ← NEW
+├── UploadQueuePanel.tsx             ← NEW: per-file progress / status / cancel / dismiss
+└── UploadDropzone.tsx               ← updated: multi-file → enqueue
 ```
 
 ## Implementation Phases
 
-### Phase 1: IaC — IAM actions + lifecycle rule
+### Phase 1: Queue state + concurrency + cancel
 
-- FR-001, FR-002 (and the deploy-role + architecture-doc updates)
-
-#### Checkpoint
-
-`deploy-infra.yml` PR plan shows the policy + lifecycle change and nothing else. After apply: `get-bucket-lifecycle-configuration` returns the abort rule; a large upload via a real STS session (or `simulate-principal-policy`) is allowed in-prefix and denied out-of-prefix.
-
-### Phase 2: Multipart service + queue UI
-
-- `@aws-sdk/lib-storage`, `uploadLargeFile`, the upload-queue provider and panel, multi-file dropzone, cancel/progress, collision per file (FR-003, FR-004)
+- `upload.types.ts`, `UploadQueueProvider` (reducer + concurrency gate calling SPEC-016 `uploadFile`), per-file abort (FR-001, FR-002)
 
 #### Checkpoint
 
-Signed in: uploading a >5 MB file succeeds with a visible progress bar; multiple files queue and upload with bounded concurrency; cancelling an in-flight upload stops it and leaves no listed object; each finished file appears via listing invalidation; `npm run test` and `npm run lint` pass. Deployed app verified with a real large file.
+Unit tests pass for queue transitions, the concurrency gate (≤ 3 in flight), and the abort path. `npm run lint` clean.
+
+### Phase 2: Queue UI + dropzone
+
+- `UploadQueuePanel` (progress/status/cancel/dismiss), multi-file `UploadDropzone`, per-file collision prompt, listing invalidation per completion (FR-003)
+
+#### Checkpoint
+
+Signed in: dropping several files queues them and they upload with bounded concurrency and visible per-file progress; cancelling an in-flight upload stops it and leaves no listed object; each finished file appears via listing invalidation; browsing stays responsive during uploads; `npm run test` and `npm run lint` pass. Deployed app verified with multiple/large files.
 
 ## Open Questions
 
 None — all resolved before drafting:
-- Multipart via **`@aws-sdk/lib-storage` `Upload`** (managed parts/concurrency/progress/abort).
-- Max upload size configurable, **default 5 GiB**; part size 5 MiB; file concurrency 3.
-- Incomplete uploads swept by a **7-day abort lifecycle rule** (first lifecycle rule on the data bucket; SPEC-010 deferred these).
+- Multipart engine, progress, IAM, and the abort lifecycle rule are **SPEC-016**; this spec is queue + concurrency + cancel only.
+- File concurrency **default 3**; per-file cancel via `AbortSignal` → `uploadFile` → `Upload.abort()`.
+- Queue/UI state = **React Context + `useReducer`** (UI state), per the state-management decision.
+```
