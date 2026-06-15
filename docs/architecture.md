@@ -256,19 +256,23 @@ only multipart needs more:
 
 - **Download** (SPEC-015): presigned `GetObject` — covered by `s3:GetObject`.
 - **Metadata** (SPEC-017): `HeadObject` — authorized by `s3:GetObject`.
-- **Upload ≤5 MB / create folder** (SPEC-016): `PutObject` — covered.
+- **Upload / create folder** (SPEC-016): uses the managed `@aws-sdk/lib-storage`
+  `Upload` — single `PutObject` below a 5 MiB part-size threshold, **automatic
+  multipart above it**. `CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload`
+  are authorized by `s3:PutObject`, but the policy must **additionally** grant
+  `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`, and
+  `s3:ListMultipartUploadParts` — added in SPEC-016. SPEC-016 also adds a bucket
+  lifecycle rule aborting incomplete multipart uploads after 7 days (the first
+  lifecycle rule on the user-space bucket; SPEC-010 deferred these).
 - **Delete** (SPEC-018): `DeleteObject` / `DeleteObjects` — covered (except the
   `*/DO_NOT_DELETE.txt` deny in SPEC-013 FR-001).
 - **Move / rename** (SPEC-019): `CopyObject` + `DeleteObject`. A same-bucket copy
   needs `s3:GetObject` (source) + `s3:PutObject` (destination), both inside the
   user's own prefix — **no new IAM**. There is no S3 move/rename; the app presents
   them but performs copy-then-delete (recursive and non-atomic for folders).
-- **Multipart upload >5 MB** (SPEC-020): `CreateMultipartUpload`/`UploadPart`/
-  `CompleteMultipartUpload` are authorized by `s3:PutObject`, but the policy must
-  additionally grant `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`,
-  and `s3:ListMultipartUploadParts`. SPEC-020 also adds a bucket lifecycle rule to
-  abort incomplete multipart uploads after 7 days (the first lifecycle rule on the
-  user-space bucket; SPEC-010 deferred these).
+- **Upload queue** (SPEC-020): multi-file queue + per-file cancel on top of the
+  SPEC-016 uploader — **no new IAM** (`s3:AbortMultipartUpload` already granted in
+  SPEC-016 covers cancel).
 
 **Frontend prefix derivation:**
 ```ts
@@ -599,8 +603,10 @@ Add staging environment here when it is provisioned.
   and the pool is case-insensitive (SPEC-006).
 - **Shared bucket access model is TBD.** The single-role + principal-tag approach changes how
   per-user prefix grants on Bucket 2 can be expressed. To be resolved in the shared-space spec.
-- **File size limits.** SPEC-016 caps single-`PutObject` uploads at 5 MB; SPEC-020 lifts
-  this with multipart upload (`@aws-sdk/lib-storage`), a default 5 GiB max, and a queue.
+- **File size limits.** SPEC-016 uploads via the managed `@aws-sdk/lib-storage`
+  `Upload` (single request below a 5 MiB part-size threshold, automatic multipart
+  above it), with a configurable max (default 5 GiB, `VITE_MAX_UPLOAD_BYTES`).
+  SPEC-020 adds the multi-file queue + cancel on top — no new size mechanics.
 - **Move and rename are non-atomic.** S3 has neither operation. The portal presents them
   but performs `CopyObject` + `DeleteObject` (rename = move within the same parent). For a
   folder this is *recursive* over every contained key and can *partially fail* — a per-key
@@ -647,9 +653,9 @@ Add staging environment here when it is provisioned.
 | SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Completed |
 | SPEC-014 | User prefix marker — app writes `{username}/DO_NOT_DELETE.txt` on first login | Completed |
 | SPEC-015 | File download + data foundation (TanStack Query, pagination, presigned URLs) | Completed |
-| SPEC-016 | File upload (≤5 MB) + create folder | Draft |
+| SPEC-016 | File upload (managed, auto-multipart + progress) + create folder | Draft |
 | SPEC-017 | File metadata panel (HeadObject) | Draft |
 | SPEC-018 | Delete files and folders (multi-select, recursive) | Draft |
 | SPEC-019 | Move & rename (files and folders) — copy+delete | Draft |
-| SPEC-020 | Multipart upload (large files) + upload queue | Draft |
+| SPEC-020 | Upload queue (multi-file, concurrency, cancel) | Draft |
 | Future | Shared-space bucket (Bucket 2) — user-managed access keys, model TBD | Not yet written |
