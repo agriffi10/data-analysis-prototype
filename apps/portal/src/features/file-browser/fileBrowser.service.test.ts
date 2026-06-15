@@ -3,15 +3,21 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
   listFiles,
   ensurePrefixMarker,
   deleteObject,
   isPrefixMarkerKey,
+  getDownloadUrl,
   __resetPrefixMarkerCache,
 } from './fileBrowser.service';
 import { PREFIX_MARKER_BODY } from './fileBrowser.constants';
+
+vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }));
+const mockGetSignedUrl = vi.mocked(getSignedUrl);
 
 // The service now obtains an authenticated client via getS3Client() (SPEC-013).
 // Mock that + the client's send. vi.hoisted lets the mock factory reference these.
@@ -178,9 +184,43 @@ describe('listFiles', () => {
           Bucket: 'test-bucket',
           Prefix: 'some/prefix/',
           Delimiter: '/',
+          MaxKeys: 1000,
+          ContinuationToken: undefined,
         },
       }),
     );
+  });
+
+  it('threads the continuation token and surfaces pagination fields', async () => {
+    mockSend.mockResolvedValueOnce({
+      Contents: [],
+      CommonPrefixes: [],
+      IsTruncated: true,
+      NextContinuationToken: 'TOKEN-2',
+    });
+
+    const result = await listFiles('my-bucket', 'alice/', 'TOKEN-1');
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.isTruncated).toBe(true);
+    expect(result.data.nextContinuationToken).toBe('TOKEN-2');
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ ContinuationToken: 'TOKEN-1', MaxKeys: 1000 }),
+      }),
+    );
+  });
+
+  it('defaults isTruncated to false when S3 omits it', async () => {
+    mockSend.mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
+
+    const result = await listFiles('my-bucket');
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.isTruncated).toBe(false);
+    expect(result.data.nextContinuationToken).toBeUndefined();
   });
 
   it('retries once with refreshed credentials on an expired-token error', async () => {
@@ -330,5 +370,90 @@ describe('deleteObject', () => {
     expect(result.data.key).toBe('alice/report.pdf');
     expect(mockSend).toHaveBeenCalledOnce();
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(DeleteObjectCommand);
+  });
+});
+
+describe('getDownloadUrl', () => {
+  // A mock client exposing a credentials provider with the given remaining TTL.
+  function clientWithExpiry(secondsFromNow: number) {
+    return {
+      send: mockSend,
+      config: {
+        credentials: vi.fn().mockResolvedValue({
+          accessKeyId: 'AKIA',
+          secretAccessKey: 'secret',
+          expiration: new Date(Date.now() + secondsFromNow * 1000),
+        }),
+      },
+    };
+  }
+
+  it('builds a presigned GetObject URL with attachment disposition + default expiry', async () => {
+    mockGetS3Client.mockResolvedValue({
+      success: true,
+      data: clientWithExpiry(3600),
+    });
+    mockGetSignedUrl.mockResolvedValue('https://signed.example/report.pdf');
+
+    const result = await getDownloadUrl({ bucket: 'us', key: 'alice/report.pdf' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.url).toBe('https://signed.example/report.pdf');
+    expect(typeof result.data.expiresAt).toBe('string');
+
+    const [, command, options] = mockGetSignedUrl.mock.calls[0];
+    expect(command).toBeInstanceOf(GetObjectCommand);
+    expect((command as GetObjectCommand).input).toMatchObject({
+      Bucket: 'us',
+      Key: 'alice/report.pdf',
+      ResponseContentDisposition: 'attachment; filename="report.pdf"',
+    });
+    // Far-future credentials → uncapped default of 900s.
+    expect(options).toEqual({ expiresIn: 900 });
+  });
+
+  it('defaults the filename to the last path segment', async () => {
+    mockGetS3Client.mockResolvedValue({ success: true, data: clientWithExpiry(3600) });
+    mockGetSignedUrl.mockResolvedValue('https://signed');
+
+    await getDownloadUrl({ bucket: 'us', key: 'alice/docs/2024/q1.csv' });
+
+    const [, command] = mockGetSignedUrl.mock.calls[0];
+    expect((command as GetObjectCommand).input.ResponseContentDisposition).toBe(
+      'attachment; filename="q1.csv"',
+    );
+  });
+
+  it('caps the expiry to the remaining credential lifetime', async () => {
+    mockGetS3Client.mockResolvedValue({ success: true, data: clientWithExpiry(120) });
+    mockGetSignedUrl.mockResolvedValue('https://signed');
+
+    await getDownloadUrl({ bucket: 'us', key: 'alice/f.txt', expiresInSeconds: 900 });
+
+    const options = mockGetSignedUrl.mock.calls[0][2];
+    expect(options?.expiresIn).toBeGreaterThan(0);
+    expect(options?.expiresIn).toBeLessThan(900); // capped below the requested 900
+  });
+
+  it('surfaces a no-credentials error after one forced-refresh retry, without signing', async () => {
+    mockGetS3Client
+      .mockResolvedValueOnce({
+        success: false,
+        error: { message: 'No AWS credentials — sign in required' },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        error: { message: 'No AWS credentials — sign in required' },
+      });
+
+    const result = await getDownloadUrl({ bucket: 'us', key: 'alice/f.txt' });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.message).toBe('No AWS credentials — sign in required');
+    expect(mockGetS3Client).toHaveBeenCalledTimes(2);
+    expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
+    expect(mockGetSignedUrl).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,15 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FileBrowser } from './FileBrowser';
 import { useFileBrowser } from './useFileBrowser';
 import type { UseFileBrowserResult } from './useFileBrowser';
+import { getDownloadUrl } from './fileBrowser.service';
 
 vi.mock('./useFileBrowser');
+vi.mock('./fileBrowser.service');
 
 const mockUseFileBrowser = vi.mocked(useFileBrowser);
+const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
 
 const base: UseFileBrowserResult = {
   files: [],
@@ -14,6 +17,9 @@ const base: UseFileBrowserResult = {
   isLoading: false,
   error: null,
   refresh: vi.fn(),
+  hasMore: false,
+  loadMore: vi.fn(),
+  isLoadingMore: false,
 };
 
 beforeEach(() => {
@@ -350,5 +356,119 @@ describe('breadcrumb', () => {
     expect(nav).toHaveTextContent('Home');
     expect(nav).toHaveTextContent('docs');
     expect(within(nav).getByText('2024')).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+// ─── Load more (pagination) ────────────────────────────────────────────────────
+
+describe('load more', () => {
+  const withFile = {
+    ...base,
+    files: [
+      {
+        type: 'file' as const,
+        key: 'a.txt',
+        name: 'a.txt',
+        size: 1,
+        lastModified: new Date('2024-01-01'),
+      },
+    ],
+  };
+
+  it('shows "Load more" only when hasMore is true', () => {
+    mockUseFileBrowser.mockReturnValue({ ...withFile, hasMore: true });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument();
+  });
+
+  it('hides "Load more" when fully loaded', () => {
+    mockUseFileBrowser.mockReturnValue({ ...withFile, hasMore: false });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+  });
+
+  it('calls loadMore when clicked', () => {
+    const loadMore = vi.fn();
+    mockUseFileBrowser.mockReturnValue({ ...withFile, hasMore: true, loadMore });
+    render(<FileBrowser bucket="my-bucket" />);
+    fireEvent.click(screen.getByRole('button', { name: /load more/i }));
+    expect(loadMore).toHaveBeenCalledOnce();
+  });
+
+  it('disables the control while a page is loading', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...withFile,
+      hasMore: true,
+      isLoadingMore: true,
+    });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.getByRole('button', { name: /loading/i })).toBeDisabled();
+  });
+});
+
+// ─── Download (SPEC-015 FR-003) ────────────────────────────────────────────────
+
+describe('download', () => {
+  const fileItem = {
+    type: 'file' as const,
+    key: 'alice/docs/report.pdf',
+    name: 'report.pdf',
+    size: 1024,
+    lastModified: new Date('2024-01-01'),
+  };
+
+  beforeEach(() => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
+  });
+
+  it('exposes a Download action per file', () => {
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(
+      screen.getByRole('button', { name: /download report\.pdf/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('folders expose no Download action', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      folders: [{ type: 'folder', prefix: 'docs/', name: 'docs' }],
+    });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it('requests a presigned URL and triggers the browser download on success', async () => {
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+    mockGetDownloadUrl.mockResolvedValue({
+      success: true,
+      data: { url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z' },
+    });
+
+    render(<FileBrowser bucket="my-bucket" />);
+    fireEvent.click(screen.getByRole('button', { name: /download report\.pdf/i }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
+    expect(mockGetDownloadUrl).toHaveBeenCalledWith({
+      bucket: 'my-bucket',
+      key: 'alice/docs/report.pdf',
+      fileName: 'report.pdf',
+    });
+    clickSpy.mockRestore();
+  });
+
+  it('surfaces a download error inline without throwing', async () => {
+    mockGetDownloadUrl.mockResolvedValue({
+      success: false,
+      error: { message: 'No AWS credentials — sign in required' },
+    });
+
+    render(<FileBrowser bucket="my-bucket" />);
+    fireEvent.click(screen.getByRole('button', { name: /download report\.pdf/i }));
+
+    expect(
+      await screen.findByText(/could not download report\.pdf/i),
+    ).toBeInTheDocument();
   });
 });

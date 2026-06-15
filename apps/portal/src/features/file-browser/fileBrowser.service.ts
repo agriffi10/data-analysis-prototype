@@ -1,13 +1,16 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getS3Client, s3Client } from '../../lib/s3Client';
-import type { FileList } from '../../types/s3.types';
+import type { FileListPage } from '../../types/s3.types';
 import type { ServiceResult } from '../../types/service.types';
+import type { DownloadUrl } from './fileBrowser.types';
 import {
   PREFIX_MARKER_BODY,
   prefixMarkerKey,
@@ -29,24 +32,33 @@ const EXPIRY_ERROR_CODES = new Set([
 const devUnauthenticated =
   import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
+// MaxKeys per ListObjectsV2 page. 1000 is also the S3 hard cap (SPEC-015 FR-002).
+const PAGE_SIZE = 1000;
+
 export async function listFiles(
   bucket: string,
   prefix?: string,
-): Promise<ServiceResult<FileList>> {
+  continuationToken?: string,
+): Promise<ServiceResult<FileListPage>> {
   if (devUnauthenticated) {
-    return listWithClient(s3Client, bucket, prefix);
+    return listWithClient(s3Client, bucket, prefix, continuationToken);
   }
 
   const clientResult = await getS3Client();
   if (!clientResult.success) return clientResult;
 
-  const result = await listWithClient(clientResult.data, bucket, prefix);
+  const result = await listWithClient(
+    clientResult.data,
+    bucket,
+    prefix,
+    continuationToken,
+  );
   if (result.success || !isExpiryError(result.error.code)) return result;
 
   // Credentials expired mid-session — refresh once and retry transparently.
   const refreshed = await getS3Client(true);
   if (!refreshed.success) return refreshed;
-  return listWithClient(refreshed.data, bucket, prefix);
+  return listWithClient(refreshed.data, bucket, prefix, continuationToken);
 }
 
 function isExpiryError(code?: string): boolean {
@@ -57,12 +69,15 @@ async function listWithClient(
   client: S3Client,
   bucket: string,
   prefix?: string,
-): Promise<ServiceResult<FileList>> {
+  continuationToken?: string,
+): Promise<ServiceResult<FileListPage>> {
   try {
     const command = new ListObjectsV2Command({
       Bucket: bucket,
       Prefix: prefix,
       Delimiter: '/',
+      MaxKeys: PAGE_SIZE,
+      ContinuationToken: continuationToken,
     });
 
     const response = await client.send(command);
@@ -87,7 +102,15 @@ async function listWithClient(
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    return { success: true, data: { files, folders } };
+    return {
+      success: true,
+      data: {
+        files,
+        folders,
+        isTruncated: response.IsTruncated ?? false,
+        nextContinuationToken: response.NextContinuationToken,
+      },
+    };
   } catch (err) {
     const error = err as { message?: string; name?: string };
     return {
@@ -233,6 +256,71 @@ export async function deleteObject(params: {
       return toServiceError(err, 'Failed to delete object');
     }
   });
+}
+
+// SPEC-015 FR-003. Default presigned-download lifetime: 15 minutes.
+const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 900;
+
+// Remaining lifetime (seconds) on the client's temporary credentials, or
+// undefined if it can't be determined. A presigned URL can never outlive the
+// credentials that signed it, so we use this to cap the advertised expiry.
+async function remainingCredentialSeconds(
+  client: S3Client,
+): Promise<number | undefined> {
+  try {
+    const provider = client.config?.credentials;
+    if (typeof provider !== 'function') return undefined;
+    const creds = await provider();
+    if (!creds?.expiration) return undefined;
+    const seconds = Math.floor(
+      (new Date(creds.expiration).getTime() - Date.now()) / 1000,
+    );
+    return seconds > 0 ? seconds : 0;
+  } catch {
+    return undefined;
+  }
+}
+
+// SPEC-015 FR-003: generate a short-lived presigned GetObject URL so the browser
+// can download a file directly from S3 (no backend). `ResponseContentDisposition`
+// forces a save dialog with the real filename. The expiry defaults to 15 min and
+// is capped to the remaining credential lifetime (the URL dies with the creds).
+export async function getDownloadUrl(params: {
+  bucket: string;
+  key: string;
+  fileName?: string; // defaults to the last path segment of the key
+  expiresInSeconds?: number; // default 900, capped to credential TTL
+}): Promise<ServiceResult<DownloadUrl>> {
+  const { bucket, key } = params;
+  const downloadName = params.fileName ?? fileName(key);
+  const requested = params.expiresInSeconds ?? DEFAULT_DOWNLOAD_EXPIRY_SECONDS;
+
+  // Acquire credentials; on none (signed out / expired) retry once with a forced
+  // refresh before surfacing the error (FR-003).
+  let clientResult = await getS3Client();
+  if (!clientResult.success) {
+    clientResult = await getS3Client(true);
+    if (!clientResult.success) return clientResult;
+  }
+  const client = clientResult.data;
+
+  try {
+    const remaining = await remainingCredentialSeconds(client);
+    const expiresIn =
+      remaining === undefined ? requested : Math.min(requested, remaining);
+
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${downloadName}"`,
+    });
+
+    const url = await getSignedUrl(client, command, { expiresIn });
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    return { success: true, data: { url, expiresAt } };
+  } catch (err) {
+    return toServiceError(err, 'Failed to generate download URL');
+  }
 }
 
 // Test-only: reset the once-per-session marker guard between cases.
