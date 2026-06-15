@@ -21,6 +21,13 @@ locals {
   portal_role_name = var.portal_role_name != "" ? var.portal_role_name : "${var.project_name}-portal-user-role"
   portal_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.portal_role_name}"
 
+  # Deploy role ARN, constructed the same cycle-free way (base creates the role as
+  # "${project_name}-deploy-role"). Passed to the data module so the user-space
+  # bucket policy can EXCLUDE the deploy role from its data-access Deny — without
+  # this the deploy role can't HeadBucket (s3:ListBucket), tofu refresh sees the
+  # bucket as "deleted", and every infra plan proposes a destructive recreate.
+  deploy_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-deploy-role"
+
   # Lambda artifacts bucket name computed once and shared the same cycle-free way:
   # the lambda-artifacts module creates the bucket, and base's deploy policy is
   # scoped to its ARN (constructed string -> no lambda-artifacts->base cycle).
@@ -72,6 +79,7 @@ module "data" {
   app_url                = var.app_url
   user_space_bucket_name = local.user_space_bucket_name
   portal_role_name       = local.portal_role_name
+  deploy_role_arn        = local.deploy_role_arn
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.

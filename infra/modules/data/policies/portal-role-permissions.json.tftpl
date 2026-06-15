@@ -7,14 +7,19 @@
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
-        "s3:DeleteObject"
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
       ],
       "Resource": "${bucket_arn}/$${aws:PrincipalTag/username}/*"
     },
     {
       "Sid": "UserPrefixList",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketMultipartUploads"
+      ],
       "Resource": "${bucket_arn}",
       "Condition": {
         "StringLike": {

@@ -234,20 +234,32 @@ principal tag stamped by the Identity Pool at credential issuance. This scopes e
 prefix with a single policy statement — no per-user policy changes needed.
 
 ```json
-{
-  "Effect": "Allow",
-  "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-  "Resource": [
-    "arn:aws:s3:::user-space",
-    "arn:aws:s3:::user-space/${aws:PrincipalTag/username}/*"
-  ],
-  "Condition": {
-    "StringLike": {
-      "s3:prefix": ["${aws:PrincipalTag/username}/*", ""]
+[
+  {
+    "Effect": "Allow",
+    "Action": [
+      "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+      "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"
+    ],
+    "Resource": "arn:aws:s3:::user-space/${aws:PrincipalTag/username}/*"
+  },
+  {
+    "Effect": "Allow",
+    "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads"],
+    "Resource": "arn:aws:s3:::user-space",
+    "Condition": {
+      "StringLike": {
+        "s3:prefix": ["${aws:PrincipalTag/username}/", "${aws:PrincipalTag/username}/*"]
+      }
     }
   }
-}
+]
 ```
+
+> The multipart actions (`s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts`,
+> `s3:ListBucketMultipartUploads`) were added in **SPEC-016** for managed
+> (`@aws-sdk/lib-storage`) uploads. `CreateMultipartUpload`/`UploadPart`/
+> `CompleteMultipartUpload` need no separate action — they ride on `s3:PutObject`.
 
 **How file operations map onto these actions (SPEC-015→020):**
 

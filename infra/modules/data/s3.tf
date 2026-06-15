@@ -58,13 +58,35 @@ resource "aws_s3_bucket_ownership_controls" "user_space" {
 # Versioning is intentionally OFF for the MVP — no version history or undo. This
 # is a deliberate decision: overwrites and deletes are irreversible and the app
 # guards them in the UI (see docs/architecture.md Known Constraints). Revisit if
-# undo/version history is ever required. Lifecycle rules are also deferred until
-# a spec needs them (SPEC-020 adds the first, for incomplete multipart uploads).
+# undo/version history is ever required.
 resource "aws_s3_bucket_versioning" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
   versioning_configuration {
     status = "Disabled"
+  }
+}
+
+# Lifecycle — abort incomplete multipart uploads after 7 days (SPEC-016 FR-006).
+# SPEC-016 uploads via the managed lib-storage Upload, which uses multipart above
+# the 5 MiB part size. A browser killed mid-upload (or a future cancel) can leave
+# in-progress parts that are billable but invisible; this rule sweeps them up.
+# This is the first lifecycle rule on the bucket (SPEC-010 deferred them). The
+# empty filter applies the rule to the whole bucket. The deploy role already holds
+# s3:* on this bucket (modules/base S3UserSpaceBucketManage), so no deploy-role
+# change is needed for s3:PutLifecycleConfiguration.
+resource "aws_s3_bucket_lifecycle_configuration" "user_space" {
+  bucket = aws_s3_bucket.user_space.id
+
+  rule {
+    id     = "abort-incomplete-multipart-uploads"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 
@@ -82,14 +104,21 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
   }
 }
 
-# ── Bucket Policy — defense in depth (SPEC-013 FR-002) ───────────────────────
+# ── Bucket Policy — defense in depth (SPEC-013 FR-002; deploy-role fix SPEC-016) ─
 # Denies S3 *data* actions (object CRUD + ListBucket) to every principal except
-# the portal role and the account root (break-glass). This is belt-and-suspenders
-# on top of the role's identity policy: even a misconfigured principal can't read
-# or write user data. Bucket *configuration* actions (PutBucketPolicy, lifecycle,
-# etc.) are intentionally NOT denied, so the deploy role keeps managing the bucket
-# via its identity policy and a bad policy can never lock out the IaC (root can
-# always recover). Uses aws:PrincipalArn rather than relying on absence of grants.
+# the portal role, the deploy role, and the account root (break-glass). This is
+# belt-and-suspenders on top of the role's identity policy: even a misconfigured
+# principal can't read or write user data. Bucket *configuration* actions
+# (PutBucketPolicy, lifecycle, etc.) are intentionally NOT denied.
+#
+# The deploy role MUST be excluded: it runs `tofu plan`/`apply`, which calls
+# HeadBucket (an s3:ListBucket action) to refresh the bucket. SPEC-013 omitted it,
+# so once the policy was live the deploy role got 403 on HeadBucket, tofu refresh
+# reported the bucket as "deleted", and every subsequent infra plan proposed a
+# destructive recreate. Excluding the deploy role (which already holds s3:* on the
+# bucket via its identity policy, and can rewrite any policy anyway) fixes the
+# refresh without weakening the model. Human IAM admins remain denied data access.
+# Uses aws:PrincipalArn rather than relying on absence of grants.
 #
 # The exclusion list uses the portal role's IAM ARN (arn:...:role/NAME), NOT the
 # assumed-role session ARN: per AWS docs, aws:PrincipalArn for an assumed-role
@@ -105,6 +134,7 @@ resource "aws_s3_bucket_policy" "user_space" {
   policy = templatefile("${path.module}/policies/user-space-bucket-policy.json.tftpl", {
     bucket_arn      = aws_s3_bucket.user_space.arn
     portal_role_arn = aws_iam_role.portal.arn
+    deploy_role_arn = var.deploy_role_arn
     account_id      = data.aws_caller_identity.current.account_id
   })
 }
