@@ -44,12 +44,15 @@ resource "aws_cognito_user_pool" "portal" {
     mutable             = true
   }
 
+  # Tightened for bot/credential-stuffing resistance (SPEC-030 FR-002). All flags
+  # were already on; temporary_password_validity_days is added to complete the block.
   password_policy {
-    minimum_length    = 12
-    require_lowercase = true
-    require_uppercase = true
-    require_numbers   = true
-    require_symbols   = true
+    minimum_length                   = 12
+    require_lowercase                = true
+    require_uppercase                = true
+    require_numbers                  = true
+    require_symbols                  = true
+    temporary_password_validity_days = 7
   }
 
   # Self-signup enabled (open registration + email verification) — SPEC-009 depends on this.
@@ -105,6 +108,11 @@ resource "aws_cognito_user_pool_client" "spa" {
   logout_urls   = local.callback_urls
 
   supported_identity_providers = ["COGNITO"]
+
+  # Return an identical generic error for "user not found" and "wrong password"
+  # so sign-in attempts can't enumerate registered accounts (SPEC-030 FR-001).
+  # This is a free Cognito feature and does NOT require Advanced Security Features.
+  prevent_user_existence_errors = "ENABLED"
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
