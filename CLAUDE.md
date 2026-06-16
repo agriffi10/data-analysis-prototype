@@ -188,7 +188,7 @@ tofu output          # view output values (use to populate .env.local)
 | User Prefix Marker (DO_NOT_DELETE.txt) | `@docs/specs/SPEC-014-user-prefix-marker.md` | Completed |
 | File Download + Data Foundation (TanStack Query) | `@docs/specs/SPEC-015-file-download-and-data-foundation.md` | Completed |
 | File Upload (managed, auto-multipart + progress) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Completed |
-| File Metadata Panel | `@docs/specs/SPEC-017-file-metadata-panel.md` | Draft |
+| File Metadata Panel | `@docs/specs/SPEC-017-file-metadata-panel.md` | Completed |
 | Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Draft |
 | Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Draft |
 | Upload Queue (multi-file, concurrency, cancel) | `@docs/specs/SPEC-020-multipart-upload.md` | Draft |
@@ -235,9 +235,9 @@ Add new specs to this table as they are created.
 1. Read this file.
 2. Read the file at [`@docs/architecture.md`]
 3. Read the spec for the feature being worked on (`@docs/specs/<spec>.md`).
-4. Read the completed specs under [`@docs/spec-delivery/<spec>.md`]
+4. **Do not eagerly read every delivery doc** — they grow one-per-spec and bloat context, and reuse knowledge lives in the code, not the doc prose. Instead: (a) skim [`@docs/component-inventory.md`] for reusable services/hooks/components already available; (b) `grep`/Explore the code area you'll touch for existing functions to reuse; (c) delegate the *current spec's dependency* delivery docs (named in its `Depends On:` line) + `@docs/architecture.md` to a subagent whose brief must answer "what already exists that I can reuse, and where." Pull a specific full delivery doc on demand only when the brief or code points to one.
 5. Before starting any spec, check that the most recent GitHub Actions workflow runs on `main` succeeded (`gh run list --branch main --limit 10`) — confirm the prior spec's deploy ran smoothly. If any run failed (especially `Deploy Infrastructure` / `Deploy Lambdas` / `Deploy App`), investigate (`gh run view <id> --log-failed`) and resolve it before building on top of a broken `main`.
 6. Before writing code for a new spec, start from an up-to-date `main` and branch from there: `git checkout main && git pull` (or `git fetch origin && git switch -c <branch> origin/main`), then create the feature branch (e.g. `feature-<short-name>`). This avoids branching off a stale `main` that's missing a just-merged spec's work. If you already have a branch that predates a recently merged spec, recreate or rebase it onto the latest `main`.
 7. Confirm the phase to implement before writing any code.
 8. After completing a phase, stop and summarize what was built and what the checkpoint test is.
-9. When a spec is completed: (a) set its **Status** field to `Completed`, (b) update the Active Specs table in this file, (c) use the template at [`@docs/templates/spec-completion-template`] to create a delivery doc at [`@docs/spec-delivery/SPEC-<XXX>-<spec>.md`].
+9. When a spec is completed: (a) set its **Status** field to `Completed`, (b) update the Active Specs table in this file, (c) use the template at [`@docs/templates/spec-completion-template`] to create a delivery doc at [`@docs/spec-delivery/SPEC-<XXX>-<spec>.md`], (d) if the spec added reusable services/hooks/components/types/utilities, add them to [`@docs/component-inventory.md`] so they stay discoverable without re-reading delivery docs.

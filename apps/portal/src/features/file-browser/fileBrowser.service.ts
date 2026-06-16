@@ -15,6 +15,7 @@ import type {
   DownloadUrl,
   UploadResult,
   CreateFolderResult,
+  ObjectMetadata,
 } from './fileBrowser.types';
 import {
   MAX_UPLOAD_BYTES,
@@ -504,6 +505,47 @@ export async function createFolder(params: {
       return { success: true, data: { prefix: folderPrefix } };
     } catch (err) {
       return toServiceError(err, 'Failed to create folder');
+    }
+  });
+}
+
+// ── Object metadata (SPEC-017) ───────────────────────────────────────────────
+
+// SPEC-017 FR-001: fetch a single object's metadata via HeadObject (no body
+// transfer). Maps the SDK response onto ObjectMetadata, defaulting StorageClass
+// to "STANDARD" when S3 omits it. A NotFound/404 is surfaced as a clear
+// ServiceResult error (the file was deleted out from under the listing), not a
+// throw; credential expiry is retried once by withAuthenticatedClient.
+export async function getObjectMetadata(params: {
+  bucket: string;
+  key: string;
+}): Promise<ServiceResult<ObjectMetadata>> {
+  const { bucket, key } = params;
+  return withAuthenticatedClient(async (client) => {
+    try {
+      const response = await client.send(
+        new HeadObjectCommand({ Bucket: bucket, Key: key }),
+      );
+      return {
+        success: true,
+        data: {
+          key,
+          contentType: response.ContentType ?? 'application/octet-stream',
+          size: response.ContentLength ?? 0,
+          lastModified: response.LastModified ?? new Date(0),
+          etag: response.ETag ?? '',
+          storageClass: response.StorageClass ?? 'STANDARD',
+          userMetadata: response.Metadata ?? {},
+        },
+      };
+    } catch (err) {
+      if (isNotFound(err)) {
+        return {
+          success: false,
+          error: { message: 'This file no longer exists.', code: 'NotFound' },
+        };
+      }
+      return toServiceError(err, 'Failed to load file details');
     }
   });
 }

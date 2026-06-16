@@ -5,6 +5,7 @@ import { getDownloadUrl } from './fileBrowser.service';
 import { UploadDropzone } from './UploadDropzone';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
+import { MetadataPanel } from './MetadataPanel';
 import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
 
 // Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
@@ -125,10 +126,12 @@ function FolderRow({
 function FileRow({
   file,
   onDownload,
+  onDetails,
   isDownloading,
 }: {
   file: S3FileItem;
   onDownload: (file: S3FileItem) => void;
+  onDetails: (file: S3FileItem) => void;
   isDownloading: boolean;
 }) {
   return (
@@ -141,6 +144,13 @@ function FileRow({
       <span className="w-32 text-right text-sm text-gray-400">
         {formatDate(file.lastModified)}
       </span>
+      <button
+        className="rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        onClick={() => onDetails(file)}
+        aria-label={`Details for ${file.name}`}
+      >
+        Details
+      </button>
       <button
         className="rounded px-2 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         onClick={() => onDownload(file)}
@@ -180,6 +190,11 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
   // throwing. The hidden marker is filtered out, so it never exposes this action.
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // SPEC-017: the file whose read-only metadata drawer is open (null = closed).
+  // Only files reach this — folders use FolderRow and the prefix marker is
+  // already filtered out of `files`, so neither exposes a Details action.
+  const [detailsFile, setDetailsFile] = useState<S3FileItem | null>(null);
 
   async function handleDownload(file: S3FileItem) {
     setDownloadingKey(file.key);
@@ -354,10 +369,21 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
               key={file.key}
               file={file}
               onDownload={handleDownload}
+              onDetails={setDetailsFile}
               isDownloading={downloadingKey === file.key}
             />
           ))}
         </ul>
+      )}
+
+      {/* Metadata drawer (SPEC-017) — non-blocking; closes via button or Escape */}
+      {detailsFile && (
+        <MetadataPanel
+          bucket={bucket}
+          file={detailsFile}
+          rootPrefix={rootPrefix}
+          onClose={() => setDetailsFile(null)}
+        />
       )}
 
       {/* Load more — only when the current prefix has further pages (SPEC-015) */}
