@@ -10,6 +10,21 @@ export type DownloadUrl = {
 export type UploadResult = { key: string };
 export type CreateFolderResult = { prefix: string };
 
+// ── Object metadata (SPEC-017) ───────────────────────────────────────────────
+
+// The fields a single HeadObject call exposes for the read-only metadata panel.
+// `storageClass` defaults to "STANDARD" when S3 omits it; `userMetadata` holds
+// the object's x-amz-meta-* pairs (empty when none were set).
+export type ObjectMetadata = {
+  key: string;
+  contentType: string;
+  size: number; // bytes (ContentLength)
+  lastModified: Date;
+  etag: string;
+  storageClass: string;
+  userMetadata: Record<string, string>;
+};
+
 // Managed-upload tuning. lib-storage uploads a body at/below partSize in a single
 // request and switches to automatic multipart above it — so MULTIPART_PART_SIZE
 // is also the "multipart threshold". PART_CONCURRENCY is parts in flight per file.

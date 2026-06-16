@@ -17,6 +17,7 @@ import {
   createFolder,
   validateFolderName,
   uploadPercent,
+  getObjectMetadata,
   __resetPrefixMarkerCache,
 } from './fileBrowser.service';
 import { PREFIX_MARKER_BODY } from './fileBrowser.constants';
@@ -693,6 +694,85 @@ describe('uploadFile', () => {
     if (result.success) return;
     expect(result.error.message).toMatch(/No AWS credentials/);
     expect(uploadState.ctorArgs).toBeNull();
+  });
+});
+
+describe('getObjectMetadata', () => {
+  it('maps a HeadObject response onto ObjectMetadata', async () => {
+    mockSend.mockResolvedValueOnce({
+      ContentLength: 2048,
+      ContentType: 'application/pdf',
+      LastModified: new Date('2024-03-01T12:00:00Z'),
+      ETag: '"abc123"',
+      StorageClass: 'STANDARD_IA',
+      Metadata: { author: 'alice', project: 'q1' },
+    });
+
+    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/report.pdf' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data).toEqual({
+      key: 'alice/report.pdf',
+      size: 2048,
+      contentType: 'application/pdf',
+      lastModified: new Date('2024-03-01T12:00:00Z'),
+      etag: '"abc123"',
+      storageClass: 'STANDARD_IA',
+      userMetadata: { author: 'alice', project: 'q1' },
+    });
+    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+    expect(mockSend.mock.calls[0][0].input).toEqual({
+      Bucket: 'us',
+      Key: 'alice/report.pdf',
+    });
+  });
+
+  it('defaults StorageClass to STANDARD and userMetadata to {} when S3 omits them', async () => {
+    mockSend.mockResolvedValueOnce({
+      ContentLength: 10,
+      ContentType: 'text/plain',
+      LastModified: new Date('2024-01-01T00:00:00Z'),
+      ETag: '"e"',
+      // no StorageClass, no Metadata
+    });
+
+    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/f.txt' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.storageClass).toBe('STANDARD');
+    expect(result.data.userMetadata).toEqual({});
+  });
+
+  it('returns a NotFound error (not a throw) when the object is missing', async () => {
+    mockSend.mockRejectedValueOnce(notFoundError());
+
+    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/gone.txt' });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('NotFound');
+    expect(result.error.message).toMatch(/no longer exists/i);
+  });
+
+  it('retries once with refreshed credentials on an expired token', async () => {
+    mockSend
+      .mockRejectedValueOnce(
+        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
+      )
+      .mockResolvedValueOnce({
+        ContentLength: 1,
+        ContentType: 'text/plain',
+        LastModified: new Date('2024-01-01T00:00:00Z'),
+        ETag: '"e"',
+      });
+
+    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/f.txt' });
+
+    expect(result.success).toBe(true);
+    expect(mockGetS3Client).toHaveBeenCalledTimes(2);
+    expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
   });
 });
 

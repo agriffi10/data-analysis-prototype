@@ -10,6 +10,21 @@ import type { UseFileUploadResult } from './useFileUpload';
 vi.mock('./useFileBrowser');
 vi.mock('./fileBrowser.service');
 vi.mock('./useFileUpload');
+// Stub the metadata drawer so these tests don't pull in its TanStack Query hook
+// (covered by MetadataPanel.test.tsx). The stub echoes the file it was opened for.
+vi.mock('./MetadataPanel', () => ({
+  MetadataPanel: ({
+    file,
+    onClose,
+  }: {
+    file: { name: string };
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label={`Details for ${file.name}`}>
+      <button onClick={onClose}>close-stub</button>
+    </div>
+  ),
+}));
 
 const mockUseFileBrowser = vi.mocked(useFileBrowser);
 const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
@@ -486,6 +501,68 @@ describe('download', () => {
     expect(
       await screen.findByText(/could not download report\.pdf/i),
     ).toBeInTheDocument();
+  });
+});
+
+// ─── Details / metadata panel (SPEC-017) ───────────────────────────────────────
+
+describe('details panel', () => {
+  const fileItem = {
+    type: 'file' as const,
+    key: 'alice/docs/report.pdf',
+    name: 'report.pdf',
+    size: 1024,
+    lastModified: new Date('2024-01-01'),
+  };
+
+  it('exposes a Details action per file', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(
+      screen.getByRole('button', { name: /details for report\.pdf/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('folders expose no Details action', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      folders: [{ type: 'folder', prefix: 'docs/', name: 'docs' }],
+    });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(
+      screen.queryByRole('button', { name: /details for/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens the metadata drawer for the file when Details is clicked', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
+    render(<FileBrowser bucket="my-bucket" />);
+
+    expect(
+      screen.queryByRole('dialog', { name: /details for report\.pdf/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /details for report\.pdf/i }),
+    );
+
+    expect(
+      screen.getByRole('dialog', { name: /details for report\.pdf/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('closes the drawer when the panel requests close', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
+    render(<FileBrowser bucket="my-bucket" />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /details for report\.pdf/i }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /close-stub/i }));
+
+    expect(
+      screen.queryByRole('dialog', { name: /details for report\.pdf/i }),
+    ).not.toBeInTheDocument();
   });
 });
 

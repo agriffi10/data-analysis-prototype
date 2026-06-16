@@ -1,7 +1,7 @@
 # Spec: File Metadata Panel
 
 **ID:** SPEC-017
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-11
 **Depends On:** SPEC-013 (read access to own prefix), SPEC-015 (TanStack Query data foundation)
 
