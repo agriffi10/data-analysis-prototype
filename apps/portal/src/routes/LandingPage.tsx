@@ -1,6 +1,8 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../features/auth';
 import { takeReturnPath } from '../lib/returnPath';
+import { BrandMark } from '../components/BrandMark';
+import { Button } from '../components/Button';
 
 // Public landing page (`/`). Renders no S3 data and makes no S3 calls — it only
 // explains the portal and offers sign-in via the SPEC-007 auth context.
@@ -16,25 +18,9 @@ export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-6">
       <div className="w-full max-w-sm text-center">
-        {/* Brand mark — rounded accent square + wordmark. Mirrors the Header
-            mark (SPEC-023); extracted into a shared BrandMark in SPEC-028. */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-4 w-4 text-white"
-              aria-hidden="true"
-            >
-              <path d="M12 16V4M7 9l5-5 5 5" />
-              <path d="M5 20h14" />
-            </svg>
-          </div>
-          <span className="text-md font-semibold text-text">S3 File Portal</span>
+        {/* Brand mark (shared with the Header) — SPEC-028. */}
+        <div className="mb-8 flex justify-center">
+          <BrandMark size="md" />
         </div>
 
         <p className="text-sm text-text-2">
@@ -42,20 +28,20 @@ export default function LandingPage() {
         </p>
 
         <div className="mt-8 flex flex-col items-center gap-3">
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={() => void signIn()}
-            className="h-9 w-full max-w-[200px] rounded-md bg-accent px-4 text-base font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
+            className="w-full max-w-[200px]"
           >
             Sign in
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="default"
             onClick={() => signUp()}
-            className="h-9 w-full max-w-[200px] rounded-md border border-border bg-surface px-4 text-base font-medium text-text hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45"
+            className="w-full max-w-[200px]"
           >
             Create account
-          </button>
+          </Button>
         </div>
         {/* Username guidance — mirrors the SPEC-012 pre-signup rule exactly,
             since the username becomes the user's S3 prefix and audit identity. */}

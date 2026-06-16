@@ -1,4 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
+import { Button } from '../../components/Button';
+import { Badge } from '../../components/Badge';
+import { Banner } from '../../components/Banner';
 import { useFileBrowser } from './useFileBrowser';
 import { useFileUpload } from './useFileUpload';
 import { useDelete } from './useDelete';
@@ -155,15 +158,6 @@ function FileIcon({ className = 'h-5 w-5' }: { className?: string }) {
   );
 }
 
-// Neutral type pill used in both row kinds.
-function TypePill({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-text-2">
-      {children}
-    </span>
-  );
-}
-
 // Shared column widths so the header row and body rows line up.
 const COL_SIZE = 'w-24';
 const COL_MODIFIED = 'w-40';
@@ -216,7 +210,7 @@ function FolderRow({
       <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-3`}>—</span>
       <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`} />
       <span className={`${COL_TYPE} pr-4 text-right`}>
-        <TypePill>Folder</TypePill>
+        <Badge>Folder</Badge>
       </span>
       {onRename && (
         <span
@@ -286,7 +280,7 @@ function FileRow({
         {formatDate(file.lastModified)}
       </span>
       <span className={`${COL_TYPE} pr-4 text-right`}>
-        <TypePill>{fileExtension(file.name)}</TypePill>
+        <Badge>{fileExtension(file.name)}</Badge>
       </span>
       <span
         className={`absolute inset-y-0 right-2 flex items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 ${
@@ -371,21 +365,24 @@ function SelectionToolbar({
 
       <div className="flex-1" />
 
-      <button
-        className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-white/60 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
       >
         Move
-      </button>
+      </Button>
 
-      <button
-        className="h-8 rounded-md px-3 text-sm font-medium text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-45"
+      <Button
+        variant="ghost"
+        size="sm"
+        className="!text-danger hover:!bg-danger-soft hover:!text-danger"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
       >
         Delete
-      </button>
+      </Button>
     </div>
   );
 }
@@ -529,13 +526,14 @@ function FileBrowserContent({
         </nav>
 
         {writable && (
-          <button
-            className="h-9 flex-shrink-0 rounded-md border border-border bg-surface px-4 text-base font-medium text-text hover:bg-surface-2 disabled:opacity-45"
+          <Button
+            variant="default"
+            className="flex-shrink-0"
             onClick={() => setCreatingFolder((v) => !v)}
             disabled={isBusy}
           >
             New folder
-          </button>
+          </Button>
         )}
       </div>
 
@@ -564,19 +562,9 @@ function FileBrowserContent({
           )}
 
           {writeError && (
-            <div
-              role="alert"
-              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
-            >
-              <span>{writeError}</span>
-              <button
-                className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
-                onClick={dismissError}
-                aria-label="Dismiss upload error"
-              >
-                Dismiss
-              </button>
-            </div>
+            <Banner variant="danger" onDismiss={dismissError} className="mb-4">
+              {writeError}
+            </Banner>
           )}
 
           <UploadDropzone
@@ -589,131 +577,77 @@ function FileBrowserContent({
 
       {/* Download error (SPEC-015) — dismissible, non-blocking */}
       {downloadError && (
-        <div
-          role="alert"
-          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
+        <Banner
+          variant="danger"
+          onDismiss={() => setDownloadError(null)}
+          className="mb-4"
         >
-          <span>{downloadError}</span>
-          <button
-            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
-            onClick={() => setDownloadError(null)}
-            aria-label="Dismiss download error"
-          >
-            Dismiss
-          </button>
-        </div>
+          {downloadError}
+        </Banner>
       )}
 
       {/* Delete systemic error (SPEC-018 FR-004) — dismissible */}
       {del.error && (
-        <div
-          role="alert"
-          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
-        >
-          <span>{del.error}</span>
-          <button
-            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
-            onClick={del.dismissError}
-            aria-label="Dismiss delete error"
-          >
-            Dismiss
-          </button>
-        </div>
+        <Banner variant="danger" onDismiss={del.dismissError} className="mb-4">
+          {del.error}
+        </Banner>
       )}
 
       {/* Delete result (SPEC-018 FR-004) — success count + any partial failures */}
       {del.summary && (
-        <div
+        <Banner
+          variant={del.summary.errors.length === 0 ? 'success' : 'warning'}
           role="status"
-          className={`mb-4 flex items-start justify-between gap-3 rounded-lg border p-3 text-sm ${
-            del.summary.errors.length === 0
-              ? 'border-success-soft bg-success-soft text-success'
-              : 'border-warning-soft bg-warning-soft text-warning'
-          }`}
+          onDismiss={del.dismissSummary}
+          className="mb-4"
+          title={`Deleted ${del.summary.deletedCount} ${del.summary.deletedCount === 1 ? 'item' : 'items'}.`}
         >
-          <div>
-            <p className="font-medium">
-              Deleted {del.summary.deletedCount}{' '}
-              {del.summary.deletedCount === 1 ? 'item' : 'items'}.
-            </p>
-            {del.summary.errors.length > 0 && (
-              <>
-                <p className="mt-1">
-                  Could not delete {del.summary.errors.length}:
-                </p>
-                <ul className="mt-1 list-disc pl-5">
-                  {del.summary.errors.map((e) => (
-                    <li key={e.key}>
-                      {lastSegment(e.key)} — {e.message}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-          <button
-            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
-            onClick={del.dismissSummary}
-            aria-label="Dismiss delete result"
-          >
-            Dismiss
-          </button>
-        </div>
+          {del.summary.errors.length > 0 && (
+            <>
+              <p className="mt-1">
+                Could not delete {del.summary.errors.length}:
+              </p>
+              <ul className="mt-1 list-disc pl-5">
+                {del.summary.errors.map((e) => (
+                  <li key={e.key}>
+                    {lastSegment(e.key)} — {e.message}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Banner>
       )}
 
       {/* Move systemic error (SPEC-019 FR-004) — dismissible */}
       {move.error && (
-        <div
-          role="alert"
-          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
-        >
-          <span>{move.error}</span>
-          <button
-            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
-            onClick={move.dismissError}
-            aria-label="Dismiss move error"
-          >
-            Dismiss
-          </button>
-        </div>
+        <Banner variant="danger" onDismiss={move.dismissError} className="mb-4">
+          {move.error}
+        </Banner>
       )}
 
       {/* Move result (SPEC-019 FR-004) — success count + any partial failures */}
       {move.summary && (
-        <div
+        <Banner
+          variant={move.summary.errors.length === 0 ? 'success' : 'warning'}
           role="status"
-          className={`mb-4 flex items-start justify-between gap-3 rounded-lg border p-3 text-sm ${
-            move.summary.errors.length === 0
-              ? 'border-success-soft bg-success-soft text-success'
-              : 'border-warning-soft bg-warning-soft text-warning'
-          }`}
+          onDismiss={move.dismissSummary}
+          className="mb-4"
+          title={`Moved ${move.summary.movedCount} ${move.summary.movedCount === 1 ? 'item' : 'items'}.`}
         >
-          <div>
-            <p className="font-medium">
-              Moved {move.summary.movedCount}{' '}
-              {move.summary.movedCount === 1 ? 'item' : 'items'}.
-            </p>
-            {move.summary.errors.length > 0 && (
-              <>
-                <p className="mt-1">Could not move {move.summary.errors.length}:</p>
-                <ul className="mt-1 list-disc pl-5">
-                  {move.summary.errors.map((e) => (
-                    <li key={e.key}>
-                      {lastSegment(e.key)} — {e.message}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-          <button
-            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
-            onClick={move.dismissSummary}
-            aria-label="Dismiss move result"
-          >
-            Dismiss
-          </button>
-        </div>
+          {move.summary.errors.length > 0 && (
+            <>
+              <p className="mt-1">Could not move {move.summary.errors.length}:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {move.summary.errors.map((e) => (
+                  <li key={e.key}>
+                    {lastSegment(e.key)} — {e.message}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Banner>
       )}
 
       {/* Move progress for large folders (SPEC-019 FR-004) */}
@@ -745,18 +679,20 @@ function FileBrowserContent({
             {move.moveCollision.count} item(s) already exist at the destination.
           </p>
           <div className="mt-3 flex gap-2">
-            <button
-              className="h-8 rounded-md bg-danger px-3 text-sm font-medium text-white hover:bg-danger/90"
+            <Button
+              variant="danger"
+              size="sm"
               onClick={move.moveCollision.onOverwriteAll}
             >
               Overwrite all
-            </button>
-            <button
-              className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={move.moveCollision.onCancel}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}

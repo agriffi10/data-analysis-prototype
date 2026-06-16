@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useObjectMetadata } from './useObjectMetadata';
 import type { ObjectMetadata } from './fileBrowser.types';
 import type { S3FileItem } from '../../types/s3.types';
+import { IconButton } from '../../components/IconButton';
 
 type Props = {
   bucket: string;
@@ -113,10 +114,10 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
         >
           {file.name}
         </h2>
-        <button
-          className="ml-3 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+        <IconButton
+          label="Close details"
           onClick={onClose}
-          aria-label="Close details"
+          className="ml-3 flex-shrink-0"
         >
           <svg
             viewBox="0 0 16 16"
@@ -128,7 +129,7 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
           >
             <path strokeLinecap="round" d="M2 2l12 12M14 2L2 14" />
           </svg>
-        </button>
+        </IconButton>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
