@@ -1,8 +1,11 @@
 export { FileBrowser } from './FileBrowser';
+export { MetadataPanel } from './MetadataPanel';
 export { useFileBrowser } from './useFileBrowser';
 export type { UseFileBrowserResult } from './useFileBrowser';
 export { useFileUpload } from './useFileUpload';
 export type { UseFileUploadResult } from './useFileUpload';
+export { useObjectMetadata } from './useObjectMetadata';
+export type { UseObjectMetadataResult } from './useObjectMetadata';
 export {
   ensurePrefixMarker,
   deleteObject,
@@ -13,11 +16,13 @@ export {
   createFolder,
   validateFolderName,
   uploadPercent,
+  getObjectMetadata,
 } from './fileBrowser.service';
 export type {
   DownloadUrl,
   UploadResult,
   CreateFolderResult,
+  ObjectMetadata,
 } from './fileBrowser.types';
 export {
   MAX_UPLOAD_BYTES,
