@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { SelectableItem } from './selectionContext';
+import { Button } from '../../components/Button';
 
 type Props = {
   items: SelectableItem[];
@@ -147,21 +148,17 @@ export function DeleteConfirmDialog({
         </div>
 
         <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-          <button
+          <Button
             ref={cancelRef}
-            className="h-9 rounded-md px-4 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
+            variant="ghost"
             onClick={onCancel}
             disabled={isDeleting}
           >
             Cancel
-          </button>
-          <button
-            className="h-9 rounded-md bg-danger px-4 text-base font-medium text-white hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-45"
-            onClick={onConfirm}
-            disabled={isDeleting}
-          >
+          </Button>
+          <Button variant="danger" onClick={onConfirm} disabled={isDeleting}>
             {isDeleting ? 'Deleting…' : 'Delete'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

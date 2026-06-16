@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Button } from '../../components/Button';
+import { Input } from '../../components/Input';
 
 type Props = {
   kind: 'file' | 'folder';
@@ -53,53 +55,47 @@ export function CollisionPrompt({
           <label className="sr-only" htmlFor="collision-rename">
             New name
           </label>
-          <input
-            id="collision-rename"
-            autoFocus
-            className="h-9 flex-1 rounded-md border border-border bg-surface px-3 text-base text-text placeholder:text-text-3 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && canRename) onRename(trimmed);
-            }}
-          />
-          <button
-            className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
+          <div className="min-w-0 flex-1">
+            <Input
+              id="collision-rename"
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canRename) onRename(trimmed);
+              }}
+            />
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
             disabled={!canRename}
             onClick={() => onRename(trimmed)}
           >
             Save as new name
-          </button>
-          <button
-            className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text"
-            onClick={() => setRenaming(false)}
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setRenaming(false)}>
             Back
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            className="h-8 rounded-md border border-border bg-surface px-3 text-sm font-medium text-text hover:bg-surface-2"
+          <Button
+            variant="default"
+            size="sm"
             onClick={() => {
               setNewName(name);
               setRenaming(true);
             }}
           >
             Rename
-          </button>
-          <button
-            className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text"
-            onClick={onCancel}
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            className="h-8 rounded-md bg-danger px-3 text-sm font-medium text-white hover:bg-danger/90"
-            onClick={onOverwrite}
-          >
+          </Button>
+          <Button variant="danger" size="sm" onClick={onOverwrite}>
             Overwrite
-          </button>
+          </Button>
         </div>
       )}
     </div>

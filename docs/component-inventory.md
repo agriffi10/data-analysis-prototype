@@ -40,6 +40,18 @@ before relying on them. Paths are relative to the repo root.
 | `RootLayout` | `components/RootLayout.tsx` | Top-level route layout. |
 | `ProtectedLayout` | `components/ProtectedLayout.tsx` | Auth-gated layout wrapper (redirects unauthenticated users). |
 | `Header` | `components/Header.tsx` | App header (sign-in/out, identity). |
+| `Button` (+ `ButtonVariant`/`ButtonSize`) | `components/Button.tsx` | Design-system button — `variant` primary/default/ghost/danger, `size` sm/md, `forwardRef` (SPEC-028). |
+| `IconButton` | `components/IconButton.tsx` | Ghost icon-only button; `label` → aria-label, `forwardRef` (SPEC-028). |
+| `Input` | `components/Input.tsx` | Text input with `label` + `error` state, aria wiring, `forwardRef` (SPEC-028). |
+| `Badge` | `components/Badge.tsx` | Neutral type pill (file/folder labels) (SPEC-028). |
+| `Banner` (+ `BannerVariant`) | `components/Banner.tsx` | Dismissible status banner — success/warning/danger/info, optional `title`/`onDismiss` (SPEC-028). |
+| `BrandMark` | `components/BrandMark.tsx` | Accent-square upload-arrow icon + wordmark; `size` sm/md, `showWordmark` (SPEC-028; used by Header + LandingPage). |
+
+## UI primitive utility (`apps/portal/src/lib/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `cx(...args)` | `lib/cx.ts` | Class-name join helper (filters falsy); used by all SPEC-028 primitives. No external dep. |
 
 ## Auth feature (`apps/portal/src/features/auth/`)
 

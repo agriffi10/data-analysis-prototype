@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useFileBrowser } from './useFileBrowser';
 import type { SelectableItem } from './selectionContext';
+import { Button } from '../../components/Button';
 
 type Props = {
   bucket: string;
@@ -189,20 +190,16 @@ export function MoveDialog({
         </div>
 
         <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-          <button
-            className="h-9 rounded-md px-4 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
-            onClick={onCancel}
-            disabled={isBusy}
-          >
+          <Button variant="ghost" onClick={onCancel} disabled={isBusy}>
             Cancel
-          </button>
-          <button
-            className="h-9 rounded-md bg-accent px-4 text-base font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => onMove(browsePrefix)}
             disabled={!canMoveHere}
           >
             {isBusy ? 'Moving…' : 'Move here'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
