@@ -202,7 +202,7 @@ tofu output          # view output values (use to populate .env.local)
 | Shared UI Primitives (Button, Input, Badge, Banner, BrandMark) | `@docs/specs/SPEC-028-shared-ui-primitives.md` | Completed |
 | Landing Page Full Design | `@docs/specs/SPEC-029-landing-page-full-design.md` | Completed |
 | Cognito Bot Signup Protection (WAF + ASF) | `@docs/specs/SPEC-030-cognito-bot-protection.md` | Completed |
-| Document Title Management | `@docs/specs/SPEC-031-document-title-management.md` | Draft |
+| Document Title Management | `@docs/specs/SPEC-031-document-title-management.md` | Completed |
 
 Add new specs to this table as they are created.
 
