@@ -1,7 +1,7 @@
 # Spec: Design Token Baseline
 
 **ID:** SPEC-021  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-06-16  
 **Depends On:** None
 
