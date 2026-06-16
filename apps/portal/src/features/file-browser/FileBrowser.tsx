@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { useFileBrowser } from './useFileBrowser';
 import { useFileUpload } from './useFileUpload';
 import { useDelete } from './useDelete';
+import { useMove } from './useMove';
 import { getDownloadUrl } from './fileBrowser.service';
 import { UploadDropzone } from './UploadDropzone';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { RenameDialog } from './RenameDialog';
+import { MoveDialog } from './MoveDialog';
 import { SelectionProvider } from './SelectionProvider';
 import { useSelection, itemId, type SelectableItem } from './selectionContext';
 import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
@@ -118,12 +121,14 @@ function FolderRow({
   selectable,
   isSelected,
   onToggleSelect,
+  onRename,
 }: {
   folder: S3FolderItem;
   onClick: () => void;
   selectable: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
+  onRename?: () => void;
 }) {
   return (
     <li className="flex items-center border-b border-gray-100 last:border-0">
@@ -145,6 +150,15 @@ function FolderRow({
         <span className="flex-1 font-medium text-gray-800">{folder.name}</span>
         <span className="text-gray-400" aria-hidden="true">›</span>
       </button>
+      {onRename && (
+        <button
+          className="mr-2 rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          onClick={onRename}
+          aria-label={`Rename folder ${folder.name}`}
+        >
+          Rename
+        </button>
+      )}
     </li>
   );
 }
@@ -153,6 +167,7 @@ function FileRow({
   file,
   onDownload,
   onDetails,
+  onRename,
   isDownloading,
   selectable,
   isSelected,
@@ -161,6 +176,7 @@ function FileRow({
   file: S3FileItem;
   onDownload: (file: S3FileItem) => void;
   onDetails: (file: S3FileItem) => void;
+  onRename?: () => void;
   isDownloading: boolean;
   selectable: boolean;
   isSelected: boolean;
@@ -192,6 +208,15 @@ function FileRow({
       >
         Details
       </button>
+      {onRename && (
+        <button
+          className="rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          onClick={onRename}
+          aria-label={`Rename ${file.name}`}
+        >
+          Rename
+        </button>
+      )}
       <button
         className="rounded px-2 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         onClick={() => onDownload(file)}
@@ -209,11 +234,13 @@ function FileRow({
 function SelectionToolbar({
   allItems,
   onRequestDelete,
-  isDeleting,
+  onRequestMove,
+  isBusy,
 }: {
   allItems: SelectableItem[];
   onRequestDelete: () => void;
-  isDeleting: boolean;
+  onRequestMove: () => void;
+  isBusy: boolean;
 }) {
   const { count, isSelected, selectAll, clear } = useSelection();
 
@@ -242,9 +269,17 @@ function SelectionToolbar({
       </span>
 
       <button
-        className="ml-auto rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={onRequestMove}
+        disabled={count === 0 || isBusy}
+      >
+        Move
+      </button>
+
+      <button
+        className="rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={onRequestDelete}
-        disabled={count === 0 || isDeleting}
+        disabled={count === 0 || isBusy}
       >
         Delete
       </button>
@@ -292,8 +327,17 @@ function FileBrowserContent({
   // (a username is required for the marker guard).
   const selection = useSelection();
   const del = useDelete(bucket, currentPrefix, username);
-  const canDelete = writable && !!username;
+  const move = useMove(bucket, currentPrefix, username);
+  const canModify = writable && !!username;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // The item being renamed (null = closed) and the items being moved (null = no
+  // move dialog). Move is selection-driven (like delete); rename is per-row.
+  const [renaming, setRenaming] = useState<{
+    item: SelectableItem;
+    name: string;
+    kind: 'file' | 'folder';
+  } | null>(null);
+  const [moving, setMoving] = useState<SelectableItem[] | null>(null);
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
@@ -323,6 +367,13 @@ function FileBrowserContent({
     await del.runDelete(items);
     selection.clear();
     setConfirmOpen(false);
+  }
+
+  function handleConfirmMove(destPrefix: string) {
+    const items = moving ?? [];
+    setMoving(null);
+    selection.clear();
+    move.moveItems(items, destPrefix);
   }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
@@ -505,12 +556,113 @@ function FileBrowserContent({
         </div>
       )}
 
-      {/* Selection toolbar (SPEC-018) — select all + bulk delete */}
-      {canDelete && hasContent && (
+      {/* Move systemic error (SPEC-019 FR-004) — dismissible */}
+      {move.error && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          <span>{move.error}</span>
+          <button
+            className="font-medium text-red-600 hover:underline"
+            onClick={move.dismissError}
+            aria-label="Dismiss move error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Move result (SPEC-019 FR-004) — success count + any partial failures */}
+      {move.summary && (
+        <div
+          role="status"
+          className={`mb-4 flex items-start justify-between gap-3 rounded-lg border p-3 text-sm ${
+            move.summary.errors.length === 0
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-amber-300 bg-amber-50 text-amber-900'
+          }`}
+        >
+          <div>
+            <p className="font-medium">
+              Moved {move.summary.movedCount}{' '}
+              {move.summary.movedCount === 1 ? 'item' : 'items'}.
+            </p>
+            {move.summary.errors.length > 0 && (
+              <>
+                <p className="mt-1">Could not move {move.summary.errors.length}:</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {move.summary.errors.map((e) => (
+                    <li key={e.key}>
+                      {lastSegment(e.key)} — {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          <button
+            className="font-medium hover:underline"
+            onClick={move.dismissSummary}
+            aria-label="Dismiss move result"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Move progress for large folders (SPEC-019 FR-004) */}
+      {move.isBusy && move.progress !== null && (
+        <div role="status" className="mb-4 text-sm text-gray-600">
+          Moving… {move.progress}%
+        </div>
+      )}
+
+      {/* Rename collision (SPEC-019 FR-005) — Overwrite or pick a new name */}
+      {move.renameCollision && (
+        <CollisionPrompt
+          kind={move.renameCollision.kind}
+          name={move.renameCollision.label}
+          onOverwrite={move.renameCollision.onOverwrite}
+          onRename={move.renameCollision.onRename}
+          onCancel={move.renameCollision.onCancel}
+        />
+      )}
+
+      {/* Move collision (SPEC-019 FR-005) — one Overwrite-all/Cancel for the batch */}
+      {move.moveCollision && (
+        <div
+          role="alertdialog"
+          aria-label="Destination already has items"
+          className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p className="font-medium">
+            {move.moveCollision.count} item(s) already exist at the destination.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              className="rounded bg-amber-600 px-3 py-1 font-medium text-white hover:bg-amber-700"
+              onClick={move.moveCollision.onOverwriteAll}
+            >
+              Overwrite all
+            </button>
+            <button
+              className="rounded px-3 py-1 font-medium text-gray-600 hover:bg-gray-100"
+              onClick={move.moveCollision.onCancel}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Selection toolbar (SPEC-018 + SPEC-019) — select all + bulk move/delete */}
+      {canModify && hasContent && (
         <SelectionToolbar
           allItems={allItems}
           onRequestDelete={() => setConfirmOpen(true)}
-          isDeleting={del.isDeleting}
+          onRequestMove={() => setMoving([...selection.selected.values()])}
+          isBusy={del.isDeleting || move.isBusy}
         />
       )}
 
@@ -552,10 +704,20 @@ function FileBrowserContent({
               key={folder.prefix}
               folder={folder}
               onClick={() => setPrefix(folder.prefix)}
-              selectable={canDelete}
+              selectable={canModify}
               isSelected={selection.isSelected(folder.prefix)}
               onToggleSelect={() =>
                 selection.toggle({ type: 'folder', prefix: folder.prefix })
+              }
+              onRename={
+                canModify
+                  ? () =>
+                      setRenaming({
+                        item: { type: 'folder', prefix: folder.prefix },
+                        name: folder.name,
+                        kind: 'folder',
+                      })
+                  : undefined
               }
             />
           ))}
@@ -566,10 +728,20 @@ function FileBrowserContent({
               onDownload={handleDownload}
               onDetails={setDetailsFile}
               isDownloading={downloadingKey === file.key}
-              selectable={canDelete}
+              selectable={canModify}
               isSelected={selection.isSelected(file.key)}
               onToggleSelect={() =>
                 selection.toggle({ type: 'file', key: file.key })
+              }
+              onRename={
+                canModify
+                  ? () =>
+                      setRenaming({
+                        item: { type: 'file', key: file.key },
+                        name: file.name,
+                        kind: 'file',
+                      })
+                  : undefined
               }
             />
           ))}
@@ -593,6 +765,35 @@ function FileBrowserContent({
           isDeleting={del.isDeleting}
           onConfirm={handleConfirmDelete}
           onCancel={() => setConfirmOpen(false)}
+        />
+      )}
+
+      {/* Rename dialog (SPEC-019 FR-002) — modal */}
+      {renaming && (
+        <RenameDialog
+          kind={renaming.kind}
+          currentName={renaming.name}
+          isBusy={move.isBusy}
+          onRename={(newName) => {
+            move.renameItem(renaming.item, newName);
+            setRenaming(null);
+          }}
+          onCancel={() => setRenaming(null)}
+        />
+      )}
+
+      {/* Move dialog (SPEC-019 FR-003) — destination-folder picker */}
+      {moving && (
+        <MoveDialog
+          bucket={bucket}
+          items={moving}
+          rootPrefix={rootPrefix}
+          rootLabel={rootLabel}
+          currentPrefix={currentPrefix}
+          markerKey={markerKey}
+          isBusy={move.isBusy}
+          onMove={handleConfirmMove}
+          onCancel={() => setMoving(null)}
         />
       )}
 

@@ -20,6 +20,17 @@ export type DeleteResult = {
   errors: { key: string; message: string }[];
 };
 
+// ── Move / rename (SPEC-019) ─────────────────────────────────────────────────
+
+// The outcome of a (possibly recursive) move. `moved` lists the source keys whose
+// object was copied to the destination and then deleted; `errors` collects per-key
+// failures. Move is non-atomic: a key whose copy failed is left in place and
+// reported here, never thrown (FR-004).
+export type MoveResult = {
+  moved: string[];
+  errors: { key: string; message: string }[];
+};
+
 // ── Object metadata (SPEC-017) ───────────────────────────────────────────────
 
 // The fields a single HeadObject call exposes for the read-only metadata panel.

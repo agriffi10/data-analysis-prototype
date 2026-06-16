@@ -66,6 +66,9 @@ Public barrel: `features/file-browser/index.ts`.
 | `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker. |
 | `deleteObjects({ bucket, keys, username })` | Batch delete via `DeleteObjects`, chunked ≤1000/req; refuses the marker, aggregates per-key failures (never throws). `ServiceResult<DeleteResult>`. |
 | `deleteFolder({ bucket, prefix, username })` | Recursive folder delete: paginated delimiter-less listing → `deleteObjects`. `ServiceResult<DeleteResult>`. |
+| `copyObject({ bucket, sourceKey, destKey, username, overwrite? })` | Same-bucket `CopyObject` (URL-encoded CopySource); marker + collision guards. `ServiceResult<{ destKey }>`. |
+| `moveObject({ bucket, sourceKey, destKey, username, overwrite? })` | Copy-then-delete-source; same-key no-op; copy-failure leaves source. `ServiceResult<{ destKey }>`. |
+| `moveFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder move (per-key copy+delete); partial-failure + into-itself guards + collision pre-check. `ServiceResult<MoveResult>`. |
 | `objectExists({ bucket, key })` | `HeadObject` → bool (404 → `false`, not an error). Collision pre-check. |
 | `getObjectMetadata({ bucket, key })` | `HeadObject` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). 404 → error. |
 | `ensurePrefixMarker({ bucket, username })` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker (once/session). |
@@ -81,6 +84,7 @@ Public barrel: `features/file-browser/index.ts`.
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
 | `useDelete(bucket, prefix, username?)` | `useDelete.ts` | Deletes a mixed file/folder selection (files batched, folders recursive); aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
+| `useMove(bucket, sourcePrefix, username?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, folder progress, source/dest invalidation. Aggregates a `MoveSummary`. |
 | `useSelection()` | `selectionContext.ts` | Read/mutate the current view's multi-select set (`toggle`/`selectAll`/`clear`, `count`, `isSelected`). Must be under a `SelectionProvider`. |
 
 ### Components
@@ -92,14 +96,16 @@ Public barrel: `features/file-browser/index.ts`.
 | `UploadDropzone`, `CreateFolderDialog`, `CollisionPrompt` | (same folder) | Upload picker/drag-drop + progress, folder-name dialog, overwrite/rename prompt. (Used by `FileBrowser`; not barrel-exported.) |
 | `SelectionProvider` | `SelectionProvider.tsx` | Multi-select state provider (SPEC-018); clears selection on prefix change. Wrap a view, consume via `useSelection`. |
 | `DeleteConfirmDialog` | `DeleteConfirmDialog.tsx` | Modal confirm naming item(s)/count, recursive-folder + irreversible warnings. (Used by `FileBrowser`; not barrel-exported.) |
+| `RenameDialog`, `MoveDialog` | (same folder) | Rename modal (validated leaf name) + move destination-folder picker. (Used by `FileBrowser`; not barrel-exported.) |
 
 ### Query keys, types, constants
 
 | Symbol | File | Purpose |
 |---|---|---|
 | `fileBrowserKeys.list(bucket, prefix)` / `.metadata(bucket, key)` | `fileBrowserKeys.ts` | Single source of truth for query keys — never hand-build key arrays. |
-| `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult` | `fileBrowser.types.ts` | Feature result/data types. |
+| `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult`, `MoveResult` | `fileBrowser.types.ts` | Feature result/data types. |
 | `SelectableItem`, `SelectionContextValue`, `itemId` | `selectionContext.ts` | Multi-select item shape (file key \| folder prefix), context value, id helper. |
 | `DeleteSummary` | `useDelete.ts` | Aggregated delete outcome (`deletedCount` + per-item `errors`). |
+| `MoveSummary` | `useMove.ts` | Aggregated move/rename outcome (`movedCount` + per-item `errors`). |
 | `MULTIPART_PART_SIZE`, `MAX_UPLOAD_BYTES`, `PART_CONCURRENCY` | `fileBrowser.types.ts` | Managed-upload tuning constants. |
 | `prefixMarkerKey(username)`, `PREFIX_MARKER_FILENAME`, `PREFIX_MARKER_BODY` | `fileBrowser.constants.ts` | Prefix-marker (`DO_NOT_DELETE.txt`) helpers. |

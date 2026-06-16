@@ -190,7 +190,7 @@ tofu output          # view output values (use to populate .env.local)
 | File Upload (managed, auto-multipart + progress) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Completed |
 | File Metadata Panel | `@docs/specs/SPEC-017-file-metadata-panel.md` | Completed |
 | Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Completed |
-| Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Draft |
+| Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Completed |
 | Upload Queue (multi-file, concurrency, cancel) | `@docs/specs/SPEC-020-multipart-upload.md` | Draft |
 
 Add new specs to this table as they are created.

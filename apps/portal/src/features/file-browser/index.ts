@@ -8,6 +8,8 @@ export { useObjectMetadata } from './useObjectMetadata';
 export type { UseObjectMetadataResult } from './useObjectMetadata';
 export { useDelete } from './useDelete';
 export type { UseDeleteResult, DeleteSummary } from './useDelete';
+export { useMove } from './useMove';
+export type { UseMoveResult, MoveSummary } from './useMove';
 export { SelectionProvider } from './SelectionProvider';
 export { useSelection, itemId } from './selectionContext';
 export type {
@@ -19,6 +21,9 @@ export {
   deleteObject,
   deleteObjects,
   deleteFolder,
+  copyObject,
+  moveObject,
+  moveFolder,
   isPrefixMarkerKey,
   getDownloadUrl,
   objectExists,
@@ -34,6 +39,7 @@ export type {
   CreateFolderResult,
   ObjectMetadata,
   DeleteResult,
+  MoveResult,
 } from './fileBrowser.types';
 export {
   MAX_UPLOAD_BYTES,
