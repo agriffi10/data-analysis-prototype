@@ -2,7 +2,7 @@ import { forwardRef } from 'react';
 import { cx } from '../lib/cx';
 
 export type ButtonVariant = 'primary' | 'default' | 'ghost' | 'danger';
-export type ButtonSize = 'sm' | 'md';
+export type ButtonSize = 'sm' | 'md' | 'lg';
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -22,6 +22,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
 const SIZES: Record<ButtonSize, string> = {
   sm: 'h-8 px-3 text-sm',
   md: 'h-9 px-4 text-base',
+  lg: 'h-[46px] px-6 text-md',
 };
 
 // Design-system button (SPEC-028). Accepts a variant + size and forwards all
