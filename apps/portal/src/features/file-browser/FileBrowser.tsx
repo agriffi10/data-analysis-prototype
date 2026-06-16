@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useFileBrowser } from './useFileBrowser';
 import { useFileUpload } from './useFileUpload';
 import { useDelete } from './useDelete';
@@ -113,6 +113,62 @@ function lastSegment(keyOrPrefix: string): string {
   return keyOrPrefix.replace(/\/$/, '').split('/').pop() ?? keyOrPrefix;
 }
 
+// Type-pill label: uppercased extension (e.g. "PDF", "TXT") or "File" if none.
+function fileExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0 || dot === name.length - 1) return 'File';
+  return name.slice(dot + 1).toUpperCase();
+}
+
+// ─── Icons (inline, no icon library — SPEC-024) ───────────────────────────────
+
+function FolderIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`${className} flex-shrink-0 text-accent`}
+      aria-hidden="true"
+    >
+      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
+  );
+}
+
+function FileIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      className={`${className} flex-shrink-0 text-text-3`}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 3H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7.5L13.5 3z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 3v4.5H17.5" />
+    </svg>
+  );
+}
+
+// Neutral type pill used in both row kinds.
+function TypePill({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-text-2">
+      {children}
+    </span>
+  );
+}
+
+// Shared column widths so the header row and body rows line up.
+const COL_SIZE = 'w-24';
+const COL_MODIFIED = 'w-40';
+const COL_TYPE = 'w-28';
+
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 function FolderRow({
@@ -131,33 +187,51 @@ function FolderRow({
   onRename?: () => void;
 }) {
   return (
-    <li className="flex items-center border-b border-gray-100 last:border-0">
+    <li
+      className={`group relative flex h-12 items-center border-b border-border-2 last:border-0 ${
+        isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
+      }`}
+    >
       {selectable && (
-        <input
-          type="checkbox"
-          className="ml-4 h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          aria-label={`Select folder ${folder.name}`}
-        />
+        <span className="flex w-10 flex-shrink-0 items-center justify-center">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-accent"
+            checked={isSelected}
+            onChange={onToggleSelect}
+            aria-label={`Select folder ${folder.name}`}
+          />
+        </span>
       )}
       <button
-        className="flex flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+        className="flex min-w-0 flex-1 items-center gap-2.5 px-4 text-left focus-visible:outline-none"
         onClick={onClick}
         aria-label={`Open folder ${folder.name}`}
       >
-        <span aria-hidden="true">📁</span>
-        <span className="flex-1 font-medium text-gray-800">{folder.name}</span>
-        <span className="text-gray-400" aria-hidden="true">›</span>
+        <FolderIcon />
+        <span className="truncate text-base font-medium text-text">
+          {folder.name}
+        </span>
       </button>
+      <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-3`}>—</span>
+      <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`} />
+      <span className={`${COL_TYPE} pr-4 text-right`}>
+        <TypePill>Folder</TypePill>
+      </span>
       {onRename && (
-        <button
-          className="mr-2 rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          onClick={onRename}
-          aria-label={`Rename folder ${folder.name}`}
+        <span
+          className={`absolute inset-y-0 right-2 flex items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:opacity-100 ${
+            isSelected ? 'bg-accent-soft' : 'bg-surface-2'
+          }`}
         >
-          Rename
-        </button>
+          <button
+            className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+            onClick={onRename}
+            aria-label={`Rename folder ${folder.name}`}
+          >
+            Rename
+          </button>
+        </span>
       )}
     </li>
   );
@@ -183,48 +257,67 @@ function FileRow({
   onToggleSelect: () => void;
 }) {
   return (
-    <li className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0">
+    <li
+      className={`group relative flex h-12 items-center border-b border-border-2 last:border-0 ${
+        isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
+      }`}
+    >
       {selectable && (
-        <input
-          type="checkbox"
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          aria-label={`Select ${file.name}`}
-        />
+        <span className="flex w-10 flex-shrink-0 items-center justify-center">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-accent"
+            checked={isSelected}
+            onChange={onToggleSelect}
+            aria-label={`Select ${file.name}`}
+          />
+        </span>
       )}
-      <span aria-hidden="true">📄</span>
-      <span className="flex-1 text-gray-800">{file.name}</span>
-      <span className="w-20 text-right text-sm text-gray-500">
+      <span className="flex min-w-0 flex-1 items-center gap-2.5 px-4">
+        <FileIcon />
+        <span className="truncate text-base font-medium text-text">
+          {file.name}
+        </span>
+      </span>
+      <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-2`}>
         {formatSize(file.size)}
       </span>
-      <span className="w-32 text-right text-sm text-gray-400">
+      <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`}>
         {formatDate(file.lastModified)}
       </span>
-      <button
-        className="rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        onClick={() => onDetails(file)}
-        aria-label={`Details for ${file.name}`}
+      <span className={`${COL_TYPE} pr-4 text-right`}>
+        <TypePill>{fileExtension(file.name)}</TypePill>
+      </span>
+      <span
+        className={`absolute inset-y-0 right-2 flex items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 ${
+          isSelected ? 'bg-accent-soft' : 'bg-surface-2'
+        }`}
       >
-        Details
-      </button>
-      {onRename && (
         <button
-          className="rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          onClick={onRename}
-          aria-label={`Rename ${file.name}`}
+          className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+          onClick={() => onDetails(file)}
+          aria-label={`Details for ${file.name}`}
         >
-          Rename
+          Details
         </button>
-      )}
-      <button
-        className="rounded px-2 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        onClick={() => onDownload(file)}
-        disabled={isDownloading}
-        aria-label={`Download ${file.name}`}
-      >
-        {isDownloading ? 'Downloading…' : 'Download'}
-      </button>
+        {onRename && (
+          <button
+            className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+            onClick={onRename}
+            aria-label={`Rename ${file.name}`}
+          >
+            Rename
+          </button>
+        )}
+        <button
+          className="h-7 rounded-md px-2 text-sm text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
+          onClick={() => onDownload(file)}
+          disabled={isDownloading}
+          aria-label={`Download ${file.name}`}
+        >
+          {isDownloading ? '…' : 'Download'}
+        </button>
+      </span>
     </li>
   );
 }
@@ -248,28 +341,38 @@ function SelectionToolbar({
     allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
   const someSelected = allItems.some((i) => isSelected(itemId(i)));
 
-  return (
-    <div className="mb-3 flex items-center gap-3 text-sm">
-      <label className="flex items-center gap-2 text-gray-700">
-        <input
-          type="checkbox"
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
-          checked={allSelected}
-          ref={(el) => {
-            if (el) el.indeterminate = someSelected && !allSelected;
-          }}
-          onChange={() => (allSelected ? clear() : selectAll(allItems))}
-          aria-label="Select all"
-        />
-        Select all
-      </label>
+  const active = count > 0;
 
-      <span aria-live="polite" className="text-gray-500">
-        {count > 0 ? `${count} selected` : ''}
+  return (
+    <div
+      className={`mb-4 flex h-11 items-center gap-3 rounded-lg border px-4 ${
+        active
+          ? 'border-accent bg-accent-soft'
+          : 'border-border bg-surface'
+      }`}
+    >
+      <input
+        type="checkbox"
+        className="h-4 w-4 accent-accent"
+        checked={allSelected}
+        ref={(el) => {
+          if (el) el.indeterminate = someSelected && !allSelected;
+        }}
+        onChange={() => (allSelected ? clear() : selectAll(allItems))}
+        aria-label="Select all"
+      />
+
+      <span
+        aria-live="polite"
+        className={`text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}
+      >
+        {active ? `${count} selected` : 'Select all'}
       </span>
 
+      <div className="flex-1" />
+
       <button
-        className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-white/60 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
       >
@@ -277,7 +380,7 @@ function SelectionToolbar({
       </button>
 
       <button
-        className="rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-8 rounded-md px-3 text-sm font-medium text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-45"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
       >
@@ -391,53 +494,55 @@ function FileBrowserContent({
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <nav aria-label="breadcrumb" className="mb-4">
-        <ol className="flex flex-wrap items-center gap-1 text-sm text-gray-600">
-          {breadcrumbs.map((crumb, i) => {
-            const isLast = i === breadcrumbs.length - 1;
-            return (
-              <li key={crumb.prefix ?? 'root'} className="flex items-center gap-1">
-                {i > 0 && (
-                  <span aria-hidden="true" className="text-gray-300">
-                    /
-                  </span>
-                )}
-                {isLast ? (
-                  <span
-                    aria-current="page"
-                    className="font-medium text-gray-900"
-                  >
-                    {crumb.label}
-                  </span>
-                ) : (
-                  <button
-                    className="hover:text-blue-600 hover:underline"
-                    onClick={() => setPrefix(crumb.prefix)}
-                  >
-                    {crumb.label}
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
+      {/* Toolbar row — breadcrumbs (left) + primary actions (right). FR-002/003 */}
+      <div className="mb-4 flex items-center gap-3">
+        <nav aria-label="breadcrumb" className="min-w-0 flex-1">
+          <ol className="flex items-center gap-1 text-sm">
+            {breadcrumbs.map((crumb, i) => {
+              const isLast = i === breadcrumbs.length - 1;
+              return (
+                <li key={crumb.prefix ?? 'root'} className="flex items-center gap-1">
+                  {i > 0 && (
+                    <span aria-hidden="true" className="mx-0.5 text-text-3">
+                      /
+                    </span>
+                  )}
+                  {isLast ? (
+                    <span
+                      aria-current="page"
+                      className="max-w-[200px] truncate font-semibold text-text"
+                    >
+                      {crumb.label}
+                    </span>
+                  ) : (
+                    <button
+                      className="max-w-[160px] truncate text-text-2 hover:text-text hover:underline"
+                      onClick={() => setPrefix(crumb.prefix)}
+                    >
+                      {crumb.label}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
 
-      {/* Write controls (SPEC-016) — upload + create folder. Hidden in read-only
+        {writable && (
+          <button
+            className="h-9 flex-shrink-0 rounded-md border border-border bg-surface px-4 text-base font-medium text-text hover:bg-surface-2 disabled:opacity-45"
+            onClick={() => setCreatingFolder((v) => !v)}
+            disabled={isBusy}
+          >
+            New folder
+          </button>
+        )}
+      </div>
+
+      {/* Write controls (SPEC-016) — create folder + upload. Hidden in read-only
           (dev-unauth) mode. */}
       {writable && (
         <div className="mb-4">
-          <div className="mb-3 flex gap-2">
-            <button
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              onClick={() => setCreatingFolder((v) => !v)}
-              disabled={isBusy}
-            >
-              New folder
-            </button>
-          </div>
-
           {creatingFolder && (
             <CreateFolderDialog
               onCreate={(name) => {
@@ -461,11 +566,11 @@ function FileBrowserContent({
           {writeError && (
             <div
               role="alert"
-              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
             >
               <span>{writeError}</span>
               <button
-                className="font-medium text-red-600 hover:underline"
+                className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
                 onClick={dismissError}
                 aria-label="Dismiss upload error"
               >
@@ -486,11 +591,11 @@ function FileBrowserContent({
       {downloadError && (
         <div
           role="alert"
-          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
         >
           <span>{downloadError}</span>
           <button
-            className="font-medium text-red-600 hover:underline"
+            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
             onClick={() => setDownloadError(null)}
             aria-label="Dismiss download error"
           >
@@ -503,11 +608,11 @@ function FileBrowserContent({
       {del.error && (
         <div
           role="alert"
-          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
         >
           <span>{del.error}</span>
           <button
-            className="font-medium text-red-600 hover:underline"
+            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
             onClick={del.dismissError}
             aria-label="Dismiss delete error"
           >
@@ -522,8 +627,8 @@ function FileBrowserContent({
           role="status"
           className={`mb-4 flex items-start justify-between gap-3 rounded-lg border p-3 text-sm ${
             del.summary.errors.length === 0
-              ? 'border-green-200 bg-green-50 text-green-800'
-              : 'border-amber-300 bg-amber-50 text-amber-900'
+              ? 'border-success-soft bg-success-soft text-success'
+              : 'border-warning-soft bg-warning-soft text-warning'
           }`}
         >
           <div>
@@ -547,7 +652,7 @@ function FileBrowserContent({
             )}
           </div>
           <button
-            className="font-medium hover:underline"
+            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
             onClick={del.dismissSummary}
             aria-label="Dismiss delete result"
           >
@@ -560,11 +665,11 @@ function FileBrowserContent({
       {move.error && (
         <div
           role="alert"
-          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger"
         >
           <span>{move.error}</span>
           <button
-            className="font-medium text-red-600 hover:underline"
+            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
             onClick={move.dismissError}
             aria-label="Dismiss move error"
           >
@@ -579,8 +684,8 @@ function FileBrowserContent({
           role="status"
           className={`mb-4 flex items-start justify-between gap-3 rounded-lg border p-3 text-sm ${
             move.summary.errors.length === 0
-              ? 'border-green-200 bg-green-50 text-green-800'
-              : 'border-amber-300 bg-amber-50 text-amber-900'
+              ? 'border-success-soft bg-success-soft text-success'
+              : 'border-warning-soft bg-warning-soft text-warning'
           }`}
         >
           <div>
@@ -602,7 +707,7 @@ function FileBrowserContent({
             )}
           </div>
           <button
-            className="font-medium hover:underline"
+            className="text-xs font-medium opacity-70 hover:underline hover:opacity-100"
             onClick={move.dismissSummary}
             aria-label="Dismiss move result"
           >
@@ -613,7 +718,7 @@ function FileBrowserContent({
 
       {/* Move progress for large folders (SPEC-019 FR-004) */}
       {move.isBusy && move.progress !== null && (
-        <div role="status" className="mb-4 text-sm text-gray-600">
+        <div role="status" className="mb-4 text-sm text-text-2">
           Moving… {move.progress}%
         </div>
       )}
@@ -634,20 +739,20 @@ function FileBrowserContent({
         <div
           role="alertdialog"
           aria-label="Destination already has items"
-          className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+          className="mb-4 rounded-lg border border-warning-soft bg-warning-soft p-4 text-sm text-warning"
         >
           <p className="font-medium">
             {move.moveCollision.count} item(s) already exist at the destination.
           </p>
           <div className="mt-3 flex gap-2">
             <button
-              className="rounded bg-amber-600 px-3 py-1 font-medium text-white hover:bg-amber-700"
+              className="h-8 rounded-md bg-danger px-3 text-sm font-medium text-white hover:bg-danger/90"
               onClick={move.moveCollision.onOverwriteAll}
             >
               Overwrite all
             </button>
             <button
-              className="rounded px-3 py-1 font-medium text-gray-600 hover:bg-gray-100"
+              className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text"
               onClick={move.moveCollision.onCancel}
             >
               Cancel
@@ -671,7 +776,7 @@ function FileBrowserContent({
         <div
           role="status"
           aria-label="Loading"
-          className="flex justify-center py-12 text-gray-400"
+          className="flex items-center justify-center py-16 text-sm text-text-3"
         >
           <span>Loading…</span>
         </div>
@@ -681,7 +786,7 @@ function FileBrowserContent({
       {!isLoading && error !== null && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
+          className="rounded-lg border border-danger-soft bg-danger-soft p-4 text-danger"
         >
           <p className="font-medium">Failed to load files</p>
           <p className="mt-1 text-sm">{error}</p>
@@ -690,15 +795,44 @@ function FileBrowserContent({
 
       {/* Empty state */}
       {isEmpty && (
-        <p className="py-12 text-center text-gray-400">This folder is empty.</p>
+        <div className="py-16 text-center">
+          <svg
+            viewBox="0 0 40 40"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="mx-auto h-10 w-10 text-text-3"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 12a4 4 0 014-4h7.172a2 2 0 011.414.586l2.828 2.828A2 2 0 0020.828 12H32a4 4 0 014 4v12a4 4 0 01-4 4H8a4 4 0 01-4-4V12z"
+            />
+          </svg>
+          <p className="mt-4 text-xl font-semibold text-text">
+            This folder is empty
+          </p>
+          {writable && (
+            <p className="mx-auto mt-2 max-w-xs text-sm text-text-2">
+              Upload a file or create a folder to get started.
+            </p>
+          )}
+        </div>
       )}
 
       {/* File and folder list */}
       {hasContent && (
-        <ul
-          aria-label="File list"
-          className="overflow-hidden rounded-lg border border-gray-200 bg-white"
-        >
+        <div className="overflow-hidden rounded-lg border border-border bg-surface">
+          {/* Column header */}
+          <div className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+            {canModify && <span className="w-10 flex-shrink-0" />}
+            <span className="min-w-0 flex-1 px-4">Name</span>
+            <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>
+            <span className={`${COL_MODIFIED} pr-4 text-right`}>Modified</span>
+            <span className={`${COL_TYPE} pr-4 text-right`}>Type</span>
+          </div>
+          <ul aria-label="File list">
           {folders.map((folder) => (
             <FolderRow
               key={folder.prefix}
@@ -745,7 +879,8 @@ function FileBrowserContent({
               }
             />
           ))}
-        </ul>
+          </ul>
+        </div>
       )}
 
       {/* Metadata drawer (SPEC-017) — non-blocking; closes via button or Escape */}
@@ -801,7 +936,7 @@ function FileBrowserContent({
       {hasContent && hasMore && (
         <div className="mt-4 flex justify-center">
           <button
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none"
             onClick={loadMore}
             disabled={isLoadingMore}
           >

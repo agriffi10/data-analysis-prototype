@@ -67,33 +67,28 @@ export default function FilesPage() {
   }, [user]);
 
   return (
-    <main className="py-8">
-      <div className="mx-auto max-w-4xl px-4">
-        {bucket && (devUnauthenticated || user) ? (
-          <>
-            <h1 className="mb-6 text-2xl font-semibold text-gray-900">Files</h1>
-            <FileBrowser
-              bucket={bucket}
-              prefix={rootPrefix}
-              rootPrefix={rootPrefix}
-              rootLabel={rootLabel}
-              markerKey={markerKey}
-              writable={!devUnauthenticated && !!user}
-              username={devUnauthenticated ? undefined : user?.username}
-            />
-          </>
-        ) : (
-          <div
-            role="alert"
-            className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
-          >
-            <p className="font-medium">Configuration error</p>
-            <p className="mt-1 text-sm">
-              VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.
-            </p>
-          </div>
-        )}
-      </div>
+    <main className="px-4 py-6">
+      {bucket && (devUnauthenticated || user) ? (
+        <FileBrowser
+          bucket={bucket}
+          prefix={rootPrefix}
+          rootPrefix={rootPrefix}
+          rootLabel={rootLabel}
+          markerKey={markerKey}
+          writable={!devUnauthenticated && !!user}
+          username={devUnauthenticated ? undefined : user?.username}
+        />
+      ) : (
+        <div
+          role="alert"
+          className="rounded-lg border border-danger bg-danger-soft p-4 text-danger"
+        >
+          <p className="font-medium">Configuration error</p>
+          <p className="mt-1 text-sm">
+            VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.
+          </p>
+        </div>
+      )}
     </main>
   );
 }
