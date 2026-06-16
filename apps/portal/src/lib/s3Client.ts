@@ -4,11 +4,23 @@ import type { ServiceResult } from '../types/service.types';
 
 const accessKeyId = import.meta.env.VITE_AWS_ACCESS_KEY_ID as string | undefined;
 
+// AWS SDK v3 defaults to adding a CRC32 integrity checksum on every request
+// (requestChecksumCalculation: 'WHEN_SUPPORTED'). In the browser that breaks
+// @aws-sdk/lib-storage MULTIPART uploads (SPEC-016): the per-part checksums don't
+// make it into CompleteMultipartUpload, so S3 rejects large files with
+// "checksum ... missing for part 1". Opt out so multipart works — S3 still has
+// ETag/MD5 integrity and everything is over TLS.
+const CHECKSUM_OPTS = {
+  requestChecksumCalculation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED',
+} as const;
+
 // Dev-only anonymous/static client (SPEC-002): omitting credentials uses unsigned
 // requests for public buckets. This path stays in place for the test bucket until
 // SPEC-013 switches the browser onto the authenticated user-space bucket.
 export const s3Client = new S3Client({
   region: import.meta.env.VITE_AWS_REGION,
+  ...CHECKSUM_OPTS,
   ...(accessKeyId
     ? {
         credentials: {
@@ -43,6 +55,7 @@ export async function getS3Client(
       data: new S3Client({
         region: import.meta.env.VITE_AWS_REGION,
         credentials: session.credentials,
+        ...CHECKSUM_OPTS,
       }),
     };
   } catch (err) {
