@@ -1,7 +1,7 @@
 # Spec: Upload Dropzone Visual Polish
 
 **ID:** SPEC-025  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-06-16  
 **Depends On:** SPEC-021
 

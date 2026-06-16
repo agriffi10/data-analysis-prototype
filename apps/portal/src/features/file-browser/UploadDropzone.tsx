@@ -17,11 +17,19 @@ export function UploadDropzone({ onFile, progress, disabled }: Props) {
     if (files && files.length > 0) onFile(files[0]);
   }
 
+  // Container color treatment by state (idle / drag-over / uploading).
+  const containerState = uploading
+    ? 'border-solid border-accent bg-accent-soft'
+    : dragOver
+      ? 'border-accent bg-accent-soft'
+      : 'border-border bg-surface-2';
+  const iconColor = dragOver || uploading ? 'text-accent' : 'text-text-3';
+
   return (
     <div
-      className={`mb-4 rounded-lg border-2 border-dashed p-4 text-center text-sm transition-colors ${
-        dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
-      } ${disabled ? 'opacity-60' : ''}`}
+      className={`mb-4 rounded-lg border-2 border-dashed p-8 text-center transition-colors duration-150 ${containerState} ${
+        disabled ? 'pointer-events-none opacity-60' : ''
+      }`}
       onDragOver={(e) => {
         e.preventDefault();
         if (!disabled) setDragOver(true);
@@ -33,35 +41,52 @@ export function UploadDropzone({ onFile, progress, disabled }: Props) {
         if (!disabled && !uploading) pickFirst(e.dataTransfer.files);
       }}
     >
+      <svg
+        viewBox="0 0 32 32"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className={`mx-auto h-8 w-8 ${iconColor}`}
+        aria-hidden="true"
+      >
+        <circle cx="16" cy="16" r="13" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 21v-9m0 0l-3 3m3-3l3 3" />
+      </svg>
+
       {uploading ? (
         <div aria-live="polite">
-          <p className="mb-2 text-gray-600">Uploading… {progress}%</p>
+          <p className="mt-3 text-sm font-medium text-text">
+            Uploading… {progress}%
+          </p>
           <div
-            className="h-2 w-full overflow-hidden rounded bg-gray-200"
+            className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-border"
             role="progressbar"
             aria-valuenow={progress ?? 0}
             aria-valuemin={0}
             aria-valuemax={100}
           >
             <div
-              className="h-full bg-blue-600 transition-[width]"
-              style={{ width: `${progress}%` }}
+              className="h-full rounded-full bg-accent transition-[width] duration-200"
+              style={{ width: `${progress ?? 0}%` }}
             />
           </div>
         </div>
       ) : (
         <>
-          <p className="text-gray-500">
-            Drag a file here, or{' '}
+          <p className="mt-3 text-sm font-medium text-text">Drag a file here</p>
+          <p className="mt-1 text-sm text-text-2">
+            or{' '}
             <button
               type="button"
-              className="font-medium text-blue-600 hover:underline disabled:opacity-50"
+              className="font-medium text-accent-text hover:underline disabled:cursor-not-allowed disabled:opacity-45"
               onClick={() => inputRef.current?.click()}
               disabled={disabled}
             >
               choose a file
             </button>
-            .
+          </p>
+          <p className="mt-2 text-xs text-text-3">
+            Up to 5 GB per file · multipart handled automatically
           </p>
           <input
             ref={inputRef}
