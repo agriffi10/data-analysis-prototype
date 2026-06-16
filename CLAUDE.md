@@ -192,6 +192,14 @@ tofu output          # view output values (use to populate .env.local)
 | Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Completed |
 | Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Completed |
 | Upload Queue (multi-file, concurrency, cancel) | `@docs/specs/SPEC-020-multipart-upload.md` | Draft |
+| Design Token Baseline (Tailwind v4 @theme) | `@docs/specs/SPEC-021-design-token-baseline.md` | Draft |
+| Landing Page Visual Polish | `@docs/specs/SPEC-022-landing-page-visual-polish.md` | Draft |
+| App Shell Visual Polish (Header + Layouts) | `@docs/specs/SPEC-023-app-shell-visual-polish.md` | Draft |
+| File Browser Visual Polish | `@docs/specs/SPEC-024-file-browser-visual-polish.md` | Draft |
+| Upload Dropzone Visual Polish | `@docs/specs/SPEC-025-upload-dropzone-visual-polish.md` | Draft |
+| Dialogs Visual Polish | `@docs/specs/SPEC-026-dialogs-visual-polish.md` | Draft |
+| Metadata Panel Visual Polish | `@docs/specs/SPEC-027-metadata-panel-visual-polish.md` | Draft |
+| Shared UI Primitives (Button, Input, Badge, Banner, BrandMark) | `@docs/specs/SPEC-028-shared-ui-primitives.md` | Draft |
 
 Add new specs to this table as they are created.
 
