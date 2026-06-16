@@ -92,102 +92,112 @@ export function MoveDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Move to folder"
-        className="flex w-full max-w-md flex-col rounded-lg bg-white p-5 shadow-xl"
+        className="flex w-full max-w-lg flex-col rounded-lg bg-surface shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold text-gray-900">
-          Move {items.length} {items.length === 1 ? 'item' : 'items'}
-        </h2>
+        <div className="px-5 pb-4 pt-5">
+          <h2 className="text-md font-semibold text-text">
+            Move {items.length} {items.length === 1 ? 'item' : 'items'}
+          </h2>
 
-        {/* Destination breadcrumb */}
-        <nav aria-label="destination breadcrumb" className="mt-3">
-          <ol className="flex flex-wrap items-center gap-1 text-sm text-gray-600">
-            {crumbs.map((crumb, i) => {
-              const isLast = i === crumbs.length - 1;
-              return (
-                <li key={crumb.prefix} className="flex items-center gap-1">
-                  {i > 0 && (
-                    <span aria-hidden="true" className="text-gray-300">
-                      /
-                    </span>
-                  )}
-                  {isLast ? (
-                    <span aria-current="page" className="font-medium text-gray-900">
-                      {crumb.label}
-                    </span>
-                  ) : (
-                    <button
-                      className="hover:text-blue-600 hover:underline"
-                      onClick={() => setBrowsePrefix(crumb.prefix)}
+          {/* Destination breadcrumb */}
+          <nav aria-label="destination breadcrumb" className="mt-1">
+            <ol className="flex flex-wrap items-center gap-1 text-sm text-text-2">
+              {crumbs.map((crumb, i) => {
+                const isLast = i === crumbs.length - 1;
+                return (
+                  <li key={crumb.prefix} className="flex items-center gap-1">
+                    {i > 0 && (
+                      <span aria-hidden="true" className="mx-0.5 text-text-3">
+                        /
+                      </span>
+                    )}
+                    {isLast ? (
+                      <span aria-current="page" className="font-medium text-text">
+                        {crumb.label}
+                      </span>
+                    ) : (
+                      <button
+                        className="hover:text-text hover:underline"
+                        onClick={() => setBrowsePrefix(crumb.prefix)}
+                      >
+                        {crumb.label}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        </div>
+
+        {/* Folder picker */}
+        <div className="px-5 pb-4">
+          <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-surface">
+            {isLoading && (
+              <p role="status" aria-label="Loading" className="py-4 text-center text-sm text-text-3">
+                Loading…
+              </p>
+            )}
+            {!isLoading && error !== null && (
+              <p role="alert" className="p-4 text-sm text-danger">
+                {error}
+              </p>
+            )}
+            {!isLoading && error === null && navigableFolders.length === 0 && (
+              <p className="py-4 text-center text-sm text-text-3">
+                No subfolders here.
+              </p>
+            )}
+            <ul aria-label="Destination folders">
+              {navigableFolders.map((folder) => (
+                <li key={folder.prefix}>
+                  <button
+                    className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none"
+                    onClick={() => setBrowsePrefix(folder.prefix)}
+                    aria-label={`Open folder ${folder.name}`}
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="h-4 w-4 flex-shrink-0 text-accent"
+                      aria-hidden="true"
                     >
-                      {crumb.label}
-                    </button>
-                  )}
+                      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                    </svg>
+                    <span className="flex-1 truncate">{folder.name}</span>
+                  </button>
                 </li>
-              );
-            })}
-          </ol>
-        </nav>
-
-        {/* Folder list */}
-        <div className="mt-3 max-h-64 overflow-auto rounded border border-gray-200">
-          {isLoading && (
-            <p role="status" aria-label="Loading" className="p-4 text-center text-sm text-gray-400">
-              Loading…
-            </p>
-          )}
-          {!isLoading && error !== null && (
-            <p role="alert" className="p-4 text-sm text-red-700">
-              {error}
-            </p>
-          )}
-          {!isLoading && error === null && navigableFolders.length === 0 && (
-            <p className="p-4 text-center text-sm text-gray-400">
-              No subfolders here.
-            </p>
-          )}
-          <ul aria-label="Destination folders">
-            {navigableFolders.map((folder) => (
-              <li key={folder.prefix} className="border-b border-gray-100 last:border-0">
+              ))}
+            </ul>
+            {hasMore && (
+              <div className="p-2 text-center">
                 <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
-                  onClick={() => setBrowsePrefix(folder.prefix)}
-                  aria-label={`Open folder ${folder.name}`}
+                  className="h-8 rounded-md px-3 text-sm text-text-2 hover:bg-surface-2 disabled:opacity-45"
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
                 >
-                  <span aria-hidden="true">📁</span>
-                  <span className="flex-1 text-gray-800">{folder.name}</span>
-                  <span aria-hidden="true" className="text-gray-400">›</span>
+                  {isLoadingMore ? 'Loading…' : 'Load more'}
                 </button>
-              </li>
-            ))}
-          </ul>
-          {hasMore && (
-            <div className="p-2 text-center">
-              <button
-                className="rounded px-3 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-                onClick={loadMore}
-                disabled={isLoadingMore}
-              >
-                {isLoadingMore ? 'Loading…' : 'Load more'}
-              </button>
-            </div>
+              </div>
+            )}
+          </div>
+
+          {disabledReason && (
+            <p className="mt-2 text-xs text-text-3">{disabledReason}</p>
           )}
         </div>
 
-        {disabledReason && (
-          <p className="mt-2 text-xs text-gray-500">{disabledReason}</p>
-        )}
-
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
           <button
-            className="rounded px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+            className="h-9 rounded-md px-4 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onCancel}
             disabled={isBusy}
           >
             Cancel
           </button>
           <button
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="h-9 rounded-md bg-accent px-4 text-base font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
             onClick={() => onMove(browsePrefix)}
             disabled={!canMoveHere}
           >

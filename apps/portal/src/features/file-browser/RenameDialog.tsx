@@ -56,48 +56,50 @@ export function RenameDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`Rename ${kind}`}
-        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg bg-surface shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold text-gray-900">
-          Rename {kind} “{currentName}”
-        </h2>
+        <div className="px-5 pb-4 pt-5">
+          <h2 className="text-md font-semibold text-text">
+            Rename {kind} “{currentName}”
+          </h2>
 
-        <label
-          htmlFor="rename-input"
-          className="mt-4 block text-sm font-medium text-gray-700"
-        >
-          New name
-        </label>
-        <input
-          id="rename-input"
-          ref={inputRef}
-          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit();
-          }}
-          aria-invalid={validationError !== null}
-          aria-describedby={validationError ? 'rename-error' : undefined}
-          disabled={isBusy}
-        />
-        {validationError && name !== currentName && (
-          <p id="rename-error" role="alert" className="mt-2 text-sm text-red-600">
-            {validationError}
-          </p>
-        )}
+          <label
+            htmlFor="rename-input"
+            className="mt-4 block text-sm font-medium text-text"
+          >
+            New name
+          </label>
+          <input
+            id="rename-input"
+            ref={inputRef}
+            className="mt-1.5 h-9 w-full rounded-md border border-border bg-surface px-3 text-base text-text placeholder:text-text-3 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-45"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit();
+            }}
+            aria-invalid={validationError !== null}
+            aria-describedby={validationError ? 'rename-error' : undefined}
+            disabled={isBusy}
+          />
+          {validationError && name !== currentName && (
+            <p id="rename-error" role="alert" className="mt-1.5 text-xs text-danger">
+              {validationError}
+            </p>
+          )}
+        </div>
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
           <button
-            className="rounded px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+            className="h-9 rounded-md px-4 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onCancel}
             disabled={isBusy}
           >
             Cancel
           </button>
           <button
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="h-9 rounded-md bg-accent px-4 text-base font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
             onClick={submit}
             disabled={!canRename}
           >

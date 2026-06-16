@@ -197,7 +197,7 @@ tofu output          # view output values (use to populate .env.local)
 | App Shell Visual Polish (Header + Layouts) | `@docs/specs/SPEC-023-app-shell-visual-polish.md` | Completed |
 | File Browser Visual Polish | `@docs/specs/SPEC-024-file-browser-visual-polish.md` | Completed |
 | Upload Dropzone Visual Polish | `@docs/specs/SPEC-025-upload-dropzone-visual-polish.md` | Completed |
-| Dialogs Visual Polish | `@docs/specs/SPEC-026-dialogs-visual-polish.md` | Draft |
+| Dialogs Visual Polish | `@docs/specs/SPEC-026-dialogs-visual-polish.md` | Completed |
 | Metadata Panel Visual Polish | `@docs/specs/SPEC-027-metadata-panel-visual-polish.md` | Draft |
 | Shared UI Primitives (Button, Input, Badge, Banner, BrandMark) | `@docs/specs/SPEC-028-shared-ui-primitives.md` | Draft |
 
