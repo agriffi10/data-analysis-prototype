@@ -3,6 +3,8 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -10,6 +12,8 @@ import {
   listFiles,
   ensurePrefixMarker,
   deleteObject,
+  deleteObjects,
+  deleteFolder,
   isPrefixMarkerKey,
   getDownloadUrl,
   objectExists,
@@ -408,6 +412,272 @@ describe('deleteObject', () => {
     expect(result.data.key).toBe('alice/report.pdf');
     expect(mockSend).toHaveBeenCalledOnce();
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(DeleteObjectCommand);
+  });
+});
+
+describe('deleteObjects', () => {
+  // Echo each batch's keys back as Deleted, so chunking can be asserted by the
+  // number of requests and the per-request object counts.
+  function echoDeleted() {
+    mockSend.mockImplementation((cmd: DeleteObjectsCommand) =>
+      Promise.resolve({
+        Deleted: (cmd.input.Delete?.Objects ?? []).map((o) => ({ Key: o.Key })),
+        Errors: [],
+      }),
+    );
+  }
+
+  it('deletes a single key via DeleteObjects and returns it', async () => {
+    mockSend.mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
+
+    const result = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/a.txt'],
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual(['alice/a.txt']);
+    expect(result.data.errors).toEqual([]);
+
+    const cmd = mockSend.mock.calls[0][0];
+    expect(cmd).toBeInstanceOf(DeleteObjectsCommand);
+    expect(cmd.input).toEqual({
+      Bucket: 'us',
+      Delete: { Objects: [{ Key: 'alice/a.txt' }], Quiet: false },
+    });
+  });
+
+  it('returns an empty result and makes no S3 call for an empty key list', async () => {
+    const result = await deleteObjects({ bucket: 'us', keys: [], username: 'alice' });
+    expect(result).toEqual({ success: true, data: { deleted: [], errors: [] } });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('chunks more than 1000 keys into separate DeleteObjects requests', async () => {
+    echoDeleted();
+    const keys = Array.from({ length: 1500 }, (_, i) => `alice/f${i}.txt`);
+
+    const result = await deleteObjects({ bucket: 'us', keys, username: 'alice' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toHaveLength(1500);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toHaveLength(1000);
+    expect(mockSend.mock.calls[1][0].input.Delete.Objects).toHaveLength(500);
+  });
+
+  it('refuses the prefix marker without sending it, but deletes the rest', async () => {
+    mockSend.mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
+
+    const result = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/DO_NOT_DELETE.txt', 'alice/a.txt'],
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual(['alice/a.txt']);
+    expect(result.data.errors).toEqual([
+      {
+        key: 'alice/DO_NOT_DELETE.txt',
+        message: expect.stringMatching(/cannot be deleted/i),
+      },
+    ]);
+    // The marker was never part of the DeleteObjects request.
+    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toEqual([
+      { Key: 'alice/a.txt' },
+    ]);
+  });
+
+  it('makes no S3 call when the only key is the protected marker', async () => {
+    const result = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/DO_NOT_DELETE.txt'],
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual([]);
+    expect(result.data.errors).toHaveLength(1);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('aggregates per-key S3 errors without throwing (partial failure)', async () => {
+    mockSend.mockResolvedValueOnce({
+      Deleted: [{ Key: 'alice/a.txt' }],
+      Errors: [
+        { Key: 'alice/locked.txt', Code: 'AccessDenied', Message: 'Access Denied' },
+      ],
+    });
+
+    const result = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/a.txt', 'alice/locked.txt'],
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual(['alice/a.txt']);
+    expect(result.data.errors).toEqual([
+      { key: 'alice/locked.txt', message: 'Access Denied' },
+    ]);
+  });
+
+  it('records a non-expiry whole-batch failure as per-key errors, no retry', async () => {
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error('Service Unavailable'), { name: 'ServiceUnavailable' }),
+    );
+
+    const result = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/a.txt', 'alice/b.txt'],
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual([]);
+    expect(result.data.errors).toEqual([
+      { key: 'alice/a.txt', message: 'Service Unavailable' },
+      { key: 'alice/b.txt', message: 'Service Unavailable' },
+    ]);
+    expect(mockGetS3Client).toHaveBeenCalledTimes(1); // no credential refresh
+  });
+
+  it('retries once with refreshed credentials on an expired-token error', async () => {
+    mockSend
+      .mockRejectedValueOnce(
+        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
+      )
+      .mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
+
+    const result = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/a.txt'],
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual(['alice/a.txt']);
+    expect(mockGetS3Client).toHaveBeenCalledTimes(2);
+    expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
+  });
+});
+
+describe('deleteFolder', () => {
+  it('lists all keys recursively across pages, then batch-deletes them', async () => {
+    mockSend
+      // page 1 of the recursive listing (truncated)
+      .mockResolvedValueOnce({
+        Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }],
+        IsTruncated: true,
+        NextContinuationToken: 'TOKEN-2',
+      })
+      // page 2 (final)
+      .mockResolvedValueOnce({
+        Contents: [{ Key: 'alice/photos/b.jpg' }],
+        IsTruncated: false,
+      })
+      // the DeleteObjects batch
+      .mockResolvedValueOnce({
+        Deleted: [
+          { Key: 'alice/photos/' },
+          { Key: 'alice/photos/a.jpg' },
+          { Key: 'alice/photos/b.jpg' },
+        ],
+        Errors: [],
+      });
+
+    const result = await deleteFolder({
+      bucket: 'us',
+      prefix: 'alice/photos/',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual([
+      'alice/photos/',
+      'alice/photos/a.jpg',
+      'alice/photos/b.jpg',
+    ]);
+
+    const listCmds = mockSend.mock.calls.filter(
+      (c) => c[0] instanceof ListObjectsV2Command,
+    );
+    expect(listCmds).toHaveLength(2);
+    expect(listCmds[0][0].input).toMatchObject({
+      Bucket: 'us',
+      Prefix: 'alice/photos/',
+      MaxKeys: 1000,
+    });
+    // Recursive: no Delimiter, so nested keys are returned, not collapsed.
+    expect(listCmds[0][0].input.Delimiter).toBeUndefined();
+    expect(listCmds[1][0].input.ContinuationToken).toBe('TOKEN-2');
+
+    const delCmd = mockSend.mock.calls.find(
+      (c) => c[0] instanceof DeleteObjectsCommand,
+    );
+    expect(delCmd?.[0].input.Delete.Objects).toHaveLength(3);
+  });
+
+  it('deletes the lone folder marker when the folder is otherwise empty', async () => {
+    mockSend
+      .mockResolvedValueOnce({ Contents: [{ Key: 'alice/empty/' }], IsTruncated: false })
+      .mockResolvedValueOnce({ Deleted: [{ Key: 'alice/empty/' }], Errors: [] });
+
+    const result = await deleteFolder({
+      bucket: 'us',
+      prefix: 'alice/empty/',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deleted).toEqual(['alice/empty/']);
+  });
+
+  it('returns an empty result and issues no delete when the prefix has no objects', async () => {
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    const result = await deleteFolder({
+      bucket: 'us',
+      prefix: 'alice/ghost/',
+      username: 'alice',
+    });
+
+    expect(result).toEqual({ success: true, data: { deleted: [], errors: [] } });
+    const delCmds = mockSend.mock.calls.filter(
+      (c) => c[0] instanceof DeleteObjectsCommand,
+    );
+    expect(delCmds).toHaveLength(0);
+  });
+
+  it('surfaces a listing failure without attempting a delete', async () => {
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
+    );
+
+    const result = await deleteFolder({
+      bucket: 'us',
+      prefix: 'alice/photos/',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('AccessDenied');
+    const delCmds = mockSend.mock.calls.filter(
+      (c) => c[0] instanceof DeleteObjectsCommand,
+    );
+    expect(delCmds).toHaveLength(0);
   });
 });
 

@@ -6,10 +6,13 @@ import type { UseFileBrowserResult } from './useFileBrowser';
 import { getDownloadUrl } from './fileBrowser.service';
 import { useFileUpload } from './useFileUpload';
 import type { UseFileUploadResult } from './useFileUpload';
+import { useDelete } from './useDelete';
+import type { UseDeleteResult } from './useDelete';
 
 vi.mock('./useFileBrowser');
 vi.mock('./fileBrowser.service');
 vi.mock('./useFileUpload');
+vi.mock('./useDelete');
 // Stub the metadata drawer so these tests don't pull in its TanStack Query hook
 // (covered by MetadataPanel.test.tsx). The stub echoes the file it was opened for.
 vi.mock('./MetadataPanel', () => ({
@@ -29,6 +32,7 @@ vi.mock('./MetadataPanel', () => ({
 const mockUseFileBrowser = vi.mocked(useFileBrowser);
 const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
 const mockUseFileUpload = vi.mocked(useFileUpload);
+const mockUseDelete = vi.mocked(useDelete);
 
 const base: UseFileBrowserResult = {
   files: [],
@@ -52,10 +56,31 @@ const uploadBase: UseFileUploadResult = {
   dismissError: vi.fn(),
 };
 
+const deleteBase: UseDeleteResult = {
+  isDeleting: false,
+  summary: null,
+  error: null,
+  runDelete: vi.fn().mockResolvedValue({ deletedCount: 0, errors: [] }),
+  dismissSummary: vi.fn(),
+  dismissError: vi.fn(),
+};
+
+// A file + folder fixture used by the selection/delete tests. The delete UI is
+// only offered when both `writable` and `username` are set (authenticated flow).
+const oneFile = {
+  type: 'file' as const,
+  key: 'alice/report.pdf',
+  name: 'report.pdf',
+  size: 1024,
+  lastModified: new Date('2024-01-01'),
+};
+const oneFolder = { type: 'folder' as const, prefix: 'alice/photos/', name: 'photos' };
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseFileBrowser.mockReturnValue(base);
   mockUseFileUpload.mockReturnValue(uploadBase);
+  mockUseDelete.mockReturnValue(deleteBase);
 });
 
 // ─── Loading ──────────────────────────────────────────────────────────────────
@@ -586,5 +611,140 @@ describe('write controls', () => {
     render(<FileBrowser bucket="my-bucket" writable />);
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '42');
+  });
+});
+
+// ─── Selection + delete (SPEC-018) ──────────────────────────────────────────────
+
+describe('selection + delete', () => {
+  const authProps = { bucket: 'my-bucket', writable: true, username: 'alice' } as const;
+
+  it('shows no selection checkboxes when not writable (read-only)', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('shows no selection checkboxes when writable but unauthenticated (no username)', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser bucket="my-bucket" writable />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('renders per-row + select-all checkboxes in the authenticated writable flow', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      files: [oneFile],
+      folders: [oneFolder],
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(screen.getByRole('checkbox', { name: /select all/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /select report\.pdf/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: /select folder photos/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('disables Delete until something is selected', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+  });
+
+  it('select-all toggles every row', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      files: [oneFile],
+      folders: [oneFolder],
+    });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /select all/i }));
+    expect(screen.getByRole('checkbox', { name: /select report\.pdf/i })).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: /select folder photos/i }),
+    ).toBeChecked();
+  });
+
+  it('opens a confirmation naming the item and deletes nothing until confirmed', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const dialog = screen.getByRole('alertdialog', { name: /confirm delete/i });
+    expect(dialog).toHaveTextContent(/report\.pdf/);
+    expect(dialog).toHaveTextContent(/can.t be undone/i);
+    expect(deleteBase.runDelete).not.toHaveBeenCalled();
+  });
+
+  it('confirming deletes exactly the selected files and folders', async () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      files: [oneFile],
+      folders: [oneFolder],
+    });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /select folder photos/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const dialog = screen.getByRole('alertdialog', { name: /confirm delete/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() => expect(deleteBase.runDelete).toHaveBeenCalledTimes(1));
+    const items = vi.mocked(deleteBase.runDelete).mock.calls[0][0];
+    expect(items).toEqual(
+      expect.arrayContaining([
+        { type: 'file', key: 'alice/report.pdf' },
+        { type: 'folder', prefix: 'alice/photos/' },
+      ]),
+    );
+    expect(items).toHaveLength(2);
+  });
+
+  it('cancelling the confirmation deletes nothing and closes the dialog', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const dialog = screen.getByRole('alertdialog', { name: /confirm delete/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(deleteBase.runDelete).not.toHaveBeenCalled();
+  });
+
+  it('shows a success summary with the deleted count', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseDelete.mockReturnValue({
+      ...deleteBase,
+      summary: { deletedCount: 3, errors: [] },
+    });
+    render(<FileBrowser {...authProps} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/deleted 3 items/i);
+  });
+
+  it('shows a partial-failure summary listing what failed and why', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseDelete.mockReturnValue({
+      ...deleteBase,
+      summary: {
+        deletedCount: 1,
+        errors: [{ key: 'alice/locked.txt', message: 'Access Denied' }],
+      },
+    });
+    render(<FileBrowser {...authProps} />);
+
+    expect(screen.getByText(/could not delete 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/locked\.txt — access denied/i)).toBeInTheDocument();
   });
 });

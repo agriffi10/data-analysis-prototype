@@ -1,5 +1,6 @@
 import {
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -16,6 +17,7 @@ import type {
   UploadResult,
   CreateFolderResult,
   ObjectMetadata,
+  DeleteResult,
 } from './fileBrowser.types';
 import {
   MAX_UPLOAD_BYTES,
@@ -267,6 +269,178 @@ export async function deleteObject(params: {
       return toServiceError(err, 'Failed to delete object');
     }
   });
+}
+
+// S3's DeleteObjects hard limit: at most 1000 keys per request (SPEC-018 FR-002).
+const DELETE_BATCH_SIZE = 1000;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// SPEC-018 FR-002: delete one or many objects in a single logical operation.
+// Keys are chunked into ≤1000-key DeleteObjects requests; results aggregate
+// across batches. The call never throws on partial failure — per-key errors S3
+// returns (and the marker-guard refusal) are collected into `errors`, while the
+// keys that succeeded are reported in `deleted`. Credential expiry mid-operation
+// is retried once with refreshed credentials (the operation is idempotent —
+// re-deleting an already-gone key is a success in S3).
+//
+// `username` is needed for the marker guard: the user's root marker
+// (`{username}/DO_NOT_DELETE.txt`) is refused before the request and never sent
+// to S3 (SPEC-014 FR-003 / SPEC-013 FR-001 defense in depth).
+export async function deleteObjects(params: {
+  bucket: string;
+  keys: string[];
+  username: string;
+}): Promise<ServiceResult<DeleteResult>> {
+  const { bucket, keys, username } = params;
+  const markerKey = prefixMarkerKey(username);
+
+  // Partition out the protected marker before touching S3 (FR-002).
+  const markerErrors: DeleteResult['errors'] = [];
+  const toDelete: string[] = [];
+  for (const key of keys) {
+    if (key === markerKey) {
+      markerErrors.push({
+        key,
+        message:
+          'This file keeps your storage space active and cannot be deleted.',
+      });
+    } else {
+      toDelete.push(key);
+    }
+  }
+
+  if (toDelete.length === 0) {
+    return { success: true, data: { deleted: [], errors: markerErrors } };
+  }
+
+  const result = await withAuthenticatedClient((client) =>
+    deleteInBatches(client, bucket, toDelete),
+  );
+  if (!result.success) return result;
+
+  return {
+    success: true,
+    data: {
+      deleted: result.data.deleted,
+      errors: [...markerErrors, ...result.data.errors],
+    },
+  };
+}
+
+// Sends the keys as chunked DeleteObjects requests, aggregating S3's per-key
+// Deleted/Errors across batches. A whole-batch throw that is a credential-expiry
+// error is propagated so withAuthenticatedClient refreshes and retries the whole
+// operation; any other whole-batch failure records every key in that batch as an
+// error and continues with the remaining batches (FR-002 partial failure).
+async function deleteInBatches(
+  client: S3Client,
+  bucket: string,
+  keys: string[],
+): Promise<ServiceResult<DeleteResult>> {
+  const deleted: string[] = [];
+  const errors: DeleteResult['errors'] = [];
+
+  for (const batch of chunk(keys, DELETE_BATCH_SIZE)) {
+    try {
+      const response = await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: {
+            Objects: batch.map((Key) => ({ Key })),
+            Quiet: false,
+          },
+        }),
+      );
+      for (const d of response.Deleted ?? []) {
+        if (d.Key) deleted.push(d.Key);
+      }
+      for (const e of response.Errors ?? []) {
+        if (e.Key) {
+          errors.push({
+            key: e.Key,
+            message: e.Message ?? e.Code ?? 'Failed to delete object',
+          });
+        }
+      }
+    } catch (err) {
+      const e = err as { name?: string; message?: string };
+      // Let credential expiry bubble up so the whole operation is retried once.
+      if (isExpiryError(e.name)) return toServiceError(err, 'Failed to delete objects');
+      // Other whole-batch failure: record each key and keep going.
+      for (const key of batch) {
+        errors.push({ key, message: e.message ?? 'Failed to delete object' });
+      }
+    }
+  }
+
+  return { success: true, data: { deleted, errors } };
+}
+
+// SPEC-018 FR-003: delete a folder and everything beneath it. Lists every key
+// under `prefix` recursively (no delimiter, paginating ListObjectsV2 past the
+// 1000-key page cap), then batch-deletes via deleteObjects. The folder's own
+// zero-byte marker key (`{prefix}`) is itself returned by the recursive listing,
+// so an "empty" folder still disappears. A per-key failure never aborts the rest;
+// the result reports total deleted and any failures.
+export async function deleteFolder(params: {
+  bucket: string;
+  prefix: string;
+  username: string;
+}): Promise<ServiceResult<DeleteResult>> {
+  const { bucket, prefix, username } = params;
+
+  const listResult = await withAuthenticatedClient((client) =>
+    listAllKeysUnderPrefix(client, bucket, prefix),
+  );
+  if (!listResult.success) return listResult;
+
+  if (listResult.data.length === 0) {
+    return { success: true, data: { deleted: [], errors: [] } };
+  }
+
+  return deleteObjects({ bucket, keys: listResult.data, username });
+}
+
+// Collects every object key under a prefix, paginating ListObjectsV2 past 1000
+// keys. No Delimiter, so the listing is fully recursive (nested folders + the
+// folder's own marker key are all returned).
+async function listAllKeysUnderPrefix(
+  client: S3Client,
+  bucket: string,
+  prefix: string,
+): Promise<ServiceResult<string[]>> {
+  const keys: string[] = [];
+  let continuationToken: string | undefined;
+
+  try {
+    do {
+      const response = await client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          MaxKeys: PAGE_SIZE,
+          ContinuationToken: continuationToken,
+        }),
+      );
+      for (const obj of response.Contents ?? []) {
+        if (obj.Key) keys.push(obj.Key);
+      }
+      continuationToken = response.IsTruncated
+        ? response.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    return { success: true, data: keys };
+  } catch (err) {
+    return toServiceError(err, 'Failed to list folder contents');
+  }
 }
 
 // SPEC-015 FR-003. Default presigned-download lifetime: 15 minutes.

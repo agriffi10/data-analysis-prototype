@@ -189,7 +189,7 @@ tofu output          # view output values (use to populate .env.local)
 | File Download + Data Foundation (TanStack Query) | `@docs/specs/SPEC-015-file-download-and-data-foundation.md` | Completed |
 | File Upload (managed, auto-multipart + progress) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Completed |
 | File Metadata Panel | `@docs/specs/SPEC-017-file-metadata-panel.md` | Completed |
-| Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Draft |
+| Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Completed |
 | Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Draft |
 | Upload Queue (multi-file, concurrency, cancel) | `@docs/specs/SPEC-020-multipart-upload.md` | Draft |
 
