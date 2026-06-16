@@ -25,7 +25,7 @@ export function ProtectedLayout() {
     return (
       <div
         role="status"
-        className="flex flex-1 items-center justify-center py-24 text-gray-400"
+        className="flex flex-1 items-center justify-center py-24 text-text-3"
       >
         Loading&hellip;
       </div>
