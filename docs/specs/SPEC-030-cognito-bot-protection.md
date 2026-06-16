@@ -1,7 +1,7 @@
 # Spec: Cognito Bot Signup Protection
 
 **ID:** SPEC-030  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-06-16  
 **Depends On:** SPEC-006 (Cognito User Pool IaC), SPEC-012 (Pre-Signup Lambda)
 
