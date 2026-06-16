@@ -73,48 +73,90 @@ export function DeleteConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-label="Confirm delete"
-        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg bg-surface shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold text-gray-900">{heading}</h2>
+        <div className="px-5 pb-4 pt-5">
+          <div className="flex items-start gap-3">
+            <span className="flex-shrink-0 rounded-full bg-danger-soft p-1 text-danger">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-6 w-6"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path strokeLinecap="round" d="M12 8v5M12 16h.01" />
+              </svg>
+            </span>
+            <h2 className="text-md font-semibold text-text">{heading}</h2>
+          </div>
 
-        {count > 1 && (
-          <ul className="mt-3 max-h-40 overflow-auto rounded border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-            {described.slice(0, MAX_NAMES).map((d) => (
-              <li key={d.name} className="flex items-center gap-2">
-                <span aria-hidden="true">{d.isFolder ? '📁' : '📄'}</span>
-                <span className="truncate">{d.name}</span>
-              </li>
-            ))}
-            {remaining > 0 && (
-              <li className="text-gray-500">…and {remaining} more</li>
-            )}
-          </ul>
-        )}
+          {count > 1 && (
+            <ul className="mt-3 max-h-36 overflow-auto rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text">
+              {described.slice(0, MAX_NAMES).map((d) => (
+                <li key={d.name} className="flex items-center gap-2 py-0.5">
+                  {d.isFolder ? (
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="h-4 w-4 flex-shrink-0 text-text-3"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                    </svg>
+                  ) : (
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-4 w-4 flex-shrink-0 text-text-3"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M13.5 3H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7.5L13.5 3z"
+                      />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 3v4.5H17.5" />
+                    </svg>
+                  )}
+                  <span className="truncate">{d.name}</span>
+                </li>
+              ))}
+              {remaining > 0 && (
+                <li className="py-0.5 text-text-3">…and {remaining} more</li>
+              )}
+            </ul>
+          )}
 
-        {folderCount > 0 && (
-          <p className="mt-3 text-sm text-gray-600">
-            {folderCount === 1 && count === 1
-              ? 'All files and subfolders it contains will be deleted.'
-              : 'Selected folders are deleted along with all of their contents.'}
+          {folderCount > 0 && (
+            <p className="mt-3 text-sm text-text-2">
+              {folderCount === 1 && count === 1
+                ? 'All files and subfolders it contains will be deleted.'
+                : 'Selected folders are deleted along with all of their contents.'}
+            </p>
+          )}
+
+          <p className="mt-2 text-sm font-medium text-danger">
+            This can’t be undone.
           </p>
-        )}
+        </div>
 
-        <p className="mt-3 text-sm font-medium text-red-700">
-          This can’t be undone.
-        </p>
-
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
           <button
             ref={cancelRef}
-            className="rounded px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+            className="h-9 rounded-md px-4 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onCancel}
             disabled={isDeleting}
           >
             Cancel
           </button>
           <button
-            className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            className="h-9 rounded-md bg-danger px-4 text-base font-medium text-white hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onConfirm}
             disabled={isDeleting}
           >

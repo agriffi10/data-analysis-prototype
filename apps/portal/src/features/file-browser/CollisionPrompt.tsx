@@ -28,11 +28,25 @@ export function CollisionPrompt({
     <div
       role="alertdialog"
       aria-label={`${kind === 'file' ? 'File' : 'Folder'} already exists`}
-      className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+      className="mb-4 rounded-lg border border-warning-soft bg-warning-soft p-4 text-sm"
     >
-      <p className="font-medium">
-        A {kind} named “{name}” already exists.
-      </p>
+      <div className="flex items-start gap-2">
+        <svg
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-5 w-5 flex-shrink-0 text-warning"
+          aria-hidden="true"
+        >
+          <path
+            fillRule="evenodd"
+            d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z"
+            clipRule="evenodd"
+          />
+        </svg>
+        <p className="font-medium text-warning">
+          A {kind} named “{name}” already exists.
+        </p>
+      </div>
 
       {renaming ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -42,7 +56,7 @@ export function CollisionPrompt({
           <input
             id="collision-rename"
             autoFocus
-            className="flex-1 rounded border border-gray-300 px-2 py-1 text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="h-9 flex-1 rounded-md border border-border bg-surface px-3 text-base text-text placeholder:text-text-3 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
@@ -50,14 +64,14 @@ export function CollisionPrompt({
             }}
           />
           <button
-            className="rounded bg-blue-600 px-3 py-1 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
             disabled={!canRename}
             onClick={() => onRename(trimmed)}
           >
             Save as new name
           </button>
           <button
-            className="rounded px-3 py-1 font-medium text-gray-600 hover:bg-gray-100"
+            className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text"
             onClick={() => setRenaming(false)}
           >
             Back
@@ -66,13 +80,7 @@ export function CollisionPrompt({
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
           <button
-            className="rounded bg-amber-600 px-3 py-1 font-medium text-white hover:bg-amber-700"
-            onClick={onOverwrite}
-          >
-            Overwrite
-          </button>
-          <button
-            className="rounded border border-amber-400 px-3 py-1 font-medium text-amber-800 hover:bg-amber-100"
+            className="h-8 rounded-md border border-border bg-surface px-3 text-sm font-medium text-text hover:bg-surface-2"
             onClick={() => {
               setNewName(name);
               setRenaming(true);
@@ -81,10 +89,16 @@ export function CollisionPrompt({
             Rename
           </button>
           <button
-            className="rounded px-3 py-1 font-medium text-gray-600 hover:bg-gray-100"
+            className="h-8 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text"
             onClick={onCancel}
           >
             Cancel
+          </button>
+          <button
+            className="h-8 rounded-md bg-danger px-3 text-sm font-medium text-white hover:bg-danger/90"
+            onClick={onOverwrite}
+          >
+            Overwrite
           </button>
         </div>
       )}
