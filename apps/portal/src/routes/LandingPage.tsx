@@ -14,33 +14,58 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-4">
-      <div className="w-full max-w-md text-center">
-        <h1 className="text-3xl font-semibold text-gray-900">S3 File Portal</h1>
-        <p className="mt-3 text-gray-600">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-6">
+      <div className="w-full max-w-sm text-center">
+        {/* Brand mark — rounded accent square + wordmark. Mirrors the Header
+            mark (SPEC-023); extracted into a shared BrandMark in SPEC-028. */}
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4 text-white"
+              aria-hidden="true"
+            >
+              <path d="M12 16V4M7 9l5-5 5 5" />
+              <path d="M5 20h14" />
+            </svg>
+          </div>
+          <span className="text-md font-semibold text-text">S3 File Portal</span>
+        </div>
+
+        <p className="text-sm text-text-2">
           Securely upload and download files in your personal S3 space.
         </p>
+
         <div className="mt-8 flex flex-col items-center gap-3">
           <button
             type="button"
             onClick={() => void signIn()}
-            className="w-48 rounded-md bg-gray-900 px-5 py-2.5 font-medium text-white hover:bg-gray-700"
+            className="h-9 w-full max-w-[200px] rounded-md bg-accent px-4 text-base font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
           >
             Sign in
           </button>
           <button
             type="button"
             onClick={() => signUp()}
-            className="w-48 rounded-md border border-gray-300 bg-white px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50"
+            className="h-9 w-full max-w-[200px] rounded-md border border-border bg-surface px-4 text-base font-medium text-text hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45"
           >
             Create account
           </button>
         </div>
         {/* Username guidance — mirrors the SPEC-012 pre-signup rule exactly,
             since the username becomes the user's S3 prefix and audit identity. */}
-        <p className="mt-4 text-xs text-gray-500">
+        <p className="mt-4 text-xs leading-relaxed text-text-3">
           Your username becomes your private file space: 3&ndash;64 characters,
-          letters and numbers plus <code>. _ @ -</code> only.
+          letters and numbers plus{' '}
+          <code className="rounded-sm border border-border bg-surface-2 px-1 font-mono text-xs">
+            . _ @ -
+          </code>{' '}
+          only.
         </p>
       </div>
     </div>
