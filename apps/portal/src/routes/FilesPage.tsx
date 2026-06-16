@@ -78,6 +78,7 @@ export default function FilesPage() {
               rootPrefix={rootPrefix}
               rootLabel={rootLabel}
               markerKey={markerKey}
+              writable={!devUnauthenticated && !!user}
             />
           </>
         ) : (

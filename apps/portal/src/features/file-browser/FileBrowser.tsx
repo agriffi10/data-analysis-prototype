@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useFileBrowser } from './useFileBrowser';
+import { useFileUpload } from './useFileUpload';
 import { getDownloadUrl } from './fileBrowser.service';
+import { UploadDropzone } from './UploadDropzone';
+import { CreateFolderDialog } from './CreateFolderDialog';
+import { CollisionPrompt } from './CollisionPrompt';
 import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
 
 // Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
@@ -26,6 +30,8 @@ type Props = {
                        // (e.g. "My Files" instead of the username) — SPEC-013
   markerKey?: string;  // exact key hidden from the listing — the prefix marker
                        // (SPEC-014 FR-002)
+  writable?: boolean;  // show upload + create-folder controls (SPEC-016). Off in
+                       // the dev-unauth path (no scoped write credentials).
 };
 
 type BreadcrumbItem = {
@@ -149,11 +155,25 @@ function FileRow({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel, markerKey }: Props) {
+export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel, markerKey, writable = false }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
   const { files, folders, isLoading, error, hasMore, loadMore, isLoadingMore } =
     useFileBrowser(bucket, prefix, markerKey);
+
+  // Write operations (SPEC-016) scoped to the folder currently being viewed.
+  const currentPrefix = prefix ?? '';
+  const {
+    progress,
+    pendingCollision,
+    error: writeError,
+    isBusy,
+    uploadOne,
+    createNewFolder,
+    cancelCollision,
+    dismissError,
+  } = useFileUpload(bucket, currentPrefix);
+  const [creatingFolder, setCreatingFolder] = useState(false);
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
@@ -213,6 +233,64 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
           })}
         </ol>
       </nav>
+
+      {/* Write controls (SPEC-016) — upload + create folder. Hidden in read-only
+          (dev-unauth) mode. */}
+      {writable && (
+        <div className="mb-4">
+          <div className="mb-3 flex gap-2">
+            <button
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => setCreatingFolder((v) => !v)}
+              disabled={isBusy}
+            >
+              New folder
+            </button>
+          </div>
+
+          {creatingFolder && (
+            <CreateFolderDialog
+              onCreate={(name) => {
+                setCreatingFolder(false);
+                createNewFolder(name);
+              }}
+              onCancel={() => setCreatingFolder(false)}
+            />
+          )}
+
+          {pendingCollision && (
+            <CollisionPrompt
+              kind={pendingCollision.kind}
+              name={pendingCollision.label}
+              onOverwrite={() => pendingCollision.retry({ overwrite: true })}
+              onRename={(newName) => pendingCollision.retry({ rename: newName })}
+              onCancel={cancelCollision}
+            />
+          )}
+
+          {writeError && (
+            <div
+              role="alert"
+              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
+              <span>{writeError}</span>
+              <button
+                className="font-medium text-red-600 hover:underline"
+                onClick={dismissError}
+                aria-label="Dismiss upload error"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <UploadDropzone
+            onFile={uploadOne}
+            progress={progress}
+            disabled={isBusy && progress === null}
+          />
+        </div>
+      )}
 
       {/* Download error (SPEC-015) — dismissible, non-blocking */}
       {downloadError && (
