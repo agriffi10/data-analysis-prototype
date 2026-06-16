@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -18,6 +19,7 @@ import type {
   CreateFolderResult,
   ObjectMetadata,
   DeleteResult,
+  MoveResult,
 } from './fileBrowser.types';
 import {
   MAX_UPLOAD_BYTES,
@@ -441,6 +443,196 @@ async function listAllKeysUnderPrefix(
   } catch (err) {
     return toServiceError(err, 'Failed to list folder contents');
   }
+}
+
+// ── Move / rename (SPEC-019) ─────────────────────────────────────────────────
+
+// Build the CopyObject `CopySource` value: `{bucket}/{key}`, with each path
+// segment URL-encoded but the separators preserved. CopyObject is not auto-encoded
+// by the SDK, so special characters in the key (spaces, %, etc.) must be escaped.
+function buildCopySource(bucket: string, key: string): string {
+  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  return `${bucket}/${encodedKey}`;
+}
+
+// SPEC-019 FR-001: copy a single object within the same bucket. Like uploadFile
+// (SPEC-016), unless `overwrite` is true the destination is HEAD-checked first and
+// the copy is refused with a `Collision` error rather than clobbering (versioning
+// is off). The root marker may be neither source nor destination. Never throws.
+export async function copyObject(params: {
+  bucket: string;
+  sourceKey: string;
+  destKey: string;
+  username: string;
+  overwrite?: boolean;
+}): Promise<ServiceResult<{ destKey: string }>> {
+  const { bucket, sourceKey, destKey, username, overwrite = false } = params;
+
+  if (
+    isPrefixMarkerKey(sourceKey, username) ||
+    isPrefixMarkerKey(destKey, username)
+  ) {
+    return {
+      success: false,
+      error: {
+        message:
+          'This file keeps your storage space active and cannot be moved or renamed.',
+        code: 'ProtectedObject',
+      },
+    };
+  }
+
+  if (!overwrite) {
+    const exists = await objectExists({ bucket, key: destKey });
+    if (!exists.success) return exists;
+    if (exists.data) {
+      return {
+        success: false,
+        error: { message: `"${destKey}" already exists.`, code: 'Collision' },
+      };
+    }
+  }
+
+  return withAuthenticatedClient(async (client) => {
+    try {
+      await client.send(
+        new CopyObjectCommand({
+          Bucket: bucket,
+          Key: destKey,
+          CopySource: buildCopySource(bucket, sourceKey),
+        }),
+      );
+      return { success: true, data: { destKey } };
+    } catch (err) {
+      return toServiceError(err, 'Failed to copy object');
+    }
+  });
+}
+
+// SPEC-019 FR-001: move (= copy then delete the source). The source is deleted
+// only after the copy succeeds — a failed copy leaves the source intact. A
+// `sourceKey === destKey` request is a no-op success (rename to the same name).
+export async function moveObject(params: {
+  bucket: string;
+  sourceKey: string;
+  destKey: string;
+  username: string;
+  overwrite?: boolean;
+}): Promise<ServiceResult<{ destKey: string }>> {
+  const { bucket, sourceKey, destKey, username, overwrite } = params;
+
+  if (sourceKey === destKey) {
+    return { success: true, data: { destKey } };
+  }
+
+  const copied = await copyObject({
+    bucket,
+    sourceKey,
+    destKey,
+    username,
+    overwrite,
+  });
+  if (!copied.success) return copied;
+
+  const deleted = await deleteObject({ bucket, key: sourceKey, username });
+  if (!deleted.success) return deleted;
+
+  return { success: true, data: { destKey } };
+}
+
+// SPEC-019 FR-004: move a folder and everything beneath it. Lists every key under
+// `sourcePrefix` recursively, computes each destination by replacing the
+// `sourcePrefix` portion with `destPrefix`, then moves each (copy-then-delete) so
+// no source survives a successful move. Non-atomic: a key whose copy fails is left
+// in place and recorded; the rest continue (FR-004). `onProgress` reports
+// processed/total for large folders.
+//
+// Collision (FR-005): unless `overwrite` is true, the destinations are checked
+// once up front (any existing destination object → a single `Collision` error
+// naming the count) so the UI can confirm Overwrite-all or cancel.
+export async function moveFolder(params: {
+  bucket: string;
+  sourcePrefix: string;
+  destPrefix: string;
+  username: string;
+  overwrite?: boolean;
+  onProgress?: (processed: number, total: number) => void;
+}): Promise<ServiceResult<MoveResult>> {
+  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } =
+    params;
+
+  if (sourcePrefix === destPrefix) {
+    return { success: true, data: { moved: [], errors: [] } };
+  }
+  // Moving a folder inside its own subtree would copy keys into themselves.
+  if (destPrefix.startsWith(sourcePrefix)) {
+    return {
+      success: false,
+      error: {
+        message: 'A folder cannot be moved into itself.',
+        code: 'InvalidDestination',
+      },
+    };
+  }
+
+  const listed = await withAuthenticatedClient((client) =>
+    listAllKeysUnderPrefix(client, bucket, sourcePrefix),
+  );
+  if (!listed.success) return listed;
+
+  const sourceKeys = listed.data;
+  if (sourceKeys.length === 0) {
+    return { success: true, data: { moved: [], errors: [] } };
+  }
+
+  const destKeyFor = (sourceKey: string) =>
+    destPrefix + sourceKey.slice(sourcePrefix.length);
+
+  // Pre-flight collision check (FR-005): count destinations that already exist.
+  if (!overwrite) {
+    const existing = await withAuthenticatedClient((client) =>
+      listAllKeysUnderPrefix(client, bucket, destPrefix),
+    );
+    if (!existing.success) return existing;
+    const existingSet = new Set(existing.data);
+    const collisions = sourceKeys
+      .map(destKeyFor)
+      .filter((k) => existingSet.has(k)).length;
+    if (collisions > 0) {
+      return {
+        success: false,
+        error: {
+          message: `${collisions} item(s) already exist at the destination.`,
+          code: 'Collision',
+        },
+      };
+    }
+  }
+
+  const moved: string[] = [];
+  const errors: MoveResult['errors'] = [];
+  const total = sourceKeys.length;
+  let processed = 0;
+
+  for (const sourceKey of sourceKeys) {
+    // Destinations were verified clear (or the user chose overwrite), so each
+    // per-key move skips its own HEAD with overwrite: true.
+    const result = await moveObject({
+      bucket,
+      sourceKey,
+      destKey: destKeyFor(sourceKey),
+      username,
+      overwrite: true,
+    });
+    if (result.success) {
+      moved.push(sourceKey);
+    } else {
+      errors.push({ key: sourceKey, message: result.error.message });
+    }
+    onProgress?.(++processed, total);
+  }
+
+  return { success: true, data: { moved, errors } };
 }
 
 // SPEC-015 FR-003. Default presigned-download lifetime: 15 minutes.

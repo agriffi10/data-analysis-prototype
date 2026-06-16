@@ -1,8 +1,8 @@
 # Spec: Move & Rename (files and folders, recursive)
 
 **ID:** SPEC-019
-**Status:** Draft
-**Last Updated:** 2026-06-11
+**Status:** Completed
+**Last Updated:** 2026-06-16
 **Depends On:** SPEC-013 (`s3:GetObject` + `s3:PutObject` + `s3:DeleteObject` on own prefix), SPEC-014 (marker), SPEC-015 (data foundation), SPEC-018 (selection state)
 
 ## Overview

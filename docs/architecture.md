@@ -672,6 +672,6 @@ Add staging environment here when it is provisioned.
 | SPEC-016 | File upload (managed, auto-multipart + progress) + create folder | Completed |
 | SPEC-017 | File metadata panel (HeadObject) | Draft |
 | SPEC-018 | Delete files and folders (multi-select, recursive) | Completed |
-| SPEC-019 | Move & rename (files and folders) — copy+delete | Draft |
+| SPEC-019 | Move & rename (files and folders) — copy+delete | Completed |
 | SPEC-020 | Upload queue (multi-file, concurrency, cancel) | Draft |
 | Future | Shared-space bucket (Bucket 2) — user-managed access keys, model TBD | Not yet written |

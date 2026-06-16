@@ -8,11 +8,53 @@ import { useFileUpload } from './useFileUpload';
 import type { UseFileUploadResult } from './useFileUpload';
 import { useDelete } from './useDelete';
 import type { UseDeleteResult } from './useDelete';
+import { useMove } from './useMove';
+import type { UseMoveResult } from './useMove';
 
 vi.mock('./useFileBrowser');
 vi.mock('./fileBrowser.service');
 vi.mock('./useFileUpload');
 vi.mock('./useDelete');
+vi.mock('./useMove');
+// Stub the move dialog's folder picker so these tests don't pull in useFileBrowser
+// twice; MoveDialog itself is covered by MoveDialog.test.tsx.
+vi.mock('./MoveDialog', () => ({
+  MoveDialog: ({
+    items,
+    onMove,
+    onCancel,
+  }: {
+    items: { type: string }[];
+    onMove: (destPrefix: string) => void;
+    onCancel: () => void;
+  }) => (
+    <div role="dialog" aria-label="Move to folder">
+      <span>moving {items.length}</span>
+      <button onClick={() => onMove('alice/dest/')}>move-here-stub</button>
+      <button onClick={onCancel}>move-cancel-stub</button>
+    </div>
+  ),
+}));
+// Stub the rename dialog — its validation uses validateFolderName, which is
+// auto-mocked by the wholesale ./fileBrowser.service mock below. The real dialog
+// (and its validation) is covered by RenameDialog.test.tsx.
+vi.mock('./RenameDialog', () => ({
+  RenameDialog: ({
+    currentName,
+    onRename,
+    onCancel,
+  }: {
+    currentName: string;
+    onRename: (newName: string) => void;
+    onCancel: () => void;
+  }) => (
+    <div role="dialog" aria-label="Rename">
+      <span>renaming {currentName}</span>
+      <button onClick={() => onRename('renamed')}>rename-submit-stub</button>
+      <button onClick={onCancel}>rename-cancel-stub</button>
+    </div>
+  ),
+}));
 // Stub the metadata drawer so these tests don't pull in its TanStack Query hook
 // (covered by MetadataPanel.test.tsx). The stub echoes the file it was opened for.
 vi.mock('./MetadataPanel', () => ({
@@ -33,6 +75,7 @@ const mockUseFileBrowser = vi.mocked(useFileBrowser);
 const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
 const mockUseFileUpload = vi.mocked(useFileUpload);
 const mockUseDelete = vi.mocked(useDelete);
+const mockUseMove = vi.mocked(useMove);
 
 const base: UseFileBrowserResult = {
   files: [],
@@ -65,6 +108,20 @@ const deleteBase: UseDeleteResult = {
   dismissError: vi.fn(),
 };
 
+const moveBase: UseMoveResult = {
+  isBusy: false,
+  progress: null,
+  error: null,
+  summary: null,
+  renameCollision: null,
+  moveCollision: null,
+  renameItem: vi.fn(),
+  moveItems: vi.fn(),
+  dismissError: vi.fn(),
+  dismissSummary: vi.fn(),
+  cancelCollision: vi.fn(),
+};
+
 // A file + folder fixture used by the selection/delete tests. The delete UI is
 // only offered when both `writable` and `username` are set (authenticated flow).
 const oneFile = {
@@ -81,6 +138,7 @@ beforeEach(() => {
   mockUseFileBrowser.mockReturnValue(base);
   mockUseFileUpload.mockReturnValue(uploadBase);
   mockUseDelete.mockReturnValue(deleteBase);
+  mockUseMove.mockReturnValue(moveBase);
 });
 
 // ─── Loading ──────────────────────────────────────────────────────────────────
@@ -746,5 +804,97 @@ describe('selection + delete', () => {
 
     expect(screen.getByText(/could not delete 1/i)).toBeInTheDocument();
     expect(screen.getByText(/locked\.txt — access denied/i)).toBeInTheDocument();
+  });
+});
+
+// ─── Rename + move (SPEC-019) ───────────────────────────────────────────────────
+
+describe('rename + move', () => {
+  const authProps = { bucket: 'my-bucket', writable: true, username: 'alice' } as const;
+
+  it('shows no Rename action when read-only', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.queryByRole('button', { name: /rename/i })).not.toBeInTheDocument();
+  });
+
+  it('exposes a Rename action per file and folder in the authenticated flow', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      files: [oneFile],
+      folders: [oneFolder],
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(
+      screen.getByRole('button', { name: /rename report\.pdf/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /rename folder photos/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('renaming a file opens the dialog and calls renameItem on submit', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /rename report\.pdf/i }));
+    const dialog = screen.getByRole('dialog', { name: /rename/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: /rename-submit-stub/i }));
+
+    expect(moveBase.renameItem).toHaveBeenCalledWith(
+      { type: 'file', key: 'alice/report.pdf' },
+      'renamed',
+    );
+  });
+
+  it('disables Move until something is selected', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+    expect(screen.getByRole('button', { name: 'Move' })).toBeDisabled();
+  });
+
+  it('Move opens the destination picker and calls moveItems on confirm', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile], folders: [oneFolder] });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+
+    const dialog = screen.getByRole('dialog', { name: /move to folder/i });
+    expect(dialog).toHaveTextContent(/moving 1/i);
+    fireEvent.click(within(dialog).getByRole('button', { name: /move-here-stub/i }));
+
+    expect(moveBase.moveItems).toHaveBeenCalledWith(
+      [{ type: 'file', key: 'alice/report.pdf' }],
+      'alice/dest/',
+    );
+  });
+
+  it('shows a move result summary with the moved count', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseMove.mockReturnValue({
+      ...moveBase,
+      summary: { movedCount: 2, errors: [] },
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(screen.getByText(/moved 2 items/i)).toBeInTheDocument();
+  });
+
+  it('renders the rename-collision prompt from the move hook', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseMove.mockReturnValue({
+      ...moveBase,
+      renameCollision: {
+        kind: 'file',
+        label: 'taken.pdf',
+        onOverwrite: vi.fn(),
+        onRename: vi.fn(),
+        onCancel: vi.fn(),
+      },
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(
+      screen.getByRole('alertdialog', { name: /already exists/i }),
+    ).toBeInTheDocument();
   });
 });
