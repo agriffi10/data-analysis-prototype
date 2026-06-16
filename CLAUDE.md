@@ -200,7 +200,7 @@ tofu output          # view output values (use to populate .env.local)
 | Dialogs Visual Polish | `@docs/specs/SPEC-026-dialogs-visual-polish.md` | Completed |
 | Metadata Panel Visual Polish | `@docs/specs/SPEC-027-metadata-panel-visual-polish.md` | Completed |
 | Shared UI Primitives (Button, Input, Badge, Banner, BrandMark) | `@docs/specs/SPEC-028-shared-ui-primitives.md` | Completed |
-| Landing Page Full Design | `@docs/specs/SPEC-029-landing-page-full-design.md` | Draft |
+| Landing Page Full Design | `@docs/specs/SPEC-029-landing-page-full-design.md` | Completed |
 | Cognito Bot Signup Protection (WAF + ASF) | `@docs/specs/SPEC-030-cognito-bot-protection.md` | Draft |
 | Document Title Management | `@docs/specs/SPEC-031-document-title-management.md` | Draft |
 
