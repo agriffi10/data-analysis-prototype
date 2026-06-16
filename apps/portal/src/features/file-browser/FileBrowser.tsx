@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { useFileBrowser } from './useFileBrowser';
 import { useFileUpload } from './useFileUpload';
+import { useDelete } from './useDelete';
 import { getDownloadUrl } from './fileBrowser.service';
 import { UploadDropzone } from './UploadDropzone';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
+import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { SelectionProvider } from './SelectionProvider';
+import { useSelection, itemId, type SelectableItem } from './selectionContext';
 import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
 
 // Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
@@ -33,6 +37,8 @@ type Props = {
                        // (SPEC-014 FR-002)
   writable?: boolean;  // show upload + create-folder controls (SPEC-016). Off in
                        // the dev-unauth path (no scoped write credentials).
+  username?: string;   // authenticated username — required for delete's marker
+                       // guard (SPEC-018). Present only in the authenticated flow.
 };
 
 type BreadcrumbItem = {
@@ -99,19 +105,39 @@ function formatDate(date: Date): string {
   });
 }
 
+// Last path segment of a key/prefix, for naming items in result messages.
+function lastSegment(keyOrPrefix: string): string {
+  return keyOrPrefix.replace(/\/$/, '').split('/').pop() ?? keyOrPrefix;
+}
+
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 function FolderRow({
   folder,
   onClick,
+  selectable,
+  isSelected,
+  onToggleSelect,
 }: {
   folder: S3FolderItem;
   onClick: () => void;
+  selectable: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
 }) {
   return (
-    <li className="border-b border-gray-100 last:border-0">
+    <li className="flex items-center border-b border-gray-100 last:border-0">
+      {selectable && (
+        <input
+          type="checkbox"
+          className="ml-4 h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          aria-label={`Select folder ${folder.name}`}
+        />
+      )}
       <button
-        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+        className="flex flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
         onClick={onClick}
         aria-label={`Open folder ${folder.name}`}
       >
@@ -128,14 +154,29 @@ function FileRow({
   onDownload,
   onDetails,
   isDownloading,
+  selectable,
+  isSelected,
+  onToggleSelect,
 }: {
   file: S3FileItem;
   onDownload: (file: S3FileItem) => void;
   onDetails: (file: S3FileItem) => void;
   isDownloading: boolean;
+  selectable: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
 }) {
   return (
     <li className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0">
+      {selectable && (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          aria-label={`Select ${file.name}`}
+        />
+      )}
       <span aria-hidden="true">📄</span>
       <span className="flex-1 text-gray-800">{file.name}</span>
       <span className="w-20 text-right text-sm text-gray-500">
@@ -163,11 +204,72 @@ function FileRow({
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Selection toolbar (SPEC-018 FR-001 UI / FR-004) ──────────────────────────
 
-export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootPrefixProp, rootLabel, markerKey, writable = false }: Props) {
-  const rootPrefix = rootPrefixProp ?? prefixProp;
-  const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
+function SelectionToolbar({
+  allItems,
+  onRequestDelete,
+  isDeleting,
+}: {
+  allItems: SelectableItem[];
+  onRequestDelete: () => void;
+  isDeleting: boolean;
+}) {
+  const { count, isSelected, selectAll, clear } = useSelection();
+
+  const allSelected =
+    allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
+  const someSelected = allItems.some((i) => isSelected(itemId(i)));
+
+  return (
+    <div className="mb-3 flex items-center gap-3 text-sm">
+      <label className="flex items-center gap-2 text-gray-700">
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
+          checked={allSelected}
+          ref={(el) => {
+            if (el) el.indeterminate = someSelected && !allSelected;
+          }}
+          onChange={() => (allSelected ? clear() : selectAll(allItems))}
+          aria-label="Select all"
+        />
+        Select all
+      </label>
+
+      <span aria-live="polite" className="text-gray-500">
+        {count > 0 ? `${count} selected` : ''}
+      </span>
+
+      <button
+        className="ml-auto rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={onRequestDelete}
+        disabled={count === 0 || isDeleting}
+      >
+        Delete
+      </button>
+    </div>
+  );
+}
+
+// ─── Browser content (inside the SelectionProvider) ───────────────────────────
+
+type ContentProps = Omit<Props, 'prefix'> & {
+  rootPrefix: string;
+  prefix: string | undefined;
+  setPrefix: (prefix: string | undefined) => void;
+};
+
+function FileBrowserContent({
+  bucket,
+  rootPrefix,
+  rootLabel,
+  markerKey,
+  writable = false,
+  username,
+  prefix,
+  setPrefix,
+}: ContentProps) {
   const { files, folders, isLoading, error, hasMore, loadMore, isLoadingMore } =
     useFileBrowser(bucket, prefix, markerKey);
 
@@ -184,6 +286,14 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
     dismissError,
   } = useFileUpload(bucket, currentPrefix);
   const [creatingFolder, setCreatingFolder] = useState(false);
+
+  // Multi-select + delete (SPEC-018). Selection comes from the surrounding
+  // SelectionProvider; delete is only offered in the authenticated, writable flow
+  // (a username is required for the marker guard).
+  const selection = useSelection();
+  const del = useDelete(bucket, currentPrefix, username);
+  const canDelete = writable && !!username;
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
@@ -208,11 +318,25 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
     }
   }
 
+  async function handleConfirmDelete() {
+    const items = [...selection.selected.values()];
+    await del.runDelete(items);
+    selection.clear();
+    setConfirmOpen(false);
+  }
+
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const isEmpty =
     !isLoading && error === null && files.length === 0 && folders.length === 0;
   const hasContent =
     !isLoading && error === null && (files.length > 0 || folders.length > 0);
+
+  // Every selectable row in the current view, for the header "select all".
+  const allItems: SelectableItem[] = [
+    ...folders.map((f) => ({ type: 'folder' as const, prefix: f.prefix })),
+    ...files.map((f) => ({ type: 'file' as const, key: f.key })),
+  ];
+  const selectedItems = [...selection.selected.values()];
 
   return (
     <div>
@@ -324,6 +448,72 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
         </div>
       )}
 
+      {/* Delete systemic error (SPEC-018 FR-004) — dismissible */}
+      {del.error && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          <span>{del.error}</span>
+          <button
+            className="font-medium text-red-600 hover:underline"
+            onClick={del.dismissError}
+            aria-label="Dismiss delete error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Delete result (SPEC-018 FR-004) — success count + any partial failures */}
+      {del.summary && (
+        <div
+          role="status"
+          className={`mb-4 flex items-start justify-between gap-3 rounded-lg border p-3 text-sm ${
+            del.summary.errors.length === 0
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-amber-300 bg-amber-50 text-amber-900'
+          }`}
+        >
+          <div>
+            <p className="font-medium">
+              Deleted {del.summary.deletedCount}{' '}
+              {del.summary.deletedCount === 1 ? 'item' : 'items'}.
+            </p>
+            {del.summary.errors.length > 0 && (
+              <>
+                <p className="mt-1">
+                  Could not delete {del.summary.errors.length}:
+                </p>
+                <ul className="mt-1 list-disc pl-5">
+                  {del.summary.errors.map((e) => (
+                    <li key={e.key}>
+                      {lastSegment(e.key)} — {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          <button
+            className="font-medium hover:underline"
+            onClick={del.dismissSummary}
+            aria-label="Dismiss delete result"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Selection toolbar (SPEC-018) — select all + bulk delete */}
+      {canDelete && hasContent && (
+        <SelectionToolbar
+          allItems={allItems}
+          onRequestDelete={() => setConfirmOpen(true)}
+          isDeleting={del.isDeleting}
+        />
+      )}
+
       {/* Loading */}
       {isLoading && (
         <div
@@ -362,6 +552,11 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
               key={folder.prefix}
               folder={folder}
               onClick={() => setPrefix(folder.prefix)}
+              selectable={canDelete}
+              isSelected={selection.isSelected(folder.prefix)}
+              onToggleSelect={() =>
+                selection.toggle({ type: 'folder', prefix: folder.prefix })
+              }
             />
           ))}
           {files.map((file) => (
@@ -371,6 +566,11 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
               onDownload={handleDownload}
               onDetails={setDetailsFile}
               isDownloading={downloadingKey === file.key}
+              selectable={canDelete}
+              isSelected={selection.isSelected(file.key)}
+              onToggleSelect={() =>
+                selection.toggle({ type: 'file', key: file.key })
+              }
             />
           ))}
         </ul>
@@ -383,6 +583,16 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
           file={detailsFile}
           rootPrefix={rootPrefix}
           onClose={() => setDetailsFile(null)}
+        />
+      )}
+
+      {/* Delete confirmation (SPEC-018 FR-004) — modal; nothing deleted until confirmed */}
+      {confirmOpen && (
+        <DeleteConfirmDialog
+          items={selectedItems}
+          isDeleting={del.isDeleting}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setConfirmOpen(false)}
         />
       )}
 
@@ -399,5 +609,41 @@ export function FileBrowser({ bucket, prefix: prefixProp = '', rootPrefix: rootP
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+// Owns prefix navigation state and provides selection state to the content. The
+// SelectionProvider lives here (above the content) so navigating to a new prefix
+// clears the selection (SPEC-018 FR-001), and so the content can consume
+// useSelection() as a descendant.
+export function FileBrowser({
+  bucket,
+  prefix: prefixProp = '',
+  rootPrefix: rootPrefixProp,
+  rootLabel,
+  markerKey,
+  writable = false,
+  username,
+}: Props) {
+  const rootPrefix = rootPrefixProp ?? prefixProp;
+  const [prefix, setPrefix] = useState<string | undefined>(
+    prefixProp || undefined,
+  );
+
+  return (
+    <SelectionProvider prefix={prefix}>
+      <FileBrowserContent
+        bucket={bucket}
+        rootPrefix={rootPrefix}
+        rootLabel={rootLabel}
+        markerKey={markerKey}
+        writable={writable}
+        username={username}
+        prefix={prefix}
+        setPrefix={setPrefix}
+      />
+    </SelectionProvider>
   );
 }

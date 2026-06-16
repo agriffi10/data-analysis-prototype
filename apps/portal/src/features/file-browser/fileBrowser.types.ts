@@ -10,6 +10,16 @@ export type DownloadUrl = {
 export type UploadResult = { key: string };
 export type CreateFolderResult = { prefix: string };
 
+// ── Delete (SPEC-018) ────────────────────────────────────────────────────────
+
+// The outcome of a (possibly batched/recursive) delete. `deleted` lists the keys
+// S3 confirmed removed; `errors` collects per-key failures — including the marker
+// guard refusal — so a partial failure is reported, never thrown (FR-002/FR-004).
+export type DeleteResult = {
+  deleted: string[];
+  errors: { key: string; message: string }[];
+};
+
 // ── Object metadata (SPEC-017) ───────────────────────────────────────────────
 
 // The fields a single HeadObject call exposes for the read-only metadata panel.

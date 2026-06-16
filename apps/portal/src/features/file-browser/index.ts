@@ -6,9 +6,19 @@ export { useFileUpload } from './useFileUpload';
 export type { UseFileUploadResult } from './useFileUpload';
 export { useObjectMetadata } from './useObjectMetadata';
 export type { UseObjectMetadataResult } from './useObjectMetadata';
+export { useDelete } from './useDelete';
+export type { UseDeleteResult, DeleteSummary } from './useDelete';
+export { SelectionProvider } from './SelectionProvider';
+export { useSelection, itemId } from './selectionContext';
+export type {
+  SelectableItem,
+  SelectionContextValue,
+} from './selectionContext';
 export {
   ensurePrefixMarker,
   deleteObject,
+  deleteObjects,
+  deleteFolder,
   isPrefixMarkerKey,
   getDownloadUrl,
   objectExists,
@@ -23,6 +33,7 @@ export type {
   UploadResult,
   CreateFolderResult,
   ObjectMetadata,
+  DeleteResult,
 } from './fileBrowser.types';
 export {
   MAX_UPLOAD_BYTES,

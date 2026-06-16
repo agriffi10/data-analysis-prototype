@@ -1,8 +1,8 @@
 # Spec: Delete Files and Folders (single + multi-select, recursive)
 
 **ID:** SPEC-018
-**Status:** Draft
-**Last Updated:** 2026-06-11
+**Status:** Completed
+**Last Updated:** 2026-06-16
 **Depends On:** SPEC-013 (`s3:DeleteObject` + marker IAM deny), SPEC-014 (service-layer marker guard), SPEC-015 (data foundation)
 
 ## Overview
