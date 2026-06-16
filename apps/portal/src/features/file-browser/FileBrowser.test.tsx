@@ -4,12 +4,16 @@ import { FileBrowser } from './FileBrowser';
 import { useFileBrowser } from './useFileBrowser';
 import type { UseFileBrowserResult } from './useFileBrowser';
 import { getDownloadUrl } from './fileBrowser.service';
+import { useFileUpload } from './useFileUpload';
+import type { UseFileUploadResult } from './useFileUpload';
 
 vi.mock('./useFileBrowser');
 vi.mock('./fileBrowser.service');
+vi.mock('./useFileUpload');
 
 const mockUseFileBrowser = vi.mocked(useFileBrowser);
 const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
+const mockUseFileUpload = vi.mocked(useFileUpload);
 
 const base: UseFileBrowserResult = {
   files: [],
@@ -22,9 +26,21 @@ const base: UseFileBrowserResult = {
   isLoadingMore: false,
 };
 
+const uploadBase: UseFileUploadResult = {
+  progress: null,
+  pendingCollision: null,
+  error: null,
+  isBusy: false,
+  uploadOne: vi.fn(),
+  createNewFolder: vi.fn(),
+  cancelCollision: vi.fn(),
+  dismissError: vi.fn(),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseFileBrowser.mockReturnValue(base);
+  mockUseFileUpload.mockReturnValue(uploadBase);
 });
 
 // ─── Loading ──────────────────────────────────────────────────────────────────
@@ -470,5 +486,28 @@ describe('download', () => {
     expect(
       await screen.findByText(/could not download report\.pdf/i),
     ).toBeInTheDocument();
+  });
+});
+
+// ─── Write controls gating (SPEC-016) ──────────────────────────────────────────
+
+describe('write controls', () => {
+  it('are hidden when not writable (read-only / dev-unauth)', () => {
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.queryByRole('button', { name: /new folder/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/choose a file/i)).not.toBeInTheDocument();
+  });
+
+  it('show the New folder button and upload dropzone when writable', () => {
+    render(<FileBrowser bucket="my-bucket" writable />);
+    expect(screen.getByRole('button', { name: /new folder/i })).toBeInTheDocument();
+    expect(screen.getByText(/choose a file/i)).toBeInTheDocument();
+  });
+
+  it('renders an upload progress bar while a file is uploading', () => {
+    mockUseFileUpload.mockReturnValue({ ...uploadBase, progress: 42 });
+    render(<FileBrowser bucket="my-bucket" writable />);
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-valuenow', '42');
   });
 });
