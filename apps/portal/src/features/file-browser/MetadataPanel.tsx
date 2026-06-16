@@ -28,11 +28,11 @@ function relativePath(key: string, rootPrefix?: string): string {
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-b border-gray-100 py-3 last:border-0">
-      <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">
+    <div className="border-b border-border-2 py-3 last:border-0">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-text-3">
         {label}
       </dt>
-      <dd className="mt-1 break-words text-sm text-gray-800">{value}</dd>
+      <dd className="mt-1 break-all text-sm text-text">{value}</dd>
     </div>
   );
 }
@@ -66,11 +66,11 @@ function MetadataFields({
       </dl>
 
       <div className="mt-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-gray-400">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">
           Custom metadata
         </h3>
         {customEntries.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-400">No custom metadata</p>
+          <p className="mt-2 text-sm text-text-3">No custom metadata</p>
         ) : (
           <dl className="mt-2">
             {customEntries.map(([k, v]) => (
@@ -104,27 +104,39 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
       role="dialog"
       aria-modal="false"
       aria-label={`Details for ${file.name}`}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col overflow-y-auto border-l border-gray-200 bg-white shadow-xl"
+      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[380px] flex-col overflow-hidden border-l border-border bg-surface shadow-lg"
     >
-      <header className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-        <h2 className="truncate font-medium text-gray-900" title={file.name}>
+      <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-border px-4">
+        <h2
+          className="min-w-0 flex-1 truncate text-base font-semibold text-text"
+          title={file.name}
+        >
           {file.name}
         </h2>
         <button
-          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="ml-3 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
           onClick={onClose}
           aria-label="Close details"
         >
-          ✕
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="h-4 w-4"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" d="M2 2l12 12M14 2L2 14" />
+          </svg>
         </button>
       </header>
 
-      <div className="flex-1 px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4">
         {isLoading && (
           <div
             role="status"
             aria-label="Loading details"
-            className="py-12 text-center text-gray-400"
+            className="flex flex-col items-center justify-center py-16 text-sm text-text-3"
           >
             Loading…
           </div>
@@ -133,10 +145,10 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
         {!isLoading && error !== null && (
           <div
             role="alert"
-            className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm"
           >
-            <p className="font-medium">Couldn’t load details</p>
-            <p className="mt-1">{error}</p>
+            <p className="font-medium text-danger">Couldn’t load details</p>
+            <p className="mt-1 text-danger/80">{error}</p>
           </div>
         )}
 
