@@ -669,7 +669,7 @@ Add staging environment here when it is provisioned.
 | SPEC-013 | Prefix-scoped role policy + file browser switchover to user-space bucket | Completed |
 | SPEC-014 | User prefix marker — app writes `{username}/DO_NOT_DELETE.txt` on first login | Completed |
 | SPEC-015 | File download + data foundation (TanStack Query, pagination, presigned URLs) | Completed |
-| SPEC-016 | File upload (managed, auto-multipart + progress) + create folder | Draft |
+| SPEC-016 | File upload (managed, auto-multipart + progress) + create folder | Completed |
 | SPEC-017 | File metadata panel (HeadObject) | Draft |
 | SPEC-018 | Delete files and folders (multi-select, recursive) | Draft |
 | SPEC-019 | Move & rename (files and folders) — copy+delete | Draft |

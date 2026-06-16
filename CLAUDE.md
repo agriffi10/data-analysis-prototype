@@ -187,7 +187,7 @@ tofu output          # view output values (use to populate .env.local)
 | Prefix-Scoped S3 Access + Browser Switchover | `@docs/specs/SPEC-013-prefix-scoped-access.md` | Completed |
 | User Prefix Marker (DO_NOT_DELETE.txt) | `@docs/specs/SPEC-014-user-prefix-marker.md` | Completed |
 | File Download + Data Foundation (TanStack Query) | `@docs/specs/SPEC-015-file-download-and-data-foundation.md` | Completed |
-| File Upload (managed, auto-multipart + progress) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Draft |
+| File Upload (managed, auto-multipart + progress) + Create Folder | `@docs/specs/SPEC-016-file-upload-and-create-folder.md` | Completed |
 | File Metadata Panel | `@docs/specs/SPEC-017-file-metadata-panel.md` | Draft |
 | Delete Files and Folders (recursive) | `@docs/specs/SPEC-018-delete-files-and-folders.md` | Draft |
 | Move & Rename (files and folders) | `@docs/specs/SPEC-019-move-and-rename.md` | Draft |

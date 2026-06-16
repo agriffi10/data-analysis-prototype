@@ -1,7 +1,7 @@
 # Spec: File Upload (managed, auto-multipart + progress) + Create Folder
 
 **ID:** SPEC-016
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-15
 **Depends On:** SPEC-013 (write access to own prefix), SPEC-015 (TanStack Query data foundation)
 
