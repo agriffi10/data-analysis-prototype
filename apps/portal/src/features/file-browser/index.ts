@@ -6,8 +6,21 @@ export {
   deleteObject,
   isPrefixMarkerKey,
   getDownloadUrl,
+  objectExists,
+  uploadFile,
+  createFolder,
+  validateFolderName,
+  uploadPercent,
 } from './fileBrowser.service';
-export type { DownloadUrl } from './fileBrowser.types';
+export type {
+  DownloadUrl,
+  UploadResult,
+  CreateFolderResult,
+} from './fileBrowser.types';
+export {
+  MAX_UPLOAD_BYTES,
+  MULTIPART_PART_SIZE,
+} from './fileBrowser.types';
 export {
   PREFIX_MARKER_FILENAME,
   PREFIX_MARKER_BODY,

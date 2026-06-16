@@ -12,12 +12,45 @@ import {
   deleteObject,
   isPrefixMarkerKey,
   getDownloadUrl,
+  objectExists,
+  uploadFile,
+  createFolder,
+  validateFolderName,
+  uploadPercent,
   __resetPrefixMarkerCache,
 } from './fileBrowser.service';
 import { PREFIX_MARKER_BODY } from './fileBrowser.constants';
+import { MAX_UPLOAD_BYTES } from './fileBrowser.types';
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }));
 const mockGetSignedUrl = vi.mocked(getSignedUrl);
+
+// Mock the managed lib-storage Upload. `uploadState` captures the constructor
+// args + the httpUploadProgress callback so tests can fire progress and control
+// how done() resolves/rejects.
+const uploadState = vi.hoisted(() => ({
+  ctorArgs: null as unknown,
+  progressCb: null as null | ((p: { loaded?: number; total?: number }) => void),
+  doneImpl: null as null | (() => Promise<unknown>),
+  aborted: false,
+}));
+
+vi.mock('@aws-sdk/lib-storage', () => ({
+  Upload: class {
+    constructor(args: unknown) {
+      uploadState.ctorArgs = args;
+    }
+    on(_event: string, cb: (p: { loaded?: number; total?: number }) => void) {
+      uploadState.progressCb = cb;
+    }
+    async done() {
+      return uploadState.doneImpl ? uploadState.doneImpl() : {};
+    }
+    async abort() {
+      uploadState.aborted = true;
+    }
+  },
+}));
 
 // The service now obtains an authenticated client via getS3Client() (SPEC-013).
 // Mock that + the client's send. vi.hoisted lets the mock factory reference these.
@@ -38,6 +71,10 @@ beforeEach(() => {
   mockGetS3Client.mockResolvedValue({ success: true, data: { send: mockSend } });
   // Reset the once-per-session marker guard so each case starts clean.
   __resetPrefixMarkerCache();
+  uploadState.ctorArgs = null;
+  uploadState.progressCb = null;
+  uploadState.doneImpl = null;
+  uploadState.aborted = false;
 });
 
 // A NotFound error as the v3 SDK surfaces it for HeadObject on a missing key.
@@ -455,5 +492,242 @@ describe('getDownloadUrl', () => {
     expect(mockGetS3Client).toHaveBeenCalledTimes(2);
     expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
     expect(mockGetSignedUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('objectExists', () => {
+  it('returns true when HeadObject succeeds', async () => {
+    mockSend.mockResolvedValueOnce({});
+    const result = await objectExists({ bucket: 'us', key: 'alice/f.txt' });
+    expect(result).toEqual({ success: true, data: true });
+    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+  });
+
+  it('returns false on NotFound (404), not an error', async () => {
+    mockSend.mockRejectedValueOnce(notFoundError());
+    const result = await objectExists({ bucket: 'us', key: 'alice/missing' });
+    expect(result).toEqual({ success: true, data: false });
+  });
+
+  it('surfaces a non-404 error', async () => {
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
+    );
+    const result = await objectExists({ bucket: 'us', key: 'alice/f.txt' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('AccessDenied');
+  });
+});
+
+describe('uploadPercent', () => {
+  it('maps loaded/total to a clamped whole percent', () => {
+    expect(uploadPercent(0, 100)).toBe(0);
+    expect(uploadPercent(50, 100)).toBe(50);
+    expect(uploadPercent(100, 100)).toBe(100);
+    expect(uploadPercent(1, 3)).toBe(33);
+    expect(uploadPercent(150, 100)).toBe(100); // clamp
+  });
+
+  it('treats a zero-byte file as 100% (no NaN/Infinity)', () => {
+    expect(uploadPercent(0, 0)).toBe(100);
+  });
+});
+
+describe('validateFolderName', () => {
+  it('accepts a normal name', () => {
+    expect(validateFolderName('documents')).toBeNull();
+  });
+  it('rejects empty / whitespace-only', () => {
+    expect(validateFolderName('')).toMatch(/empty/i);
+    expect(validateFolderName('   ')).toMatch(/empty/i);
+  });
+  it('rejects leading/trailing whitespace', () => {
+    expect(validateFolderName(' docs')).toMatch(/spaces/i);
+    expect(validateFolderName('docs ')).toMatch(/spaces/i);
+  });
+  it("rejects '/'", () => {
+    expect(validateFolderName('a/b')).toMatch(/\//);
+  });
+  it('rejects control characters', () => {
+    expect(validateFolderName('a\x01b')).toMatch(/control/i);
+  });
+});
+
+describe('uploadFile', () => {
+  function blob(size: number): Blob {
+    return new Blob([new Uint8Array(size)]);
+  }
+
+  it('uploads via lib-storage and returns the key (overwrite skips the HEAD)', async () => {
+    uploadState.doneImpl = async () => ({});
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/report.pdf',
+      body: blob(10),
+      contentType: 'application/pdf',
+      overwrite: true,
+    });
+
+    expect(result).toEqual({ success: true, data: { key: 'alice/report.pdf' } });
+    // overwrite:true → no HEAD collision check.
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(uploadState.ctorArgs).toMatchObject({
+      params: {
+        Bucket: 'us',
+        Key: 'alice/report.pdf',
+        ContentType: 'application/pdf',
+      },
+      partSize: 5 * 1024 * 1024,
+      queueSize: 4,
+    });
+  });
+
+  it('reports progress via onProgress', async () => {
+    const onProgress = vi.fn();
+    uploadState.doneImpl = async () => {
+      uploadState.progressCb?.({ loaded: 512, total: 1024 });
+      return {};
+    };
+    await uploadFile({
+      bucket: 'us',
+      key: 'alice/f.bin',
+      body: blob(1024),
+      contentType: 'application/octet-stream',
+      overwrite: true,
+      onProgress,
+    });
+    expect(onProgress).toHaveBeenCalledWith(512, 1024);
+  });
+
+  it('refuses to overwrite when the key exists and overwrite is false (Collision)', async () => {
+    mockSend.mockResolvedValueOnce({}); // HEAD → exists
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/report.pdf',
+      body: blob(10),
+      contentType: 'application/pdf',
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('Collision');
+    expect(uploadState.ctorArgs).toBeNull(); // no upload attempted
+  });
+
+  it('proceeds when the key does not exist (HEAD 404 → upload)', async () => {
+    mockSend.mockRejectedValueOnce(notFoundError()); // HEAD → 404
+    uploadState.doneImpl = async () => ({});
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/new.pdf',
+      body: blob(10),
+      contentType: 'application/pdf',
+    });
+    expect(result.success).toBe(true);
+    expect(uploadState.ctorArgs).not.toBeNull();
+  });
+
+  it('rejects a file over the maximum size before any request', async () => {
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/huge.bin',
+      body: { size: MAX_UPLOAD_BYTES + 1 } as Blob,
+      contentType: 'application/octet-stream',
+      overwrite: true,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('TooLarge');
+    expect(uploadState.ctorArgs).toBeNull();
+  });
+
+  it('returns a cancelled result when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/f.bin',
+      body: blob(10),
+      contentType: 'application/octet-stream',
+      overwrite: true,
+      signal: controller.signal,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('Cancelled');
+    expect(uploadState.ctorArgs).toBeNull();
+  });
+
+  it('aborts the upload and returns Cancelled when the signal fires mid-flight', async () => {
+    const controller = new AbortController();
+    uploadState.doneImpl = async () => {
+      controller.abort();
+      throw new Error('aborted');
+    };
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/f.bin',
+      body: blob(10),
+      contentType: 'application/octet-stream',
+      overwrite: true,
+      signal: controller.signal,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('Cancelled');
+    expect(uploadState.aborted).toBe(true); // upload.abort() was called
+  });
+
+  it('surfaces a no-credentials error without uploading', async () => {
+    mockGetS3Client
+      .mockResolvedValueOnce({ success: false, error: { message: 'No AWS credentials — sign in required' } })
+      .mockResolvedValueOnce({ success: false, error: { message: 'No AWS credentials — sign in required' } });
+    const result = await uploadFile({
+      bucket: 'us',
+      key: 'alice/f.bin',
+      body: blob(10),
+      contentType: 'application/octet-stream',
+      overwrite: true, // skip HEAD so the first getS3Client is uploadFile's own
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.message).toMatch(/No AWS credentials/);
+    expect(uploadState.ctorArgs).toBeNull();
+  });
+});
+
+describe('createFolder', () => {
+  it('creates a zero-byte marker at {prefix}{name}/ with directory content type', async () => {
+    mockSend
+      .mockRejectedValueOnce(notFoundError()) // HEAD → not found
+      .mockResolvedValueOnce({}); // PUT → ok
+    const result = await createFolder({ bucket: 'us', prefix: 'alice/', name: 'photos' });
+
+    expect(result).toEqual({ success: true, data: { prefix: 'alice/photos/' } });
+    const put = mockSend.mock.calls[1][0];
+    expect(put).toBeInstanceOf(PutObjectCommand);
+    expect(put.input).toMatchObject({
+      Bucket: 'us',
+      Key: 'alice/photos/',
+      Body: '',
+      ContentType: 'application/x-directory',
+    });
+  });
+
+  it('rejects an invalid name before any request', async () => {
+    const result = await createFolder({ bucket: 'us', prefix: 'alice/', name: 'a/b' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('InvalidName');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('prompts collision when the folder already exists (no PUT)', async () => {
+    mockSend.mockResolvedValueOnce({}); // HEAD → exists
+    const result = await createFolder({ bucket: 'us', prefix: 'alice/', name: 'photos' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('Collision');
+    expect(mockSend).toHaveBeenCalledTimes(1); // only the HEAD
   });
 });

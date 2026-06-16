@@ -7,10 +7,20 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getS3Client, s3Client } from '../../lib/s3Client';
 import type { FileListPage } from '../../types/s3.types';
 import type { ServiceResult } from '../../types/service.types';
-import type { DownloadUrl } from './fileBrowser.types';
+import type {
+  DownloadUrl,
+  UploadResult,
+  CreateFolderResult,
+} from './fileBrowser.types';
+import {
+  MAX_UPLOAD_BYTES,
+  MULTIPART_PART_SIZE,
+  PART_CONCURRENCY,
+} from './fileBrowser.types';
 import {
   PREFIX_MARKER_BODY,
   prefixMarkerKey,
@@ -321,6 +331,181 @@ export async function getDownloadUrl(params: {
   } catch (err) {
     return toServiceError(err, 'Failed to generate download URL');
   }
+}
+
+// ── Upload + create folder (SPEC-016) ────────────────────────────────────────
+
+// SPEC-016 FR-003: does an object already exist at this key? HEAD it; a
+// NotFound/404 is a clean `false` (not an error). Callers use this to drive the
+// warn-and-confirm collision prompt.
+export async function objectExists(params: {
+  bucket: string;
+  key: string;
+}): Promise<ServiceResult<boolean>> {
+  const { bucket, key } = params;
+  return withAuthenticatedClient(async (client) => {
+    try {
+      await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+      return { success: true, data: true };
+    } catch (err) {
+      if (isNotFound(err)) return { success: true, data: false };
+      return toServiceError(err, 'Failed to check whether the object exists');
+    }
+  });
+}
+
+// SPEC-016 FR-002: map upload progress to a whole-number percentage. Guards the
+// zero-byte case (total 0 → 100, never NaN/Infinity) and clamps to 0..100.
+export function uploadPercent(loaded: number, total: number): number {
+  if (!Number.isFinite(total) || total <= 0) return 100;
+  const pct = Math.round((loaded / total) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+// SPEC-016 FR-004: validate a new folder name before any request. Returns an
+// error message, or null if the name is valid.
+export function validateFolderName(name: string): string | null {
+  if (name.trim().length === 0) return 'Folder name cannot be empty.';
+  if (name !== name.trim())
+    return 'Folder name cannot start or end with spaces.';
+  if (name.includes('/')) return "Folder name cannot contain '/'.";
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(name))
+    return 'Folder name cannot contain control characters.';
+  return null;
+}
+
+// SPEC-016 FR-001/FR-002/FR-003: upload a single file with the managed
+// lib-storage Upload — single request at/below the 5 MiB part size, automatic
+// multipart above it, with progress events. Never throws (returns ServiceResult).
+//
+// Collisions (FR-003): unless `overwrite` is true, HEAD-check first and refuse
+// with a `Collision` error rather than clobbering (versioning is off). The caller
+// resolves the collision (Overwrite → retry with overwrite:true; Rename → new key).
+//
+// Cancel: an optional AbortSignal aborts the upload (the SDK aborts the multipart
+// upload, so no orphaned parts); the cancel *UI* is SPEC-020.
+export async function uploadFile(params: {
+  bucket: string;
+  key: string;
+  body: Blob | File;
+  contentType: string;
+  overwrite?: boolean;
+  onProgress?: (loaded: number, total: number) => void;
+  signal?: AbortSignal;
+}): Promise<ServiceResult<UploadResult>> {
+  const { bucket, key, body, contentType, overwrite = false, onProgress, signal } =
+    params;
+
+  if (body.size > MAX_UPLOAD_BYTES) {
+    return {
+      success: false,
+      error: {
+        message: `File exceeds the maximum upload size of ${MAX_UPLOAD_BYTES} bytes.`,
+        code: 'TooLarge',
+      },
+    };
+  }
+
+  if (signal?.aborted) {
+    return { success: false, error: { message: 'Upload cancelled.', code: 'Cancelled' } };
+  }
+
+  // Collision guard (FR-003) unless the caller has chosen to overwrite.
+  if (!overwrite) {
+    const exists = await objectExists({ bucket, key });
+    if (!exists.success) return exists;
+    if (exists.data) {
+      return {
+        success: false,
+        error: { message: `"${key}" already exists.`, code: 'Collision' },
+      };
+    }
+  }
+
+  // Acquire credentials; one forced-refresh retry if missing (FR-001). The Upload
+  // is a multi-call operation, so mid-flight expiry is surfaced, not retried.
+  let clientResult = await getS3Client();
+  if (!clientResult.success) {
+    clientResult = await getS3Client(true);
+    if (!clientResult.success) return clientResult;
+  }
+
+  try {
+    const upload = new Upload({
+      client: clientResult.data,
+      params: { Bucket: bucket, Key: key, Body: body, ContentType: contentType },
+      partSize: MULTIPART_PART_SIZE,
+      queueSize: PART_CONCURRENCY,
+    });
+
+    if (onProgress) {
+      upload.on('httpUploadProgress', (progress) => {
+        onProgress(progress.loaded ?? 0, progress.total ?? body.size);
+      });
+    }
+
+    if (signal) {
+      signal.addEventListener('abort', () => void upload.abort(), { once: true });
+    }
+
+    await upload.done();
+    return { success: true, data: { key } };
+  } catch (err) {
+    if (signal?.aborted) {
+      return { success: false, error: { message: 'Upload cancelled.', code: 'Cancelled' } };
+    }
+    return toServiceError(err, 'Failed to upload file');
+  }
+}
+
+// SPEC-016 FR-004: create an empty folder as a zero-byte `{prefix}{name}/` marker
+// object. Validates the name client-side and applies the same collision guard as
+// upload (FR-003).
+export async function createFolder(params: {
+  bucket: string;
+  prefix: string;
+  name: string;
+  overwrite?: boolean;
+}): Promise<ServiceResult<CreateFolderResult>> {
+  const { bucket, prefix, name, overwrite = false } = params;
+
+  const nameError = validateFolderName(name);
+  if (nameError) {
+    return { success: false, error: { message: nameError, code: 'InvalidName' } };
+  }
+
+  const folderPrefix = `${prefix}${name}/`;
+
+  if (!overwrite) {
+    const exists = await objectExists({ bucket, key: folderPrefix });
+    if (!exists.success) return exists;
+    if (exists.data) {
+      return {
+        success: false,
+        error: {
+          message: `A folder named "${name}" already exists.`,
+          code: 'Collision',
+        },
+      };
+    }
+  }
+
+  return withAuthenticatedClient(async (client) => {
+    try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: folderPrefix,
+          Body: '',
+          ContentType: 'application/x-directory',
+        }),
+      );
+      return { success: true, data: { prefix: folderPrefix } };
+    } catch (err) {
+      return toServiceError(err, 'Failed to create folder');
+    }
+  });
 }
 
 // Test-only: reset the once-per-session marker guard between cases.
