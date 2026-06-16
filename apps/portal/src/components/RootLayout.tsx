@@ -6,7 +6,7 @@ import { Header } from './Header';
 // (ProtectedLayout), so the Header renders on public and protected routes alike.
 export function RootLayout() {
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-bg">
       <Header />
       <div className="flex flex-1 flex-col">
         <Outlet />
