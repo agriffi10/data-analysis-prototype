@@ -3,6 +3,7 @@ import { useAuth } from '../features/auth';
 import { takeReturnPath } from '../lib/returnPath';
 import { BrandMark } from '../components/BrandMark';
 import { Button } from '../components/Button';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 // ─── Inline icons (from docs/design/landing.html) ─────────────────────────────
 
@@ -223,6 +224,7 @@ const FEATURES = [
 // nav (the app Header is suppressed on '/' by RootLayout) and makes no S3 calls.
 export default function LandingPage() {
   const { status, signIn, signUp } = useAuth();
+  usePageTitle();
 
   // An authenticated visitor never sees the landing page — send them to the
   // route they originally requested, or to /files by default.

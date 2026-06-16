@@ -5,6 +5,7 @@ import {
   prefixMarkerKey,
 } from '../features/file-browser';
 import { useAuth } from '../features/auth';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 // Dev-only fallback (SPEC-013): browse a static/public test bucket without auth
 // for local work without AWS. Honoured ONLY in a dev build (matches the service
@@ -27,6 +28,7 @@ const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as
 // bucket, rooted at `{username}/`, with the username hidden from the UI.
 export default function FilesPage() {
   const { user } = useAuth();
+  usePageTitle('Files');
 
   // Authenticated flow: scope to the user's own prefix in the user-space bucket.
   // The username is the navigation floor but never shown — the root crumb reads

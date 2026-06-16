@@ -1,7 +1,7 @@
 # Spec: Document Title Management
 
 **ID:** SPEC-031  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-06-16  
 **Depends On:** None
 
