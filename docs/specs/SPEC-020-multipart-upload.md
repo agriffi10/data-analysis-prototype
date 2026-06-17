@@ -1,8 +1,8 @@
 # Spec: Upload Queue — multi-file, concurrency, cancel
 
 **ID:** SPEC-020
-**Status:** Draft
-**Last Updated:** 2026-06-15
+**Status:** Completed
+**Last Updated:** 2026-06-17
 **Depends On:** SPEC-013 (portal role + bucket), SPEC-015 (data foundation), SPEC-016 (`uploadFile` — managed/auto-multipart upload with `onProgress` + `signal`)
 
 ## Overview

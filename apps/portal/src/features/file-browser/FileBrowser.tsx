@@ -9,6 +9,9 @@ import { useMove } from './useMove';
 import { getDownloadUrl } from './fileBrowser.service';
 import { UploadDropzone } from './UploadDropzone';
 import { UploadDrawer } from './UploadDrawer';
+import { UploadQueueProvider } from './UploadQueueProvider';
+import { UploadQueuePanel } from './UploadQueuePanel';
+import { useUploadQueue } from './uploadQueueContext';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
@@ -409,21 +412,23 @@ function FileBrowserContent({
   const { files, folders, isLoading, error, hasMore, loadMore, isLoadingMore } =
     useFileBrowser(bucket, prefix, markerKey);
 
-  // Write operations (SPEC-016) scoped to the folder currently being viewed.
+  // Create-folder (SPEC-016) scoped to the folder currently being viewed. File
+  // uploads are now owned by the SPEC-020 queue, so useFileUpload is used here
+  // only for create-folder (and its folder-name collision / error).
   const currentPrefix = prefix ?? '';
   const {
-    progress,
     pendingCollision,
     error: writeError,
     isBusy,
-    uploadOne,
     createNewFolder,
     cancelCollision,
     dismissError,
   } = useFileUpload(bucket, currentPrefix);
+  // Multi-file upload queue (SPEC-020) — enqueue from the dropzone; progress,
+  // cancel, and per-file collisions live in the non-blocking UploadQueuePanel.
+  const { enqueue } = useUploadQueue();
   const [creatingFolder, setCreatingFolder] = useState(false);
-  // Upload drawer (right slide-over). Forced open whenever a collision is pending
-  // or an upload is in progress so the user can always see/resolve it.
+  // Upload drawer (right slide-over) — the "add files" surface only.
   const [uploadOpen, setUploadOpen] = useState(false);
 
   // Multi-select + delete (SPEC-018). Selection comes from the surrounding
@@ -482,14 +487,6 @@ function FileBrowserContent({
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
-  // The drawer stays open while a collision needs resolving or an upload runs,
-  // even if the user hasn't explicitly opened it (e.g. a create-folder collision).
-  const uploadDrawerOpen =
-    uploadOpen || pendingCollision !== null || progress !== null;
-  function closeUpload() {
-    if (pendingCollision) cancelCollision();
-    setUploadOpen(false);
-  }
   const isEmpty =
     !isLoading && error === null && files.length === 0 && folders.length === 0;
   const hasContent =
@@ -559,8 +556,8 @@ function FileBrowserContent({
         )}
       </div>
 
-      {/* Write controls (SPEC-016) — create folder inline; upload lives in the
-          right-side drawer below. Hidden in read-only (dev-unauth) mode. */}
+      {/* Write controls — create folder inline (SPEC-016); file uploads go to the
+          SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
       {writable && (
         <>
           {creatingFolder && (
@@ -575,41 +572,37 @@ function FileBrowserContent({
             </div>
           )}
 
-          {/* Write error shows inline only when the drawer is closed (e.g. a
-              create-folder failure); otherwise it renders inside the drawer so
-              it isn't trapped behind the scrim. */}
-          {writeError && !uploadDrawerOpen && (
+          {/* Folder-name collision (SPEC-016) — Overwrite or pick a new name */}
+          {pendingCollision && (
+            <CollisionPrompt
+              kind={pendingCollision.kind}
+              name={pendingCollision.label}
+              onOverwrite={() => pendingCollision.retry({ overwrite: true })}
+              onRename={(newName) => pendingCollision.retry({ rename: newName })}
+              onCancel={cancelCollision}
+            />
+          )}
+
+          {/* Create-folder error (SPEC-016) */}
+          {writeError && (
             <Banner variant="danger" onDismiss={dismissError} className="mb-4">
               {writeError}
             </Banner>
           )}
 
+          {/* Add-files drawer (SPEC-020) — enqueues onto the upload queue, then
+              closes so the non-blocking queue panel takes over. */}
           <UploadDrawer
-            open={uploadDrawerOpen}
-            onClose={closeUpload}
+            open={uploadOpen}
+            onClose={() => setUploadOpen(false)}
             destinationLabel={destinationLabel}
           >
             <UploadDropzone
-              onFile={uploadOne}
-              progress={progress}
-              disabled={isBusy && progress === null}
+              onFiles={(files) => {
+                enqueue(files);
+                setUploadOpen(false);
+              }}
             />
-
-            {pendingCollision && (
-              <CollisionPrompt
-                kind={pendingCollision.kind}
-                name={pendingCollision.label}
-                onOverwrite={() => pendingCollision.retry({ overwrite: true })}
-                onRename={(newName) => pendingCollision.retry({ rename: newName })}
-                onCancel={cancelCollision}
-              />
-            )}
-
-            {writeError && (
-              <Banner variant="danger" onDismiss={dismissError}>
-                {writeError}
-              </Banner>
-            )}
           </UploadDrawer>
         </>
       )}
@@ -919,6 +912,9 @@ function FileBrowserContent({
           </button>
         </div>
       )}
+
+      {/* Upload queue (SPEC-020) — non-blocking floating panel; self-hides empty */}
+      {writable && <UploadQueuePanel />}
     </div>
   );
 }
@@ -945,16 +941,20 @@ export function FileBrowser({
 
   return (
     <SelectionProvider prefix={prefix}>
-      <FileBrowserContent
-        bucket={bucket}
-        rootPrefix={rootPrefix}
-        rootLabel={rootLabel}
-        markerKey={markerKey}
-        writable={writable}
-        username={username}
-        prefix={prefix}
-        setPrefix={setPrefix}
-      />
+      {/* Queue persists across prefix navigation (the content never remounts on
+          navigate), so uploads keep running while the user browses (SPEC-020). */}
+      <UploadQueueProvider bucket={bucket} prefix={prefix ?? ''}>
+        <FileBrowserContent
+          bucket={bucket}
+          rootPrefix={rootPrefix}
+          rootLabel={rootLabel}
+          markerKey={markerKey}
+          writable={writable}
+          username={username}
+          prefix={prefix}
+          setPrefix={setPrefix}
+        />
+      </UploadQueueProvider>
     </SelectionProvider>
   );
 }

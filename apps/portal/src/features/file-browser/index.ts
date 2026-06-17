@@ -16,6 +16,12 @@ export type {
   SelectableItem,
   SelectionContextValue,
 } from './selectionContext';
+export { UploadQueueProvider } from './UploadQueueProvider';
+export { UploadQueuePanel } from './UploadQueuePanel';
+export { useUploadQueue } from './uploadQueueContext';
+export type { UploadQueueContextValue } from './uploadQueueContext';
+export type { UploadItem, UploadStatus } from './upload.types';
+export { UPLOAD_CONCURRENCY } from './upload.types';
 export {
   ensurePrefixMarker,
   deleteObject,
