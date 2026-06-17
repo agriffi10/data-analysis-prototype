@@ -56,3 +56,11 @@ preserved unchanged. `lint`, `test` (225), `build` all green.
 > Visual note: the authenticated file browser isn't reachable in the static preview build
 > (no auth / no dev-unauth), so verification was via the build + the full DOM-level test
 > suite rather than a live screenshot.
+
+## Later changes
+
+- **Open Question resolved — Upload button + drawer (PR #55).** The spec's Open Question (toggle
+  the dropzone vs. always show it) is now resolved: a primary **Upload** button sits in the toolbar
+  beside "New folder" and opens a right slide-over `UploadDrawer`; the always-mounted dropzone below
+  the file list is gone. The toolbar/selection-bar styling delivered here is unchanged. The
+  write-controls test was updated so the dropzone is asserted after clicking Upload.

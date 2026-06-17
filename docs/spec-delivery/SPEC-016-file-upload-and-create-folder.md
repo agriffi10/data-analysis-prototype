@@ -84,3 +84,13 @@ overwrite protection. Delivered in three phases.
   along here).
 - Multi-file **upload queue** + per-file **cancel UI** remain **SPEC-020** (built
   on this spec's `uploadFile`).
+
+## Later changes
+
+- **Upload moved into a right slide-over drawer (PR #55).** The `UploadDropzone` delivered here is
+  no longer always-mounted above the file list. A primary **Upload** button in the file-browser
+  toolbar now opens a `UploadDrawer` (420px right slide-over) that hosts the dropzone, the
+  `CollisionPrompt`, and the write-error banner. The drawer auto-opens whenever a collision is
+  pending or an upload is in progress (so neither is trapped behind the scrim); create-folder
+  errors still render inline when the drawer is closed. `useFileUpload`, `UploadDropzone`,
+  `CreateFolderDialog`, and `CollisionPrompt` behaviour are unchanged — only their placement moved.

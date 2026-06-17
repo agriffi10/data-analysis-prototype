@@ -36,3 +36,10 @@ danger-colored) was applied. Likewise MoveDialog's action stays "Move here" / "M
 DeleteConfirmDialog's stays "Delete" / "Deleting…", matching existing tests.
 
 `lint`, `test` (225), and `build` all green.
+
+## Later changes
+
+- **MoveDialog ".." parent row implemented (PR #57).** FR-008 specified a ".." (parent folder) row
+  in the move picker, but this delivery did not include it — the picker could only navigate down,
+  so the root prefix was unreachable as a destination from within a subfolder. The ".." row has
+  since been added (climbs one level, clamped to the navigation floor). See SPEC-019's delivery note.

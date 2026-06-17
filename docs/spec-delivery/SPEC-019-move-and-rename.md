@@ -112,3 +112,13 @@ once. `copyObject`/`moveObject` use the per-object `Collision` guard.
 - **Drag-and-drop move** and **cross-user/shared-space (Bucket 2) moves** remain out
   of scope.
 - SPEC-020 (upload queue) is the last file-ops-arc spec and is independent of this one.
+
+## Later changes
+
+- **Move-dialog folder picker gained a ".." parent row (PR #57).** As delivered, the destination
+  picker could only descend into subfolders, so once below the root there was no way back up except
+  the breadcrumb — and the **root prefix could not be selected as a move destination** from within
+  a subfolder. A ".." parent-folder row (the entry the SPEC-026 dialog design specified but that was
+  never implemented) now appears whenever the browse prefix is below the navigation floor and climbs
+  one level, clamped to the user's own-space root. A `MoveDialog` test covering descend → ".." →
+  move-to-root was added.
