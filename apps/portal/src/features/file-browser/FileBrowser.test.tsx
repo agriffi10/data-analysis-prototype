@@ -658,9 +658,14 @@ describe('write controls', () => {
     expect(screen.queryByText(/choose a file/i)).not.toBeInTheDocument();
   });
 
-  it('show the New folder button and upload dropzone when writable', () => {
+  it('shows New folder + Upload buttons when writable; the dropzone opens in a drawer', () => {
     render(<FileBrowser bucket="my-bucket" writable />);
     expect(screen.getByRole('button', { name: /new folder/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^upload$/i })).toBeInTheDocument();
+
+    // The dropzone now lives in a drawer that is closed until Upload is clicked.
+    expect(screen.queryByText(/choose a file/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^upload$/i }));
     expect(screen.getByText(/choose a file/i)).toBeInTheDocument();
   });
 
