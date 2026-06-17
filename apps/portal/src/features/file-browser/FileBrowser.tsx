@@ -8,6 +8,7 @@ import { useDelete } from './useDelete';
 import { useMove } from './useMove';
 import { getDownloadUrl } from './fileBrowser.service';
 import { UploadDropzone } from './UploadDropzone';
+import { UploadDrawer } from './UploadDrawer';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
@@ -421,6 +422,9 @@ function FileBrowserContent({
     dismissError,
   } = useFileUpload(bucket, currentPrefix);
   const [creatingFolder, setCreatingFolder] = useState(false);
+  // Upload drawer (right slide-over). Forced open whenever a collision is pending
+  // or an upload is in progress so the user can always see/resolve it.
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   // Multi-select + delete (SPEC-018). Selection comes from the surrounding
   // SelectionProvider; delete is only offered in the authenticated, writable flow
@@ -477,6 +481,15 @@ function FileBrowserContent({
   }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
+  const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
+  // The drawer stays open while a collision needs resolving or an upload runs,
+  // even if the user hasn't explicitly opened it (e.g. a create-folder collision).
+  const uploadDrawerOpen =
+    uploadOpen || pendingCollision !== null || progress !== null;
+  function closeUpload() {
+    if (pendingCollision) cancelCollision();
+    setUploadOpen(false);
+  }
   const isEmpty =
     !isLoading && error === null && files.length === 0 && folders.length === 0;
   const hasContent =
@@ -526,53 +539,79 @@ function FileBrowserContent({
         </nav>
 
         {writable && (
-          <Button
-            variant="default"
-            className="flex-shrink-0"
-            onClick={() => setCreatingFolder((v) => !v)}
-            disabled={isBusy}
-          >
-            New folder
-          </Button>
+          <>
+            <Button
+              variant="default"
+              className="flex-shrink-0"
+              onClick={() => setCreatingFolder((v) => !v)}
+              disabled={isBusy}
+            >
+              New folder
+            </Button>
+            <Button
+              variant="primary"
+              className="flex-shrink-0"
+              onClick={() => setUploadOpen(true)}
+            >
+              Upload
+            </Button>
+          </>
         )}
       </div>
 
-      {/* Write controls (SPEC-016) — create folder + upload. Hidden in read-only
-          (dev-unauth) mode. */}
+      {/* Write controls (SPEC-016) — create folder inline; upload lives in the
+          right-side drawer below. Hidden in read-only (dev-unauth) mode. */}
       {writable && (
-        <div className="mb-4">
+        <>
           {creatingFolder && (
-            <CreateFolderDialog
-              onCreate={(name) => {
-                setCreatingFolder(false);
-                createNewFolder(name);
-              }}
-              onCancel={() => setCreatingFolder(false)}
-            />
+            <div className="mb-4">
+              <CreateFolderDialog
+                onCreate={(name) => {
+                  setCreatingFolder(false);
+                  createNewFolder(name);
+                }}
+                onCancel={() => setCreatingFolder(false)}
+              />
+            </div>
           )}
 
-          {pendingCollision && (
-            <CollisionPrompt
-              kind={pendingCollision.kind}
-              name={pendingCollision.label}
-              onOverwrite={() => pendingCollision.retry({ overwrite: true })}
-              onRename={(newName) => pendingCollision.retry({ rename: newName })}
-              onCancel={cancelCollision}
-            />
-          )}
-
-          {writeError && (
+          {/* Write error shows inline only when the drawer is closed (e.g. a
+              create-folder failure); otherwise it renders inside the drawer so
+              it isn't trapped behind the scrim. */}
+          {writeError && !uploadDrawerOpen && (
             <Banner variant="danger" onDismiss={dismissError} className="mb-4">
               {writeError}
             </Banner>
           )}
 
-          <UploadDropzone
-            onFile={uploadOne}
-            progress={progress}
-            disabled={isBusy && progress === null}
-          />
-        </div>
+          <UploadDrawer
+            open={uploadDrawerOpen}
+            onClose={closeUpload}
+            destinationLabel={destinationLabel}
+          >
+            <UploadDropzone
+              onFile={uploadOne}
+              progress={progress}
+              disabled={isBusy && progress === null}
+            />
+
+            {pendingCollision && (
+              <CollisionPrompt
+                kind={pendingCollision.kind}
+                name={pendingCollision.label}
+                onOverwrite={() => pendingCollision.retry({ overwrite: true })}
+                onRename={(newName) => pendingCollision.retry({ rename: newName })}
+                onCancel={cancelCollision}
+              />
+            )}
+
+            {writeError && (
+              <Banner variant="danger" onDismiss={dismissError}>
+                {writeError}
+              </Banner>
+            )}
+          </UploadDrawer>
+        </>
       )}
 
       {/* Download error (SPEC-015) — dismissible, non-blocking */}
