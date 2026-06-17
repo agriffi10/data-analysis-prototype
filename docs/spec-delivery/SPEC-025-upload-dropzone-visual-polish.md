@@ -27,3 +27,10 @@ The write-controls error banner referenced in FR Phase 2 was already migrated to
 `danger-soft` tokens in SPEC-024, so no further change was needed there.
 
 `lint`, `test` (225), and `build` all green.
+
+## Later changes
+
+- **The dropzone now lives in the upload drawer (PR #55).** The visual treatment delivered here is
+  unchanged, but the dropzone is no longer rendered inline above the file list — it is hosted inside
+  the `UploadDrawer` right slide-over, opened by the toolbar **Upload** button. No change to the
+  dropzone's own markup/classes, ARIA, or `useFileUpload` wiring.

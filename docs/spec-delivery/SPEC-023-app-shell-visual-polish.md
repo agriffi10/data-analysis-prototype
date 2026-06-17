@@ -27,3 +27,13 @@ The brand-mark markup is duplicated between the Header and the SPEC-022 LandingP
 get extracted into a shared `BrandMark` component in SPEC-028 (noted inline in both files).
 
 `lint`, `test` (225 passing), and `build` all green; header verified in the preview server.
+
+## Later changes
+
+- **The deferred sidebar is now built (PR #56).** This spec listed "Sidebar / left nav — not built
+  yet; deferred to a future spec" as out of scope. The design's 248px "My Files" sidebar has since
+  been added as `components/Sidebar.tsx` and is rendered by `ProtectedLayout` on authenticated
+  routes (Shared Connections omitted until that feature exists). See SPEC-008's delivery note.
+- **The `Header` is suppressed on the landing route (SPEC-029).** The 56px topbar delivered here
+  still renders on `/files` and other routes, but `RootLayout` no longer renders it on `/` — the
+  marketing landing page (SPEC-029) supplies its own nav.

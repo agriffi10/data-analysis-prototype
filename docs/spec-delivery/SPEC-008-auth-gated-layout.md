@@ -54,3 +54,13 @@ deliberate: sign-in should be available the moment a user arrives.
 - No new `VITE_*` variables.
 - Direct navigation / refresh on `/files` relies on the CloudFront 403/404 → `index.html` rewrite from SPEC-003 (no infra change). Verified locally via the Vite dev server; verify on the deployed CloudFront URL when the app is next deployed.
 - Per-user S3 scoping is still deferred — `/files` browses the SPEC-002 test bucket. The gate is UX-only until scoped credentials land (SPEC-011).
+
+## Later changes
+
+- **Authenticated shell gained a left nav sidebar (PR #56).** `ProtectedLayout` now wraps the
+  routed content in an `AppShell` (a `flex` row: `Sidebar` + content column) on its authenticated
+  and dev-bypass branches; the `loading` and `unauthenticated` branches are unchanged. The new
+  `components/Sidebar.tsx` renders the design's 248px "My Files" rail (the user-space entry links
+  to `/files`); the Shared Connections section is intentionally omitted until that feature exists.
+  Hidden below `md` so the file browser fills narrow viewports. (See also SPEC-023, which had
+  deferred the sidebar.)

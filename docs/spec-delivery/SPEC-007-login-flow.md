@@ -34,3 +34,14 @@ Session management as a capability: users can sign in to and out of the portal v
 
 - No new `VITE_*` variables. For the deployed build, the four already-documented vars (`VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID`, `VITE_COGNITO_DOMAIN`, `VITE_APP_URL`) must be added to the repo's GitHub Actions **variables** so `deploy-app.yml` injects them at build time — not yet done (the app is verified locally).
 - The test user `agriffith` was created directly via `admin-create-user`, bypassing the SPEC-012 pre-signup validation (not built yet).
+
+## Later changes
+
+- **Sign-in required two attempts after the Hosted-UI redirect — fixed (PR #54).** The
+  `AuthProvider` Hub listener subscribed only to `signedIn`, but Amplify v6 emits
+  `signInWithRedirect` once the OAuth redirect completes and the authorization code is exchanged
+  for tokens. The mount-time session restore ran *before* that exchange finished, so the first
+  return from Cognito left the user unauthenticated and stuck on the landing page until a second
+  sign-in. The listener now handles `signInWithRedirect` identically to `signedIn` (clear error →
+  re-derive session); a matching `AuthProvider` test was added. (The `signedIn`/`signedOut`/
+  `signInWithRedirect_failure` handling described above is otherwise unchanged.)
