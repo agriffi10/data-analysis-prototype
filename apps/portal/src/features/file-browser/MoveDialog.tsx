@@ -17,6 +17,16 @@ type Props = {
 
 type Crumb = { label: string; prefix: string };
 
+// Parent of a browse prefix, clamped to the navigation floor so the picker can
+// never climb above the user's own space: `alice/a/b/` → `alice/a/`, and
+// `alice/a/` → `alice/` (the root). Used by the ".." up-navigation row.
+function parentOf(prefix: string, rootPrefix: string): string {
+  const parts = prefix.replace(/\/$/, '').split('/');
+  parts.pop();
+  const parent = parts.length > 0 ? parts.join('/') + '/' : '';
+  return parent.length < rootPrefix.length ? rootPrefix : parent;
+}
+
 // Clamped breadcrumb from rootPrefix down to the browsed prefix (the username
 // segment is never shown — rootLabel stands in for the root crumb).
 function crumbsFor(
@@ -151,6 +161,33 @@ export function MoveDialog({
               </p>
             )}
             <ul aria-label="Destination folders">
+              {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
+                  root. Shown only below the navigation floor. */}
+              {browsePrefix !== rootPrefix && (
+                <li>
+                  <button
+                    className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none"
+                    onClick={() => setBrowsePrefix(parentOf(browsePrefix, rootPrefix))}
+                    aria-label="Go up to parent folder"
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-4 w-4 flex-shrink-0 text-text-3"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 10l4-4m-4 4l4 4m-4-4h8a4 4 0 014 4v2"
+                      />
+                    </svg>
+                    <span className="flex-1 truncate">..</span>
+                  </button>
+                </li>
+              )}
               {navigableFolders.map((folder) => (
                 <li key={folder.prefix}>
                   <button
