@@ -58,6 +58,7 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` | Injected into the build by `deploy-app.yml` (SPEC-007) |
 | `VITE_COGNITO_IDENTITY_POOL_ID` | `tofu output cognito_identity_pool_id` | Injected into the build by `deploy-app.yml` (SPEC-011); without it the deployed app gets no AWS credentials |
 | `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; injected into the build starting SPEC-013 (file browser switchover) |
+| `VITE_ATHENA_WORKGROUP` | `tofu output athena_workgroup_name` | Workgroup provisioned in SPEC-032; injected into the build starting SPEC-034 (query workspace). No separate results-bucket variable — the app derives `{username}/athenaresults/` from `VITE_S3_USER_SPACE_BUCKET` |
 
 > **Chicken-and-egg note for `VITE_APP_URL`:** On the very first deploy, the CloudFront domain isn't known yet. Set `VITE_APP_URL` to a placeholder (or empty string), let the first deploy complete, then update the variable to the value from `tofu output cloudfront_domain` and redeploy.
 

@@ -203,7 +203,7 @@ tofu output          # view output values (use to populate .env.local)
 | Landing Page Full Design | `@docs/specs/SPEC-029-landing-page-full-design.md` | Completed |
 | Cognito Bot Signup Protection (WAF + ASF) | `@docs/specs/SPEC-030-cognito-bot-protection.md` | Completed |
 | Document Title Management | `@docs/specs/SPEC-031-document-title-management.md` | Completed |
-| Analytics Foundation IaC (Athena workgroup + results bucket + Lake Formation) | `@docs/specs/SPEC-032-analytics-foundation-iac.md` | Draft |
+| Analytics Foundation IaC (Athena workgroup + results bucket + Lake Formation) | `@docs/specs/SPEC-032-analytics-foundation-iac.md` | Completed |
 | Per-User Glue Database Provisioning (post-confirmation Lambda + LF grant) | `@docs/specs/SPEC-033-per-user-glue-database-provisioning.md` | Draft |
 | Query Engine Data Layer (Athena/Glue services + per-user history) | `@docs/specs/SPEC-034-query-engine-data-layer.md` | Draft |
 | Tabbed Dashboard + Query Workspace UI (Monaco editor) | `@docs/specs/SPEC-035-tabbed-dashboard-query-workspace.md` | Draft |

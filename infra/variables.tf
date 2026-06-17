@@ -53,3 +53,27 @@ variable "portal_role_name" {
   type        = string
   default     = ""
 }
+
+variable "workgroup_name" {
+  description = "Override for the shared Athena workgroup name (SPEC-032). When empty, defaults to {project_name}-prod-portal-wg."
+  type        = string
+  default     = ""
+}
+
+variable "athena_admin_bucket_name" {
+  description = "Override for the admin-only Athena results bucket name (SPEC-032). When empty, defaults to {project_name}-prod-athena-admin. Override only if that global name is already taken (S3 names are globally unique)."
+  type        = string
+  default     = ""
+}
+
+variable "principal_tag_key" {
+  description = "IAM principal-tag key carrying the username (SPEC-011). Scopes the portal role's analytics Glue/results ARNs (SPEC-032 FR-006). Default 'username' — matches the Identity Pool attribute mapping."
+  type        = string
+  default     = "username"
+}
+
+variable "lambda_provisioner_role_arn" {
+  description = "ARN of the SPEC-033 post-confirmation Lambda exec role, added as a Lake Formation admin (SPEC-032 FR-004). Optional — leave empty until SPEC-033 provisions the Lambda; the analytics module drops it from the admins list while empty (resolves the cross-spec ordering)."
+  type        = string
+  default     = ""
+}

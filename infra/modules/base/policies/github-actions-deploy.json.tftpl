@@ -229,6 +229,85 @@
       ]
     },
     {
+      "Sid": "AthenaWorkgroupManage",
+      "Effect": "Allow",
+      "Action": [
+        "athena:CreateWorkGroup",
+        "athena:GetWorkGroup",
+        "athena:UpdateWorkGroup",
+        "athena:DeleteWorkGroup",
+        "athena:TagResource",
+        "athena:UntagResource",
+        "athena:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:athena:${aws_region}:*:workgroup/${project_name}-*"
+    },
+    {
+      "Sid": "GlueCatalogManage",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetCatalog",
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:CreateDatabase",
+        "glue:UpdateDatabase",
+        "glue:DeleteDatabase"
+      ],
+      "Resource": [
+        "arn:aws:glue:${aws_region}:*:catalog",
+        "arn:aws:glue:${aws_region}:*:database/*",
+        "arn:aws:glue:${aws_region}:*:table/*/*"
+      ]
+    },
+    {
+      "Sid": "LakeFormationManage",
+      "Effect": "Allow",
+      "Action": [
+        "lakeformation:PutDataLakeSettings",
+        "lakeformation:GetDataLakeSettings",
+        "lakeformation:GrantPermissions",
+        "lakeformation:RevokePermissions",
+        "lakeformation:ListPermissions",
+        "lakeformation:RegisterResource",
+        "lakeformation:DeregisterResource",
+        "lakeformation:DescribeResource",
+        "lakeformation:ListResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3AthenaAdminBucketManage",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "${athena_admin_bucket_arn}",
+        "${athena_admin_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "LakeFormationRegistrationRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRoleTags",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/${project_name}-analytics-lf-registration-role"
+    },
+    {
       "Sid": "TofuStateS3",
       "Effect": "Allow",
       "Action": [

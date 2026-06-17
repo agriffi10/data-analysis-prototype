@@ -42,3 +42,8 @@ variable "lambda_artifacts_bucket_arn" {
   description = "ARN of the Lambda deployment artifacts bucket the deploy role manages and uploads packages to (SPEC-012). Passed as a constructed string from the root module to avoid a dependency cycle with the lambda-artifacts module."
   type        = string
 }
+
+variable "athena_admin_bucket_arn" {
+  description = "ARN of the admin-only Athena results bucket the deploy role manages (SPEC-032). Passed as a constructed string from the root module to avoid a dependency cycle with the analytics module."
+  type        = string
+}

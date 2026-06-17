@@ -33,6 +33,15 @@ locals {
   # scoped to its ARN (constructed string -> no lambda-artifacts->base cycle).
   lambda_artifacts_bucket_name = "${var.project_name}-lambda-artifacts-${data.aws_caller_identity.current.account_id}"
   lambda_artifacts_bucket_arn  = "arn:aws:s3:::${local.lambda_artifacts_bucket_name}"
+
+  # Analytics names (SPEC-032) computed once: the analytics module creates the
+  # workgroup + admin bucket, and base's deploy policy is scoped to the admin
+  # bucket ARN (constructed string -> no analytics->base cycle). Overridable via
+  # the root workgroup_name / athena_admin_bucket_name variables (S3 names are
+  # globally unique).
+  athena_workgroup_name    = var.workgroup_name != "" ? var.workgroup_name : "${var.project_name}-prod-portal-wg"
+  athena_admin_bucket_name = var.athena_admin_bucket_name != "" ? var.athena_admin_bucket_name : "${var.project_name}-prod-athena-admin"
+  athena_admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
 }
 
 module "app" {
@@ -55,6 +64,7 @@ module "base" {
   user_space_bucket_arn       = "arn:aws:s3:::${local.user_space_bucket_name}"
   portal_role_arn             = local.portal_role_arn
   lambda_artifacts_bucket_arn = local.lambda_artifacts_bucket_arn
+  athena_admin_bucket_arn     = local.athena_admin_bucket_arn
 }
 
 module "auth" {
@@ -100,4 +110,38 @@ module "lambda_artifacts" {
   # management (modules/base policy). Force that grant to settle before the
   # bucket is created, or a first apply can hit AccessDenied.
   depends_on = [module.base]
+}
+
+# Analytics foundation (SPEC-032): shared Athena workgroup + admin-only results
+# bucket. Phase 1 is this additive infrastructure; Phase 2 adds Lake Formation
+# bootstrap, hybrid-mode registration of the user-space bucket, and the portal
+# role's Glue/Athena/LF policy (which will pull in module.data's bucket/role and
+# the principal-tag key). Names are computed in locals above and passed in.
+module "analytics" {
+  source = "./modules/analytics"
+
+  workgroup_name           = local.athena_workgroup_name
+  athena_admin_bucket_name = local.athena_admin_bucket_name
+
+  # Phase 2: Lake Formation + portal-role policy inputs. Names/ARNs are computed in
+  # locals above (cycle-free constructed strings) so analytics consumes data/base
+  # outputs only through these values, never creating a module cycle.
+  project_name          = var.project_name
+  aws_region            = var.aws_region
+  account_id            = data.aws_caller_identity.current.account_id
+  user_space_bucket_arn = "arn:aws:s3:::${local.user_space_bucket_name}"
+  portal_role_name      = local.portal_role_name
+  portal_role_arn       = local.portal_role_arn
+  principal_tag_key     = var.principal_tag_key
+  deploy_role_arn       = local.deploy_role_arn
+
+  # SPEC-033 fills this with the post-confirmation Lambda's exec role ARN; empty
+  # until then (compact() in the LF data-lake settings drops it). Keeps SPEC-032
+  # deployable on its own (resolves the spec's open ordering question).
+  lambda_provisioner_role_arn = var.lambda_provisioner_role_arn
+
+  # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
+  # data creates the user-space bucket + portal role that analytics registers in LF
+  # and attaches the analytics policy to. Force both to settle first.
+  depends_on = [module.base, module.data]
 }
