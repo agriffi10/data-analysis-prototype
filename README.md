@@ -1,73 +1,283 @@
-# React + TypeScript + Vite
+# S3 File Portal
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A web portal that lets authenticated users upload and download files to/from their own
+private space in AWS S3. Authentication is handled by **AWS Cognito**; per‑user isolation is
+enforced at the **IAM layer**, not in application code. There is **no backend server** — the
+single‑page app talks to AWS directly from the browser using short‑lived, scoped credentials.
 
-Currently, two official plugins are available:
+> **New here?** Start with this README for the big picture and setup, then read
+> [`docs/architecture.md`](docs/architecture.md) for the design and
+> [`CLAUDE.md`](CLAUDE.md) for conventions and the decision log.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## How it works (in one minute)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+Browser (React SPA)
+  │  1. Sign in  ──────────────►  Cognito User Pool (Hosted UI, username + password)
+  │                                     │ JWT (id/access/refresh)
+  │  2. Token exchange  ─────────►  Cognito Identity Pool (enhanced flow)
+  │                                     │ stamps  username  principal tag (server-side, ABAC)
+  │                                     ▼
+  │                               Temporary IAM credentials (1 hr) for ONE shared role
+  │  3. S3 calls (AWS SDK v3) ──►  S3 user-space bucket, scoped to  {username}/  by
+  │                               ${aws:PrincipalTag/username} in the role policy
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- **One shared IAM role** for all users. Isolation comes from the Identity Pool mapping the
+  verified `username` claim to a principal tag — the browser never asserts its own identity,
+  so it can't be spoofed.
+- **No backend / API layer.** Uploads, downloads, listing, delete, move/rename all run in the
+  browser against S3. Move/rename are copy‑then‑delete (S3 has neither); folders are zero‑byte
+  marker objects.
+- Full detail, diagrams, the two‑bucket model, and known constraints live in
+  [`docs/architecture.md`](docs/architecture.md).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+---
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Repository layout
+
+This is an **npm workspaces monorepo**.
+
 ```
+/
+├── README.md                  ← you are here
+├── CLAUDE.md                  ← project memory: conventions, tech stack, decision log
+├── package.json               ← workspace root (workspaces: apps/*, packages/*)
+├── apps/
+│   └── portal/                ← the React SPA (all app code lives here)
+│       ├── src/               ← components, features, hooks, lib, routes, types
+│       ├── .env.example       ← every VITE_* var, documented
+│       └── package.json
+├── infra/                     ← OpenTofu IaC (S3 + CloudFront, Cognito, IAM, data buckets)
+│   ├── main.tf · variables.tf · outputs.tf
+│   ├── bootstrap/             ← one-time remote-state setup (S3 + DynamoDB)
+│   └── modules/               ← app/ (hosting) · base/ (OIDC + deploy role) · auth/ · data/
+├── lambdas/
+│   └── pre-signup/            ← Cognito pre-signup trigger (Python)
+├── docs/                      ← architecture, design system, specs, delivery records
+└── .github/workflows/         ← CI + deploy pipelines (OIDC, no stored AWS keys)
+```
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 + Vite |
+| Language | TypeScript (strict mode) |
+| Styling | TailwindCSS v4 (`@theme` design tokens — no `tailwind.config`) |
+| Routing | `react-router-dom` v7 (library mode) |
+| Server state | TanStack Query (`@tanstack/react-query`) |
+| UI state | React Context + `useReducer` (no Redux) |
+| AWS SDK | `@aws-sdk/client-s3` v3, `@aws-sdk/s3-request-presigner`, `@aws-sdk/lib-storage` |
+| Auth | AWS Cognito + Amplify v6 (`aws-amplify`) |
+| Testing | Vitest + React Testing Library |
+| Linting | ESLint + Prettier |
+| IaC | OpenTofu (`~1.8`), AWS provider, S3 remote state + DynamoDB lock |
+| Lambdas | Python 3.12 |
+| CI/CD | GitHub Actions (OIDC to AWS) |
+| Monorepo | npm workspaces |
+
+---
+
+## Local development
+
+### Prerequisites
+
+- **Node.js 22** and npm (CI builds on Node 22)
+- For IaC work: **OpenTofu `~1.8`** and the **AWS CLI** (configured with credentials for the
+  target account)
+- For Lambda work: **Python 3.12**
+
+### Install & run
+
+```bash
+npm install                      # installs all workspaces from the repo root
+npm run dev      -w apps/portal  # Vite dev server → http://localhost:5173
+```
+
+App scripts (run from `apps/portal/`, or from the root with `-w apps/portal`):
+
+```bash
+npm run dev        # start the dev server
+npm run build      # production build → apps/portal/dist/
+npm run preview    # serve the production build locally
+npm run test       # Vitest (unit + component)
+npm run lint       # ESLint
+npm run format     # Prettier
+```
+
+### Two dev modes
+
+`apps/portal/.env.example` documents every variable. Copy it to `apps/portal/.env.local` and
+choose one:
+
+1. **Unauthenticated dev** (no AWS account needed) — browse a public/test bucket with
+   anonymous S3 requests. Set `VITE_S3_DEV_UNAUTH=true` and `VITE_S3_BUCKET_NAME=…`. This path
+   is **dev‑only** and stripped from production builds.
+2. **Full authenticated flow** — point the `VITE_COGNITO_*` and `VITE_S3_USER_SPACE_BUCKET`
+   vars at a deployed environment's `tofu output` values and leave `VITE_S3_DEV_UNAUTH` unset.
+
+---
+
+## Deploying to a fresh AWS account
+
+The app deploys as static files to S3 behind CloudFront; all other resources (Cognito, the
+shared IAM role, the user‑space bucket, the GitHub Actions OIDC role, Lambda infra) are
+provisioned by OpenTofu. The runbook below stands up the whole thing in a **new AWS account**.
+
+> Detailed, step‑by‑step references: [`infra/bootstrap/README.md`](infra/bootstrap/README.md)
+> (remote state), [`.github/workflows/README.md`](.github/workflows/README.md) (CI/CD config),
+> and [`docs/deploy-setup.md`](docs/deploy-setup.md).
+
+### 1. Bootstrap remote state (once per account)
+
+OpenTofu stores state in S3 with a DynamoDB lock table. These are created **manually** and are
+**not** managed by the IaC. Follow [`infra/bootstrap/README.md`](infra/bootstrap/README.md) to
+create the state bucket and lock table, then:
+
+```bash
+cd infra
+cp bootstrap/backend.conf.example backend.conf   # fill in bucket/table names (gitignored)
+```
+
+### 2. Configure IaC inputs
+
+```bash
+cp terraform.tfvars.example terraform.tfvars      # gitignored
+```
+
+Set at least `aws_region`, `project_name`, `github_repo` (as `owner/repo`), `state_bucket`, and
+`state_lock_table`. Other inputs (`environment`, `cognito_domain_prefix`,
+`user_space_bucket_name`, `portal_role_name`) have sensible defaults — see
+[`infra/variables.tf`](infra/variables.tf). Resource names follow `{project_name}-{environment}-*`.
+
+### 3. First apply (locally, with admin credentials)
+
+The first apply must run locally because it *creates* the GitHub Actions OIDC role that CI uses
+for every subsequent apply (chicken‑and‑egg). Authenticate the AWS CLI to the target account,
+then:
+
+```bash
+cd infra
+tofu init -backend-config=backend.conf
+tofu plan          # review
+tofu apply
+tofu output        # capture the values needed for the next step
+```
+
+This provisions: static‑assets bucket + CloudFront (OAC), the GitHub Actions OIDC deploy role,
+the Cognito User Pool + SPA client + Hosted UI domain + Identity Pool, the shared portal IAM
+role, the user‑space S3 bucket, and the pre‑signup Lambda's infrastructure (placeholder code).
+
+### 4. Configure GitHub Actions (Settings → Secrets and variables → Actions)
+
+Populate from `tofu output` (see [`.github/workflows/README.md`](.github/workflows/README.md)
+for the full table and notes).
+
+**Secrets**
+
+| Secret | Source |
+|---|---|
+| `AWS_DEPLOY_ROLE_ARN` | `tofu output github_actions_role_arn` |
+| `S3_STATIC_BUCKET` | `tofu output s3_static_assets_bucket_name` |
+| `CLOUDFRONT_DISTRIBUTION_ID` | `tofu output cloudfront_distribution_id` |
+| `TF_VAR_state_bucket` | your bootstrap state bucket name |
+| `TF_VAR_state_lock_table` | your bootstrap lock table name |
+
+**Variables**
+
+| Variable | Source |
+|---|---|
+| `AWS_REGION` | e.g. `us-east-1` (must match all resources) |
+| `VITE_APP_URL` | `tofu output cloudfront_domain` (placeholder on first deploy — see step 7) |
+| `TF_VAR_github_repo` | `owner/repo` (must match exactly; scopes OIDC trust) |
+| `VITE_COGNITO_USER_POOL_ID` | `tofu output cognito_user_pool_id` |
+| `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` |
+| `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` |
+| `VITE_COGNITO_IDENTITY_POOL_ID` | `tofu output cognito_identity_pool_id` |
+| `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` |
+| `TF_VAR_project_name` / `TF_VAR_environment` | only if you overrode the Terraform defaults (`dat` / `prod`) |
+
+### 5. Deploy the Lambda code
+
+The IaC creates the Lambda *infrastructure* with placeholder code; the real Python is shipped by
+CI. Trigger **Deploy Lambdas** — run it manually (`workflow_dispatch`) or push a change under
+`lambdas/**` to `main`.
+
+### 6. Deploy the app
+
+Push to `main` (or merge a PR). **Deploy App** builds the SPA with the injected `VITE_*`
+variables, syncs `apps/portal/dist/` to the static bucket, and invalidates CloudFront. The app
+loads at the CloudFront domain once the invalidation finishes.
+
+### 7. Close the URL loop
+
+On the first deploy the CloudFront domain isn't known yet. After it's live: set the `VITE_APP_URL`
+variable to `tofu output cloudfront_domain`, set the same value as `app_url` in `terraform.tfvars`
+and re‑apply infra (so Cognito's OAuth callback URLs include the real domain), then redeploy the
+app. A custom domain additionally needs an ACM certificate in `us-east-1` (DNS‑validated) — see
+[`docs/architecture.md`](docs/architecture.md) Deployment.
+
+---
+
+## CI/CD pipelines
+
+All deploy workflows authenticate to AWS via **GitHub OIDC** — no long‑lived AWS keys are stored.
+See [`.github/workflows/README.md`](.github/workflows/README.md) for the full configuration.
+
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `ci.yml` | push (any branch) · PR → `main` | Lint, unit/component tests, production build |
+| `deploy-app.yml` | push → `main` | Build SPA with `VITE_*` vars, sync to S3, invalidate CloudFront |
+| `deploy-infra.yml` | PR / push → `main` (paths `infra/**`) | `tofu fmt -check` + `plan` (posts plan to the PR); `apply` on merge |
+| `deploy-lambdas.yml` | push → `main` (paths `lambdas/**`) · manual | Build each Python Lambda, upload artifact, `update-function-code` |
+
+---
+
+## Environment & configuration reference
+
+- **App build vars (`VITE_*`)** — every variable, with its `tofu output` source, is documented
+  in [`apps/portal/.env.example`](apps/portal/.env.example) and mapped in
+  [`docs/architecture.md`](docs/architecture.md) (Environment Variables).
+- **IaC inputs** — [`infra/variables.tf`](infra/variables.tf) /
+  [`infra/terraform.tfvars.example`](infra/terraform.tfvars.example).
+- **IaC outputs** (the values you wire into GitHub Actions) —
+  [`infra/outputs.tf`](infra/outputs.tf).
+- **GitHub Actions secrets & variables** — tables above and in
+  [`.github/workflows/README.md`](.github/workflows/README.md).
+
+---
+
+## Documentation index
+
+| Document | What's in it |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | Project memory: tech stack, code conventions, the **Key Decisions log**, active‑spec table |
+| [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, two‑bucket model, env vars, deployment, known constraints |
+| [`docs/component-inventory.md`](docs/component-inventory.md) | Flat lookup of reusable services / hooks / components / types / utilities |
+| [`docs/design/design-system.md`](docs/design/design-system.md) | Design tokens, typography, component patterns (the source of truth for the UI) |
+| [`docs/design/landing.html`](docs/design/landing.html) · [`docs/design/mockup.html`](docs/design/mockup.html) | Interactive design references (marketing landing · file browser + upload) |
+| [`docs/specs/`](docs/specs/) | Feature specs (SPEC‑001 … SPEC‑031) — what each feature should do |
+| [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later‑change amendments |
+| [`docs/templates/`](docs/templates/) | Spec + spec‑completion templates |
+| [`docs/deploy-setup.md`](docs/deploy-setup.md) | Deploy setup checklist |
+| [`docs/testing/auth-e2e.md`](docs/testing/auth-e2e.md) | Auth end‑to‑end test notes |
+| [`infra/bootstrap/README.md`](infra/bootstrap/README.md) | One‑time remote‑state (S3 + DynamoDB) bootstrap |
+| [`.github/workflows/README.md`](.github/workflows/README.md) | CI/CD workflows + first‑time GitHub Actions configuration |
+
+---
+
+## Conventions & where to find things
+
+- **Code conventions** (TypeScript strict, named exports, `ServiceResult<T>` from services that
+  never throw, feature‑folder structure, file‑naming) are defined in [`CLAUDE.md`](CLAUDE.md).
+- **Feature code** lives in `apps/portal/src/features/<feature>/`; shared UI primitives in
+  `apps/portal/src/components/`; AWS clients in `apps/portal/src/lib/`.
+- **Before reusing code**, check [`docs/component-inventory.md`](docs/component-inventory.md).
+- **Infrastructure** is organized as bounded‑context modules under `infra/modules/`; IAM policies
+  are `.tftpl` templates rendered with `templatefile()`. New resource types must also be granted
+  to the deploy role (`infra/modules/base/`).
