@@ -212,6 +212,26 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('username').textContent).toBe('bob');
   });
 
+  it('Hub "signInWithRedirect" re-derives the session to authenticated', async () => {
+    // Mirrors the post-OAuth-redirect callback: the mount refresh runs before the
+    // code exchange completes (unauthenticated), then the redirect event fires.
+    mockGetUser
+      .mockResolvedValueOnce({ success: false, error: { message: 'none' } })
+      .mockResolvedValueOnce({ success: true, data: { username: 'dave' } });
+
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
+    );
+
+    await fireHub('signInWithRedirect');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('status').textContent).toBe('authenticated'),
+    );
+    expect(screen.getByTestId('username').textContent).toBe('dave');
+  });
+
   it('Hub "signedOut" clears the user and returns to unauthenticated', async () => {
     mockGetUser.mockResolvedValue({
       success: true,
