@@ -683,7 +683,7 @@ Add staging environment here when it is provisioned.
 | SPEC-017 | File metadata panel (HeadObject) | Draft |
 | SPEC-018 | Delete files and folders (multi-select, recursive) | Completed |
 | SPEC-019 | Move & rename (files and folders) — copy+delete | Completed |
-| SPEC-020 | Upload queue (multi-file, concurrency, cancel) | Draft |
+| SPEC-020 | Upload queue (multi-file, concurrency, cancel) | Completed |
 | SPEC-032 | Analytics foundation IaC — shared Athena workgroup, per-user results bucket, Lake Formation (admin, LF-Tag, ABAC grant, hybrid-mode registration), portal-role Athena/Glue/LF permissions | Draft |
 | SPEC-033 | Per-user Glue database provisioning — Cognito post-confirmation Lambda + LF-Tag assignment/grant | Draft |
 | SPEC-034 | Query engine data layer — Athena/Glue services, paginated results, per-user `query-history.json`, TanStack Query | Draft |

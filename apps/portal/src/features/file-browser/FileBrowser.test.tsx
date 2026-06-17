@@ -1,11 +1,14 @@
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
 import { FileBrowser } from './FileBrowser';
 import { useFileBrowser } from './useFileBrowser';
 import type { UseFileBrowserResult } from './useFileBrowser';
 import { getDownloadUrl } from './fileBrowser.service';
 import { useFileUpload } from './useFileUpload';
 import type { UseFileUploadResult } from './useFileUpload';
+import { useUploadQueue } from './uploadQueueContext';
+import type { UploadQueueContextValue } from './uploadQueueContext';
 import { useDelete } from './useDelete';
 import type { UseDeleteResult } from './useDelete';
 import { useMove } from './useMove';
@@ -16,6 +19,14 @@ vi.mock('./fileBrowser.service');
 vi.mock('./useFileUpload');
 vi.mock('./useDelete');
 vi.mock('./useMove');
+// The upload queue is exercised in UploadQueueProvider.test.tsx; here the provider
+// is a passthrough, the hook is stubbed, and the floating panel is a no-op so these
+// tests stay focused on FileBrowser wiring (and don't need a QueryClient).
+vi.mock('./UploadQueueProvider', () => ({
+  UploadQueueProvider: ({ children }: { children: ReactNode }) => children,
+}));
+vi.mock('./uploadQueueContext', () => ({ useUploadQueue: vi.fn() }));
+vi.mock('./UploadQueuePanel', () => ({ UploadQueuePanel: () => null }));
 // Stub the move dialog's folder picker so these tests don't pull in useFileBrowser
 // twice; MoveDialog itself is covered by MoveDialog.test.tsx.
 vi.mock('./MoveDialog', () => ({
@@ -74,6 +85,7 @@ vi.mock('./MetadataPanel', () => ({
 const mockUseFileBrowser = vi.mocked(useFileBrowser);
 const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
 const mockUseFileUpload = vi.mocked(useFileUpload);
+const mockUseUploadQueue = vi.mocked(useUploadQueue);
 const mockUseDelete = vi.mocked(useDelete);
 const mockUseMove = vi.mocked(useMove);
 
@@ -97,6 +109,16 @@ const uploadBase: UseFileUploadResult = {
   createNewFolder: vi.fn(),
   cancelCollision: vi.fn(),
   dismissError: vi.fn(),
+};
+
+const uploadQueueBase: UploadQueueContextValue = {
+  items: [],
+  enqueue: vi.fn(),
+  cancel: vi.fn(),
+  dismiss: vi.fn(),
+  resolveOverwrite: vi.fn(),
+  resolveRename: vi.fn(),
+  clearFinished: vi.fn(),
 };
 
 const deleteBase: UseDeleteResult = {
@@ -137,6 +159,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUseFileBrowser.mockReturnValue(base);
   mockUseFileUpload.mockReturnValue(uploadBase);
+  mockUseUploadQueue.mockReturnValue(uploadQueueBase);
   mockUseDelete.mockReturnValue(deleteBase);
   mockUseMove.mockReturnValue(moveBase);
 });
@@ -655,7 +678,7 @@ describe('write controls', () => {
   it('are hidden when not writable (read-only / dev-unauth)', () => {
     render(<FileBrowser bucket="my-bucket" />);
     expect(screen.queryByRole('button', { name: /new folder/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/choose a file/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/choose files/i)).not.toBeInTheDocument();
   });
 
   it('shows New folder + Upload buttons when writable; the dropzone opens in a drawer', () => {
@@ -664,16 +687,21 @@ describe('write controls', () => {
     expect(screen.getByRole('button', { name: /^upload$/i })).toBeInTheDocument();
 
     // The dropzone now lives in a drawer that is closed until Upload is clicked.
-    expect(screen.queryByText(/choose a file/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/choose files/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^upload$/i }));
-    expect(screen.getByText(/choose a file/i)).toBeInTheDocument();
+    expect(screen.getByText(/choose files/i)).toBeInTheDocument();
   });
 
-  it('renders an upload progress bar while a file is uploading', () => {
-    mockUseFileUpload.mockReturnValue({ ...uploadBase, progress: 42 });
+  it('enqueues selected files onto the upload queue (SPEC-020)', () => {
     render(<FileBrowser bucket="my-bucket" writable />);
-    const bar = screen.getByRole('progressbar');
-    expect(bar).toHaveAttribute('aria-valuenow', '42');
+    fireEvent.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    const input = screen.getByLabelText(/choose files/i);
+    const f1 = new File(['a'], 'a.txt');
+    const f2 = new File(['b'], 'b.txt');
+    fireEvent.change(input, { target: { files: [f1, f2] } });
+
+    expect(uploadQueueBase.enqueue).toHaveBeenCalledWith([f1, f2]);
   });
 });
 
