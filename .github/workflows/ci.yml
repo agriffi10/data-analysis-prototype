@@ -33,3 +33,24 @@ jobs:
       - name: Build
         working-directory: apps/portal
         run: npm run build
+
+  lambdas:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install lint + test tools
+        run: pip install -r lambdas/requirements.txt "ruff>=0.6" "pytest>=8"
+
+      - name: Lint (ruff)
+        run: ruff check lambdas/
+
+      - name: Test (pytest)
+        run: pytest lambdas/

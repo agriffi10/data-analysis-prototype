@@ -4,7 +4,7 @@ This directory contains four workflows:
 
 | File | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | Push to any branch; PR → `main` | Lint, unit tests, production build |
+| `ci.yml` | Push to any branch; PR → `main` | Web app: lint + unit/component tests + production build. Lambdas: `ruff` lint + `pytest` (separate `lambdas` job) |
 | `deploy-app.yml` | Push to `main` | Build SPA with env vars, sync to S3, invalidate CloudFront |
 | `deploy-infra.yml` | PR → `main` (paths: `infra/**`); push to `main` (paths: `infra/**`) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
 | `deploy-lambdas.yml` | Push to `main` (paths: `lambdas/**`); manual dispatch | Build each Python Lambda package, upload to the artifacts bucket, `update-function-code` (SPEC-012) |
