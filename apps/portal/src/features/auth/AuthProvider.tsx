@@ -55,7 +55,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const unsubscribe = Hub.listen('auth', ({ payload }) => {
       switch (payload.event) {
+        // `signedIn` covers SRP/programmatic sign-in. `signInWithRedirect` is the
+        // event Amplify v6 emits once the Hosted-UI OAuth redirect completes and
+        // the authorization code has been exchanged for tokens — without handling
+        // it, the first return from Cognito never updates auth state (the mount
+        // refresh runs before the exchange finishes), so the user appears signed
+        // out until a second sign-in. Both re-derive the session.
         case 'signedIn':
+        case 'signInWithRedirect':
           setError(null);
           void refresh();
           break;
