@@ -1,6 +1,18 @@
+import { type ReactNode } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../features/auth';
 import { setReturnPath } from '../lib/returnPath';
+import { Sidebar } from './Sidebar';
+
+// Authenticated app shell: left nav sidebar + the routed page content.
+function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-1">
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
 
 // Auth gate for protected routes (FR-003). Nested inside RootLayout, so the
 // shared Header is already rendered — this sub-layout only decides whether the
@@ -17,7 +29,12 @@ export function ProtectedLayout() {
   const { status } = useAuth();
   const location = useLocation();
 
-  if (devBypass) return <Outlet />;
+  if (devBypass)
+    return (
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    );
 
   // While auth resolves, render a loading indicator instead of the Outlet, so
   // the file browser never flashes and fires no S3 requests.
@@ -39,5 +56,9 @@ export function ProtectedLayout() {
     return <Navigate to="/" replace />;
   }
 
-  return <Outlet />;
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  );
 }
