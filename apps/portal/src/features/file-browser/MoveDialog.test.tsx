@@ -90,6 +90,32 @@ describe('MoveDialog', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('navigates back up to the root via the ".." row and can move there', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      folders: [folder('alice/archive/', 'archive')],
+    });
+    const { onMove } = renderDialog();
+
+    // No ".." at the root (already at the navigation floor).
+    expect(
+      screen.queryByRole('button', { name: /go up to parent folder/i }),
+    ).not.toBeInTheDocument();
+
+    // Descend, then the ".." row appears and climbs back to root.
+    fireEvent.click(screen.getByRole('button', { name: /open folder archive/i }));
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('us', 'alice/archive/', undefined);
+
+    fireEvent.click(screen.getByRole('button', { name: /go up to parent folder/i }));
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('us', 'alice/', undefined);
+
+    // Root is a valid destination for items that live in a subfolder.
+    const moveHere = screen.getByRole('button', { name: /move here/i });
+    expect(moveHere).toBeEnabled();
+    fireEvent.click(moveHere);
+    expect(onMove).toHaveBeenCalledWith('alice/');
+  });
+
   it('navigates into a folder and moves there', () => {
     mockUseFileBrowser.mockReturnValue({
       ...base,
