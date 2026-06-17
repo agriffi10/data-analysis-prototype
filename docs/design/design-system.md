@@ -194,9 +194,33 @@ Missing `connections.json` or an empty folder renders as a friendly empty state 
 
 ---
 
-## 6. Forward-looking: data analysis surface
+## 6. Data analysis surface (Query workspace)
 
-The portal will grow a Glue/Athena query + results surface. To keep it visually consistent when it lands, reuse: the table component (query results), the pill (column types), the accent (run-query primary + active tab), `surface-2` (SQL editor gutter / inset), and the drawer pattern (query history / saved queries). A results chart should use the accent as series 1 and extend with analogous hues rather than introducing a second brand color. No new tokens should be needed for v1 of that surface.
+The portal's second surface — the Glue/Athena **Query workspace** (SPEC-034→036) — reuses every token and most components from the file browser; **no new tokens are introduced**. The companion file `query-workspace.html` is the live realization of this section, exactly as `mockup.html` is for the file browser. Where a component already exists (table, pill, button, drawer), reuse it rather than building a parallel one.
+
+### Primary tab navigation (Files | Query)
+The authenticated shell gains a primary tab strip in the **topbar**, right of the brand mark. Tabs are 56px-tall (full topbar height), `text-base` weight 500, icon + label, `text-2` at rest → `text` on hover. The **active** tab is `accent-text` with a 2px `accent` bottom border (an underline tab, distinct from the sidebar's filled `accent-soft` nav item so the two navigation levels read differently). Driven by the route (`/files`, `/query`); keyboard-focusable with the standard focus ring.
+
+### Schema browser (left, reuses the 248px sidebar)
+Same surface panel + right hairline border as the file-browser sidebar. Uppercase micro-labels (`Database`, `Tables`). The user's database is a single **active** `accent-soft` item (it's the only DB they can see). Tables are 32px expandable rows (`text-sm`, weight 500) with a rotating chevron; expanding reveals columns indented under `sp-8`, each showing `name` + a right-aligned monospace `text-xs text-3` type. Tables and columns are click-to-insert into the editor. Empty state: a `text-3` hint with a `CREATE EXTERNAL TABLE …` `<code>` snippet (no tables yet is normal, not an error).
+
+### SQL editor (Monaco)
+A fixed-height editor pane (~230px, resizable in implementation) below the toolbar. Left **gutter** on `surface-2` with a `border-2` right divider and monospace `text-3` line numbers; code area is monospace `text-sm`, line-height 1.7. Syntax theme maps onto tokens: **keywords** `accent-text` weight 600, **strings** `success`, **numbers** `warning`, **comments** `text-3` italic, **functions** a violet (`#7c3aed`) that sits beside the indigo accent without becoming a second brand color. The real editor is Monaco (SPEC-035), lazy-loaded for the Query route only.
+
+### Editor toolbar
+52px toolbar (same height as the file-browser toolbar). Left: a `db-chip` — a `surface-2` rounded-full pill with an `accent` dot and the monospace DB name ("querying `…`"). Right cluster: **History** (ghost, opens the drawer), **Format** (ghost, shows the ⌘⏎ hint), **Stop** (danger-ghost, square icon, visible only while running), and **Run** (the one primary button — accent, play icon). Run is disabled when the editor is empty or a query is in flight; ⌘/Ctrl+Enter triggers Run.
+
+### Status bar
+A slim bar (~44px) below the editor showing execution state, **never color-only** — always icon/spinner + text: **Running** = `accent-text` with a spinner + an indeterminate `accent` progress sliver + elapsed time and bytes scanned; **Succeeded** = `success` dot + "N rows · X scanned · Ys" and a right-aligned **Download CSV** ghost button; **Failed** = the `danger` **Banner** (SPEC-028) carrying the Athena `stateChangeReason` (with the offending token in `<code>`); **Cancelled** = neutral note. The bar is an accessible live region.
+
+### Results table (reuses the file table)
+Same container as the file table: `surface`, `border`, `rounded-lg`, clipped; 40px `surface-2` header with uppercase `text-xs` column labels — here each header stacks the column **name** over its **type** in a small monospace caption (the type also available as the neutral **pill**). Rows are monospace `text-sm`, 48px, `border-2` dividers, `surface-2` hover, with a leading muted row-number column. Wide result sets scroll horizontally inside the panel without breaking the shell. Pagination reuses the centered ghost **Load more** (`GetQueryResults` `NextToken`, mirrors listing pagination). Empty result sets (successful DDL, zero-row SELECT) render the friendly empty state, not an error.
+
+### Query history drawer (right slide-over, reuses the upload-drawer pattern)
+440px panel, `shadow-lg`, slides in over the 32%-black scrim — identical mechanics to the upload drawer. Each entry is a bordered `r-md` card: a status **badge** (`success`/`danger`/neutral soft fills with a leading dot — never color-only), a right-aligned relative timestamp (absolute on hover), a single-line monospace SQL preview (ellipsis-truncated), a footer with run stats (`rows · scanned · duration`) and right-aligned **Open** / **Re-run** text actions (`accent-text`). History is the per-user `{username}/athenaresults/query-history.json` store only — it never shows other users' or workgroup-wide queries.
+
+### Charts (future)
+A results chart should use the `accent` as series 1 and extend with analogous hues (e.g. the violet above, teal `success`) rather than introducing a second brand color. Out of scope for v1; no new tokens anticipated.
 
 ---
 

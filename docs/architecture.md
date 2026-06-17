@@ -411,6 +411,13 @@ User enters: bucket prefix → "project-alpha/"
 | CloudFront Distribution | `*.cloudfront.net` / custom domain | Serves the SPA; routes all paths to index.html | ✓ SPEC-003 | OAC origin; custom error response 403/404 → index.html |
 | GitHub Actions OIDC Role | `arn:aws:iam:::role/S3PortalDeployRole` | Allows CI/CD to deploy without stored credentials | ✓ SPEC-003 | Scoped to main branch of repo |
 | ACM Certificate | `arn:aws:acm:us-east-1:...` | HTTPS for custom domain | ✗ manual | Must be in us-east-1 for CloudFront; DNS validation is manual |
+| Athena Workgroup | `{project}-prod-portal-wg` | Shared workgroup all users query through | ✓ SPEC-032 (draft) | Enforcement off; app sets per-user `OutputLocation` = `{username}/athenaresults/`; default output → admin bucket; engine v3 |
+| S3 Bucket — Athena Admin | `{project}-prod-athena-admin` | Workgroup default/fallback output; future admin/audit | ✓ SPEC-032 (draft) | Private; **no user access**; results lifecycle expiry |
+| S3 prefix — per-user results | `{user-space-bucket}/{username}/athenaresults/` | User-facing query results + history JSON | ✓ SPEC-032/034 (draft) | In user-space bucket; user can read; IAM **denies delete**; UI-locked |
+| Lake Formation — data-lake settings | account-level | LF enforcement (no default Super grant); admins = deploy role + provisioner Lambda | ✓ SPEC-032 (draft) | **No LF-Tags**; isolation is the IAM `username` principal tag on Glue ARNs |
+| Lake Formation — hybrid-mode registration | user-space bucket location | Dual IAM (file browser) + LF (Athena) access | ✓ SPEC-032 (draft) | Don't flip to enforced mode without opting in all principals |
+| Glue Database (per user) | `{username}` (verbatim) | Each user's private catalog database | ✓ SPEC-033 (draft) | Created by post-confirmation Lambda; LF grant to shared role; isolated by IAM `database/${aws:PrincipalTag/username}` |
+| Lambda — Post-Confirmation Trigger | `{project}-{env}-post-confirmation` | Creates user's Glue DB + LF-grants the shared role on it at signup | ✓ SPEC-033 (draft) | python3.12; LF-admin exec role; idempotent, never blocks signup |
 
 
 > Note: A Cognito Identity Pool performs the token-for-credentials exchange and stamps
@@ -515,6 +522,9 @@ Full map of all `VITE_` variables. Every variable must also appear in `.env.exam
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | Amplify config | `XXXXXXXXXX` | — |
 | `VITE_COGNITO_DOMAIN` | Amplify OAuth config | `your-domain.auth.us-east-1.amazoncognito.com` | — |
 | `VITE_APP_URL` | Amplify redirect URLs | `http://localhost:5173` | Changes per environment |
+| `VITE_ATHENA_WORKGROUP` | Query service (SPEC-034) | `dat-prod-portal-wg` | Shared workgroup all users query through (SPEC-032) |
+
+> Query results + history are written to `{username}/athenaresults/` inside the **user-space bucket** (`VITE_S3_USER_SPACE_BUCKET`), so no separate results-bucket env var is needed. The admin-only `dat-prod-athena-admin` bucket is the workgroup's default output and is not accessed by the app.
 
 ---
 
@@ -674,4 +684,14 @@ Add staging environment here when it is provisioned.
 | SPEC-018 | Delete files and folders (multi-select, recursive) | Completed |
 | SPEC-019 | Move & rename (files and folders) — copy+delete | Completed |
 | SPEC-020 | Upload queue (multi-file, concurrency, cancel) | Draft |
+| SPEC-032 | Analytics foundation IaC — shared Athena workgroup, per-user results bucket, Lake Formation (admin, LF-Tag, ABAC grant, hybrid-mode registration), portal-role Athena/Glue/LF permissions | Draft |
+| SPEC-033 | Per-user Glue database provisioning — Cognito post-confirmation Lambda + LF-Tag assignment/grant | Draft |
+| SPEC-034 | Query engine data layer — Athena/Glue services, paginated results, per-user `query-history.json`, TanStack Query | Draft |
+| SPEC-035 | Tabbed dashboard + query workspace UI — Files\|Query nav, Monaco SQL editor, schema browser, results table (design-led) | Draft |
+| SPEC-036 | Query history panel UI — per-user history list, re-open, re-run (design-led) | Draft |
+| SPEC-037 | File browser pagination — 25 items/page from S3 with append "Load more" (refines SPEC-015) | Draft |
+| SPEC-038 | Query results pagination — 20 rows/page with a Prev/Next pager (refines SPEC-034/035) | Draft |
+| SPEC-039 | Copy files and folders (recursive) — reuses `copyObject` minus the delete; additive, same-folder auto-suffix | Draft |
 | Future | Shared-space bucket (Bucket 2) — user-managed access keys, model TBD | Not yet written |
+
+> **Analytics arc (SPEC-032→036) — design summary.** A second portal surface: an in-app Athena query workspace. Each user gets a private Glue database **named exactly as their username** (created by a Cognito post-confirmation Lambda, which also LF-grants the shared role full access to it), runs SQL through one shared Athena workgroup, and sees only their own results and history. Isolation reuses the single-shared-role + `username` **IAM principal-tag** model — the portal role scopes Glue to `database/${aws:PrincipalTag/username}`, so a session reaches only its own database (**no LF-Tags**; LF authorizes the shared role broadly, IAM is the per-user gate). This requires `username = S3 prefix = principal tag = Glue DB name`, so the signup username rule is tightened to a catalog-safe identifier (SPEC-033 amends SPEC-012). The user-space bucket is registered in LF **hybrid access mode** so the file browser keeps its direct-IAM path while Athena reads via LF. Query results + history are written to `{username}/athenaresults/` in the user-space bucket — readable by the user, delete-denied by IAM, UI-locked, and kept indefinitely; the workgroup's default output is a separate admin-only bucket. Query history is app-side JSON there, **read-only to the user** (the shared workgroup leaks all executions via `ListQueryExecutions`, which isn't granted). Users define tables via DDL and may **write** (CTAS/`INSERT INTO`, via an LF `INSERT` grant + `DATA_LOCATION_ACCESS`) into their own prefix; no crawlers. See `docs/specs/SPEC-032..036` and `docs/design/query-workspace.html`.
