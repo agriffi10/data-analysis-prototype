@@ -50,6 +50,7 @@ before relying on them. Paths are relative to the repo root.
 | `Badge` | `components/Badge.tsx` | Neutral type pill (file/folder labels) (SPEC-028). |
 | `Banner` (+ `BannerVariant`) | `components/Banner.tsx` | Dismissible status banner — success/warning/danger/info, optional `title`/`onDismiss` (SPEC-028). |
 | `BrandMark` | `components/BrandMark.tsx` | Accent-square upload-arrow icon + wordmark; `size` sm/md, `showWordmark` (SPEC-028; used by Header + LandingPage). |
+| `PrimaryNav` | `components/PrimaryNav.tsx` | Topbar Files \| Query underline tabs (`NavLink`-driven); rendered by `Header` only when authenticated (SPEC-035). |
 
 ## UI primitive utility (`apps/portal/src/lib/`)
 
@@ -157,6 +158,17 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Paginated results via `useInfiniteQuery` (page size/pager UX set by SPEC-038). |
 | `useSchema(db \| null)` + `invalidateSchema(client, db)` | `useSchema.ts` | DB + tables for the schema browser; invalidation helper to refresh after DDL. |
 | `useQueryHistory(username \| null)` | `useQueryHistory.ts` | History list + `appendEntry`/`updateEntry` mutations (cache-seeding). |
+
+### Workspace UI (SPEC-035)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `QueryWorkspace` | `QueryWorkspace.tsx` | Top-level `/query` composition: schema rail + toolbar + editor + status + results, wired to the SPEC-034 layer. Rendered by the lazy `QueryPage` route. |
+| `SqlEditor` (+ `SqlEditorHandle`) | `SqlEditor.tsx` | Lazy, self-hosted Monaco SQL editor; `value`/`onChange`/`onRun` (⌘⏎), ref exposes `insertAtCursor`. |
+| `SchemaBrowser` | `SchemaBrowser.tsx` | Left rail: DB + expandable tables/columns via `useSchema`; click-to-insert; loading/empty/setting-up/error states. |
+| `QueryStatusBar` | `QueryStatusBar.tsx` | Slim live-region execution status (running/succeeded/failed/cancelled) + Download CSV. |
+| `QueryResultsTable` | `QueryResultsTable.tsx` | File-table-styled results (dynamic columns + type, horizontal scroll, empty state, Load more). |
+| `formatBytes` / `formatDurationMs` | `query.format.ts` | Display formatters for scanned-bytes / duration stats. |
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |
 | `QueryState`, `QueryStatus`, `QueryColumn`, `QueryResultPage`, `GlueColumn`, `GlueTableSummary`, `QueryHistoryEntry`, `QueryHistory` | `query.types.ts` | Feature data types. |
 | `POLL_INTERVAL_MS`, `MAX_POLL_DURATION_MS`, `DEFAULT_MAX_ROWS`, `QUERY_HISTORY_MAX` | `query.constants.ts` | Polling cadence/guard, default page size, history cap. |
