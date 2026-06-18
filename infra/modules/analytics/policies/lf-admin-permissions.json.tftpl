@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LakeFormationAdmin",
+      "Effect": "Allow",
+      "Action": [
+        "lakeformation:GetDataLakeSettings",
+        "lakeformation:PutDataLakeSettings",
+        "lakeformation:ListPermissions",
+        "lakeformation:GrantPermissions",
+        "lakeformation:RevokePermissions",
+        "lakeformation:BatchGrantPermissions",
+        "lakeformation:BatchRevokePermissions",
+        "lakeformation:ListResources",
+        "lakeformation:DescribeResource",
+        "lakeformation:RegisterResource",
+        "lakeformation:DeregisterResource",
+        "lakeformation:GetDataAccess"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "GlueCatalogAdmin",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetCatalog",
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:CreateDatabase",
+        "glue:UpdateDatabase",
+        "glue:DeleteDatabase",
+        "glue:CreateTable",
+        "glue:UpdateTable",
+        "glue:DeleteTable",
+        "glue:BatchDeleteTable"
+      ],
+      "Resource": [
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+        "arn:aws:glue:${aws_region}:${account_id}:database/*",
+        "arn:aws:glue:${aws_region}:${account_id}:table/*/*"
+      ]
+    }
+  ]
+}

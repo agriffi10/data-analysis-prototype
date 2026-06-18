@@ -370,6 +370,26 @@
       "Resource": "arn:aws:iam::*:role/${project_name}-analytics-lf-registration-role"
     },
     {
+      "Sid": "LakeFormationAdminRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRoleTags",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::*:role/${project_name}-analytics-lf-admin-role"
+    },
+    {
       "Sid": "TofuStateS3",
       "Effect": "Allow",
       "Action": [
