@@ -31,6 +31,7 @@ jobs:
         # function-name suffix ({project}-{env}-{name}).
         lambda:
           - name: pre-signup
+          - name: post-confirmation
 
     steps:
       - name: Checkout

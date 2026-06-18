@@ -32,8 +32,9 @@ POOL_ID=$(tofu output -raw cognito_user_pool_id)          # us-east-1_XXXXXXXXX
 HOSTED_UI=$(tofu output -raw cognito_domain)              # xxxx.auth.us-east-1.amazoncognito.com
 ```
 
-Pick a test username that satisfies the SPEC-012 rule (`^[a-zA-Z0-9._@-]{3,64}$`),
-e.g. `e2e.tester`. The username becomes the user's S3 prefix and audit identity.
+Pick a test username that satisfies the SPEC-012 rule, tightened by SPEC-033 FR-001
+to a catalog-safe identifier (`^[a-z][a-z0-9_]{2,62}$`), e.g. `e2e_tester`. The
+username becomes the user's S3 prefix, audit identity, and Glue database name.
 
 ---
 
@@ -41,7 +42,7 @@ e.g. `e2e.tester`. The username becomes the user's S3 prefix and audit identity.
 
 ### 1. Fresh signup
 
-1. Open `$APP_URL` in a clean browser profile (or incognito). **Expected:** the landing page renders with **"Sign in"** and **"Create account"**, plus the username guidance line (*3–64 chars, letters/numbers and `. _ @ -` only*). No console errors.
+1. Open `$APP_URL` in a clean browser profile (or incognito). **Expected:** the landing page renders with **"Sign in"** and **"Create account"**, plus the username guidance line (*3–63 chars, starts with a letter, lowercase letters/numbers/underscores only*). No console errors.
    - [x] Pass
 2. Click **"Create account"**. **Expected:** full-page redirect to the Hosted UI **sign-up** screen (`$HOSTED_UI/signup?...`) for the correct pool/client.
    - [x] Pass
@@ -171,7 +172,7 @@ end-to-end check with two real users.
 ### Setup
 
 1. Sign up two users via the Hosted UI (or reuse existing): **alice** and **bob**
-   (any names matching `^[a-zA-Z0-9._@-]{3,64}$`).
+   (any names matching `^[a-z][a-z0-9_]{2,62}$`).
 2. Seed one object in each prefix so there is something to read. The bucket policy
    (SPEC-013 FR-002) denies data writes to everyone except the portal role and the
    **account root**, so seed as **root** (a regular IAM admin user gets
@@ -241,6 +242,59 @@ aws s3 rm "s3://$BUCKET/bob/hello.txt"
 ```
 
 ---
+
+## Verifying Per-User Glue Database Provisioning (SPEC-033)
+
+The post-confirmation Lambda creates a Glue database named exactly as the username and
+Lake Formation-grants the shared portal role on it. Run after a fresh confirmation.
+
+```bash
+PORTAL_ROLE_ARN="arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/dat-portal-user-role"
+
+# 1. The database exists, named verbatim as the username.
+aws glue get-database --name alice            # -> Database.Name == "alice"
+
+# 2. The portal role holds the LF grant on that database (and its tables).
+aws lakeformation list-permissions \
+  --principal DataLakePrincipalIdentifier="$PORTAL_ROLE_ARN" \
+  --resource '{"Database":{"Name":"alice"}}'   # -> DESCRIBE/CREATE_TABLE/ALTER/DROP
+
+# 3. CloudWatch shows the provisioning succeeded.
+aws logs tail /aws/lambda/dat-prod-post-confirmation --since 10m
+```
+
+- [ ] **(deploy-gated)** `get-database` returns `alice`; `list-permissions` shows the grant; logs show success.
+- [ ] **(deploy-gated)** A signup with `alice@corp` or `Alice` is rejected by the tightened pre-signup rule (FR-001); no database is created.
+- [ ] **(deploy-gated)** No tables exist in the database (`aws glue get-tables --database-name alice` → empty).
+
+### Backfill for pre-existing users (SPEC-033 FR-004)
+
+Users confirmed before the post-confirmation Lambda existed never got a database. The
+backfill script runs the same create-database + grant logic (it imports `provision_user`
+from the Lambda handler, so the two never drift). Run with operator credentials that are
+a Lake Formation admin:
+
+```bash
+cd lambdas/post-confirmation
+export PORTAL_ROLE_ARN="arn:aws:iam::<account-id>:role/dat-portal-user-role"
+
+# Enumerate confirmed users that may need a database:
+aws cognito-idp list-users --user-pool-id "$POOL_ID" \
+  --query "Users[?UserStatus=='CONFIRMED'].Username" --output text
+
+python3 backfill.py <username> [<username> ...]   # idempotent
+```
+
+- [ ] **(deploy-gated)** Backfill provisions a database for a manually-created pre-existing user; re-running is a no-op-equivalent (idempotent).
+
+### Analytics isolation proof (SPEC-032 FR-006, deferred here from SPEC-032)
+
+With two confirmed users `alice` and `bob`, signed in as alice using her live session
+credentials (dev console / hand-crafted SDK calls):
+
+- [ ] **(deploy-gated)** alice can `GetDatabase`/`GetTables`, run `CREATE EXTERNAL TABLE` + `SELECT` in **her** `alice` database, and write results to `alice/athenaresults/`.
+- [ ] **(deploy-gated)** alice gets `AccessDenied` (IAM Glue ARN scoping) for the same calls against `bob`'s database.
+- [ ] **(deploy-gated)** alice cannot delete anything under `alice/athenaresults/` (delete-deny).
 
 ## Cleanup
 

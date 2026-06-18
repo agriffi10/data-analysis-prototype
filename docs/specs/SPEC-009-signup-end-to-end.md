@@ -43,7 +43,7 @@ The landing page offers account creation directly, taking the user to the Hosted
 
 - [ ] Landing page (`/`) shows a "Create account" action alongside "Sign in"
 - [ ] "Create account" navigates to the Hosted UI `/signup` endpoint with correct `client_id`, `response_type=code`, `redirect_uri`, and scopes (constructed from the same env vars as Amplify config; document the URL construction in `auth.service.ts`)
-- [ ] Brief username guidance is shown near the CTA, matching the SPEC-012-enforced rule exactly: 3–64 characters, letters/numbers and `. _ @ -` only (the username becomes the user's S3 prefix and audit identity)
+- [ ] Brief username guidance is shown near the CTA, matching the SPEC-012-enforced rule exactly: 3–63 characters, starts with a letter, lowercase letters/numbers/underscores only (the username becomes the user's S3 prefix, audit identity, and Glue database name — rule tightened by SPEC-033 FR-001)
 - [ ] "Sign in" continues to go to the Hosted UI login screen (SPEC-007 behavior unchanged)
 
 ### FR-002: Cognito Signup Configuration

@@ -72,8 +72,8 @@ variable "principal_tag_key" {
   default     = "username"
 }
 
-variable "lambda_provisioner_role_arn" {
-  description = "ARN of the SPEC-033 post-confirmation Lambda exec role, added as a Lake Formation admin (SPEC-032 FR-004). Optional — leave empty until SPEC-033 provisions the Lambda; the analytics module drops it from the admins list while empty (resolves the cross-spec ordering)."
-  type        = string
-  default     = ""
-}
+# NOTE (SPEC-033): the post-confirmation Lambda exec role ARN that module.analytics
+# adds as a Lake Formation admin is now sourced directly from module.auth's output
+# (see main.tf), so the former root `lambda_provisioner_role_arn` variable was
+# removed. The analytics module keeps its own optional variable (default "") so it
+# still plans standalone before auth exists.
