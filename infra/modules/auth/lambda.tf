@@ -1,8 +1,8 @@
 # ── Pre-Signup Validation Lambda (SPEC-012) ──────────────────────────────────
 # A Cognito pre-signup trigger that enforces the username rule server-side at
-# registration (^[a-zA-Z0-9._@-]{3,64}$). The username becomes the user's S3
-# prefix and `username` principal tag, so an unsafe username must never be
-# created.
+# registration (^[a-z][a-z0-9_]{2,62}$ — catalog-safe per SPEC-033). The username
+# becomes the user's S3 prefix, `username` principal tag, and Glue database name, so
+# an unsafe username must never be created.
 #
 # Code ownership split: Terraform owns the function INFRASTRUCTURE (role, runtime
 # config, log group, pool trigger) and bootstraps it with a placeholder zip.
@@ -96,6 +96,95 @@ resource "aws_lambda_permission" "cognito_invoke" {
   statement_id  = "AllowCognitoInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.pre_signup.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = aws_cognito_user_pool.portal.arn
+}
+
+# ── Post-Confirmation Provisioning Lambda (SPEC-033) ─────────────────────────
+# A Cognito post-confirmation trigger that, on sign-up confirmation, creates the
+# user's Glue database (named exactly as the username) and Lake Formation-grants the
+# shared portal role on it. Same code-ownership split as pre-signup: Terraform owns
+# the infrastructure + a placeholder; deploy-lambdas.yml owns the Python code.
+#
+# Unlike pre-signup (logs only), this function calls Glue + Lake Formation, so its
+# exec role carries those permissions (policies/post-confirmation-permissions.tftpl).
+# It also targets the shared portal role in the LF grant — passed in via env var.
+
+locals {
+  post_confirmation_function_name = "${var.project_name}-${var.environment}-post-confirmation"
+}
+
+data "archive_file" "post_confirmation_placeholder" {
+  type        = "zip"
+  output_path = "${path.module}/build/post-confirmation-placeholder.zip"
+
+  source {
+    content  = "def handler(event, context):\n    raise Exception('post-confirmation Lambda code not yet deployed by CI')\n"
+    filename = "post_confirmation.py"
+  }
+}
+
+# Execution role. Trust is identical to pre-signup; the permission policy adds Glue
+# (create the user's database) + Lake Formation (grant the portal role) on top of
+# logs. Gated on the same propagation guard as everything else this apply creates.
+resource "aws_iam_role" "post_confirmation" {
+  name               = "${local.post_confirmation_function_name}-role"
+  assume_role_policy = templatefile("${path.module}/policies/post-confirmation-trust.json.tftpl", {})
+
+  depends_on = [time_sleep.wait_for_lambda_perms]
+}
+
+resource "aws_iam_role_policy" "post_confirmation" {
+  name = "provisioning"
+  role = aws_iam_role.post_confirmation.id
+
+  policy = templatefile("${path.module}/policies/post-confirmation-permissions.json.tftpl", {
+    aws_region    = var.aws_region
+    account_id    = var.account_id
+    log_group_arn = aws_cloudwatch_log_group.post_confirmation.arn
+  })
+}
+
+resource "aws_cloudwatch_log_group" "post_confirmation" {
+  name              = "/aws/lambda/${local.post_confirmation_function_name}"
+  retention_in_days = 14
+
+  depends_on = [time_sleep.wait_for_lambda_perms]
+}
+
+resource "aws_lambda_function" "post_confirmation" {
+  function_name = local.post_confirmation_function_name
+  role          = aws_iam_role.post_confirmation.arn
+  runtime       = "python3.12"
+  handler       = "post_confirmation.handler"
+
+  # Bootstrap with the placeholder; CI replaces the code via update-function-code.
+  filename         = data.archive_file.post_confirmation_placeholder.output_path
+  source_code_hash = data.archive_file.post_confirmation_placeholder.output_base64sha256
+
+  # The shared portal role the LF grant targets (SPEC-033 FR-002/FR-003).
+  environment {
+    variables = {
+      PORTAL_ROLE_ARN = var.portal_role_arn
+    }
+  }
+
+  lifecycle {
+    # CI owns the code — never revert it on apply.
+    ignore_changes = [filename, source_code_hash]
+  }
+
+  depends_on = [
+    aws_iam_role_policy.post_confirmation,
+    aws_cloudwatch_log_group.post_confirmation,
+    time_sleep.wait_for_lambda_perms,
+  ]
+}
+
+resource "aws_lambda_permission" "cognito_invoke_post_confirmation" {
+  statement_id  = "AllowCognitoInvokePostConfirmation"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.post_confirmation.function_name
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = aws_cognito_user_pool.portal.arn
 }

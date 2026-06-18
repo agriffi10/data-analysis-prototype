@@ -142,8 +142,8 @@ Use this structure:
     </div>
 
     <p className="mt-4 text-xs text-text-3 leading-relaxed">
-      Your username becomes your private file space: 3–64 characters,
-      letters and numbers plus <code className="...">. _ @ -</code> only.
+      Your username becomes your private file space: 3–63 characters,
+      starts with a letter, lowercase letters, numbers, and underscores only.
     </p>
 
   </div>

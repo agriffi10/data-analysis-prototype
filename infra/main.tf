@@ -75,6 +75,13 @@ module "auth" {
   app_url               = var.app_url
   cognito_domain_prefix = var.cognito_domain_prefix
 
+  # SPEC-033 post-confirmation Lambda inputs. account_id/region scope the exec
+  # role's Glue ARNs; portal_role_arn (constructed, cycle-free) is the LF grant
+  # target the Lambda receives via env var.
+  aws_region      = var.aws_region
+  account_id      = data.aws_caller_identity.current.account_id
+  portal_role_arn = local.portal_role_arn
+
   # The deploy role grants itself the cognito-idp permissions (modules/base
   # policies). Without this ordering, Tofu's parallel apply can call
   # CreateUserPool before that grant takes effect, failing with AccessDenied.
@@ -135,10 +142,10 @@ module "analytics" {
   principal_tag_key     = var.principal_tag_key
   deploy_role_arn       = local.deploy_role_arn
 
-  # SPEC-033 fills this with the post-confirmation Lambda's exec role ARN; empty
-  # until then (compact() in the LF data-lake settings drops it). Keeps SPEC-032
-  # deployable on its own (resolves the spec's open ordering question).
-  lambda_provisioner_role_arn = var.lambda_provisioner_role_arn
+  # SPEC-033: the post-confirmation Lambda's exec role, added as a Lake Formation
+  # admin so it can issue per-database grants. Sourced from module.auth's output
+  # (dependency stays one-directional: analytics consumes auth, never the reverse).
+  lambda_provisioner_role_arn = module.auth.post_confirmation_exec_role_arn
 
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF

@@ -13,10 +13,11 @@
 # access — the correct, safe state.
 resource "aws_lakeformation_data_lake_settings" "this" {
   # Admins can grant/revoke and register locations. The deploy role runs the IaC;
-  # the SPEC-033 provisioner Lambda issues the per-database grants and is added here
-  # once SPEC-033 fills lambda_provisioner_role_arn. compact() drops the empty
-  # Lambda ARN until then, so this module deploys standalone (resolves the spec's
-  # open ordering question — the Lambda role doesn't exist until SPEC-033).
+  # the SPEC-033 provisioner Lambda issues the per-database grants, so its exec role
+  # is added here too (the root wires module.auth's output into
+  # lambda_provisioner_role_arn). compact() still drops the ARN when empty, so the
+  # module also plans standalone (e.g. before auth exists) — resolving the original
+  # cross-spec ordering question.
   admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =

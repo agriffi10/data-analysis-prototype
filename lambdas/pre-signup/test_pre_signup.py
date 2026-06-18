@@ -32,9 +32,37 @@ def test_valid_username_and_email_passes():
     assert handler(event, None) is event
 
 
-def test_invalid_username_rejected():
+def test_valid_username_with_digits_and_underscore_passes():
+    # Catalog-safe identifier: starts with a letter, then letters/digits/underscore.
+    event = _event(username="alice_42", email="alice@example.com")
+    assert handler(event, None) is event
+
+
+def test_too_short_username_rejected():
     with _raises("Username must be"):
-        handler(_event(username="ab"), None)  # too short
+        handler(_event(username="ab"), None)  # 2 chars, minimum is 3
+
+
+def test_uppercase_username_rejected():
+    # SPEC-033: lowercase only (Glue/Athena identifiers fold case).
+    with _raises("Username must be"):
+        handler(_event(username="Alice"), None)
+
+
+def test_leading_digit_username_rejected():
+    # Must start with a letter (catalog-safe identifier rule).
+    with _raises("Username must be"):
+        handler(_event(username="1alice"), None)
+
+
+def test_email_style_username_rejected():
+    # The old rule allowed `@ . -`; SPEC-033 removed them.
+    with _raises("Username must be"):
+        handler(_event(username="alice@corp"), None)
+    with _raises("Username must be"):
+        handler(_event(username="alice.smith"), None)
+    with _raises("Username must be"):
+        handler(_event(username="alice-smith"), None)
 
 
 def test_disposable_domain_rejected():

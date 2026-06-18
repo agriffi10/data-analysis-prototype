@@ -19,3 +19,20 @@ variable "cognito_domain_prefix" {
   type        = string
   default     = ""
 }
+
+# ── SPEC-033 post-confirmation provisioning Lambda inputs ────────────────────
+
+variable "aws_region" {
+  description = "AWS region — used to scope the post-confirmation Lambda exec role's Glue ARNs (SPEC-033)."
+  type        = string
+}
+
+variable "account_id" {
+  description = "AWS account ID — used to build the Glue catalog/database ARNs in the post-confirmation Lambda exec role policy (SPEC-033)."
+  type        = string
+}
+
+variable "portal_role_arn" {
+  description = "ARN of the shared portal IAM role (SPEC-011). The post-confirmation Lambda receives this via env var and targets it in the per-database Lake Formation grant (SPEC-033 FR-002)."
+  type        = string
+}

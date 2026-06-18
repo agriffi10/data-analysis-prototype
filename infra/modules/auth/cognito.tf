@@ -2,13 +2,14 @@
 # Standalone User Pool for native username/password users (no external IdP).
 # Sign-in is by username; email is a required, verified standard attribute.
 #
-# Username constraint: the username becomes the user's S3 prefix and the value of
-# the `username` IAM principal tag stamped by the Identity Pool (SPEC-011). An IAM
-# RoleSessionName / tag value allows at most 64 chars from the set
-# `a-z A-Z 0-9 = , . @ - _` (see docs/architecture.md). Signup additionally enforces
-# `^[a-zA-Z0-9._@-]{3,64}$` via the SPEC-012 pre-signup Lambda. Case-insensitivity
-# (below) is immutable after pool creation, so `Alice` and `alice` must never become
-# two distinct users / S3 prefixes.
+# Username constraint: the username becomes the user's S3 prefix, the value of the
+# `username` IAM principal tag stamped by the Identity Pool (SPEC-011), AND the
+# user's Glue database name (SPEC-033). An IAM RoleSessionName / tag value allows at
+# most 64 chars from the set `a-z A-Z 0-9 = , . @ - _` (see docs/architecture.md).
+# Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the SPEC-012 pre-signup
+# Lambda (tightened to a catalog-safe identifier by SPEC-033 so the Glue DB name is
+# legal). Case-insensitivity (below) is immutable after pool creation, so `Alice` and
+# `alice` must never become two distinct users / S3 prefixes.
 
 resource "aws_cognito_user_pool" "portal" {
   name = "${var.project_name}-${var.environment}-user-pool"
@@ -21,10 +22,12 @@ resource "aws_cognito_user_pool" "portal" {
   # Signup requires an email verification code.
   auto_verified_attributes = ["email"]
 
-  # Pre-signup trigger enforces the username rule server-side (SPEC-012). Defined
-  # in lambda.tf; the User Pool is granted invoke via aws_lambda_permission there.
+  # Trigger Lambdas (defined in lambda.tf; invoke permission granted there):
+  #   pre_sign_up       — enforce the username rule server-side (SPEC-012)
+  #   post_confirmation — provision the user's Glue database + LF grant (SPEC-033)
   lambda_config {
-    pre_sign_up = aws_lambda_function.pre_signup.arn
+    pre_sign_up       = aws_lambda_function.pre_signup.arn
+    post_confirmation = aws_lambda_function.post_confirmation.arn
   }
 
   # Email verification uses a 6-digit code (not a link), so the user can enter it

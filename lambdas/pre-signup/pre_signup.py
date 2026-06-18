@@ -1,12 +1,20 @@
-"""Cognito pre-signup trigger (SPEC-012, extended by SPEC-030).
+"""Cognito pre-signup trigger (SPEC-012, extended by SPEC-030, tightened by SPEC-033).
 
 Two checks run before the user is created, in order:
 
-1. Username pattern (SPEC-012). The username becomes the user's S3 prefix and the
-   value of the ``username`` IAM principal tag (SPEC-011/013), so it must be safe
-   for both: no ``/`` (prefix delimiter), no spaces, no ``=`` or ``,`` (IAM tag
-   syntax). Authoritative rule (FR-001), kept in sync with the landing-page text:
-       ^[a-zA-Z0-9._@-]{3,64}$
+1. Username pattern (SPEC-012, tightened by SPEC-033 FR-001). This single string is
+   reused, verbatim and unsanitised, as ALL of:
+     - the user's S3 prefix          s3://<user-space>/<username>/...   (SPEC-013)
+     - the ``username`` IAM principal/session tag value                (SPEC-011)
+     - the user's Glue database name  database/<username>               (SPEC-033)
+   They must never diverge, so the username has to be simultaneously S3-prefix-safe,
+   IAM-tag-safe (no ``/``/spaces/``=``/``,``), AND a valid Glue/Athena identifier.
+   Authoritative rule (FR-001):
+       ^[a-z][a-z0-9_]{2,62}$
+   i.e. 3-63 chars, starts with a lowercase letter, then lowercase letters, digits,
+   or underscores. SPEC-033 tightened this from the original ``^[a-zA-Z0-9._@-]{3,64}$``
+   (which allowed email-style ``@ . -`` usernames) so the Glue database name is legal;
+   safe to change because no production users exist yet.
 
 2. Disposable email domain blocklist (SPEC-030 FR-003). Bots commonly use
    throwaway inbox services to clear the email-verification step; rejecting the
@@ -17,7 +25,7 @@ Pure validation -- no AWS API calls. The execution role grants logs only.
 
 import re
 
-USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9._@-]{3,64}$")
+USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 
 # Common disposable / throwaway email providers (SPEC-030 FR-003). Lowercase;
 # the incoming domain is normalised before lookup.
@@ -44,7 +52,8 @@ def handler(event, context):
     if not USERNAME_PATTERN.fullmatch(username):
         # Raising fails the signup; Cognito surfaces this message on the Hosted UI.
         raise Exception(
-            "Username must be 3-64 characters using only letters, numbers, . _ @ -"
+            "Username must be 3-63 characters, start with a letter, and use only "
+            "lowercase letters, numbers, and underscores"
         )
 
     # 2. Disposable email domain blocklist (SPEC-030). Skipped defensively when no
