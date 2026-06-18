@@ -57,3 +57,13 @@ output "pre_signup_function_name" {
   description = "Name of the pre-signup validation Lambda (SPEC-012). The deploy-lambdas workflow targets this for update-function-code."
   value       = module.auth.pre_signup_function_name
 }
+
+output "athena_workgroup_name" {
+  description = "Name of the shared Athena workgroup (SPEC-032). Set VITE_ATHENA_WORKGROUP to this value (consumed by the app starting SPEC-034)."
+  value       = module.analytics.athena_workgroup_name
+}
+
+output "athena_admin_bucket_name" {
+  description = "Name of the admin-only Athena results bucket (SPEC-032). Exported for ops; not consumed by the app."
+  value       = module.analytics.athena_admin_bucket_name
+}

@@ -411,11 +411,11 @@ User enters: bucket prefix → "project-alpha/"
 | CloudFront Distribution | `*.cloudfront.net` / custom domain | Serves the SPA; routes all paths to index.html | ✓ SPEC-003 | OAC origin; custom error response 403/404 → index.html |
 | GitHub Actions OIDC Role | `arn:aws:iam:::role/S3PortalDeployRole` | Allows CI/CD to deploy without stored credentials | ✓ SPEC-003 | Scoped to main branch of repo |
 | ACM Certificate | `arn:aws:acm:us-east-1:...` | HTTPS for custom domain | ✗ manual | Must be in us-east-1 for CloudFront; DNS validation is manual |
-| Athena Workgroup | `{project}-prod-portal-wg` | Shared workgroup all users query through | ✓ SPEC-032 (draft) | Enforcement off; app sets per-user `OutputLocation` = `{username}/athenaresults/`; default output → admin bucket; engine v3 |
-| S3 Bucket — Athena Admin | `{project}-prod-athena-admin` | Workgroup default/fallback output; future admin/audit | ✓ SPEC-032 (draft) | Private; **no user access**; results lifecycle expiry |
-| S3 prefix — per-user results | `{user-space-bucket}/{username}/athenaresults/` | User-facing query results + history JSON | ✓ SPEC-032/034 (draft) | In user-space bucket; user can read; IAM **denies delete**; UI-locked |
-| Lake Formation — data-lake settings | account-level | LF enforcement (no default Super grant); admins = deploy role + provisioner Lambda | ✓ SPEC-032 (draft) | **No LF-Tags**; isolation is the IAM `username` principal tag on Glue ARNs |
-| Lake Formation — hybrid-mode registration | user-space bucket location | Dual IAM (file browser) + LF (Athena) access | ✓ SPEC-032 (draft) | Don't flip to enforced mode without opting in all principals |
+| Athena Workgroup | `{project}-prod-portal-wg` | Shared workgroup all users query through | ✓ SPEC-032 | Enforcement off; app sets per-user `OutputLocation` = `{username}/athenaresults/`; default output → admin bucket; engine v3 |
+| S3 Bucket — Athena Admin | `{project}-prod-athena-admin` | Workgroup default/fallback output; future admin/audit | ✓ SPEC-032 | Private; **no user access**; results lifecycle expiry |
+| S3 prefix — per-user results | `{user-space-bucket}/{username}/athenaresults/` | User-facing query results + history JSON | ✓ SPEC-032/034 | In user-space bucket; user can read; IAM **denies delete**; UI-locked |
+| Lake Formation — data-lake settings | account-level | LF enforcement (no default Super grant); admins = deploy role + provisioner Lambda | ✓ SPEC-032 | **No LF-Tags**; isolation is the IAM `username` principal tag on Glue ARNs |
+| Lake Formation — hybrid-mode registration | user-space bucket location | Dual IAM (file browser) + LF (Athena) access | ✓ SPEC-032 | Don't flip to enforced mode without opting in all principals |
 | Glue Database (per user) | `{username}` (verbatim) | Each user's private catalog database | ✓ SPEC-033 (draft) | Created by post-confirmation Lambda; LF grant to shared role; isolated by IAM `database/${aws:PrincipalTag/username}` |
 | Lambda — Post-Confirmation Trigger | `{project}-{env}-post-confirmation` | Creates user's Glue DB + LF-grants the shared role on it at signup | ✓ SPEC-033 (draft) | python3.12; LF-admin exec role; idempotent, never blocks signup |
 
@@ -684,7 +684,7 @@ Add staging environment here when it is provisioned.
 | SPEC-018 | Delete files and folders (multi-select, recursive) | Completed |
 | SPEC-019 | Move & rename (files and folders) — copy+delete | Completed |
 | SPEC-020 | Upload queue (multi-file, concurrency, cancel) | Completed |
-| SPEC-032 | Analytics foundation IaC — shared Athena workgroup, per-user results bucket, Lake Formation (admin, LF-Tag, ABAC grant, hybrid-mode registration), portal-role Athena/Glue/LF permissions | Draft |
+| SPEC-032 | Analytics foundation IaC — shared Athena workgroup, admin results bucket, Lake Formation (admin + enforcement, hybrid-mode registration, data-location grant), portal-role Athena/Glue/LF permissions, deploy-role expansion | Completed |
 | SPEC-033 | Per-user Glue database provisioning — Cognito post-confirmation Lambda + LF-Tag assignment/grant | Draft |
 | SPEC-034 | Query engine data layer — Athena/Glue services, paginated results, per-user `query-history.json`, TanStack Query | Draft |
 | SPEC-035 | Tabbed dashboard + query workspace UI — Files\|Query nav, Monaco SQL editor, schema browser, results table (design-led) | Draft |

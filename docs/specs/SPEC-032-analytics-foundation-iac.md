@@ -1,7 +1,7 @@
 # Spec: Analytics Foundation IaC — Athena Workgroup, Lake Formation, Results Layout
 
 **ID:** SPEC-032
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-17
 **Depends On:** SPEC-010 (user-space bucket), SPEC-011 (Identity Pool + portal role + `username` principal tag), SPEC-013 (prefix-scoped role policy)
 
@@ -205,7 +205,7 @@ infra/
 
 ## Open Questions
 
-- [ ] **Data-lake admin / Lambda-role ordering.** FR-004 needs the SPEC-033 Lambda role as an LF admin, but that role is created in SPEC-033. Resolve via `lambda_provisioner_role_arn` variable (SPEC-033 fills it) consumed here, keeping the dependency one-directional. Confirm before SPEC-033 ships.
+- [x] **Resolved (2026-06-17, implementation).** Data-lake admin / Lambda-role ordering: `lambda_provisioner_role_arn` is **optional (default `""`)** and the LF `admins` list is `compact([deploy_role_arn, lambda_provisioner_role_arn])`, so SPEC-032 deploys standalone with just the deploy role as admin. SPEC-033 fills the variable (its post-confirmation Lambda role) and a re-apply adds it as an LF admin — dependency stays one-directional. (Deviates from the spec's "Required: yes" for this var; necessary because 032 ships before 033.)
 - [x] **Resolved (2026-06-17, user decision):** **no lifecycle expiry** on `{username}/athenaresults/` — results are kept **indefinitely**. The user can't delete them (delete-deny), so result objects + history accumulate in the user's prefix until a future admin/deprovisioning process clears them. (The admin-only workgroup bucket, FR-003, keeps its own short lifecycle.) Revisit if storage growth becomes a concern.
 - [x] **Resolved (2026-06-17):** isolation is the **IAM `username` principal tag** scoping the Glue database/table ARN — **not** LF-Tags. LF grants the shared role full access per-database (issued by the SPEC-033 Lambda); IAM is the per-user gate. Requires DB name = username (SPEC-033 catalog-safe username rule).
 - [x] **Resolved (2026-06-17):** single shared role retained (no per-user roles); same workgroup for all users.
