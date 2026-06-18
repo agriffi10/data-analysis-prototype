@@ -20,6 +20,9 @@ before relying on them. Paths are relative to the repo root.
 |---|---|---|
 | `getS3Client(forceRefresh?)` | `lib/s3Client.ts` | Authenticated S3 client from Amplify/Identity-Pool creds; `ServiceResult<S3Client>`. Pass `true` to force a credential refresh on expiry. |
 | `s3Client` | `lib/s3Client.ts` | Dev-only unsigned/static-cred S3 client singleton (SPEC-002 dev-unauth path). |
+| `getAthenaClient(forceRefresh?)` / `getGlueClient(forceRefresh?)` | `lib/athenaClient.ts` / `lib/glueClient.ts` | Authenticated Athena/Glue clients from the same scoped Identity-Pool creds (SPEC-034); `ServiceResult<...Client>`. |
+| `getSessionCredentials(forceRefresh?)` | `lib/awsCredentials.ts` | Fetch the signed-in user's scoped Identity-Pool credentials; shared by the Athena/Glue client builders (SPEC-034). |
+| `withCredentialRetry(getClient, op)` / `isExpiryError(code?)` | `lib/credentialRetry.ts` | Run an authenticated op with one transparent refresh-and-retry on credential-expiry; shared by the S3/Athena/Glue services (SPEC-034). |
 | `queryClient` | `lib/queryClient.ts` | App-wide TanStack `QueryClient` (staleTime 30s, retry 1, no refetch-on-focus). |
 | `invalidateListing(client, bucket, prefix)` | `lib/queryClient.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). |
 | `isAmplifyConfigured` | `lib/amplify.ts` | Boolean — whether Cognito/Amplify env is configured. |
@@ -128,3 +131,32 @@ Public barrel: `features/file-browser/index.ts`.
 | `MULTIPART_PART_SIZE`, `MAX_UPLOAD_BYTES`, `PART_CONCURRENCY` | `fileBrowser.types.ts` | Managed-upload tuning constants. |
 | `UploadItem`, `UploadStatus`, `UPLOAD_CONCURRENCY`, `TERMINAL_STATUSES` | `upload.types.ts` | Upload-queue item shape, lifecycle status (`queued`→`uploading`→`collision`→`done`/`failed`/`cancelled`), file-concurrency limit (SPEC-020). |
 | `prefixMarkerKey(username)`, `PREFIX_MARKER_FILENAME`, `PREFIX_MARKER_BODY` | `fileBrowser.constants.ts` | Prefix-marker (`DO_NOT_DELETE.txt`) helpers. |
+
+## Query feature (`apps/portal/src/features/query/`)
+
+Public barrel: `features/query/index.ts`. Data layer for the Athena query workspace (SPEC-034); **no UI** (SPEC-035/036 build it). All services return `ServiceResult<T>`, never throw.
+
+### Services
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `runQuery({ sql, database, username })` | `query.service.ts` | `StartQueryExecution` against the shared workgroup, results → the caller's own `{username}/athenaresults/`. Type-agnostic (SELECT + DDL). `ServiceResult<{ queryExecutionId }>`. |
+| `getQueryStatus(id)` | `query.service.ts` | `GetQueryExecution` → `QueryStatus` (state/reason/stats/outputLocation). |
+| `getQueryResults({ queryExecutionId, nextToken?, maxRows? })` | `query.service.ts` | `GetQueryResults` → typed `QueryResultPage` (first-page header row stripped; paginates via `nextToken`). DDL → empty page. |
+| `getResultCsvUrl({ queryExecutionId, outputLocation })` | `query.service.ts` | Presigned CSV download of the raw result object (reuses `getDownloadUrl`). `ServiceResult<DownloadUrl>`. |
+| `stopQuery(id)` | `query.service.ts` | `StopQueryExecution` → CANCELLED. |
+| `isTerminalState(state)` | `query.service.ts` | Is a `QueryState` terminal (SUCCEEDED/FAILED/CANCELLED)? |
+| `getDatabase(name)` / `listTables(name)` | `glue.service.ts` | The user's own Glue DB + its tables/columns (paginated). Missing DB → `NotFound` / empty list, never thrown. |
+| `getQueryHistory(username)` / `appendQueryHistory(username, entry)` / `updateQueryHistoryEntry(username, id, patch)` | `queryHistory.service.ts` | Per-user history JSON at `{username}/athenaresults/query-history.json` — read (missing/corrupt → empty), prepend+cap, in-place update. PutObject-only (no delete); read-only to the user. |
+
+### Hooks, keys, types, constants
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `useQueryExecution(id \| null)` | `useQueryExecution.ts` | Polls `getQueryStatus` via `refetchInterval` until terminal or `MAX_POLL_DURATION_MS`; disabled when null. |
+| `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Paginated results via `useInfiniteQuery` (page size/pager UX set by SPEC-038). |
+| `useSchema(db \| null)` + `invalidateSchema(client, db)` | `useSchema.ts` | DB + tables for the schema browser; invalidation helper to refresh after DDL. |
+| `useQueryHistory(username \| null)` | `useQueryHistory.ts` | History list + `appendEntry`/`updateEntry` mutations (cache-seeding). |
+| `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |
+| `QueryState`, `QueryStatus`, `QueryColumn`, `QueryResultPage`, `GlueColumn`, `GlueTableSummary`, `QueryHistoryEntry`, `QueryHistory` | `query.types.ts` | Feature data types. |
+| `POLL_INTERVAL_MS`, `MAX_POLL_DURATION_MS`, `DEFAULT_MAX_ROWS`, `QUERY_HISTORY_MAX` | `query.constants.ts` | Polling cadence/guard, default page size, history cap. |

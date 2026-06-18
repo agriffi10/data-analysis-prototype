@@ -263,9 +263,9 @@ aws lakeformation list-permissions \
 aws logs tail /aws/lambda/dat-prod-post-confirmation --since 10m
 ```
 
-- [ ] **(deploy-gated)** `get-database` returns `alice`; `list-permissions` shows the grant; logs show success.
-- [ ] **(deploy-gated)** A signup with `alice@corp` or `Alice` is rejected by the tightened pre-signup rule (FR-001); no database is created.
-- [ ] **(deploy-gated)** No tables exist in the database (`aws glue get-tables --database-name alice` → empty).
+- [x] **(deploy-gated)** `get-database` returns `alice`; `list-permissions` shows the grant; logs show success. _(verified 2026-06-18)_
+- [x] **(deploy-gated)** A signup with `alice@corp` or `Alice` is rejected by the tightened pre-signup rule (FR-001); no database is created. _(verified 2026-06-18)_
+- [x] **(deploy-gated)** No tables exist in the database (`aws glue get-tables --database-name alice` → empty). _(verified 2026-06-18)_
 
 ### Backfill for pre-existing users (SPEC-033 FR-004)
 
@@ -309,9 +309,9 @@ aws logs tail /aws/lambda/dat-prod-post-confirmation --since 5m --format short
 With two confirmed users `alice` and `bob`, signed in as alice using her live session
 credentials (dev console / hand-crafted SDK calls):
 
-- [ ] **(deploy-gated)** alice can `GetDatabase`/`GetTables`, run `CREATE EXTERNAL TABLE` + `SELECT` in **her** `alice` database, and write results to `alice/athenaresults/`.
-- [ ] **(deploy-gated)** alice gets `AccessDenied` (IAM Glue ARN scoping) for the same calls against `bob`'s database.
-- [ ] **(deploy-gated)** alice cannot delete anything under `alice/athenaresults/` (delete-deny).
+- [x] **(deploy-gated)** alice can `GetDatabase`/`GetTables`, run `CREATE EXTERNAL TABLE` + `SELECT` in **her** `alice` database, and write results to `alice/athenaresults/`. _(verified 2026-06-18)_
+- [x] **(deploy-gated)** alice gets `AccessDenied` (IAM Glue ARN scoping) for the same calls against `bob`'s database. _(verified 2026-06-18)_
+- [x] **(deploy-gated)** alice cannot delete anything under `alice/athenaresults/` (delete-deny). _(verified 2026-06-18)_
 
 ## Cleanup
 

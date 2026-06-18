@@ -11,6 +11,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getS3Client, s3Client } from '../../lib/s3Client';
+import { isExpiryError, withCredentialRetry } from '../../lib/credentialRetry';
 import type { FileListPage } from '../../types/s3.types';
 import type { ServiceResult } from '../../types/service.types';
 import type {
@@ -31,15 +32,9 @@ import {
   prefixMarkerKey,
 } from './fileBrowser.constants';
 
-// SDK error names that mean the temporary credentials have expired mid-session.
-// SPEC-013 FR-003: on these, retry once with getS3Client(true) so Amplify
-// refreshes the Identity Pool credentials before the error is surfaced.
-const EXPIRY_ERROR_CODES = new Set([
-  'ExpiredToken',
-  'ExpiredTokenException',
-  'CredentialsProviderError',
-  'InvalidToken',
-]);
+// Credential-expiry detection + one-shot refresh-and-retry now live in the shared
+// src/lib/credentialRetry helper (SPEC-034 FR-001), reused by the S3/Athena/Glue
+// services. SPEC-013 FR-003 behavior is unchanged.
 
 // Dev-only escape hatch (SPEC-013): browse a public/static test bucket without
 // auth for local work without AWS. Honoured ONLY in a dev build, so the
@@ -74,10 +69,6 @@ export async function listFiles(
   const refreshed = await getS3Client(true);
   if (!refreshed.success) return refreshed;
   return listWithClient(refreshed.data, bucket, prefix, continuationToken);
-}
-
-function isExpiryError(code?: string): boolean {
-  return code !== undefined && EXPIRY_ERROR_CODES.has(code);
 }
 
 async function listWithClient(
@@ -157,15 +148,7 @@ function folderName(folderPrefix: string, parentPrefix?: string): string {
 async function withAuthenticatedClient<T>(
   op: (client: S3Client) => Promise<ServiceResult<T>>,
 ): Promise<ServiceResult<T>> {
-  const clientResult = await getS3Client();
-  if (!clientResult.success) return clientResult;
-
-  const result = await op(clientResult.data);
-  if (result.success || !isExpiryError(result.error.code)) return result;
-
-  const refreshed = await getS3Client(true);
-  if (!refreshed.success) return refreshed;
-  return op(refreshed.data);
+  return withCredentialRetry(getS3Client, op);
 }
 
 function toServiceError(err: unknown, fallback: string) {

@@ -27,7 +27,7 @@ AWS directly with scoped credentials. Status: greenfield, no production users ye
 | Layer | Tech |
 |---|---|
 | Frontend | React 18 + Vite, TypeScript (strict), TailwindCSS |
-| AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; (analytics: `@aws-sdk/client-athena`/`-glue` + Monaco, at SPEC-034/035) |
+| AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034); (Monaco at SPEC-035) |
 | Routing / state | `react-router-dom` v7; TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library; ESLint + Prettier |
 | IaC | OpenTofu (HCL, S3 remote state) |
