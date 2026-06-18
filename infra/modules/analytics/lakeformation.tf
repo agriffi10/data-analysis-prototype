@@ -12,13 +12,16 @@
 # Until then, FR-006's Glue IAM scoping + this enforcement simply deny catalog
 # access — the correct, safe state.
 resource "aws_lakeformation_data_lake_settings" "this" {
-  # Admins can grant/revoke and register locations. The deploy role runs the IaC;
-  # the SPEC-033 provisioner Lambda issues the per-database grants, so its exec role
-  # is added here too (the root wires module.auth's output into
-  # lambda_provisioner_role_arn). compact() still drops the ARN when empty, so the
-  # module also plans standalone (e.g. before auth exists) — resolving the original
-  # cross-spec ordering question.
-  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn])
+  # Admins can grant/revoke and register locations:
+  #   - deploy role           — runs the IaC
+  #   - provisioner Lambda     — issues per-database grants (root wires module.auth's
+  #                              output into lambda_provisioner_role_arn)
+  #   - lf_admin role (iam.tf) — human-assumable by the account ROOT user for manual
+  #                              catalog inspection/management
+  # All ARNs are KNOWN at plan time (constructed strings); an unknown element inside
+  # this compact() silently drops the admins change. compact() also drops any empty
+  # ARN so the module still plans standalone (e.g. before auth exists).
+  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, local.lf_admin_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.
@@ -32,7 +35,9 @@ resource "aws_lakeformation_data_lake_settings" "this" {
     principal   = "IAM_ALLOWED_PRINCIPALS"
   }
 
-  depends_on = [time_sleep.wait_for_deploy_policy]
+  # aws_iam_role.lf_admin: the role must exist before it's named as an admin (LF
+  # doesn't validate principal existence, but this keeps create ordering clean).
+  depends_on = [time_sleep.wait_for_deploy_policy, aws_iam_role.lf_admin]
 }
 
 # ── Hybrid-mode registration of the user-space bucket (SPEC-032 FR-005) ──────
