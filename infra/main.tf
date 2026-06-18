@@ -42,6 +42,17 @@ locals {
   athena_workgroup_name    = var.workgroup_name != "" ? var.workgroup_name : "${var.project_name}-prod-portal-wg"
   athena_admin_bucket_name = var.athena_admin_bucket_name != "" ? var.athena_admin_bucket_name : "${var.project_name}-prod-athena-admin"
   athena_admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
+
+  # Post-confirmation Lambda exec role ARN (SPEC-033), constructed the same
+  # cycle-free way as the portal/deploy roles. The auth module creates this role as
+  # "${project_name}-${environment}-post-confirmation-role"; analytics adds it as a
+  # Lake Formation admin. It MUST be a constructed string (not module.auth's output)
+  # so the value is KNOWN AT PLAN TIME: when it flowed through module.auth's output it
+  # was unknown during the apply that creates the role, and an unknown inside the
+  # compact() in the LF data-lake settings caused OpenTofu to silently drop the admin
+  # change — the role never became an LF admin and provisioning grants failed. Apply
+  # ordering (auth -> data -> analytics) still guarantees the role exists first.
+  post_confirmation_exec_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-post-confirmation-role"
 }
 
 module "app" {
@@ -143,9 +154,10 @@ module "analytics" {
   deploy_role_arn       = local.deploy_role_arn
 
   # SPEC-033: the post-confirmation Lambda's exec role, added as a Lake Formation
-  # admin so it can issue per-database grants. Sourced from module.auth's output
-  # (dependency stays one-directional: analytics consumes auth, never the reverse).
-  lambda_provisioner_role_arn = module.auth.post_confirmation_exec_role_arn
+  # admin so it can issue per-database grants. Constructed string (see locals above)
+  # — NOT module.auth's output — so it's known at plan time; otherwise the unknown
+  # value broke the compact() in the LF admins list and the grant silently dropped.
+  lambda_provisioner_role_arn = local.post_confirmation_exec_role_arn
 
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF

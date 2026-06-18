@@ -29,6 +29,6 @@ output "post_confirmation_function_name" {
 }
 
 output "post_confirmation_exec_role_arn" {
-  description = "ARN of the post-confirmation Lambda execution role (SPEC-033). Consumed by module.analytics as lambda_provisioner_role_arn — added as a Lake Formation admin (SPEC-032 FR-004) so the Lambda can issue per-database grants."
+  description = "ARN of the post-confirmation Lambda execution role (SPEC-033). Informational — module.analytics adds this role as a Lake Formation admin via a CONSTRUCTED ARN string (root locals), not this output, so the value is known at plan time (an unknown here broke the compact() in the LF admins list and silently dropped the grant)."
   value       = aws_iam_role.post_confirmation.arn
 }
