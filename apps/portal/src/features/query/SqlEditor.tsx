@@ -45,6 +45,8 @@ export type SqlEditorHandle = {
   // Insert text at the current cursor/selection (schema-browser click-to-insert,
   // FR-007). Refocuses the editor afterward.
   insertAtCursor: (text: string) => void;
+  // Focus the editor (used after re-opening a history entry, SPEC-036 FR-003).
+  focus: () => void;
 };
 
 type SqlEditorProps = {
@@ -74,6 +76,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
           { range: selection, text, forceMoveMarkers: true },
         ]);
         editor.focus();
+      },
+      focus() {
+        editorRef.current?.focus();
       },
     }));
 

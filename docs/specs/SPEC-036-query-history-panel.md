@@ -1,8 +1,8 @@
 # Spec: Query History Panel UI
 
 **ID:** SPEC-036
-**Status:** Draft
-**Last Updated:** 2026-06-17
+**Status:** Completed
+**Last Updated:** 2026-06-18
 **Depends On:** SPEC-034 (per-user history store + `useQueryHistory`), SPEC-035 (query workspace + editor)
 
 > **Design:** Design-led. Build to the history panel in `docs/design/query-workspace.html` and `docs/design/design-system.md` §6 (the "drawer pattern (query history / saved queries)" reuse noted there). Visuals follow the design; behavior/data wiring follows this spec.

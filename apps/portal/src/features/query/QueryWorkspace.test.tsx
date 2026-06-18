@@ -158,4 +158,36 @@ describe('QueryWorkspace', () => {
       screen.getByRole('button', { name: /Download CSV/ }),
     ).toBeInTheDocument();
   });
+
+  it('re-runs a history entry from the history panel', async () => {
+    mockRunQuery.mockResolvedValue({
+      success: true,
+      data: { queryExecutionId: 'q-2' },
+    });
+    mockUseHistory.mockReturnValue({
+      history: [
+        {
+          queryExecutionId: 'old',
+          sql: 'SELECT 42',
+          database: 'alice',
+          submittedAt: new Date().toISOString(),
+          status: 'SUCCEEDED',
+        },
+      ],
+      isLoading: false,
+      error: null,
+      appendEntry,
+      updateEntry,
+    });
+
+    renderWorkspace();
+    fireEvent.click(screen.getByRole('button', { name: /History/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-run' }));
+
+    expect(mockRunQuery).toHaveBeenCalledTimes(1);
+    expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
+      sql: 'SELECT 42',
+      database: 'alice',
+    });
+  });
 });

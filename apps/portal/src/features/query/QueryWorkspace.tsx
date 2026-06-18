@@ -17,7 +17,9 @@ import { invalidateSchema } from './useSchema';
 import { SchemaBrowser } from './SchemaBrowser';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
+import { QueryHistoryPanel } from './QueryHistoryPanel';
 import type { SqlEditorHandle } from './SqlEditor';
+import type { QueryHistoryEntry } from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
@@ -50,6 +52,7 @@ export function QueryWorkspace() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const editorRef = useRef<SqlEditorHandle>(null);
   const submittedSqlRef = useRef('');
@@ -68,14 +71,14 @@ export function QueryWorkspace() {
   const columns = resultPages[0]?.columns ?? [];
   const rows = resultPages.flatMap((page) => page.rows);
 
-  const handleRun = () => {
-    const trimmed = sql.trim();
-    if (!trimmed || !database || isInFlight) return;
+  // Submit a specific SQL string (shared by Run and history Re-run).
+  const submit = (sqlText: string) => {
+    if (!sqlText.trim() || !database || isInFlight) return;
     setRunError(null);
     setErrorDismissed(false);
-    submittedSqlRef.current = sql;
+    submittedSqlRef.current = sqlText;
     void (async () => {
-      const result = await runQuery({ sql, database, username });
+      const result = await runQuery({ sql: sqlText, database, username });
       if (!result.success) {
         setRunError(result.error.message);
         return;
@@ -87,16 +90,32 @@ export function QueryWorkspace() {
       // Append-at-submit (SPEC-034 FR-007); terminal status filled in below.
       appendEntry({
         queryExecutionId: id,
-        sql,
+        sql: sqlText,
         database,
         submittedAt: new Date().toISOString(),
       }).catch((e) => console.warn('[query-history] append failed', e));
     })();
   };
 
+  const handleRun = () => submit(sql);
+
   const handleStop = () => {
     if (!executionId) return;
     void stopQuery(executionId); // poller observes CANCELLED
+  };
+
+  // SPEC-036: re-open loads the entry's SQL into the editor (no auto-run);
+  // re-run loads it and submits (a new history entry is appended by submit).
+  const handleReopen = (entry: QueryHistoryEntry) => {
+    setSql(entry.sql);
+    setHistoryOpen(false);
+    editorRef.current?.focus();
+  };
+  const handleRerun = (entry: QueryHistoryEntry) => {
+    if (isInFlight) return;
+    setSql(entry.sql);
+    setHistoryOpen(false);
+    submit(entry.sql);
   };
 
   // Once the execution reaches a terminal state, record its status/stats in
@@ -167,6 +186,21 @@ export function QueryWorkspace() {
             querying <code className="font-mono text-text">{database}</code>
           </span>
           <div className="flex-1" />
+          <Button variant="ghost" onClick={() => setHistoryOpen(true)}>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 8v5l3 2" />
+            </svg>
+            History
+          </Button>
           {isInFlight ? (
             <Button
               variant="ghost"
@@ -260,6 +294,15 @@ export function QueryWorkspace() {
           )}
         </div>
       </main>
+
+      <QueryHistoryPanel
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        username={username}
+        onReopen={handleReopen}
+        onRerun={handleRerun}
+        rerunDisabled={isInFlight}
+      />
     </div>
   );
 }
