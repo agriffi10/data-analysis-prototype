@@ -1,6 +1,7 @@
 import { useAuth } from '../features/auth';
 import { BrandMark } from './BrandMark';
 import { Button } from './Button';
+import { PrimaryNav } from './PrimaryNav';
 
 export function Header() {
   const { status, user, error, signIn, signOut } = useAuth();
@@ -9,6 +10,9 @@ export function Header() {
     <header className="h-14 bg-surface border-b border-border">
       <div className="flex h-full items-center gap-4 px-4">
         <BrandMark />
+
+        {/* Primary tabs (Files | Query) — authenticated shell only (FR-001). */}
+        {status === 'authenticated' && <PrimaryNav />}
 
         <div className="flex-1" />
 

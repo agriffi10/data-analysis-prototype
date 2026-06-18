@@ -38,10 +38,10 @@ Add a row when a spec is created; update its status on completion (status only �
 | 030 — Cognito Bot Signup Protection (WAF + ASF) | Completed |
 | 031 — Document Title Management | Completed |
 | 032 — Analytics Foundation IaC (Athena workgroup + admin bucket + Lake Formation) | Completed |
-| 033 — Per-User Glue Database Provisioning (post-confirmation Lambda + LF grant) | Draft |
-| 034 — Query Engine Data Layer (Athena/Glue services + per-user history) | Draft |
-| 035 — Tabbed Dashboard + Query Workspace UI (Monaco editor) | Draft |
-| 036 — Query History Panel UI | Draft |
+| 033 — Per-User Glue Database Provisioning (post-confirmation Lambda + LF grant) | Completed |
+| 034 — Query Engine Data Layer (Athena/Glue services + per-user history) | Completed |
+| 035 — Tabbed Dashboard + Query Workspace UI (Monaco editor) | Completed |
+| 036 — Query History Panel UI | Completed |
 | 037 — File Browser Pagination (25/page, Load more) | Draft |
 | 038 — Query Results Pagination (20 rows/page, Prev/Next) | Draft |
 | 039 — Copy Files and Folders (recursive) | Draft |

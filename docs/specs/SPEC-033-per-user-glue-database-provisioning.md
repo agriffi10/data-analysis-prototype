@@ -1,8 +1,8 @@
 # Spec: Per-User Glue Database Provisioning — Post-Confirmation Lambda + LF Grant
 
 **ID:** SPEC-033
-**Status:** Draft
-**Last Updated:** 2026-06-17
+**Status:** Completed
+**Last Updated:** 2026-06-18
 **Depends On:** SPEC-006 (User Pool), SPEC-011 (portal role + `username` principal tag), SPEC-012 (Lambda infra pattern + `deploy-lambdas.yml` + artifacts bucket; username rule amended here), SPEC-032 (workgroup, LF enforcement bootstrap, hybrid registration)
 
 ## Overview

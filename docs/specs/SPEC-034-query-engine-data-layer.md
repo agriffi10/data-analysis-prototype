@@ -1,8 +1,8 @@
 # Spec: Query Engine Data Layer — Athena/Glue Services + Per-User History
 
 **ID:** SPEC-034
-**Status:** Draft
-**Last Updated:** 2026-06-17
+**Status:** Completed
+**Last Updated:** 2026-06-18
 **Depends On:** SPEC-011 (`getS3Client()` + scoped credentials), SPEC-013 (user-space prefix derivation), SPEC-015 (TanStack Query foundation, `ServiceResult`, presigned-URL pattern), SPEC-032 (workgroup, results bucket, IAM), SPEC-033 (per-user Glue database)
 
 ## Overview

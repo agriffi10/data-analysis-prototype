@@ -1,0 +1,122 @@
+import { useEffect, useState } from 'react';
+import { formatBytes, formatDurationMs } from './query.format';
+import type { QueryStatus } from './query.types';
+
+type QueryStatusBarProps = {
+  status?: QueryStatus;
+  isInFlight: boolean;
+  startedAt: number | null;
+  rowCount?: number;
+  hasMoreRows?: boolean;
+  onDownloadCsv: () => void;
+};
+
+// SPEC-035 FR-005: slim execution-status bar below the editor. An accessible live
+// region; state is never color-only (icon/spinner + text). FAILED's reason is
+// shown by the workspace's danger Banner — here it's just a terminal indicator.
+export function QueryStatusBar({
+  status,
+  isInFlight,
+  startedAt,
+  rowCount,
+  hasMoreRows,
+  onDownloadCsv,
+}: QueryStatusBarProps) {
+  // Tick once a second while in flight so the elapsed time advances. The initial
+  // tick is scheduled async (setTimeout) rather than set synchronously in the
+  // effect body, so the first render's elapsed appears within a frame.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    if (!isInFlight) return;
+    const update = () => setNowTick(Date.now());
+    const initial = setTimeout(update, 0);
+    const timer = setInterval(update, 1000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, [isInFlight]);
+
+  const elapsedMs =
+    isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
+  const state = status?.state;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex h-11 flex-none items-center gap-3 border-b border-border bg-surface px-5 text-sm"
+    >
+      {isInFlight && (
+        <>
+          <span className="inline-flex items-center gap-2 font-semibold text-accent-text">
+            <span
+              className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent-soft border-t-accent"
+              aria-hidden="true"
+            />
+            {state === 'QUEUED' ? 'Queued…' : 'Running…'}
+          </span>
+          <span className="text-text-2">
+            elapsed {formatDurationMs(elapsedMs)}
+            {status?.dataScannedBytes !== undefined &&
+              ` · ${formatBytes(status.dataScannedBytes)} scanned`}
+          </span>
+          <span
+            className="h-1.5 w-40 overflow-hidden rounded-full bg-accent-soft"
+            aria-hidden="true"
+          >
+            <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" />
+          </span>
+        </>
+      )}
+
+      {!isInFlight && state === 'SUCCEEDED' && (
+        <>
+          <span className="inline-flex items-center gap-2 font-semibold text-success">
+            <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
+            Succeeded
+          </span>
+          <span className="text-text-2">
+            {rowCount ?? 0}
+            {hasMoreRows ? '+' : ''} rows ·{' '}
+            {formatBytes(status?.dataScannedBytes)} scanned ·{' '}
+            {formatDurationMs(status?.engineExecutionTimeMillis)}
+          </span>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={onDownloadCsv}
+            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M12 4v12M7 11l5 5 5-5" />
+              <path d="M5 20h14" />
+            </svg>
+            Download CSV
+          </button>
+        </>
+      )}
+
+      {!isInFlight && state === 'FAILED' && (
+        <span className="inline-flex items-center gap-2 font-semibold text-danger">
+          <span className="h-2 w-2 rounded-full bg-danger" aria-hidden="true" />
+          Failed
+        </span>
+      )}
+
+      {!isInFlight && state === 'CANCELLED' && (
+        <span className="inline-flex items-center gap-2 font-semibold text-text-2">
+          <span className="h-2 w-2 rounded-full bg-text-3" aria-hidden="true" />
+          Cancelled
+        </span>
+      )}
+    </div>
+  );
+}

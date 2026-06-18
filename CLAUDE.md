@@ -27,7 +27,8 @@ AWS directly with scoped credentials. Status: greenfield, no production users ye
 | Layer | Tech |
 |---|---|
 | Frontend | React 18 + Vite, TypeScript (strict), TailwindCSS |
-| AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; (analytics: `@aws-sdk/client-athena`/`-glue` + Monaco, at SPEC-034/035) |
+| AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034) |
+| Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router-dom` v7; TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library; ESLint + Prettier |
 | IaC | OpenTofu (HCL, S3 remote state) |
@@ -53,7 +54,7 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 ## Specs
 
 Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own `Status`.
-**Current work:** analytics arc SPEC-032→036 (in-app Athena query workspace), then pagination/copy (037–039).
+**Current work:** analytics arc SPEC-032→036 (in-app Athena query workspace) is **complete**; next is pagination/copy (037–039).
 
 ---
 

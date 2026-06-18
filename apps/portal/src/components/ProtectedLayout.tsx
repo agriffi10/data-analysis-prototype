@@ -2,16 +2,13 @@ import { type ReactNode } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../features/auth';
 import { setReturnPath } from '../lib/returnPath';
-import { Sidebar } from './Sidebar';
 
-// Authenticated app shell: left nav sidebar + the routed page content.
+// Authenticated app shell. The left rail is owned by each route's page (the file
+// browser renders <Sidebar>, the query workspace renders its schema browser —
+// which needs the editor wiring, so it can't live in the shell), so this is just
+// the row container the page fills (SPEC-035 FR-002).
 function AppShell({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-1">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-    </div>
-  );
+  return <div className="flex flex-1">{children}</div>;
 }
 
 // Auth gate for protected routes (FR-003). Nested inside RootLayout, so the

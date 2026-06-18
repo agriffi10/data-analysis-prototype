@@ -1,8 +1,8 @@
 # Spec: Tabbed Dashboard + Query Workspace UI
 
 **ID:** SPEC-035
-**Status:** Draft
-**Last Updated:** 2026-06-17
+**Status:** Completed
+**Last Updated:** 2026-06-18
 **Depends On:** SPEC-008 (auth-gated layout + react-router), SPEC-023 (app shell), SPEC-028 (shared UI primitives), SPEC-034 (query engine data layer), SPEC-033 (per-user database exists)
 
 > **Design:** This spec is design-led. Build it to `docs/design/query-workspace.html` (the query-workspace mockup) and the additions in `docs/design/design-system.md` §6 (Data analysis surface). Where this spec and the design disagree, the design system wins for visuals; this spec wins for behavior/data wiring.
@@ -164,5 +164,5 @@ Signed in with a provisioned database: a `SELECT` runs, shows running status, th
 
 - [x] **Resolved (2026-06-17):** the database name **equals the username** (SPEC-033 FR-001 catalog-safe rule), so the app uses `username` directly — no derivation, no drift, no stored mapping needed.
 - [x] **Resolved (2026-06-17):** the primary nav is a **horizontal tab strip in the topbar** (Files | Query), per `docs/design/query-workspace.html` — active tab is `accent-text` with a 2px `accent` underline. The schema browser occupies the left sidebar slot on the Query route. (See design-system.md §6.)
-- [ ] **Monaco bundle (build-time verification, not pre-decidable).** Monaco was chosen (2026-06-17). The Phase-1 checkpoint must confirm the Vite worker setup + route-level code-split keeps Monaco out of the Files/landing chunks; if the bundle proves unacceptable there, fall back to CodeMirror 6 and record the reversal here. This stays open until the build checkpoint runs.
+- [x] **Resolved (2026-06-18, build verified):** Monaco **stays** (no CodeMirror fallback). Self-hosted via `@monaco-editor/react` + bundled `monaco-editor` (Vite `?worker`, no CDN). Both the editor (`React.lazy`) and the whole `/query` route are lazy-loaded, so the main bundle stays at ~739 kB (≈ pre-Monaco baseline) and Monaco (`editor.api2` 3.6 MB + `SqlEditor` 111 kB + per-language chunks) + the Athena/Glue SDK clients land in async chunks loaded only on the Query route. Confirmed in the build output.
 - [x] **Resolved:** results table **reuses the file-table** component/styling (design system §6); no second table implementation.
