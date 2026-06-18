@@ -16,18 +16,11 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   #   - deploy role        — runs the IaC
   #   - provisioner Lambda — issues per-database grants (root wires module.auth's
   #                          output into lambda_provisioner_role_arn)
-  #   - account ROOT user  — direct admin for manual catalog inspection/management.
-  #                          The root user CANNOT assume IAM roles, so direct admin
-  #                          membership is the only way to give root LF authority
-  #                          (an assumable role doesn't work for root).
-  # All ARNs are KNOWN at plan time (constructed strings); an unknown element inside
-  # this compact() silently drops the admins change. compact() also drops any empty
-  # ARN so the module still plans standalone (e.g. before auth exists).
-  admins = compact([
-    var.deploy_role_arn,
-    var.lambda_provisioner_role_arn,
-    "arn:aws:iam::${var.account_id}:root",
-  ])
+  # (The account root was briefly a direct admin to validate the per-user databases;
+  # removed once confirmed.) All ARNs are KNOWN at plan time (constructed strings);
+  # an unknown element inside this compact() silently drops the admins change.
+  # compact() also drops any empty ARN so the module still plans standalone.
+  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.
