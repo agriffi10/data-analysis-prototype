@@ -13,15 +13,21 @@
 # access — the correct, safe state.
 resource "aws_lakeformation_data_lake_settings" "this" {
   # Admins can grant/revoke and register locations:
-  #   - deploy role           — runs the IaC
-  #   - provisioner Lambda     — issues per-database grants (root wires module.auth's
-  #                              output into lambda_provisioner_role_arn)
-  #   - lf_admin role (iam.tf) — human-assumable by the account ROOT user for manual
-  #                              catalog inspection/management
+  #   - deploy role        — runs the IaC
+  #   - provisioner Lambda — issues per-database grants (root wires module.auth's
+  #                          output into lambda_provisioner_role_arn)
+  #   - account ROOT user  — direct admin for manual catalog inspection/management.
+  #                          The root user CANNOT assume IAM roles, so direct admin
+  #                          membership is the only way to give root LF authority
+  #                          (an assumable role doesn't work for root).
   # All ARNs are KNOWN at plan time (constructed strings); an unknown element inside
   # this compact() silently drops the admins change. compact() also drops any empty
   # ARN so the module still plans standalone (e.g. before auth exists).
-  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, local.lf_admin_role_arn])
+  admins = compact([
+    var.deploy_role_arn,
+    var.lambda_provisioner_role_arn,
+    "arn:aws:iam::${var.account_id}:root",
+  ])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.
@@ -35,9 +41,7 @@ resource "aws_lakeformation_data_lake_settings" "this" {
     principal   = "IAM_ALLOWED_PRINCIPALS"
   }
 
-  # aws_iam_role.lf_admin: the role must exist before it's named as an admin (LF
-  # doesn't validate principal existence, but this keeps create ordering clean).
-  depends_on = [time_sleep.wait_for_deploy_policy, aws_iam_role.lf_admin]
+  depends_on = [time_sleep.wait_for_deploy_policy]
 }
 
 # ── Hybrid-mode registration of the user-space bucket (SPEC-032 FR-005) ──────
