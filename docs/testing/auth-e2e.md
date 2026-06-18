@@ -285,7 +285,24 @@ aws cognito-idp list-users --user-pool-id "$POOL_ID" \
 python3 backfill.py <username> [<username> ...]   # idempotent
 ```
 
-- [ ] **(deploy-gated)** Backfill provisions a database for a manually-created pre-existing user; re-running is a no-op-equivalent (idempotent).
+**`backfill.py` requires Lake Formation-admin credentials** (only `dat-deploy-role` + the
+post-confirmation exec role are LF admins; a plain local IAM user is not — its `GrantPermissions`
+will `AccessDenied`). If you don't have LF-admin creds locally, **invoke the deployed Lambda
+instead** — it runs the same `provision_user` logic as its LF-admin exec role:
+
+```bash
+for u in <username> [<username> ...]; do
+  aws lambda invoke --function-name dat-prod-post-confirmation \
+    --cli-binary-format raw-in-base64-out \
+    --payload "{\"triggerSource\":\"PostConfirmation_ConfirmSignUp\",\"userName\":\"$u\",\"request\":{}}" \
+    /tmp/$u.out >/dev/null
+done
+# Verify via the Lambda's own logs (NOT `aws glue get-databases`, which LF hides from non-admins):
+aws logs tail /aws/lambda/dat-prod-post-confirmation --since 5m --format short
+# -> "Created Glue database <u>" + "Granted portal role ... on database <u>"; re-invoke -> "already exists"
+```
+
+- [x] **Backfill executed 2026-06-18** (Andrew Griffith): pre-existing users `themrandrew` + `agriffith` provisioned via Lambda invoke; logs confirm DB created + portal-role grant; re-invoke logged "already exists; skipping create" (idempotent). Done after fix PR #65 made the exec role an LF admin.
 
 ### Analytics isolation proof (SPEC-032 FR-006, deferred here from SPEC-032)
 
