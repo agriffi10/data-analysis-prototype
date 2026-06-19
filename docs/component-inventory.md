@@ -113,7 +113,7 @@ Public barrel: `features/file-browser/index.ts`.
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `FileBrowser` | `FileBrowser.tsx` | Top-level browser: breadcrumbs, listing, download, upload/create-folder (when `writable`), Details. |
+| `FileBrowser` | `FileBrowser.tsx` | Top-level browser: breadcrumbs, listing, upload/create-folder (when `writable`). Rows carry only an always-visible Details button (no hover menu); bulk/single actions (download/copy/move/rename/delete) live in the selection toolbar. Read-only rows keep a Download button (no toolbar there). |
 | `MetadataPanel` | `MetadataPanel.tsx` | Read-only, non-blocking metadata drawer (close button + Escape). |
 | `UploadDropzone`, `CreateFolderDialog`, `CollisionPrompt` | (same folder) | Upload picker/drag-drop + progress, folder-name dialog, overwrite/rename prompt. (Used by `FileBrowser`; not barrel-exported.) |
 | `SelectionProvider` | `SelectionProvider.tsx` | Multi-select state provider (SPEC-018); clears selection on prefix change. Wrap a view, consume via `useSelection`. |
