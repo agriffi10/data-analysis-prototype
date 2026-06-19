@@ -28,9 +28,12 @@ resource "aws_iam_role_policy" "lf_registration" {
 # Athena is workgroup-scoped (ListQueryExecutions omitted — it would leak other
 # users' queries); LF GetDataAccess lets the engine vend creds for the registered
 # location; results read/write is the caller's own athenaresults/ prefix with an
-# explicit Deny on DeleteObject (results can't be deleted or moved out). The role
-# is managed by module.data; analytics only adds this policy (module-level
-# depends_on = [module.data] guarantees the role exists first).
+# explicit Deny on DeleteObject (results can't be deleted or moved out). Athena
+# also needs bucket-level s3:GetBucketLocation to verify the per-query output
+# location (without it: "Unable to verify/create output bucket") — granted on the
+# bucket itself, which leaks only the region, not data. The role is managed by
+# module.data; analytics only adds this policy (module-level depends_on =
+# [module.data] guarantees the role exists first).
 resource "aws_iam_role_policy" "portal_analytics" {
   name = "analytics-access"
   role = var.portal_role_name
