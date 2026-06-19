@@ -43,6 +43,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "ResultsBucketLocation",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketLocation",
+      "Resource": "${user_space_bucket_arn}"
+    },
+    {
       "Sid": "ResultsReadWrite",
       "Effect": "Allow",
       "Action": [
