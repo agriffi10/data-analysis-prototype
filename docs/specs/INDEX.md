@@ -42,7 +42,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 034 — Query Engine Data Layer (Athena/Glue services + per-user history) | Completed |
 | 035 — Tabbed Dashboard + Query Workspace UI (Monaco editor) | Completed |
 | 036 — Query History Panel UI | Completed |
-| 037 — File Browser Pagination (25/page, Load more) | Draft |
+| 037 — File Browser Pagination (25/page, Load more) | Completed |
 | 038 — Query Results Pagination (20 rows/page, Prev/Next) | Draft |
 | 039 — Copy Files and Folders (recursive) | Draft |
 

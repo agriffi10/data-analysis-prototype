@@ -33,8 +33,8 @@ export function useFileBrowser(
   const normalizedPrefix = prefix ?? '';
 
   // Server state via TanStack Query (SPEC-015 FR-002). Each page is a
-  // ListObjectsV2 call (MaxKeys 1000) threading the continuation token; pages
-  // accumulate in query.data.pages.
+  // ListObjectsV2 call (MaxKeys = LISTING_PAGE_SIZE, 25 — SPEC-037) threading the
+  // continuation token; pages accumulate in query.data.pages.
   const query = useInfiniteQuery({
     queryKey: fileBrowserKeys.list(bucket, normalizedPrefix),
     queryFn: async ({ pageParam }) => {
