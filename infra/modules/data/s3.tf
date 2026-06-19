@@ -111,6 +111,14 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
 # principal can't read or write user data. Bucket *configuration* actions
 # (PutBucketPolicy, lifecycle, etc.) are intentionally NOT denied.
 #
+# The LF registration role MUST also be excluded (SPEC-032): Lake Formation
+# assumes it to vend credentials for the registered user-space location, so when a
+# user queries a Glue table the S3 read happens AS this role. An explicit Deny in a
+# resource policy overrides the role's identity-policy Allow, so without the
+# exclusion queries fail with "PERMISSION_DENIED ... s3:ListBucket ... explicit deny
+# in a resource-based policy". It's a service role (not user-assumable), so
+# excluding it doesn't widen user data access.
+#
 # The deploy role MUST be excluded: it runs `tofu plan`/`apply`, which calls
 # HeadBucket (an s3:ListBucket action) to refresh the bucket. SPEC-013 omitted it,
 # so once the policy was live the deploy role got 403 on HeadBucket, tofu refresh
@@ -132,9 +140,10 @@ resource "aws_s3_bucket_policy" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
   policy = templatefile("${path.module}/policies/user-space-bucket-policy.json.tftpl", {
-    bucket_arn      = aws_s3_bucket.user_space.arn
-    portal_role_arn = aws_iam_role.portal.arn
-    deploy_role_arn = var.deploy_role_arn
-    account_id      = data.aws_caller_identity.current.account_id
+    bucket_arn               = aws_s3_bucket.user_space.arn
+    portal_role_arn          = aws_iam_role.portal.arn
+    deploy_role_arn          = var.deploy_role_arn
+    lf_registration_role_arn = var.lf_registration_role_arn
+    account_id               = data.aws_caller_identity.current.account_id
   })
 }

@@ -28,3 +28,8 @@ variable "deploy_role_arn" {
   description = "ARN of the GitHub Actions deploy role (modules/base). Excluded from the user-space bucket policy's data-access Deny so the IaC principal can HeadBucket/manage the bucket; without it tofu refresh reports false 'deleted' drift and plans a destructive recreate (SPEC-013 FR-002 fix)."
   type        = string
 }
+
+variable "lf_registration_role_arn" {
+  description = "ARN of the analytics Lake Formation registration role (modules/analytics, SPEC-032), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny: LF assumes this role to read the registered location when serving Athena queries, so the explicit Deny would otherwise block its s3:ListBucket/GetObject and queries fail with PERMISSION_DENIED."
+  type        = string
+}
