@@ -168,6 +168,10 @@ function FileIcon({ className = 'h-5 w-5' }: { className?: string }) {
 const COL_SIZE = 'w-24';
 const COL_MODIFIED = 'w-40';
 const COL_TYPE = 'w-28';
+// Trailing actions column. Files show an always-visible Details button (plus a
+// Download button in read-only mode, where there's no selection toolbar). All
+// other actions (move/copy/rename/delete/download) live in the selection toolbar.
+const COL_ACTIONS = 'w-44';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -177,20 +181,16 @@ function FolderRow({
   selectable,
   isSelected,
   onToggleSelect,
-  onRename,
-  onCopy,
 }: {
   folder: S3FolderItem;
   onClick: () => void;
   selectable: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
-  onRename?: () => void;
-  onCopy?: () => void;
 }) {
   return (
     <li
-      className={`group relative flex h-12 items-center border-b border-border-2 last:border-0 ${
+      className={`flex h-12 items-center border-b border-border-2 last:border-0 ${
         isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
       }`}
     >
@@ -220,32 +220,9 @@ function FolderRow({
       <span className={`${COL_TYPE} pr-4 text-right`}>
         <Badge>Folder</Badge>
       </span>
-      {(onRename || onCopy) && (
-        <span
-          className={`absolute inset-y-0 right-2 flex items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:opacity-100 ${
-            isSelected ? 'bg-accent-soft' : 'bg-surface-2'
-          }`}
-        >
-          {onCopy && (
-            <button
-              className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
-              onClick={onCopy}
-              aria-label={`Copy folder ${folder.name}`}
-            >
-              Copy
-            </button>
-          )}
-          {onRename && (
-            <button
-              className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
-              onClick={onRename}
-              aria-label={`Rename folder ${folder.name}`}
-            >
-              Rename
-            </button>
-          )}
-        </span>
-      )}
+      {/* Folders carry no per-row actions (Rename/Delete/Move/Copy live in the
+          selection toolbar); empty cell keeps columns aligned with file rows. */}
+      <span className={`${COL_ACTIONS} pr-4`} />
     </li>
   );
 }
@@ -254,18 +231,16 @@ function FileRow({
   file,
   onDownload,
   onDetails,
-  onRename,
-  onCopy,
   isDownloading,
   selectable,
   isSelected,
   onToggleSelect,
 }: {
   file: S3FileItem;
-  onDownload: (file: S3FileItem) => void;
+  // Read-only fallback only: in the authenticated flow Download lives in the
+  // selection toolbar, so this is undefined there and no row Download shows.
+  onDownload?: (file: S3FileItem) => void;
   onDetails: (file: S3FileItem) => void;
-  onRename?: () => void;
-  onCopy?: () => void;
   isDownloading: boolean;
   selectable: boolean;
   isSelected: boolean;
@@ -273,7 +248,7 @@ function FileRow({
 }) {
   return (
     <li
-      className={`group relative flex h-12 items-center border-b border-border-2 last:border-0 ${
+      className={`flex h-12 items-center border-b border-border-2 last:border-0 ${
         isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
       }`}
     >
@@ -303,11 +278,9 @@ function FileRow({
       <span className={`${COL_TYPE} pr-4 text-right`}>
         <Badge>{fileExtension(file.name)}</Badge>
       </span>
-      <span
-        className={`absolute inset-y-0 right-2 flex items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 ${
-          isSelected ? 'bg-accent-soft' : 'bg-surface-2'
-        }`}
-      >
+      {/* Always-visible Details (no hover menu). Download appears here only in
+          read-only mode (no selection toolbar); otherwise it's a toolbar action. */}
+      <span className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}>
         <button
           className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
           onClick={() => onDetails(file)}
@@ -315,32 +288,16 @@ function FileRow({
         >
           Details
         </button>
-        {onCopy && (
+        {onDownload && (
           <button
-            className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
-            onClick={onCopy}
-            aria-label={`Copy ${file.name}`}
+            className="h-7 rounded-md px-2 text-sm text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
+            onClick={() => onDownload(file)}
+            disabled={isDownloading}
+            aria-label={`Download ${file.name}`}
           >
-            Copy
+            {isDownloading ? '…' : 'Download'}
           </button>
         )}
-        {onRename && (
-          <button
-            className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
-            onClick={onRename}
-            aria-label={`Rename ${file.name}`}
-          >
-            Rename
-          </button>
-        )}
-        <button
-          className="h-7 rounded-md px-2 text-sm text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
-          onClick={() => onDownload(file)}
-          disabled={isDownloading}
-          aria-label={`Download ${file.name}`}
-        >
-          {isDownloading ? '…' : 'Download'}
-        </button>
       </span>
     </li>
   );
@@ -353,21 +310,31 @@ function SelectionToolbar({
   onRequestDelete,
   onRequestMove,
   onRequestCopy,
+  onRequestRename,
+  onRequestDownload,
   isBusy,
 }: {
   allItems: SelectableItem[];
   onRequestDelete: () => void;
   onRequestMove: () => void;
   onRequestCopy: () => void;
+  onRequestRename: () => void;
+  onRequestDownload: () => void;
   isBusy: boolean;
 }) {
-  const { count, isSelected, selectAll, clear } = useSelection();
+  const { count, selected, isSelected, selectAll, clear } = useSelection();
 
   const allSelected =
     allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
   const someSelected = allItems.some((i) => isSelected(itemId(i)));
 
   const active = count > 0;
+
+  // Single-item actions: Rename targets one item (you can't rename many to one
+  // name); Download is a single file at a time (folders aren't downloadable).
+  const single = count === 1 ? [...selected.values()][0] : null;
+  const canRename = single !== null;
+  const canDownload = single?.type === 'file';
 
   return (
     <div
@@ -400,6 +367,15 @@ function SelectionToolbar({
       <Button
         variant="ghost"
         size="sm"
+        onClick={onRequestDownload}
+        disabled={!canDownload || isBusy}
+      >
+        Download
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onRequestCopy}
         disabled={count === 0 || isBusy}
       >
@@ -413,6 +389,15 @@ function SelectionToolbar({
         disabled={count === 0 || isBusy}
       >
         Move
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onRequestRename}
+        disabled={!canRename || isBusy}
+      >
+        Rename
       </Button>
 
       <Button
@@ -537,6 +522,34 @@ function FileBrowserContent({
       selection.clear();
     }
     copy.copyItems(items, destPrefix);
+  }
+
+  // Toolbar Rename (single selection): resolve the selected item's display name
+  // so the dialog can pre-fill it, then open the rename dialog.
+  function handleRequestRename() {
+    const items = [...selection.selected.values()];
+    if (items.length !== 1) return;
+    const item = items[0];
+    if (item.type === 'file') {
+      const f = files.find((x) => x.key === item.key);
+      setRenaming({ item, name: f?.name ?? lastSegment(item.key), kind: 'file' });
+    } else {
+      const f = folders.find((x) => x.prefix === item.prefix);
+      setRenaming({
+        item,
+        name: f?.name ?? lastSegment(item.prefix),
+        kind: 'folder',
+      });
+    }
+  }
+
+  // Toolbar Download (single file): look up the selected file and download it.
+  function handleRequestDownload() {
+    const items = [...selection.selected.values()];
+    if (items.length !== 1 || items[0].type !== 'file') return;
+    const item = items[0];
+    const f = files.find((x) => x.key === item.key);
+    if (f) void handleDownload(f);
   }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
@@ -857,7 +870,11 @@ function FileBrowserContent({
           onRequestDelete={() => setConfirmOpen(true)}
           onRequestMove={() => setMoving([...selection.selected.values()])}
           onRequestCopy={() => setCopying([...selection.selected.values()])}
-          isBusy={del.isDeleting || move.isBusy || copy.isBusy}
+          onRequestRename={handleRequestRename}
+          onRequestDownload={handleRequestDownload}
+          isBusy={
+            del.isDeleting || move.isBusy || copy.isBusy || downloadingKey !== null
+          }
         />
       )}
 
@@ -921,6 +938,7 @@ function FileBrowserContent({
             <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>
             <span className={`${COL_MODIFIED} pr-4 text-right`}>Modified</span>
             <span className={`${COL_TYPE} pr-4 text-right`}>Type</span>
+            <span className={`${COL_ACTIONS} pr-4`} />
           </div>
           <ul aria-label="File list">
           {folders.map((folder) => (
@@ -933,49 +951,21 @@ function FileBrowserContent({
               onToggleSelect={() =>
                 selection.toggle({ type: 'folder', prefix: folder.prefix })
               }
-              onRename={
-                canModify
-                  ? () =>
-                      setRenaming({
-                        item: { type: 'folder', prefix: folder.prefix },
-                        name: folder.name,
-                        kind: 'folder',
-                      })
-                  : undefined
-              }
-              onCopy={
-                canModify
-                  ? () => setCopying([{ type: 'folder', prefix: folder.prefix }])
-                  : undefined
-              }
             />
           ))}
           {files.map((file) => (
             <FileRow
               key={file.key}
               file={file}
-              onDownload={handleDownload}
+              // Read-only browse has no selection toolbar, so keep a per-row
+              // Download there; the authenticated flow downloads from the toolbar.
+              onDownload={canModify ? undefined : handleDownload}
               onDetails={setDetailsFile}
               isDownloading={downloadingKey === file.key}
               selectable={canModify}
               isSelected={selection.isSelected(file.key)}
               onToggleSelect={() =>
                 selection.toggle({ type: 'file', key: file.key })
-              }
-              onRename={
-                canModify
-                  ? () =>
-                      setRenaming({
-                        item: { type: 'file', key: file.key },
-                        name: file.name,
-                        kind: 'file',
-                      })
-                  : undefined
-              }
-              onCopy={
-                canModify
-                  ? () => setCopying([{ type: 'file', key: file.key }])
-                  : undefined
               }
             />
           ))}
