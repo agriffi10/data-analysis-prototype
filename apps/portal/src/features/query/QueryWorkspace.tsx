@@ -14,6 +14,7 @@ import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
 import { invalidateSchema } from './useSchema';
+import { isSchemaChangingSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
@@ -30,14 +31,6 @@ const SqlEditor = lazy(() =>
 const DEFAULT_SQL = `-- Write SQL against your database, then Run (⌘⏎).
 SELECT 1;
 `;
-
-// A statement that changes the catalog — after it succeeds the schema browser is
-// refreshed. CTAS (CREATE TABLE … AS) is covered by the CREATE TABLE branch.
-function isSchemaChangingSql(sql: string): boolean {
-  return /^\s*(create|drop|alter)\s+(or\s+replace\s+)?(external\s+|temporary\s+)?(table|view)\b/i.test(
-    sql,
-  );
-}
 
 // SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
 // (main), wired entirely to the SPEC-034 data layer.
