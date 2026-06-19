@@ -155,7 +155,7 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | Symbol | File | Purpose |
 |---|---|---|
 | `useQueryExecution(id \| null)` | `useQueryExecution.ts` | Polls `getQueryStatus` via `refetchInterval` until terminal or `MAX_POLL_DURATION_MS`; disabled when null. |
-| `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Paginated results via `useInfiniteQuery` (page size/pager UX set by SPEC-038). |
+| `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Prev/Next pager over results via `useInfiniteQuery` (20 rows/page, SPEC-038): exposes the current page's `columns`/`rows`, `pageIndex`/range, `hasPrev`/`hasNext`, `goPrev`/`goNext` (Next fetches forward, Prev from cache), and loaded/total counts. |
 | `useSchema(db \| null)` + `invalidateSchema(client, db)` | `useSchema.ts` | DB + tables for the schema browser; invalidation helper to refresh after DDL. |
 | `useQueryHistory(username \| null)` | `useQueryHistory.ts` | History list + `appendEntry`/`updateEntry` mutations (cache-seeding). |
 
@@ -167,7 +167,7 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `SqlEditor` (+ `SqlEditorHandle`) | `SqlEditor.tsx` | Lazy, self-hosted Monaco SQL editor; `value`/`onChange`/`onRun` (⌘⏎), ref exposes `insertAtCursor`. |
 | `SchemaBrowser` | `SchemaBrowser.tsx` | Left rail: DB + expandable tables/columns via `useSchema`; click-to-insert; loading/empty/setting-up/error states. |
 | `QueryStatusBar` | `QueryStatusBar.tsx` | Slim live-region execution status (running/succeeded/failed/cancelled) + Download CSV. |
-| `QueryResultsTable` | `QueryResultsTable.tsx` | File-table-styled results (dynamic columns + type, horizontal scroll, empty state, Load more). |
+| `QueryResultsTable` | `QueryResultsTable.tsx` | File-table-styled results (dynamic columns + type, horizontal scroll, empty/loading state); shows one page at a time with a Prev/Next pager + "Rows X–Y" indicator (replace, not append — SPEC-038). |
 | `QueryHistoryPanel` | `QueryHistoryPanel.tsx` | Right slide-over drawer listing per-user history (`useQueryHistory`); read-only, view/Open/Re-run; empty/loading/error states (SPEC-036). |
 | `QueryHistoryRow` | `QueryHistoryRow.tsx` | One history entry: status badge, relative time, SQL preview, stats, Open/Re-run (SPEC-036). |
 | `formatBytes` / `formatDurationMs` / `formatRelativeTime` | `query.format.ts` | Display formatters for scanned-bytes / duration / relative timestamps. |
