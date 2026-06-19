@@ -13,12 +13,15 @@ import { useDelete } from './useDelete';
 import type { UseDeleteResult } from './useDelete';
 import { useMove } from './useMove';
 import type { UseMoveResult } from './useMove';
+import { useCopy } from './useCopy';
+import type { UseCopyResult } from './useCopy';
 
 vi.mock('./useFileBrowser');
 vi.mock('./fileBrowser.service');
 vi.mock('./useFileUpload');
 vi.mock('./useDelete');
 vi.mock('./useMove');
+vi.mock('./useCopy');
 // The upload queue is exercised in UploadQueueProvider.test.tsx; here the provider
 // is a passthrough, the hook is stubbed, and the floating panel is a no-op so these
 // tests stay focused on FileBrowser wiring (and don't need a QueryClient).
@@ -43,6 +46,30 @@ vi.mock('./MoveDialog', () => ({
       <span>moving {items.length}</span>
       <button onClick={() => onMove('alice/dest/')}>move-here-stub</button>
       <button onClick={onCancel}>move-cancel-stub</button>
+    </div>
+  ),
+}));
+// Stub the copy dialog's folder picker (the real picker + same-folder prompt are
+// covered by CopyDialog.test.tsx / DestinationPicker reuse). The stub exposes a
+// different-folder copy and a same-folder copy (current parent) so the wiring to
+// useCopy is exercised here.
+vi.mock('./CopyDialog', () => ({
+  CopyDialog: ({
+    items,
+    currentPrefix,
+    onCopy,
+    onCancel,
+  }: {
+    items: { type: string }[];
+    currentPrefix: string;
+    onCopy: (destPrefix: string) => void;
+    onCancel: () => void;
+  }) => (
+    <div role="dialog" aria-label="Copy to folder">
+      <span>copying {items.length}</span>
+      <button onClick={() => onCopy('alice/dest/')}>copy-here-stub</button>
+      <button onClick={() => onCopy(currentPrefix)}>copy-same-folder-stub</button>
+      <button onClick={onCancel}>copy-cancel-stub</button>
     </div>
   ),
 }));
@@ -88,6 +115,7 @@ const mockUseFileUpload = vi.mocked(useFileUpload);
 const mockUseUploadQueue = vi.mocked(useUploadQueue);
 const mockUseDelete = vi.mocked(useDelete);
 const mockUseMove = vi.mocked(useMove);
+const mockUseCopy = vi.mocked(useCopy);
 
 const base: UseFileBrowserResult = {
   files: [],
@@ -144,6 +172,19 @@ const moveBase: UseMoveResult = {
   cancelCollision: vi.fn(),
 };
 
+const copyBase: UseCopyResult = {
+  isBusy: false,
+  progress: null,
+  error: null,
+  summary: null,
+  copyCollision: null,
+  sameFolderPrompt: null,
+  copyItems: vi.fn(),
+  dismissError: vi.fn(),
+  dismissSummary: vi.fn(),
+  cancelCollision: vi.fn(),
+};
+
 // A file + folder fixture used by the selection/delete tests. The delete UI is
 // only offered when both `writable` and `username` are set (authenticated flow).
 const oneFile = {
@@ -162,6 +203,7 @@ beforeEach(() => {
   mockUseUploadQueue.mockReturnValue(uploadQueueBase);
   mockUseDelete.mockReturnValue(deleteBase);
   mockUseMove.mockReturnValue(moveBase);
+  mockUseCopy.mockReturnValue(copyBase);
 });
 
 // ─── Loading ──────────────────────────────────────────────────────────────────
@@ -929,5 +971,132 @@ describe('rename + move', () => {
     expect(
       screen.getByRole('alertdialog', { name: /already exists/i }),
     ).toBeInTheDocument();
+  });
+});
+
+// ─── Copy (SPEC-039) ────────────────────────────────────────────────────────────
+
+describe('copy', () => {
+  const authProps = { bucket: 'my-bucket', writable: true, username: 'alice' } as const;
+
+  it('shows no Copy action when read-only', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser bucket="my-bucket" />);
+    expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
+  });
+
+  it('exposes a Copy action per file and folder in the authenticated flow', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      files: [oneFile],
+      folders: [oneFolder],
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(
+      screen.getByRole('button', { name: /copy report\.pdf/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /copy folder photos/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('disables the selection-bar Copy until something is selected', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeDisabled();
+  });
+
+  it('row Copy opens the destination picker and calls copyItems on a different-folder confirm', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copy report\.pdf/i }));
+    const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
+    expect(dialog).toHaveTextContent(/copying 1/i);
+    fireEvent.click(within(dialog).getByRole('button', { name: /copy-here-stub/i }));
+
+    expect(copyBase.copyItems).toHaveBeenCalledWith(
+      [{ type: 'file', key: 'alice/report.pdf' }],
+      'alice/dest/',
+    );
+  });
+
+  it('selection-bar Copy copies the selected items', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      files: [oneFile],
+      folders: [oneFolder],
+    });
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: /copy-here-stub/i }));
+
+    expect(copyBase.copyItems).toHaveBeenCalledWith(
+      [{ type: 'file', key: 'alice/report.pdf' }],
+      'alice/dest/',
+    );
+  });
+
+  it('keeps the copy dialog open for a same-folder copy (auto-number flow)', () => {
+    // Current parent is "alice/"; a same-folder copy passes that current parent.
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    render(<FileBrowser {...authProps} prefix="alice/" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copy report\.pdf/i }));
+    const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /copy-same-folder-stub/i }),
+    );
+
+    // copyItems is called with the current parent, and the dialog stays open so the
+    // same-folder editable-name prompt (rendered by the real CopyDialog) can show.
+    expect(copyBase.copyItems).toHaveBeenCalledWith(
+      [{ type: 'file', key: 'alice/report.pdf' }],
+      'alice/',
+    );
+    expect(
+      screen.getByRole('dialog', { name: /copy to folder/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a copy result summary with the copied count', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseCopy.mockReturnValue({
+      ...copyBase,
+      summary: { copiedCount: 2, errors: [] },
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(screen.getByText(/copied 2 items/i)).toBeInTheDocument();
+  });
+
+  it('shows a partial-failure copy summary listing what failed', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseCopy.mockReturnValue({
+      ...copyBase,
+      summary: {
+        copiedCount: 1,
+        errors: [{ item: 'alice/locked.txt', message: 'Access Denied' }],
+      },
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(screen.getByText(/could not copy 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/locked\.txt — access denied/i)).toBeInTheDocument();
+  });
+
+  it('renders the copy-collision overwrite-all prompt from the copy hook', () => {
+    mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
+    mockUseCopy.mockReturnValue({
+      ...copyBase,
+      copyCollision: { count: 2, onOverwriteAll: vi.fn(), onCancel: vi.fn() },
+    });
+    render(<FileBrowser {...authProps} />);
+    expect(
+      screen.getByRole('alertdialog', { name: /destination already has items/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/2 item\(s\) already exist/i)).toBeInTheDocument();
   });
 });

@@ -16,6 +16,7 @@ import {
   deleteObjects,
   deleteFolder,
   copyObject,
+  copyFolder,
   moveObject,
   moveFolder,
   isPrefixMarkerKey,
@@ -771,6 +772,49 @@ describe('copyObject', () => {
     expect(result.success).toBe(true);
     expect(mockSend.mock.calls[1][0]).toBeInstanceOf(CopyObjectCommand);
   });
+
+  it('never issues a delete (copy is strictly additive)', async () => {
+    mockSend
+      .mockRejectedValueOnce(notFoundError()) // HEAD → 404
+      .mockResolvedValueOnce({}); // CopyObject
+
+    await copyObject({
+      bucket: 'us',
+      sourceKey: 'alice/a.txt',
+      destKey: 'alice/b.txt',
+      username: 'alice',
+    });
+
+    const deletes = mockSend.mock.calls
+      .map((c) => c[0])
+      .filter(
+        (c) =>
+          c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand,
+      );
+    expect(deletes).toHaveLength(0);
+  });
+
+  it('retries once with a refreshed client on credential expiry', async () => {
+    const refreshedSend = vi.fn().mockResolvedValueOnce({}); // CopyObject succeeds
+    mockGetS3Client
+      .mockResolvedValueOnce({ success: true, data: { send: mockSend } })
+      .mockResolvedValueOnce({ success: true, data: { send: refreshedSend } });
+    // First client's CopyObject fails with an expiry error so the helper refreshes.
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error('expired'), { name: 'ExpiredToken' }),
+    );
+
+    const result = await copyObject({
+      bucket: 'us',
+      sourceKey: 'alice/a.txt',
+      destKey: 'alice/b.txt',
+      username: 'alice',
+      overwrite: true,
+    });
+
+    expect(result).toEqual({ success: true, data: { destKey: 'alice/b.txt' } });
+    expect(refreshedSend).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('moveObject', () => {
@@ -1010,6 +1054,217 @@ describe('moveFolder', () => {
       username: 'alice',
     });
     expect(result).toEqual({ success: true, data: { moved: [], errors: [] } });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('copyFolder', () => {
+  // Route mocked sends by command type + prefix so source/dest listings and the
+  // per-key copy can all be served from one implementation. Mirrors moveFolder's
+  // router, minus any delete handling (copy never deletes).
+  function routeSends(opts: {
+    sourcePages: {
+      Contents: { Key: string }[];
+      IsTruncated?: boolean;
+      NextContinuationToken?: string;
+    }[];
+    destContents?: { Key: string }[];
+    failCopyForDestKey?: string;
+  }) {
+    let sourcePage = 0;
+    mockSend.mockImplementation((cmd) => {
+      if (cmd instanceof ListObjectsV2Command) {
+        if (cmd.input.Prefix === 'alice/photos/') {
+          return Promise.resolve(opts.sourcePages[sourcePage++]);
+        }
+        return Promise.resolve({ Contents: opts.destContents ?? [], IsTruncated: false });
+      }
+      if (cmd instanceof CopyObjectCommand) {
+        if (cmd.input.Key === opts.failCopyForDestKey) {
+          return Promise.reject(
+            Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
+          );
+        }
+        return Promise.resolve({});
+      }
+      return Promise.resolve({});
+    });
+  }
+
+  it('recursively copies every key across pages, leaving the source intact (no delete)', async () => {
+    routeSends({
+      sourcePages: [
+        {
+          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }],
+          IsTruncated: true,
+          NextContinuationToken: 'T2',
+        },
+        { Contents: [{ Key: 'alice/photos/b.jpg' }], IsTruncated: false },
+      ],
+    });
+    const onProgress = vi.fn();
+
+    const result = await copyFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/photos/',
+      destPrefix: 'alice/archive/photos/',
+      username: 'alice',
+      onProgress,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.copied).toEqual([
+      'alice/photos/',
+      'alice/photos/a.jpg',
+      'alice/photos/b.jpg',
+    ]);
+    expect(result.data.errors).toEqual([]);
+
+    const copies = mockSend.mock.calls
+      .map((c) => c[0])
+      .filter((c) => c instanceof CopyObjectCommand);
+    expect(copies.map((c) => c.input.Key)).toEqual([
+      'alice/archive/photos/',
+      'alice/archive/photos/a.jpg',
+      'alice/archive/photos/b.jpg',
+    ]);
+    expect(copies[1].input.CopySource).toBe('us/alice/photos/a.jpg');
+
+    // The defining invariant: copy never deletes anything.
+    const deletes = mockSend.mock.calls
+      .map((c) => c[0])
+      .filter(
+        (c) =>
+          c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand,
+      );
+    expect(deletes).toHaveLength(0);
+
+    expect(onProgress).toHaveBeenLastCalledWith(3, 3);
+  });
+
+  it('records a per-key copy failure and continues (best-effort, no rollback)', async () => {
+    routeSends({
+      sourcePages: [
+        {
+          Contents: [
+            { Key: 'alice/photos/' },
+            { Key: 'alice/photos/a.jpg' },
+            { Key: 'alice/photos/b.jpg' },
+          ],
+          IsTruncated: false,
+        },
+      ],
+      failCopyForDestKey: 'alice/archive/photos/a.jpg',
+    });
+
+    const result = await copyFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/photos/',
+      destPrefix: 'alice/archive/photos/',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.copied).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
+    expect(result.data.errors).toEqual([
+      { key: 'alice/photos/a.jpg', message: 'Access Denied' },
+    ]);
+
+    const deletes = mockSend.mock.calls
+      .map((c) => c[0])
+      .filter(
+        (c) =>
+          c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand,
+      );
+    expect(deletes).toHaveLength(0);
+  });
+
+  it('refuses up front when destinations already exist (Collision, no copies)', async () => {
+    routeSends({
+      sourcePages: [
+        { Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false },
+      ],
+      destContents: [{ Key: 'alice/archive/photos/x.jpg' }],
+    });
+
+    const result = await copyFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/photos/',
+      destPrefix: 'alice/archive/photos/',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('Collision');
+    expect(result.error.message).toMatch(/1 item/);
+
+    const copies = mockSend.mock.calls
+      .map((c) => c[0])
+      .filter((c) => c instanceof CopyObjectCommand);
+    expect(copies).toHaveLength(0);
+  });
+
+  it('rejects copying a folder into its own subtree (no S3 call)', async () => {
+    const result = await copyFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/photos/',
+      destPrefix: 'alice/photos/sub/',
+      username: 'alice',
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('InvalidDestination');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('records the prefix marker as a per-key error and never sends it as a copy', async () => {
+    // The recursive listing of a source folder can include the user's root marker
+    // (here the source IS the user root, copied to a non-subtree dest). copyObject
+    // refuses the marker, so it lands in errors and is never sent as a CopyObject;
+    // the rest still copy. Dest is a sibling top-level prefix, not under the source.
+    mockSend.mockImplementation((cmd) => {
+      if (cmd instanceof ListObjectsV2Command) {
+        if (cmd.input.Prefix === 'alice/') {
+          return Promise.resolve({
+            Contents: [{ Key: 'alice/DO_NOT_DELETE.txt' }, { Key: 'alice/a.txt' }],
+            IsTruncated: false,
+          });
+        }
+        return Promise.resolve({ Contents: [], IsTruncated: false });
+      }
+      return Promise.resolve({});
+    });
+
+    const result = await copyFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/',
+      destPrefix: 'backup-of-alice/',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.copied).toEqual(['alice/a.txt']);
+    expect(result.data.errors).toHaveLength(1);
+    expect(result.data.errors[0].key).toBe('alice/DO_NOT_DELETE.txt');
+
+    const copies = mockSend.mock.calls
+      .map((c) => c[0])
+      .filter((c) => c instanceof CopyObjectCommand);
+    expect(copies.map((c) => c.input.Key)).toEqual(['backup-of-alice/a.txt']);
+  });
+
+  it('is a no-op success when source and destination prefixes are equal', async () => {
+    const result = await copyFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/photos/',
+      destPrefix: 'alice/photos/',
+      username: 'alice',
+    });
+    expect(result).toEqual({ success: true, data: { copied: [], errors: [] } });
     expect(mockSend).not.toHaveBeenCalled();
   });
 });

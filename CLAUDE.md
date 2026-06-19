@@ -54,7 +54,7 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 ## Specs
 
 Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own `Status`.
-**Current work:** analytics arc SPEC-032→036 (in-app Athena query workspace) is **complete**; next is pagination/copy (037–039).
+**Current work:** analytics arc (SPEC-032→036) and the pagination/copy specs (037–039) are **complete**. No spec in progress; next work is unplanned (Bucket 2 shared-space is the likely next arc but is not yet designed).
 
 ---
 

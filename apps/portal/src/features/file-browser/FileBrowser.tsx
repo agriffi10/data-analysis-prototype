@@ -6,6 +6,7 @@ import { useFileBrowser } from './useFileBrowser';
 import { useFileUpload } from './useFileUpload';
 import { useDelete } from './useDelete';
 import { useMove } from './useMove';
+import { useCopy } from './useCopy';
 import { getDownloadUrl } from './fileBrowser.service';
 import { UploadDropzone } from './UploadDropzone';
 import { UploadDrawer } from './UploadDrawer';
@@ -18,6 +19,7 @@ import { MetadataPanel } from './MetadataPanel';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { RenameDialog } from './RenameDialog';
 import { MoveDialog } from './MoveDialog';
+import { CopyDialog } from './CopyDialog';
 import { SelectionProvider } from './SelectionProvider';
 import { useSelection, itemId, type SelectableItem } from './selectionContext';
 import type { S3FileItem, S3FolderItem } from '../../types/s3.types';
@@ -176,6 +178,7 @@ function FolderRow({
   isSelected,
   onToggleSelect,
   onRename,
+  onCopy,
 }: {
   folder: S3FolderItem;
   onClick: () => void;
@@ -183,6 +186,7 @@ function FolderRow({
   isSelected: boolean;
   onToggleSelect: () => void;
   onRename?: () => void;
+  onCopy?: () => void;
 }) {
   return (
     <li
@@ -216,19 +220,30 @@ function FolderRow({
       <span className={`${COL_TYPE} pr-4 text-right`}>
         <Badge>Folder</Badge>
       </span>
-      {onRename && (
+      {(onRename || onCopy) && (
         <span
           className={`absolute inset-y-0 right-2 flex items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:opacity-100 ${
             isSelected ? 'bg-accent-soft' : 'bg-surface-2'
           }`}
         >
-          <button
-            className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
-            onClick={onRename}
-            aria-label={`Rename folder ${folder.name}`}
-          >
-            Rename
-          </button>
+          {onCopy && (
+            <button
+              className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+              onClick={onCopy}
+              aria-label={`Copy folder ${folder.name}`}
+            >
+              Copy
+            </button>
+          )}
+          {onRename && (
+            <button
+              className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+              onClick={onRename}
+              aria-label={`Rename folder ${folder.name}`}
+            >
+              Rename
+            </button>
+          )}
         </span>
       )}
     </li>
@@ -240,6 +255,7 @@ function FileRow({
   onDownload,
   onDetails,
   onRename,
+  onCopy,
   isDownloading,
   selectable,
   isSelected,
@@ -249,6 +265,7 @@ function FileRow({
   onDownload: (file: S3FileItem) => void;
   onDetails: (file: S3FileItem) => void;
   onRename?: () => void;
+  onCopy?: () => void;
   isDownloading: boolean;
   selectable: boolean;
   isSelected: boolean;
@@ -298,6 +315,15 @@ function FileRow({
         >
           Details
         </button>
+        {onCopy && (
+          <button
+            className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+            onClick={onCopy}
+            aria-label={`Copy ${file.name}`}
+          >
+            Copy
+          </button>
+        )}
         {onRename && (
           <button
             className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
@@ -326,11 +352,13 @@ function SelectionToolbar({
   allItems,
   onRequestDelete,
   onRequestMove,
+  onRequestCopy,
   isBusy,
 }: {
   allItems: SelectableItem[];
   onRequestDelete: () => void;
   onRequestMove: () => void;
+  onRequestCopy: () => void;
   isBusy: boolean;
 }) {
   const { count, isSelected, selectAll, clear } = useSelection();
@@ -368,6 +396,15 @@ function SelectionToolbar({
       </span>
 
       <div className="flex-1" />
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onRequestCopy}
+        disabled={count === 0 || isBusy}
+      >
+        Copy
+      </Button>
 
       <Button
         variant="ghost"
@@ -437,6 +474,7 @@ function FileBrowserContent({
   const selection = useSelection();
   const del = useDelete(bucket, currentPrefix, username);
   const move = useMove(bucket, currentPrefix, username);
+  const copy = useCopy(bucket, currentPrefix, username);
   const canModify = writable && !!username;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // The item being renamed (null = closed) and the items being moved (null = no
@@ -447,6 +485,9 @@ function FileBrowserContent({
     kind: 'file' | 'folder';
   } | null>(null);
   const [moving, setMoving] = useState<SelectableItem[] | null>(null);
+  // The items being copied (null = no copy dialog). Like move, selection- or
+  // row-driven. Stays open across the same-folder name prompt (SPEC-039 FR-003).
+  const [copying, setCopying] = useState<SelectableItem[] | null>(null);
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
@@ -483,6 +524,19 @@ function FileBrowserContent({
     setMoving(null);
     selection.clear();
     move.moveItems(items, destPrefix);
+  }
+
+  function handleConfirmCopy(destPrefix: string) {
+    const items = copying ?? [];
+    // A same-folder copy (destination = current parent) opens the editable
+    // auto-number prompt inside the dialog (FR-003), so the dialog must stay open
+    // — only close it for the ordinary different-folder case.
+    const sameFolder = destPrefix === currentPrefix;
+    if (!sameFolder) {
+      setCopying(null);
+      selection.clear();
+    }
+    copy.copyItems(items, destPrefix);
   }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
@@ -729,13 +783,81 @@ function FileBrowserContent({
         </div>
       )}
 
-      {/* Selection toolbar (SPEC-018 + SPEC-019) — select all + bulk move/delete */}
+      {/* Copy systemic error (SPEC-039 FR-004) — dismissible */}
+      {copy.error && (
+        <Banner variant="danger" onDismiss={copy.dismissError} className="mb-4">
+          {copy.error}
+        </Banner>
+      )}
+
+      {/* Copy result (SPEC-039 FR-004) — success count + any partial failures */}
+      {copy.summary && (
+        <Banner
+          variant={copy.summary.errors.length === 0 ? 'success' : 'warning'}
+          role="status"
+          onDismiss={copy.dismissSummary}
+          className="mb-4"
+          title={`Copied ${copy.summary.copiedCount} ${copy.summary.copiedCount === 1 ? 'item' : 'items'}.`}
+        >
+          {copy.summary.errors.length > 0 && (
+            <>
+              <p className="mt-1">Could not copy {copy.summary.errors.length}:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {copy.summary.errors.map((e) => (
+                  <li key={e.item}>
+                    {lastSegment(e.item)} — {e.message}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Banner>
+      )}
+
+      {/* Copy progress for large folders (SPEC-039 FR-004) */}
+      {copy.isBusy && copy.progress !== null && (
+        <div role="status" className="mb-4 text-sm text-text-2">
+          Copying… {copy.progress}%
+        </div>
+      )}
+
+      {/* Copy collision (SPEC-039 FR-005) — one Overwrite-all/Cancel for the batch */}
+      {copy.copyCollision && (
+        <div
+          role="alertdialog"
+          aria-label="Destination already has items"
+          className="mb-4 rounded-lg border border-warning-soft bg-warning-soft p-4 text-sm text-warning"
+        >
+          <p className="font-medium">
+            {copy.copyCollision.count} item(s) already exist at the destination.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={copy.copyCollision.onOverwriteAll}
+            >
+              Overwrite all
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={copy.copyCollision.onCancel}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039) — select all + bulk copy/move/delete */}
       {canModify && hasContent && (
         <SelectionToolbar
           allItems={allItems}
           onRequestDelete={() => setConfirmOpen(true)}
           onRequestMove={() => setMoving([...selection.selected.values()])}
-          isBusy={del.isDeleting || move.isBusy}
+          onRequestCopy={() => setCopying([...selection.selected.values()])}
+          isBusy={del.isDeleting || move.isBusy || copy.isBusy}
         />
       )}
 
@@ -821,6 +943,11 @@ function FileBrowserContent({
                       })
                   : undefined
               }
+              onCopy={
+                canModify
+                  ? () => setCopying([{ type: 'folder', prefix: folder.prefix }])
+                  : undefined
+              }
             />
           ))}
           {files.map((file) => (
@@ -843,6 +970,11 @@ function FileBrowserContent({
                         name: file.name,
                         kind: 'file',
                       })
+                  : undefined
+              }
+              onCopy={
+                canModify
+                  ? () => setCopying([{ type: 'file', key: file.key }])
                   : undefined
               }
             />
@@ -897,6 +1029,40 @@ function FileBrowserContent({
           isBusy={move.isBusy}
           onMove={handleConfirmMove}
           onCancel={() => setMoving(null)}
+        />
+      )}
+
+      {/* Copy dialog (SPEC-039 FR-004) — destination picker + same-folder name
+          field. Stays open across the same-folder auto-number prompt (FR-003);
+          the prompt's confirm/cancel close the dialog (and clear the selection). */}
+      {copying && (
+        <CopyDialog
+          bucket={bucket}
+          items={copying}
+          rootPrefix={rootPrefix}
+          rootLabel={rootLabel}
+          currentPrefix={currentPrefix}
+          markerKey={markerKey}
+          isBusy={copy.isBusy}
+          sameFolderPrompt={
+            copy.sameFolderPrompt && {
+              ...copy.sameFolderPrompt,
+              onConfirm: (name) => {
+                copy.sameFolderPrompt?.onConfirm(name);
+                setCopying(null);
+                selection.clear();
+              },
+              onCancel: () => {
+                copy.sameFolderPrompt?.onCancel();
+                setCopying(null);
+              },
+            }
+          }
+          onCopy={handleConfirmCopy}
+          onCancel={() => {
+            copy.cancelCollision();
+            setCopying(null);
+          }}
         />
       )}
 
