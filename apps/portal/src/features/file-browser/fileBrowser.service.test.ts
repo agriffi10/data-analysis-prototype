@@ -28,6 +28,7 @@ import {
   getObjectMetadata,
   __resetPrefixMarkerCache,
 } from './fileBrowser.service';
+import { LISTING_PAGE_SIZE } from './fileBrowser.constants';
 import { PREFIX_MARKER_BODY } from './fileBrowser.constants';
 import { MAX_UPLOAD_BYTES } from './fileBrowser.types';
 
@@ -230,7 +231,7 @@ describe('listFiles', () => {
           Bucket: 'test-bucket',
           Prefix: 'some/prefix/',
           Delimiter: '/',
-          MaxKeys: 1000,
+          MaxKeys: LISTING_PAGE_SIZE,
           ContinuationToken: undefined,
         },
       }),
@@ -253,7 +254,10 @@ describe('listFiles', () => {
     expect(result.data.nextContinuationToken).toBe('TOKEN-2');
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
-        input: expect.objectContaining({ ContinuationToken: 'TOKEN-1', MaxKeys: 1000 }),
+        input: expect.objectContaining({
+          ContinuationToken: 'TOKEN-1',
+          MaxKeys: LISTING_PAGE_SIZE,
+        }),
       }),
     );
   });

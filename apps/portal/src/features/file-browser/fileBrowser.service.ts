@@ -28,6 +28,7 @@ import {
   PART_CONCURRENCY,
 } from './fileBrowser.types';
 import {
+  LISTING_PAGE_SIZE,
   PREFIX_MARKER_BODY,
   prefixMarkerKey,
 } from './fileBrowser.constants';
@@ -42,8 +43,10 @@ import {
 const devUnauthenticated =
   import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
-// MaxKeys per ListObjectsV2 page. 1000 is also the S3 hard cap (SPEC-015 FR-002).
-const PAGE_SIZE = 1000;
+// MaxKeys for the recursive collect-all-keys pass (delete/move, SPEC-018/019).
+// 1000 is the S3 hard cap per page; a small page size here would only mean more
+// round-trips. The user-facing listing page size is LISTING_PAGE_SIZE (SPEC-037).
+const BULK_KEY_PAGE_SIZE = 1000;
 
 export async function listFiles(
   bucket: string,
@@ -82,7 +85,7 @@ async function listWithClient(
       Bucket: bucket,
       Prefix: prefix,
       Delimiter: '/',
-      MaxKeys: PAGE_SIZE,
+      MaxKeys: LISTING_PAGE_SIZE,
       ContinuationToken: continuationToken,
     });
 
@@ -410,7 +413,7 @@ async function listAllKeysUnderPrefix(
         new ListObjectsV2Command({
           Bucket: bucket,
           Prefix: prefix,
-          MaxKeys: PAGE_SIZE,
+          MaxKeys: BULK_KEY_PAGE_SIZE,
           ContinuationToken: continuationToken,
         }),
       );
