@@ -88,6 +88,7 @@ Public barrel: `features/file-browser/index.ts`.
 | `copyObject({ bucket, sourceKey, destKey, username, overwrite? })` | Same-bucket `CopyObject` (URL-encoded CopySource); marker + collision guards. `ServiceResult<{ destKey }>`. |
 | `moveObject({ bucket, sourceKey, destKey, username, overwrite? })` | Copy-then-delete-source; same-key no-op; copy-failure leaves source. `ServiceResult<{ destKey }>`. |
 | `moveFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder move (per-key copy+delete); partial-failure + into-itself guards + collision pre-check. `ServiceResult<MoveResult>`. |
+| `copyFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder copy — `moveFolder` minus the deletes (additive, best-effort, no rollback); into-itself guard + collision pre-check. `ServiceResult<CopyResult>` (SPEC-039). |
 | `objectExists({ bucket, key })` | `HeadObject` → bool (404 → `false`, not an error). Collision pre-check. |
 | `getObjectMetadata({ bucket, key })` | `HeadObject` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). 404 → error. |
 | `ensurePrefixMarker({ bucket, username })` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker (once/session). |
@@ -104,6 +105,7 @@ Public barrel: `features/file-browser/index.ts`.
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
 | `useDelete(bucket, prefix, username?)` | `useDelete.ts` | Deletes a mixed file/folder selection (files batched, folders recursive); aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
 | `useMove(bucket, sourcePrefix, username?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, folder progress, source/dest invalidation. Aggregates a `MoveSummary`. |
+| `useCopy(bucket, sourcePrefix, username?)` | `useCopy.ts` | Copy (multi-select) orchestration; **destination-only** invalidation (additive), collision warn-and-confirm, folder progress, and the same-folder auto-number `{name} (N)` flow (HEAD-checked, editable). Aggregates a `CopySummary` (SPEC-039). |
 | `useSelection()` | `selectionContext.ts` | Read/mutate the current view's multi-select set (`toggle`/`selectAll`/`clear`, `count`, `isSelected`). Must be under a `SelectionProvider`. |
 | `useUploadQueue()` | `uploadQueueContext.ts` | Read/drive the multi-file upload queue (`items`, `enqueue`, `cancel`, `dismiss`, `resolveOverwrite`, `resolveRename`, `clearFinished`). Must be under an `UploadQueueProvider` (SPEC-020). |
 
@@ -118,17 +120,19 @@ Public barrel: `features/file-browser/index.ts`.
 | `UploadQueueProvider` | `UploadQueueProvider.tsx` | Upload-queue state + concurrency gate (≤`UPLOAD_CONCURRENCY` in flight) calling SPEC-016 `uploadFile`; per-file cancel via `AbortController`, listing invalidation per completion (SPEC-020). Wrap a view, consume via `useUploadQueue`. |
 | `UploadQueuePanel` | `UploadQueuePanel.tsx` | Non-blocking floating queue panel — per-file chip/progress/status, cancel/dismiss, inline collision prompt, clear-finished (SPEC-020). Self-hides when empty; must be under `UploadQueueProvider`. |
 | `DeleteConfirmDialog` | `DeleteConfirmDialog.tsx` | Modal confirm naming item(s)/count, recursive-folder + irreversible warnings. (Used by `FileBrowser`; not barrel-exported.) |
-| `RenameDialog`, `MoveDialog` | (same folder) | Rename modal (validated leaf name) + move destination-folder picker. (Used by `FileBrowser`; not barrel-exported.) |
+| `RenameDialog`, `MoveDialog`, `CopyDialog` | (same folder) | Rename modal (validated leaf name); move + copy modals, both shells over `DestinationPicker`. `CopyDialog` adds the same-folder editable-name field (SPEC-039). (Used by `FileBrowser`; not barrel-exported.) |
+| `DestinationPicker` | `DestinationPicker.tsx` | Shared destination-folder picker for Move + Copy (extracted from `MoveDialog`, SPEC-039 FR-006): navigable folders within the user's space, excludes operated subtrees + the protected `athenaresults/` folder; `allowCurrentParent` toggles Move (forbidden) vs Copy (same-folder). |
 
 ### Query keys, types, constants
 
 | Symbol | File | Purpose |
 |---|---|---|
 | `fileBrowserKeys.list(bucket, prefix)` / `.metadata(bucket, key)` | `fileBrowserKeys.ts` | Single source of truth for query keys — never hand-build key arrays. |
-| `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult`, `MoveResult` | `fileBrowser.types.ts` | Feature result/data types. |
+| `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult`, `MoveResult`, `CopyResult` | `fileBrowser.types.ts` | Feature result/data types. |
 | `SelectableItem`, `SelectionContextValue`, `itemId` | `selectionContext.ts` | Multi-select item shape (file key \| folder prefix), context value, id helper. |
 | `DeleteSummary` | `useDelete.ts` | Aggregated delete outcome (`deletedCount` + per-item `errors`). |
 | `MoveSummary` | `useMove.ts` | Aggregated move/rename outcome (`movedCount` + per-item `errors`). |
+| `CopySummary` | `useCopy.ts` | Aggregated copy outcome (`copiedCount` + per-item `errors`). |
 | `MULTIPART_PART_SIZE`, `MAX_UPLOAD_BYTES`, `PART_CONCURRENCY` | `fileBrowser.types.ts` | Managed-upload tuning constants. |
 | `UploadItem`, `UploadStatus`, `UPLOAD_CONCURRENCY`, `TERMINAL_STATUSES` | `upload.types.ts` | Upload-queue item shape, lifecycle status (`queued`→`uploading`→`collision`→`done`/`failed`/`cancelled`), file-concurrency limit (SPEC-020). |
 | `prefixMarkerKey(username)`, `PREFIX_MARKER_FILENAME`, `PREFIX_MARKER_BODY` | `fileBrowser.constants.ts` | Prefix-marker (`DO_NOT_DELETE.txt`) helpers. |
