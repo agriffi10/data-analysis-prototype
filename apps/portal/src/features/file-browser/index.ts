@@ -10,6 +10,11 @@ export { useDelete } from './useDelete';
 export type { UseDeleteResult, DeleteSummary } from './useDelete';
 export { useMove } from './useMove';
 export type { UseMoveResult, MoveSummary } from './useMove';
+export { useCopy } from './useCopy';
+export type { UseCopyResult, CopySummary } from './useCopy';
+export { MoveDialog } from './MoveDialog';
+export { CopyDialog } from './CopyDialog';
+export { DestinationPicker } from './DestinationPicker';
 export { SelectionProvider } from './SelectionProvider';
 export { useSelection, itemId } from './selectionContext';
 export type {
@@ -28,6 +33,7 @@ export {
   deleteObjects,
   deleteFolder,
   copyObject,
+  copyFolder,
   moveObject,
   moveFolder,
   isPrefixMarkerKey,
@@ -46,6 +52,7 @@ export type {
   ObjectMetadata,
   DeleteResult,
   MoveResult,
+  CopyResult,
 } from './fileBrowser.types';
 export {
   MAX_UPLOAD_BYTES,

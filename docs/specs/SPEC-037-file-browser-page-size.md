@@ -1,7 +1,7 @@
 # Spec: File Browser Pagination — 25 Items per Page
 
 **ID:** SPEC-037
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-17
 **Depends On:** SPEC-015 (TanStack `useInfiniteQuery` listing foundation + "Load more")
 

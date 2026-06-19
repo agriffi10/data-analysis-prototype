@@ -55,10 +55,22 @@ beforeEach(() => {
     typeof useQueryExecution
   >);
   mockUseResults.mockReturnValue({
-    data: undefined,
-    hasNextPage: false,
-    isFetchingNextPage: false,
-    fetchNextPage: vi.fn(),
+    columns: [],
+    rows: [],
+    pageIndex: 0,
+    rangeStart: 0,
+    rangeEnd: 0,
+    loadedRowCount: 0,
+    totalRowCount: 0,
+    hasPrev: false,
+    hasNext: false,
+    hasMoreServer: false,
+    isPending: false,
+    isFetchingNext: false,
+    isError: false,
+    error: null,
+    goPrev: vi.fn(),
+    goNext: vi.fn(),
   } as unknown as ReturnType<typeof useQueryResults>);
   mockUseHistory.mockReturnValue({
     history: [],
@@ -134,17 +146,22 @@ describe('QueryWorkspace', () => {
       },
     } as unknown as ReturnType<typeof useQueryExecution>);
     mockUseResults.mockReturnValue({
-      data: {
-        pages: [
-          {
-            columns: [{ name: 'region', type: 'string' }],
-            rows: [['us-east'], ['eu-west']],
-          },
-        ],
-      },
-      hasNextPage: false,
-      isFetchingNextPage: false,
-      fetchNextPage: vi.fn(),
+      columns: [{ name: 'region', type: 'string' }],
+      rows: [['us-east'], ['eu-west']],
+      pageIndex: 0,
+      rangeStart: 1,
+      rangeEnd: 2,
+      loadedRowCount: 2,
+      totalRowCount: 2,
+      hasPrev: false,
+      hasNext: false,
+      hasMoreServer: false,
+      isPending: false,
+      isFetchingNext: false,
+      isError: false,
+      error: null,
+      goPrev: vi.fn(),
+      goNext: vi.fn(),
     } as unknown as ReturnType<typeof useQueryResults>);
 
     renderWorkspace();

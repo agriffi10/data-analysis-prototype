@@ -1,7 +1,7 @@
 # Spec: Query Results Pagination — 20 Rows per Page
 
 **ID:** SPEC-038
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-17
 **Depends On:** SPEC-034 (`getQueryResults` + `NextToken`), SPEC-035 (query workspace + results table)
 

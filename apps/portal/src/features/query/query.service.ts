@@ -140,13 +140,20 @@ export async function getQueryResults(p: {
   maxRows?: number;
 }): Promise<ServiceResult<QueryResultPage>> {
   const { queryExecutionId, nextToken, maxRows } = p;
+  const pageSize = maxRows ?? DEFAULT_MAX_ROWS;
+  // Athena prepends the column names as the first row of the FIRST page of a
+  // SELECT (the header foot-gun handled below). Request one extra row on page 1
+  // so that, after dropping that header, a SELECT still nets a full `pageSize`
+  // data rows; continuation pages have no header and request exactly `pageSize`
+  // (SPEC-038 FR-001).
+  const isFirstPage = !nextToken;
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
       const response = await client.send(
         new GetQueryResultsCommand({
           QueryExecutionId: queryExecutionId,
           NextToken: nextToken,
-          MaxResults: maxRows ?? DEFAULT_MAX_ROWS,
+          MaxResults: isFirstPage ? pageSize + 1 : pageSize,
         }),
       );
 

@@ -16,3 +16,10 @@ export const PREFIX_MARKER_BODY =
 export function prefixMarkerKey(username: string): string {
   return `${username}/${PREFIX_MARKER_FILENAME}`;
 }
+
+// Listing page size (SPEC-037). The file browser fetches this many entries per
+// ListObjectsV2 page (MaxKeys) and the user pulls the rest on demand via the
+// SPEC-015 "Load more" control. 25 is a UI/UX page size — intentionally small so
+// each request and render stays bounded — NOT an S3 limit (S3's hard cap is 1000).
+// Single source of truth for the listing page size.
+export const LISTING_PAGE_SIZE = 25;

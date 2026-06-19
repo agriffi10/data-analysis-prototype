@@ -31,6 +31,18 @@ export type MoveResult = {
   errors: { key: string; message: string }[];
 };
 
+// ── Copy (SPEC-039) ──────────────────────────────────────────────────────────
+
+// The outcome of a (possibly recursive) copy. `copied` lists the source keys
+// whose object was duplicated to the destination; `errors` collects per-key
+// failures. Copy is additive (no source delete) and best-effort: a key whose
+// copy failed is recorded here, never thrown. There is no rollback — a partial
+// folder copy leaves a partial duplicate the user can delete (FR-002).
+export type CopyResult = {
+  copied: string[];
+  errors: { key: string; message: string }[];
+};
+
 // ── Object metadata (SPEC-017) ───────────────────────────────────────────────
 
 // The fields a single HeadObject call exposes for the read-only metadata panel.

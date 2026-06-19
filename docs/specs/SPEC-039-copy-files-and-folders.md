@@ -1,7 +1,7 @@
 # Spec: Copy Files and Folders (recursive)
 
 **ID:** SPEC-039
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-17
 **Depends On:** SPEC-013 (`s3:GetObject` + `s3:PutObject` on own prefix), SPEC-014 (marker), SPEC-015 (data foundation + invalidation), SPEC-018 (selection state), SPEC-019 (`copyObject`, destination picker, collision flow — reused)
 

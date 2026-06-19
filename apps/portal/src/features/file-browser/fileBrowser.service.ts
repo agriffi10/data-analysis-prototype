@@ -21,6 +21,7 @@ import type {
   ObjectMetadata,
   DeleteResult,
   MoveResult,
+  CopyResult,
 } from './fileBrowser.types';
 import {
   MAX_UPLOAD_BYTES,
@@ -28,6 +29,7 @@ import {
   PART_CONCURRENCY,
 } from './fileBrowser.types';
 import {
+  LISTING_PAGE_SIZE,
   PREFIX_MARKER_BODY,
   prefixMarkerKey,
 } from './fileBrowser.constants';
@@ -42,8 +44,10 @@ import {
 const devUnauthenticated =
   import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
-// MaxKeys per ListObjectsV2 page. 1000 is also the S3 hard cap (SPEC-015 FR-002).
-const PAGE_SIZE = 1000;
+// MaxKeys for the recursive collect-all-keys pass (delete/move, SPEC-018/019).
+// 1000 is the S3 hard cap per page; a small page size here would only mean more
+// round-trips. The user-facing listing page size is LISTING_PAGE_SIZE (SPEC-037).
+const BULK_KEY_PAGE_SIZE = 1000;
 
 export async function listFiles(
   bucket: string,
@@ -82,7 +86,7 @@ async function listWithClient(
       Bucket: bucket,
       Prefix: prefix,
       Delimiter: '/',
-      MaxKeys: PAGE_SIZE,
+      MaxKeys: LISTING_PAGE_SIZE,
       ContinuationToken: continuationToken,
     });
 
@@ -410,7 +414,7 @@ async function listAllKeysUnderPrefix(
         new ListObjectsV2Command({
           Bucket: bucket,
           Prefix: prefix,
-          MaxKeys: PAGE_SIZE,
+          MaxKeys: BULK_KEY_PAGE_SIZE,
           ContinuationToken: continuationToken,
         }),
       );
@@ -616,6 +620,105 @@ export async function moveFolder(params: {
   }
 
   return { success: true, data: { moved, errors } };
+}
+
+// ── Copy (SPEC-039) ──────────────────────────────────────────────────────────
+
+// SPEC-039 FR-002: copy a folder and everything beneath it — the copy-only
+// counterpart of moveFolder. Lists every key under `sourcePrefix` recursively,
+// computes each destination by replacing the `sourcePrefix` portion with
+// `destPrefix`, then copies each via copyObject. Unlike moveFolder, NO source is
+// ever deleted (copy is strictly additive). Non-atomic and best-effort: a key
+// whose copy fails is recorded and the rest continue. There is NO rollback — a
+// partial copy leaves a partial duplicate under the destination, which the user
+// can delete. `onProgress` reports processed/total for large folders.
+//
+// Collision (FR-005): unless `overwrite` is true, the destinations are checked
+// once up front (any existing destination object → a single `Collision` error
+// naming the count) so the UI can confirm Overwrite-all or cancel.
+export async function copyFolder(params: {
+  bucket: string;
+  sourcePrefix: string;
+  destPrefix: string;
+  username: string;
+  overwrite?: boolean;
+  onProgress?: (processed: number, total: number) => void;
+}): Promise<ServiceResult<CopyResult>> {
+  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } =
+    params;
+
+  if (sourcePrefix === destPrefix) {
+    return { success: true, data: { copied: [], errors: [] } };
+  }
+  // Copying a folder inside its own subtree would copy keys into themselves.
+  if (destPrefix.startsWith(sourcePrefix)) {
+    return {
+      success: false,
+      error: {
+        message: 'A folder cannot be copied into itself.',
+        code: 'InvalidDestination',
+      },
+    };
+  }
+
+  const listed = await withAuthenticatedClient((client) =>
+    listAllKeysUnderPrefix(client, bucket, sourcePrefix),
+  );
+  if (!listed.success) return listed;
+
+  const sourceKeys = listed.data;
+  if (sourceKeys.length === 0) {
+    return { success: true, data: { copied: [], errors: [] } };
+  }
+
+  const destKeyFor = (sourceKey: string) =>
+    destPrefix + sourceKey.slice(sourcePrefix.length);
+
+  // Pre-flight collision check (FR-005): count destinations that already exist.
+  if (!overwrite) {
+    const existing = await withAuthenticatedClient((client) =>
+      listAllKeysUnderPrefix(client, bucket, destPrefix),
+    );
+    if (!existing.success) return existing;
+    const existingSet = new Set(existing.data);
+    const collisions = sourceKeys
+      .map(destKeyFor)
+      .filter((k) => existingSet.has(k)).length;
+    if (collisions > 0) {
+      return {
+        success: false,
+        error: {
+          message: `${collisions} item(s) already exist at the destination.`,
+          code: 'Collision',
+        },
+      };
+    }
+  }
+
+  const copied: string[] = [];
+  const errors: CopyResult['errors'] = [];
+  const total = sourceKeys.length;
+  let processed = 0;
+
+  for (const sourceKey of sourceKeys) {
+    // Destinations were verified clear (or the user chose overwrite), so each
+    // per-key copy skips its own HEAD with overwrite: true.
+    const result = await copyObject({
+      bucket,
+      sourceKey,
+      destKey: destKeyFor(sourceKey),
+      username,
+      overwrite: true,
+    });
+    if (result.success) {
+      copied.push(sourceKey);
+    } else {
+      errors.push({ key: sourceKey, message: result.error.message });
+    }
+    onProgress?.(++processed, total);
+  }
+
+  return { success: true, data: { copied, errors } };
 }
 
 // SPEC-015 FR-003. Default presigned-download lifetime: 15 minutes.
