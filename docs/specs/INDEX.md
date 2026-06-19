@@ -43,7 +43,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 035 — Tabbed Dashboard + Query Workspace UI (Monaco editor) | Completed |
 | 036 — Query History Panel UI | Completed |
 | 037 — File Browser Pagination (25/page, Load more) | Completed |
-| 038 — Query Results Pagination (20 rows/page, Prev/Next) | Draft |
+| 038 — Query Results Pagination (20 rows/page, Prev/Next) | Completed |
 | 039 — Copy Files and Folders (recursive) | Draft |
 
 ## Arcs

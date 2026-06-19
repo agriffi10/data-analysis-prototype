@@ -11,9 +11,16 @@ export const POLL_INTERVAL_MS = 1_500;
 // is the real cost guard); the UI can re-attach to the execution id later.
 export const MAX_POLL_DURATION_MS = 5 * 60_000;
 
-// FR-004: default GetQueryResults page size. SPEC-038 sets the Prev/Next pager UX
-// at 20 rows/page; this is the service-level default when a caller omits maxRows.
+// FR-004: default GetQueryResults page size — the service-level fallback when a
+// caller omits maxRows. The results UI passes QUERY_RESULTS_PAGE_SIZE instead.
 export const DEFAULT_MAX_ROWS = 100;
+
+// SPEC-038 FR-001: the query-results pager shows this many data rows per page.
+// Single source of truth for the results page size — drives GetQueryResults
+// MaxResults (the first page requests +1 to absorb the Athena SELECT header row,
+// see getQueryResults) and the Prev/Next pager. Deliberately small so only one
+// page (≤20 rows) is ever mounted in the DOM.
+export const QUERY_RESULTS_PAGE_SIZE = 20;
 
 // FR-007: cap the per-user query-history JSON, dropping the oldest beyond this.
 export const QUERY_HISTORY_MAX = 100;

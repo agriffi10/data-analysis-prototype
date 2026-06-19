@@ -65,11 +65,9 @@ export function QueryWorkspace() {
     executionId !== null && (!status || !isTerminalState(status.state));
   const succeeded = status?.state === 'SUCCEEDED';
 
-  // Results only fetch once the query has succeeded.
+  // Results only fetch once the query has succeeded. The hook exposes a Prev/Next
+  // pager (SPEC-038) — one page (≤20 rows) at a time, not the full result set.
   const results = useQueryResults(succeeded ? executionId : null);
-  const resultPages = results.data?.pages ?? [];
-  const columns = resultPages[0]?.columns ?? [];
-  const rows = resultPages.flatMap((page) => page.rows);
 
   // Submit a specific SQL string (shared by Run and history Re-run).
   const submit = (sqlText: string) => {
@@ -257,8 +255,8 @@ export function QueryWorkspace() {
             status={status}
             isInFlight={isInFlight}
             startedAt={startedAt}
-            rowCount={succeeded ? rows.length : undefined}
-            hasMoreRows={results.hasNextPage}
+            rowCount={succeeded ? results.loadedRowCount : undefined}
+            hasMoreRows={results.hasMoreServer}
             onDownloadCsv={handleDownloadCsv}
           />
         )}
@@ -281,11 +279,18 @@ export function QueryWorkspace() {
         <div className={cx('flex-1 overflow-auto px-5 py-4')}>
           {succeeded ? (
             <QueryResultsTable
-              columns={columns}
-              rows={rows}
-              hasMore={results.hasNextPage}
-              isLoadingMore={results.isFetchingNextPage}
-              onLoadMore={() => results.fetchNextPage()}
+              columns={results.columns}
+              rows={results.rows}
+              pageIndex={results.pageIndex}
+              rangeStart={results.rangeStart}
+              rangeEnd={results.rangeEnd}
+              totalRowCount={results.totalRowCount}
+              hasPrev={results.hasPrev}
+              hasNext={results.hasNext}
+              isFetchingNext={results.isFetchingNext}
+              isLoading={results.isPending}
+              onPrev={results.goPrev}
+              onNext={results.goNext}
             />
           ) : (
             <p className="flex h-full items-center justify-center text-sm text-text-3">

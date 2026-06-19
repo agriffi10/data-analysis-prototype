@@ -241,6 +241,24 @@ describe('getQueryResults', () => {
     });
   });
 
+  it('requests maxRows + 1 on the first page so a SELECT nets a full page after the header (SPEC-038 FR-001)', async () => {
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({
+      ResultSet: {
+        ResultSetMetadata: { ColumnInfo: [{ Name: 'id', Type: 'integer' }] },
+        Rows: [],
+      },
+    }));
+    clientWithSend(send);
+
+    await getQueryResults({ queryExecutionId: 'q-1', maxRows: 20 });
+
+    expect(send.mock.calls[0][0].input).toMatchObject({
+      QueryExecutionId: 'q-1',
+      NextToken: undefined,
+      MaxResults: 21,
+    });
+  });
+
   it('does not strip a row on a continuation page and threads the token + maxRows', async () => {
     const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () =>({
       ResultSet: {
