@@ -43,6 +43,18 @@ locals {
   athena_admin_bucket_name = var.athena_admin_bucket_name != "" ? var.athena_admin_bucket_name : "${var.project_name}-prod-athena-admin"
   athena_admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
 
+  # LF registration role ARN (SPEC-032), constructed cycle-free like the role ARNs
+  # above (analytics creates it as "${project_name}-analytics-lf-registration-role").
+  # Passed to the data module so the user-space bucket policy can EXCLUDE it from
+  # the data-access Deny: Lake Formation assumes THIS role to vend creds for the
+  # registered location, so when a user queries a Glue table the read happens as
+  # this role — and without the exclusion the bucket policy's explicit Deny blocks
+  # its s3:ListBucket/GetObject (an explicit resource-policy deny overrides the
+  # role's own identity-policy allow). Apply ordering (data before analytics) means
+  # the role may not exist on the first apply, so this MUST be a constructed string,
+  # not module.analytics output.
+  lf_registration_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-analytics-lf-registration-role"
+
   # Post-confirmation Lambda exec role ARN (SPEC-033), constructed the same
   # cycle-free way as the portal/deploy roles. The auth module creates this role as
   # "${project_name}-${environment}-post-confirmation-role"; analytics adds it as a
@@ -108,6 +120,10 @@ module "data" {
   user_space_bucket_name = local.user_space_bucket_name
   portal_role_name       = local.portal_role_name
   deploy_role_arn        = local.deploy_role_arn
+
+  # Excluded from the bucket-policy data-access Deny so Lake Formation (assuming
+  # this role) can read the registered location when serving Athena queries.
+  lf_registration_role_arn = local.lf_registration_role_arn
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
