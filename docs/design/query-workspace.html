@@ -171,6 +171,106 @@
   .btn-danger-ghost:hover { background: var(--color-danger-soft); }
   .btn[disabled] { opacity: .45; cursor: not-allowed; }
 
+  /* --- Query tab strip (SPEC-041) — sits above the editor toolbar; each tab is
+     an independent query window. Visually distinct from the primary Files|Query
+     tabs (underline) and the sidebar (accent-soft fill): these are "card" tabs. --- */
+  .qtabs {
+    display: flex; align-items: center; gap: var(--sp-1); flex: none;
+    height: 40px; padding: 0 var(--sp-3);
+    background: var(--color-surface-2); border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
+  }
+  .qtab {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    height: 28px; padding: 0 var(--sp-1) 0 var(--sp-3); flex: none;
+    border-radius: var(--r-md); border: 1px solid transparent; background: transparent;
+    color: var(--color-text-2); font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+  }
+  .qtab:hover { background: var(--color-surface); color: var(--color-text); }
+  .qtab.active {
+    background: var(--color-surface); color: var(--color-text);
+    border-color: var(--color-border); box-shadow: var(--shadow-sm);
+  }
+  .qtab .qdot { width: 6px; height: 6px; border-radius: var(--r-full); background: var(--color-accent); opacity: 0; }
+  .qtab.active .qdot { opacity: 1; }
+  .qtab .qx {
+    display: grid; place-items: center; width: 18px; height: 18px;
+    border-radius: var(--r-sm); color: var(--color-text-3); border: 0; background: transparent;
+  }
+  .qtab .qx svg { width: 12px; height: 12px; }
+  .qtab .qx:hover { background: var(--color-danger-soft); color: var(--color-danger); }
+  .qtab.solo .qx { display: none; }           /* last remaining tab can't be closed */
+  .qtab-new {
+    width: 28px; height: 28px; flex: none; border-radius: var(--r-md);
+    border: 1px solid transparent; background: transparent; color: var(--color-text-2);
+    display: grid; place-items: center;
+  }
+  .qtab-new:hover { background: var(--color-surface); color: var(--color-text); }
+  .qtab-new[disabled] { opacity: .4; cursor: not-allowed; }     /* at QUERY_TABS_MAX (10) */
+  .qtab-new svg { width: 16px; height: 16px; }
+  .qtab .qname-dirty { color: var(--color-accent); font-weight: 700; margin-right: 1px; }  /* unsaved-change marker (SPEC-043) */
+  .qtabs .qspacer { flex: 1; }
+  /* global (all-tabs) workspace buttons hoisted onto the tab-strip row (SPEC-043 FR-010) */
+  .bar-btn {
+    height: 28px; padding: 0 var(--sp-3); flex: none;
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: var(--r-md); border: 1px solid transparent; background: transparent;
+    color: var(--color-text-2); font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+  }
+  .bar-btn:hover { background: var(--color-surface); color: var(--color-text); }
+  .bar-btn svg { width: 15px; height: 15px; }
+
+  /* --- Table options kebab + popover menu (SPEC-044) --- */
+  .tbl .kebab {
+    margin-left: var(--sp-1); width: 22px; height: 22px; flex: none; border: 0; background: transparent;
+    border-radius: var(--r-sm); color: var(--color-text-3); display: none; place-items: center;
+  }
+  .tbl:hover .kebab, .tbl .kebab.open { display: grid; }
+  .tbl .kebab:hover { background: var(--color-surface-2); color: var(--color-text); }
+  .tbl .kebab svg { width: 16px; height: 16px; }
+  .menu {
+    position: absolute; z-index: 60; min-width: 184px; padding: var(--sp-1);
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--r-md); box-shadow: var(--shadow-md);
+  }
+  .menu-item {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+    padding: var(--sp-2) var(--sp-3); border: 0; background: transparent; border-radius: var(--r-sm);
+    font-size: var(--text-sm); color: var(--color-text); text-align: left;
+  }
+  .menu-item:hover { background: var(--color-surface-2); }
+  .menu-item svg { width: 15px; height: 15px; color: var(--color-text-3); flex: none; }
+  .menu-sep { height: 1px; margin: var(--sp-1) 0; background: var(--color-border-2); }
+  .menu-item.danger { color: var(--color-danger); }
+  .menu-item.danger svg { color: var(--color-danger); }
+  .menu-item.danger:hover { background: var(--color-danger-soft); }
+
+  /* --- Generic modal (SPEC-026 pattern: name prompt, confirm, tab-limit) --- */
+  .modal-scrim { position: fixed; inset: 0; background: rgba(16,24,40,.40); display: none; align-items: center; justify-content: center; padding: var(--sp-4); z-index: 80; }
+  .modal-scrim.show { display: flex; }
+  .modal { width: 100%; max-width: 420px; background: var(--color-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
+  .modal-body { padding: var(--sp-5); }
+  .modal-body h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-2); }
+  .modal-body p { font-size: var(--text-sm); color: var(--color-text-2); line-height: 1.5; }
+  .modal-body .field { margin-top: var(--sp-4); }
+  .modal-body label { display: block; font-size: var(--text-sm); font-weight: 500; margin-bottom: 6px; }
+  .modal-body input {
+    width: 100%; height: 38px; padding: 0 var(--sp-3); font-family: inherit; font-size: var(--text-base);
+    border: 1px solid var(--color-border); border-radius: var(--r-md); color: var(--color-text); background: var(--color-surface);
+  }
+  .modal-body input:focus { outline: 2px solid rgba(79,70,229,.4); outline-offset: 2px; border-color: var(--color-accent); }
+  .modal-foot { display: flex; justify-content: flex-end; gap: var(--sp-2); padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--color-border); background: var(--color-surface-2); }
+
+  /* --- Toast (SPEC-044 drop feedback) --- */
+  .toast {
+    position: fixed; bottom: var(--sp-6); right: var(--sp-6); z-index: 90;
+    display: none; align-items: center; gap: var(--sp-2);
+    background: var(--color-surface); border: 1px solid var(--color-border); border-left: 3px solid var(--color-success);
+    border-radius: var(--r-md); box-shadow: var(--shadow-md); padding: var(--sp-3) var(--sp-4); font-size: var(--text-sm);
+  }
+  .toast.show { display: flex; }
+  .toast .d { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--color-success); }
+
   /* --- SQL editor (Monaco stand-in) --- */
   .editor-wrap { flex: none; height: 230px; border-bottom: 1px solid var(--color-border); display: flex; background: var(--color-surface); }
   .gutter {
@@ -289,6 +389,23 @@
   .hact { font-size: var(--text-xs); font-weight: 600; color: var(--color-accent-text); background: transparent; border: 0; padding: 2px 4px; border-radius: var(--r-sm); }
   .hact:hover { background: var(--color-accent-soft); }
 
+  /* history pager (SPEC-042) — 7/page, Prev/Next, range form "1–7 of N" */
+  .drawer-foot {
+    flex: none; display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .drawer-foot .range { font-size: var(--text-xs); color: var(--color-text-2); }
+  .drawer-foot .spacer { flex: 1; }
+  .pager-btn {
+    height: 30px; padding: 0 var(--sp-3); display: inline-flex; align-items: center; gap: 6px;
+    border-radius: var(--r-md); border: 1px solid transparent; background: transparent;
+    color: var(--color-text-2); font-size: var(--text-sm); font-weight: 500;
+  }
+  .pager-btn:hover { background: var(--color-surface-2); color: var(--color-text); }
+  .pager-btn[disabled] { opacity: .4; cursor: not-allowed; }
+  .pager-btn svg { width: 14px; height: 14px; }
+
   .hint-banner {
     position: fixed; bottom: var(--sp-5); left: 50%; transform: translateX(-50%);
     background: var(--color-text); color: #fff; font-size: var(--text-sm);
@@ -333,10 +450,33 @@
 
       <div class="nav-label">Tables</div>
 
-      <div class="tbl open" onclick="toggleTbl(this)">
+      <div class="tbl open" style="position:relative" onclick="toggleTbl(this)">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg>
         sales_2026
+        <!-- per-table options menu (SPEC-044) -->
+        <button class="kebab" id="kebabBtn" aria-label="Options for sales_2026" aria-haspopup="true" onclick="event.stopPropagation(); toggleMenu()">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+        </button>
         <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        <div class="menu" id="tblMenu" role="menu" style="display:none; top:30px; right:4px" onclick="event.stopPropagation()">
+          <button class="menu-item" role="menuitem" onclick="hideMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            View source files
+          </button>
+          <button class="menu-item" role="menuitem" onclick="hideMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+            View DDL
+          </button>
+          <button class="menu-item" role="menuitem" onclick="hideMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18M3 12h18M3 19h18"/></svg>
+            View data
+          </button>
+          <div class="menu-sep"></div>
+          <button class="menu-item danger" role="menuitem" onclick="hideMenu(); openDrop()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+            Drop table
+          </button>
+        </div>
       </div>
       <div class="cols open">
         <div class="col" onclick="insertName('order_id')"><span>order_id</span><span class="ctype">bigint</span></div>
@@ -365,15 +505,60 @@
     <!-- ---- MAIN ---- -->
     <main class="main">
 
-      <!-- editor toolbar -->
+      <!-- query tab strip (SPEC-041) — each tab is an independent query window;
+           the active tab's SQL drives the editor + Run/Clear below. Monotonic
+           labels (Query N); closable with confirm; soft cap of 10 tabs. -->
+      <div class="qtabs" role="tablist" aria-label="Query tabs">
+        <button class="qtab active" role="tab" aria-selected="true" onclick="selectTab(this)">
+          <span class="qdot" aria-hidden="true"></span> Query 1
+          <span class="qx" role="button" aria-label="Close Query 1" onclick="event.stopPropagation()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </span>
+        </button>
+        <!-- a tab opened from a saved query: labelled with the query name; • = unsaved edits (SPEC-043) -->
+        <button class="qtab" role="tab" aria-selected="false" onclick="selectTab(this)" title="Saved query · unsaved changes">
+          <span class="qdot" aria-hidden="true"></span><span class="qname-dirty" aria-hidden="true">•</span> Monthly revenue
+          <span class="qx" role="button" aria-label="Close Monthly revenue" onclick="event.stopPropagation()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </span>
+        </button>
+        <!-- a tab opened from a table action "View data" (SPEC-044): labelled with the table name -->
+        <button class="qtab" role="tab" aria-selected="false" onclick="selectTab(this)" title="Table preview">
+          <span class="qdot" aria-hidden="true"></span> sales_2026
+          <span class="qx" role="button" aria-label="Close sales_2026" onclick="event.stopPropagation()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </span>
+        </button>
+        <!-- + is never disabled; at the 10-tab cap it raises the tab-limit dialog (SPEC-041 FR-008) -->
+        <button class="qtab-new" aria-label="New query tab" title="New query tab" onclick="addTab()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+
+        <div class="qspacer"></div>
+        <!-- global (all-tabs) buttons, hoisted out of the per-tab toolbar (SPEC-043 FR-010) -->
+        <button class="bar-btn" onclick="openSaved()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M9 4v5h6"/></svg>
+          Saved queries
+        </button>
+        <button class="bar-btn" onclick="openHistory()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 8v5l3 2"/></svg>
+          History
+        </button>
+      </div>
+
+      <!-- editor toolbar (per-tab controls only; History/Saved hoisted to the strip above) -->
       <div class="toolbar">
         <span class="db-chip"><span class="dot"></span> querying <code>alice</code></span>
         <div class="spacer"></div>
-        <button class="btn btn-ghost" onclick="openHistory()">
-          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 8v5l3 2"/></svg>
-          History
-        </button>
         <button class="btn btn-ghost"><span class="kbd">⌘⏎</span> Format</button>
+        <button class="btn btn-ghost" aria-label="Clear query" title="Clear query (confirms first)">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          Clear
+        </button>
+        <button class="btn btn-ghost" onclick="openSaveDialog()" title="Save query">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M9 4v5h6"/><path d="M8 21v-7h8v7"/></svg>
+          Save
+        </button>
         <button class="btn btn-danger-ghost" id="stopBtn" style="display:none" onclick="setSucceeded()">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Stop
         </button>
@@ -506,15 +691,189 @@
     </div>
 
   </div>
+
+  <!-- history pager (SPEC-042): 7 newest per page, Prev/Next (replace), range form.
+       Body above shows a representative subset; a full page is 7 entries. -->
+  <div class="drawer-foot">
+    <span class="range">1–7 of 23</span>
+    <div class="spacer"></div>
+    <button class="pager-btn" disabled aria-label="Newer queries">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 6-6 6 6 6"/></svg>
+      Prev
+    </button>
+    <button class="pager-btn" aria-label="Older queries">
+      Next
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+    </button>
+  </div>
 </aside>
 
-<div class="hint-banner">Mockup · click <b>Run</b> to see the running state · <b>History</b> opens the drawer · click a table to expand columns</div>
+<!-- ============ SAVED QUERIES DRAWER (SPEC-043) ============ -->
+<div class="scrim" id="savedScrim" onclick="closeSaved()"></div>
+<aside class="drawer" id="savedDrawer" aria-label="Saved queries">
+  <div class="drawer-head">
+    <h2>Saved queries</h2>
+    <div class="spacer"></div>
+    <button class="icon-btn" onclick="closeSaved()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+
+    <div class="hrow">
+      <div class="hrow-top">
+        <span style="font-weight:600">Monthly revenue</span>
+        <span class="htime">updated 2 min ago</span>
+      </div>
+      <div class="hsql">SELECT region, SUM(amount) AS revenue, COUNT(*) … LIMIT 10;</div>
+      <div class="hrow-foot">
+        <div class="spacer"></div>
+        <button class="hact" onclick="closeSaved()">Open</button>
+        <button class="hact" style="color:var(--color-danger)" onclick="openDelete()">Delete</button>
+      </div>
+    </div>
+
+    <div class="hrow">
+      <div class="hrow-top">
+        <span style="font-weight:600">Top customers by tier</span>
+        <span class="htime">updated yesterday</span>
+      </div>
+      <div class="hsql">SELECT tier, COUNT(*) FROM customers GROUP BY tier ORDER BY 2 DESC;</div>
+      <div class="hrow-foot">
+        <div class="spacer"></div>
+        <button class="hact" onclick="closeSaved()">Open</button>
+        <button class="hact" style="color:var(--color-danger)" onclick="openDelete()">Delete</button>
+      </div>
+    </div>
+
+    <div class="hrow">
+      <div class="hrow-top">
+        <span style="font-weight:600">Daily order counts</span>
+        <span class="htime">updated Jun 12</span>
+      </div>
+      <div class="hsql">SELECT order_date, COUNT(*) FROM sales_2026 GROUP BY order_date;</div>
+      <div class="hrow-foot">
+        <div class="spacer"></div>
+        <button class="hact" onclick="closeSaved()">Open</button>
+        <button class="hact" style="color:var(--color-danger)" onclick="openDelete()">Delete</button>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<!-- ============ MODALS ============ -->
+<!-- Save (name prompt) — pre-filled when re-saving a linked tab (SPEC-043 FR-001/002) -->
+<div class="modal-scrim" id="saveModal" onclick="closeModal('saveModal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-body">
+      <h3>Save query</h3>
+      <p>Give this query a name. Re-saving an opened saved query updates it in place.</p>
+      <div class="field">
+        <label for="sqName">Name</label>
+        <input id="sqName" type="text" placeholder="e.g. Monthly revenue" value="Monthly revenue" />
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('saveModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="closeModal('saveModal')">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Drop table confirm (SPEC-044 FR-005) -->
+<div class="modal-scrim" id="dropModal" onclick="closeModal('dropModal')">
+  <div class="modal" role="alertdialog" aria-modal="true" onclick="event.stopPropagation()">
+    <div class="modal-body">
+      <h3>Drop table &ldquo;sales_2026&rdquo;?</h3>
+      <p>This permanently removes the table definition from your database. The underlying S3 data files are not deleted. This can&rsquo;t be undone.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('dropModal')">Cancel</button>
+      <button class="btn" style="background:var(--color-danger);border-color:var(--color-danger);color:#fff" onclick="closeModal('dropModal'); showToast()">Drop table</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete saved query confirm (SPEC-043 FR-007) -->
+<div class="modal-scrim" id="deleteModal" onclick="closeModal('deleteModal')">
+  <div class="modal" role="alertdialog" aria-modal="true" onclick="event.stopPropagation()">
+    <div class="modal-body">
+      <h3>Delete saved query?</h3>
+      <p>&ldquo;Monthly revenue&rdquo; will be removed from your saved queries. Any open tab linked to it becomes a normal tab.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('deleteModal')">Cancel</button>
+      <button class="btn" style="background:var(--color-danger);border-color:var(--color-danger);color:#fff" onclick="closeModal('deleteModal')">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tab-limit dialog (SPEC-041 FR-008) -->
+<div class="modal-scrim" id="limitModal" onclick="closeModal('limitModal')">
+  <div class="modal" role="alertdialog" aria-modal="true" onclick="event.stopPropagation()">
+    <div class="modal-body">
+      <h3>Too many query tabs</h3>
+      <p>You have the maximum of 10 query tabs open. Close a tab before opening another.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" onclick="closeModal('limitModal')">Got it</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast (SPEC-044 FR-006) -->
+<div class="toast" id="toast"><span class="d"></span> Dropped <b>sales_2026</b></div>
+
+<div class="hint-banner">Mockup · <b>Saved queries</b> + <b>Save</b> (SPEC-043) · table <b>⋮ menu</b> + Drop/toast (SPEC-044) · <b>+</b> past 10 tabs → limit dialog (SPEC-041)</div>
 
 <script>
   function openHistory(){ document.getElementById('drawer').classList.add('show'); document.getElementById('scrim').classList.add('show'); }
   function closeHistory(){ document.getElementById('drawer').classList.remove('show'); document.getElementById('scrim').classList.remove('show'); }
   function toggleTbl(el){ el.classList.toggle('open'); var cols = el.nextElementSibling; if(cols && cols.classList.contains('cols')) cols.classList.toggle('open'); }
   function insertName(n){ /* real impl inserts into Monaco at cursor (SPEC-035 FR-007) */ }
+
+  // --- Saved queries drawer (SPEC-043) ---
+  function openSaved(){ closeHistory(); document.getElementById('savedDrawer').classList.add('show'); document.getElementById('savedScrim').classList.add('show'); }
+  function closeSaved(){ document.getElementById('savedDrawer').classList.remove('show'); document.getElementById('savedScrim').classList.remove('show'); }
+
+  // --- Modals (SPEC-026 pattern) ---
+  function openSaveDialog(){ document.getElementById('saveModal').classList.add('show'); }
+  function openDrop(){ document.getElementById('dropModal').classList.add('show'); }
+  function openDelete(){ document.getElementById('deleteModal').classList.add('show'); }
+  function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+  function showToast(){ var t = document.getElementById('toast'); t.classList.add('show'); setTimeout(function(){ t.classList.remove('show'); }, 3200); }
+
+  // --- Table options kebab menu (SPEC-044) ---
+  function toggleMenu(){ var m = document.getElementById('tblMenu'); m.style.display = m.style.display === 'none' ? 'block' : 'none'; }
+  function hideMenu(){ document.getElementById('tblMenu').style.display = 'none'; }
+  document.addEventListener('click', function(){ hideMenu(); }); // outside-click closes
+
+  // --- Query tabs (SPEC-041) ---
+  // Mockup-only behavior: real impl swaps the editor's content to the selected
+  // tab's SQL. Blank "+" tabs are labelled monotonically (Query N); tabs opened
+  // from a saved query / table action carry a feature-supplied label (FR-009).
+  // The "+" is never disabled; at the 10-tab cap it raises the limit dialog (FR-008).
+  var nextQueryNumber = 4; // Query 1–3 worth already used this "session"
+  function selectTab(el){
+    document.querySelectorAll('.qtab').forEach(function(t){ t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+    el.classList.add('active'); el.setAttribute('aria-selected','true');
+  }
+  function addTab(){
+    var tabs = document.querySelectorAll('.qtab');
+    if (tabs.length >= 10) { document.getElementById('limitModal').classList.add('show'); return; } // FR-008
+    var strip = document.querySelector('.qtabs');
+    var newBtn = document.querySelector('.qtab-new');
+    var n = nextQueryNumber++;
+    var tab = document.createElement('button');
+    tab.className = 'qtab'; tab.setAttribute('role','tab'); tab.setAttribute('aria-selected','false');
+    tab.onclick = function(){ selectTab(tab); };
+    tab.innerHTML = '<span class="qdot" aria-hidden="true"></span> Query ' + n +
+      '<span class="qx" role="button" aria-label="Close Query ' + n + '" onclick="event.stopPropagation()">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span>';
+    strip.insertBefore(tab, newBtn);
+    selectTab(tab);
+  }
 
   function setRunning(){
     document.getElementById('runBtn').style.display = 'none';

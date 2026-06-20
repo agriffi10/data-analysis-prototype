@@ -45,6 +45,11 @@ Add a row when a spec is created; update its status on completion (status only �
 | 037 — File Browser Pagination (25/page, Load more) | Completed |
 | 038 — Query Results Pagination (20 rows/page, Prev/Next) | Completed |
 | 039 — Copy Files and Folders (recursive) | Completed |
+| 040 — Query Editor Session Persistence + Clear Button | Draft |
+| 041 — Multi-Tab Query Editor | Draft |
+| 042 — Query History Pagination (7/page, Prev/Next) | Draft |
+| 043 — Saved Queries + Global Workspace Bar | Draft |
+| 044 — Schema Browser Table Options Menu | Draft |
 
 ## Arcs
 
@@ -67,3 +72,22 @@ separate admin-only bucket. Query history is app-side JSON (`query-history.json`
 user. Users define tables via DDL and may write (CTAS/INSERT) into their own prefix. SPEC-035/036 are
 design-led (`docs/design/query-workspace.html` + `design-system.md` §6). New deps at implementation:
 `@aws-sdk/client-athena`, `@aws-sdk/client-glue`, Monaco.
+
+**Query-editor UX follow-ups (040→042)** — refine the SPEC-035/036 workspace without touching the data
+layer or IAM: 040 persists the un-run editor draft across tab switches/reloads (`sessionStorage`,
+per-user) and adds a **Clear** button; 041 turns the editor into **query tabs** (`Query N`, monotonic
+labels, closable-with-confirm, per-tab persisted text) and supersedes 040's single-draft storage;
+042 paginates the history drawer (7/page, Prev/Next, newest-first, client-side). 041 needs a design
+pass (new tab strip in `query-workspace.html` + §6) before code.
+
+**Query-editor UX, round 2 (043→044, + 041 amend)** — builds on the tab model: 043 adds **saved
+queries** (Save in the Run bar → named JSON store at `{username}/athenaresults/saved-queries.json`,
+same IAM as history; a saved-queries slide-out drawer; open-in-new-tab, re-save-in-place, delete-with-
+confirm, dirty marker; History + Saved-queries buttons hoisted to a workspace-global bar; runs from a
+saved query record its name in history). 044 adds a per-table **options menu** in the schema browser —
+view source files (deep-links the file browser via new `/files?prefix=`), view DDL (`SHOW CREATE TABLE`
+→ tab), view data (`SELECT * … LIMIT 10` → tab), drop table (confirm → background run + schema refresh +
+toast). SPEC-041 was **amended** (pre-build): the 10-tab cap now raises a "close a tab first" dialog
+(the `+` is no longer disabled) and `openTab` accepts a feature-supplied label/sql so 043/044 open
+named tabs. No IAM/infra change across this round (043/044 reuse existing analytics + file-browser
+access; the `?prefix=` deep-link is frontend-only).
