@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Auth + the lazy editor + the data hooks are mocked so the workspace can be
@@ -8,7 +8,10 @@ vi.mock('../auth', () => ({
   useAuth: () => ({ user: { username: 'alice' }, status: 'authenticated' }),
 }));
 vi.mock('./SqlEditor', () => ({
-  SqlEditor: () => <div data-testid="sql-editor" />,
+  // Render the value so restore-on-mount / Clear are observable in tests.
+  SqlEditor: ({ value }: { value: string }) => (
+    <div data-testid="sql-editor">{value}</div>
+  ),
 }));
 vi.mock('./SchemaBrowser', () => ({
   SchemaBrowser: () => <div data-testid="schema-browser" />,
@@ -28,6 +31,7 @@ import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
 import { QueryWorkspace } from './QueryWorkspace';
+import { QUERY_DRAFT_STORAGE_PREFIX } from './query.constants';
 
 const mockRunQuery = vi.mocked(runQuery);
 const mockUseExecution = vi.mocked(useQueryExecution);
@@ -50,6 +54,7 @@ function renderWorkspace() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
   // Default: no execution in flight, no results.
   mockUseExecution.mockReturnValue({ data: undefined } as unknown as ReturnType<
     typeof useQueryExecution
@@ -174,6 +179,86 @@ describe('QueryWorkspace', () => {
     expect(
       screen.getByRole('button', { name: /Download CSV/ }),
     ).toBeInTheDocument();
+  });
+
+  it('seeds the editor from the persisted draft on mount (SPEC-040)', async () => {
+    sessionStorage.setItem(
+      `${QUERY_DRAFT_STORAGE_PREFIX}alice`,
+      'SELECT * FROM persisted;',
+    );
+    renderWorkspace();
+
+    const editor = await screen.findByTestId('sql-editor');
+    expect(editor).toHaveTextContent('SELECT * FROM persisted;');
+  });
+
+  it('falls back to the default boilerplate when no draft exists (SPEC-040)', async () => {
+    renderWorkspace();
+
+    const editor = await screen.findByTestId('sql-editor');
+    expect(editor).toHaveTextContent('SELECT 1;');
+  });
+
+  it('Clear confirms, then empties the editor + draft and disables Run (SPEC-040)', async () => {
+    sessionStorage.setItem(
+      `${QUERY_DRAFT_STORAGE_PREFIX}alice`,
+      'SELECT * FROM persisted;',
+    );
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    // Clicking Clear opens a warn-and-confirm dialog; the editor is untouched yet.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear query' }));
+    const dialog = screen.getByRole('alertdialog', {
+      name: /confirm clear query/i,
+    });
+    expect(screen.getByTestId('sql-editor')).toHaveTextContent(
+      'SELECT * FROM persisted;',
+    );
+
+    // Confirm → editor empties, the persisted draft is removed, Run disabled.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear' }));
+    expect(screen.getByTestId('sql-editor')).toHaveTextContent('');
+    expect(
+      sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`),
+    ).toBeNull();
+    expect(screen.getByRole('button', { name: /Run/ })).toBeDisabled();
+    // Clear itself is now disabled (editor empty).
+    expect(screen.getByRole('button', { name: 'Clear query' })).toBeDisabled();
+  });
+
+  it('Clear cancel leaves the editor untouched (SPEC-040)', async () => {
+    sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'SELECT keep;');
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear query' }));
+    const dialog = screen.getByRole('alertdialog', {
+      name: /confirm clear query/i,
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByTestId('sql-editor')).toHaveTextContent('SELECT keep;');
+    expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBe(
+      'SELECT keep;',
+    );
+  });
+
+  it('disables Clear while a query is in flight (SPEC-040)', async () => {
+    mockRunQuery.mockResolvedValue({
+      success: true,
+      data: { queryExecutionId: 'q-1' },
+    });
+    mockUseExecution.mockReturnValue({
+      data: { queryExecutionId: 'q-1', state: 'RUNNING' },
+    } as unknown as ReturnType<typeof useQueryExecution>);
+
+    renderWorkspace();
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }));
+
+    // In flight → Stop replaces Run, and Clear is disabled.
+    expect(await screen.findByRole('button', { name: /Stop/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear query' })).toBeDisabled();
   });
 
   it('re-runs a history entry from the history panel', async () => {

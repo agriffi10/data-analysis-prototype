@@ -1,7 +1,7 @@
 # Spec: Query Editor Session Persistence + Clear Button
 
 **ID:** SPEC-040
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-19
 **Depends On:** SPEC-035 (query workspace + Monaco editor + Run/Stop toolbar), SPEC-034 (query data layer — unchanged)
 
