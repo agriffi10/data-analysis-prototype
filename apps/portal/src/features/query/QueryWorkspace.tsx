@@ -13,6 +13,8 @@ import {
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
+import { readQueryDraft, writeQueryDraft, clearQueryDraft } from './queryDraft';
+import { ClearQueryDialog } from './ClearQueryDialog';
 import { invalidateSchema } from './useSchema';
 import { isSchemaChangingSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
@@ -40,12 +42,16 @@ export function QueryWorkspace() {
   const database = username;
   const queryClient = useQueryClient();
 
-  const [sql, setSql] = useState(DEFAULT_SQL);
+  // SPEC-040: seed from the per-user sessionStorage draft so an un-run query
+  // survives tab switches (remount) and page reloads within the session; fall
+  // back to the boilerplate only when there is no draft. Read once at mount.
+  const [sql, setSql] = useState(() => readQueryDraft(username) || DEFAULT_SQL);
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
 
   const editorRef = useRef<SqlEditorHandle>(null);
   const submittedSqlRef = useRef('');
@@ -61,6 +67,14 @@ export function QueryWorkspace() {
   // Results only fetch once the query has succeeded. The hook exposes a Prev/Next
   // pager (SPEC-038) — one page (≤20 rows) at a time, not the full result set.
   const results = useQueryResults(succeeded ? executionId : null);
+
+  // SPEC-040: any change to the editor text updates state and persists the draft
+  // in one place, so typing, schema-insert, and history re-open all keep the
+  // session draft in sync. Clear deliberately bypasses this (it removes the key).
+  const applySql = (sqlText: string) => {
+    setSql(sqlText);
+    writeQueryDraft(username, sqlText);
+  };
 
   // Submit a specific SQL string (shared by Run and history Re-run).
   const submit = (sqlText: string) => {
@@ -98,13 +112,13 @@ export function QueryWorkspace() {
   // SPEC-036: re-open loads the entry's SQL into the editor (no auto-run);
   // re-run loads it and submits (a new history entry is appended by submit).
   const handleReopen = (entry: QueryHistoryEntry) => {
-    setSql(entry.sql);
+    applySql(entry.sql);
     setHistoryOpen(false);
     editorRef.current?.focus();
   };
   const handleRerun = (entry: QueryHistoryEntry) => {
     if (isInFlight) return;
-    setSql(entry.sql);
+    applySql(entry.sql);
     setHistoryOpen(false);
     submit(entry.sql);
   };
@@ -162,6 +176,19 @@ export function QueryWorkspace() {
       : null);
   const showError = !!errorMessage && !errorDismissed;
   const canRun = !!sql.trim() && !!database && !isInFlight;
+  // SPEC-040 FR-003: Clear is offered only when there is text to clear and no
+  // query is executing (don't mutate a running query's context).
+  const canClear = sql.length > 0 && !isInFlight;
+
+  // Clear confirms first (no undo), then empties the editor + the persisted
+  // draft and refocuses. Cancel is a no-op. Bypasses applySql so the cleared
+  // key is not immediately re-written.
+  const handleClearConfirm = () => {
+    setSql('');
+    clearQueryDraft(username);
+    setClearOpen(false);
+    editorRef.current?.focus();
+  };
 
   return (
     <div className="flex min-w-0 flex-1">
@@ -177,6 +204,26 @@ export function QueryWorkspace() {
             querying <code className="font-mono text-text">{database}</code>
           </span>
           <div className="flex-1" />
+          <Button
+            variant="ghost"
+            onClick={() => setClearOpen(true)}
+            disabled={!canClear}
+            aria-label="Clear query"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M3 6h18" />
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            </svg>
+            Clear
+          </Button>
           <Button variant="ghost" onClick={() => setHistoryOpen(true)}>
             <svg
               viewBox="0 0 24 24"
@@ -237,7 +284,7 @@ export function QueryWorkspace() {
             <SqlEditor
               ref={editorRef}
               value={sql}
-              onChange={setSql}
+              onChange={applySql}
               onRun={handleRun}
             />
           </Suspense>
@@ -301,6 +348,13 @@ export function QueryWorkspace() {
         onRerun={handleRerun}
         rerunDisabled={isInFlight}
       />
+
+      {clearOpen && (
+        <ClearQueryDialog
+          onConfirm={handleClearConfirm}
+          onCancel={() => setClearOpen(false)}
+        />
+      )}
     </div>
   );
 }

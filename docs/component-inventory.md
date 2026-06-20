@@ -174,6 +174,8 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `QueryResultsTable` | `QueryResultsTable.tsx` | File-table-styled results (dynamic columns + type, horizontal scroll, empty/loading state); shows one page at a time with a Prev/Next pager + "Rows X–Y" indicator (replace, not append — SPEC-038). |
 | `QueryHistoryPanel` | `QueryHistoryPanel.tsx` | Right slide-over drawer listing per-user history (`useQueryHistory`); read-only, view/Open/Re-run; empty/loading/error states (SPEC-036). |
 | `QueryHistoryRow` | `QueryHistoryRow.tsx` | One history entry: status badge, relative time, SQL preview, stats, Open/Re-run (SPEC-036). |
+| `readQueryDraft` / `writeQueryDraft` / `clearQueryDraft` | `queryDraft.ts` | Per-user `sessionStorage` wrapper for the un-run editor draft (`s3portal.query.draft.{username}`); swallows storage failures, no-op on empty username (SPEC-040). *Superseded by SPEC-041's per-tab model.* |
+| `ClearQueryDialog` | `ClearQueryDialog.tsx` | Warn-and-confirm modal for the Clear-query action (SPEC-026 pattern; `alertdialog`, Escape/backdrop cancel, no undo) (SPEC-040). |
 | `formatBytes` / `formatDurationMs` / `formatRelativeTime` | `query.format.ts` | Display formatters for scanned-bytes / duration / relative timestamps. |
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |
 | `QueryState`, `QueryStatus`, `QueryColumn`, `QueryResultPage`, `GlueColumn`, `GlueTableSummary`, `QueryHistoryEntry`, `QueryHistory` | `query.types.ts` | Feature data types. |

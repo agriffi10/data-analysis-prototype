@@ -24,3 +24,8 @@ export const QUERY_RESULTS_PAGE_SIZE = 20;
 
 // FR-007: cap the per-user query-history JSON, dropping the oldest beyond this.
 export const QUERY_HISTORY_MAX = 100;
+
+// SPEC-040: sessionStorage key prefix for the per-user editor draft. The full
+// key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. sessionStorage (not local)
+// is deliberate — the draft lives for the current browser session only.
+export const QUERY_DRAFT_STORAGE_PREFIX = 's3portal.query.draft.';
