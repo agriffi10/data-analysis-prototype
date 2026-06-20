@@ -14,18 +14,26 @@ import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
 import { useQueryTabs } from './useQueryTabs';
+import { useSavedQueries } from './useSavedQueries';
 import { invalidateSchema } from './useSchema';
 import { isSchemaChangingSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
 import { QueryHistoryPanel } from './QueryHistoryPanel';
+import { SavedQueriesPanel } from './SavedQueriesPanel';
 import { QueryTabStrip } from './QueryTabStrip';
 import { ClearQueryDialog } from './ClearQueryDialog';
 import { CloseTabDialog } from './CloseTabDialog';
 import { TabLimitDialog } from './TabLimitDialog';
+import { SaveQueryDialog } from './SaveQueryDialog';
 import type { SqlEditorHandle } from './SqlEditor';
-import type { QueryHistoryEntry, QueryStatus, QueryTab } from './query.types';
+import type {
+  QueryHistoryEntry,
+  QueryStatus,
+  QueryTab,
+  SavedQuery,
+} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
@@ -98,14 +106,42 @@ export function QueryWorkspace() {
   const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
+  // Drawers are mutually exclusive (FR-010): opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [limitOpen, setLimitOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
   const [closing, setClosing] = useState<QueryTab | null>(null);
 
   const editorRef = useRef<SqlEditorHandle>(null);
 
   const { appendEntry, updateEntry } = useQueryHistory(username || null);
+  const saved = useSavedQueries(username || null);
+
+  // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the
+  // stored saved query. Drives the tab-strip marker.
+  const savedById = new Map(saved.queries.map((q) => [q.id, q]));
+  const dirtyTabIds = new Set(
+    tabs.tabs
+      .filter((t) => {
+        const sq = t.savedQueryId ? savedById.get(t.savedQueryId) : undefined;
+        return sq !== undefined && sq.sql !== t.sql;
+      })
+      .map((t) => t.id),
+  );
+  const activeLinkedSaved = activeTab.savedQueryId
+    ? savedById.get(activeTab.savedQueryId)
+    : undefined;
+
+  const openHistory = () => {
+    setSavedOpen(false);
+    setHistoryOpen(true);
+  };
+  const openSaved = () => {
+    setHistoryOpen(false);
+    setSavedOpen(true);
+  };
 
   // Active-tab derived run state.
   const activeRun = runs[activeTabId];
@@ -154,6 +190,11 @@ export function QueryWorkspace() {
       (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
     if (inFlight) return;
 
+    // SPEC-043 FR-009: a run from a tab linked to a saved query records that
+    // query's id/name in history. Captured from the active tab at submit time.
+    const linkedId = tabs.tabs.find((t) => t.id === tabId)?.savedQueryId;
+    const linkedSaved = linkedId ? savedById.get(linkedId) : undefined;
+
     setRunErrors((e) => ({ ...e, [tabId]: null }));
     setDismissed((d) => ({ ...d, [tabId]: false }));
     void (async () => {
@@ -174,6 +215,10 @@ export function QueryWorkspace() {
         sql: sqlText,
         database,
         submittedAt: new Date().toISOString(),
+        ...(linkedSaved && {
+          savedQueryId: linkedSaved.id,
+          savedQueryName: linkedSaved.name,
+        }),
       }).catch((e) => console.warn('[query-history] append failed', e));
     })();
   };
@@ -265,6 +310,53 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
+  // SPEC-043 FR-001/002/003: resolve the name prompt into an upsert. targetId is
+  // the saved query to write into (an existing id) or null to create a new one;
+  // either way the active tab is (re)linked + relabelled and its dirty marker
+  // clears (the saved sql now matches the tab sql).
+  const handleSaveConfirm = ({
+    name,
+    targetId,
+  }: {
+    name: string;
+    targetId: string | null;
+  }) => {
+    const now = new Date().toISOString();
+    const existing = targetId ? savedById.get(targetId) : undefined;
+    const query: SavedQuery = {
+      id: targetId ?? crypto.randomUUID(),
+      name,
+      sql: activeTab.sql,
+      database,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    saved.upsert(query).catch((e) => console.warn('[saved-queries] save failed', e));
+    tabs.setActiveTabMeta({ label: name, savedQueryId: query.id });
+    setSaveOpen(false);
+    editorRef.current?.focus();
+  };
+
+  // FR-006: open a saved query into a new linked tab (cap dialog honored).
+  const handleOpenSaved = (q: SavedQuery) => {
+    const id = tabs.openTab({ label: q.name, sql: q.sql, savedQueryId: q.id });
+    if (id === null) {
+      setLimitOpen(true);
+      return;
+    }
+    setSavedOpen(false);
+    editorRef.current?.focus();
+  };
+
+  // FR-007: delete a saved query (JSON rewrite, never an S3 delete) and unlink any
+  // open tab pointing at it (the tab keeps its SQL; a later Save creates new).
+  const handleDeleteSaved = (id: string) => {
+    saved
+      .remove(id)
+      .catch((e) => console.warn('[saved-queries] delete failed', e));
+    tabs.unlinkSavedQuery(id);
+  };
+
   const errorMessage =
     runErrors[activeTabId] ??
     (activeStatus?.state === 'FAILED'
@@ -273,6 +365,7 @@ export function QueryWorkspace() {
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !!database && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
+  const canSave = !!activeTab.sql.trim(); // FR-001: disabled only when empty
 
   return (
     <div className="flex min-w-0 flex-1">
@@ -298,9 +391,12 @@ export function QueryWorkspace() {
         <QueryTabStrip
           tabs={tabs.tabs}
           activeTabId={activeTabId}
+          dirtyTabIds={dirtyTabIds}
           onSelect={tabs.setActiveTab}
           onClose={requestClose}
           onNew={handleNewTab}
+          onOpenSaved={openSaved}
+          onOpenHistory={openHistory}
         />
 
         <div className="flex h-[52px] flex-none items-center gap-3 border-b border-border bg-surface px-5">
@@ -329,7 +425,12 @@ export function QueryWorkspace() {
             </svg>
             Clear
           </Button>
-          <Button variant="ghost" onClick={() => setHistoryOpen(true)}>
+          <Button
+            variant="ghost"
+            onClick={() => setSaveOpen(true)}
+            disabled={!canSave}
+            aria-label="Save query"
+          >
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -338,11 +439,11 @@ export function QueryWorkspace() {
               className="h-4 w-4"
               aria-hidden="true"
             >
-              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-              <path d="M3 3v5h5" />
-              <path d="M12 8v5l3 2" />
+              <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+              <path d="M9 4v5h6" />
+              <path d="M8 21v-7h8v7" />
             </svg>
-            History
+            Save
           </Button>
           {activeIsInFlight ? (
             <Button
@@ -456,10 +557,29 @@ export function QueryWorkspace() {
         rerunDisabled={activeIsInFlight}
       />
 
+      <SavedQueriesPanel
+        open={savedOpen}
+        onClose={() => setSavedOpen(false)}
+        queries={saved.queries}
+        isLoading={saved.isLoading}
+        error={saved.error}
+        onOpen={handleOpenSaved}
+        onDelete={handleDeleteSaved}
+      />
+
       {clearOpen && (
         <ClearQueryDialog
           onConfirm={handleClearConfirm}
           onCancel={() => setClearOpen(false)}
+        />
+      )}
+      {saveOpen && (
+        <SaveQueryDialog
+          initialName={activeLinkedSaved?.name ?? ''}
+          savedQueries={saved.queries}
+          linkedId={activeTab.savedQueryId}
+          onSave={handleSaveConfirm}
+          onCancel={() => setSaveOpen(false)}
         />
       )}
       {closing && (
