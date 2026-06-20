@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
+import { FocusTrap } from 'focus-trap-react';
 import { cx } from '../lib/cx';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
@@ -29,26 +30,43 @@ export function Modal({
   children,
 }: ModalProps) {
   useEscapeKey(onDismiss, dismissible);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => {
-        if (dismissible) onDismiss();
+    // Trap focus within the panel while open; restore it to the trigger on
+    // close. `initialFocus: false` defers to each consumer's own focus effect
+    // (ConfirmDialog → a button, Rename/SaveQuery → an input). Escape is owned
+    // by useEscapeKey above, and the full-screen scrim owns backdrop-dismiss, so
+    // we disable focus-trap's escape/outside-click handling.
+    <FocusTrap
+      focusTrapOptions={{
+        initialFocus: false,
+        fallbackFocus: () => panelRef.current ?? document.body,
+        escapeDeactivates: false,
+        allowOutsideClick: true,
       }}
     >
       <div
-        role={role}
-        aria-modal="true"
-        aria-label={ariaLabel}
-        className={cx(
-          'w-full rounded-lg bg-surface shadow-lg',
-          className ?? 'max-w-md',
-        )}
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+        onClick={() => {
+          if (dismissible) onDismiss();
+        }}
       >
-        {children}
+        <div
+          ref={panelRef}
+          role={role}
+          aria-modal="true"
+          aria-label={ariaLabel}
+          tabIndex={-1}
+          className={cx(
+            'w-full rounded-lg bg-surface shadow-lg',
+            className ?? 'max-w-md',
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
       </div>
-    </div>
+    </FocusTrap>
   );
 }
