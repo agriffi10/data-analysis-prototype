@@ -25,6 +25,11 @@ export const QUERY_RESULTS_PAGE_SIZE = 20;
 // FR-007: cap the per-user query-history JSON, dropping the oldest beyond this.
 export const QUERY_HISTORY_MAX = 100;
 
+// SPEC-042: the history drawer shows this many entries per page (newest-first),
+// with a Prev/Next pager. Client-side only — the full capped-100 list is already
+// in memory (useQueryHistory), so paging is a slice, not a fetch.
+export const QUERY_HISTORY_PAGE_SIZE = 7;
+
 // SPEC-040: sessionStorage key prefix for the per-user editor draft. The full
 // key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. Superseded by SPEC-041's
 // tabs store — retained only for the one-time migration (read once, then removed).
