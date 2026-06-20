@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../features/auth';
 import { setReturnPath } from '../lib/returnPath';
+import { LoadingState } from './LoadingState';
 
 // Authenticated app shell. The left rail is owned by each route's page (the file
 // browser renders <Sidebar>, the query workspace renders its schema browser —
@@ -36,14 +37,7 @@ export function ProtectedLayout() {
   // While auth resolves, render a loading indicator instead of the Outlet, so
   // the file browser never flashes and fires no S3 requests.
   if (status === 'loading') {
-    return (
-      <div
-        role="status"
-        className="flex flex-1 items-center justify-center py-24 text-text-3"
-      >
-        Loading&hellip;
-      </div>
-    );
+    return <LoadingState />;
   }
 
   // Signed out: remember where they were headed, then send them to the landing

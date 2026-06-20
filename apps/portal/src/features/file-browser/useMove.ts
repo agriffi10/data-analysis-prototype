@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateListing } from '../../lib/queryClient';
 import { moveObject, moveFolder, uploadPercent } from './fileBrowser.service';
+import { leafName, fileParent, folderParts } from './fileBrowser.paths';
 import type { SelectableItem } from './selectionContext';
 
 // Aggregated outcome of a rename or (possibly multi-item, recursive) move:
@@ -42,27 +43,6 @@ export type UseMoveResult = {
   dismissSummary: () => void;
   cancelCollision: () => void;
 };
-
-// Leaf (last segment) of a file key: `a/b/c.txt` → `c.txt`.
-function leafName(key: string): string {
-  const i = key.lastIndexOf('/');
-  return i === -1 ? key : key.slice(i + 1);
-}
-
-// Parent prefix of a file key: `a/b/c.txt` → `a/b/`, `c.txt` → ``.
-function fileParent(key: string): string {
-  const i = key.lastIndexOf('/');
-  return i === -1 ? '' : key.slice(0, i + 1);
-}
-
-// Parent prefix + leaf name of a folder prefix: `a/b/photos/` → `{ parent: 'a/b/', leaf: 'photos' }`.
-function folderParts(prefix: string): { parent: string; leaf: string } {
-  const trimmed = prefix.replace(/\/$/, '');
-  const i = trimmed.lastIndexOf('/');
-  return i === -1
-    ? { parent: '', leaf: trimmed }
-    : { parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1) };
-}
 
 type Acc = { moved: number; errors: MoveSummary['errors'] };
 

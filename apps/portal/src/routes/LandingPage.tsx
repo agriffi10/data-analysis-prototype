@@ -3,6 +3,7 @@ import { useAuth } from '../features/auth';
 import { takeReturnPath } from '../lib/returnPath';
 import { BrandMark } from '../components/BrandMark';
 import { Button } from '../components/Button';
+import { UploadIcon, FolderIcon } from '../components/icons';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 // ─── Inline icons (from docs/design/landing.html) ─────────────────────────────
@@ -40,36 +41,11 @@ function CheckIcon() {
 }
 
 function UploadFeatureIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 16V4M7 9l5-5 5 5" />
-      <path d="M5 20h14" />
-    </svg>
-  );
+  return <UploadIcon className="h-5 w-5" />;
 }
 
 function FolderFeatureIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
+  return <FolderIcon filled className="h-5 w-5" />;
 }
 
 function LinkFeatureIcon() {
@@ -94,16 +70,7 @@ function LinkFeatureIcon() {
 // ─── Static app-preview illustration (decorative) ─────────────────────────────
 
 function PreviewFolderIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      className="h-[18px] w-[18px] text-accent"
-      aria-hidden="true"
-    >
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
+  return <FolderIcon filled className="h-[18px] w-[18px] text-accent" />;
 }
 
 function PreviewFileIcon() {

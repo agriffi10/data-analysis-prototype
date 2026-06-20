@@ -3,6 +3,7 @@ import { Suspense, lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { RootLayout } from './components/RootLayout';
 import { ProtectedLayout } from './components/ProtectedLayout';
+import { LoadingState } from './components/LoadingState';
 import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotFoundPage from './routes/NotFoundPage';
@@ -24,13 +25,7 @@ export default function App() {
           <Route
             path="/query"
             element={
-              <Suspense
-                fallback={
-                  <div className="flex flex-1 items-center justify-center py-24 text-text-3">
-                    Loading&hellip;
-                  </div>
-                }
-              >
+              <Suspense fallback={<LoadingState />}>
                 <QueryPage />
               </Suspense>
             }

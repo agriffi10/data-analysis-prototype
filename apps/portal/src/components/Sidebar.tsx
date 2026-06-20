@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../features/auth';
 import { cx } from '../lib/cx';
+import { FolderIcon } from './icons';
 
 // Left navigation sidebar for the authenticated app shell (design-system §5 /
 // mockup.html). 248px surface panel with a right hairline border. Currently it
@@ -27,16 +28,7 @@ export function Sidebar() {
           )
         }
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="h-[18px] w-[18px] flex-none"
-          aria-hidden="true"
-        >
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-        </svg>
+        <FolderIcon className="h-[18px] w-[18px] flex-none" />
         <span className="min-w-0 truncate">{label}</span>
         <span className="ml-auto flex-none text-xs text-text-3">user space</span>
       </NavLink>
