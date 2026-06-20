@@ -1,9 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { IconButton } from '../../components/IconButton';
 import { Banner } from '../../components/Banner';
 import { useQueryHistory } from './useQueryHistory';
 import { QueryHistoryRow } from './QueryHistoryRow';
+import { QUERY_HISTORY_PAGE_SIZE } from './query.constants';
 import type { QueryHistoryEntry } from './query.types';
+
+const pagerButton =
+  'h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
 type QueryHistoryPanelProps = {
   open: boolean;
@@ -26,6 +30,36 @@ export function QueryHistoryPanel({
   rerunDisabled,
 }: QueryHistoryPanelProps) {
   const { history, isLoading, error } = useQueryHistory(open ? username : null);
+
+  // SPEC-042: client-side Prev/Next pager over the in-memory newest-first list.
+  const [pageIndex, setPageIndex] = useState(0);
+  const pageCount = Math.max(
+    1,
+    Math.ceil(history.length / QUERY_HISTORY_PAGE_SIZE),
+  );
+  // Clamp if the list shrank (e.g. capped at QUERY_HISTORY_MAX) so the pager
+  // never lands on a blank page (FR-003). All navigation works off safeIndex,
+  // so a stale-high pageIndex is corrected without an effect.
+  const safeIndex = Math.min(pageIndex, pageCount - 1);
+  const start = safeIndex * QUERY_HISTORY_PAGE_SIZE;
+  const pageEntries = history.slice(start, start + QUERY_HISTORY_PAGE_SIZE);
+  const hasPrev = safeIndex > 0; // newer entries exist
+  const hasNext = safeIndex < pageCount - 1; // older entries exist
+
+  // Reset to page 1 (newest) on open, and when a new entry is appended in-session
+  // (so the just-run query is visible on top). In-place status updates keep the
+  // length, so they don't reset. These use React's render-phase "adjust state on
+  // change" pattern rather than effects.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setPageIndex(0);
+  }
+  const [prevLen, setPrevLen] = useState(history.length);
+  if (history.length !== prevLen) {
+    setPrevLen(history.length);
+    if (history.length > prevLen) setPageIndex(0);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +129,7 @@ export function QueryHistoryPanel({
               </p>
             </div>
           ) : (
-            history.map((entry) => (
+            pageEntries.map((entry) => (
               <QueryHistoryRow
                 key={`${entry.queryExecutionId}-${entry.submittedAt}`}
                 entry={entry}
@@ -106,6 +140,33 @@ export function QueryHistoryPanel({
             ))
           )}
         </div>
+
+        {/* SPEC-042 FR-002: Prev/Next pager at the foot of the drawer, mirroring
+            the SPEC-038 results pager. Definitive total (full list in memory). */}
+        {!error && !isLoading && history.length > 0 && (
+          <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-4">
+            <button
+              type="button"
+              onClick={() => setPageIndex(Math.max(0, safeIndex - 1))}
+              disabled={!hasPrev}
+              className={pagerButton}
+            >
+              Prev
+            </button>
+            <span className="text-sm text-text-2" aria-live="polite">
+              {start + 1}–{start + pageEntries.length} of {history.length}
+              <span className="sr-only"> (page {safeIndex + 1})</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setPageIndex(Math.min(pageCount - 1, safeIndex + 1))}
+              disabled={!hasNext}
+              className={pagerButton}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </aside>
     </div>
   );

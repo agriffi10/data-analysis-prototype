@@ -1,7 +1,7 @@
 # Spec: Query History Pagination — 7 per Page
 
 **ID:** SPEC-042
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-19
 **Depends On:** SPEC-036 (query history panel UI), SPEC-034 (`getQueryHistory` / `useQueryHistory` — unchanged)
 
