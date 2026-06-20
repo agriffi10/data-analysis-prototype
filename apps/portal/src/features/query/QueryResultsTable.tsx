@@ -1,3 +1,4 @@
+import { Pager } from '../../components/Pager';
 import type { QueryColumn } from './query.types';
 
 type QueryResultsTableProps = {
@@ -14,9 +15,6 @@ type QueryResultsTableProps = {
   onPrev: () => void;
   onNext: () => void;
 };
-
-const pagerButton =
-  'h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
 // SPEC-035 FR-006 / SPEC-038 FR-002: results table reusing the file-table visual
 // language (surface, border, rounded-lg, surface-2 uppercase header, 48px
@@ -92,29 +90,21 @@ export function QueryResultsTable({
 
           {/* Prev/Next pager (FR-002). Range indicator shows "Rows X–Y"; the
               definitive total appears only once the last page is reached. */}
-          <div className="flex items-center justify-between gap-3 py-4">
-            <button
-              type="button"
-              onClick={onPrev}
-              disabled={!hasPrev}
-              className={pagerButton}
-            >
-              Prev
-            </button>
-            <span className="text-sm text-text-2" aria-live="polite">
-              Rows {rangeStart}–{rangeEnd}
-              {totalRowCount !== null ? ` of ${totalRowCount}` : ''}
-              <span className="sr-only"> (page {pageIndex + 1})</span>
-            </span>
-            <button
-              type="button"
-              onClick={onNext}
-              disabled={!hasNext || isFetchingNext}
-              className={pagerButton}
-            >
-              {isFetchingNext ? 'Loading…' : 'Next'}
-            </button>
-          </div>
+          <Pager
+            className="py-4"
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            nextBusy={isFetchingNext}
+            onPrev={onPrev}
+            onNext={onNext}
+            label={
+              <>
+                Rows {rangeStart}–{rangeEnd}
+                {totalRowCount !== null ? ` of ${totalRowCount}` : ''}
+                <span className="sr-only"> (page {pageIndex + 1})</span>
+              </>
+            }
+          />
         </>
       )}
     </div>

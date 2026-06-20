@@ -2,26 +2,9 @@ import { IconButton } from '../../components/IconButton';
 import { CollisionPrompt } from './CollisionPrompt';
 import { useUploadQueue } from './uploadQueueContext';
 import { uploadPercent } from './fileBrowser.service';
+import { formatSize } from './fileBrowser.format';
+import { leafName, fileExtension } from './fileBrowser.paths';
 import { TERMINAL_STATUSES, type UploadItem } from './upload.types';
-
-// Human-readable byte size (mirrors FileBrowser's formatter; queue subtext only).
-function formatSize(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
-  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-}
-
-function leafName(key: string): string {
-  return key.split('/').pop() || key;
-}
-
-// Uppercased extension for the file-type chip, or "FILE" when there's none.
-function fileExtension(name: string): string {
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0 || dot === name.length - 1) return 'FILE';
-  return name.slice(dot + 1).toUpperCase().slice(0, 4);
-}
 
 function CloseIcon() {
   return (
@@ -114,7 +97,7 @@ function QueueCard({ item }: { item: UploadItem }) {
     <li className="group relative flex items-start gap-3 px-3 py-3 hover:bg-surface-2">
       {/* File-type chip (28px) */}
       <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-[10px] font-semibold text-text-2">
-        {fileExtension(name)}
+        {fileExtension(name, { fallback: 'FILE', maxLen: 4 })}
       </span>
 
       <div className="min-w-0 flex-1">

@@ -51,6 +51,19 @@ before relying on them. Paths are relative to the repo root.
 | `Banner` (+ `BannerVariant`) | `components/Banner.tsx` | Dismissible status banner — success/warning/danger/info, optional `title`/`onDismiss` (SPEC-028). |
 | `BrandMark` | `components/BrandMark.tsx` | Accent-square upload-arrow icon + wordmark; `size` sm/md, `showWordmark` (SPEC-028; used by Header + LandingPage). |
 | `PrimaryNav` | `components/PrimaryNav.tsx` | Topbar Files \| Query underline tabs (`NavLink`-driven); rendered by `Header` only when authenticated (SPEC-035). |
+| `Modal` | `components/Modal.tsx` | Centered modal shell (SPEC-026 pattern): scrim + surface card + role/aria + backdrop-dismiss + Escape (`useEscapeKey`); `dismissible` locks it during in-flight actions; `className` replaces the default `max-w-md`. Children supply body + footer. (react-best-practices pass) |
+| `ConfirmDialog` | `components/ConfirmDialog.tsx` | Warn-and-confirm dialog over `Modal`: title (+ optional danger icon `tone`), body `children`, optional `irreversible` line, `confirmVariant`, `busy`/`busyLabel`, `dismissOnly` (single-button info), focus defaults to Cancel. Used by Clear/CloseTab/DropTable/TabLimit/delete-confirm/overwrite-confirm. (react-best-practices pass) |
+| `Drawer` | `components/Drawer.tsx` | Right slide-over (SPEC-036): scrim + 440px panel + header (title, `headerAccessory`, close button) + scrollable body + optional `footer`; `closeOnEscape` yields Escape to a nested dialog. Used by history / saved-queries / upload drawers. (react-best-practices pass) |
+| `Pager` | `components/Pager.tsx` | Prev / range-label / Next pager (SPEC-038 styling), `nextBusy` "Loading…" state. Shared by the query-results table + history drawer. (react-best-practices pass) |
+| `LoadingState` | `components/LoadingState.tsx` | Centered `role="status"` "Loading…" indicator (route Suspense fallback + auth gate). (react-best-practices pass) |
+| `FolderIcon` / `UploadIcon` / `DocumentIcon` | `components/icons.tsx` | Shared inline SVG icons (no icon lib); `className` for size/color; `FolderIcon` takes `filled`. (react-best-practices pass) |
+
+## Shared hooks (`apps/portal/src/hooks/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `useEscapeKey(onEscape, enabled?)` | `hooks/useEscapeKey.ts` | Calls `onEscape` on Escape while `enabled`; the keydown-listener Effect consolidated from every modal/drawer. (react-best-practices pass) |
+| `usePageTitle(page)` | `hooks/usePageTitle.ts` | Syncs `document.title` for the page (SPEC-031). |
 
 ## UI primitive utility (`apps/portal/src/lib/`)
 
@@ -122,6 +135,16 @@ Public barrel: `features/file-browser/index.ts`.
 | `DeleteConfirmDialog` | `DeleteConfirmDialog.tsx` | Modal confirm naming item(s)/count, recursive-folder + irreversible warnings. (Used by `FileBrowser`; not barrel-exported.) |
 | `RenameDialog`, `MoveDialog`, `CopyDialog` | (same folder) | Rename modal (validated leaf name); move + copy modals, both shells over `DestinationPicker`. `CopyDialog` adds the same-folder editable-name field (SPEC-039). (Used by `FileBrowser`; not barrel-exported.) |
 | `DestinationPicker` | `DestinationPicker.tsx` | Shared destination-folder picker for Move + Copy (extracted from `MoveDialog`, SPEC-039 FR-006): navigable folders within the user's space, excludes operated subtrees + the protected `athenaresults/` folder; `allowCurrentParent` toggles Move (forbidden) vs Copy (same-folder). |
+| `OperationSummaryBanner` | `OperationSummaryBanner.tsx` | Result banner for a bulk delete/move/copy — success count + per-item failures; `pastVerb`/`failVerb`/`count`/`errors`. (react-best-practices pass) |
+| `BatchOverwritePrompt` | `BatchOverwritePrompt.tsx` | Overwrite-all / Cancel confirmation for a batch whose destination already has matching items; shared by Move + Copy. (react-best-practices pass) |
+| `UploadDrawer` | `UploadDrawer.tsx` | Upload slide-over — thin wrapper over the shared `Drawer` (destination hint + larger body spacing). |
+
+### Utils — formatting & paths
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `formatSize(bytes)` | `fileBrowser.format.ts` | Human-readable file size (B/KB/MB/GB); shared by the listing, metadata panel, upload queue. (Distinct from query's `formatBytes`.) |
+| `leafName` / `fileParent` / `folderParts` / `lastSegment` / `fileExtension` | `fileBrowser.paths.ts` | S3 key/prefix path helpers (leaf, parent, folder split, trailing-slash-tolerant last segment, type-chip extension). Shared by `useMove`/`useCopy`/`FileBrowser`/`UploadQueuePanel`. (react-best-practices pass) |
 
 ### Query keys, types, constants
 

@@ -3,6 +3,7 @@ import { useObjectMetadata } from './useObjectMetadata';
 import type { ObjectMetadata } from './fileBrowser.types';
 import type { S3FileItem } from '../../types/s3.types';
 import { IconButton } from '../../components/IconButton';
+import { formatSize } from './fileBrowser.format';
 
 type Props = {
   bucket: string;
@@ -10,14 +11,6 @@ type Props = {
   rootPrefix?: string; // stripped from the key to show a user-relative path
   onClose: () => void;
 };
-
-// Human-readable size, matching the listing's formatting (SPEC-015).
-function formatSize(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
-  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-}
 
 // Path shown to the user: the key with the user-root prefix stripped, so the
 // raw prefix segment (e.g. the username) is never surfaced (SPEC-013).

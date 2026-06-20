@@ -3,6 +3,7 @@ import { DestinationPicker } from './DestinationPicker';
 import type { SelectableItem } from './selectionContext';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
+import { Modal } from '../../components/Modal';
 
 // The same-folder editable-name prompt shape, surfaced by useCopy (FR-003).
 type SameFolderPrompt = {
@@ -95,43 +96,35 @@ export function CopyDialog({
   onCancel,
 }: Props) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => {
-        if (!isBusy) onCancel();
-      }}
+    <Modal
+      ariaLabel="Copy to folder"
+      dismissible={!isBusy}
+      onDismiss={onCancel}
+      className="flex max-w-lg flex-col px-5 pb-4 pt-5"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Copy to folder"
-        className="flex w-full max-w-lg flex-col rounded-lg bg-surface px-5 pb-4 pt-5 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-md font-semibold text-text">
-          Copy {items.length} {items.length === 1 ? 'item' : 'items'}
-        </h2>
+      <h2 className="text-md font-semibold text-text">
+        Copy {items.length} {items.length === 1 ? 'item' : 'items'}
+      </h2>
 
-        {sameFolderPrompt ? (
-          <SameFolderNameField prompt={sameFolderPrompt} />
-        ) : (
-          <DestinationPicker
-            bucket={bucket}
-            items={items}
-            rootPrefix={rootPrefix}
-            rootLabel={rootLabel}
-            currentPrefix={currentPrefix}
-            markerKey={markerKey}
-            isBusy={isBusy}
-            allowCurrentParent
-            confirmLabel="Copy here"
-            busyLabel="Copying…"
-            selfMessage="You can't copy a folder into itself."
-            onConfirm={onCopy}
-            onCancel={onCancel}
-          />
-        )}
-      </div>
-    </div>
+      {sameFolderPrompt ? (
+        <SameFolderNameField prompt={sameFolderPrompt} />
+      ) : (
+        <DestinationPicker
+          bucket={bucket}
+          items={items}
+          rootPrefix={rootPrefix}
+          rootLabel={rootLabel}
+          currentPrefix={currentPrefix}
+          markerKey={markerKey}
+          isBusy={isBusy}
+          allowCurrentParent
+          confirmLabel="Copy here"
+          busyLabel="Copying…"
+          selfMessage="You can't copy a folder into itself."
+          onConfirm={onCopy}
+          onCancel={onCancel}
+        />
+      )}
+    </Modal>
   );
 }

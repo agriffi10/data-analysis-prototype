@@ -1,6 +1,5 @@
-import { useEffect, useRef } from 'react';
 import type { SelectableItem } from './selectionContext';
-import { Button } from '../../components/Button';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 type Props = {
   items: SelectableItem[];
@@ -32,20 +31,6 @@ export function DeleteConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isDeleting) onCancel();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [isDeleting, onCancel]);
-
   const described = items.map(describe);
   const folderCount = described.filter((d) => d.isFolder).length;
   const count = items.length;
@@ -64,40 +49,21 @@ export function DeleteConfirmDialog({
   const remaining = count - shownNames.length;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => {
-        if (!isDeleting) onCancel();
-      }}
+    <ConfirmDialog
+      title={heading}
+      ariaLabel="Confirm delete"
+      confirmLabel="Delete"
+      busyLabel="Deleting…"
+      busy={isDeleting}
+      confirmVariant="danger"
+      tone="danger"
+      irreversible
+      onConfirm={onConfirm}
+      onCancel={onCancel}
     >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-label="Confirm delete"
-        className="w-full max-w-md rounded-lg bg-surface shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 pb-4 pt-5">
-          <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 rounded-full bg-danger-soft p-1 text-danger">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-6 w-6"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="9" />
-                <path strokeLinecap="round" d="M12 8v5M12 16h.01" />
-              </svg>
-            </span>
-            <h2 className="text-md font-semibold text-text">{heading}</h2>
-          </div>
-
-          {count > 1 && (
-            <ul className="mt-3 max-h-36 overflow-auto rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text">
-              {described.slice(0, MAX_NAMES).map((d) => (
+      {count > 1 && (
+        <ul className="mt-3 max-h-36 overflow-auto rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text">
+          {described.slice(0, MAX_NAMES).map((d) => (
                 <li key={d.name} className="flex items-center gap-2 py-0.5">
                   {d.isFolder ? (
                     <svg
@@ -139,28 +105,8 @@ export function DeleteConfirmDialog({
               {folderCount === 1 && count === 1
                 ? 'All files and subfolders it contains will be deleted.'
                 : 'Selected folders are deleted along with all of their contents.'}
-            </p>
-          )}
-
-          <p className="mt-2 text-sm font-medium text-danger">
-            This can’t be undone.
-          </p>
-        </div>
-
-        <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-          <Button
-            ref={cancelRef}
-            variant="ghost"
-            onClick={onCancel}
-            disabled={isDeleting}
-          >
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={onConfirm} disabled={isDeleting}>
-            {isDeleting ? 'Deleting…' : 'Delete'}
-          </Button>
-        </div>
-      </div>
-    </div>
+        </p>
+      )}
+    </ConfirmDialog>
   );
 }

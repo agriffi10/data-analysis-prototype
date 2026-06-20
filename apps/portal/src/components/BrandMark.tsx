@@ -1,4 +1,5 @@
 import { cx } from '../lib/cx';
+import { UploadIcon } from './icons';
 
 type BrandMarkProps = {
   size?: 'sm' | 'md'; // sm = 24px square + text-base; md = 32px square + text-md (default)
@@ -26,19 +27,7 @@ export function BrandMark({
           square,
         )}
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cx(icon, 'text-white')}
-          aria-hidden="true"
-        >
-          <path d="M12 16V4M7 9l5-5 5 5" />
-          <path d="M5 20h14" />
-        </svg>
+        <UploadIcon className={cx(icon, 'text-white')} />
       </div>
       {showWordmark && (
         <span className={cx(wordmark, 'font-semibold text-text')}>

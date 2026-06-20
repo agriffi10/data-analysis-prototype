@@ -1,4 +1,5 @@
 import { cx } from '../../lib/cx';
+import { DocumentIcon } from '../../components/icons';
 import type { QueryTab } from './query.types';
 
 type Props = {
@@ -125,16 +126,7 @@ export function QueryTabStrip({
       {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). */}
       <div className="flex-1" />
       <button type="button" className={barButton} onClick={onOpenSaved}>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden="true"
-        >
-          <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-          <path d="M9 4v5h6" />
-        </svg>
+        <DocumentIcon />
         Saved queries
       </button>
       <button type="button" className={barButton} onClick={onOpenHistory}>

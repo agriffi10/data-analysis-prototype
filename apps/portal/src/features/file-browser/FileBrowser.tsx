@@ -8,6 +8,8 @@ import { useDelete } from './useDelete';
 import { useMove } from './useMove';
 import { useCopy } from './useCopy';
 import { getDownloadUrl } from './fileBrowser.service';
+import { formatSize } from './fileBrowser.format';
+import { lastSegment, fileExtension } from './fileBrowser.paths';
 import { UploadDropzone } from './UploadDropzone';
 import { UploadDrawer } from './UploadDrawer';
 import { UploadQueueProvider } from './UploadQueueProvider';
@@ -17,6 +19,8 @@ import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { OperationSummaryBanner } from './OperationSummaryBanner';
+import { BatchOverwritePrompt } from './BatchOverwritePrompt';
 import { RenameDialog } from './RenameDialog';
 import { MoveDialog } from './MoveDialog';
 import { CopyDialog } from './CopyDialog';
@@ -102,31 +106,12 @@ function buildBreadcrumbs(
   return crumbs;
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
-  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-}
-
 function formatDate(date: Date): string {
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   });
-}
-
-// Last path segment of a key/prefix, for naming items in result messages.
-function lastSegment(keyOrPrefix: string): string {
-  return keyOrPrefix.replace(/\/$/, '').split('/').pop() ?? keyOrPrefix;
-}
-
-// Type-pill label: uppercased extension (e.g. "PDF", "TXT") or "File" if none.
-function fileExtension(name: string): string {
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0 || dot === name.length - 1) return 'File';
-  return name.slice(dot + 1).toUpperCase();
 }
 
 // ─── Icons (inline, no icon library — SPEC-024) ───────────────────────────────
@@ -694,28 +679,16 @@ function FileBrowserContent({
 
       {/* Delete result (SPEC-018 FR-004) — success count + any partial failures */}
       {del.summary && (
-        <Banner
-          variant={del.summary.errors.length === 0 ? 'success' : 'warning'}
-          role="status"
+        <OperationSummaryBanner
+          pastVerb="Deleted"
+          failVerb="delete"
+          count={del.summary.deletedCount}
+          errors={del.summary.errors.map((e) => ({
+            label: lastSegment(e.key),
+            message: e.message,
+          }))}
           onDismiss={del.dismissSummary}
-          className="mb-4"
-          title={`Deleted ${del.summary.deletedCount} ${del.summary.deletedCount === 1 ? 'item' : 'items'}.`}
-        >
-          {del.summary.errors.length > 0 && (
-            <>
-              <p className="mt-1">
-                Could not delete {del.summary.errors.length}:
-              </p>
-              <ul className="mt-1 list-disc pl-5">
-                {del.summary.errors.map((e) => (
-                  <li key={e.key}>
-                    {lastSegment(e.key)} — {e.message}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </Banner>
+        />
       )}
 
       {/* Move systemic error (SPEC-019 FR-004) — dismissible */}
@@ -727,26 +700,16 @@ function FileBrowserContent({
 
       {/* Move result (SPEC-019 FR-004) — success count + any partial failures */}
       {move.summary && (
-        <Banner
-          variant={move.summary.errors.length === 0 ? 'success' : 'warning'}
-          role="status"
+        <OperationSummaryBanner
+          pastVerb="Moved"
+          failVerb="move"
+          count={move.summary.movedCount}
+          errors={move.summary.errors.map((e) => ({
+            label: lastSegment(e.key),
+            message: e.message,
+          }))}
           onDismiss={move.dismissSummary}
-          className="mb-4"
-          title={`Moved ${move.summary.movedCount} ${move.summary.movedCount === 1 ? 'item' : 'items'}.`}
-        >
-          {move.summary.errors.length > 0 && (
-            <>
-              <p className="mt-1">Could not move {move.summary.errors.length}:</p>
-              <ul className="mt-1 list-disc pl-5">
-                {move.summary.errors.map((e) => (
-                  <li key={e.key}>
-                    {lastSegment(e.key)} — {e.message}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </Banner>
+        />
       )}
 
       {/* Move progress for large folders (SPEC-019 FR-004) */}
@@ -769,31 +732,11 @@ function FileBrowserContent({
 
       {/* Move collision (SPEC-019 FR-005) — one Overwrite-all/Cancel for the batch */}
       {move.moveCollision && (
-        <div
-          role="alertdialog"
-          aria-label="Destination already has items"
-          className="mb-4 rounded-lg border border-warning-soft bg-warning-soft p-4 text-sm text-warning"
-        >
-          <p className="font-medium">
-            {move.moveCollision.count} item(s) already exist at the destination.
-          </p>
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={move.moveCollision.onOverwriteAll}
-            >
-              Overwrite all
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={move.moveCollision.onCancel}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
+        <BatchOverwritePrompt
+          count={move.moveCollision.count}
+          onOverwriteAll={move.moveCollision.onOverwriteAll}
+          onCancel={move.moveCollision.onCancel}
+        />
       )}
 
       {/* Copy systemic error (SPEC-039 FR-004) — dismissible */}
@@ -805,26 +748,16 @@ function FileBrowserContent({
 
       {/* Copy result (SPEC-039 FR-004) — success count + any partial failures */}
       {copy.summary && (
-        <Banner
-          variant={copy.summary.errors.length === 0 ? 'success' : 'warning'}
-          role="status"
+        <OperationSummaryBanner
+          pastVerb="Copied"
+          failVerb="copy"
+          count={copy.summary.copiedCount}
+          errors={copy.summary.errors.map((e) => ({
+            label: lastSegment(e.item),
+            message: e.message,
+          }))}
           onDismiss={copy.dismissSummary}
-          className="mb-4"
-          title={`Copied ${copy.summary.copiedCount} ${copy.summary.copiedCount === 1 ? 'item' : 'items'}.`}
-        >
-          {copy.summary.errors.length > 0 && (
-            <>
-              <p className="mt-1">Could not copy {copy.summary.errors.length}:</p>
-              <ul className="mt-1 list-disc pl-5">
-                {copy.summary.errors.map((e) => (
-                  <li key={e.item}>
-                    {lastSegment(e.item)} — {e.message}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </Banner>
+        />
       )}
 
       {/* Copy progress for large folders (SPEC-039 FR-004) */}
@@ -836,31 +769,11 @@ function FileBrowserContent({
 
       {/* Copy collision (SPEC-039 FR-005) — one Overwrite-all/Cancel for the batch */}
       {copy.copyCollision && (
-        <div
-          role="alertdialog"
-          aria-label="Destination already has items"
-          className="mb-4 rounded-lg border border-warning-soft bg-warning-soft p-4 text-sm text-warning"
-        >
-          <p className="font-medium">
-            {copy.copyCollision.count} item(s) already exist at the destination.
-          </p>
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={copy.copyCollision.onOverwriteAll}
-            >
-              Overwrite all
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={copy.copyCollision.onCancel}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
+        <BatchOverwritePrompt
+          count={copy.copyCollision.count}
+          onOverwriteAll={copy.copyCollision.onOverwriteAll}
+          onCancel={copy.copyCollision.onCancel}
+        />
       )}
 
       {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039) — select all + bulk copy/move/delete */}

@@ -8,6 +8,7 @@ import {
   uploadPercent,
   validateFolderName,
 } from './fileBrowser.service';
+import { leafName, folderParts } from './fileBrowser.paths';
 import type { SelectableItem } from './selectionContext';
 
 // Aggregated outcome of a (possibly multi-item, recursive) copy: how many objects
@@ -48,21 +49,6 @@ export type UseCopyResult = {
   dismissSummary: () => void;
   cancelCollision: () => void;
 };
-
-// Leaf (last segment) of a file key: `a/b/c.txt` → `c.txt`.
-function leafName(key: string): string {
-  const i = key.lastIndexOf('/');
-  return i === -1 ? key : key.slice(i + 1);
-}
-
-// Parent prefix + leaf name of a folder prefix: `a/b/photos/` → `{ parent: 'a/b/', leaf: 'photos' }`.
-function folderParts(prefix: string): { parent: string; leaf: string } {
-  const trimmed = prefix.replace(/\/$/, '');
-  const i = trimmed.lastIndexOf('/');
-  return i === -1
-    ? { parent: '', leaf: trimmed }
-    : { parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1) };
-}
 
 // Insert a ` (N)` suffix into a file name before its extension, or onto a folder
 // leaf (FR-003): `report.pdf` → `report (1).pdf`; `docs` → `docs (1)`. A leading

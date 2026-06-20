@@ -1,4 +1,5 @@
 import { DestinationPicker } from './DestinationPicker';
+import { Modal } from '../../components/Modal';
 import type { SelectableItem } from './selectionContext';
 
 type Props = {
@@ -29,38 +30,30 @@ export function MoveDialog({
   onCancel,
 }: Props) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => {
-        if (!isBusy) onCancel();
-      }}
+    <Modal
+      ariaLabel="Move to folder"
+      dismissible={!isBusy}
+      onDismiss={onCancel}
+      className="flex max-w-lg flex-col px-5 pb-4 pt-5"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Move to folder"
-        className="flex w-full max-w-lg flex-col rounded-lg bg-surface px-5 pb-4 pt-5 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-md font-semibold text-text">
-          Move {items.length} {items.length === 1 ? 'item' : 'items'}
-        </h2>
+      <h2 className="text-md font-semibold text-text">
+        Move {items.length} {items.length === 1 ? 'item' : 'items'}
+      </h2>
 
-        <DestinationPicker
-          bucket={bucket}
-          items={items}
-          rootPrefix={rootPrefix}
-          rootLabel={rootLabel}
-          currentPrefix={currentPrefix}
-          markerKey={markerKey}
-          isBusy={isBusy}
-          confirmLabel="Move here"
-          busyLabel="Moving…"
-          selfMessage="You can't move a folder into itself."
-          onConfirm={onMove}
-          onCancel={onCancel}
-        />
-      </div>
-    </div>
+      <DestinationPicker
+        bucket={bucket}
+        items={items}
+        rootPrefix={rootPrefix}
+        rootLabel={rootLabel}
+        currentPrefix={currentPrefix}
+        markerKey={markerKey}
+        isBusy={isBusy}
+        confirmLabel="Move here"
+        busyLabel="Moving…"
+        selfMessage="You can't move a folder into itself."
+        onConfirm={onMove}
+        onCancel={onCancel}
+      />
+    </Modal>
   );
 }
