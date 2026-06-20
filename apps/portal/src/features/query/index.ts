@@ -14,6 +14,11 @@ export {
   appendQueryHistory,
   updateQueryHistoryEntry,
 } from './queryHistory.service';
+export {
+  getSavedQueries,
+  upsertSavedQuery,
+  removeSavedQuery,
+} from './savedQueries.service';
 export { useQueryExecution } from './useQueryExecution';
 export { useQueryResults } from './useQueryResults';
 export type { UseQueryResultsResult } from './useQueryResults';
@@ -23,6 +28,8 @@ export { useQueryHistory } from './useQueryHistory';
 export type { UseQueryHistoryResult } from './useQueryHistory';
 export { useQueryTabs } from './useQueryTabs';
 export type { UseQueryTabsResult, OpenTabOpts } from './useQueryTabs';
+export { useSavedQueries } from './useSavedQueries';
+export type { UseSavedQueriesResult } from './useSavedQueries';
 export { queryKeys } from './queryKeys';
 export {
   POLL_INTERVAL_MS,
@@ -44,4 +51,6 @@ export type {
   QueryHistory,
   QueryTab,
   QueryTabsState,
+  SavedQuery,
+  SavedQueriesStore,
 } from './query.types';

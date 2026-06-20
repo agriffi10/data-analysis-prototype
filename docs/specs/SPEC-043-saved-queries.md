@@ -1,7 +1,7 @@
 # Spec: Saved Queries + Global Workspace Bar
 
 **ID:** SPEC-043
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-19
 **Depends On:** SPEC-041 (query tabs + `openTab` named-tab API + tab-limit dialog), SPEC-036 (history drawer pattern + history panel), SPEC-034 (query-history JSON store + `QueryHistoryEntry`), SPEC-026 (dialog pattern), SPEC-028 (Button / Input primitives)
 

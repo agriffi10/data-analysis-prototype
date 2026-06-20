@@ -8,4 +8,6 @@ export const queryKeys = {
   results: (id: string) => [...queryKeys.all, 'results', id] as const,
   history: (username: string) =>
     [...queryKeys.all, 'history', username] as const,
+  savedQueries: (username: string) =>
+    [...queryKeys.all, 'savedQueries', username] as const,
 };

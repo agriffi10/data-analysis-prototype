@@ -81,6 +81,23 @@ export function QueryHistoryRow({
         </span>
       </div>
 
+      {entry.savedQueryName && (
+        <span className="mb-1.5 inline-flex max-w-full items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent-text">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="h-3 w-3 flex-none"
+            aria-hidden="true"
+          >
+            <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+            <path d="M9 4v5h6" />
+          </svg>
+          <span className="truncate">Saved: {entry.savedQueryName}</span>
+        </span>
+      )}
+
       <p
         className="truncate font-mono text-sm text-text"
         title={preview}

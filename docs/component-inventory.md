@@ -162,6 +162,8 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Prev/Next pager over results via `useInfiniteQuery` (20 rows/page, SPEC-038): exposes the current page's `columns`/`rows`, `pageIndex`/range, `hasPrev`/`hasNext`, `goPrev`/`goNext` (Next fetches forward, Prev from cache), and loaded/total counts. |
 | `useSchema(db \| null)` + `invalidateSchema(client, db)` | `useSchema.ts` | DB + tables for the schema browser; invalidation helper to refresh after DDL. |
 | `useQueryHistory(username \| null)` | `useQueryHistory.ts` | History list + `appendEntry`/`updateEntry` mutations (cache-seeding). |
+| `getSavedQueries` / `upsertSavedQuery` / `removeSavedQuery` | `savedQueries.service.ts` | Per-user saved-queries JSON store at `{username}/athenaresults/saved-queries.json`; PutObject overwrite only (remove rewrites, never an S3 delete), missing-file → empty store, `ServiceResult` (SPEC-043). |
+| `useSavedQueries(username \| null)` | `useSavedQueries.ts` | Saved-queries list + `upsert`/`remove` mutations (cache-seeding), `queryKeys.savedQueries` (SPEC-043). |
 
 ### Workspace UI (SPEC-035)
 
@@ -179,6 +181,9 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `useQueryTabs(username)` | `useQueryTabs.ts` | Owns `QueryTabsState` + persistence; `openTab({label?,sql?,savedQueryId?})` (returns id or **null at `QUERY_TABS_MAX`**; named tabs skip the `Query N` counter), monotonic labelling, `closeTab` (≥1-tab + adjacent-activate), `setActiveSql`/`setActiveTab`/`setActiveSavedQueryId`/`clearActive` (SPEC-041). |
 | `QueryTabStrip` | `QueryTabStrip.tsx` | Card-tab strip above the editor: active = surface+border+accent dot, per-tab `×` (hidden when solo), always-enabled `+` (SPEC-041 §6). |
 | `TabLimitDialog` / `CloseTabDialog` | `TabLimitDialog.tsx` / `CloseTabDialog.tsx` | FR-008 "close a tab first" alert; FR-005 warn-and-confirm before closing a non-empty tab (both SPEC-026 pattern) (SPEC-041). |
+| `SavedQueriesPanel` | `SavedQueriesPanel.tsx` | Right drawer (mirrors history) listing saved queries (most-recently-updated first) with Open + Delete-with-confirm; presentational (workspace owns the data) (SPEC-043). |
+| `SaveQueryDialog` | `SaveQueryDialog.tsx` | Name-prompt modal with an inline overwrite-confirm step on a name collision; pre-filled on re-save (SPEC-043). |
+| `SavedQuery`, `SavedQueriesStore` | `query.types.ts` | Saved-query record + store types; `QueryHistoryEntry` also gained optional `savedQueryId`/`savedQueryName` (SPEC-043). |
 | `QueryTab`, `QueryTabsState`, `QUERY_TABS_MAX`, `DEFAULT_SQL` | `query.types.ts` / `query.constants.ts` | Tab data types, the soft tab cap, and the shared first-tab boilerplate (SPEC-041). |
 | `formatBytes` / `formatDurationMs` / `formatRelativeTime` | `query.format.ts` | Display formatters for scanned-bytes / duration / relative timestamps. |
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |

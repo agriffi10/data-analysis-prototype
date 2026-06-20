@@ -12,17 +12,22 @@ function setup(over: Partial<Parameters<typeof QueryTabStrip>[0]> = {}) {
   const onSelect = vi.fn();
   const onClose = vi.fn();
   const onNew = vi.fn();
+  const onOpenSaved = vi.fn();
+  const onOpenHistory = vi.fn();
   render(
     <QueryTabStrip
       tabs={tabs}
       activeTabId="a"
+      dirtyTabIds={new Set()}
       onSelect={onSelect}
       onClose={onClose}
       onNew={onNew}
+      onOpenSaved={onOpenSaved}
+      onOpenHistory={onOpenHistory}
       {...over}
     />,
   );
-  return { onSelect, onClose, onNew };
+  return { onSelect, onClose, onNew, onOpenSaved, onOpenHistory };
 }
 
 describe('QueryTabStrip', () => {
@@ -69,5 +74,18 @@ describe('QueryTabStrip', () => {
     expect(
       screen.queryByRole('button', { name: /Close/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it('renders the global Saved queries + History buttons', () => {
+    const { onOpenSaved, onOpenHistory } = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
+    expect(onOpenSaved).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    expect(onOpenHistory).toHaveBeenCalled();
+  });
+
+  it('shows a dirty marker on a linked tab with unsaved edits', () => {
+    setup({ dirtyTabIds: new Set(['b']) });
+    expect(screen.getByLabelText('unsaved changes')).toBeInTheDocument();
   });
 });

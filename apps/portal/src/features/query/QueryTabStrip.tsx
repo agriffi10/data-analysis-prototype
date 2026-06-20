@@ -4,10 +4,16 @@ import type { QueryTab } from './query.types';
 type Props = {
   tabs: QueryTab[];
   activeTabId: string;
+  dirtyTabIds: Set<string>; // SPEC-043: linked tabs whose SQL differs from the saved query
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
+  onOpenSaved: () => void; // SPEC-043 FR-010: global (all-tabs) workspace buttons
+  onOpenHistory: () => void;
 };
+
+const barButton =
+  'inline-flex h-7 flex-none items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-3 text-sm font-medium text-text-2 hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 [&>svg]:h-[15px] [&>svg]:w-[15px]';
 
 // SPEC-041 FR-001/002/005: the query-tab strip above the editor toolbar. "Card"
 // tabs (design-system.md §6) — distinct from the topbar Files|Query underline and
@@ -17,9 +23,12 @@ type Props = {
 export function QueryTabStrip({
   tabs,
   activeTabId,
+  dirtyTabIds,
   onSelect,
   onClose,
   onNew,
+  onOpenSaved,
+  onOpenHistory,
 }: Props) {
   const solo = tabs.length === 1;
 
@@ -58,6 +67,15 @@ export function QueryTabStrip({
               )}
               aria-hidden="true"
             />
+            {dirtyTabIds.has(tab.id) && (
+              <span
+                className="flex-none font-bold text-accent"
+                title="Unsaved changes"
+                aria-label="unsaved changes"
+              >
+                •
+              </span>
+            )}
             <span className="truncate">{tab.label}</span>
             {!solo && (
               <button
@@ -102,6 +120,36 @@ export function QueryTabStrip({
         >
           <path d="M12 5v14M5 12h14" />
         </svg>
+      </button>
+
+      {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). */}
+      <div className="flex-1" />
+      <button type="button" className={barButton} onClick={onOpenSaved}>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+          <path d="M9 4v5h6" />
+        </svg>
+        Saved queries
+      </button>
+      <button type="button" className={barButton} onClick={onOpenHistory}>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M12 8v5l3 2" />
+        </svg>
+        History
       </button>
     </div>
   );

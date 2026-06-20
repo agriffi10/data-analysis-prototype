@@ -36,25 +36,30 @@ vi.mock('./query.service', async (importOriginal) => ({
 vi.mock('./useQueryExecution', () => ({ useQueryExecution: vi.fn() }));
 vi.mock('./useQueryResults', () => ({ useQueryResults: vi.fn() }));
 vi.mock('./useQueryHistory', () => ({ useQueryHistory: vi.fn() }));
+vi.mock('./useSavedQueries', () => ({ useSavedQueries: vi.fn() }));
 
 import { runQuery } from './query.service';
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
+import { useSavedQueries } from './useSavedQueries';
 import { QueryWorkspace } from './QueryWorkspace';
 import {
   QUERY_DRAFT_STORAGE_PREFIX,
   QUERY_TABS_STORAGE_PREFIX,
 } from './query.constants';
-import type { QueryTabsState } from './query.types';
+import type { QueryTabsState, SavedQuery } from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
 const mockUseExecution = vi.mocked(useQueryExecution);
 const mockUseResults = vi.mocked(useQueryResults);
 const mockUseHistory = vi.mocked(useQueryHistory);
+const mockUseSaved = vi.mocked(useSavedQueries);
 
 const appendEntry = vi.fn().mockResolvedValue({ version: 1, entries: [] });
 const updateEntry = vi.fn().mockResolvedValue({ version: 1, entries: [] });
+const upsert = vi.fn().mockResolvedValue({ version: 1, queries: [] });
+const remove = vi.fn().mockResolvedValue({ version: 1, queries: [] });
 
 function renderWorkspace() {
   const client = new QueryClient({
@@ -125,6 +130,13 @@ beforeEach(() => {
     error: null,
     appendEntry,
     updateEntry,
+  });
+  mockUseSaved.mockReturnValue({
+    queries: [],
+    isLoading: false,
+    error: null,
+    upsert,
+    remove,
   });
 });
 
@@ -398,6 +410,151 @@ describe('QueryWorkspace', () => {
     // Returning to Query 1 shows its already-ready results.
     fireEvent.click(screen.getByRole('tab', { name: /Query 1/ }));
     expect(screen.getByText('region')).toBeInTheDocument();
+  });
+
+  // --- SPEC-043 saved queries ---
+
+  function savedState(queries: SavedQuery[]) {
+    return { queries, isLoading: false, error: null, upsert, remove };
+  }
+
+  it('saves a new query: prompts, upserts, links + relabels the active tab', async () => {
+    upsert.mockResolvedValue({ version: 1, queries: [] });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save query' }));
+    const dialog = screen.getByRole('dialog', { name: 'Save query' });
+    fireEvent.change(within(dialog).getByLabelText('Name'), {
+      target: { value: 'My report' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'My report' }),
+    );
+    // Active tab is relabelled to the saved query's name.
+    expect(
+      await screen.findByRole('tab', { name: /My report/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a dirty marker on a linked tab whose SQL diverged', async () => {
+    seedTabs({
+      version: 1,
+      tabs: [{ id: 't1', label: 'Revenue', sql: 'SELECT edited;', savedQueryId: 'sq1' }],
+      activeTabId: 't1',
+      nextQueryNumber: 2,
+    });
+    mockUseSaved.mockReturnValue(
+      savedState([
+        {
+          id: 'sq1',
+          name: 'Revenue',
+          sql: 'SELECT original;',
+          database: 'alice',
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        },
+      ]),
+    );
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    expect(screen.getByLabelText('unsaved changes')).toBeInTheDocument();
+  });
+
+  it('records the saved-query name in history when running a linked tab', async () => {
+    seedTabs({
+      version: 1,
+      tabs: [{ id: 't1', label: 'Revenue', sql: 'SELECT 1;', savedQueryId: 'sq1' }],
+      activeTabId: 't1',
+      nextQueryNumber: 2,
+    });
+    mockUseSaved.mockReturnValue(
+      savedState([
+        {
+          id: 'sq1',
+          name: 'Revenue',
+          sql: 'SELECT 1;',
+          database: 'alice',
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        },
+      ]),
+    );
+    mockRunQuery.mockResolvedValue({
+      success: true,
+      data: { queryExecutionId: 'q-1' },
+    });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }));
+    await screen.findByRole('button', { name: /Stop/ });
+    expect(appendEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ savedQueryId: 'sq1', savedQueryName: 'Revenue' }),
+    );
+  });
+
+  it('opens a saved query into a new linked tab from the drawer', async () => {
+    mockUseSaved.mockReturnValue(
+      savedState([
+        {
+          id: 'sq1',
+          name: 'Revenue',
+          sql: 'SELECT r;',
+          database: 'alice',
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        },
+      ]),
+    );
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open' }));
+
+    expect(screen.getByRole('tab', { name: /Revenue/ })).toBeInTheDocument();
+    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT r;');
+  });
+
+  it('deletes a saved query (confirm) and calls remove', async () => {
+    remove.mockResolvedValue({ version: 1, queries: [] });
+    mockUseSaved.mockReturnValue(
+      savedState([
+        {
+          id: 'sq1',
+          name: 'Revenue',
+          sql: 'SELECT r;',
+          database: 'alice',
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        },
+      ]),
+    );
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('alertdialog', {
+      name: /confirm delete saved query/i,
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(remove).toHaveBeenCalledWith('sq1');
+  });
+
+  it('hoists History + Saved queries to the global bar (Save stays per-tab)', async () => {
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    expect(screen.getByRole('button', { name: 'Saved queries' })).toBeInTheDocument();
+    // Only one History control now (on the strip), and Save is in the toolbar.
+    expect(screen.getAllByRole('button', { name: /History/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Save query' })).toBeInTheDocument();
   });
 
   it('re-runs a history entry into the active tab', async () => {

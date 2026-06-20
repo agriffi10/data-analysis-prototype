@@ -21,6 +21,12 @@ export type UseQueryTabsResult = {
   setActiveSql: (sql: string) => void;
   setActiveTab: (id: string) => void;
   setActiveSavedQueryId: (id: string | undefined) => void;
+  // SPEC-043: patch the active tab's label/savedQueryId together (used when a
+  // save links + relabels the active tab in one step).
+  setActiveTabMeta: (meta: { label?: string; savedQueryId?: string }) => void;
+  // SPEC-043 FR-007: clear the link on every tab pointing at a deleted saved
+  // query (the tabs keep their label/SQL; a later Save creates a new record).
+  unlinkSavedQuery: (savedQueryId: string) => void;
   // Opens a tab and returns its id, or null when already at QUERY_TABS_MAX
   // (the caller surfaces the FR-008 "close a tab first" dialog).
   openTab: (opts?: OpenTabOpts) => string | null;
@@ -63,6 +69,22 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
       ...s,
       tabs: s.tabs.map((t) =>
         t.id === s.activeTabId ? { ...t, savedQueryId: id } : t,
+      ),
+    }));
+
+  const setActiveTabMeta = (meta: { label?: string; savedQueryId?: string }) =>
+    setState((s) => ({
+      ...s,
+      tabs: s.tabs.map((t) =>
+        t.id === s.activeTabId ? { ...t, ...meta } : t,
+      ),
+    }));
+
+  const unlinkSavedQuery = (savedQueryId: string) =>
+    setState((s) => ({
+      ...s,
+      tabs: s.tabs.map((t) =>
+        t.savedQueryId === savedQueryId ? { ...t, savedQueryId: undefined } : t,
       ),
     }));
 
@@ -120,6 +142,8 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
     setActiveSql,
     setActiveTab,
     setActiveSavedQueryId,
+    setActiveTabMeta,
+    unlinkSavedQuery,
     openTab,
     closeTab,
     clearActive,
