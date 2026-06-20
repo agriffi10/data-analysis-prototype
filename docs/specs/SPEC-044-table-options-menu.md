@@ -1,7 +1,7 @@
 # Spec: Schema Browser — Table Options Menu
 
 **ID:** SPEC-044
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-19
 **Depends On:** SPEC-035 (schema browser + query workspace), SPEC-041 (query tabs + `openTab` named-tab API + tab-limit dialog), SPEC-034 (Glue `location` on `GlueTableSummary`, Athena `runQuery`/results, history store), SPEC-013 (authenticated user-space file browser), SPEC-026 (dialog pattern), SPEC-028 (Button primitive)
 

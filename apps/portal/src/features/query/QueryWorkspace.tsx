@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth';
 import { Button } from '../../components/Button';
@@ -8,8 +9,11 @@ import {
   runQuery,
   stopQuery,
   getResultCsvUrl,
+  getTableDdl,
+  runStatementToCompletion,
   isTerminalState,
 } from './query.service';
+import { TABLE_PREVIEW_ROW_LIMIT } from './query.constants';
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
@@ -18,6 +22,8 @@ import { useSavedQueries } from './useSavedQueries';
 import { invalidateSchema } from './useSchema';
 import { isSchemaChangingSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
+import { DropTableDialog } from './DropTableDialog';
+import { Toast, type ToastState } from './Toast';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
 import { QueryHistoryPanel } from './QueryHistoryPanel';
@@ -33,6 +39,7 @@ import type {
   QueryStatus,
   QueryTab,
   SavedQuery,
+  GlueTableSummary,
 } from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
@@ -113,7 +120,12 @@ export function QueryWorkspace() {
   const [limitOpen, setLimitOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [closing, setClosing] = useState<QueryTab | null>(null);
+  // SPEC-044 table actions.
+  const [dropping, setDropping] = useState<GlueTableSummary | null>(null);
+  const [dropInFlight, setDropInFlight] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
 
+  const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
 
   const { appendEntry, updateEntry } = useQueryHistory(username || null);
@@ -180,10 +192,11 @@ export function QueryWorkspace() {
     [updateEntry, queryClient, database],
   );
 
-  // Submit a SQL string into the active tab (shared by Run and history Re-run).
-  const submit = (sqlText: string) => {
+  // Submit a SQL string into a tab (defaults to the active tab). An explicit
+  // tabId lets a just-opened tab (View data, SPEC-044) auto-run into itself
+  // before the activeTabId state change has committed.
+  const submit = (sqlText: string, tabId: string = activeTabId) => {
     if (!sqlText.trim() || !database) return;
-    const tabId = activeTabId;
     const existing = runs[tabId];
     const inFlight =
       !!existing &&
@@ -357,6 +370,110 @@ export function QueryWorkspace() {
     tabs.unlinkSavedQuery(id);
   };
 
+  // ── SPEC-044 table actions ──────────────────────────────────────────────
+  // Derive the in-space S3 key (folder) backing a table from its Glue LOCATION;
+  // null when missing or outside the user's own prefix (FR-002 guard).
+  const tablePrefix = (table: GlueTableSummary): string | null => {
+    if (!table.location) return null;
+    const match = /^s3:\/\/[^/]+\/(.+)$/.exec(table.location);
+    if (!match) return null;
+    const key = match[1].endsWith('/') ? match[1] : `${match[1]}/`;
+    return username && key.startsWith(`${username}/`) ? key : null;
+  };
+
+  const tableActions = {
+    canViewSourceFiles: (table: GlueTableSummary) => tablePrefix(table) !== null,
+    // FR-002: deep-link the file browser to the table's data folder.
+    onViewSourceFiles: (table: GlueTableSummary) => {
+      const key = tablePrefix(table);
+      if (!key) return;
+      navigate(`/files?prefix=${encodeURIComponent(key)}`);
+    },
+    // FR-003: SHOW CREATE TABLE → a new, non-run "DDL: {table}" tab.
+    onViewDdl: (table: GlueTableSummary) => {
+      if (!database) return;
+      setToast({ variant: 'info', message: `Loading DDL for ${table.name}…` });
+      void (async () => {
+        const result = await getTableDdl({
+          database,
+          table: table.name,
+          username,
+        });
+        if (!result.success) {
+          setToast({
+            variant: 'danger',
+            message: `Couldn’t load DDL: ${result.error.message}`,
+          });
+          return;
+        }
+        setToast(null);
+        const id = tabs.openTab({
+          label: `DDL: ${table.name}`,
+          sql: result.data,
+        });
+        if (id === null) setLimitOpen(true);
+        else editorRef.current?.focus();
+      })();
+    },
+    // FR-004: open a "{table}" tab pre-filled with SELECT * LIMIT N and auto-run.
+    onViewData: (table: GlueTableSummary) => {
+      const sql = `SELECT * FROM ${database}.${table.name} LIMIT ${TABLE_PREVIEW_ROW_LIMIT}`;
+      const id = tabs.openTab({ label: table.name, sql });
+      if (id === null) {
+        setLimitOpen(true);
+        return;
+      }
+      editorRef.current?.focus();
+      submit(sql, id); // auto-run into the just-opened tab
+    },
+    // FR-005: confirm, then drop in the background (handled on confirm).
+    onDropTable: (table: GlueTableSummary) => setDropping(table),
+  };
+
+  const handleDropConfirm = () => {
+    if (!dropping || !database) return;
+    const table = dropping;
+    const sql = `DROP TABLE ${database}.${table.name}`;
+    setDropInFlight(true);
+    void (async () => {
+      const result = await runStatementToCompletion({
+        sql,
+        database,
+        username,
+      });
+      setDropInFlight(false);
+      setDropping(null);
+      if (!result.success) {
+        setToast({
+          variant: 'danger',
+          message: `Couldn’t drop ${table.name}: ${result.error.message}`,
+        });
+        return;
+      }
+      const status = result.data;
+      // Record the drop in history (FR-005).
+      appendEntry({
+        queryExecutionId: status.queryExecutionId,
+        sql,
+        database,
+        submittedAt: new Date().toISOString(),
+        status: status.state,
+        dataScannedBytes: status.dataScannedBytes,
+        durationMs: status.engineExecutionTimeMillis,
+      }).catch((e) => console.warn('[query-history] append failed', e));
+
+      if (status.state === 'SUCCEEDED') {
+        void invalidateSchema(queryClient, database);
+        setToast({ variant: 'success', message: `Dropped ${table.name}` });
+      } else {
+        setToast({
+          variant: 'danger',
+          message: `Couldn’t drop ${table.name}: ${status.stateChangeReason ?? 'Drop failed'}`,
+        });
+      }
+    })();
+  };
+
   const errorMessage =
     runErrors[activeTabId] ??
     (activeStatus?.state === 'FAILED'
@@ -372,6 +489,7 @@ export function QueryWorkspace() {
       <SchemaBrowser
         database={database}
         onInsert={(name) => editorRef.current?.insertAtCursor(name)}
+        actions={tableActions}
       />
 
       {/* Background pollers — one per tab with an execution, so backgrounded
@@ -590,6 +708,21 @@ export function QueryWorkspace() {
         />
       )}
       {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
+      {dropping && (
+        <DropTableDialog
+          table={dropping.name}
+          isDropping={dropInFlight}
+          onConfirm={handleDropConfirm}
+          onCancel={() => setDropping(null)}
+        />
+      )}
+      {toast && (
+        <Toast
+          variant={toast.variant}
+          message={toast.message}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }

@@ -49,7 +49,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 041 — Multi-Tab Query Editor | Completed |
 | 042 — Query History Pagination (7/page, Prev/Next) | Completed |
 | 043 — Saved Queries + Global Workspace Bar | Completed |
-| 044 — Schema Browser Table Options Menu | Draft |
+| 044 — Schema Browser Table Options Menu | Completed |
 
 ## Arcs
 

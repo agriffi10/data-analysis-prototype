@@ -30,6 +30,9 @@ export const QUERY_HISTORY_MAX = 100;
 // in memory (useQueryHistory), so paging is a slice, not a fetch.
 export const QUERY_HISTORY_PAGE_SIZE = 7;
 
+// SPEC-044 FR-004: the "View data" table preview opens SELECT * … LIMIT this.
+export const TABLE_PREVIEW_ROW_LIMIT = 10;
+
 // SPEC-040: sessionStorage key prefix for the per-user editor draft. The full
 // key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. Superseded by SPEC-041's
 // tabs store — retained only for the one-time migration (read once, then removed).

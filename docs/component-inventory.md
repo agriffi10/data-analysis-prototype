@@ -184,6 +184,10 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `SavedQueriesPanel` | `SavedQueriesPanel.tsx` | Right drawer (mirrors history) listing saved queries (most-recently-updated first) with Open + Delete-with-confirm; presentational (workspace owns the data) (SPEC-043). |
 | `SaveQueryDialog` | `SaveQueryDialog.tsx` | Name-prompt modal with an inline overwrite-confirm step on a name collision; pre-filled on re-save (SPEC-043). |
 | `SavedQuery`, `SavedQueriesStore` | `query.types.ts` | Saved-query record + store types; `QueryHistoryEntry` also gained optional `savedQueryId`/`savedQueryName` (SPEC-043). |
+| `TableActionsMenu` | `TableActionsMenu.tsx` | **Reusable** kebab (⋮) + accessible popover menu (the app's first menu primitive): `aria-haspopup`/`expanded`, focus-in, Escape/outside-click close, arrow-key nav, danger items + separators (SPEC-044). |
+| `Toast` (+ `ToastState`) | `Toast.tsx` | **Reusable** minimal transient toast (success/danger auto-dismiss; `info` persists), accessible live region, fixed bottom-right (SPEC-044). |
+| `DropTableDialog` | `DropTableDialog.tsx` | DROP TABLE warn-and-confirm (SPEC-026 alertdialog, danger, in-flight lock) (SPEC-044). |
+| `getTableDdl` / `runStatementToCompletion` | `query.service.ts` | `SHOW CREATE TABLE` → assembled DDL; run-and-poll-to-terminal helper for background statements (View DDL, Drop) (SPEC-044). |
 | `QueryTab`, `QueryTabsState`, `QUERY_TABS_MAX`, `DEFAULT_SQL` | `query.types.ts` / `query.constants.ts` | Tab data types, the soft tab cap, and the shared first-tab boilerplate (SPEC-041). |
 | `formatBytes` / `formatDurationMs` / `formatRelativeTime` | `query.format.ts` | Display formatters for scanned-bytes / duration / relative timestamps. |
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |

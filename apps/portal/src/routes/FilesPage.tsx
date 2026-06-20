@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   FileBrowser,
   ensurePrefixMarker,
@@ -50,6 +51,16 @@ export default function FilesPage() {
     markerKey = undefined;
   }
 
+  // SPEC-044 FR-002: a `/files?prefix=…` deep-link (from the schema browser's
+  // "View source files") seeds the browser at that folder. Honoured only when the
+  // prefix is within the user's own space (the navigation floor), so the param can
+  // never point outside it; otherwise fall back to the root. Internal folder
+  // navigation doesn't touch the URL, so this only re-seeds on a fresh deep-link.
+  const [searchParams] = useSearchParams();
+  const prefixParam = searchParams.get('prefix') || undefined;
+  const initialPrefix =
+    prefixParam && prefixParam.startsWith(rootPrefix) ? prefixParam : rootPrefix;
+
   // SPEC-014 FR-001: guarantee the user's prefix marker exists on authenticated
   // load. Best-effort and non-blocking — a failure only logs a warning; the
   // browser still renders and the marker is retried next session. The service
@@ -75,8 +86,9 @@ export default function FilesPage() {
       <main className="min-w-0 flex-1 px-4 py-6">
         {bucket && (devUnauthenticated || user) ? (
           <FileBrowser
+            key={initialPrefix}
             bucket={bucket}
-            prefix={rootPrefix}
+            prefix={initialPrefix}
             rootPrefix={rootPrefix}
             rootLabel={rootLabel}
             markerKey={markerKey}
