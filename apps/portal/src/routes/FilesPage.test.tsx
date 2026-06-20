@@ -18,7 +18,11 @@ vi.mock('../features/auth', () => ({
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: vi.fn() }));
 vi.mock('../components/Sidebar', () => ({ Sidebar: () => <div /> }));
 
-import FilesPage from './FilesPage';
+// FilesPage reads VITE_S3_USER_SPACE_BUCKET in a module-level const (evaluated at
+// import), so the env must be stubbed BEFORE the module loads — hence the dynamic
+// import. (CI has no .env; a static import would see an undefined bucket.)
+vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
+const { default: FilesPage } = await import('./FilesPage');
 
 function renderAt(path: string) {
   render(
@@ -30,7 +34,6 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
 });
 
 describe('FilesPage deep-link (SPEC-044 FR-002)', () => {
