@@ -47,3 +47,18 @@ export type QueryHistory = {
   version: 1;
   entries: QueryHistoryEntry[]; // newest-first, capped at QUERY_HISTORY_MAX
 };
+
+// SPEC-041 multi-tab editor. Each tab is an independent query window.
+export type QueryTab = {
+  id: string; // stable unique id (crypto.randomUUID()); not the label
+  label: string; // "Query N" for blank tabs, or a feature-supplied name (043/044)
+  sql: string; // this tab's editor text (the persisted, durable field)
+  savedQueryId?: string; // set when opened from a saved query (SPEC-043)
+};
+
+export type QueryTabsState = {
+  version: 1;
+  tabs: QueryTab[]; // display order = creation order; always length >= 1
+  activeTabId: string; // must reference an existing tab
+  nextQueryNumber: number; // monotonic per-session counter for blank "Query N" tabs only
+};
