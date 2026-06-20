@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Auth + the lazy editor + the data hooks are mocked so the workspace can be
@@ -24,21 +25,46 @@ vi.mock('./SqlEditor', () => ({
     />
   ),
 }));
+// Expose the SPEC-044 table-action callbacks as buttons so they can be driven
+// from tests (the real menu/popover is covered in SchemaBrowser.test.tsx).
+const inSpace = {
+  name: 'sales_2026',
+  location: 's3://b/alice/sales/',
+  columns: [],
+};
+const outOfSpace = { name: 'foreign', location: 's3://b/bob/x/', columns: [] };
 vi.mock('./SchemaBrowser', () => ({
-  SchemaBrowser: () => <div data-testid="schema-browser" />,
+  SchemaBrowser: ({ actions }: { actions: import('./SchemaBrowser').TableActions }) => (
+    <div data-testid="schema-browser">
+      <button onClick={() => actions.onViewSourceFiles(inSpace)}>src:in</button>
+      <button onClick={() => actions.onViewSourceFiles(outOfSpace)}>src:out</button>
+      <button onClick={() => actions.onViewDdl(inSpace)}>ddl</button>
+      <button onClick={() => actions.onViewData(inSpace)}>data</button>
+      <button onClick={() => actions.onDropTable(inSpace)}>drop</button>
+      <span>cansrc-in:{String(actions.canViewSourceFiles(inSpace))}</span>
+      <span>cansrc-out:{String(actions.canViewSourceFiles(outOfSpace))}</span>
+    </div>
+  ),
+}));
+const navigateMock = vi.fn();
+vi.mock('react-router-dom', async (orig) => ({
+  ...(await orig<typeof import('react-router-dom')>()),
+  useNavigate: () => navigateMock,
 }));
 vi.mock('./query.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./query.service')>()),
   runQuery: vi.fn(),
   stopQuery: vi.fn(),
   getResultCsvUrl: vi.fn(),
+  getTableDdl: vi.fn(),
+  runStatementToCompletion: vi.fn(),
 }));
 vi.mock('./useQueryExecution', () => ({ useQueryExecution: vi.fn() }));
 vi.mock('./useQueryResults', () => ({ useQueryResults: vi.fn() }));
 vi.mock('./useQueryHistory', () => ({ useQueryHistory: vi.fn() }));
 vi.mock('./useSavedQueries', () => ({ useSavedQueries: vi.fn() }));
 
-import { runQuery } from './query.service';
+import { runQuery, getTableDdl, runStatementToCompletion } from './query.service';
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
@@ -51,6 +77,8 @@ import {
 import type { QueryTabsState, SavedQuery } from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
+const mockGetTableDdl = vi.mocked(getTableDdl);
+const mockRunToCompletion = vi.mocked(runStatementToCompletion);
 const mockUseExecution = vi.mocked(useQueryExecution);
 const mockUseResults = vi.mocked(useQueryResults);
 const mockUseHistory = vi.mocked(useQueryHistory);
@@ -66,9 +94,11 @@ function renderWorkspace() {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={client}>
-      <QueryWorkspace />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <QueryWorkspace />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -555,6 +585,117 @@ describe('QueryWorkspace', () => {
     // Only one History control now (on the strip), and Save is in the toolbar.
     expect(screen.getAllByRole('button', { name: /History/ })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Save query' })).toBeInTheDocument();
+  });
+
+  // --- SPEC-044 table actions ---
+
+  it('View source files navigates to /files?prefix= for an in-space table', async () => {
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    expect(screen.getByText('cansrc-in:true')).toBeInTheDocument();
+    expect(screen.getByText('cansrc-out:false')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'src:in' }));
+    expect(navigateMock).toHaveBeenCalledWith('/files?prefix=alice%2Fsales%2F');
+  });
+
+  it('View source files does not navigate for an out-of-space table', async () => {
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'src:out' }));
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('View DDL opens a non-run "DDL: {table}" tab with the fetched DDL', async () => {
+    mockGetTableDdl.mockResolvedValue({
+      success: true,
+      data: 'CREATE EXTERNAL TABLE sales_2026 (...)',
+    });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'ddl' }));
+
+    expect(
+      await screen.findByRole('tab', { name: /DDL: sales_2026/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('sql-editor')).toHaveValue(
+      'CREATE EXTERNAL TABLE sales_2026 (...)',
+    );
+    // A DDL fetch is not a user run — no query is started for it.
+    expect(mockRunQuery).not.toHaveBeenCalled();
+  });
+
+  it('View data opens a "{table}" tab and auto-runs SELECT * LIMIT 10', async () => {
+    mockRunQuery.mockResolvedValue({
+      success: true,
+      data: { queryExecutionId: 'q-1' },
+    });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'data' }));
+
+    expect(
+      await screen.findByRole('tab', { name: /sales_2026/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('sql-editor')).toHaveValue(
+      'SELECT * FROM alice.sales_2026 LIMIT 10',
+    );
+    expect(mockRunQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: 'SELECT * FROM alice.sales_2026 LIMIT 10' }),
+    );
+  });
+
+  it('Drop table confirms, runs in the background, records history + success toast', async () => {
+    mockRunToCompletion.mockResolvedValue({
+      success: true,
+      data: {
+        queryExecutionId: 'q-drop',
+        state: 'SUCCEEDED',
+        dataScannedBytes: 0,
+        engineExecutionTimeMillis: 5,
+      },
+    });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'drop' }));
+    const dialog = screen.getByRole('alertdialog', { name: /confirm drop table/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Drop table' }));
+
+    expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
+    expect(mockRunToCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: 'DROP TABLE alice.sales_2026' }),
+    );
+    expect(appendEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ queryExecutionId: 'q-drop' }),
+    );
+  });
+
+  it('Drop table shows an error toast and leaves the schema on failure', async () => {
+    mockRunToCompletion.mockResolvedValue({
+      success: true,
+      data: {
+        queryExecutionId: 'q-drop',
+        state: 'FAILED',
+        stateChangeReason: 'table locked',
+      },
+    });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'drop' }));
+    fireEvent.click(
+      within(screen.getByRole('alertdialog', { name: /confirm drop table/i })).getByRole(
+        'button',
+        { name: 'Drop table' },
+      ),
+    );
+
+    expect(await screen.findByText(/table locked/)).toBeInTheDocument();
   });
 
   it('re-runs a history entry into the active tab', async () => {

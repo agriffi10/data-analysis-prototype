@@ -20,6 +20,8 @@ import {
   getQueryStatus,
   getQueryResults,
   getResultCsvUrl,
+  getTableDdl,
+  runStatementToCompletion,
   stopQuery,
   isTerminalState,
 } from './query.service';
@@ -339,5 +341,96 @@ describe('isTerminalState', () => {
     expect(isTerminalState('CANCELLED')).toBe(true);
     expect(isTerminalState('QUEUED')).toBe(false);
     expect(isTerminalState('RUNNING')).toBe(false);
+  });
+});
+
+// SPEC-044: a stateful Athena fake dispatching by command class name. `statuses`
+// is consumed one GetQueryExecution call at a time (terminal-first needs one).
+function athenaFake(opts: {
+  startId?: string;
+  statuses: string[];
+  resultRows?: string[][];
+  resultColumns?: { Name: string; Type: string }[];
+}) {
+  const statuses = [...opts.statuses];
+  const send = vi.fn(async (cmd: { constructor: { name: string }; input: Record<string, unknown> }) => {
+    switch (cmd.constructor.name) {
+      case 'StartQueryExecutionCommand':
+        return { QueryExecutionId: opts.startId ?? 'q-1' };
+      case 'GetQueryExecutionCommand': {
+        const state = statuses.shift() ?? 'SUCCEEDED';
+        return {
+          QueryExecution: {
+            Status: { State: state, StateChangeReason: state === 'FAILED' ? 'boom' : undefined },
+            Statistics: { DataScannedInBytes: 10, EngineExecutionTimeInMillis: 20 },
+          },
+        };
+      }
+      case 'GetQueryResultsCommand':
+        return {
+          ResultSet: {
+            ResultSetMetadata: {
+              ColumnInfo: opts.resultColumns ?? [{ Name: 'createtab_stmt', Type: 'varchar' }],
+            },
+            Rows: (opts.resultRows ?? []).map((r) => ({
+              Data: r.map((v) => ({ VarCharValue: v })),
+            })),
+          },
+        };
+      default:
+        return {};
+    }
+  });
+  clientWithSend(send);
+  return send;
+}
+
+describe('runStatementToCompletion', () => {
+  it('runs and polls to a terminal state, returning the final status', async () => {
+    athenaFake({ statuses: ['SUCCEEDED'] });
+    const result = await runStatementToCompletion({
+      sql: 'DROP TABLE alice.foo',
+      database: 'alice',
+      username: 'alice',
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.state).toBe('SUCCEEDED');
+    expect(result.data.queryExecutionId).toBe('q-1');
+  });
+});
+
+describe('getTableDdl', () => {
+  it('runs SHOW CREATE TABLE and joins the result rows into the DDL', async () => {
+    const send = athenaFake({
+      statuses: ['SUCCEEDED'],
+      resultRows: [['CREATE EXTERNAL TABLE foo ('], ['  id bigint'], [')']],
+    });
+    const result = await getTableDdl({
+      database: 'alice',
+      table: 'foo',
+      username: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data).toBe('CREATE EXTERNAL TABLE foo (\n  id bigint\n)');
+    // It issued SHOW CREATE TABLE for the table.
+    const start = send.mock.calls.find(
+      (c) => c[0].constructor.name === 'StartQueryExecutionCommand',
+    );
+    expect(start?.[0].input.QueryString).toBe('SHOW CREATE TABLE alice.foo');
+  });
+
+  it('returns an error when the statement does not succeed', async () => {
+    athenaFake({ statuses: ['FAILED'] });
+    const result = await getTableDdl({
+      database: 'alice',
+      table: 'foo',
+      username: 'alice',
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.message).toBe('boom');
   });
 });

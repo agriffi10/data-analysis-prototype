@@ -5,6 +5,8 @@ export {
   getQueryStatus,
   getQueryResults,
   getResultCsvUrl,
+  getTableDdl,
+  runStatementToCompletion,
   stopQuery,
   isTerminalState,
 } from './query.service';
@@ -38,6 +40,8 @@ export {
   QUERY_RESULTS_PAGE_SIZE,
   QUERY_HISTORY_MAX,
   QUERY_TABS_MAX,
+  QUERY_HISTORY_PAGE_SIZE,
+  TABLE_PREVIEW_ROW_LIMIT,
   DEFAULT_SQL,
 } from './query.constants';
 export type {

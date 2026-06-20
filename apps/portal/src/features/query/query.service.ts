@@ -188,6 +188,74 @@ export async function getQueryResults(p: {
   });
 }
 
+// SPEC-044: run a statement and poll it to a terminal state, returning the final
+// QueryStatus (success for ANY terminal state — the caller inspects `.state`).
+// Used by internal/background runs (View DDL, Drop table) that aren't driven by
+// the per-tab UI poller. Never throws.
+const STMT_POLL_INTERVAL_MS = 400;
+const STMT_MAX_POLLS = 90; // ~36s ceiling for these short statements
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function runStatementToCompletion(p: {
+  sql: string;
+  database: string;
+  username: string;
+}): Promise<ServiceResult<QueryStatus>> {
+  const started = await runQuery(p);
+  if (!started.success) return started;
+  const id = started.data.queryExecutionId;
+
+  for (let i = 0; i < STMT_MAX_POLLS; i++) {
+    const status = await getQueryStatus(id);
+    if (!status.success) return status;
+    if (isTerminalState(status.data.state)) return status;
+    if (i === STMT_MAX_POLLS - 1) {
+      return {
+        success: false,
+        error: { message: 'Timed out waiting for the query', code: 'Timeout' },
+      };
+    }
+    await delay(STMT_POLL_INTERVAL_MS);
+  }
+  // Unreachable (the loop returns), but satisfies the type checker.
+  return { success: false, error: { message: 'Polling ended unexpectedly' } };
+}
+
+// SPEC-044 FR-003: fetch a table's authoritative DDL via Athena
+// `SHOW CREATE TABLE`, assembling the single-column result rows into the CREATE
+// statement. Internal UI fetch — it does NOT append a query-history entry.
+export async function getTableDdl(p: {
+  database: string;
+  table: string;
+  username: string;
+}): Promise<ServiceResult<string>> {
+  const done = await runStatementToCompletion({
+    sql: `SHOW CREATE TABLE ${p.database}.${p.table}`,
+    database: p.database,
+    username: p.username,
+  });
+  if (!done.success) return done;
+  if (done.data.state !== 'SUCCEEDED') {
+    return {
+      success: false,
+      error: {
+        message: done.data.stateChangeReason ?? 'SHOW CREATE TABLE failed',
+        code: done.data.state,
+      },
+    };
+  }
+
+  // SHOW CREATE TABLE returns one column; each row is a DDL line.
+  const results = await getQueryResults({
+    queryExecutionId: done.data.queryExecutionId,
+    maxRows: 1000,
+  });
+  if (!results.success) return results;
+  const ddl = results.data.rows.map((r) => r[0] ?? '').join('\n');
+  return { success: true, data: ddl };
+}
+
 // Parse an `s3://bucket/key` URL into its parts; null if it isn't one.
 function parseS3Url(url: string): { bucket: string; key: string } | null {
   const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(url);
