@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Drawer } from './Drawer';
 
 describe('Drawer', () => {
@@ -65,5 +65,36 @@ describe('Drawer', () => {
     expect(
       screen.getByRole('button', { name: 'Close upload panel' }),
     ).toBeInTheDocument();
+  });
+
+  it('blurs the content behind via the scrim', () => {
+    render(
+      <Drawer open onClose={vi.fn()} title="History">
+        body
+      </Drawer>,
+    );
+    const scrim = screen.getByRole('dialog').parentElement!;
+    expect(scrim).toHaveClass('backdrop-blur-sm');
+  });
+
+  it('restores focus to the trigger when it closes (focus trap)', async () => {
+    function Harness({ open }: { open: boolean }) {
+      return (
+        <>
+          <button>trigger</button>
+          <Drawer open={open} onClose={vi.fn()} title="History">
+            body
+          </Drawer>
+        </>
+      );
+    }
+    const { rerender } = render(<Harness open={false} />);
+    const trigger = screen.getByRole('button', { name: 'trigger' });
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    rerender(<Harness open />);
+    rerender(<Harness open={false} />);
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

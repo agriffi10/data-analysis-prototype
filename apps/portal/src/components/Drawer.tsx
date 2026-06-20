@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
+import { FocusTrap } from 'focus-trap-react';
 import { cx } from '../lib/cx';
 import { IconButton } from './IconButton';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -33,53 +34,68 @@ export function Drawer({
   footer,
 }: DrawerProps) {
   useEscapeKey(onClose, open && closeOnEscape);
+  const panelRef = useRef<HTMLElement>(null);
 
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex justify-end bg-black/30"
-      onClick={onClose}
+    // Trap focus within the drawer while open; restore it to the trigger on
+    // close. Escape is owned by useEscapeKey above and the scrim owns
+    // backdrop-dismiss, so focus-trap's own escape/outside-click are disabled.
+    <FocusTrap
+      focusTrapOptions={{
+        initialFocus: false,
+        fallbackFocus: () => panelRef.current ?? document.body,
+        escapeDeactivates: false,
+        allowOutsideClick: true,
+      }}
     >
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-label={ariaLabel ?? title}
-        className="flex h-full w-full max-w-[440px] flex-col bg-surface shadow-lg"
-        onClick={(e) => e.stopPropagation()}
+      <div
+        className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-sm"
+        onClick={onClose}
       >
-        <div className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-border px-5">
-          <h2 className="text-md font-semibold text-text">{title}</h2>
-          {headerAccessory}
-          <div className="flex-1" />
-          <IconButton
-            label={closeLabel ?? `Close ${title.toLowerCase()}`}
-            onClick={onClose}
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" d="M2 2l12 12M14 2L2 14" />
-            </svg>
-          </IconButton>
-        </div>
-
-        <div
-          className={cx(
-            'flex flex-1 flex-col overflow-y-auto p-5',
-            bodyClassName,
-          )}
+        <aside
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={ariaLabel ?? title}
+          tabIndex={-1}
+          className="flex h-full w-full max-w-[440px] flex-col bg-surface shadow-lg"
+          onClick={(e) => e.stopPropagation()}
         >
-          {children}
-        </div>
+          <div className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-border px-5">
+            <h2 className="text-md font-semibold text-text">{title}</h2>
+            {headerAccessory}
+            <div className="flex-1" />
+            <IconButton
+              label={closeLabel ?? `Close ${title.toLowerCase()}`}
+              onClick={onClose}
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" d="M2 2l12 12M14 2L2 14" />
+              </svg>
+            </IconButton>
+          </div>
 
-        {footer}
-      </aside>
-    </div>
+          <div
+            className={cx(
+              'flex flex-1 flex-col overflow-y-auto p-5',
+              bodyClassName,
+            )}
+          >
+            {children}
+          </div>
+
+          {footer}
+        </aside>
+      </div>
+    </FocusTrap>
   );
 }
