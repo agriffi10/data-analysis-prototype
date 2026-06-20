@@ -26,6 +26,23 @@ export const QUERY_RESULTS_PAGE_SIZE = 20;
 export const QUERY_HISTORY_MAX = 100;
 
 // SPEC-040: sessionStorage key prefix for the per-user editor draft. The full
-// key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. sessionStorage (not local)
-// is deliberate — the draft lives for the current browser session only.
+// key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. Superseded by SPEC-041's
+// tabs store — retained only for the one-time migration (read once, then removed).
 export const QUERY_DRAFT_STORAGE_PREFIX = 's3portal.query.draft.';
+
+// SPEC-041: sessionStorage key prefix for the per-user query-tabs state. Full
+// key: `${QUERY_TABS_STORAGE_PREFIX}${username}`. Supersedes SPEC-040's single
+// draft (migrated once into tab 1's sql, then the old key is removed).
+export const QUERY_TABS_STORAGE_PREFIX = 's3portal.query.tabs.';
+
+// SPEC-041: soft cap on open query tabs. Enforced by a dialog (FR-008): the `+`
+// stays enabled, but openTab refuses past this count and the caller shows the
+// "close a tab first" dialog. Closing a tab drops back below the cap.
+export const QUERY_TABS_MAX = 10;
+
+// SPEC-035/040/041: the boilerplate a brand-new first tab opens with (a `+` blank
+// tab opens empty). Single source of truth, shared by the workspace and the
+// tabs-state factory.
+export const DEFAULT_SQL = `-- Write SQL against your database, then Run (⌘⏎).
+SELECT 1;
+`;

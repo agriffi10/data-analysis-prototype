@@ -46,7 +46,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 038 — Query Results Pagination (20 rows/page, Prev/Next) | Completed |
 | 039 — Copy Files and Folders (recursive) | Completed |
 | 040 — Query Editor Session Persistence + Clear Button | Completed |
-| 041 — Multi-Tab Query Editor | Draft |
+| 041 — Multi-Tab Query Editor | Completed |
 | 042 — Query History Pagination (7/page, Prev/Next) | Draft |
 | 043 — Saved Queries + Global Workspace Bar | Draft |
 | 044 — Schema Browser Table Options Menu | Draft |

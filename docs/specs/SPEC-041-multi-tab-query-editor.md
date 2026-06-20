@@ -1,7 +1,7 @@
 # Spec: Multi-Tab Query Editor
 
 **ID:** SPEC-041
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-19
 **Depends On:** SPEC-040 (editor draft persistence + Clear — superseded by the per-tab model here), SPEC-035 (query workspace + Monaco editor + Run/Stop toolbar), SPEC-034 (query data layer — unchanged)
 

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth';
 import { Button } from '../../components/Button';
@@ -13,16 +13,19 @@ import {
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
-import { readQueryDraft, writeQueryDraft, clearQueryDraft } from './queryDraft';
-import { ClearQueryDialog } from './ClearQueryDialog';
+import { useQueryTabs } from './useQueryTabs';
 import { invalidateSchema } from './useSchema';
 import { isSchemaChangingSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
 import { QueryHistoryPanel } from './QueryHistoryPanel';
+import { QueryTabStrip } from './QueryTabStrip';
+import { ClearQueryDialog } from './ClearQueryDialog';
+import { CloseTabDialog } from './CloseTabDialog';
+import { TabLimitDialog } from './TabLimitDialog';
 import type { SqlEditorHandle } from './SqlEditor';
-import type { QueryHistoryEntry } from './query.types';
+import type { QueryHistoryEntry, QueryStatus, QueryTab } from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
@@ -30,69 +33,142 @@ const SqlEditor = lazy(() =>
   import('./SqlEditor').then((m) => ({ default: m.SqlEditor })),
 );
 
-const DEFAULT_SQL = `-- Write SQL against your database, then Run (⌘⏎).
-SELECT 1;
-`;
+// SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
+// fresh Run). `submittedSql` is kept so the background finalizer can decide
+// whether a succeeded DDL should refresh the schema.
+type TabRun = {
+  executionId: string;
+  startedAt: number;
+  submittedSql: string;
+};
+
+// SPEC-041 FR-004: a headless poller, one per tab holding an execution. Each runs
+// its own useQueryExecution so a backgrounded query keeps polling to terminal
+// (its status/history finalize without waiting for the user to return). Reports
+// status up and finalizes history exactly once per execution id.
+function TabExecutionPoller({
+  tabId,
+  executionId,
+  submittedSql,
+  onStatus,
+  onFinalize,
+}: {
+  tabId: string;
+  executionId: string;
+  submittedSql: string;
+  onStatus: (tabId: string, status: QueryStatus | undefined) => void;
+  onFinalize: (executionId: string, status: QueryStatus, sql: string) => void;
+}) {
+  const execution = useQueryExecution(executionId);
+  const status = execution.data;
+  const finalizedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    onStatus(tabId, status);
+  }, [tabId, status, onStatus]);
+
+  useEffect(() => {
+    if (!status || !isTerminalState(status.state)) return;
+    if (finalizedRef.current === executionId) return;
+    finalizedRef.current = executionId;
+    onFinalize(executionId, status, submittedSql);
+  }, [status, executionId, submittedSql, onFinalize]);
+
+  return null;
+}
 
 // SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
-// (main), wired entirely to the SPEC-034 data layer.
+// (main), wired to the SPEC-034 data layer. SPEC-041 makes the editor multi-tab:
+// each tab is an independent query window with its own SQL + run state; Run/Clear/
+// Stop/status/results all act on the active tab.
 export function QueryWorkspace() {
   const { user } = useAuth();
   const username = user?.username ?? '';
   const database = username;
   const queryClient = useQueryClient();
 
-  // SPEC-040: seed from the per-user sessionStorage draft so an un-run query
-  // survives tab switches (remount) and page reloads within the session; fall
-  // back to the boilerplate only when there is no draft. Read once at mount.
-  const [sql, setSql] = useState(() => readQueryDraft(username) || DEFAULT_SQL);
-  const [executionId, setExecutionId] = useState<string | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [errorDismissed, setErrorDismissed] = useState(false);
+  const tabs = useQueryTabs(username);
+  const { activeTab, activeTabId } = tabs;
+
+  // Per-tab run state, keyed by tab id (in-memory for the session).
+  const [runs, setRuns] = useState<Record<string, TabRun>>({});
+  const [statuses, setStatuses] = useState<Record<string, QueryStatus | undefined>>(
+    {},
+  );
+  const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
+
   const [historyOpen, setHistoryOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [closing, setClosing] = useState<QueryTab | null>(null);
 
   const editorRef = useRef<SqlEditorHandle>(null);
-  const submittedSqlRef = useRef('');
-  const finalizedRef = useRef<string | null>(null);
 
   const { appendEntry, updateEntry } = useQueryHistory(username || null);
-  const execution = useQueryExecution(executionId);
-  const status = execution.data;
-  const isInFlight =
-    executionId !== null && (!status || !isTerminalState(status.state));
-  const succeeded = status?.state === 'SUCCEEDED';
 
-  // Results only fetch once the query has succeeded. The hook exposes a Prev/Next
-  // pager (SPEC-038) — one page (≤20 rows) at a time, not the full result set.
-  const results = useQueryResults(succeeded ? executionId : null);
+  // Active-tab derived run state.
+  const activeRun = runs[activeTabId];
+  const activeExecutionId = activeRun?.executionId ?? null;
+  const activeStatus = statuses[activeTabId];
+  const activeIsInFlight =
+    !!activeRun && (!activeStatus || !isTerminalState(activeStatus.state));
+  const succeeded = activeStatus?.state === 'SUCCEEDED';
 
-  // SPEC-040: any change to the editor text updates state and persists the draft
-  // in one place, so typing, schema-insert, and history re-open all keep the
-  // session draft in sync. Clear deliberately bypasses this (it removes the key).
-  const applySql = (sqlText: string) => {
-    setSql(sqlText);
-    writeQueryDraft(username, sqlText);
-  };
+  // Results only fetch once the active query has succeeded; one page (≤20 rows)
+  // at a time via the SPEC-038 pager.
+  const results = useQueryResults(succeeded ? activeExecutionId : null);
 
-  // Submit a specific SQL string (shared by Run and history Re-run).
+  // Stable callbacks for the per-tab pollers.
+  const handleStatus = useCallback(
+    (tabId: string, status: QueryStatus | undefined) => {
+      setStatuses((s) => (s[tabId] === status ? s : { ...s, [tabId]: status }));
+    },
+    [],
+  );
+  const handleFinalize = useCallback(
+    (executionId: string, status: QueryStatus, sql: string) => {
+      updateEntry({
+        queryExecutionId: executionId,
+        patch: {
+          status: status.state,
+          dataScannedBytes: status.dataScannedBytes,
+          durationMs: status.engineExecutionTimeMillis,
+        },
+      }).catch((e) => console.warn('[query-history] update failed', e));
+
+      if (status.state === 'SUCCEEDED' && database && isSchemaChangingSql(sql)) {
+        void invalidateSchema(queryClient, database);
+      }
+    },
+    [updateEntry, queryClient, database],
+  );
+
+  // Submit a SQL string into the active tab (shared by Run and history Re-run).
   const submit = (sqlText: string) => {
-    if (!sqlText.trim() || !database || isInFlight) return;
-    setRunError(null);
-    setErrorDismissed(false);
-    submittedSqlRef.current = sqlText;
+    if (!sqlText.trim() || !database) return;
+    const tabId = activeTabId;
+    const existing = runs[tabId];
+    const inFlight =
+      !!existing &&
+      (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
+    if (inFlight) return;
+
+    setRunErrors((e) => ({ ...e, [tabId]: null }));
+    setDismissed((d) => ({ ...d, [tabId]: false }));
     void (async () => {
       const result = await runQuery({ sql: sqlText, database, username });
       if (!result.success) {
-        setRunError(result.error.message);
+        setRunErrors((e) => ({ ...e, [tabId]: result.error.message }));
         return;
       }
       const id = result.data.queryExecutionId;
-      finalizedRef.current = null;
-      setStartedAt(Date.now());
-      setExecutionId(id);
-      // Append-at-submit (SPEC-034 FR-007); terminal status filled in below.
+      // Reset any prior terminal status so the UI shows "running" immediately.
+      setStatuses((s) => ({ ...s, [tabId]: undefined }));
+      setRuns((r) => ({
+        ...r,
+        [tabId]: { executionId: id, startedAt: Date.now(), submittedSql: sqlText },
+      }));
       appendEntry({
         queryExecutionId: id,
         sql: sqlText,
@@ -102,62 +178,37 @@ export function QueryWorkspace() {
     })();
   };
 
-  const handleRun = () => submit(sql);
+  const handleRun = () => submit(activeTab.sql);
 
   const handleStop = () => {
-    if (!executionId) return;
-    void stopQuery(executionId); // poller observes CANCELLED
+    if (!activeExecutionId) return;
+    void stopQuery(activeExecutionId); // poller observes CANCELLED
   };
 
-  // SPEC-036: re-open loads the entry's SQL into the editor (no auto-run);
-  // re-run loads it and submits (a new history entry is appended by submit).
+  // SPEC-036 / SPEC-041 FR-003: re-open loads the entry's SQL into the active
+  // tab's editor (no auto-run); re-run loads it and submits.
   const handleReopen = (entry: QueryHistoryEntry) => {
-    applySql(entry.sql);
+    tabs.setActiveSql(entry.sql);
     setHistoryOpen(false);
     editorRef.current?.focus();
   };
   const handleRerun = (entry: QueryHistoryEntry) => {
-    if (isInFlight) return;
-    applySql(entry.sql);
+    if (activeIsInFlight) return;
+    tabs.setActiveSql(entry.sql);
     setHistoryOpen(false);
     submit(entry.sql);
   };
 
-  // Once the execution reaches a terminal state, record its status/stats in
-  // history and refresh the schema if a DDL statement succeeded.
-  useEffect(() => {
-    if (!executionId || !status || !isTerminalState(status.state)) return;
-    if (finalizedRef.current === executionId) return;
-    finalizedRef.current = executionId;
-
-    updateEntry({
-      queryExecutionId: executionId,
-      patch: {
-        status: status.state,
-        dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis,
-      },
-    }).catch((e) => console.warn('[query-history] update failed', e));
-
-    if (
-      status.state === 'SUCCEEDED' &&
-      database &&
-      isSchemaChangingSql(submittedSqlRef.current)
-    ) {
-      void invalidateSchema(queryClient, database);
-    }
-  }, [executionId, status, updateEntry, queryClient, database]);
-
   const handleDownloadCsv = () => {
-    if (!executionId || !status?.outputLocation) return;
+    if (!activeExecutionId || !activeStatus?.outputLocation) return;
     void (async () => {
       const result = await getResultCsvUrl({
-        queryExecutionId: executionId,
-        outputLocation: status.outputLocation as string,
+        queryExecutionId: activeExecutionId,
+        outputLocation: activeStatus.outputLocation as string,
       });
       if (!result.success) {
-        setRunError(result.error.message);
-        setErrorDismissed(false);
+        setRunErrors((e) => ({ ...e, [activeTabId]: result.error.message }));
+        setDismissed((d) => ({ ...d, [activeTabId]: false }));
         return;
       }
       const link = document.createElement('a');
@@ -169,26 +220,59 @@ export function QueryWorkspace() {
     })();
   };
 
-  const errorMessage =
-    runError ??
-    (status?.state === 'FAILED'
-      ? (status.stateChangeReason ?? 'The query failed.')
-      : null);
-  const showError = !!errorMessage && !errorDismissed;
-  const canRun = !!sql.trim() && !!database && !isInFlight;
-  // SPEC-040 FR-003: Clear is offered only when there is text to clear and no
-  // query is executing (don't mutate a running query's context).
-  const canClear = sql.length > 0 && !isInFlight;
+  // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
+  const handleNewTab = () => {
+    const id = tabs.openTab();
+    if (id === null) setLimitOpen(true);
+    else editorRef.current?.focus();
+  };
 
-  // Clear confirms first (no undo), then empties the editor + the persisted
-  // draft and refocuses. Cancel is a no-op. Bypasses applySql so the cleared
-  // key is not immediately re-written.
+  // FR-005: drop the closed tab's in-memory run state (its execution keeps running
+  // server-side; history is the durable record).
+  const dropRunState = (id: string) => {
+    const without = <T,>(m: Record<string, T>) => {
+      const next = { ...m };
+      delete next[id];
+      return next;
+    };
+    setRuns(without);
+    setStatuses(without);
+    setRunErrors(without);
+    setDismissed(without);
+  };
+
+  const requestClose = (id: string) => {
+    const tab = tabs.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    if (tab.sql.trim()) {
+      setClosing(tab); // non-empty → confirm first (FR-005)
+    } else {
+      tabs.closeTab(id);
+      dropRunState(id);
+    }
+  };
+  const confirmClose = () => {
+    if (!closing) return;
+    const id = closing.id;
+    tabs.closeTab(id);
+    dropRunState(id);
+    setClosing(null);
+  };
+
   const handleClearConfirm = () => {
-    setSql('');
-    clearQueryDraft(username);
+    tabs.clearActive();
     setClearOpen(false);
     editorRef.current?.focus();
   };
+
+  const errorMessage =
+    runErrors[activeTabId] ??
+    (activeStatus?.state === 'FAILED'
+      ? (activeStatus.stateChangeReason ?? 'The query failed.')
+      : null);
+  const showError = !!errorMessage && !dismissed[activeTabId];
+  const canRun = !!activeTab.sql.trim() && !!database && !activeIsInFlight;
+  const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
 
   return (
     <div className="flex min-w-0 flex-1">
@@ -197,7 +281,28 @@ export function QueryWorkspace() {
         onInsert={(name) => editorRef.current?.insertAtCursor(name)}
       />
 
+      {/* Background pollers — one per tab with an execution, so backgrounded
+          queries finalize concurrently (FR-004). They render nothing. */}
+      {Object.entries(runs).map(([tabId, run]) => (
+        <TabExecutionPoller
+          key={tabId}
+          tabId={tabId}
+          executionId={run.executionId}
+          submittedSql={run.submittedSql}
+          onStatus={handleStatus}
+          onFinalize={handleFinalize}
+        />
+      ))}
+
       <main className="flex min-w-0 flex-1 flex-col">
+        <QueryTabStrip
+          tabs={tabs.tabs}
+          activeTabId={activeTabId}
+          onSelect={tabs.setActiveTab}
+          onClose={requestClose}
+          onNew={handleNewTab}
+        />
+
         <div className="flex h-[52px] flex-none items-center gap-3 border-b border-border bg-surface px-5">
           <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-sm text-text-2">
             <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
@@ -239,7 +344,7 @@ export function QueryWorkspace() {
             </svg>
             History
           </Button>
-          {isInFlight ? (
+          {activeIsInFlight ? (
             <Button
               variant="ghost"
               onClick={handleStop}
@@ -283,18 +388,18 @@ export function QueryWorkspace() {
           >
             <SqlEditor
               ref={editorRef}
-              value={sql}
-              onChange={applySql}
+              value={activeTab.sql}
+              onChange={tabs.setActiveSql}
               onRun={handleRun}
             />
           </Suspense>
         </div>
 
-        {executionId !== null && (
+        {activeExecutionId !== null && (
           <QueryStatusBar
-            status={status}
-            isInFlight={isInFlight}
-            startedAt={startedAt}
+            status={activeStatus}
+            isInFlight={activeIsInFlight}
+            startedAt={activeRun?.startedAt ?? null}
             rowCount={succeeded ? results.loadedRowCount : undefined}
             hasMoreRows={results.hasMoreServer}
             onDownloadCsv={handleDownloadCsv}
@@ -307,8 +412,8 @@ export function QueryWorkspace() {
               variant="danger"
               title="Query failed."
               onDismiss={() => {
-                setRunError(null);
-                setErrorDismissed(true);
+                setRunErrors((e) => ({ ...e, [activeTabId]: null }));
+                setDismissed((d) => ({ ...d, [activeTabId]: true }));
               }}
             >
               <code className="font-mono text-xs">{errorMessage}</code>
@@ -334,7 +439,9 @@ export function QueryWorkspace() {
             />
           ) : (
             <p className="flex h-full items-center justify-center text-sm text-text-3">
-              {isInFlight ? 'Running your query…' : 'Run a query to see results.'}
+              {activeIsInFlight
+                ? 'Running your query…'
+                : 'Run a query to see results.'}
             </p>
           )}
         </div>
@@ -346,7 +453,7 @@ export function QueryWorkspace() {
         username={username}
         onReopen={handleReopen}
         onRerun={handleRerun}
-        rerunDisabled={isInFlight}
+        rerunDisabled={activeIsInFlight}
       />
 
       {clearOpen && (
@@ -355,6 +462,14 @@ export function QueryWorkspace() {
           onCancel={() => setClearOpen(false)}
         />
       )}
+      {closing && (
+        <CloseTabDialog
+          label={closing.label}
+          onConfirm={confirmClose}
+          onCancel={() => setClosing(null)}
+        />
+      )}
+      {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
     </div>
   );
 }

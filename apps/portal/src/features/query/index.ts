@@ -21,6 +21,8 @@ export { useSchema, invalidateSchema } from './useSchema';
 export type { SchemaData } from './useSchema';
 export { useQueryHistory } from './useQueryHistory';
 export type { UseQueryHistoryResult } from './useQueryHistory';
+export { useQueryTabs } from './useQueryTabs';
+export type { UseQueryTabsResult, OpenTabOpts } from './useQueryTabs';
 export { queryKeys } from './queryKeys';
 export {
   POLL_INTERVAL_MS,
@@ -28,6 +30,8 @@ export {
   DEFAULT_MAX_ROWS,
   QUERY_RESULTS_PAGE_SIZE,
   QUERY_HISTORY_MAX,
+  QUERY_TABS_MAX,
+  DEFAULT_SQL,
 } from './query.constants';
 export type {
   QueryState,
@@ -38,4 +42,6 @@ export type {
   GlueTableSummary,
   QueryHistoryEntry,
   QueryHistory,
+  QueryTab,
+  QueryTabsState,
 } from './query.types';
