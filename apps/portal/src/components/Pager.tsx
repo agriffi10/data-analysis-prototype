@@ -14,7 +14,7 @@ type PagerProps = {
 };
 
 const pagerButton =
-  'h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
+  'h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 // SPEC-038 Prev/Next pager (react-best-practices abstraction pass). Shared by the
 // query-results table and the history drawer: Prev — range indicator — Next, with

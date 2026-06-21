@@ -218,6 +218,7 @@ function TableRow({
                 type="button"
                 onClick={() => onInsert(column.name)}
                 title={`Insert "${column.name}"`}
+                aria-label={`Insert column ${column.name} into the query editor`}
                 className="flex items-baseline gap-2 rounded-sm px-2 py-[3px] text-left text-sm text-text-2 hover:bg-surface-2 hover:text-text"
               >
                 <span className="min-w-0 truncate">{column.name}</span>

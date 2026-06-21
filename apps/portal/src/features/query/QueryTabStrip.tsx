@@ -14,7 +14,7 @@ type Props = {
 };
 
 const barButton =
-  'inline-flex h-7 flex-none items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-3 text-sm font-medium text-text-2 hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 [&>svg]:h-[15px] [&>svg]:w-[15px]';
+  'inline-flex h-7 flex-none items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-3 text-sm font-medium text-text-2 hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&>svg]:h-[15px] [&>svg]:w-[15px]';
 
 // SPEC-041 FR-001/002/005: the query-tab strip above the editor toolbar. "Card"
 // tabs (design-system.md §6) — distinct from the topbar Files|Query underline and

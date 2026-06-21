@@ -180,7 +180,7 @@ export function DestinationPicker({
             {browsePrefix !== rootPrefix && (
               <li>
                 <button
-                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none"
+                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => setBrowsePrefix(parentOf(browsePrefix, rootPrefix))}
                   aria-label="Go up to parent folder"
                 >
@@ -205,7 +205,7 @@ export function DestinationPicker({
             {navigableFolders.map((folder) => (
               <li key={folder.prefix}>
                 <button
-                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none"
+                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => setBrowsePrefix(folder.prefix)}
                   aria-label={`Open folder ${folder.name}`}
                 >

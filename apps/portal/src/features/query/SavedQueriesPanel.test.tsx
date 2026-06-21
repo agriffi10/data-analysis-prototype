@@ -53,13 +53,17 @@ describe('SavedQueriesPanel', () => {
   it('Open fires onOpen with the query', () => {
     const { onOpen } = setup();
     // The first card is "Newer" (b).
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[0]);
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /open saved query/i })[0],
+    );
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }));
   });
 
   it('Delete confirms, then fires onDelete with the id', () => {
     const { onDelete } = setup();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /delete saved query/i })[0],
+    );
     const dialog = screen.getByRole('alertdialog', {
       name: /confirm delete saved query/i,
     });

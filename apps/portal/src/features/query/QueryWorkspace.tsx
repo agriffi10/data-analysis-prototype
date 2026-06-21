@@ -572,6 +572,7 @@ export function QueryWorkspace() {
             <Button
               variant="ghost"
               onClick={handleStop}
+              aria-label="Stop the running query"
               className="text-danger hover:bg-danger-soft hover:text-danger"
             >
               <svg
@@ -587,7 +588,12 @@ export function QueryWorkspace() {
               Stop
             </Button>
           ) : (
-            <Button variant="primary" onClick={handleRun} disabled={!canRun}>
+            <Button
+              variant="primary"
+              onClick={handleRun}
+              disabled={!canRun}
+              aria-label="Run query"
+            >
               <svg
                 viewBox="0 0 24 24"
                 fill="currentColor"

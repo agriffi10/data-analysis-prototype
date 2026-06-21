@@ -173,8 +173,9 @@ export function UploadQueuePanel() {
         {finishedCount > 0 && (
           <button
             type="button"
-            className="rounded-md px-2 py-1 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+            className="rounded-md px-2 py-1 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={clearFinished}
+            aria-label="Clear finished uploads from the queue"
           >
             Clear finished
           </button>

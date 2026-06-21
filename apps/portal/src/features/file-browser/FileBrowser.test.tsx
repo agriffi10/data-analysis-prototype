@@ -782,9 +782,9 @@ describe('selection + delete', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
     render(<FileBrowser {...authProps} />);
 
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete selected items' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete selected items' })).toBeEnabled();
   });
 
   it('select-all toggles every row', () => {
@@ -807,7 +807,7 @@ describe('selection + delete', () => {
     render(<FileBrowser {...authProps} />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected items' }));
 
     const dialog = screen.getByRole('alertdialog', { name: /confirm delete/i });
     expect(dialog).toHaveTextContent(/report\.pdf/);
@@ -825,7 +825,7 @@ describe('selection + delete', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /select folder photos/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected items' }));
 
     const dialog = screen.getByRole('alertdialog', { name: /confirm delete/i });
     fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
@@ -846,7 +846,7 @@ describe('selection + delete', () => {
     render(<FileBrowser {...authProps} />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected items' }));
 
     const dialog = screen.getByRole('alertdialog', { name: /confirm delete/i });
     fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
@@ -902,15 +902,15 @@ describe('rename + move', () => {
     render(<FileBrowser {...authProps} />);
 
     // Nothing selected → disabled.
-    expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Rename selected item' })).toBeDisabled();
 
     // One file → enabled.
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Rename selected item' })).toBeEnabled();
 
     // Add a second selection → rename is single-item, so disabled again.
     fireEvent.click(screen.getByRole('checkbox', { name: /select folder photos/i }));
-    expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Rename selected item' })).toBeDisabled();
   });
 
   it('toolbar Rename opens the dialog and calls renameItem on submit', () => {
@@ -918,7 +918,7 @@ describe('rename + move', () => {
     render(<FileBrowser {...authProps} />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename selected item' }));
     const dialog = screen.getByRole('dialog', { name: /rename/i });
     fireEvent.click(within(dialog).getByRole('button', { name: /rename-submit-stub/i }));
 
@@ -946,7 +946,7 @@ describe('rename + move', () => {
   it('disables Move until something is selected', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
     render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', { name: 'Move' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move selected items' })).toBeDisabled();
   });
 
   it('Move opens the destination picker and calls moveItems on confirm', () => {
@@ -954,7 +954,7 @@ describe('rename + move', () => {
     render(<FileBrowser {...authProps} />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move selected items' }));
 
     const dialog = screen.getByRole('dialog', { name: /move to folder/i });
     expect(dialog).toHaveTextContent(/moving 1/i);
@@ -1009,7 +1009,7 @@ describe('copy', () => {
   it('disables the selection-bar Copy until something is selected', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
     render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', { name: 'Copy' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Copy selected items' })).toBeDisabled();
   });
 
   it('does not render per-row Copy buttons (actions live in the toolbar)', () => {
@@ -1036,7 +1036,7 @@ describe('copy', () => {
     render(<FileBrowser {...authProps} />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy selected items' }));
 
     const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
     fireEvent.click(within(dialog).getByRole('button', { name: /copy-here-stub/i }));
@@ -1053,7 +1053,7 @@ describe('copy', () => {
     render(<FileBrowser {...authProps} prefix="alice/" />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy selected items' }));
     const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
     fireEvent.click(
       within(dialog).getByRole('button', { name: /copy-same-folder-stub/i }),
@@ -1121,12 +1121,12 @@ describe('toolbar download', () => {
     });
     render(<FileBrowser {...authProps} />);
 
-    expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download selected items' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download selected items' })).toBeEnabled();
     // Add a folder → no longer a single file → disabled.
     fireEvent.click(screen.getByRole('checkbox', { name: /select folder photos/i }));
-    expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download selected items' })).toBeDisabled();
   });
 
   it('downloads the selected file from the toolbar', async () => {
@@ -1141,7 +1141,7 @@ describe('toolbar download', () => {
     render(<FileBrowser {...authProps} />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download selected items' }));
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
     expect(mockGetDownloadUrl).toHaveBeenCalledWith({

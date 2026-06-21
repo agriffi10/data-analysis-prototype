@@ -31,8 +31,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           className={cx(
             BASE,
             hasError
-              ? 'border-danger focus-visible:ring-danger/40'
-              : 'border-border focus-visible:ring-accent/40',
+              ? 'border-danger focus-visible:ring-danger'
+              : 'border-border focus-visible:ring-accent',
             className,
           )}
           aria-invalid={hasError || undefined}

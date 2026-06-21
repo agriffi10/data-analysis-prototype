@@ -105,7 +105,8 @@ export function QueryHistoryRow({
         <button
           type="button"
           onClick={onReopen}
-          className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          aria-label="Open this query in the editor"
+          className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Open
         </button>
@@ -113,7 +114,8 @@ export function QueryHistoryRow({
           type="button"
           onClick={onRerun}
           disabled={rerunDisabled}
-          className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          aria-label="Re-run this query"
+          className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Re-run
         </button>

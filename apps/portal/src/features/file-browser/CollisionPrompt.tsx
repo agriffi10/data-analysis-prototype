@@ -93,7 +93,12 @@ export function CollisionPrompt({
           <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="danger" size="sm" onClick={onOverwrite}>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={onOverwrite}
+            aria-label={`Overwrite the existing ${name}`}
+          >
             Overwrite
           </Button>
         </div>
