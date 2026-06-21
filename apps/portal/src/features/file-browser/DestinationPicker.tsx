@@ -236,7 +236,13 @@ export function DestinationPicker({
         </div>
 
         {disabledReason && (
-          <p className="mt-2 text-xs text-text-3">{disabledReason}</p>
+          <p
+            id="dest-disabled-reason"
+            role="status"
+            className="mt-2 text-xs text-text-3"
+          >
+            {disabledReason}
+          </p>
         )}
       </div>
 
@@ -248,6 +254,7 @@ export function DestinationPicker({
           variant="primary"
           onClick={() => onConfirm(browsePrefix)}
           disabled={!canConfirm}
+          aria-describedby={disabledReason ? 'dest-disabled-reason' : undefined}
         >
           {isBusy ? busyLabel : confirmLabel}
         </Button>

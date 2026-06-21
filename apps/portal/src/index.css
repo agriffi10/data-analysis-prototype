@@ -95,4 +95,18 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
+
+  /* Skip-to-main-content link (WCAG 2.4.1). Off-screen until focused; uses the
+     plain `transform` property (Tailwind v4's translate-* set the `translate`
+     property, whose focus variant proved unreliable here). */
+  .skip-link {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 50;
+    transform: translateY(-200%);
+  }
+  .skip-link:focus {
+    transform: translateY(0);
+  }
 }

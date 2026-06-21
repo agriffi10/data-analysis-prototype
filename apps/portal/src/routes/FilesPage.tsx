@@ -83,7 +83,8 @@ export default function FilesPage() {
   return (
     <>
       <Sidebar />
-      <main className="min-w-0 flex-1 px-4 py-6">
+      <main id="main" className="min-w-0 flex-1 px-4 py-6">
+        <h1 className="sr-only">{rootLabel ?? 'My Files'}</h1>
         {bucket && (devUnauthenticated || user) ? (
           <FileBrowser
             key={initialPrefix}

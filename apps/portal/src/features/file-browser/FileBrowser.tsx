@@ -861,8 +861,13 @@ function FileBrowserContent({
       {/* File and folder list */}
       {hasContent && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
-          {/* Column header */}
-          <div className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+          {/* Column header — visual only; the labels are not programmatically
+              tied to the list rows below, so hide this decorative row from AT
+              (each row already exposes its own values as text). */}
+          <div
+            aria-hidden="true"
+            className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3"
+          >
             {canModify && <span className="w-10 flex-shrink-0" />}
             <span className="min-w-0 flex-1 px-4">Name</span>
             <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>

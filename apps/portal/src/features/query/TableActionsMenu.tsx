@@ -72,7 +72,7 @@ export function TableActionsMenu({ tableName, items }: Props) {
           setOpen((o) => !o);
         }}
         className={cx(
-          'grid h-[22px] w-[22px] place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          'grid h-6 w-6 place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
           open && 'bg-surface-2 text-text',
         )}
       >

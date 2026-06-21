@@ -22,9 +22,18 @@ export function CollisionPrompt({
 }: Props) {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
+  const [touched, setTouched] = useState(false);
 
   const trimmed = newName.trim();
   const canRename = trimmed.length > 0 && trimmed !== name;
+  // Surface why the action is unavailable in text, not just via a disabled
+  // button (WCAG 3.3.1 Error Identification).
+  const renameError =
+    touched && !canRename
+      ? trimmed.length === 0
+        ? 'Enter a name.'
+        : `Enter a name different from “${name}”.`
+      : undefined;
 
   return (
     <div
@@ -59,8 +68,14 @@ export function CollisionPrompt({
             <Input
               id="collision-rename"
               autoFocus
+              required
+              aria-required="true"
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              error={renameError}
+              onChange={(e) => {
+                setTouched(true);
+                setNewName(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && canRename) onRename(trimmed);
               }}

@@ -23,7 +23,9 @@ export function OperationSummaryBanner({
   return (
     <Banner
       variant={errors.length === 0 ? 'success' : 'warning'}
-      role="status"
+      // Clean result is a polite status; a partial failure is an error-class
+      // message and should assert (WCAG 4.1.3).
+      role={errors.length === 0 ? 'status' : 'alert'}
       onDismiss={onDismiss}
       className="mb-4"
       title={`${pastVerb} ${count} ${count === 1 ? 'item' : 'items'}.`}

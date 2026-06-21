@@ -82,18 +82,22 @@ export function SchemaBrowser({
 
   let body: React.ReactNode;
   if (!database || isPending) {
-    body = <p className="px-3 py-2 text-sm text-text-3">Loading schema&hellip;</p>;
+    body = (
+      <p role="status" className="px-3 py-2 text-sm text-text-3">
+        Loading schema&hellip;
+      </p>
+    );
   } else if (isError) {
     // getDatabase NotFound = the per-user DB isn't provisioned yet (SPEC-033
     // backfill window) — present it as "setting up", not an error.
     const message = (error as Error)?.message ?? '';
     body = /does not exist/i.test(message) ? (
-      <p className="px-3 text-sm leading-relaxed text-text-3">
+      <p role="status" className="px-3 text-sm leading-relaxed text-text-3">
         Setting up your database&hellip; This is automatic right after sign-up. If
         it persists, contact an administrator.
       </p>
     ) : (
-      <p className="px-3 text-sm leading-relaxed text-danger">
+      <p role="alert" className="px-3 text-sm leading-relaxed text-danger">
         Couldn&rsquo;t load your schema. {message}
       </p>
     );

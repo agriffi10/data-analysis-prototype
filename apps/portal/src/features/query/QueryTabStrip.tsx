@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { cx } from '../../lib/cx';
 import { DocumentIcon } from '../../components/icons';
 import type { QueryTab } from './query.types';
@@ -32,6 +33,28 @@ export function QueryTabStrip({
   onOpenHistory,
 }: Props) {
   const solo = tabs.length === 1;
+  const tabRefs = useRef(new Map<string, HTMLDivElement>());
+
+  // WAI-ARIA tabs keyboard model (WCAG 2.1.1): with a roving tabindex only the
+  // active tab is in the Tab sequence, so Left/Right/Home/End must move focus
+  // (and selection) to reach the other tabs.
+  const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let next: number | null = null;
+    if (e.key === 'ArrowRight') next = (index + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect(tabs[index].id);
+      return;
+    }
+    if (next === null) return;
+    e.preventDefault();
+    const nextTab = tabs[next];
+    onSelect(nextTab.id);
+    tabRefs.current.get(nextTab.id)?.focus();
+  };
 
   return (
     <div
@@ -39,21 +62,22 @@ export function QueryTabStrip({
       aria-label="Query tabs"
       className="flex h-10 flex-none items-center gap-1 overflow-x-auto border-b border-border bg-surface-2 px-3"
     >
-      {tabs.map((tab) => {
+      {tabs.map((tab, index) => {
         const active = tab.id === activeTabId;
         return (
           <div
             key={tab.id}
+            ref={(el) => {
+              if (el) tabRefs.current.set(tab.id, el);
+              else tabRefs.current.delete(tab.id);
+            }}
+            id={`query-tab-${tab.id}`}
             role="tab"
             aria-selected={active}
+            aria-controls="query-tabpanel"
             tabIndex={active ? 0 : -1}
             onClick={() => onSelect(tab.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onSelect(tab.id);
-              }
-            }}
+            onKeyDown={(e) => onTabKeyDown(e, index)}
             className={cx(
               'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm font-medium',
               active
@@ -70,9 +94,10 @@ export function QueryTabStrip({
             />
             {dirtyTabIds.has(tab.id) && (
               <span
+                role="img"
                 className="flex-none font-bold text-accent"
                 title="Unsaved changes"
-                aria-label="unsaved changes"
+                aria-label="Unsaved changes"
               >
                 •
               </span>
@@ -86,7 +111,7 @@ export function QueryTabStrip({
                   e.stopPropagation();
                   onClose(tab.id);
                 }}
-                className="grid h-[18px] w-[18px] place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger"
+                className="grid h-6 w-6 flex-none place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <svg
                   viewBox="0 0 24 24"

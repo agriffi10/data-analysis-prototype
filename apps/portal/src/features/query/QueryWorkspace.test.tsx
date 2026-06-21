@@ -491,7 +491,7 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    expect(screen.getByLabelText('unsaved changes')).toBeInTheDocument();
+    expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument();
   });
 
   it('records the saved-query name in history when running a linked tab', async () => {

@@ -56,6 +56,8 @@ export function RenameDialog({
             id="rename-input"
             ref={inputRef}
             label="New name"
+            required
+            aria-required="true"
             value={name}
             error={validationError && name !== currentName ? validationError : null}
             onChange={(e) => setName(e.target.value)}

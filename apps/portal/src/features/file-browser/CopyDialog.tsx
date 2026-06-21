@@ -54,6 +54,8 @@ function SameFolderNameField({ prompt }: { prompt: SameFolderPrompt }) {
           id="copy-name-input"
           ref={inputRef}
           label="Name for the copy"
+          required
+          aria-required="true"
           value={name}
           error={validationError}
           onChange={(e) => setName(e.target.value)}
