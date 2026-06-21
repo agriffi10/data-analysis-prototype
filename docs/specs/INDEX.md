@@ -81,7 +81,7 @@ labels, closable-with-confirm, per-tab persisted text) and supersedes 040's sing
 pass (new tab strip in `query-workspace.html` + §6) before code.
 
 **Query-editor UX, round 2 (043→044, + 041 amend)** — builds on the tab model: 043 adds **saved
-queries** (Save in the Run bar → named JSON store at `{username}/athenaresults/saved-queries.json`,
+queries** (Save in the Run bar → named JSON store at `{username}/user_settings/saved-queries.json`,
 same IAM as history; a saved-queries slide-out drawer; open-in-new-tab, re-save-in-place, delete-with-
 confirm, dirty marker; History + Saved-queries buttons hoisted to a workspace-global bar; runs from a
 saved query record its name in history). 044 adds a per-table **options menu** in the schema browser —

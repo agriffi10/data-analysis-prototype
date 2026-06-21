@@ -175,7 +175,7 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `stopQuery(id)` | `query.service.ts` | `StopQueryExecution` → CANCELLED. |
 | `isTerminalState(state)` | `query.service.ts` | Is a `QueryState` terminal (SUCCEEDED/FAILED/CANCELLED)? |
 | `getDatabase(name)` / `listTables(name)` | `glue.service.ts` | The user's own Glue DB + its tables/columns (paginated). Missing DB → `NotFound` / empty list, never thrown. |
-| `getQueryHistory(username)` / `appendQueryHistory(username, entry)` / `updateQueryHistoryEntry(username, id, patch)` | `queryHistory.service.ts` | Per-user history JSON at `{username}/athenaresults/query-history.json` — read (missing/corrupt → empty), prepend+cap, in-place update. PutObject-only (no delete); read-only to the user. |
+| `getQueryHistory(username)` / `appendQueryHistory(username, entry)` / `updateQueryHistoryEntry(username, id, patch)` | `queryHistory.service.ts` | Per-user history JSON at `{username}/user_settings/query-history.json` — read (missing/corrupt → empty), prepend+cap, in-place update. PutObject-only (no delete); read-only to the user. |
 
 ### Hooks, keys, types, constants
 
@@ -185,7 +185,7 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Prev/Next pager over results via `useInfiniteQuery` (20 rows/page, SPEC-038): exposes the current page's `columns`/`rows`, `pageIndex`/range, `hasPrev`/`hasNext`, `goPrev`/`goNext` (Next fetches forward, Prev from cache), and loaded/total counts. |
 | `useSchema(db \| null)` + `invalidateSchema(client, db)` | `useSchema.ts` | DB + tables for the schema browser; invalidation helper to refresh after DDL. |
 | `useQueryHistory(username \| null)` | `useQueryHistory.ts` | History list + `appendEntry`/`updateEntry` mutations (cache-seeding). |
-| `getSavedQueries` / `upsertSavedQuery` / `removeSavedQuery` | `savedQueries.service.ts` | Per-user saved-queries JSON store at `{username}/athenaresults/saved-queries.json`; PutObject overwrite only (remove rewrites, never an S3 delete), missing-file → empty store, `ServiceResult` (SPEC-043). |
+| `getSavedQueries` / `upsertSavedQuery` / `removeSavedQuery` | `savedQueries.service.ts` | Per-user saved-queries JSON store at `{username}/user_settings/saved-queries.json`; PutObject overwrite only (remove rewrites, never an S3 delete), missing-file → empty store, `ServiceResult` (SPEC-043). |
 | `useSavedQueries(username \| null)` | `useSavedQueries.ts` | Saved-queries list + `upsert`/`remove` mutations (cache-seeding), `queryKeys.savedQueries` (SPEC-043). |
 
 ### Workspace UI (SPEC-035)

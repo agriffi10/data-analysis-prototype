@@ -62,6 +62,12 @@
       "Effect": "Deny",
       "Action": "s3:DeleteObject",
       "Resource": "${user_space_bucket_arn}/$${aws:PrincipalTag/${principal_tag_key}}/athenaresults/*"
+    },
+    {
+      "Sid": "UserSettingsNoDelete",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": "${user_space_bucket_arn}/$${aws:PrincipalTag/${principal_tag_key}}/user_settings/*"
     }
   ]
 }

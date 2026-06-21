@@ -126,6 +126,26 @@ describe('useQueryTabs', () => {
     expect(result.current.tabs[0].sql).toBe('SELECT keep;');
   });
 
+  it('clearActive resets the tab name and unlinks any saved query', () => {
+    const { result } = renderHook(() => useQueryTabs('alice'));
+    // Open a saved-query tab: named label + saved-query link.
+    act(() =>
+      void result.current.openTab({
+        label: 'Revenue',
+        sql: 'SELECT 1',
+        savedQueryId: 'sq-1',
+      }),
+    );
+    expect(result.current.activeTab.label).toBe('Revenue');
+    expect(result.current.activeTab.savedQueryId).toBe('sq-1');
+
+    act(() => result.current.clearActive());
+    // Back to a fresh blank tab: empty SQL, a default "Query N" label, no link.
+    expect(result.current.activeTab.sql).toBe('');
+    expect(result.current.activeTab.label).toMatch(/^Query \d+$/);
+    expect(result.current.activeTab.savedQueryId).toBeUndefined();
+  });
+
   it('persists across remount (restore from sessionStorage)', () => {
     const first = renderHook(() => useQueryTabs('alice'));
     act(() => void first.result.current.openTab({ label: 'Saved', sql: 'X' }));

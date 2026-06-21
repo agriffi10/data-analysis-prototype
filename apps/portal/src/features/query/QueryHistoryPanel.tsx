@@ -27,7 +27,10 @@ export function QueryHistoryPanel({
   onRerun,
   rerunDisabled,
 }: QueryHistoryPanelProps) {
-  const { history, isLoading, error } = useQueryHistory(open ? username : null);
+  // Always subscribe to the live history key (not gated on `open`) so an entry
+  // appended/updated while the panel is open shows immediately, and the panel and
+  // the workspace's mutations share one cache entry. Drawer visibility is `open`.
+  const { history, isLoading, error } = useQueryHistory(username || null);
 
   // SPEC-042: client-side Prev/Next pager over the in-memory newest-first list.
   const [pageIndex, setPageIndex] = useState(0);

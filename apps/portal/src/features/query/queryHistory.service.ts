@@ -10,15 +10,16 @@ import { QUERY_HISTORY_MAX } from './query.constants';
 // (the shared workgroup's ListQueryExecutions leaks all users and isn't granted),
 // and it preserves SQL + stats indefinitely beyond Athena's ~45-day retention.
 //
-// The file lives in the protected results folder. The SPEC-032 `athenaresults/`
-// policy ALLOWS PutObject (overwrite) but DENIES delete — get/append/update only
-// ever overwrite, never delete, so the file is writable yet tamper-resistant. It
-// is read-only to the user (SPEC-036): there is no delete/clear in v1.
+// The file lives in the protected `user_settings/` folder. Its IAM policy ALLOWS
+// PutObject (overwrite) but DENIES delete — get/append/update only ever overwrite,
+// never delete, so the file is writable yet tamper-resistant. The folder is hidden
+// from the file browser. It is read-only to the user (SPEC-036): there is no
+// delete/clear in v1.
 
 const emptyHistory = (): QueryHistory => ({ version: 1, entries: [] });
 
 function historyKey(username: string): string {
-  return `${username}/athenaresults/query-history.json`;
+  return `${username}/user_settings/query-history.json`;
 }
 
 function bucket(): string {

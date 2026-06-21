@@ -20,7 +20,7 @@ import { useQueryHistory } from './useQueryHistory';
 import { useQueryTabs } from './useQueryTabs';
 import { useSavedQueries } from './useSavedQueries';
 import { invalidateSchema } from './useSchema';
-import { isSchemaChangingSql } from './query.sql';
+import { isSchemaChangingSql, sameSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
 import { DropTableDialog } from './DropTableDialog';
 import { Toast, type ToastState } from './Toast';
@@ -138,7 +138,7 @@ export function QueryWorkspace() {
     tabs.tabs
       .filter((t) => {
         const sq = t.savedQueryId ? savedById.get(t.savedQueryId) : undefined;
-        return sq !== undefined && sq.sql !== t.sql;
+        return sq !== undefined && !sameSql(sq.sql, t.sql);
       })
       .map((t) => t.id),
   );
@@ -219,11 +219,12 @@ export function QueryWorkspace() {
       const id = result.data.queryExecutionId;
       // Reset any prior terminal status so the UI shows "running" immediately.
       setStatuses((s) => ({ ...s, [tabId]: undefined }));
-      setRuns((r) => ({
-        ...r,
-        [tabId]: { executionId: id, startedAt: Date.now(), submittedSql: sqlText },
-      }));
-      appendEntry({
+      // Persist the history entry BEFORE recording the run (which mounts the
+      // poller). The finalizer's updateEntry is a read-modify-write, so if the
+      // append hasn't landed yet it would read a history without this entry and
+      // no-op — losing the terminal status and leaving history looking empty/
+      // stale. Awaiting the append closes that race for fast queries.
+      await appendEntry({
         queryExecutionId: id,
         sql: sqlText,
         database,
@@ -233,6 +234,10 @@ export function QueryWorkspace() {
           savedQueryName: linkedSaved.name,
         }),
       }).catch((e) => console.warn('[query-history] append failed', e));
+      setRuns((r) => ({
+        ...r,
+        [tabId]: { executionId: id, startedAt: Date.now(), submittedSql: sqlText },
+      }));
     })();
   };
 
