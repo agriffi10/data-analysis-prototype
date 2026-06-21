@@ -124,6 +124,76 @@ and current values come from `tofu -chdir=infra output`.
 > **CORS:** both browser-facing buckets need CORS or all SDK calls fail — the most common first-time
 > setup issue. Managed in the bucket modules' `.tftpl`/`s3.tf`.
 
+### Deploy-role IAM — adding a new resource type
+
+The deploy role **self-grants** (in `module.base`) the permissions it then uses later in the *same*
+`tofu apply`. Adding a new resource type to the IaC repeatedly surfaces the same traps — work through
+this list before merging:
+
+- **Self-grant propagation.** A freshly-granted permission may not have propagated by the time a new
+  resource uses it. Gate first-use resources on a `time_sleep` (~60s). Caveat: a `time_sleep` with no
+  `triggers` runs **once** at creation and never re-fires — so adding an Nth resource that `depends_on`
+  an existing sleep gets zero delay and can hit `AccessDenied` on the **first** apply. Accepted fix:
+  **re-run the deploy** (`module.base` attaches the policy first, so the grant is propagated by the
+  re-run). Expect one first-apply failure when extending an existing module, then a clean re-run.
+- **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
+  is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
+  `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify scopability cheaply with
+  `aws iam simulate-custom-policy --action-names <a> --resource-arns <arn>` (`allowed` vs `implicitDeny`)
+  before spending a CI round.
+- **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
+  the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
+  statement to a list of both.
+- **`s3:ListBucketMultipartUploads` does not support `s3:prefix`** — under a prefix condition it is
+  always an implicit deny (a dead grant), and it would leak other users' in-progress uploads. Don't
+  grant it. The prefix-scopable multipart actions are `s3:AbortMultipartUpload` /
+  `s3:ListMultipartUploadParts`; create/upload/complete ride on `s3:PutObject`.
+- **Refresh-before-policy-update deadlock.** Once a resource is in state, `tofu apply` **refreshes**
+  it (using the role's *current* policy) before applying the policy fix — so a scope fix that the
+  refresh itself needs can never land. Break-glass: temporarily attach the missing read on `*` to the
+  role out-of-band (`aws iam put-role-policy`), let the apply reconcile the real policy, then remove
+  the temp policy.
+- **Resource policies (bucket/KMS) can lock out the deploy role too.** Always **except the deploy role**
+  from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
+  provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same
+  break-glass shape (`put-bucket-policy` out-of-band, then merge).
+- **`depends_on` defers data sources (benign plan noise).** `module.auth`/`module.data` declare
+  `depends_on = [module.base]`, so any PR touching `module.base` makes their data sources unknown at
+  plan → cascades to `(known after apply)` and can show the identity-pool principal tag as
+  *force-replace*. At apply these resolve to identical values (no-op / identical recreate). This is
+  **not** drift — don't panic at the plan.
+- **An unknown ARN inside `compact()`/a list silently drops the change.** A cross-module ARN that is
+  unknown-at-plan (e.g. a role created in the same apply) inside `compact()` made OpenTofu plan *no*
+  change to a list attribute — the value was never written. **Rule:** any cross-module ARN feeding a
+  list/set attribute must be a **constructed string in root `locals`** (so it's known at plan time);
+  apply ordering is still preserved via the `depends_on` chain.
+- **Lake Formation enforcement hides the catalog from non-admins.** After LF enforcement, a principal
+  with no LF grant sees empty `get-databases` / `AccessDenied` on `list-permissions` — that's the
+  isolation working, not a failure. Verify per-user provisioning via the post-confirmation Lambda's
+  CloudWatch logs or by querying as an LF admin (only the deploy role + post-confirmation exec role
+  are LF admins).
+
+### Lambda code/infra split (established SPEC-012)
+
+Lambda **code** and **infrastructure** are deliberately separated; `tofu apply` never touches code:
+
+- **Source** lives at repo-root `lambdas/<function-name>/<module>.py` (Python) with a shared
+  `lambdas/requirements.txt`. Use **underscores** in the `.py` filename (e.g. `pre_signup.py`,
+  handler `pre_signup.handler`) — a hyphenated filename can't be imported as a module.
+- **Terraform owns only the function infrastructure** (function resource, exec role, log group,
+  trigger wiring) and bootstraps the function with an inline `archive_file` placeholder +
+  `lifecycle { ignore_changes = [filename, source_code_hash] }`.
+- **GitHub Actions owns the code.** `.github/workflows/deploy-lambdas.yml` (matrix over functions)
+  builds each package, uploads to the artifacts bucket (`infra/modules/lambda-artifacts/`) at
+  `<name>/<git-sha>.zip`, and runs `update-function-code --publish`. Triggered on push to `main`
+  touching `lambdas/**`, plus manual dispatch.
+- **IAM trust + permission policies are `.tftpl` templates** under the owning module's `policies/`,
+  rendered with `templatefile()` — **no inline `jsonencode` IAM policies** anywhere.
+- Adding a Lambda = create `lambdas/<name>/`, add function infra in the owning module
+  (placeholder + `ignore_changes`), add a `{ name: <name> }` row to the `deploy-lambdas.yml` matrix,
+  and extend the deploy-role policy for any new actions. The first `deploy-infra.yml` apply must
+  precede `deploy-lambdas.yml` (function + bucket must exist first).
+
 ## Deferred / Future Scope
 
 File preview (PDF/image in-browser) · admin UI (user mgmt, access audit) · audit logging

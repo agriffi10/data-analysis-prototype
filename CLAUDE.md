@@ -82,7 +82,7 @@ No backend/API layer · no in-browser file preview · no admin UI · no multi-bu
 
 **During:** after a phase, stop and summarize what was built + the checkpoint test.
 
-**Infra rule:** any spec that provisions new infra must expand the deploy role's IAM (`.tftpl` under `infra/modules/base/policies/`) as in-scope work — not an afterthought.
+**Infra rule:** any spec that provisions new infra must expand the deploy role's IAM (`.tftpl` under `infra/modules/base/policies/`) as in-scope work — not an afterthought. Adding a *new resource type* trips recurring IAM/propagation traps (self-grant timing, non-scopable actions, refresh deadlocks, unknown-ARN-in-list) and Lambda code/infra split — read architecture.md → *Deploy-role IAM — adding a new resource type* + *Lambda code/infra split* first.
 
 **On spec completion — keep the always-loaded files lean:**
 1. Set the spec file's `Status: Completed`.
