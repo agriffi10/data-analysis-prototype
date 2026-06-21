@@ -131,9 +131,24 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
       return { ...s, tabs, activeTabId };
     });
 
-  // SPEC-040 Clear, scoped to the active tab: empty its SQL (persisted as part of
-  // the tabs state). Other tabs are untouched.
-  const clearActive = () => setActiveSql('');
+  // SPEC-040 Clear, scoped to the active tab: empty its SQL and reset the tab back
+  // to a fresh blank "Query N" — drop any saved-query link and relabel (consuming a
+  // query number, like a brand-new tab). Other tabs are untouched.
+  const clearActive = () =>
+    setState((s) => ({
+      ...s,
+      tabs: s.tabs.map((t) =>
+        t.id === s.activeTabId
+          ? {
+              ...t,
+              sql: '',
+              label: `Query ${s.nextQueryNumber}`,
+              savedQueryId: undefined,
+            }
+          : t,
+      ),
+      nextQueryNumber: s.nextQueryNumber + 1,
+    }));
 
   return {
     tabs: state.tabs,

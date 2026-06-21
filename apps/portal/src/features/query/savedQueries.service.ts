@@ -4,16 +4,16 @@ import { withCredentialRetry } from '../../lib/credentialRetry';
 import type { ServiceResult } from '../../types/service.types';
 import type { SavedQueriesStore, SavedQuery } from './query.types';
 
-// SPEC-043 FR-004: per-user saved queries stored as JSON alongside the user's
-// results, mirroring the SPEC-034 history store. Lives in the protected
-// `athenaresults/` folder whose SPEC-032 policy ALLOWS PutObject (overwrite) but
-// DENIES delete — so create/update/remove only ever overwrite the whole file,
-// never an S3 object delete. No IAM change.
+// SPEC-043 FR-004: per-user saved queries stored as JSON, mirroring the SPEC-034
+// history store. Lives in the protected `user_settings/` folder whose policy
+// ALLOWS PutObject (overwrite) but DENIES delete — so create/update/remove only
+// ever overwrite the whole file, never an S3 object delete. The folder is hidden
+// from the file browser.
 
 const emptyStore = (): SavedQueriesStore => ({ version: 1, queries: [] });
 
 function storeKey(username: string): string {
-  return `${username}/athenaresults/saved-queries.json`;
+  return `${username}/user_settings/saved-queries.json`;
 }
 
 function bucket(): string {

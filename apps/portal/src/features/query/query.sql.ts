@@ -16,6 +16,15 @@ function stripLeadingSqlComments(sql: string): string {
   }
 }
 
+// SPEC-043 FR-008: compare two SQL strings for the saved-query "dirty" marker,
+// ignoring cosmetic differences — CRLF vs LF line endings and leading/trailing
+// whitespace (the editor commonly appends a trailing newline). Internal whitespace
+// is left intact so a genuine edit still registers.
+export function sameSql(a: string, b: string): boolean {
+  const normalize = (s: string) => s.replace(/\r\n/g, '\n').trim();
+  return normalize(a) === normalize(b);
+}
+
 // A statement that changes the catalog — after it succeeds the schema browser is
 // refreshed. CTAS (CREATE TABLE … AS) is covered by the CREATE TABLE branch.
 // Leading comments/whitespace are skipped first so a DDL statement under the

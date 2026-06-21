@@ -37,13 +37,21 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
     },
   });
 
+  // Seed the cache for an instant UI update, then invalidate so the next read
+  // reconciles against S3 (the source of truth) — guards against any drift from
+  // the services' read-modify-write writes.
+  const onWriteSuccess = (data: QueryHistory) => {
+    queryClient.setQueryData(key, data);
+    void queryClient.invalidateQueries({ queryKey: key });
+  };
+
   const append = useMutation({
     mutationFn: async (entry: QueryHistoryEntry): Promise<QueryHistory> => {
       const result = await appendQueryHistory(username as string, entry);
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: (data) => queryClient.setQueryData(key, data),
+    onSuccess: onWriteSuccess,
   });
 
   const update = useMutation({
@@ -59,7 +67,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: (data) => queryClient.setQueryData(key, data),
+    onSuccess: onWriteSuccess,
   });
 
   return {

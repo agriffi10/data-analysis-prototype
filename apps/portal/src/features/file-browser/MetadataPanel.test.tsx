@@ -118,9 +118,9 @@ describe('MetadataPanel', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('is a non-blocking dialog', () => {
+  it('is a modal dialog (blur backdrop + focus trap via the shared Drawer)', () => {
     renderPanel();
     const dialog = screen.getByRole('dialog', { name: /details for report\.pdf/i });
-    expect(dialog).toHaveAttribute('aria-modal', 'false');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
   });
 });

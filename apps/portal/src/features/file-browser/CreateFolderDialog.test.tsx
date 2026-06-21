@@ -7,7 +7,7 @@ describe('CreateFolderDialog', () => {
     const onCreate = vi.fn();
     render(<CreateFolderDialog onCreate={onCreate} onCancel={vi.fn()} />);
 
-    fireEvent.change(screen.getByLabelText(/new folder name/i), {
+    fireEvent.change(screen.getByLabelText(/folder name/i), {
       target: { value: 'photos' },
     });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
@@ -19,7 +19,7 @@ describe('CreateFolderDialog', () => {
     const onCreate = vi.fn();
     render(<CreateFolderDialog onCreate={onCreate} onCancel={vi.fn()} />);
 
-    fireEvent.change(screen.getByLabelText(/new folder name/i), {
+    fireEvent.change(screen.getByLabelText(/folder name/i), {
       target: { value: 'a/b' },
     });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));

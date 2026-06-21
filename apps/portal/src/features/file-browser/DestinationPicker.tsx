@@ -2,11 +2,7 @@ import { useState } from 'react';
 import { useFileBrowser } from './useFileBrowser';
 import type { SelectableItem } from './selectionContext';
 import { Button } from '../../components/Button';
-
-// SPEC-032: the protected results folder. It is UI-locked, so it is never offered
-// as a destination for a move or copy (writing into it is disallowed). Matched on
-// the leaf segment of a prefix within the user's own space.
-const PROTECTED_FOLDER = 'athenaresults';
+import { PICKER_LOCKED_FOLDERS, isRootFolderNamed } from './protectedFolders';
 
 type Props = {
   bucket: string;
@@ -30,10 +26,11 @@ type Props = {
 
 type Crumb = { label: string; prefix: string };
 
-// Is this folder prefix the protected results folder at the user's root
-// (`{root}athenaresults/`)? Only the user-root results folder is locked.
+// Is this folder prefix an app-managed root folder (athenaresults/ results or
+// user_settings/), which is never a valid move/copy destination? Only the
+// user-root instance is locked (SPEC-032/043).
 function isProtectedFolder(folderPrefix: string, rootPrefix: string): boolean {
-  return folderPrefix === `${rootPrefix}${PROTECTED_FOLDER}/`;
+  return isRootFolderNamed(folderPrefix, rootPrefix, PICKER_LOCKED_FOLDERS);
 }
 
 // Parent of a browse prefix, clamped to the navigation floor so the picker can

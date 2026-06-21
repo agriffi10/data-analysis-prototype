@@ -18,6 +18,7 @@ import { useUploadQueue } from './uploadQueueContext';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
+import { HIDDEN_BROWSER_FOLDERS, isRootFolderNamed } from './protectedFolders';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { OperationSummaryBanner } from './OperationSummaryBanner';
 import { BatchOverwritePrompt } from './BatchOverwritePrompt';
@@ -416,8 +417,21 @@ function FileBrowserContent({
   prefix,
   setPrefix,
 }: ContentProps) {
-  const { files, folders, isLoading, error, hasMore, loadMore, isLoadingMore } =
-    useFileBrowser(bucket, prefix, markerKey);
+  const {
+    files,
+    folders: allFolders,
+    isLoading,
+    error,
+    hasMore,
+    loadMore,
+    isLoadingMore,
+  } = useFileBrowser(bucket, prefix, markerKey);
+
+  // Hide app-managed root folders (e.g. user_settings/) from the listing so they
+  // never surface to users; everything downstream uses the filtered list.
+  const folders = allFolders.filter(
+    (f) => !isRootFolderNamed(f.prefix, rootPrefix, HIDDEN_BROWSER_FOLDERS),
+  );
 
   // Create-folder (SPEC-016) scoped to the folder currently being viewed. File
   // uploads are now owned by the SPEC-020 queue, so useFileUpload is used here
@@ -608,20 +622,18 @@ function FileBrowserContent({
         )}
       </div>
 
-      {/* Write controls — create folder inline (SPEC-016); file uploads go to the
-          SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
+      {/* Write controls — create folder (modal dialog, SPEC-016); file uploads go
+          to the SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
       {writable && (
         <>
           {creatingFolder && (
-            <div className="mb-4">
-              <CreateFolderDialog
-                onCreate={(name) => {
-                  setCreatingFolder(false);
-                  createNewFolder(name);
-                }}
-                onCancel={() => setCreatingFolder(false)}
-              />
-            </div>
+            <CreateFolderDialog
+              onCreate={(name) => {
+                setCreatingFolder(false);
+                createNewFolder(name);
+              }}
+              onCancel={() => setCreatingFolder(false)}
+            />
           )}
 
           {/* Folder-name collision (SPEC-016) — Overwrite or pick a new name */}
@@ -886,7 +898,7 @@ function FileBrowserContent({
         </div>
       )}
 
-      {/* Metadata drawer (SPEC-017) — non-blocking; closes via button or Escape */}
+      {/* Metadata drawer (SPEC-017) — shared Drawer; closes via button, Escape, or backdrop */}
       {detailsFile && (
         <MetadataPanel
           bucket={bucket}
