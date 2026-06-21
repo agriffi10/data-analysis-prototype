@@ -180,7 +180,7 @@ export function DestinationPicker({
             {browsePrefix !== rootPrefix && (
               <li>
                 <button
-                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none"
+                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => setBrowsePrefix(parentOf(browsePrefix, rootPrefix))}
                   aria-label="Go up to parent folder"
                 >
@@ -205,7 +205,7 @@ export function DestinationPicker({
             {navigableFolders.map((folder) => (
               <li key={folder.prefix}>
                 <button
-                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none"
+                  className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => setBrowsePrefix(folder.prefix)}
                   aria-label={`Open folder ${folder.name}`}
                 >
@@ -236,7 +236,13 @@ export function DestinationPicker({
         </div>
 
         {disabledReason && (
-          <p className="mt-2 text-xs text-text-3">{disabledReason}</p>
+          <p
+            id="dest-disabled-reason"
+            role="status"
+            className="mt-2 text-xs text-text-3"
+          >
+            {disabledReason}
+          </p>
         )}
       </div>
 
@@ -248,6 +254,7 @@ export function DestinationPicker({
           variant="primary"
           onClick={() => onConfirm(browsePrefix)}
           disabled={!canConfirm}
+          aria-describedby={disabledReason ? 'dest-disabled-reason' : undefined}
         >
           {isBusy ? busyLabel : confirmLabel}
         </Button>

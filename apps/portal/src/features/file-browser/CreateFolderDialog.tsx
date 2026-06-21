@@ -39,6 +39,8 @@ export function CreateFolderDialog({ onCreate, onCancel }: Props) {
             id="new-folder-name"
             ref={inputRef}
             label="Folder name"
+            required
+            aria-required="true"
             value={name}
             error={showError ? validationError : null}
             onChange={(e) => setName(e.target.value)}

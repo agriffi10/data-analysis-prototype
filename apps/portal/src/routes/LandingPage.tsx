@@ -202,7 +202,10 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-bg">
       {/* Sticky nav */}
-      <nav className="sticky top-0 z-20 h-16 border-b border-border bg-white/80 backdrop-blur-sm backdrop-saturate-150">
+      <nav
+        aria-label="Primary"
+        className="sticky top-0 z-20 h-16 border-b border-border bg-white/80 backdrop-blur-sm backdrop-saturate-150"
+      >
         <div className="mx-auto flex h-full max-w-[1080px] items-center gap-4 px-6">
           <a href="/" aria-label="S3 File Portal home">
             <BrandMark />
@@ -241,6 +244,7 @@ export default function LandingPage() {
         </div>
       </nav>
 
+      <main id="main">
       {/* Hero */}
       <section className="py-16 text-center">
         <div className="mx-auto max-w-[1080px] px-6">
@@ -337,6 +341,7 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      </main>
 
       {/* Footer */}
       <footer className="border-t border-border bg-surface">

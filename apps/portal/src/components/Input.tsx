@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useId } from 'react';
 import { cx } from '../lib/cx';
 
 type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
@@ -14,12 +14,16 @@ const BASE =
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ error, label, id, className, 'aria-describedby': describedBy, ...rest }, ref) => {
     const hasError = error != null && error !== '';
-    const errorId = id ? `${id}-error` : undefined;
+    // Always have a stable id so the <label> and the error message are
+    // programmatically associated even when the caller omits `id` (1.3.1 / 3.3.2).
+    const reactId = useId();
+    const inputId = id ?? reactId;
+    const errorId = `${inputId}-error`;
     return (
       <div>
         {label && (
           <label
-            htmlFor={id}
+            htmlFor={inputId}
             className="mb-1.5 block text-sm font-medium text-text"
           >
             {label}
@@ -27,12 +31,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
         <input
           ref={ref}
-          id={id}
+          id={inputId}
           className={cx(
             BASE,
             hasError
-              ? 'border-danger focus-visible:ring-danger/40'
-              : 'border-border focus-visible:ring-accent/40',
+              ? 'border-danger focus-visible:ring-danger'
+              : 'border-border focus-visible:ring-accent',
             className,
           )}
           aria-invalid={hasError || undefined}

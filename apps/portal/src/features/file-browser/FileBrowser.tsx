@@ -192,7 +192,7 @@ function FolderRow({
         </span>
       )}
       <button
-        className="flex min-w-0 flex-1 items-center gap-2.5 px-4 text-left focus-visible:outline-none"
+        className="flex min-w-0 flex-1 items-center gap-2.5 px-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         onClick={onClick}
         aria-label={`Open folder ${folder.name}`}
       >
@@ -268,7 +268,7 @@ function FileRow({
           read-only mode (no selection toolbar); otherwise it's a toolbar action. */}
       <span className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}>
         <button
-          className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none"
+          className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           onClick={() => onDetails(file)}
           aria-label={`Details for ${file.name}`}
         >
@@ -276,7 +276,7 @@ function FileRow({
         </button>
         {onDownload && (
           <button
-            className="h-7 rounded-md px-2 text-sm text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
+            className="h-7 rounded-md px-2 text-sm text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={() => onDownload(file)}
             disabled={isDownloading}
             aria-label={`Download ${file.name}`}
@@ -355,6 +355,7 @@ function SelectionToolbar({
         size="sm"
         onClick={onRequestDownload}
         disabled={!canDownload || isBusy}
+        aria-label="Download selected items"
       >
         Download
       </Button>
@@ -364,6 +365,7 @@ function SelectionToolbar({
         size="sm"
         onClick={onRequestCopy}
         disabled={count === 0 || isBusy}
+        aria-label="Copy selected items"
       >
         Copy
       </Button>
@@ -373,6 +375,7 @@ function SelectionToolbar({
         size="sm"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
+        aria-label="Move selected items"
       >
         Move
       </Button>
@@ -382,6 +385,7 @@ function SelectionToolbar({
         size="sm"
         onClick={onRequestRename}
         disabled={!canRename || isBusy}
+        aria-label="Rename selected item"
       >
         Rename
       </Button>
@@ -392,6 +396,7 @@ function SelectionToolbar({
         className="!text-danger hover:!bg-danger-soft hover:!text-danger"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
+        aria-label="Delete selected items"
       >
         Delete
       </Button>
@@ -856,8 +861,13 @@ function FileBrowserContent({
       {/* File and folder list */}
       {hasContent && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
-          {/* Column header */}
-          <div className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+          {/* Column header — visual only; the labels are not programmatically
+              tied to the list rows below, so hide this decorative row from AT
+              (each row already exposes its own values as text). */}
+          <div
+            aria-hidden="true"
+            className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3"
+          >
             {canModify && <span className="w-10 flex-shrink-0" />}
             <span className="min-w-0 flex-1 px-4">Name</span>
             <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>
@@ -985,7 +995,7 @@ function FileBrowserContent({
       {hasContent && hasMore && (
         <div className="mt-4 flex justify-center">
           <button
-            className="h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none"
+            className="h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={loadMore}
             disabled={isLoadingMore}
           >

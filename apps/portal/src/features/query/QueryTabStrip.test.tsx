@@ -86,6 +86,6 @@ describe('QueryTabStrip', () => {
 
   it('shows a dirty marker on a linked tab with unsaved edits', () => {
     setup({ dirtyTabIds: new Set(['b']) });
-    expect(screen.getByLabelText('unsaved changes')).toBeInTheDocument();
+    expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument();
   });
 });

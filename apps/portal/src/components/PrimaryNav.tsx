@@ -41,7 +41,7 @@ export function PrimaryNav() {
           className={({ isActive }) =>
             cx(
               'flex h-full items-center gap-2 border-b-2 px-3 text-base font-medium',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
               isActive
                 ? 'border-accent text-accent-text'
                 : 'border-transparent text-text-2 hover:text-text',

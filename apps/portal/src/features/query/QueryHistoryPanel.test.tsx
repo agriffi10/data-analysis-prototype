@@ -73,7 +73,7 @@ describe('QueryHistoryPanel', () => {
     const onReopen = vi.fn();
     mockUseHistory.mockReturnValue(historyState([sample]));
     render(<QueryHistoryPanel {...baseProps} onReopen={onReopen} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    fireEvent.click(screen.getByRole('button', { name: /open this query/i }));
     expect(onReopen).toHaveBeenCalledWith(sample);
   });
 

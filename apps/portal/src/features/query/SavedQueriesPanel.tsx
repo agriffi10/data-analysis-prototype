@@ -84,14 +84,16 @@ export function SavedQueriesPanel({
                   <button
                     type="button"
                     onClick={() => onOpen(q)}
-                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                    aria-label={`Open saved query ${q.name}`}
+                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     Open
                   </button>
                   <button
                     type="button"
                     onClick={() => setPendingDelete(q)}
-                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-danger hover:bg-danger-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40"
+                    aria-label={`Delete saved query ${q.name}`}
+                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-danger hover:bg-danger-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
                   >
                     Delete
                   </button>

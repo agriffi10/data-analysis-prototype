@@ -45,8 +45,8 @@ describe('QueryHistoryRow', () => {
         rerunDisabled={false}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Re-run' }));
+    fireEvent.click(screen.getByRole('button', { name: /open this query/i }));
+    fireEvent.click(screen.getByRole('button', { name: /re-run this query/i }));
     expect(onReopen).toHaveBeenCalledTimes(1);
     expect(onRerun).toHaveBeenCalledTimes(1);
   });
@@ -60,7 +60,9 @@ describe('QueryHistoryRow', () => {
         rerunDisabled
       />,
     );
-    expect(screen.getByRole('button', { name: 'Re-run' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: /re-run this query/i }),
+    ).toBeDisabled();
   });
 
   it('shows a neutral "Unknown" badge for a stale non-terminal entry', () => {

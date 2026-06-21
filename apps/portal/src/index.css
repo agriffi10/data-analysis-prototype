@@ -9,23 +9,34 @@
   --color-border:    #e6e8eb;
   --color-border-2:  #f0f1f3;
 
-  /* Colors — text */
+  /* Colors — text
+     All three meet WCAG 2.2 AA contrast (≥4.5:1) on the light surfaces
+     (--color-bg / --color-surface / --color-surface-2):
+       text   #15191e ≈ 16:1, text-2 #5b6573 ≈ 5.9:1, text-3 #646b78 ≈ 5.3:1.
+     text-3 was #8a93a2 (≈2.96:1 — failed AA); darkened to keep the visual
+     hierarchy while clearing the threshold. */
   --color-text:   #15191e;
   --color-text-2: #5b6573;
-  --color-text-3: #8a93a2;
+  --color-text-3: #646b78;
 
-  /* Colors — accent (indigo) */
+  /* Colors — accent (indigo). --color-accent on white ≈ 6.3:1; white-on-accent
+     buttons ≈ 6.3:1 — both AA. */
   --color-accent:       #4f46e5;
   --color-accent-hover: #4338ca;
   --color-accent-soft:  #eef2ff;
   --color-accent-text:  #4338ca;
 
-  /* Colors — status */
-  --color-success:      #0f9d6e;
+  /* Colors — status. The strong shades double as text on white AND on their
+     -soft backgrounds, so each is darkened to clear 4.5:1 in both:
+       success #047857 ≈ 5.5:1 / 4.8:1-on-soft   (was #0f9d6e ≈ 3.5:1 — failed)
+       warning #b45309 ≈ 5.0:1 / 4.7:1-on-soft   (was #c2820a ≈ 3.3:1 — failed)
+       danger  #b91c1c ≈ 6.5:1 / 5.9:1-on-soft   (was #dc2626 ≈ 4.4:1 on soft — failed)
+     Danger also backs white-on-danger buttons (≈6.5:1 — AA). */
+  --color-success:      #047857;
   --color-success-soft: #e7f7f0;
-  --color-warning:      #c2820a;
+  --color-warning:      #b45309;
   --color-warning-soft: #fdf4e3;
-  --color-danger:       #dc2626;
+  --color-danger:       #b91c1c;
   --color-danger-soft:  #fdeceb;
 
   /* Typography */
@@ -77,8 +88,25 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Keyboard focus ring. Solid accent (not a 40%-opacity tint) so the
+     indicator itself clears WCAG 1.4.11 non-text contrast (≥3:1): accent on
+     white ≈ 6.3:1. (WCAG 2.4.7 / 2.4.13.) */
   :focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+  }
+
+  /* Skip-to-main-content link (WCAG 2.4.1). Off-screen until focused; uses the
+     plain `transform` property (Tailwind v4's translate-* set the `translate`
+     property, whose focus variant proved unreliable here). */
+  .skip-link {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 50;
+    transform: translateY(-200%);
+  }
+  .skip-link:focus {
+    transform: translateY(0);
   }
 }

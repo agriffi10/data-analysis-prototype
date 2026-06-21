@@ -13,7 +13,10 @@ export function Sidebar() {
   const label = user?.username ?? 'My Files';
 
   return (
-    <aside className="hidden w-[248px] flex-shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex">
+    <aside
+      aria-label="My files navigation"
+      className="hidden w-[248px] flex-shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex"
+    >
       <p className="px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3">
         My Files
       </p>

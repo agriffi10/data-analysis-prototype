@@ -77,6 +77,8 @@ export function SaveQueryDialog({
           ref={inputRef}
           id="saved-query-name"
           label="Name"
+          required
+          aria-required="true"
           value={name}
           placeholder="e.g. Monthly revenue"
           onChange={(e) => setName(e.target.value)}

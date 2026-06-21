@@ -491,7 +491,7 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    expect(screen.getByLabelText('unsaved changes')).toBeInTheDocument();
+    expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument();
   });
 
   it('records the saved-query name in history when running a linked tab', async () => {
@@ -544,7 +544,9 @@ describe('QueryWorkspace', () => {
     await screen.findByTestId('sql-editor');
 
     fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Open' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: /open saved query/i }),
+    );
 
     expect(screen.getByRole('tab', { name: /Revenue/ })).toBeInTheDocument();
     expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT r;');
@@ -568,7 +570,9 @@ describe('QueryWorkspace', () => {
     await screen.findByTestId('sql-editor');
 
     fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: /delete saved query/i }),
+    );
     const dialog = screen.getByRole('alertdialog', {
       name: /confirm delete saved query/i,
     });
@@ -721,7 +725,9 @@ describe('QueryWorkspace', () => {
 
     renderWorkspace();
     fireEvent.click(screen.getByRole('button', { name: /History/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Re-run' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: /re-run this query/i }),
+    );
 
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
     expect(mockRunQuery.mock.calls[0][0]).toMatchObject({

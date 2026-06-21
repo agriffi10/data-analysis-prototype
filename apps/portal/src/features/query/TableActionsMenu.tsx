@@ -72,7 +72,7 @@ export function TableActionsMenu({ tableName, items }: Props) {
           setOpen((o) => !o);
         }}
         className={cx(
-          'grid h-[22px] w-[22px] place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+          'grid h-6 w-6 place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
           open && 'bg-surface-2 text-text',
         )}
       >
@@ -120,7 +120,7 @@ export function TableActionsMenu({ tableName, items }: Props) {
                   item.onSelect();
                 }}
                 className={cx(
-                  'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-45',
+                  'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45',
                   item.danger
                     ? 'text-danger hover:bg-danger-soft'
                     : 'text-text hover:bg-surface-2',
