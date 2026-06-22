@@ -21,9 +21,11 @@ access control* map the username claim to a `username` principal tag **server-si
 and the role's policy scopes access with `${aws:PrincipalTag/username}`. No per-user roles.
 
 **Two buckets.** Bucket 1 (user-space) is self-contained — IAM enforces per-user prefix isolation by
-the Cognito username. Bucket 2 (shared-space) is governed by a **user-managed access-key model that
-is not yet designed or built** — do not implement anything for it (the old daily-IAM-pipeline design
-is abandoned).
+the Cognito username. Bucket 2 (shared-space, `dat-prod-shared-space`) now has a **designed model**
+(pending the implementation arc): a privileged **SQS → EventBridge Pipe → Step Function** control plane
+provisions named shared spaces, with access gated by a **membership principal tag** on the shared role.
+See `docs/shared-spaces-architecture.md` for the decision record. The old daily-IAM-pipeline and
+"user-managed access keys" placeholder are both abandoned/superseded.
 
 ## Authentication Flow (summary)
 
@@ -67,11 +69,15 @@ Identity Pool stamped, so one statement scopes every user with no per-user polic
 Frontend derives the prefix from `getCurrentUser().username` → `${username}/`.
 
 ### Bucket 2 — Shared Space
-Status: access model **not yet specced or built** (user-managed access keys; likely needs a backend
-service). Prefix structure stays the same concept; the enforcement mechanism is TBD. Connection
-configs will be stored as JSON in the user's own Bucket-1 prefix
-(`{username}/.config/connections.json`) — no separate datastore. A missing config file is an **empty
-state, not an error**.
+Status: **designed, not yet built** — see `docs/shared-spaces-architecture.md` (decision record) and the
+SPEC-050+ arc. Model: user-created, uniquely-named, non-renameable shared connections (name = shared S3
+prefix = shared Glue DB); a privileged **SQS → EventBridge Pipe → Step Function** pipeline does all
+mutations (the browser only gains `sqs:SendMessage`); access is gated by a **membership principal tag**
+on the shared role (bounded slots; LF grants the role per shared DB, IAM tag is the gate — same shape as
+the personal `username`-tag model). Source of truth is an **S3 control-object registry** (pipeline-only);
+each user's `{username}/user_settings/shared-connections.json` is a UI **cache** the pipeline writes (a
+missing cache is an **empty state, not an error**). Query results on a shared DB route to
+`dat-prod-shared-space/{name}/athenaresults/{username}/` (delete-denied).
 
 ### Analytics (SPEC-032→036)
 Per-user Glue-database isolation works exactly like S3 isolation — the **`username` IAM principal

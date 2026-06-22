@@ -51,6 +51,18 @@ Add a row when a spec is created; update its status on completion (status only �
 | 043 — Saved Queries + Global Workspace Bar | Completed |
 | 044 — Schema Browser Table Options Menu | Completed |
 | 045 — Automated Accessibility (axe) Test Suite | Draft |
+| 046 — Refresh History Button | Draft |
+| 047 — Workspace Database/Connection Selector | Draft |
+| 048 — Create View from Query + Views in Schema Browser | Draft |
+| 049 — Save Query Results to Workspace (replaces Download CSV) | Draft |
+| 050 — Shared-Space Foundation Infrastructure (Bucket 2 + control plane) | Draft |
+| 051 — Create Shared Connection | Draft |
+| 052 — Shared Connections List, Selector Integration & Refresh | Draft |
+| 053 — Shared-Space Member Management (Owner) | Draft |
+| 054 — Leave & Delete a Shared Space | Draft |
+| 055 — Shared-Space Query Results Routing & Save | Draft |
+| 056 — Shared-Space Access Model & Request Contract (membership tags + portal slots + LF) | Draft |
+| 057 — Shared Spaces in the File Browser | Draft |
 
 ## Arcs
 
@@ -92,3 +104,36 @@ toast). SPEC-041 was **amended** (pre-build): the 10-tab cap now raises a "close
 (the `+` is no longer disabled) and `openTab` accepts a feature-supplied label/sql so 043/044 open
 named tabs. No IAM/infra change across this round (043/044 reuse existing analytics + file-browser
 access; the `?prefix=` deep-link is frontend-only).
+
+**Query-editor UX, round 3 (046→049, one-offs)** — small, mostly independent additions on the
+SPEC-034→044 workspace: 046 adds a **Refresh** control to the history drawer (manual re-read of
+`query-history.json`); 047 introduces a **workspace database switcher** (the schema-browser rail lists the databases you can
+query and switching one updates the tables/views + the Run target; the database is **workspace-global**;
+the toolbar shows a read-only DB chip — via a new `useConnections` seam that returns only the personal DB
+today and is the extension point the shared-spaces arc feeds shared connections into); 048 adds **Create view** (`CREATE OR REPLACE VIEW`
+against the selected DB) and makes the schema browser **view-aware** (view badge; `SHOW CREATE VIEW`/
+`DROP VIEW`; source-files disabled for views); 049 **replaces Download CSV** with **Save results to my
+files** — a destination+filename prompt that server-side-copies Athena's complete result object into
+the user's space (all rows, not just the loaded page). 047 is a dependency of 048; the rest are
+independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics access).
+
+**Shared-connections arc (050+056→055)** — Bucket 2 (`dat-prod-shared-space`): user-created, uniquely-named,
+non-renameable shared connections (name = shared S3 prefix = shared Glue DB), provisioned by an async
+**SQS → EventBridge Pipe → Step Function** pipeline (validate → create → update permissions). Access is
+gated by a **membership principal tag** on the shared role (10 bounded Cognito attribute slots; LF grants
+the role per shared DB, IAM tag is the gate — same shape as the personal `username`-tag model). Source of
+truth = an **S3 control-object registry** in the analytics admin bucket (`shared-spaces/` prefix,
+pipeline-only); each user's `{username}/user_settings/shared-connections.json` is a UI **cache** the pipeline
+writes (pending/active/failed status). Shared-DB query results route to the shared prefix. Decision record:
+`docs/shared-spaces-architecture.md` (reverses the "no backend" decision for shared-space mutations only).
+build order is **050 → 056 → 051 → 052 → 053 → 054 → 055 → 057**: 050 = foundation plumbing (buckets, SQS/Pipe/Step
+Function skeleton, orchestrator role, deploy IAM); 056 = access model + request contract (membership tags,
+portal-role slots, LF registration, actor binding) — split from 050 so the IAM/access wiring applies separately;
+051 = create; 052 = the **Connections** top-level tab + `useConnections` (personal + shared in one list) + refresh,
+feeding the Query schema-rail switcher (047) and the Files space list (057); 053 = owner member management as a
+**slide-out drawer** (add/remove, bulk; User-Pool validity, unknowns ignored); 054 = member leave + owner
+cascade-delete; 055 = shared-DB results routing + save; 057 = browse shared spaces in the **file browser** (the Files
+sidebar lists personal + shared spaces). **Navigation:** a third top-level tab **Connections** (Files | Query |
+Connections) manages spaces; shared connections also appear inline in the Query database list and the Files space
+list; the workspace database is global. Three CONFIRM items in the decision record were resolved (cap = 10; valid
+user = exists in the User Pool; registry reuses the admin bucket).
