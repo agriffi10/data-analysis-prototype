@@ -8,7 +8,10 @@ type QueryStatusBarProps = {
   startedAt: number | null;
   rowCount?: number;
   hasMoreRows?: boolean;
-  onDownloadCsv: () => void;
+  // SPEC-049: shown only when the succeeded query produced a savable result object
+  // (a row-returning query, not a pure DDL statement).
+  canSaveResults?: boolean;
+  onSaveResults: () => void;
 };
 
 // SPEC-035 FR-005: slim execution-status bar below the editor. An accessible live
@@ -20,7 +23,8 @@ export function QueryStatusBar({
   startedAt,
   rowCount,
   hasMoreRows,
-  onDownloadCsv,
+  canSaveResults = false,
+  onSaveResults,
 }: QueryStatusBarProps) {
   // Tick once a second while in flight so the elapsed time advances. The initial
   // tick is scheduled async (setTimeout) rather than set synchronously in the
@@ -82,25 +86,30 @@ export function QueryStatusBar({
             {formatBytes(status?.dataScannedBytes)} scanned ·{' '}
             {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
-          <div className="flex-1" />
-          <button
-            type="button"
-            onClick={onDownloadCsv}
-            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M12 4v12M7 11l5 5 5-5" />
-              <path d="M5 20h14" />
-            </svg>
-            Download CSV
-          </button>
+          {canSaveResults && (
+            <>
+              <div className="flex-1" />
+              <button
+                type="button"
+                onClick={onSaveResults}
+                className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+                  <path d="M9 4v5h6" />
+                  <path d="M8 21v-7h8v7" />
+                </svg>
+                Save results to my files
+              </button>
+            </>
+          )}
         </>
       )}
 

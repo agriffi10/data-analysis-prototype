@@ -73,9 +73,38 @@ vi.mock('./query.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./query.service')>()),
   runQuery: vi.fn(),
   stopQuery: vi.fn(),
-  getResultCsvUrl: vi.fn(),
   getTableDdl: vi.fn(),
   runStatementToCompletion: vi.fn(),
+}));
+// SPEC-049 Save-results uses the file-browser copy + listing invalidation.
+vi.mock('../file-browser/fileBrowser.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../file-browser/fileBrowser.service')>()),
+  copyObject: vi.fn(),
+}));
+vi.mock('../../lib/queryClient', () => ({ invalidateListing: vi.fn() }));
+// The Save-results modal's folder picker (DestinationPicker) has its own data
+// layer + test; here stub it to a Save button that returns a fixed destination so
+// the workspace's copy/collision/toast wiring is what's exercised.
+vi.mock('./SaveResultsDialog', () => ({
+  SaveResultsDialog: ({
+    defaultName,
+    onSave,
+    onCancel,
+  }: {
+    defaultName: string;
+    onSave: (a: { destPrefix: string; filename: string }) => void;
+    onCancel: () => void;
+  }) => (
+    <div role="dialog" aria-label="Save results to my files">
+      <span>default:{defaultName}</span>
+      <button
+        onClick={() => onSave({ destPrefix: 'alice/reports/', filename: 'out.csv' })}
+      >
+        save-here-stub
+      </button>
+      <button onClick={onCancel}>save-cancel-stub</button>
+    </div>
+  ),
 }));
 vi.mock('./useQueryExecution', () => ({ useQueryExecution: vi.fn() }));
 vi.mock('./useQueryResults', () => ({ useQueryResults: vi.fn() }));
@@ -83,6 +112,7 @@ vi.mock('./useQueryHistory', () => ({ useQueryHistory: vi.fn() }));
 vi.mock('./useSavedQueries', () => ({ useSavedQueries: vi.fn() }));
 
 import { runQuery, getTableDdl, runStatementToCompletion } from './query.service';
+import { copyObject } from '../file-browser/fileBrowser.service';
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
@@ -103,6 +133,10 @@ const mockUseResults = vi.mocked(useQueryResults);
 const mockUseHistory = vi.mocked(useQueryHistory);
 const mockUseSaved = vi.mocked(useSavedQueries);
 const mockUseConnections = vi.mocked(useConnections);
+const mockCopyObject = vi.mocked(copyObject);
+
+// SaveResultsDialog/handler read VITE_S3_USER_SPACE_BUCKET at module load.
+vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
 
 const personalConnection = {
   id: 'personal',
@@ -922,5 +956,90 @@ describe('QueryWorkspace', () => {
     expect(mockRunToCompletion).toHaveBeenCalledWith(
       expect.objectContaining({ sql: 'DROP VIEW alice.revenue_view' }),
     );
+  });
+
+  // --- SPEC-049 Save results to my files ---
+
+  async function renderSucceededWithRows() {
+    mockRunQuery.mockResolvedValue({
+      success: true,
+      data: { queryExecutionId: 'q-1' },
+    });
+    mockUseExecution.mockReturnValue(succeededStatus);
+    mockUseResults.mockReturnValue(rowsResult);
+    renderWorkspace();
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }));
+    await screen.findByText('Succeeded');
+  }
+
+  it('offers Save results for a succeeded row-returning query', async () => {
+    await renderSucceededWithRows();
+    expect(
+      screen.getByRole('button', { name: 'Save results to my files' }),
+    ).toBeInTheDocument();
+  });
+
+  it('saving copies the full result object to the chosen destination + toast with a Files link', async () => {
+    mockCopyObject.mockResolvedValue({
+      success: true,
+      data: { destKey: 'alice/reports/out.csv' },
+    });
+    await renderSucceededWithRows();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save results to my files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'save-here-stub' }));
+
+    // Source key derived from outputLocation; dest = chosen folder + filename.
+    expect(mockCopyObject).toHaveBeenCalledWith({
+      bucket: 'user-bucket',
+      sourceKey: 'alice/athenaresults/q-1.csv',
+      destKey: 'alice/reports/out.csv',
+      username: 'alice',
+      overwrite: false,
+    });
+
+    const link = await screen.findByRole('button', { name: 'View in Files' });
+    fireEvent.click(link);
+    expect(navigateMock).toHaveBeenCalledWith('/files?prefix=alice%2Freports%2F');
+  });
+
+  it('a destination collision prompts Overwrite, then copies with overwrite', async () => {
+    mockCopyObject
+      .mockResolvedValueOnce({
+        success: false,
+        error: { message: 'exists', code: 'Collision' },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: { destKey: 'alice/reports/out.csv' },
+      });
+    await renderSucceededWithRows();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save results to my files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'save-here-stub' }));
+
+    const dialog = await screen.findByRole('alertdialog', {
+      name: /confirm overwrite/i,
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Overwrite' }));
+
+    expect(mockCopyObject).toHaveBeenLastCalledWith(
+      expect.objectContaining({ overwrite: true }),
+    );
+    expect(await screen.findByText(/Saved to alice\/reports\/out\.csv/)).toBeInTheDocument();
+  });
+
+  it('a copy error shows an error toast and navigates nowhere', async () => {
+    mockCopyObject.mockResolvedValue({
+      success: false,
+      error: { message: 'Access Denied', code: 'AccessDenied' },
+    });
+    await renderSucceededWithRows();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save results to my files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'save-here-stub' }));
+
+    expect(await screen.findByText(/Access Denied/)).toBeInTheDocument();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

@@ -6,11 +6,6 @@ import {
 } from '@aws-sdk/client-athena';
 import { getAthenaClient } from '../../lib/athenaClient';
 import { withCredentialRetry } from '../../lib/credentialRetry';
-// Reuse SPEC-015's presigner (GetObject, attachment disposition, expiry capped to
-// the credential TTL) for the raw-CSV download — imported from the service file
-// directly, not the feature barrel, to avoid pulling UI components into the data layer.
-import { getDownloadUrl } from '../file-browser/fileBrowser.service';
-import type { DownloadUrl } from '../file-browser/fileBrowser.types';
 import type { ServiceResult } from '../../types/service.types';
 import { DEFAULT_MAX_ROWS } from './query.constants';
 import type {
@@ -259,30 +254,11 @@ export async function getTableDdl(p: {
   return { success: true, data: ddl };
 }
 
-// Parse an `s3://bucket/key` URL into its parts; null if it isn't one.
-function parseS3Url(url: string): { bucket: string; key: string } | null {
+// Parse an `s3://bucket/key` URL into its parts; null if it isn't one. Exported
+// (SPEC-049) so the Save-results flow can derive the source key from a query's
+// `outputLocation` (`s3://{bucket}/{username}/athenaresults/{id}.csv`).
+export function parseS3Url(url: string): { bucket: string; key: string } | null {
   const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(url);
   if (!match) return null;
   return { bucket: match[1], key: match[2] };
-}
-
-// FR-004: presigned URL to download the raw `.csv` result object from the user's
-// own `{username}/athenaresults/` prefix. `outputLocation` is the s3 path Athena
-// reports on a SUCCEEDED execution (QueryStatus.outputLocation). Reuses SPEC-015's
-// presigner, so the expiry is capped to the credential TTL.
-export async function getResultCsvUrl(p: {
-  queryExecutionId: string;
-  outputLocation: string;
-}): Promise<ServiceResult<DownloadUrl>> {
-  const parsed = parseS3Url(p.outputLocation);
-  if (!parsed) {
-    return {
-      success: false,
-      error: {
-        message: 'Could not parse the query result location.',
-        code: 'InvalidLocation',
-      },
-    };
-  }
-  return getDownloadUrl({ bucket: parsed.bucket, key: parsed.key });
 }
