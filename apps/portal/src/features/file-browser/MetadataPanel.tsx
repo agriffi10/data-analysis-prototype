@@ -33,10 +33,12 @@ function Field({ label, value }: { label: string; value: string }) {
 function MetadataFields({
   metadata,
   file,
+  bucket,
   rootPrefix,
 }: {
   metadata: ObjectMetadata;
   file: S3FileItem;
+  bucket: string;
   rootPrefix?: string;
 }) {
   const customEntries = Object.entries(metadata.userMetadata);
@@ -45,6 +47,11 @@ function MetadataFields({
       <dl>
         <Field label="Name" value={file.name} />
         <Field label="Path" value={relativePath(metadata.key, rootPrefix)} />
+        {/* The unambiguous, fully-qualified S3 address for this object. */}
+        <Field
+          label="Full object address"
+          value={`arn:aws:s3:::${bucket}/${metadata.key}`}
+        />
         <Field
           label="Size"
           value={`${formatSize(metadata.size)} (${metadata.size.toLocaleString()} bytes)`}
@@ -114,7 +121,12 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
       )}
 
       {!isLoading && error === null && metadata && (
-        <MetadataFields metadata={metadata} file={file} rootPrefix={rootPrefix} />
+        <MetadataFields
+          metadata={metadata}
+          file={file}
+          bucket={bucket}
+          rootPrefix={rootPrefix}
+        />
       )}
     </Drawer>
   );
