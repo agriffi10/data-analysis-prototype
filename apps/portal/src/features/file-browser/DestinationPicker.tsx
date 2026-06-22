@@ -15,6 +15,9 @@ type Props = {
   // Whether the items' current parent is a valid destination. Move forbids it
   // (a no-op); Copy allows it (→ same-folder auto-number, SPEC-039 FR-003).
   allowCurrentParent?: boolean;
+  // SPEC-049: an extra gate the host controls (e.g. an invalid filename) — when
+  // true the confirm button is disabled regardless of the destination validity.
+  confirmDisabled?: boolean;
   confirmLabel: string; // e.g. "Move here" / "Copy here"
   busyLabel: string; // e.g. "Moving…" / "Copying…"
   // Message shown when the confirm action is blocked inside an operated folder's
@@ -82,6 +85,7 @@ export function DestinationPicker({
   markerKey,
   isBusy = false,
   allowCurrentParent = false,
+  confirmDisabled = false,
   confirmLabel,
   busyLabel,
   selfMessage = "You can't copy a folder into itself.",
@@ -111,7 +115,8 @@ export function DestinationPicker({
   );
   const atCurrentParent = browsePrefix === currentPrefix;
   const currentParentBlocked = atCurrentParent && !allowCurrentParent;
-  const canConfirm = !isBusy && !currentParentBlocked && !intoOwnSubtree;
+  const canConfirm =
+    !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled;
   const disabledReason = currentParentBlocked
     ? 'These items are already here.'
     : intoOwnSubtree

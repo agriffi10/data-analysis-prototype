@@ -38,3 +38,10 @@ export function formatRelativeTime(iso: string, now = Date.now()): string {
   if (days < 7) return `${days} days ago`;
   return new Date(iso).toLocaleDateString();
 }
+
+// SPEC-049: normalize a Save-results file name — append ".csv" unless the user
+// already typed it (case-insensitive), never doubling it.
+export function normalizeCsvName(name: string): string {
+  const trimmed = name.trim();
+  return /\.csv$/i.test(trimmed) ? trimmed : `${trimmed}.csv`;
+}

@@ -8,11 +8,13 @@ import { cx } from '../../lib/cx';
 import {
   runQuery,
   stopQuery,
-  getResultCsvUrl,
   getTableDdl,
   runStatementToCompletion,
+  parseS3Url,
   isTerminalState,
 } from './query.service';
+import { copyObject } from '../file-browser/fileBrowser.service';
+import { invalidateListing } from '../../lib/queryClient';
 import { TABLE_PREVIEW_ROW_LIMIT } from './query.constants';
 import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
@@ -26,6 +28,8 @@ import { isSchemaChangingSql, sameSql, stripTrailingSemicolons } from './query.s
 import { SchemaBrowser } from './SchemaBrowser';
 import { DropTableDialog } from './DropTableDialog';
 import { CreateViewDialog } from './CreateViewDialog';
+import { SaveResultsDialog } from './SaveResultsDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Toast, type ToastState } from './Toast';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
@@ -103,6 +107,11 @@ export function QueryWorkspace() {
   const { user } = useAuth();
   const username = user?.username ?? '';
   const queryClient = useQueryClient();
+  // SPEC-049: the user-space bucket (also where Athena writes results) — the
+  // Save-results copy stays within it.
+  const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as
+    | string
+    | undefined;
 
   // SPEC-047: the workspace targets one active database for all tabs (persisted,
   // default = personal), chosen from the connections the user can query. The
@@ -133,10 +142,21 @@ export function QueryWorkspace() {
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<GlueTableSummary | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const [toast, setToast] = useState<
+    (ToastState & { action?: { label: string; onClick: () => void } }) | null
+  >(null);
   // SPEC-048: Create view.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewInFlight, setCreateViewInFlight] = useState(false);
+  // SPEC-049: Save results.
+  const [saveResultsOpen, setSaveResultsOpen] = useState(false);
+  const [saveInFlight, setSaveInFlight] = useState(false);
+  // A pending overwrite confirm when the chosen destination key already exists.
+  const [overwritePrompt, setOverwritePrompt] = useState<{
+    sourceKey: string;
+    destPrefix: string;
+    filename: string;
+  } | null>(null);
 
   const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
@@ -275,25 +295,75 @@ export function QueryWorkspace() {
     submit(entry.sql);
   };
 
-  const handleDownloadCsv = () => {
-    if (!activeExecutionId || !activeStatus?.outputLocation) return;
+  // SPEC-049: copy the query's complete Athena result object into the user's space.
+  // A server-side CopyObject of `{username}/athenaresults/{id}.csv` captures ALL
+  // rows, independent of how many pages the results table loaded. The destination
+  // listing is invalidated so the new file appears if the user browses there, and a
+  // success toast offers a "View in Files" deep-link (SPEC-044).
+  const doSaveCopy = (args: {
+    sourceKey: string;
+    destPrefix: string;
+    filename: string;
+    overwrite: boolean;
+  }) => {
+    if (!userSpaceBucket) return;
+    const destKey = `${args.destPrefix}${args.filename}`;
+    setSaveInFlight(true);
     void (async () => {
-      const result = await getResultCsvUrl({
-        queryExecutionId: activeExecutionId,
-        outputLocation: activeStatus.outputLocation as string,
+      const result = await copyObject({
+        bucket: userSpaceBucket,
+        sourceKey: args.sourceKey,
+        destKey,
+        username,
+        overwrite: args.overwrite,
       });
+      setSaveInFlight(false);
       if (!result.success) {
-        setRunErrors((e) => ({ ...e, [activeTabId]: result.error.message }));
-        setDismissed((d) => ({ ...d, [activeTabId]: false }));
+        // A destination collision returns to a warn-and-confirm (SPEC-039).
+        if (result.error.code === 'Collision') {
+          setSaveResultsOpen(false);
+          setOverwritePrompt({
+            sourceKey: args.sourceKey,
+            destPrefix: args.destPrefix,
+            filename: args.filename,
+          });
+          return;
+        }
+        setToast({
+          variant: 'danger',
+          message: `Couldn’t save results: ${result.error.message}`,
+        });
         return;
       }
-      const link = document.createElement('a');
-      link.href = result.data.url;
-      link.rel = 'noopener';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      setSaveResultsOpen(false);
+      setOverwritePrompt(null);
+      void invalidateListing(queryClient, userSpaceBucket, args.destPrefix);
+      setToast({
+        variant: 'success',
+        message: `Saved to ${args.destPrefix}${args.filename}`,
+        action: {
+          label: 'View in Files',
+          onClick: () => {
+            setToast(null);
+            navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
+          },
+        },
+      });
     })();
+  };
+
+  const handleSaveResults = (args: { destPrefix: string; filename: string }) => {
+    const outputLocation = activeStatus?.outputLocation;
+    if (!outputLocation) return;
+    const parsed = parseS3Url(outputLocation);
+    if (!parsed) {
+      setToast({
+        variant: 'danger',
+        message: 'Couldn’t read the query result location.',
+      });
+      return;
+    }
+    doSaveCopy({ ...args, sourceKey: parsed.key, overwrite: false });
   };
 
   // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
@@ -546,6 +616,24 @@ export function QueryWorkspace() {
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
   const canSave = !!activeTab.sql.trim(); // FR-001: disabled only when empty
 
+  // SPEC-049: Save results is offered only for a SUCCEEDED, row-returning query
+  // (a result object with columns) — not a DDL / no-result statement.
+  const canSaveResults =
+    succeeded && !!activeStatus?.outputLocation && results.columns.length > 0;
+
+  // SPEC-049: default file name — the saved query's name when the tab is linked,
+  // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
+  const savedResultsDefaultName = (() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+    const base = activeLinkedSaved?.name
+      ? // eslint-disable-next-line no-control-regex
+        activeLinkedSaved.name.replace(/[/\x00-\x1f]/g, '-').trim()
+      : 'query-results';
+    return `${base}-${stamp}`;
+  })();
+
   return (
     <div className="flex min-w-0 flex-1">
       <SchemaBrowser
@@ -734,7 +822,8 @@ export function QueryWorkspace() {
             startedAt={activeRun?.startedAt ?? null}
             rowCount={succeeded ? results.loadedRowCount : undefined}
             hasMoreRows={results.hasMoreServer}
-            onDownloadCsv={handleDownloadCsv}
+            canSaveResults={canSaveResults}
+            onSaveResults={() => setSaveResultsOpen(true)}
           />
         )}
 
@@ -838,10 +927,49 @@ export function QueryWorkspace() {
           onCancel={() => setDropping(null)}
         />
       )}
+      {saveResultsOpen && userSpaceBucket && (
+        <SaveResultsDialog
+          bucket={userSpaceBucket}
+          rootPrefix={`${username}/`}
+          rootLabel="My Files"
+          defaultName={savedResultsDefaultName}
+          isBusy={saveInFlight}
+          onSave={handleSaveResults}
+          onCancel={() => setSaveResultsOpen(false)}
+        />
+      )}
+      {overwritePrompt && (
+        <ConfirmDialog
+          title={`Overwrite “${overwritePrompt.filename}”?`}
+          ariaLabel="Confirm overwrite"
+          confirmLabel="Overwrite"
+          confirmVariant="danger"
+          busy={saveInFlight}
+          busyLabel="Saving…"
+          onConfirm={() =>
+            doSaveCopy({
+              sourceKey: overwritePrompt.sourceKey,
+              destPrefix: overwritePrompt.destPrefix,
+              filename: overwritePrompt.filename,
+              overwrite: true,
+            })
+          }
+          onCancel={() => {
+            setOverwritePrompt(null);
+            setSaveResultsOpen(true); // return to the dialog with the name editable
+          }}
+        >
+          <p className="mt-3 text-sm text-text-2">
+            A file named “{overwritePrompt.filename}” already exists in that folder.
+            Saving will replace it.
+          </p>
+        </ConfirmDialog>
+      )}
       {toast && (
         <Toast
           variant={toast.variant}
           message={toast.message}
+          action={toast.action}
           onDismiss={() => setToast(null)}
         />
       )}

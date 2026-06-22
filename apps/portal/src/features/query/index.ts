@@ -4,9 +4,9 @@ export {
   runQuery,
   getQueryStatus,
   getQueryResults,
-  getResultCsvUrl,
   getTableDdl,
   runStatementToCompletion,
+  parseS3Url,
   stopQuery,
   isTerminalState,
 } from './query.service';

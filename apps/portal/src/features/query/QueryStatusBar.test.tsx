@@ -14,15 +14,15 @@ describe('QueryStatusBar', () => {
         status={status({ state: 'RUNNING' })}
         isInFlight
         startedAt={Date.now() - 3000}
-        onDownloadCsv={vi.fn()}
+        onSaveResults={vi.fn()}
       />,
     );
     expect(screen.getByText('Running…')).toBeInTheDocument();
     expect(screen.getByText(/elapsed/)).toBeInTheDocument();
   });
 
-  it('shows row/scanned/duration stats + Download CSV on success', () => {
-    const onDownloadCsv = vi.fn();
+  it('shows row/scanned/duration stats + Save results on a row-returning success', () => {
+    const onSaveResults = vi.fn();
     render(
       <QueryStatusBar
         status={status({
@@ -34,14 +34,31 @@ describe('QueryStatusBar', () => {
         startedAt={null}
         rowCount={4}
         hasMoreRows={false}
-        onDownloadCsv={onDownloadCsv}
+        canSaveResults
+        onSaveResults={onSaveResults}
       />,
     );
 
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
     expect(screen.getByText(/4 rows · 1\.2 MB scanned · 800 ms/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Download CSV/ }));
-    expect(onDownloadCsv).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /Save results to my files/ }));
+    expect(onSaveResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Save results when there is no savable result (DDL / no rows)', () => {
+    render(
+      <QueryStatusBar
+        status={status({ state: 'SUCCEEDED' })}
+        isInFlight={false}
+        startedAt={null}
+        canSaveResults={false}
+        onSaveResults={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Save results/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('renders terminal Failed and Cancelled indicators', () => {
@@ -50,7 +67,7 @@ describe('QueryStatusBar', () => {
         status={status({ state: 'FAILED' })}
         isInFlight={false}
         startedAt={null}
-        onDownloadCsv={vi.fn()}
+        onSaveResults={vi.fn()}
       />,
     );
     expect(screen.getByText('Failed')).toBeInTheDocument();
@@ -60,7 +77,7 @@ describe('QueryStatusBar', () => {
         status={status({ state: 'CANCELLED' })}
         isInFlight={false}
         startedAt={null}
-        onDownloadCsv={vi.fn()}
+        onSaveResults={vi.fn()}
       />,
     );
     expect(screen.getByText('Cancelled')).toBeInTheDocument();

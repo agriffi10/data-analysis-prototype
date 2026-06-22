@@ -9,17 +9,13 @@ import {
 } from 'vitest';
 
 vi.mock('../../lib/athenaClient', () => ({ getAthenaClient: vi.fn() }));
-vi.mock('../file-browser/fileBrowser.service', () => ({
-  getDownloadUrl: vi.fn(),
-}));
 
 import { getAthenaClient } from '../../lib/athenaClient';
-import { getDownloadUrl } from '../file-browser/fileBrowser.service';
 import {
   runQuery,
   getQueryStatus,
   getQueryResults,
-  getResultCsvUrl,
+  parseS3Url,
   getTableDdl,
   runStatementToCompletion,
   stopQuery,
@@ -28,9 +24,6 @@ import {
 
 const mockGetClient = getAthenaClient as unknown as MockedFunction<
   () => Promise<unknown>
->;
-const mockGetDownloadUrl = getDownloadUrl as unknown as MockedFunction<
-  (p: { bucket: string; key: string }) => Promise<unknown>
 >;
 
 // Athena commands expose their params as `.input`; the fake client records them.
@@ -299,38 +292,15 @@ describe('getQueryResults', () => {
   });
 });
 
-describe('getResultCsvUrl', () => {
-  it('parses the s3 output location and reuses the SPEC-015 presigner', async () => {
-    mockGetDownloadUrl.mockResolvedValueOnce({
-      success: true,
-      data: { url: 'https://signed', expiresAt: '2026-06-18T10:00:00.000Z' },
-    });
-
-    const result = await getResultCsvUrl({
-      queryExecutionId: 'q-1',
-      outputLocation: 's3://user-bucket/alice/athenaresults/q-1.csv',
-    });
-
-    expect(mockGetDownloadUrl).toHaveBeenCalledWith({
-      bucket: 'user-bucket',
-      key: 'alice/athenaresults/q-1.csv',
-    });
-    expect(result).toEqual({
-      success: true,
-      data: { url: 'https://signed', expiresAt: '2026-06-18T10:00:00.000Z' },
-    });
+describe('parseS3Url (SPEC-049)', () => {
+  it('splits an s3:// URL into bucket + key', () => {
+    expect(
+      parseS3Url('s3://user-bucket/alice/athenaresults/q-1.csv'),
+    ).toEqual({ bucket: 'user-bucket', key: 'alice/athenaresults/q-1.csv' });
   });
 
-  it('errors on an unparseable output location', async () => {
-    const result = await getResultCsvUrl({
-      queryExecutionId: 'q-1',
-      outputLocation: 'not-an-s3-url',
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('InvalidLocation');
-    expect(mockGetDownloadUrl).not.toHaveBeenCalled();
+  it('returns null for a non-s3 URL', () => {
+    expect(parseS3Url('not-an-s3-url')).toBeNull();
   });
 });
 

@@ -8,6 +8,9 @@ export type ToastState = {
 
 type Props = ToastState & {
   onDismiss: () => void;
+  // SPEC-049: optional inline action (e.g. "View in Files"). Auto-dismiss is
+  // suppressed while an action is offered so it stays reachable.
+  action?: { label: string; onClick: () => void };
 };
 
 const AUTO_DISMISS_MS = 4000;
@@ -16,12 +19,13 @@ const AUTO_DISMISS_MS = 4000;
 // feedback — the app's first toast primitive. Fixed bottom-right, accessible
 // live region, manually dismissible. Success/error auto-dismiss; `info` (used as
 // a "working…" notice) stays until the caller clears it. Never blocks interaction.
-export function Toast({ variant, message, onDismiss }: Props) {
+export function Toast({ variant, message, onDismiss, action }: Props) {
   useEffect(() => {
     if (variant === 'info') return; // caller clears the working notice
+    if (action) return; // keep an actionable toast until the user acts/dismisses
     const t = setTimeout(onDismiss, AUTO_DISMISS_MS);
     return () => clearTimeout(t);
-  }, [variant, message, onDismiss]);
+  }, [variant, message, onDismiss, action]);
 
   return (
     <div
@@ -35,6 +39,15 @@ export function Toast({ variant, message, onDismiss }: Props) {
       )}
     >
       <span className="min-w-0 flex-1">{message}</span>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="flex-none rounded-sm font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {action.label}
+        </button>
+      )}
       <button
         type="button"
         aria-label="Dismiss"
