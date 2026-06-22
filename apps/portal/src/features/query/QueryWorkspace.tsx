@@ -22,9 +22,10 @@ import { useSavedQueries } from './useSavedQueries';
 import { useConnections } from './useConnections';
 import { useActiveDatabase } from './useActiveDatabase';
 import { invalidateSchema } from './useSchema';
-import { isSchemaChangingSql, sameSql } from './query.sql';
+import { isSchemaChangingSql, sameSql, stripTrailingSemicolons } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
 import { DropTableDialog } from './DropTableDialog';
+import { CreateViewDialog } from './CreateViewDialog';
 import { Toast, type ToastState } from './Toast';
 import { QueryStatusBar } from './QueryStatusBar';
 import { QueryResultsTable } from './QueryResultsTable';
@@ -133,6 +134,9 @@ export function QueryWorkspace() {
   const [dropping, setDropping] = useState<GlueTableSummary | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  // SPEC-048: Create view.
+  const [createViewOpen, setCreateViewOpen] = useState(false);
+  const [createViewInFlight, setCreateViewInFlight] = useState(false);
 
   const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
@@ -412,6 +416,7 @@ export function QueryWorkspace() {
           database,
           table: table.name,
           username,
+          isView: table.tableType === 'VIRTUAL_VIEW',
         });
         if (!result.success) {
           setToast({
@@ -444,10 +449,53 @@ export function QueryWorkspace() {
     onDropTable: (table: GlueTableSummary) => setDropping(table),
   };
 
+  // SPEC-048 FR-001–004: turn the active tab's SQL into a named view in the active
+  // database, in the background (the editor keeps showing the user's SELECT).
+  const handleCreateView = (name: string) => {
+    if (!database) return;
+    const body = stripTrailingSemicolons(activeTab.sql);
+    const sql = `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`;
+    setCreateViewInFlight(true);
+    void (async () => {
+      const result = await runStatementToCompletion({ sql, database, username });
+      setCreateViewInFlight(false);
+      setCreateViewOpen(false);
+      if (!result.success) {
+        setToast({
+          variant: 'danger',
+          message: `Couldn’t create view ${name}: ${result.error.message}`,
+        });
+        return;
+      }
+      const status = result.data;
+      // Record the run in history (a CREATE VIEW is a real statement).
+      appendEntry({
+        queryExecutionId: status.queryExecutionId,
+        sql,
+        database,
+        submittedAt: new Date().toISOString(),
+        status: status.state,
+        dataScannedBytes: status.dataScannedBytes,
+        durationMs: status.engineExecutionTimeMillis,
+      }).catch((e) => console.warn('[query-history] append failed', e));
+
+      if (status.state === 'SUCCEEDED') {
+        void invalidateSchema(queryClient, database);
+        setToast({ variant: 'success', message: `Created view ${name}` });
+      } else {
+        setToast({
+          variant: 'danger',
+          message: `Couldn’t create view ${name}: ${status.stateChangeReason ?? 'Create view failed'}`,
+        });
+      }
+    })();
+  };
+
   const handleDropConfirm = () => {
     if (!dropping || !database) return;
     const table = dropping;
-    const sql = `DROP TABLE ${database}.${table.name}`;
+    const isView = table.tableType === 'VIRTUAL_VIEW';
+    const sql = `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`;
     setDropInFlight(true);
     void (async () => {
       const result = await runStatementToCompletion({
@@ -603,6 +651,25 @@ export function QueryWorkspace() {
             </svg>
             Save
           </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setCreateViewOpen(true)}
+            disabled={!canSave}
+            aria-label="Create view"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Create view
+          </Button>
           {activeIsInFlight ? (
             <Button
               variant="ghost"
@@ -755,10 +822,18 @@ export function QueryWorkspace() {
         />
       )}
       {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
+      {createViewOpen && (
+        <CreateViewDialog
+          busy={createViewInFlight}
+          onCreate={handleCreateView}
+          onCancel={() => setCreateViewOpen(false)}
+        />
+      )}
       {dropping && (
         <DropTableDialog
           table={dropping.name}
           isDropping={dropInFlight}
+          isView={dropping.tableType === 'VIRTUAL_VIEW'}
           onConfirm={handleDropConfirm}
           onCancel={() => setDropping(null)}
         />

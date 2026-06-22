@@ -222,16 +222,19 @@ export async function runStatementToCompletion(p: {
   return { success: false, error: { message: 'Polling ended unexpectedly' } };
 }
 
-// SPEC-044 FR-003: fetch a table's authoritative DDL via Athena
-// `SHOW CREATE TABLE`, assembling the single-column result rows into the CREATE
-// statement. Internal UI fetch — it does NOT append a query-history entry.
+// SPEC-044 FR-003 / SPEC-048 FR-006: fetch a table's (or view's) authoritative DDL
+// via Athena — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise —
+// assembling the single-column result rows into the statement. Internal UI fetch —
+// it does NOT append a query-history entry.
 export async function getTableDdl(p: {
   database: string;
   table: string;
   username: string;
+  isView?: boolean;
 }): Promise<ServiceResult<string>> {
+  const verb = p.isView ? 'SHOW CREATE VIEW' : 'SHOW CREATE TABLE';
   const done = await runStatementToCompletion({
-    sql: `SHOW CREATE TABLE ${p.database}.${p.table}`,
+    sql: `${verb} ${p.database}.${p.table}`,
     database: p.database,
     username: p.username,
   });
@@ -240,7 +243,7 @@ export async function getTableDdl(p: {
     return {
       success: false,
       error: {
-        message: done.data.stateChangeReason ?? 'SHOW CREATE TABLE failed',
+        message: done.data.stateChangeReason ?? `${verb} failed`,
         code: done.data.state,
       },
     };

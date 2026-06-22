@@ -218,8 +218,10 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `SavedQuery`, `SavedQueriesStore` | `query.types.ts` | Saved-query record + store types; `QueryHistoryEntry` also gained optional `savedQueryId`/`savedQueryName` (SPEC-043). |
 | `TableActionsMenu` | `TableActionsMenu.tsx` | **Reusable** kebab (⋮) + accessible popover menu (the app's first menu primitive): `aria-haspopup`/`expanded`, focus-in, Escape/outside-click close, arrow-key nav, danger items + separators (SPEC-044). |
 | `Toast` (+ `ToastState`) | `Toast.tsx` | **Reusable** minimal transient toast (success/danger auto-dismiss; `info` persists), accessible live region, fixed bottom-right (SPEC-044). |
-| `DropTableDialog` | `DropTableDialog.tsx` | DROP TABLE warn-and-confirm (SPEC-026 alertdialog, danger, in-flight lock) (SPEC-044). |
-| `getTableDdl` / `runStatementToCompletion` | `query.service.ts` | `SHOW CREATE TABLE` → assembled DDL; run-and-poll-to-terminal helper for background statements (View DDL, Drop) (SPEC-044). |
+| `DropTableDialog` | `DropTableDialog.tsx` | DROP TABLE / DROP VIEW warn-and-confirm (SPEC-026 alertdialog, danger, in-flight lock); `isView` switches the copy/labels (SPEC-044/048). |
+| `CreateViewDialog` | `CreateViewDialog.tsx` | Name-prompt modal for Create view; validates the catalog-safe identifier rule; busy-locks while the background `CREATE OR REPLACE VIEW` runs (SPEC-048). |
+| `getTableDdl` / `runStatementToCompletion` | `query.service.ts` | `SHOW CREATE TABLE` (or `SHOW CREATE VIEW` when `isView`) → assembled DDL; run-and-poll-to-terminal helper for background statements (View DDL, Drop, Create view) (SPEC-044/048). |
+| `CATALOG_IDENTIFIER_RE` / `stripTrailingSemicolons` | `query.constants.ts` / `query.sql.ts` | Shared catalog-safe identifier rule (`^[a-z][a-z0-9_]{2,62}$`, = SPEC-033 username rule); strip trailing `;`/whitespace for embedding a SELECT as a view body (SPEC-048). |
 | `QueryTab`, `QueryTabsState`, `QUERY_TABS_MAX`, `DEFAULT_SQL` | `query.types.ts` / `query.constants.ts` | Tab data types, the soft tab cap, and the shared first-tab boilerplate (SPEC-041). |
 | `formatBytes` / `formatDurationMs` / `formatRelativeTime` | `query.format.ts` | Display formatters for scanned-bytes / duration / relative timestamps. |
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |

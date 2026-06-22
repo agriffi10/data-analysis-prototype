@@ -1,8 +1,8 @@
 # Spec: Create View from Query + Views in the Schema Browser
 
 **ID:** SPEC-048
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-22
 **Depends On:** SPEC-047 (per-tab selected database / connection selector), SPEC-044 (`TableActionsMenu`, `getTableDdl`, `DropTableDialog`, `Toast`, `runStatementToCompletion`), SPEC-041 (query tabs + Run path), SPEC-034 (`runQuery`, `listTables`/`GlueTableSummary.tableType`, history append, `invalidateSchema`), SPEC-033 (catalog-safe identifier rule; LF `CREATE_TABLE`/`ALTER`/`DROP` grant on the user's DB), SPEC-026 (dialog pattern), SPEC-028 (Button/Input)
 
 > **Design:** Needs a design pass. Adds a **Create view** button to the editor toolbar (same group as Run/Save, `design-system.md` §6) and a **view** badge + view-aware options in the schema browser table rows (SPEC-044 menu). Reuses the SPEC-026 name-prompt modal shape and the SPEC-044 `Toast`.

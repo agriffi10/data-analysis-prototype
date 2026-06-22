@@ -25,6 +25,13 @@ export function sameSql(a: string, b: string): boolean {
   return normalize(a) === normalize(b);
 }
 
+// SPEC-048: strip trailing whitespace and semicolons so a user's `SELECT …;` can
+// be embedded as a view body (`CREATE OR REPLACE VIEW … AS <sql>`) without a stray
+// terminating semicolon breaking the statement.
+export function stripTrailingSemicolons(sql: string): string {
+  return sql.replace(/[\s;]+$/, '');
+}
+
 // A statement that changes the catalog — after it succeeds the schema browser is
 // refreshed. CTAS (CREATE TABLE … AS) is covered by the CREATE TABLE branch.
 // Leading comments/whitespace are skipped first so a DDL statement under the

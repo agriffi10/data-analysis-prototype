@@ -199,6 +199,50 @@ describe('SchemaBrowser', () => {
     expect(onSelectDatabase).toHaveBeenCalledWith('project_alpha');
   });
 
+  // --- SPEC-048 views ---
+
+  const viewSchema = {
+    isPending: false,
+    isError: false,
+    data: {
+      database: { name: 'alice' },
+      tables: [
+        {
+          name: 'revenue_view',
+          tableType: 'VIRTUAL_VIEW',
+          columns: [{ name: 'total', type: 'double' }],
+        },
+      ],
+    },
+  } as unknown as SchemaState;
+
+  it('renders a view with a View badge', () => {
+    mockUseSchema.mockReturnValue(viewSchema);
+    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={makeActions()} />);
+    expect(screen.getByText('View')).toBeInTheDocument();
+    // The row toggle's accessible name leads with the view name (the badge follows).
+    expect(screen.getByRole('button', { name: /^revenue_view/ })).toBeInTheDocument();
+  });
+
+  it('a view row offers "Drop view" and a disabled "View source files"', () => {
+    // Mirrors the workspace wiring: a view has no S3 location → source files off.
+    const actions = makeActions({
+      canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW',
+    });
+    mockUseSchema.mockReturnValue(viewSchema);
+    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={actions} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Options for revenue_view' }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Drop view' })).toBeInTheDocument();
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Drop table' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(menu).getByRole('menuitem', { name: 'View source files' }),
+    ).toBeDisabled();
+  });
+
   it('shows a single current item with only the personal database', () => {
     mockUseSchema.mockReturnValue(tableSchema);
     render(

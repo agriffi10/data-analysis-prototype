@@ -33,6 +33,12 @@ export const QUERY_HISTORY_PAGE_SIZE = 7;
 // SPEC-044 FR-004: the "View data" table preview opens SELECT * … LIMIT this.
 export const TABLE_PREVIEW_ROW_LIMIT = 10;
 
+// SPEC-033/048: catalog-safe identifier rule — lowercase, leading letter, then
+// [a-z0-9_], 3–63 chars total. The same rule the pre-signup Lambda enforces for
+// usernames (= S3 prefix = Glue DB name); shared here so view-name validation
+// (SPEC-048) uses one source of truth, never a hand-duplicated regex.
+export const CATALOG_IDENTIFIER_RE = /^[a-z][a-z0-9_]{2,62}$/;
+
 // SPEC-040: sessionStorage key prefix for the per-user editor draft. The full
 // key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. Superseded by SPEC-041's
 // tabs store — retained only for the one-time migration (read once, then removed).

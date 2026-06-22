@@ -33,6 +33,7 @@ const inSpace = {
   columns: [],
 };
 const outOfSpace = { name: 'foreign', location: 's3://b/bob/x/', columns: [] };
+const viewObj = { name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: [] };
 vi.mock('./SchemaBrowser', () => ({
   SchemaBrowser: ({
     actions,
@@ -49,8 +50,11 @@ vi.mock('./SchemaBrowser', () => ({
       <button onClick={() => actions.onViewDdl(inSpace)}>ddl</button>
       <button onClick={() => actions.onViewData(inSpace)}>data</button>
       <button onClick={() => actions.onDropTable(inSpace)}>drop</button>
+      <button onClick={() => actions.onViewDdl(viewObj)}>ddl:view</button>
+      <button onClick={() => actions.onDropTable(viewObj)}>drop:view</button>
       <span>cansrc-in:{String(actions.canViewSourceFiles(inSpace))}</span>
       <span>cansrc-out:{String(actions.canViewSourceFiles(outOfSpace))}</span>
+      <span>cansrc-view:{String(actions.canViewSourceFiles(viewObj))}</span>
       {connections.map((c) => (
         <button key={c.id} onClick={() => onSelectDatabase?.(c.database)}>
           select:{c.database}
@@ -807,5 +811,116 @@ describe('QueryWorkspace', () => {
     expect(
       sessionStorage.getItem('s3portal.query.activeDatabase.alice'),
     ).toBe('project_alpha');
+  });
+
+  // --- SPEC-048 Create view + view-aware schema actions ---
+
+  it('Create view is disabled when the active tab SQL is empty', async () => {
+    renderWorkspace();
+    const editor = await screen.findByTestId('sql-editor');
+    fireEvent.change(editor, { target: { value: '   ' } });
+    expect(screen.getByRole('button', { name: 'Create view' })).toBeDisabled();
+  });
+
+  it('Create view composes CREATE OR REPLACE VIEW, runs it in the background, records history + success toast', async () => {
+    mockRunToCompletion.mockResolvedValue({
+      success: true,
+      data: {
+        queryExecutionId: 'q-view',
+        state: 'SUCCEEDED',
+        dataScannedBytes: 0,
+        engineExecutionTimeMillis: 5,
+      },
+    });
+    renderWorkspace();
+    const editor = await screen.findByTestId('sql-editor');
+    fireEvent.change(editor, { target: { value: 'SELECT region FROM sales;' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create view' }));
+    const dialog = screen.getByRole('dialog', { name: 'Create view' });
+    fireEvent.change(within(dialog).getByLabelText('View name'), {
+      target: { value: 'region_view' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    expect(await screen.findByText('Created view region_view')).toBeInTheDocument();
+    expect(mockRunToCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: 'CREATE OR REPLACE VIEW alice.region_view AS SELECT region FROM sales',
+        database: 'alice',
+        username: 'alice',
+      }),
+    );
+    // The run is recorded once in history; the editor keeps the user's SELECT.
+    expect(appendEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ queryExecutionId: 'q-view' }),
+    );
+    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT region FROM sales;');
+  });
+
+  it('Create view shows an error toast on failure', async () => {
+    mockRunToCompletion.mockResolvedValue({
+      success: false,
+      error: { message: 'TABLE_ALREADY_EXISTS', code: 'InvalidRequest' },
+    });
+    renderWorkspace();
+    const editor = await screen.findByTestId('sql-editor');
+    fireEvent.change(editor, { target: { value: 'SELECT 1;' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create view' }));
+    fireEvent.change(
+      within(screen.getByRole('dialog', { name: 'Create view' })).getByLabelText(
+        'View name',
+      ),
+      { target: { value: 'dupe' } },
+    );
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Create view' })).getByRole(
+        'button',
+        { name: 'Create' },
+      ),
+    );
+
+    expect(await screen.findByText(/TABLE_ALREADY_EXISTS/)).toBeInTheDocument();
+  });
+
+  it('View source files is disabled for a view (no S3 location)', async () => {
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+    expect(screen.getByText('cansrc-view:false')).toBeInTheDocument();
+  });
+
+  it('View DDL for a view fetches SHOW CREATE VIEW (isView passed through)', async () => {
+    mockGetTableDdl.mockResolvedValue({ success: true, data: 'CREATE VIEW …' });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'ddl:view' }));
+    expect(mockGetTableDdl).toHaveBeenCalledWith(
+      expect.objectContaining({ table: 'revenue_view', isView: true }),
+    );
+  });
+
+  it('Drop on a view confirms and runs DROP VIEW', async () => {
+    mockRunToCompletion.mockResolvedValue({
+      success: true,
+      data: {
+        queryExecutionId: 'q-dropview',
+        state: 'SUCCEEDED',
+        dataScannedBytes: 0,
+        engineExecutionTimeMillis: 5,
+      },
+    });
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+
+    fireEvent.click(screen.getByRole('button', { name: 'drop:view' }));
+    const dialog = screen.getByRole('alertdialog', { name: /confirm drop view/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Drop view' }));
+
+    expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
+    expect(mockRunToCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: 'DROP VIEW alice.revenue_view' }),
+    );
   });
 });
