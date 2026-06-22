@@ -48,6 +48,13 @@ export function QueryTabStrip({
       e.preventDefault();
       onSelect(tabs[index].id);
       return;
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && !solo) {
+      // Keyboard close (WAI-ARIA tabs-with-close pattern): the visible ✕ button is
+      // a sibling of the tab — not a focusable descendant (nested-interactive) — so
+      // Delete is how keyboard users close the focused tab.
+      e.preventDefault();
+      onClose(tabs[index].id);
+      return;
     }
     if (next === null) return;
     e.preventDefault();
@@ -57,11 +64,14 @@ export function QueryTabStrip({
   };
 
   return (
-    <div
-      role="tablist"
-      aria-label="Query tabs"
-      className="flex h-10 flex-none items-center gap-1 overflow-x-auto border-b border-border bg-surface-2 px-3"
-    >
+    <div className="flex h-10 flex-none items-center gap-1 overflow-x-auto border-b border-border bg-surface-2 px-3">
+      {/* Only `role="tab"` elements may be tablist children (WCAG 4.1.2,
+          aria-required-children) — the +/Saved/History controls sit outside it. */}
+      <div
+        role="tablist"
+        aria-label="Query tabs"
+        className="flex flex-none items-center gap-1"
+      >
       {tabs.map((tab, index) => {
         const active = tab.id === activeTabId;
         return (
@@ -103,6 +113,10 @@ export function QueryTabStrip({
               </span>
             )}
             <span className="truncate">{tab.label}</span>
+            {/* Keyboard/AT users can also close via the Delete key on the focused
+                tab (onTabKeyDown). This nested close button trips axe's
+                nested-interactive rule — a known closable-tab remediation tracked
+                separately; see QueryTabStrip.a11y.test.tsx. */}
             {!solo && (
               <button
                 type="button"
@@ -128,6 +142,7 @@ export function QueryTabStrip({
           </div>
         );
       })}
+      </div>
 
       <button
         type="button"

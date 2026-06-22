@@ -50,7 +50,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 042 — Query History Pagination (7/page, Prev/Next) | Completed |
 | 043 — Saved Queries + Global Workspace Bar | Completed |
 | 044 — Schema Browser Table Options Menu | Completed |
-| 045 — Automated Accessibility (axe) Test Suite | Draft |
+| 045 — Automated Accessibility (axe) Test Suite | Completed |
 | 046 — Refresh History Button | Draft |
 | 047 — Workspace Database/Connection Selector | Draft |
 | 048 — Create View from Query + Views in Schema Browser | Draft |
