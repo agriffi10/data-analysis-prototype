@@ -371,13 +371,11 @@ describe('QueryWorkspace', () => {
     await screen.findByTestId('sql-editor');
 
     // Empty Query 2 closes with no dialog.
-    fireEvent.click(screen.getByRole('button', { name: 'Close Query 2' }));
+    fireEvent.click(screen.getByTitle('Close Query 2'));
     expect(screen.queryByRole('tab', { name: /Query 2/ })).not.toBeInTheDocument();
 
     // Query 1 is now the only tab → its close control is hidden.
-    expect(
-      screen.queryByRole('button', { name: 'Close Query 1' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Close Query 1')).not.toBeInTheDocument();
   });
 
   it('confirms before closing a tab with non-empty SQL', async () => {
@@ -393,7 +391,7 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close Query 2' }));
+    fireEvent.click(screen.getByTitle('Close Query 2'));
     const dialog = screen.getByRole('alertdialog', { name: /confirm close tab/i });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close tab' }));
 
