@@ -34,7 +34,15 @@ const inSpace = {
 };
 const outOfSpace = { name: 'foreign', location: 's3://b/bob/x/', columns: [] };
 vi.mock('./SchemaBrowser', () => ({
-  SchemaBrowser: ({ actions }: { actions: import('./SchemaBrowser').TableActions }) => (
+  SchemaBrowser: ({
+    actions,
+    connections = [],
+    onSelectDatabase,
+  }: {
+    actions: import('./SchemaBrowser').TableActions;
+    connections?: import('./query.types').Connection[];
+    onSelectDatabase?: (db: string) => void;
+  }) => (
     <div data-testid="schema-browser">
       <button onClick={() => actions.onViewSourceFiles(inSpace)}>src:in</button>
       <button onClick={() => actions.onViewSourceFiles(outOfSpace)}>src:out</button>
@@ -43,9 +51,15 @@ vi.mock('./SchemaBrowser', () => ({
       <button onClick={() => actions.onDropTable(inSpace)}>drop</button>
       <span>cansrc-in:{String(actions.canViewSourceFiles(inSpace))}</span>
       <span>cansrc-out:{String(actions.canViewSourceFiles(outOfSpace))}</span>
+      {connections.map((c) => (
+        <button key={c.id} onClick={() => onSelectDatabase?.(c.database)}>
+          select:{c.database}
+        </button>
+      ))}
     </div>
   ),
 }));
+vi.mock('./useConnections', () => ({ useConnections: vi.fn() }));
 const navigateMock = vi.fn();
 vi.mock('react-router-dom', async (orig) => ({
   ...(await orig<typeof import('react-router-dom')>()),
@@ -69,6 +83,7 @@ import { useQueryExecution } from './useQueryExecution';
 import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
 import { useSavedQueries } from './useSavedQueries';
+import { useConnections } from './useConnections';
 import { QueryWorkspace } from './QueryWorkspace';
 import {
   QUERY_DRAFT_STORAGE_PREFIX,
@@ -83,6 +98,14 @@ const mockUseExecution = vi.mocked(useQueryExecution);
 const mockUseResults = vi.mocked(useQueryResults);
 const mockUseHistory = vi.mocked(useQueryHistory);
 const mockUseSaved = vi.mocked(useSavedQueries);
+const mockUseConnections = vi.mocked(useConnections);
+
+const personalConnection = {
+  id: 'personal',
+  label: 'My workspace',
+  database: 'alice',
+  kind: 'personal' as const,
+};
 
 const appendEntry = vi.fn().mockResolvedValue({ version: 1, entries: [] });
 const updateEntry = vi.fn().mockResolvedValue({ version: 1, entries: [] });
@@ -141,6 +164,12 @@ const rowsResult = {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  // Default: only the personal connection (matches production today).
+  mockUseConnections.mockReturnValue({
+    connections: [personalConnection],
+    isLoading: false,
+    error: null,
+  });
   // Default: no execution in flight, no results.
   mockUseExecution.mockReturnValue({ data: undefined } as unknown as ReturnType<
     typeof useQueryExecution
@@ -738,5 +767,45 @@ describe('QueryWorkspace', () => {
       sql: 'SELECT 42',
       database: 'alice',
     });
+  });
+
+  // --- SPEC-047 workspace database switcher ---
+
+  it('shows the active database in the read-only toolbar chip', async () => {
+    renderWorkspace();
+    await screen.findByTestId('sql-editor');
+    // The chip reads "querying <db>"; default = the personal database.
+    expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
+  });
+
+  it('switching the database retargets Run for the active tab and persists', async () => {
+    mockUseConnections.mockReturnValue({
+      connections: [
+        personalConnection,
+        { id: 's1', label: 'Project Alpha', database: 'project_alpha', kind: 'shared' },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    mockRunQuery.mockResolvedValue({
+      success: true,
+      data: { queryExecutionId: 'q-1' },
+    });
+    renderWorkspace();
+    const editor = await screen.findByTestId('sql-editor');
+    fireEvent.change(editor, { target: { value: 'SELECT * FROM t;' } });
+
+    // Switch the workspace database via the (mocked) schema rail, then Run.
+    fireEvent.click(screen.getByRole('button', { name: 'select:project_alpha' }));
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }));
+
+    expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
+      database: 'project_alpha',
+      username: 'alice', // results still route to {username}/athenaresults/
+    });
+    // Persisted workspace-globally for the next reload.
+    expect(
+      sessionStorage.getItem('s3portal.query.activeDatabase.alice'),
+    ).toBe('project_alpha');
   });
 });

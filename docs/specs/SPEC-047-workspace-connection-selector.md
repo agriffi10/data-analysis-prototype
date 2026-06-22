@@ -1,8 +1,8 @@
 # Spec: Workspace Database Switcher (Schema-Rail Connection List)
 
 **ID:** SPEC-047
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-22
 **Depends On:** SPEC-035 (query workspace + schema browser), SPEC-041 (query tabs), SPEC-034 (Glue services + `useSchema`), SPEC-033 (per-user Glue DB = username)
 
 > **Design:** Needs a design pass. The schema browser's **Database** section becomes a **switchable list** of the
