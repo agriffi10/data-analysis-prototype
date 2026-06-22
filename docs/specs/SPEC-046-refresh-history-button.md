@@ -1,8 +1,8 @@
 # Spec: Refresh History Button
 
 **ID:** SPEC-046
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-22
 **Depends On:** SPEC-036 (query history panel/drawer), SPEC-042 (history pagination), SPEC-034 (per-user history store + `useQueryHistory`)
 
 > **Design:** Minor addition to the existing history drawer (`docs/design/query-workspace.html` + `design-system.md` §6). Reuses the SPEC-028 `IconButton` (ghost icon) in the drawer header accessory slot — no new design surface.

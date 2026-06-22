@@ -102,6 +102,8 @@ beforeEach(() => {
     error: null,
     appendEntry: vi.fn().mockResolvedValue({ version: 1, entries: [] }),
     updateEntry: vi.fn().mockResolvedValue({ version: 1, entries: [] }),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    isRefreshing: false,
   });
   vi.mocked(useSavedQueries).mockReturnValue({
     queries: [],

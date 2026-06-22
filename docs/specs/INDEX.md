@@ -51,7 +51,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 043 — Saved Queries + Global Workspace Bar | Completed |
 | 044 — Schema Browser Table Options Menu | Completed |
 | 045 — Automated Accessibility (axe) Test Suite | Completed |
-| 046 — Refresh History Button | Draft |
+| 046 — Refresh History Button | Completed |
 | 047 — Workspace Database/Connection Selector | Draft |
 | 048 — Create View from Query + Views in Schema Browser | Draft |
 | 049 — Save Query Results to Workspace (replaces Download CSV) | Draft |

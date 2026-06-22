@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Banner } from '../../components/Banner';
 import { Drawer } from '../../components/Drawer';
+import { IconButton } from '../../components/IconButton';
 import { Pager } from '../../components/Pager';
+import { cx } from '../../lib/cx';
 import { useQueryHistory } from './useQueryHistory';
 import { QueryHistoryRow } from './QueryHistoryRow';
 import { QUERY_HISTORY_PAGE_SIZE } from './query.constants';
@@ -30,7 +32,9 @@ export function QueryHistoryPanel({
   // Always subscribe to the live history key (not gated on `open`) so an entry
   // appended/updated while the panel is open shows immediately, and the panel and
   // the workspace's mutations share one cache entry. Drawer visibility is `open`.
-  const { history, isLoading, error } = useQueryHistory(username || null);
+  const { history, isLoading, error, refresh, isRefreshing } = useQueryHistory(
+    username || null,
+  );
 
   // SPEC-042: client-side Prev/Next pager over the in-memory newest-first list.
   const [pageIndex, setPageIndex] = useState(0);
@@ -58,8 +62,39 @@ export function QueryHistoryPanel({
     if (history.length > prevLen) setPageIndex(0);
   }
 
+  // SPEC-046: manual re-read of the store from S3. On success, snap back to the
+  // newest page (matches the open/append behavior). A failed refetch surfaces via
+  // `error` below and keeps the previously-loaded entries (non-destructive).
+  const handleRefresh = async () => {
+    await refresh();
+    setPageIndex(0);
+  };
+
+  const refreshButton = (
+    <IconButton
+      label="Refresh history"
+      size="sm"
+      disabled={isRefreshing}
+      onClick={() => void handleRefresh()}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        className={cx('h-4 w-4', isRefreshing && 'animate-spin')}
+        aria-hidden="true"
+      >
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        <path d="M3 21v-5h5" />
+      </svg>
+    </IconButton>
+  );
+
   const footer =
-    !error && !isLoading && history.length > 0 ? (
+    !isLoading && history.length > 0 ? (
       <Pager
         className="flex-shrink-0 border-t border-border px-5 py-4"
         hasPrev={hasPrev}
@@ -76,14 +111,24 @@ export function QueryHistoryPanel({
     ) : undefined;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Query history" footer={footer}>
-      {error ? (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="Query history"
+      headerAccessory={refreshButton}
+      footer={footer}
+    >
+      {/* A read/refresh error is shown above the list and never clears it, so a
+          failed Refresh is non-destructive (FR-003). */}
+      {error && (
         <Banner variant="danger" title="Couldn’t load history.">
           {error}
         </Banner>
-      ) : isLoading ? (
+      )}
+      {isLoading ? (
         <p className="text-sm text-text-3">Loading history&hellip;</p>
       ) : history.length === 0 ? (
+        error ? null : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <svg
             viewBox="0 0 24 24"
@@ -103,6 +148,7 @@ export function QueryHistoryPanel({
             re-run it.
           </p>
         </div>
+        )
       ) : (
         pageEntries.map((entry) => (
           <QueryHistoryRow

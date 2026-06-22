@@ -16,6 +16,8 @@ function historyState(history: QueryHistoryEntry[], extra = {}) {
     error: null,
     appendEntry: vi.fn(),
     updateEntry: vi.fn(),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    isRefreshing: false,
     ...extra,
   } as ReturnType<typeof useQueryHistory>;
 }
@@ -182,5 +184,52 @@ describe('QueryHistoryPanel', () => {
     rerender(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/^8.8 of 8$/)).toBeInTheDocument();
     expect(screen.queryByText(/of 23/)).not.toBeInTheDocument();
+  });
+
+  // --- SPEC-046 Refresh control ---
+
+  it('clicking Refresh re-reads the history store', () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    mockUseHistory.mockReturnValue(historyState([sample], { refresh }));
+    render(<QueryHistoryPanel {...baseProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh history' }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the Refresh button while a refresh is in flight', () => {
+    mockUseHistory.mockReturnValue(
+      historyState([sample], { isRefreshing: true }),
+    );
+    const { rerender } = render(<QueryHistoryPanel {...baseProps} />);
+    expect(screen.getByRole('button', { name: 'Refresh history' })).toBeDisabled();
+
+    // Re-enables once the refetch settles.
+    mockUseHistory.mockReturnValue(
+      historyState([sample], { isRefreshing: false }),
+    );
+    rerender(<QueryHistoryPanel {...baseProps} />);
+    expect(screen.getByRole('button', { name: 'Refresh history' })).toBeEnabled();
+  });
+
+  it('returns to the newest page after a successful refresh', async () => {
+    mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
+    render(<QueryHistoryPanel {...baseProps} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText(/^8.14 of 23$/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh history' }));
+    expect(await screen.findByText(/^1.7 of 23$/)).toBeInTheDocument();
+  });
+
+  it('a refresh error shows the banner without dropping the existing list', () => {
+    // The query reports an error but keeps the last-loaded entries (TanStack
+    // retains data on a failed refetch) — both must render (FR-003).
+    mockUseHistory.mockReturnValue(
+      historyState([sample], { error: 'access denied' }),
+    );
+    render(<QueryHistoryPanel {...baseProps} />);
+    expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();
+    expect(screen.getByText('SELECT 1')).toBeInTheDocument();
   });
 });

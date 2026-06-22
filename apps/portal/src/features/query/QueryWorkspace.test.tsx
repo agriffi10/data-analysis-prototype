@@ -160,6 +160,8 @@ beforeEach(() => {
     error: null,
     appendEntry,
     updateEntry,
+    refresh: vi.fn().mockResolvedValue(undefined),
+    isRefreshing: false,
   });
   mockUseSaved.mockReturnValue({
     queries: [],
@@ -721,6 +723,8 @@ describe('QueryWorkspace', () => {
       error: null,
       appendEntry,
       updateEntry,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      isRefreshing: false,
     });
 
     renderWorkspace();
