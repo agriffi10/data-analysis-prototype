@@ -64,13 +64,36 @@ export function QueryTabStrip({
   };
 
   return (
-    <div className="flex h-10 flex-none items-center gap-1 overflow-x-auto border-b border-border bg-surface-2 px-3">
+    <div className="flex h-10 flex-none items-center gap-1 border-b border-border bg-surface-2 px-3">
+      {/* The `+` sits to the LEFT of the tabs and outside the scrollable region so
+          it stays visible at any tab count (FR: only the tabs scroll). */}
+      <button
+        type="button"
+        aria-label="New query tab"
+        title="New query tab"
+        onClick={onNew}
+        className="grid h-7 w-7 flex-none place-items-center rounded-md border border-transparent text-text-2 hover:bg-surface hover:text-text"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="h-4 w-4"
+          aria-hidden="true"
+        >
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+
       {/* Only `role="tab"` elements may be tablist children (WCAG 4.1.2,
-          aria-required-children) — the +/Saved/History controls sit outside it. */}
+          aria-required-children) — the +/Saved/History controls sit outside it.
+          This is the only scrollable region (min-w-0 + overflow-x-auto); the
+          surrounding controls stay pinned. */}
       <div
         role="tablist"
         aria-label="Query tabs"
-        className="flex flex-none items-center gap-1"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
       >
       {tabs.map((tab, index) => {
         const active = tab.id === activeTabId;
@@ -113,19 +136,20 @@ export function QueryTabStrip({
               </span>
             )}
             <span className="truncate">{tab.label}</span>
-            {/* Keyboard/AT users can also close via the Delete key on the focused
-                tab (onTabKeyDown). This nested close button trips axe's
-                nested-interactive rule — a known closable-tab remediation tracked
-                separately; see QueryTabStrip.a11y.test.tsx. */}
+            {/* The ✕ is a decorative, non-focusable pointer affordance — NOT a
+                nested <button>, which would trip axe's nested-interactive rule
+                inside the role="tab". Keyboard/AT users close via the Delete key
+                on the focused tab (onTabKeyDown), so the same action stays fully
+                operable without this control (WCAG 2.1.1). */}
             {!solo && (
-              <button
-                type="button"
-                aria-label={`Close ${tab.label}`}
+              <span
+                role="presentation"
+                title={`Close ${tab.label}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onClose(tab.id);
                 }}
-                className="grid h-6 w-6 flex-none place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -137,34 +161,15 @@ export function QueryTabStrip({
                 >
                   <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
-              </button>
+              </span>
             )}
           </div>
         );
       })}
       </div>
 
-      <button
-        type="button"
-        aria-label="New query tab"
-        title="New query tab"
-        onClick={onNew}
-        className="grid h-7 w-7 flex-none place-items-center rounded-md border border-transparent text-text-2 hover:bg-surface hover:text-text"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="h-4 w-4"
-          aria-hidden="true"
-        >
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
-
-      {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). */}
-      <div className="flex-1" />
+      {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). They
+          sit outside the scrollable tablist so they stay visible at any tab count. */}
       <button type="button" className={barButton} onClick={onOpenSaved}>
         <DocumentIcon />
         Saved queries

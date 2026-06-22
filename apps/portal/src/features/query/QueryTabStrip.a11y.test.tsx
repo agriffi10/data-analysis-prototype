@@ -37,20 +37,10 @@ function strip(activeTabId = 't1') {
 
 describe('QueryTabStrip accessibility (SPEC-045 FR-004)', () => {
   it('multi-tab strip has no violations', async () => {
-    // KNOWN LIMITATION (tracked for its own remediation): a closable tab nests its
-    // ✕ button inside the `role="tab"` element, which trips axe's
-    // `nested-interactive` rule. Fixing it correctly (decorative ✕ + Delete-key, or
-    // aria-owns reparenting) is a keyboard-model change beyond this testing spec's
-    // scope, so it is disabled here only — every other rule (incl. the
-    // aria-required-children fix that moved the +/Saved/History controls out of the
-    // tablist) still runs. Keyboard close already works via the Delete key.
-    await expectNoA11yViolations(strip(), {
-      ...COMPONENT_AXE_OPTIONS,
-      rules: {
-        ...COMPONENT_AXE_OPTIONS.rules,
-        'nested-interactive': { enabled: false },
-      },
-    });
+    // The closable tab's ✕ is now a decorative, non-focusable pointer affordance
+    // (not a nested <button>), so axe's `nested-interactive` rule runs clean here
+    // — keyboard close stays available via the Delete key on the focused tab.
+    await expectNoA11yViolations(strip(), COMPONENT_AXE_OPTIONS);
   });
 
   it('exposes a tablist whose only children are tabs, linked to one tabpanel', () => {

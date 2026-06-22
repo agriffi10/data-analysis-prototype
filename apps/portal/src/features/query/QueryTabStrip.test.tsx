@@ -50,13 +50,13 @@ describe('QueryTabStrip', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Monthly revenue/ }));
     expect(onSelect).toHaveBeenCalledWith('b');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close Monthly revenue' }));
+    fireEvent.click(screen.getByTitle('Close Monthly revenue'));
     expect(onClose).toHaveBeenCalledWith('b');
   });
 
   it('clicking × does not also select the tab', () => {
     const { onSelect, onClose } = setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Close Query 1' }));
+    fireEvent.click(screen.getByTitle('Close Query 1'));
     expect(onClose).toHaveBeenCalledWith('a');
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -71,9 +71,7 @@ describe('QueryTabStrip', () => {
 
   it('hides the close control when only one tab remains', () => {
     setup({ tabs: [tabs[0]] });
-    expect(
-      screen.queryByRole('button', { name: /Close/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Close/)).not.toBeInTheDocument();
   });
 
   it('renders the global Saved queries + History buttons', () => {
