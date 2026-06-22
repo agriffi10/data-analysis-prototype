@@ -73,6 +73,12 @@ before relying on them. Paths are relative to the repo root.
 | `formatPageTitle(page?)` | `lib/formatPageTitle.ts` | Pure title formatter → `"{page} — S3 File Portal"` or the app name alone (SPEC-031). |
 | `usePageTitle(page?)` | `hooks/usePageTitle.ts` | Sets `document.title` via `formatPageTitle`; call at the top of a page (SPEC-031). |
 
+## Test utilities (`apps/portal/src/test/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `expectNoA11yViolations(ui, axeOptions?)` + `ROUTE_AXE_OPTIONS` / `COMPONENT_AXE_OPTIONS` / `WCAG_TAGS` | `test/axe.ts` | Render a node and assert no `axe-core` violations; one centrally-defined WCAG A/AA config (`color-contrast` off — jsdom). Route preset enables landmark/heading/region rules; component preset disables `region`. Co-locate `*.a11y.test.tsx` checks; `npm run test:a11y` runs only those (SPEC-045). |
+
 ## Auth feature (`apps/portal/src/features/auth/`)
 
 | Symbol | File | Purpose |

@@ -137,3 +137,35 @@
 8. Announce dynamic changes via live regions, not focus stealing (4.1.3).
 9. Support 200% zoom and 320px reflow with relative units and responsive CSS (1.4.4, 1.4.10).
 10. Provide keyboard/pointer-simple alternatives to gestures, drag, and motion (2.5.1, 2.5.7, 2.5.4).
+
+---
+
+## Automated axe checks (SPEC-045)
+
+The Vitest suite runs `axe-core` (via `vitest-axe`) against rendered routes and
+components so the machine-detectable subset of these WCAG A/AA rules can't
+silently regress. It runs under the normal `npm run test -w apps/portal` (CI
+already gates on it); `npm run test:a11y -w apps/portal` runs only the axe specs.
+
+**Adding a check for new UI:** co-locate a `*.a11y.test.tsx` next to the code and
+call the shared helper:
+
+```ts
+import { expectNoA11yViolations, ROUTE_AXE_OPTIONS, COMPONENT_AXE_OPTIONS } from '../test/axe';
+
+// A whole page (landmarks/heading-order enabled):
+await expectNoA11yViolations(<MemoryRouter><MyPage /></MemoryRouter>, ROUTE_AXE_OPTIONS);
+
+// A primitive rendered outside any landmark (region rule off):
+await expectNoA11yViolations(<MyDialog open />, COMPONENT_AXE_OPTIONS);
+```
+
+The ruleset (WCAG `wcag2a`→`wcag22aa` tags) and the disabled rules live in one
+place, `apps/portal/src/test/axe.ts`. Routes also assert exactly one `<h1>` + a
+`<main>` via the DOM.
+
+**What axe does NOT cover** — it complements manual testing, it doesn't replace
+it. It can't see `color-contrast` (jsdom has no layout/computed style — verified
+visually instead, per the design tokens), real `:focus-visible` rendering, true
+focus order, screen-reader output, or whether copy/labels actually make sense.
+Keep doing manual keyboard + screen-reader passes for those.
