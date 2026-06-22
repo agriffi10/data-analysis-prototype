@@ -17,6 +17,11 @@ export type UseQueryHistoryResult = {
     queryExecutionId: string;
     patch: Partial<QueryHistoryEntry>;
   }) => Promise<QueryHistory>;
+  // SPEC-046: manual re-read of the store from S3 (invalidate + refetch the
+  // history key). `isRefreshing` is the in-flight state for the drawer's Refresh
+  // control (true only for a refetch, not the initial load).
+  refresh: () => Promise<unknown>;
+  isRefreshing: boolean;
 };
 
 // SPEC-034 FR-007: per-user query history list + append/update mutations. Disabled
@@ -76,5 +81,9 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
     error: query.isError ? (query.error as Error).message : null,
     appendEntry: append.mutateAsync,
     updateEntry: update.mutateAsync,
+    // invalidateQueries re-reads from S3 for the active observer and resolves once
+    // the refetch settles; a failed refetch keeps the last data (non-destructive).
+    refresh: () => queryClient.invalidateQueries({ queryKey: key }),
+    isRefreshing: query.isRefetching,
   };
 }
