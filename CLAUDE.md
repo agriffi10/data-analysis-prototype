@@ -70,6 +70,7 @@ Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own 
 - **Bucket 2 (shared-space):** access model = user-managed keys, **not yet designed/built**. Do NOT build the old daily-IAM-pipeline model.
 - **IaC:** OpenTofu (over CDK/Pulumi/SST); `infra/modules/` are bounded-context (app/base/auth/data/analytics); IAM policies are `.tftpl` templates under each module's `policies/`, rendered with `templatefile()`.
 - **Dev-unauth path:** `VITE_S3_DEV_UNAUTH=true` browses a test bucket read-only without auth (local only); production `/files` always uses the authenticated user-space bucket (SPEC-013).
+- **Notifications (SPEC-058→060):** per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}`). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead`/`delete`/`deleteAll`) go through a **dedicated** SQS → EventBridge Pipe → Step Function → writer Lambda; the browser only **reads** the file and enqueues (`sqs:SendMessage`). Anti-spoofing = user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim (`create` = trusted-producer-only). UI = header bell + slide-out drawer, 8/page. (Draft.)
 
 ## Out of Scope (don't build)
 

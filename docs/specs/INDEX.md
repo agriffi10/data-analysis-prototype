@@ -63,6 +63,9 @@ Add a row when a spec is created; update its status on completion (status only �
 | 055 — Shared-Space Query Results Routing & Save | Draft |
 | 056 — Shared-Space Access Model & Request Contract (membership tags + portal slots + LF) | Draft |
 | 057 — Shared Spaces in the File Browser | Draft |
+| 058 — Notifications Foundation Infrastructure (Write Pipeline + IAM) | Draft |
+| 059 — Notifications Data Layer (Read Service + Hook) | Draft |
+| 060 — Notifications UI (Header Button + Slide-out Panel) | Draft |
 
 ## Arcs
 
@@ -137,3 +140,20 @@ sidebar lists personal + shared spaces). **Navigation:** a third top-level tab *
 Connections) manages spaces; shared connections also appear inline in the Query database list and the Files space
 list; the workspace database is global. Three CONFIRM items in the decision record were resolved (cap = 10; valid
 user = exists in the User Pool; registry reuses the admin bucket).
+
+**Notifications arc (058 → 059 → 060)** — a per-user notifications inbox. A notification is `{id, message, read,
+timestamp}`; the inbox is one JSON array at `{username}/user_settings/notifications.json` in the existing user-space
+bucket. **Single-writer model:** every mutation — system `create` **and** user actions (`markRead`/`markAllRead`/
+`delete`/`deleteAll`) — is an SQS message drained by an **EventBridge Pipe → Step Function → notifications-writer
+Lambda** that read-modify-writes the doc under one privileged **writer role** (the only writer; caps to the most-recent
+`NOTIFICATIONS_MAX`). The browser **never writes** the file — it only reads it (direct `GetObject`) and enqueues
+user-action messages (`sqs:SendMessage` on the portal role). Anti-spoofing: user-action messages carry the caller's
+Cognito **ID token**; the writer derives the target `username` from the verified claim and ignores any body `username`
+(`create` is trusted-producer-only). This is a **dedicated** pipeline (its own SQS/Pipe/Step Function/Lambda/role),
+mirroring the SPEC-050 pattern but decoupled from shared-spaces. Build order: **058** = write pipeline + writer role +
+deploy/portal IAM + message contract (no UI); **059** = browser data layer (`notifications.service.ts` read +
+`enqueueNotificationAction`, `useNotifications` hook with optimistic mutations + unread count + prefetch-on-load; adds
+`@aws-sdk/client-sqs` + `VITE_NOTIFICATIONS_QUEUE_URL`); **060** = UI (header **bell** left of the username with an
+unread indicator, right slide-out `Drawer`, per-row unread marker like the active query tab, **8/page** Prev/Next
+`Pager`, mark-read/mark-all/delete/delete-all with optimistic update + confirm + toast). Reuses `Drawer`/`Pager`/
+`IconButton`/`Toast`/`ConfirmDialog`; 060 adds no IAM/infra.
