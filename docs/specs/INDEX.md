@@ -53,7 +53,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 045 — Automated Accessibility (axe) Test Suite | Completed |
 | 046 — Refresh History Button | Completed |
 | 047 — Workspace Database/Connection Selector | Completed |
-| 048 — Create View from Query + Views in Schema Browser | Draft |
+| 048 — Create View from Query + Views in Schema Browser | Completed |
 | 049 — Save Query Results to Workspace (replaces Download CSV) | Draft |
 | 050 — Shared-Space Foundation Infrastructure (Bucket 2 + control plane) | Draft |
 | 051 — Create Shared Connection | Draft |

@@ -433,4 +433,22 @@ describe('getTableDdl', () => {
     if (result.success) return;
     expect(result.error.message).toBe('boom');
   });
+
+  it('runs SHOW CREATE VIEW for a view (SPEC-048)', async () => {
+    const send = athenaFake({
+      statuses: ['SUCCEEDED'],
+      resultRows: [['CREATE VIEW foo AS'], ['SELECT 1']],
+    });
+    const result = await getTableDdl({
+      database: 'alice',
+      table: 'foo',
+      username: 'alice',
+      isView: true,
+    });
+    expect(result.success).toBe(true);
+    const start = send.mock.calls.find(
+      (c) => c[0].constructor.name === 'StartQueryExecutionCommand',
+    );
+    expect(start?.[0].input.QueryString).toBe('SHOW CREATE VIEW alice.foo');
+  });
 });

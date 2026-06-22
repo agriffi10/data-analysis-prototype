@@ -214,6 +214,10 @@ function TableRow({
   onInsert: (name: string) => void;
   actions: TableActions;
 }) {
+  // SPEC-048 FR-005/006: views (Glue VIRTUAL_VIEW) get a text badge and view-aware
+  // menu actions (SHOW CREATE VIEW / DROP VIEW; source-files stays disabled — a
+  // view has no S3 location, so canViewSourceFiles is already false).
+  const isView = table.tableType === 'VIRTUAL_VIEW';
   return (
     <div>
       <div className="group flex items-center gap-1 rounded-md pr-1 hover:bg-surface-2">
@@ -235,6 +239,11 @@ function TableRow({
             <path d="M3 9h18M9 4v16" />
           </svg>
           <span className="min-w-0 truncate">{table.name}</span>
+          {isView && (
+            <span className="flex-none rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-3">
+              View
+            </span>
+          )}
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -271,7 +280,7 @@ function TableRow({
               },
               {
                 key: 'drop',
-                label: 'Drop table',
+                label: isView ? 'Drop view' : 'Drop table',
                 onSelect: () => actions.onDropTable(table),
                 danger: true,
                 separatorBefore: true,
