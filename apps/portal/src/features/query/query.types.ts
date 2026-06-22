@@ -52,6 +52,19 @@ export type QueryHistory = {
   entries: QueryHistoryEntry[]; // newest-first, capped at QUERY_HISTORY_MAX
 };
 
+// SPEC-047: a database the signed-in user can target. Today the only entry is the
+// user's personal database (`kind:'personal'`, `database = username`); the
+// shared-spaces arc (SPEC-052) feeds `kind:'shared'` entries through the same
+// `useConnections` seam without changing consumers.
+export type ConnectionKind = 'personal' | 'shared';
+
+export type Connection = {
+  id: string; // 'personal' for the user's own DB; a shared-space id later
+  label: string; // display name ('My workspace', or the shared name)
+  database: string; // Glue database name targeted by queries
+  kind: ConnectionKind;
+};
+
 // SPEC-041 multi-tab editor. Each tab is an independent query window.
 export type QueryTab = {
   id: string; // stable unique id (crypto.randomUUID()); not the label

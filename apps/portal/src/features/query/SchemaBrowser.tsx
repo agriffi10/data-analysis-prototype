@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { cx } from '../../lib/cx';
 import { useSchema } from './useSchema';
 import { TableActionsMenu } from './TableActionsMenu';
-import type { GlueTableSummary } from './query.types';
+import type { Connection, GlueTableSummary } from './query.types';
 
 // SPEC-044: per-table actions, wired in QueryWorkspace.
 export type TableActions = {
@@ -37,20 +37,81 @@ function DatabaseIcon() {
   );
 }
 
+// SPEC-047 FR-003: the Database section is a switchable list of the databases the
+// user can query (personal now; shared later). The active one is conveyed by
+// `aria-current` + an sr-only "current database" label (never color-only); each is
+// a keyboard-operable button. With a single database it's one current item and no
+// switching is implied.
+function DatabaseList({
+  connections,
+  activeDatabase,
+  onSelectDatabase,
+}: {
+  connections: Connection[];
+  activeDatabase: string;
+  onSelectDatabase?: (database: string) => void;
+}) {
+  const items =
+    connections.length > 0
+      ? connections
+      : [
+          {
+            id: 'personal',
+            label: activeDatabase || '—',
+            database: activeDatabase,
+            kind: 'personal' as const,
+          },
+        ];
+  const single = items.length <= 1;
+
+  return (
+    <ul role="list" className="flex flex-col gap-0.5" aria-label="Databases">
+      {items.map((conn) => {
+        const active = conn.database === activeDatabase;
+        return (
+          <li key={conn.id}>
+            <button
+              type="button"
+              aria-current={active ? 'true' : undefined}
+              onClick={() => onSelectDatabase?.(conn.database)}
+              className={cx(
+                'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-base font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                active
+                  ? 'bg-accent-soft text-accent-text'
+                  : 'text-text-2 hover:bg-surface-2 hover:text-text',
+                single && 'cursor-default',
+              )}
+            >
+              <DatabaseIcon />
+              <span className="min-w-0 truncate">{conn.label}</span>
+              {active && <span className="sr-only">(current database)</span>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function Rail({
-  database,
+  connections,
+  activeDatabase,
+  onSelectDatabase,
   children,
 }: {
-  database: string;
+  connections: Connection[];
+  activeDatabase: string;
+  onSelectDatabase?: (database: string) => void;
   children: React.ReactNode;
 }) {
   return (
     <aside className={railClass} aria-label="Schema browser">
       <p className={labelClass}>Database</p>
-      <div className="flex items-center gap-2 rounded-md bg-accent-soft px-3 py-2 text-base font-semibold text-accent-text">
-        <DatabaseIcon />
-        <span className="min-w-0 truncate">{database || '—'}</span>
-      </div>
+      <DatabaseList
+        connections={connections}
+        activeDatabase={activeDatabase}
+        onSelectDatabase={onSelectDatabase}
+      />
       {children}
     </aside>
   );
@@ -62,10 +123,14 @@ function Rail({
 // SPEC-033 backfill) / error states are all friendly, never a raw throw.
 export function SchemaBrowser({
   database,
+  connections = [],
+  onSelectDatabase,
   onInsert,
   actions,
 }: {
-  database: string;
+  database: string; // the active database (drives useSchema + the run target)
+  connections?: Connection[]; // SPEC-047: selectable databases (default: single personal)
+  onSelectDatabase?: (database: string) => void; // SPEC-047: switch the active database
   onInsert: (name: string) => void;
   actions: TableActions;
 }) {
@@ -125,7 +190,11 @@ export function SchemaBrowser({
   }
 
   return (
-    <Rail database={database}>
+    <Rail
+      connections={connections}
+      activeDatabase={database}
+      onSelectDatabase={onSelectDatabase}
+    >
       <p className={labelClass}>Tables</p>
       {body}
     </Rail>

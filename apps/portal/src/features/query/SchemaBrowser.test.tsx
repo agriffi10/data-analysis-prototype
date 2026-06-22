@@ -142,4 +142,79 @@ describe('SchemaBrowser', () => {
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
+
+  // --- SPEC-047 database switcher ---
+
+  const connections = [
+    { id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal' as const },
+    { id: 's1', label: 'Project Alpha', database: 'project_alpha', kind: 'shared' as const },
+  ];
+
+  it('keys the schema query off the active database', () => {
+    mockUseSchema.mockReturnValue(tableSchema);
+    render(
+      <SchemaBrowser
+        database="project_alpha"
+        connections={connections}
+        onSelectDatabase={vi.fn()}
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />,
+    );
+    expect(mockUseSchema).toHaveBeenCalledWith('project_alpha');
+  });
+
+  it('lists the databases and marks the active one with aria-current', () => {
+    mockUseSchema.mockReturnValue(tableSchema);
+    render(
+      <SchemaBrowser
+        database="alice"
+        connections={connections}
+        onSelectDatabase={vi.fn()}
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />,
+    );
+    const active = screen.getByRole('button', { name: /My workspace/ });
+    expect(active).toHaveAttribute('aria-current', 'true');
+    // The non-active one carries no aria-current (state conveyed, not color-only).
+    expect(
+      screen.getByRole('button', { name: 'Project Alpha' }),
+    ).not.toHaveAttribute('aria-current');
+  });
+
+  it('selecting a different database calls onSelectDatabase', () => {
+    const onSelectDatabase = vi.fn();
+    mockUseSchema.mockReturnValue(tableSchema);
+    render(
+      <SchemaBrowser
+        database="alice"
+        connections={connections}
+        onSelectDatabase={onSelectDatabase}
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Project Alpha' }));
+    expect(onSelectDatabase).toHaveBeenCalledWith('project_alpha');
+  });
+
+  it('shows a single current item with only the personal database', () => {
+    mockUseSchema.mockReturnValue(tableSchema);
+    render(
+      <SchemaBrowser
+        database="alice"
+        connections={[connections[0]]}
+        onSelectDatabase={vi.fn()}
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />,
+    );
+    const dbList = screen.getByRole('list', { name: 'Databases' });
+    expect(within(dbList).getAllByRole('button')).toHaveLength(1);
+    expect(within(dbList).getByRole('button', { name: /My workspace/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
 });

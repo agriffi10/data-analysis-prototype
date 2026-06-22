@@ -19,6 +19,8 @@ import { useQueryResults } from './useQueryResults';
 import { useQueryHistory } from './useQueryHistory';
 import { useQueryTabs } from './useQueryTabs';
 import { useSavedQueries } from './useSavedQueries';
+import { useConnections } from './useConnections';
+import { useActiveDatabase } from './useActiveDatabase';
 import { invalidateSchema } from './useSchema';
 import { isSchemaChangingSql, sameSql } from './query.sql';
 import { SchemaBrowser } from './SchemaBrowser';
@@ -99,8 +101,15 @@ function TabExecutionPoller({
 export function QueryWorkspace() {
   const { user } = useAuth();
   const username = user?.username ?? '';
-  const database = username;
   const queryClient = useQueryClient();
+
+  // SPEC-047: the workspace targets one active database for all tabs (persisted,
+  // default = personal), chosen from the connections the user can query. The
+  // shared-spaces arc extends `useConnections` without touching this wiring.
+  const { connections } = useConnections(username || null);
+  const { activeDatabase, setActiveDatabase, fellBack, dismissFellBack } =
+    useActiveDatabase(username || null, connections);
+  const database = activeDatabase;
 
   const tabs = useQueryTabs(username);
   const { activeTab, activeTabId } = tabs;
@@ -493,6 +502,8 @@ export function QueryWorkspace() {
     <div className="flex min-w-0 flex-1">
       <SchemaBrowser
         database={database}
+        connections={connections}
+        onSelectDatabase={setActiveDatabase}
         onInsert={(name) => editorRef.current?.insertAtCursor(name)}
         actions={tableActions}
       />
@@ -531,6 +542,21 @@ export function QueryWorkspace() {
           aria-labelledby={`query-tab-${activeTabId}`}
           className="flex min-w-0 flex-1 flex-col"
         >
+        {/* SPEC-047 FR-002: a persisted database that's no longer available resets
+            to the personal workspace — surfaced non-blockingly here. */}
+        {fellBack && (
+          <div className="px-5 pt-4">
+            <Banner
+              variant="info"
+              role="status"
+              title="Switched to your workspace"
+              onDismiss={dismissFellBack}
+            >
+              The database you were querying is no longer available, so we switched
+              back to your personal workspace.
+            </Banner>
+          </div>
+        )}
         <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
           <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-sm text-text-2">
             <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
