@@ -21,9 +21,11 @@ access control* map the username claim to a `username` principal tag **server-si
 and the role's policy scopes access with `${aws:PrincipalTag/username}`. No per-user roles.
 
 **Two buckets.** Bucket 1 (user-space) is self-contained — IAM enforces per-user prefix isolation by
-the Cognito username. Bucket 2 (shared-space) is governed by a **user-managed access-key model that
-is not yet designed or built** — do not implement anything for it (the old daily-IAM-pipeline design
-is abandoned).
+the Cognito username. Bucket 2 (shared-space, `dat-prod-shared-space`) now has a **designed model**
+(pending the implementation arc): a privileged **SQS → EventBridge Pipe → Step Function** control plane
+provisions named shared spaces, with access gated by a **membership principal tag** on the shared role.
+See `docs/shared-spaces-architecture.md` for the decision record. The old daily-IAM-pipeline and
+"user-managed access keys" placeholder are both abandoned/superseded.
 
 ## Authentication Flow (summary)
 
@@ -67,11 +69,15 @@ Identity Pool stamped, so one statement scopes every user with no per-user polic
 Frontend derives the prefix from `getCurrentUser().username` → `${username}/`.
 
 ### Bucket 2 — Shared Space
-Status: access model **not yet specced or built** (user-managed access keys; likely needs a backend
-service). Prefix structure stays the same concept; the enforcement mechanism is TBD. Connection
-configs will be stored as JSON in the user's own Bucket-1 prefix
-(`{username}/.config/connections.json`) — no separate datastore. A missing config file is an **empty
-state, not an error**.
+Status: **designed, not yet built** — see `docs/shared-spaces-architecture.md` (decision record) and the
+SPEC-050+ arc. Model: user-created, uniquely-named, non-renameable shared connections (name = shared S3
+prefix = shared Glue DB); a privileged **SQS → EventBridge Pipe → Step Function** pipeline does all
+mutations (the browser only gains `sqs:SendMessage`); access is gated by a **membership principal tag**
+on the shared role (bounded slots; LF grants the role per shared DB, IAM tag is the gate — same shape as
+the personal `username`-tag model). Source of truth is an **S3 control-object registry** (pipeline-only);
+each user's `{username}/user_settings/shared-connections.json` is a UI **cache** the pipeline writes (a
+missing cache is an **empty state, not an error**). Query results on a shared DB route to
+`dat-prod-shared-space/{name}/athenaresults/{username}/` (delete-denied).
 
 ### Analytics (SPEC-032→036)
 Per-user Glue-database isolation works exactly like S3 isolation — the **`username` IAM principal
@@ -123,6 +129,76 @@ and current values come from `tofu -chdir=infra output`.
 
 > **CORS:** both browser-facing buckets need CORS or all SDK calls fail — the most common first-time
 > setup issue. Managed in the bucket modules' `.tftpl`/`s3.tf`.
+
+### Deploy-role IAM — adding a new resource type
+
+The deploy role **self-grants** (in `module.base`) the permissions it then uses later in the *same*
+`tofu apply`. Adding a new resource type to the IaC repeatedly surfaces the same traps — work through
+this list before merging:
+
+- **Self-grant propagation.** A freshly-granted permission may not have propagated by the time a new
+  resource uses it. Gate first-use resources on a `time_sleep` (~60s). Caveat: a `time_sleep` with no
+  `triggers` runs **once** at creation and never re-fires — so adding an Nth resource that `depends_on`
+  an existing sleep gets zero delay and can hit `AccessDenied` on the **first** apply. Accepted fix:
+  **re-run the deploy** (`module.base` attaches the policy first, so the grant is propagated by the
+  re-run). Expect one first-apply failure when extending an existing module, then a clean re-run.
+- **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
+  is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
+  `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify scopability cheaply with
+  `aws iam simulate-custom-policy --action-names <a> --resource-arns <arn>` (`allowed` vs `implicitDeny`)
+  before spending a CI round.
+- **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
+  the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
+  statement to a list of both.
+- **`s3:ListBucketMultipartUploads` does not support `s3:prefix`** — under a prefix condition it is
+  always an implicit deny (a dead grant), and it would leak other users' in-progress uploads. Don't
+  grant it. The prefix-scopable multipart actions are `s3:AbortMultipartUpload` /
+  `s3:ListMultipartUploadParts`; create/upload/complete ride on `s3:PutObject`.
+- **Refresh-before-policy-update deadlock.** Once a resource is in state, `tofu apply` **refreshes**
+  it (using the role's *current* policy) before applying the policy fix — so a scope fix that the
+  refresh itself needs can never land. Break-glass: temporarily attach the missing read on `*` to the
+  role out-of-band (`aws iam put-role-policy`), let the apply reconcile the real policy, then remove
+  the temp policy.
+- **Resource policies (bucket/KMS) can lock out the deploy role too.** Always **except the deploy role**
+  from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
+  provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same
+  break-glass shape (`put-bucket-policy` out-of-band, then merge).
+- **`depends_on` defers data sources (benign plan noise).** `module.auth`/`module.data` declare
+  `depends_on = [module.base]`, so any PR touching `module.base` makes their data sources unknown at
+  plan → cascades to `(known after apply)` and can show the identity-pool principal tag as
+  *force-replace*. At apply these resolve to identical values (no-op / identical recreate). This is
+  **not** drift — don't panic at the plan.
+- **An unknown ARN inside `compact()`/a list silently drops the change.** A cross-module ARN that is
+  unknown-at-plan (e.g. a role created in the same apply) inside `compact()` made OpenTofu plan *no*
+  change to a list attribute — the value was never written. **Rule:** any cross-module ARN feeding a
+  list/set attribute must be a **constructed string in root `locals`** (so it's known at plan time);
+  apply ordering is still preserved via the `depends_on` chain.
+- **Lake Formation enforcement hides the catalog from non-admins.** After LF enforcement, a principal
+  with no LF grant sees empty `get-databases` / `AccessDenied` on `list-permissions` — that's the
+  isolation working, not a failure. Verify per-user provisioning via the post-confirmation Lambda's
+  CloudWatch logs or by querying as an LF admin (only the deploy role + post-confirmation exec role
+  are LF admins).
+
+### Lambda code/infra split (established SPEC-012)
+
+Lambda **code** and **infrastructure** are deliberately separated; `tofu apply` never touches code:
+
+- **Source** lives at repo-root `lambdas/<function-name>/<module>.py` (Python) with a shared
+  `lambdas/requirements.txt`. Use **underscores** in the `.py` filename (e.g. `pre_signup.py`,
+  handler `pre_signup.handler`) — a hyphenated filename can't be imported as a module.
+- **Terraform owns only the function infrastructure** (function resource, exec role, log group,
+  trigger wiring) and bootstraps the function with an inline `archive_file` placeholder +
+  `lifecycle { ignore_changes = [filename, source_code_hash] }`.
+- **GitHub Actions owns the code.** `.github/workflows/deploy-lambdas.yml` (matrix over functions)
+  builds each package, uploads to the artifacts bucket (`infra/modules/lambda-artifacts/`) at
+  `<name>/<git-sha>.zip`, and runs `update-function-code --publish`. Triggered on push to `main`
+  touching `lambdas/**`, plus manual dispatch.
+- **IAM trust + permission policies are `.tftpl` templates** under the owning module's `policies/`,
+  rendered with `templatefile()` — **no inline `jsonencode` IAM policies** anywhere.
+- Adding a Lambda = create `lambdas/<name>/`, add function infra in the owning module
+  (placeholder + `ignore_changes`), add a `{ name: <name> }` row to the `deploy-lambdas.yml` matrix,
+  and extend the deploy-role policy for any new actions. The first `deploy-infra.yml` apply must
+  precede `deploy-lambdas.yml` (function + bucket must exist first).
 
 ## Deferred / Future Scope
 

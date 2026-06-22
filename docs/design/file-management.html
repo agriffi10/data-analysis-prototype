@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>S3 File Portal — Design Mockup</title>
+<title>S3 File Portal — File Management Mockup</title>
 <style>
   /* ============================================================
      DESIGN TOKENS  (mirror docs/design/design-system.md)
@@ -324,10 +324,6 @@
   <!-- ============ TOPBAR ============ -->
   <header class="topbar">
     <div class="brand"><span class="logo">F</span> FilePortal</div>
-    <label class="search">
-      <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-      <input placeholder="Search in alice/ …" />
-    </label>
     <div class="spacer"></div>
     <button class="icon-btn" title="Help">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7"/><path d="M12 17h.01"/></svg>
@@ -340,26 +336,29 @@
 
     <!-- ---- SIDEBAR ---- -->
     <aside class="sidebar">
+      <!-- One Spaces list (SPEC-057): personal space + shared connections together; selecting one browses it.
+           Managing spaces (create/delete/members) lives in the Connections top-level tab (SPEC-052). -->
       <div class="nav-label">My Files</div>
       <a class="nav-item active">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        alice <span class="count">user space</span>
+        alice <span class="count">personal</span>
+      </a>
+      <a class="nav-item">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        marketing_data
+        <span style="margin-left:auto;width:7px;height:7px;border-radius:999px;background:var(--color-success)" title="Active"></span>
+      </a>
+      <a class="nav-item">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        sales_2026
+        <span style="margin-left:auto;width:7px;height:7px;border-radius:999px;background:var(--color-success)" title="Active"></span>
+      </a>
+      <a class="nav-item" style="opacity:.55;cursor:default" title="Provisioning — not ready to browse yet">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        q3_imports
+        <span style="margin-left:auto;width:7px;height:7px;border-radius:999px;background:var(--color-warning)" title="Provisioning"></span>
       </a>
 
-      <hr/>
-      <div class="nav-label">Shared Connections</div>
-      <a class="nav-item">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>
-        Project Alpha Data
-      </a>
-      <a class="nav-item">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>
-        Project Beta Reports
-      </a>
-      <button class="add-conn">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        Add connection
-      </button>
     </aside>
 
     <!-- ---- MAIN ---- -->
