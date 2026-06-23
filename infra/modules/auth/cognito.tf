@@ -123,11 +123,30 @@ resource "aws_cognito_user_pool_client" "spa" {
   ]
 }
 
-# ── Hosted UI Domain ──────────────────────────────────────────────────────────
+# ── Hosted UI Domain (Managed Login v2) ───────────────────────────────────────
 # Cognito-managed domain hosting the login/signup pages. Full URL is
 # <prefix>.auth.<region>.amazoncognito.com (exported from outputs.tf).
-
+#
+# managed_login_version = 2 serves the modern **Managed Login** UI instead of the
+# classic Hosted UI. The classic UI did not reliably complete the OAuth redirect
+# after a *self-service signup* email-code confirmation — the user landed
+# confirmed-but-not-signed-in with no redirect back to the app. Managed Login
+# carries the signup → confirm → auto-sign-in → redirect leg through to the
+# callback, so account creation finishes signed-in (Amplify exchanges the
+# returning code; the SPA then routes to /files). Requires a managed-login
+# branding for the client (below).
 resource "aws_cognito_user_pool_domain" "portal" {
-  domain       = local.domain_prefix
-  user_pool_id = aws_cognito_user_pool.portal.id
+  domain                = local.domain_prefix
+  user_pool_id          = aws_cognito_user_pool.portal.id
+  managed_login_version = 2
 }
+
+# Managed Login also requires a branding style per app client, or the v2 pages
+# fail to render. The native `aws_cognito_managed_login_branding` resource only
+# exists in the AWS provider's 6.x line; this repo is pinned to `~> 5.0` (which
+# DOES support `managed_login_version` above but NOT the branding resource).
+# Rather than take a risky provider major-version bump for one resource, the
+# Cognito-provided default branding is ensured imperatively in CI after apply
+# (deploy-infra.yml) — the same "Terraform owns infra, CI owns imperative
+# deploy steps" split used for Lambda code. Revisit (move to the native
+# resource) if/when the provider is upgraded to 6.x.
