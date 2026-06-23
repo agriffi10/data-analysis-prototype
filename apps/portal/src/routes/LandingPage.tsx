@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth';
 import { takeReturnPath } from '../lib/returnPath';
 import { BrandMark } from '../components/BrandMark';
@@ -191,12 +191,19 @@ const FEATURES = [
 // nav (the app Header is suppressed on '/' by RootLayout) and makes no S3 calls.
 export default function LandingPage() {
   const { status, signIn, signUp } = useAuth();
+  const navigate = useNavigate();
   usePageTitle();
 
-  // An authenticated visitor never sees the landing page — send them to the
-  // route they originally requested, or to /files by default.
-  if (status === 'authenticated') {
-    return <Navigate to={takeReturnPath() ?? '/files'} replace />;
+  const isAuthed = status === 'authenticated';
+
+  // A visitor who just completed an auth round-trip is sent on to the route they
+  // originally requested (captured by the auth gate) or the /files default both
+  // signIn and signUp seed. A visitor who is simply already signed in and opened
+  // the landing page has no pending return path — they stay here and see a
+  // "Go to Dashboard" entry point instead of the sign-in/sign-up buttons.
+  if (isAuthed) {
+    const target = takeReturnPath();
+    if (target) return <Navigate to={target} replace />;
   }
 
   return (
@@ -226,20 +233,32 @@ export default function LandingPage() {
           </div>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              className="!h-10 !px-5"
-              onClick={() => void signIn()}
-            >
-              Sign in
-            </Button>
-            <Button
-              variant="primary"
-              className="!h-10 !px-5"
-              onClick={() => signUp()}
-            >
-              Create account
-            </Button>
+            {isAuthed ? (
+              <Button
+                variant="primary"
+                className="!h-10 !px-5"
+                onClick={() => navigate('/files')}
+              >
+                Go to Dashboard
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  className="!h-10 !px-5"
+                  onClick={() => void signIn()}
+                >
+                  Sign in
+                </Button>
+                <Button
+                  variant="primary"
+                  className="!h-10 !px-5"
+                  onClick={() => void signUp()}
+                >
+                  Create account
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -262,20 +281,42 @@ export default function LandingPage() {
             isolation enforced at the infrastructure layer.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
-            <Button variant="primary" size="lg" onClick={() => signUp()}>
-              Create your account
-            </Button>
-            <Button variant="default" size="lg" onClick={() => void signIn()}>
-              Sign in
-            </Button>
+            {isAuthed ? (
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => navigate('/files')}
+              >
+                Go to Dashboard
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => void signUp()}
+                >
+                  Create your account
+                </Button>
+                <Button
+                  variant="default"
+                  size="lg"
+                  onClick={() => void signIn()}
+                >
+                  Sign in
+                </Button>
+              </>
+            )}
           </div>
-          <div className="mt-5 flex items-center justify-center gap-2 text-sm text-text-3">
-            <span className="text-success">
-              <CheckIcon />
-            </span>
-            Sign-in and sign-up are handled by AWS Cognito — we never see your
-            password.
-          </div>
+          {!isAuthed && (
+            <div className="mt-5 flex items-center justify-center gap-2 text-sm text-text-3">
+              <span className="text-success">
+                <CheckIcon />
+              </span>
+              Sign-in and sign-up are handled by AWS Cognito — we never see your
+              password.
+            </div>
+          )}
 
           <AppPreview />
         </div>
@@ -323,20 +364,32 @@ export default function LandingPage() {
               in under a minute.
             </p>
             <div className="flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => signUp()}
-                className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
-              >
-                Create account
-              </button>
-              <button
-                type="button"
-                onClick={() => void signIn()}
-                className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20"
-              >
-                Sign in
-              </button>
+              {isAuthed ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('/files')}
+                  className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
+                >
+                  Go to Dashboard
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void signUp()}
+                    className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
+                  >
+                    Create account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void signIn()}
+                    className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20"
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

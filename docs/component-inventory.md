@@ -26,7 +26,8 @@ before relying on them. Paths are relative to the repo root.
 | `queryClient` | `lib/queryClient.ts` | App-wide TanStack `QueryClient` (staleTime 30s, retry 1, no refetch-on-focus). |
 | `invalidateListing(client, bucket, prefix)` | `lib/queryClient.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). |
 | `isAmplifyConfigured` | `lib/amplify.ts` | Boolean — whether Cognito/Amplify env is configured. |
-| `setReturnPath(path)` / `takeReturnPath()` | `lib/returnPath.ts` | Stash + consume a post-login return path. |
+| `setReturnPath(path)` / `setReturnPathIfAbsent(path)` / `takeReturnPath()` | `lib/returnPath.ts` | Stash (always / only-if-empty) + consume a post-login return path. `IfAbsent` seeds a default (e.g. `/files`) at sign-in/up without clobbering an auth-gate-captured path. |
+| `useCopyToClipboard(resetMs?)` | `lib/useCopyToClipboard.ts` | `{copied, copy(text)}` — writes to the clipboard and flags a transient confirm; never throws (insecure-context/denied = silent no-op). |
 
 ## Shared types (`apps/portal/src/types/`)
 
@@ -56,7 +57,8 @@ before relying on them. Paths are relative to the repo root.
 | `Drawer` | `components/Drawer.tsx` | Right slide-over (SPEC-036): scrim + 440px panel + header (title, `headerAccessory`, close button) + scrollable body + optional `footer`; `closeOnEscape` yields Escape to a nested dialog. Used by history / saved-queries / upload drawers. (react-best-practices pass) |
 | `Pager` | `components/Pager.tsx` | Prev / range-label / Next pager (SPEC-038 styling), `nextBusy` "Loading…" state. Shared by the query-results table + history drawer. (react-best-practices pass) |
 | `LoadingState` | `components/LoadingState.tsx` | Centered `role="status"` "Loading…" indicator (route Suspense fallback + auth gate). (react-best-practices pass) |
-| `FolderIcon` / `UploadIcon` / `DocumentIcon` | `components/icons.tsx` | Shared inline SVG icons (no icon lib); `className` for size/color; `FolderIcon` takes `filled`. (react-best-practices pass) |
+| `FolderIcon` / `UploadIcon` / `DocumentIcon` / `CopyIcon` / `CheckIcon` | `components/icons.tsx` | Shared inline SVG icons (no icon lib); `className` for size/color; `FolderIcon` takes `filled`. (react-best-practices pass) |
+| `CopyButton` | `components/CopyButton.tsx` | Icon-only copy-to-clipboard button; `value` + `label` (→ `Copy {label}` aria-label), swaps to a check + polite live-region announce on success. Built on `useCopyToClipboard`. |
 
 ## Shared hooks (`apps/portal/src/hooks/`)
 

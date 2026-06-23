@@ -18,6 +18,7 @@ vi.mock('./auth.service', () => ({
   startSignOut: vi.fn(),
 }));
 vi.mock('../../lib/amplify', () => ({ isAmplifyConfigured: true }));
+vi.mock('../../lib/returnPath', () => ({ setReturnPathIfAbsent: vi.fn() }));
 vi.mock('aws-amplify/utils', () => ({ Hub: { listen: vi.fn() } }));
 
 import {
@@ -35,7 +36,7 @@ const mockStartSignIn = startSignIn as unknown as MockedFunction<
   () => Promise<unknown>
 >;
 const mockStartSignUp = startSignUp as unknown as MockedFunction<
-  () => unknown
+  () => Promise<unknown>
 >;
 const mockStartSignOut = startSignOut as unknown as MockedFunction<
   () => Promise<unknown>
@@ -52,7 +53,7 @@ function TestConsumer() {
       <span data-testid="username">{user?.username ?? ''}</span>
       <span data-testid="error">{error ?? ''}</span>
       <button onClick={() => void signIn()}>signin</button>
-      <button onClick={() => signUp()}>signup</button>
+      <button onClick={() => void signUp()}>signup</button>
       <button onClick={() => void signOut()}>signout</button>
     </div>
   );
@@ -124,7 +125,7 @@ describe('AuthProvider', () => {
 
   it('signUp() delegates to the sign-up service', async () => {
     mockGetUser.mockResolvedValue({ success: false, error: { message: 'none' } });
-    mockStartSignUp.mockReturnValue({ success: true, data: undefined });
+    mockStartSignUp.mockResolvedValue({ success: true, data: undefined });
 
     renderProvider();
     await waitFor(() =>
@@ -137,9 +138,9 @@ describe('AuthProvider', () => {
     expect(mockStartSignUp).toHaveBeenCalledOnce();
   });
 
-  it('surfaces an error when sign-up is not configured, without throwing', async () => {
+  it('surfaces an error when sign-up fails, without throwing', async () => {
     mockGetUser.mockResolvedValue({ success: false, error: { message: 'none' } });
-    mockStartSignUp.mockReturnValue({
+    mockStartSignUp.mockResolvedValue({
       success: false,
       error: { message: 'Sign-up is not configured.' },
     });
