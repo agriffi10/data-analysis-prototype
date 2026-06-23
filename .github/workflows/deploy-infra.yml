@@ -111,3 +111,30 @@ jobs:
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+
+      # Managed Login (managed_login_version = 2, set in module.auth) needs a
+      # branding style per app client or the v2 login/signup pages fail to render.
+      # The native aws_cognito_managed_login_branding resource only exists in the
+      # AWS provider's 6.x line; this repo is pinned to ~> 5.0, so we ensure
+      # Cognito's provided default here (CI owns this imperative step, the same
+      # split used for Lambda code). Idempotent: a re-run hits
+      # ManagedLoginBrandingExistsException, which we treat as success; any other
+      # failure (e.g. AccessDenied) fails the deploy rather than masking it.
+      - name: Ensure Managed Login default branding
+        working-directory: infra
+        run: |
+          USER_POOL_ID=$(tofu output -raw cognito_user_pool_id)
+          CLIENT_ID=$(tofu output -raw cognito_user_pool_client_id)
+          if aws cognito-idp create-managed-login-branding \
+               --user-pool-id "$USER_POOL_ID" \
+               --client-id "$CLIENT_ID" \
+               --use-cognito-provided-values \
+               --region "${{ vars.AWS_REGION }}" >/dev/null 2>err.log; then
+            echo "Created Cognito-provided default Managed Login branding."
+          elif grep -q "ManagedLoginBrandingExistsException" err.log; then
+            echo "Managed Login branding already exists — nothing to do."
+          else
+            echo "Failed to ensure Managed Login branding:" >&2
+            cat err.log >&2
+            exit 1
+          fi
