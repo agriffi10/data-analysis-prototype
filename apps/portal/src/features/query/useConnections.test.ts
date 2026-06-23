@@ -3,12 +3,12 @@ import { renderHook } from '@testing-library/react';
 import { useConnections } from './useConnections';
 
 describe('useConnections (SPEC-047 FR-001)', () => {
-  it('returns exactly one personal connection for a signed-in user', () => {
+  it('returns exactly one personal connection labelled with the database name', () => {
     const { result } = renderHook(() => useConnections('alice'));
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
     expect(result.current.connections).toEqual([
-      { id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal' },
+      { id: 'personal', label: 'alice', database: 'alice', kind: 'personal' },
     ]);
   });
 

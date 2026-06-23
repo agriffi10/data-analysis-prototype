@@ -60,7 +60,7 @@ export type ConnectionKind = 'personal' | 'shared';
 
 export type Connection = {
   id: string; // 'personal' for the user's own DB; a shared-space id later
-  label: string; // display name ('My workspace', or the shared name)
+  label: string; // display name (the database name for personal; the shared-space name later)
   database: string; // Glue database name targeted by queries
   kind: ConnectionKind;
 };
