@@ -14,6 +14,7 @@ import {
   startSignOut,
 } from './auth.service';
 import { isAmplifyConfigured } from '../../lib/amplify';
+import { setReturnPathIfAbsent } from '../../lib/returnPath';
 import type { AuthStatus, AuthUser } from './auth.types';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -83,13 +84,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async () => {
     setError(null);
+    // Default the post-auth landing to /files without clobbering a specific
+    // protected path the auth gate may have captured (returnPath, SPEC-013/029).
+    setReturnPathIfAbsent('/files');
     const result = await startSignIn();
     if (!result.success) setError(result.error.message);
   }, []);
 
-  const signUp = useCallback(() => {
+  const signUp = useCallback(async () => {
     setError(null);
-    const result = startSignUp();
+    setReturnPathIfAbsent('/files');
+    const result = await startSignUp();
     if (!result.success) setError(result.error.message);
   }, []);
 

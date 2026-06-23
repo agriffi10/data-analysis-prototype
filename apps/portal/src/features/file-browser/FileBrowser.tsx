@@ -18,6 +18,7 @@ import { useUploadQueue } from './uploadQueueContext';
 import { CreateFolderDialog } from './CreateFolderDialog';
 import { CollisionPrompt } from './CollisionPrompt';
 import { MetadataPanel } from './MetadataPanel';
+import { FolderDetailsPanel } from './FolderDetailsPanel';
 import { HIDDEN_BROWSER_FOLDERS, isRootFolderNamed } from './protectedFolders';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { OperationSummaryBanner } from './OperationSummaryBanner';
@@ -164,12 +165,14 @@ const COL_ACTIONS = 'w-44';
 function FolderRow({
   folder,
   onClick,
+  onDetails,
   selectable,
   isSelected,
   onToggleSelect,
 }: {
   folder: S3FolderItem;
   onClick: () => void;
+  onDetails: (folder: S3FolderItem) => void;
   selectable: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
@@ -206,9 +209,17 @@ function FolderRow({
       <span className={`${COL_TYPE} pr-4 text-right`}>
         <Badge>Folder</Badge>
       </span>
-      {/* Folders carry no per-row actions (Rename/Delete/Move/Copy live in the
-          selection toolbar); empty cell keeps columns aligned with file rows. */}
-      <span className={`${COL_ACTIONS} pr-4`} />
+      {/* Always-visible Details (mirrors file rows). Rename/Delete/Move/Copy
+          still live in the selection toolbar. */}
+      <span className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}>
+        <button
+          className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          onClick={() => onDetails(folder)}
+          aria-label={`Details for ${folder.name}`}
+        >
+          Details
+        </button>
+      </span>
     </li>
   );
 }
@@ -485,9 +496,10 @@ function FileBrowserContent({
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // SPEC-017: the file whose read-only metadata drawer is open (null = closed).
-  // Only files reach this — folders use FolderRow and the prefix marker is
-  // already filtered out of `files`, so neither exposes a Details action.
   const [detailsFile, setDetailsFile] = useState<S3FileItem | null>(null);
+  // The folder whose read-only details drawer is open (null = closed). Folders
+  // carry no HeadObject metadata, so this renders synchronously from the listing.
+  const [detailsFolder, setDetailsFolder] = useState<S3FolderItem | null>(null);
 
   async function handleDownload(file: S3FileItem) {
     setDownloadingKey(file.key);
@@ -881,6 +893,7 @@ function FileBrowserContent({
               key={folder.prefix}
               folder={folder}
               onClick={() => setPrefix(folder.prefix)}
+              onDetails={setDetailsFolder}
               selectable={canModify}
               isSelected={selection.isSelected(folder.prefix)}
               onToggleSelect={() =>
@@ -915,6 +928,16 @@ function FileBrowserContent({
           file={detailsFile}
           rootPrefix={rootPrefix}
           onClose={() => setDetailsFile(null)}
+        />
+      )}
+
+      {/* Folder details drawer — synchronous, no metadata fetch */}
+      {detailsFolder && (
+        <FolderDetailsPanel
+          bucket={bucket}
+          folder={detailsFolder}
+          rootPrefix={rootPrefix}
+          onClose={() => setDetailsFolder(null)}
         />
       )}
 

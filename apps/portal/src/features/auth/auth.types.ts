@@ -10,6 +10,6 @@ export type AuthContextValue = {
   user: AuthUser | null;
   error: string | null; // last auth error, surfaced non-blockingly
   signIn: () => Promise<void>;
-  signUp: () => void; // synchronous full-page redirect to Hosted UI signup
+  signUp: () => Promise<void>; // Hosted UI redirect (Amplify-managed), same flow as signIn
   signOut: () => Promise<void>;
 };

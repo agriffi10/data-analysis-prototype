@@ -71,6 +71,25 @@ describe('MetadataPanel', () => {
     expect(screen.getByText('abc123')).toBeInTheDocument();
   });
 
+  it('shows the Full Cloud Path as an s3:// URI (not an ARN)', () => {
+    renderPanel();
+    expect(screen.getByText('Full Cloud Path')).toBeInTheDocument();
+    expect(
+      screen.getByText('s3://us/alice/docs/report.pdf'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^arn:aws:s3/)).not.toBeInTheDocument();
+  });
+
+  it('offers copy buttons for the path and the full cloud path', () => {
+    renderPanel();
+    expect(
+      screen.getByRole('button', { name: /copy path/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /copy full cloud path/i }),
+    ).toBeInTheDocument();
+  });
+
   it('shows size both human-readable and as exact bytes', () => {
     renderPanel();
     expect(

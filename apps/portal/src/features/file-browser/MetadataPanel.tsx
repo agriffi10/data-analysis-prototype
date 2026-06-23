@@ -3,6 +3,8 @@ import type { ObjectMetadata } from './fileBrowser.types';
 import type { S3FileItem } from '../../types/s3.types';
 import { Drawer } from '../../components/Drawer';
 import { formatSize } from './fileBrowser.format';
+import { relativePath } from './fileBrowser.paths';
+import { DetailField } from './DetailField';
 
 type Props = {
   bucket: string;
@@ -10,25 +12,6 @@ type Props = {
   rootPrefix?: string; // stripped from the key to show a user-relative path
   onClose: () => void;
 };
-
-// Path shown to the user: the key with the user-root prefix stripped, so the
-// raw prefix segment (e.g. the username) is never surfaced (SPEC-013).
-function relativePath(key: string, rootPrefix?: string): string {
-  return rootPrefix && key.startsWith(rootPrefix)
-    ? key.slice(rootPrefix.length)
-    : key;
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border-b border-border-2 py-3 last:border-0">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-text-3">
-        {label}
-      </dt>
-      <dd className="mt-1 break-all text-sm text-text">{value}</dd>
-    </div>
-  );
-}
 
 function MetadataFields({
   metadata,
@@ -45,24 +28,29 @@ function MetadataFields({
   return (
     <>
       <dl>
-        <Field label="Name" value={file.name} />
-        <Field label="Path" value={relativePath(metadata.key, rootPrefix)} />
-        {/* The unambiguous, fully-qualified S3 address for this object. */}
-        <Field
-          label="Full object address"
-          value={`arn:aws:s3:::${bucket}/${metadata.key}`}
+        <DetailField label="Name" value={file.name} />
+        <DetailField
+          label="Path"
+          value={relativePath(metadata.key, rootPrefix)}
+          copyLabel="path"
         />
-        <Field
+        {/* The unambiguous, fully-qualified S3 URI for this object. */}
+        <DetailField
+          label="Full Cloud Path"
+          value={`s3://${bucket}/${metadata.key}`}
+          copyLabel="full cloud path"
+        />
+        <DetailField
           label="Size"
           value={`${formatSize(metadata.size)} (${metadata.size.toLocaleString()} bytes)`}
         />
-        <Field label="Type" value={metadata.contentType} />
-        <Field
+        <DetailField label="Type" value={metadata.contentType} />
+        <DetailField
           label="Last modified"
           value={metadata.lastModified.toLocaleString()}
         />
-        <Field label="ETag" value={metadata.etag.replace(/"/g, '')} />
-        <Field label="Storage class" value={metadata.storageClass} />
+        <DetailField label="ETag" value={metadata.etag.replace(/"/g, '')} />
+        <DetailField label="Storage class" value={metadata.storageClass} />
       </dl>
 
       <div className="mt-6">
@@ -74,7 +62,7 @@ function MetadataFields({
         ) : (
           <dl className="mt-2">
             {customEntries.map(([k, v]) => (
-              <Field key={k} label={k} value={v} />
+              <DetailField key={k} label={k} value={v} />
             ))}
           </dl>
         )}

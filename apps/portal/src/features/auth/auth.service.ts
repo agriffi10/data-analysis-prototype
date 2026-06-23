@@ -58,37 +58,18 @@ export async function startSignIn(): Promise<ServiceResult<void>> {
 }
 
 /**
- * Begins Hosted UI sign-up via a full-page navigation to the Cognito `/signup`
- * endpoint. Amplify's `signInWithRedirect` only targets the login screen, so the
- * authorization-code URL is built by hand from the same env config Amplify uses
- * (domain, SPA client id, app URL) — `response_type=code` + the openid/email/
- * profile scopes, matching the User Pool client (SPEC-006). Returns an error
- * instead of navigating to a broken URL when that config is missing. Synchronous:
- * on success the browser leaves the page, so nothing after the call runs.
+ * Begins Hosted UI account creation. Delegates to the same Amplify-managed
+ * `signInWithRedirect` flow as sign-in (the Hosted UI login page links to
+ * "Sign up"). A previous version hand-built the Cognito `/signup` URL to deep-link
+ * the signup form, but because Amplify never initiated that flow it had no stored
+ * PKCE verifier/state, so the authorization code returned by Cognito was never
+ * exchanged — the user landed signed-out and had to sign in again. Routing through
+ * Amplify lets it own the round-trip end-to-end, so account creation completes
+ * signed-in. Cognito's classic Hosted UI exposes no authorize-endpoint param to
+ * open the signup form directly, so we accept the login screen as the entry point.
  */
-export function startSignUp(): ServiceResult<void> {
-  const domain = import.meta.env.VITE_COGNITO_DOMAIN as string | undefined;
-  const clientId = import.meta.env.VITE_COGNITO_USER_POOL_CLIENT_ID as
-    | string
-    | undefined;
-  const appUrl = import.meta.env.VITE_APP_URL as string | undefined;
-
-  if (!domain || !clientId || !appUrl) {
-    return {
-      success: false,
-      error: {
-        message: 'Sign-up is not configured. Set the Cognito environment variables.',
-      },
-    };
-  }
-
-  const url =
-    `https://${domain}/signup?client_id=${clientId}` +
-    `&response_type=code&scope=openid+email+profile` +
-    `&redirect_uri=${encodeURIComponent(appUrl)}`;
-
-  window.location.assign(url);
-  return { success: true, data: undefined };
+export async function startSignUp(): Promise<ServiceResult<void>> {
+  return startSignIn();
 }
 
 /** Signs out locally and through the Hosted UI logout endpoint. */

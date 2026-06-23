@@ -24,6 +24,14 @@ export function folderParts(prefix: string): { parent: string; leaf: string } {
     : { parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1) };
 }
 
+// Path shown to the user: a key or prefix with the user-root prefix stripped,
+// so the raw root segment (e.g. the username) is never surfaced (SPEC-013).
+export function relativePath(keyOrPrefix: string, rootPrefix?: string): string {
+  return rootPrefix && keyOrPrefix.startsWith(rootPrefix)
+    ? keyOrPrefix.slice(rootPrefix.length)
+    : keyOrPrefix;
+}
+
 // Last path segment of a key OR folder prefix (trailing slash tolerated), for
 // naming items in result messages: `a/b/photos/` → `photos`, `a/b/c.txt` → `c.txt`.
 export function lastSegment(keyOrPrefix: string): string {

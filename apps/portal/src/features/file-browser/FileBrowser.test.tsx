@@ -108,6 +108,20 @@ vi.mock('./MetadataPanel', () => ({
     </div>
   ),
 }));
+// Folder details drawer stub — echoes the folder it was opened for.
+vi.mock('./FolderDetailsPanel', () => ({
+  FolderDetailsPanel: ({
+    folder,
+    onClose,
+  }: {
+    folder: { name: string };
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label={`Details for ${folder.name}`}>
+      <button onClick={onClose}>close-folder-stub</button>
+    </div>
+  ),
+}));
 
 const mockUseFileBrowser = vi.mocked(useFileBrowser);
 const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
@@ -671,15 +685,33 @@ describe('details panel', () => {
     ).toBeInTheDocument();
   });
 
-  it('folders expose no Details action', () => {
+  it('exposes a Details action per folder', () => {
     mockUseFileBrowser.mockReturnValue({
       ...base,
       folders: [{ type: 'folder', prefix: 'docs/', name: 'docs' }],
     });
     render(<FileBrowser bucket="my-bucket" />);
     expect(
-      screen.queryByRole('button', { name: /details for/i }),
+      screen.getByRole('button', { name: /details for docs/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the folder details drawer when a folder Details is clicked', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      folders: [{ type: 'folder', prefix: 'docs/', name: 'docs' }],
+    });
+    render(<FileBrowser bucket="my-bucket" />);
+
+    expect(
+      screen.queryByRole('dialog', { name: /details for docs/i }),
     ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /details for docs/i }));
+
+    expect(
+      screen.getByRole('dialog', { name: /details for docs/i }),
+    ).toBeInTheDocument();
   });
 
   it('opens the metadata drawer for the file when Details is clicked', () => {

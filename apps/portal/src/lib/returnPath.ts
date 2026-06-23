@@ -14,6 +14,21 @@ export function setReturnPath(path: string): void {
   }
 }
 
+/**
+ * Sets the return path only when none is already stored. Used when starting
+ * sign-in/sign-up so a fresh auth round-trip lands on a default route (e.g.
+ * /files) without clobbering a specific protected path captured by the auth gate.
+ */
+export function setReturnPathIfAbsent(path: string): void {
+  try {
+    if (!sessionStorage.getItem(RETURN_PATH_KEY)) {
+      sessionStorage.setItem(RETURN_PATH_KEY, path);
+    }
+  } catch {
+    // Non-fatal — login simply lands on the default route.
+  }
+}
+
 /** Reads and clears the stored return path. Returns null when none is set. */
 export function takeReturnPath(): string | null {
   try {
