@@ -1,7 +1,7 @@
 # Spec: [Feature Name]
 
 **ID:** SPEC-XXX  
-**Status:** Draft | In Progress | Complete  
+**Status:** Draft | In Progress | Completed  
 **Last Updated:** YYYY-MM-DD  
 **Depends On:** SPEC-XXX, SPEC-XXX (or "None")
 
