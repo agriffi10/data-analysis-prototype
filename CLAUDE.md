@@ -1,6 +1,7 @@
 # S3 File Portal — Project Memory
 
 Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled **on demand**:
+- `@docs/process.md` — how we work: spec lifecycle, session rhythm, completion ritual (read once)
 - `@docs/architecture.md` — system design decisions + Known Constraints (read the section you need)
 - `@docs/specs/INDEX.md` — the spec index + status (one row per spec)
 - `@docs/specs/SPEC-XXX-*.md` — the spec you're implementing
