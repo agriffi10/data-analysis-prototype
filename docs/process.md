@@ -60,19 +60,40 @@ This is the operating loop, start to finish. CLAUDE.md's *Session Workflow* is t
    delivery-doc you actually need.
 3. Confirm CI is green: `gh run list --branch main --limit 5`. Investigate failures before building.
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
-5. **Confirm the phase before writing code.**
+5. **Generate and validate a plan before writing code.** Turn the spec's Implementation Phases into a
+   concrete implementation plan, then validate it against the spec (every FR + acceptance criterion is
+   covered, reuse from `component-inventory.md` is used, no out-of-scope work crept in). Confirm the
+   plan before building. The plan — not per-phase checkpoints baked into the spec — is what gates the
+   work.
 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
   waiting to be asked. Never commit to `main` directly.
-- Work the spec's **Implementation Phases** in order. After each phase, **stop and summarize** what was
-  built and state the **checkpoint test** for the user to verify before you continue.
-- If a later phase surfaces an unresolved Open Question, **stop and ask** rather than assume.
+- Work the validated plan's phases in order. After each phase, **stop and summarize** what was built
+  and how it maps back to the plan before continuing.
+- Specs ship with **no Open Questions** — they're resolved during authoring (§4). An issue that emerges
+  mid-build is triaged by *kind*, not parked:
+  - **Reversible / technical** (naming, file layout, which helper to reuse, an obvious bug fix): just
+    decide in-session and keep moving. If it changes scope or contradicts the spec, **update the spec**
+    rather than leaving the divergence implicit.
+  - **Product-changing / ambiguous** (anything that alters behavior the user would notice, or a call
+    with no clearly-right answer): **stop and escalate to the human.** Don't silently pick — surface the
+    options with a recommendation. Auto-deciding these is how an autonomous run drifts away from what
+    was actually wanted.
 
-**Landing the spec — one in flight at a time**
-- A spec's PR is **merged only after green CI**.
-- **Re-verify `main` is green** before starting the next spec (user directive: land before starting
-  the next).
+**Reviewing the work — in a fresh context**
+- Code review and verification run in a **fresh context** (a new session or a subagent), **never the
+  session that wrote the code.** A self-reviewing agent assumes its own output was intended and rubber-
+  stamps it; a clean reviewer catches what the author can't see. The reviewer checks the diff against
+  the spec's acceptance criteria, not just "does it look fine."
+
+**Landing the spec — watch PRs and watch `main`**
+- **Every PR is watched to completion and merged as soon as CI is green** — don't open a PR and walk
+  away. A spec's PR merges only on green.
+- **`main` is always watched.** After any merge, confirm `main`'s build went green. If `main` fails,
+  **diagnose immediately and fix it with a new PR** — a red `main` is the top priority and blocks
+  starting the next spec.
+- **Re-verify `main` is green** before starting the next spec (land before starting the next).
 - Then run the completion ritual (§5).
 
 ---
@@ -89,10 +110,12 @@ Specs are written from `docs/templates/spec-template.md`. What makes a spec *bui
   say "implement FR-001 through FR-003 only."
 - **Data Model / Interface Contract** — TypeScript shapes, not prose. Explicit types produce
   better-typed output. Note the target path (`src/types/…`).
-- **Implementation Phases** — each phase is one session's worth of work and **ends in a Checkpoint**: a
-  specific, human-verifiable test (name the test file, the command, or the thing to click).
-- **Open Questions** — decisions to resolve before/during build; unresolved ones in later phases are a
-  signal to stop and ask.
+- **Implementation Phases** — each phase is one session's worth of work and maps to a discrete,
+  reviewable unit. Phases are the input to the implementation plan generated at build time (§3); don't
+  bake per-phase checkpoints into the spec.
+- **No Open Questions.** Resolve every decision while authoring — a spec doesn't move to Draft-ready
+  with unanswered questions. Issues that only surface during the build are handled in-session (§3),
+  not parked in the spec.
 
 ---
 

@@ -135,9 +135,11 @@ src/
 ## Implementation Phases
 
 <!--
-  Break work into phases that match your review cadence. Each phase should
-  be completable in one Claude Code session. End every phase with a
-  Checkpoint — a human-verifiable test you run before saying "continue."
+  Break work into phases that map to discrete, reviewable units. Each phase
+  should be completable in one session. Do NOT write per-phase checkpoints
+  here — when this spec is picked up for build, the implementing session
+  generates an implementation plan and validates it against this spec before
+  writing code (see process.md §3). The phases below are the input to that plan.
 -->
 
 ### Phase 1: [Name — e.g. "Data layer and types"]
@@ -146,29 +148,7 @@ src/
 - Task 2
 - Task 3
 
-#### Checkpoint
-
-[What you will verify before approving Phase 2. Be specific —
-name the test file, the command to run, or the thing you'll click in the UI.]
-
-
 ### Phase 2: [Name — e.g. "Hook and state management"]
 
 - Task 1
 - Task 2
-
-#### Checkpoint
-
-[What you will verify before approving Phase 2. Be specific —
-name the test file, the command to run, or the thing you'll click in the UI.]
-
-## Open Questions
-
-<!--
-  Decisions that need an answer before or during implementation.
-  Check these off as they're resolved. Unresolved questions in later phases
-  are fine — flag them so Claude Code knows to stop and ask rather than assume.
--->
-
-- [ ] [Question that needs an answer before Phase 1]
-- [ ] [Question that can wait until Phase 2]
