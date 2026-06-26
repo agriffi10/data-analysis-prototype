@@ -73,3 +73,9 @@ variable "lambda_provisioner_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "shared_space_orchestrator_role_arn" {
+  description = "SPEC-056: ARN of the shared-space orchestrator role (SPEC-050), added as a Lake Formation admin so it can GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared location. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  type        = string
+  default     = ""
+}

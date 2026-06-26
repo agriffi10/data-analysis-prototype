@@ -50,6 +50,15 @@ locals {
   shared_space_bucket_name = var.shared_space_bucket_name != "" ? var.shared_space_bucket_name : "${var.project_name}-prod-shared-space"
   shared_space_bucket_arn  = "arn:aws:s3:::${local.shared_space_bucket_name}"
 
+  # Shared-space orchestrator role ARN (SPEC-050), constructed cycle-free like the
+  # other role ARNs (shared-spaces creates it as
+  # "${project}-${env}-shared-space-orchestrator-role"). SPEC-056 adds it to the
+  # analytics Lake Formation admins list as a CONSTRUCTED STRING — known at plan time
+  # so it doesn't break the compact() in data_lake_settings (architecture.md trap);
+  # apply ordering (module.analytics depends_on module.shared_spaces) guarantees the
+  # role exists first.
+  shared_space_orchestrator_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-shared-space-orchestrator-role"
+
   # LF registration role ARN (SPEC-032), constructed cycle-free like the role ARNs
   # above (analytics creates it as "${project_name}-analytics-lf-registration-role").
   # Passed to the data module so the user-space bucket policy can EXCLUDE it from
@@ -116,6 +125,10 @@ module "auth" {
   aws_region      = var.aws_region
   account_id      = data.aws_caller_identity.current.account_id
   portal_role_arn = local.portal_role_arn
+
+  # SPEC-056: drives the ten custom:shared_space_1..N user-pool attributes + the
+  # Identity-Pool shared_space_1..N principal-tag mappings.
+  max_shared_memberships = var.max_shared_memberships
 
   # The deploy role grants itself the cognito-idp permissions (modules/base
   # policies). Without this ordering, Tofu's parallel apply can call
@@ -187,10 +200,18 @@ module "analytics" {
   # value broke the compact() in the LF admins list and the grant silently dropped.
   lambda_provisioner_role_arn = local.post_confirmation_exec_role_arn
 
+  # SPEC-056: add the shared-space orchestrator role as a Lake Formation admin so it
+  # can later GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared
+  # location. Constructed string (locals above) — known at plan time so it doesn't
+  # break the compact() admins list; module.shared_spaces in depends_on guarantees
+  # the role exists before this sets data_lake_settings.
+  shared_space_orchestrator_role_arn = local.shared_space_orchestrator_role_arn
+
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF
-  # and attaches the analytics policy to. Force both to settle first.
-  depends_on = [module.base, module.data]
+  # and attaches the analytics policy to; shared_spaces creates the orchestrator role
+  # added to the LF admins list. Force all to settle first.
+  depends_on = [module.base, module.data, module.shared_spaces]
 }
 
 # Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control
@@ -210,8 +231,14 @@ module "shared_spaces" {
   athena_admin_bucket_name = local.athena_admin_bucket_name
   app_url                  = var.app_url
 
+  # SPEC-056: the membership-slot count + the portal role this module attaches the
+  # membership inline policy + sqs:SendMessage + shared delete-denies to.
+  max_shared_memberships = var.max_shared_memberships
+  portal_role_name       = local.portal_role_name
+
   # base grants the deploy role its SQS/Pipes/Step-Functions/Lambda/IAM/logs/S3
-  # perms for this module; force that grant to settle before any resource is created
-  # (same first-apply propagation rationale as auth/data/analytics).
-  depends_on = [module.base]
+  # perms for this module; data creates the portal role this module attaches the
+  # membership policy to. Force both to settle first (first-apply propagation +
+  # role-exists ordering, as analytics does).
+  depends_on = [module.base, module.data]
 }

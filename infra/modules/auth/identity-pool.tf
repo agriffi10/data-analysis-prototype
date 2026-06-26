@@ -41,12 +41,20 @@ resource "aws_cognito_identity_pool" "portal" {
 # `username` claim doesn't exist in a Cognito User Pool ID token — it's
 # `cognito:username`), so the tag was never stamped. The map key (`username`) is
 # the tag NAME the role policy references; the value is the token claim it reads.
+# SPEC-056 adds ten shared-space membership tags alongside `username`. There is only
+# ONE principal-tag map per (pool, provider), so the slots are merged into this same
+# resource: tag `shared_space_k` reads the `custom:shared_space_k` claim (cognito.tf).
+# A slot the user isn't in carries no claim → the tag isn't stamped → the portal
+# role's templated statement for that slot matches nothing (implicit deny). Grant/
+# revoke takes effect on the NEXT token refresh (forced by SPEC-052's Refresh control),
+# not instantly (shared-spaces-architecture.md §3 propagation note).
 resource "aws_cognito_identity_pool_provider_principal_tag" "username" {
   identity_pool_id       = aws_cognito_identity_pool.portal.id
   identity_provider_name = "cognito-idp.${data.aws_region.current.name}.amazonaws.com/${aws_cognito_user_pool.portal.id}"
   use_defaults           = false
 
-  principal_tags = {
-    username = "cognito:username"
-  }
+  principal_tags = merge(
+    { username = "cognito:username" },
+    { for k in range(1, var.max_shared_memberships + 1) : "shared_space_${k}" => "custom:shared_space_${k}" }
+  )
 }

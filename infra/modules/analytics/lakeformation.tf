@@ -20,7 +20,9 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   # removed once confirmed.) All ARNs are KNOWN at plan time (constructed strings);
   # an unknown element inside this compact() silently drops the admins change.
   # compact() also drops any empty ARN so the module still plans standalone.
-  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn])
+  #   - shared-space orchestrator (SPEC-056) — grants on shared DBs + the shared
+  #     location; constructed string, ordered after module.shared_spaces so it exists.
+  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.
