@@ -11,6 +11,9 @@ import NotFoundPage from './routes/NotFoundPage';
 // The Query route pulls in Monaco + the Athena/Glue SDK clients — lazy-load the
 // whole route so none of it lands in the main bundle (SPEC-035 FR-003).
 const QueryPage = lazy(() => import('./routes/QueryPage'));
+// The Connections route pulls in the SQS client — lazy-load it off the main bundle
+// too (SPEC-051). Most sessions never open it.
+const ConnectionsPage = lazy(() => import('./routes/ConnectionsPage'));
 
 // Route definitions. RootLayout wraps every page with the shared Header;
 // ProtectedLayout is a nested sub-layout that gates protected routes on auth
@@ -27,6 +30,14 @@ export default function App() {
             element={
               <Suspense fallback={<LoadingState />}>
                 <QueryPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/connections"
+            element={
+              <Suspense fallback={<LoadingState />}>
+                <ConnectionsPage />
               </Suspense>
             }
           />

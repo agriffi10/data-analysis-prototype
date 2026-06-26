@@ -29,6 +29,17 @@ const TABS: Tab[] = [
       </>
     ),
   },
+  {
+    to: '/connections',
+    label: 'Connections',
+    icon: (
+      <>
+        <circle cx="7" cy="7" r="3" />
+        <circle cx="17" cy="17" r="3" />
+        <path d="M10 7h4a3 3 0 0 1 3 3v4M7 10v4a3 3 0 0 0 3 3h4" />
+      </>
+    ),
+  },
 ];
 
 export function PrimaryNav() {
