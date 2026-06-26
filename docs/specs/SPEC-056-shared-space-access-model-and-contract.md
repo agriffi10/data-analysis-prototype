@@ -152,9 +152,10 @@ consumes them.
   "schemaVersion": 1,
   "requestId": "uuid",
   "action": "create | add_members | remove_members | leave | delete",
-  "actor": "alice",                     // authorized server-side via message attributes + registry (FR-005)
+  "actor": "alice",                     // ADVISORY ONLY — never trusted (FR-005)
   "space": "salesdata",                 // catalog-safe name == prefix == Glue DB
-  "payload": { "members": ["bob","cara"] }
+  "payload": { "members": ["bob","cara"] },
+  "idToken": "<cognito id token>"       // transport auth: Lambda verifies (JWKS) → trusted actor = cognito:username
 }
 ```
 
@@ -210,6 +211,39 @@ the orchestrator is an LF admin. `tofu validate`/`plan` clean (expect one self-g
 
 An authorized no-op request flows SQS→Pipe→SF→validate (actor bound, registry-authorized) and a forged/unauthorized
 request lands in the failure state with no side effects. Documented in `docs/testing/shared-spaces-e2e.md`.
+
+## Implementation Decisions (in-session, 2026-06-26)
+
+Reversible/technical choices made during build (per `docs/process.md`):
+
+- **Trusted-actor binding = verified Cognito ID token** (user decision, over the spec's
+  "message attributes" default). The request body carries `idToken`; the provisioner
+  Lambda verifies its RS256 signature against the pool **JWKS** + claims (iss, aud =
+  SPA client, exp, `token_use=id`) and derives the trusted `actor` from
+  `cognito:username`. The body `actor` is advisory and ignored. Genuinely unspoofable
+  (the browser can't mint a Cognito-signed token); consistent with the notifications
+  arc (058). Adds `PyJWT[crypto]` to `lambdas/requirements.txt`.
+- **ID token in the message body, not a message attribute** — robust through the
+  EventBridge Pipe (the Lambda already parses the body JSON; avoids depending on the
+  Pipe's messageAttribute passthrough shape).
+- **Validate lives in the provisioner Lambda** (the single Dispatch task), not a
+  separate Step Function state — consistent with SPEC-050's one-Lambda-with-an-action-
+  switch decision. The Lambda validates first and raises `AuthorizationError` on a
+  forged/unauthorized request; that error is **not** in the Retry list (only Lambda
+  *service* errors retry), so it goes straight to the existing `Catch (States.ALL) →
+  Fail` with no side effects (verbs haven't run). `authorize()` is a pure function,
+  unit-tested directly.
+- **Authorization rules:** `create` = any verified actor (name uniqueness is SPEC-051's
+  atomic conditional PutObject, not an authz concern); `add_members`/`remove_members`/
+  `delete` = owner-only (`registry.owner == actor`); `leave` = a member who isn't the
+  owner. Registry read from `shared-spaces/{space}.json` (orchestrator role already has
+  `s3:GetObject` there, SPEC-050).
+- **Membership slots consolidated** into resource-list statements (not 10×3 separate
+  statements) and kept as a **third inline** policy on the portal role (fixed 10 slots,
+  aggregate 6,491 < 10,240 — no managed policy needed).
+- **LF orchestrator-admin coupling:** `module.analytics` gains `depends_on
+  [module.shared_spaces]` so the orchestrator role exists before it's added to the LF
+  admins list (constructed-string ARN, compact()-safe).
 
 ## Open Questions
 

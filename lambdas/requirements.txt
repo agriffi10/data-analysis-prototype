@@ -1,3 +1,8 @@
 # Shared Python dependencies for every Lambda under lambdas/.
 # deploy-lambdas.yml installs these into each function's package before zipping.
-# The pre-signup validator uses only the standard library, so this is currently empty.
+#
+# PyJWT[crypto] — the shared-space-provisioner verifies Cognito ID tokens against the
+# User Pool JWKS (SPEC-056 trusted-actor binding). pre-signup/post-confirmation use
+# only the standard library and don't import it; it's bundled into their packages too
+# (shared requirements), which is harmless (well under the Lambda size limit).
+PyJWT[crypto]>=2.8,<3
