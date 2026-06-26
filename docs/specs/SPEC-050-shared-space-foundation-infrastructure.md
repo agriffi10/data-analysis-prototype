@@ -1,8 +1,8 @@
 # Spec: Shared-Space Foundation Infrastructure (Bucket 2 + Control Plane)
 
 **ID:** SPEC-050
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-26
 **Depends On:** SPEC-032 (analytics foundation: admin bucket + LF bootstrap/hybrid registration), SPEC-010 (user-space bucket conventions), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-011 (deploy role + module wiring)
 
 > **Reference:** `docs/shared-spaces-architecture.md` — read it first. This spec builds the **plumbing only**:

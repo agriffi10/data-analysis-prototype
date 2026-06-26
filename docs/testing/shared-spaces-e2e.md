@@ -11,8 +11,12 @@ own acceptance steps then.
 **Scope covered:** FR-001 (shared bucket hygiene/CORS), FR-002 (registry prefix is
 lifecycle-exempt), FR-003 (control plane + orchestrator role), FR-005 (this test).
 
-> **Status:** ⬜ Not yet executed — run after the first `deploy-infra.yml` apply on
-> `main` (expect one self-grant-propagation failure → clean re-run; see step 0).
+> **Status:** ✅ Executed 2026-06-26 against the deployed environment — a message on
+> the FIFO queue drove the Pipe → Step Function (`SUCCEEDED`) → provisioner Lambda
+> (echoed `{"status":"dispatched","count":1,"actions":["smoke-test"]}`); FR-001
+> hygiene + FR-002 lifecycle-prefix confirmed live. Bring-up needed a one-time
+> break-glass for the SFN plan-time validate/list actions (now permanent in the
+> deploy managed policy); see step 0. Re-run the steps as the regression checklist.
 
 ---
 

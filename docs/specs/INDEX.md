@@ -55,7 +55,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 047 — Workspace Database/Connection Selector | Completed |
 | 048 — Create View from Query + Views in Schema Browser | Completed |
 | 049 — Save Query Results to Workspace (replaces Download CSV) | Completed |
-| 050 — Shared-Space Foundation Infrastructure (Bucket 2 + control plane) | Draft |
+| 050 — Shared-Space Foundation Infrastructure (Bucket 2 + control plane) | Completed |
 | 051 — Create Shared Connection | Draft |
 | 052 — Shared Connections List, Selector Integration & Refresh | Draft |
 | 053 — Shared-Space Member Management (Owner) | Draft |

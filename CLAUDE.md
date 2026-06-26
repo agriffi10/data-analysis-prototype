@@ -57,7 +57,7 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 ## Specs
 
 Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own `Status`.
-**Current work:** analytics arc (SPEC-032→036) and the pagination/copy specs (037–039) are **complete**. No spec in progress; next work is unplanned (Bucket 2 shared-space is the likely next arc but is not yet designed).
+**Current work:** SPEC-001→050 are **complete**. The shared-connections arc is in flight: SPEC-050 (foundation infra) shipped + deployed; next is **SPEC-056** (access model + request contract), then SPEC-051→055, 057. Notifications arc (058→060) still Draft.
 
 ---
 
@@ -71,7 +71,7 @@ Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own 
 - **Analytics (SPEC-032→036):** in-app Athena/Glue/Lake Formation query workspace. Per-user isolation = the **`username` IAM principal tag** on the Glue DB/table ARN (DB name = username), **not LF-Tags**; single shared role; user-space bucket registered in LF **hybrid** mode; results in `{username}/athenaresults/` (delete-denied). Detail: SPEC-032, architecture.md.
 - **Usernames** are the S3 prefix = principal tag = Glue DB name → validated at signup by the pre-signup Lambda; SPEC-033 tightens to catalog-safe `^[a-z][a-z0-9_]{2,62}$`.
 - **Query workspace target DB:** one **workspace-global** active database for all tabs (not per-tab), chosen in the schema rail via the `useConnections` seam (personal-only today; shared-spaces extends it). (SPEC-047)
-- **Bucket 2 (shared-space):** access model = user-managed keys, **not yet designed/built**. Do NOT build the old daily-IAM-pipeline model.
+- **Bucket 2 (shared-space):** user-created shared connections via a privileged async control plane (FIFO SQS → EventBridge Pipe → Standard Step Function → provisioner Lambda under one orchestrator role) — reverses "no backend" for shared-space mutations only; access = a membership principal tag (SPEC-056). Decision record: `docs/shared-spaces-architecture.md`; foundation infra shipped in SPEC-050. Do NOT build the old daily-IAM-pipeline / user-managed-keys models.
 - **IaC:** OpenTofu (over CDK/Pulumi/SST); `infra/modules/` are bounded-context (app/base/auth/data/analytics); IAM policies are `.tftpl` templates under each module's `policies/`, rendered with `templatefile()`.
 - **Dev-unauth path:** `VITE_S3_DEV_UNAUTH=true` browses a test bucket read-only without auth (local only); production `/files` always uses the authenticated user-space bucket (SPEC-013).
 - **Notifications (SPEC-058→060):** per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}`). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead`/`delete`/`deleteAll`) go through a **dedicated** SQS → EventBridge Pipe → Step Function → writer Lambda; the browser only **reads** the file and enqueues (`sqs:SendMessage`). Anti-spoofing = user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim (`create` = trusted-producer-only). UI = header bell + slide-out drawer, 8/page. (Draft.)
