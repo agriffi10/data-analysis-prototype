@@ -58,6 +58,12 @@
       "Resource": "arn:aws:states:${aws_region}:*:stateMachine:${project_name}-*-shared-space-*"
     },
     {
+      "Sid": "SharedSpaceStateMachineValidate",
+      "Effect": "Allow",
+      "Action": "states:ValidateStateMachineDefinition",
+      "Resource": "*"
+    },
+    {
       "Sid": "SharedSpaceProvisionerLambdaManage",
       "Effect": "Allow",
       "Action": [
