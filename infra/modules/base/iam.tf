@@ -47,20 +47,40 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   })
 }
 
-# SPEC-050 shared-space control-plane grants live in a SECOND inline policy: the
-# main deploy-policy is already near IAM's 10,240-char inline-policy limit (IAM
-# counts non-whitespace chars), and SPEC-056 adds more shared-space grants. Splitting
-# keeps each document well under the limit. A role may carry multiple inline policies
-# (no aggregate-size limit beyond per-policy), so this is a clean extension point.
-# All actions here are resource-scopable by ${project_name}-*-shared-space-* name
-# patterns (no "*"-only statements), verified with aws iam simulate-custom-policy.
-resource "aws_iam_role_policy" "github_actions_deploy_shared_spaces" {
-  name = "deploy-policy-shared-spaces"
-  role = aws_iam_role.github_actions_deploy.id
+# SPEC-050 shared-space control-plane grants live in a CUSTOMER-MANAGED policy
+# attached to the deploy role — NOT a second inline policy. IAM's 10,240-char limit
+# is the AGGREGATE of all inline policies on a role (sum, not per-policy), and the
+# main deploy-policy alone is already ~8.5k; an inline second policy pushed the
+# aggregate over (LimitExceeded). A managed policy has its own separate 6,144-char
+# budget and doesn't count toward the inline aggregate, so this also gives SPEC-056's
+# further shared-space grants room. All actions are resource-scopable by
+# {project_name}-*-shared-space-* name patterns (no "*"-only statements).
+resource "aws_iam_policy" "deploy_shared_spaces" {
+  name        = "${var.project_name}-deploy-shared-spaces"
+  description = "Deploy-role grants for the SPEC-050 shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-shared-spaces.json.tftpl", {
     project_name            = var.project_name
     aws_region              = var.aws_region
     shared_space_bucket_arn = var.shared_space_bucket_arn
   })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_shared_spaces.arn
+}
+
+# Self-grant propagation guard. The main deploy-policy update above grants the deploy
+# role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
+# those grants to create+attach the managed policy. IAM is eventually consistent, so
+# pause after the inline-policy write so CreatePolicy doesn't race the grant (the same
+# rationale as the other modules' time_sleep guards; module.base had none before
+# because nothing here previously used its own freshly-granted permission).
+resource "time_sleep" "wait_for_self_grant" {
+  create_duration = "60s"
+
+  depends_on = [aws_iam_role_policy.github_actions_deploy]
 }
