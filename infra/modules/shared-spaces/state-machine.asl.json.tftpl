@@ -1,9 +1,10 @@
 {
-  "Comment": "Shared-space provisioning orchestrator (SPEC-050 skeleton). Per-action validate/create/grant/cache logic is added in SPEC-051-055; here the Lambda dispatches/echoes the request so the control plane is observable end-to-end.",
+  "Comment": "Shared-space provisioning orchestrator. The provisioner Lambda first VALIDATEs (SPEC-056): verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry. A forged/unauthorized request raises AuthorizationError -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not AuthorizationError, which is deterministic). Per-action create/grant/cache verbs are stubs until SPEC-051-055.",
   "StartAt": "Dispatch",
   "States": {
     "Dispatch": {
       "Type": "Task",
+      "Comment": "Validate (token + registry authorization) then dispatch to the per-action verb (stubbed until SPEC-051-055).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${provisioner_function_arn}",

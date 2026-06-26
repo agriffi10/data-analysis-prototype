@@ -236,6 +236,12 @@ module "shared_spaces" {
   max_shared_memberships = var.max_shared_memberships
   portal_role_name       = local.portal_role_name
 
+  # SPEC-056 trusted-actor binding: the provisioner Lambda verifies caller ID tokens
+  # against the pool JWKS (env vars). Module.auth outputs (one-directional dep: auth
+  # applies before data, which this module already depends on).
+  user_pool_id  = module.auth.user_pool_id
+  app_client_id = module.auth.user_pool_client_id
+
   # base grants the deploy role its SQS/Pipes/Step-Functions/Lambda/IAM/logs/S3
   # perms for this module; data creates the portal role this module attaches the
   # membership policy to. Force both to settle first (first-apply propagation +

@@ -115,9 +115,60 @@ scopable deploy-time actions too (e.g. `states:CreateStateMachine`, `pipes:Creat
 
 ---
 
+## SPEC-056 — access model + validate (membership tags, portal slots, actor binding)
+
+### Membership-slot allow/deny (FR-002) — ✅ verified 2026-06-26 via `simulate-custom-policy`
+
+The portal-role membership slots are templated on `${aws:PrincipalTag/shared_space_k}`.
+Verified locally against the rendered policy (results: set→`allowed`, other-space→
+`implicitDeny`, unset slot→`implicitDeny`, **empty slot value→`implicitDeny` — no
+bucket-root leak**, `athenaresults/` delete→`explicitDeny`).
+
+> **Gotcha:** `aws iam simulate-custom-policy` caps each `--policy-input-list` member at
+> **2000 chars** and the `file://` form is rejected as "invalid content" — pass the policy
+> **inline** (`--policy-input-list "$(cat policy.json)"`) and test a minimal extract that
+> reuses the same `${aws:PrincipalTag/shared_space_k}/*` pattern.
+
+```bash
+P='{"Version":"2012-10-17","Statement":[{"Sid":"O","Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::dat-prod-shared-space/${aws:PrincipalTag/shared_space_1}/*"]}]}'
+B=arn:aws:s3:::dat-prod-shared-space
+# set slot1=salesdata, GET salesdata/*  -> allowed
+aws iam simulate-custom-policy --policy-input-list "$P" --action-names s3:GetObject \
+  --resource-arns "$B/salesdata/d.csv" \
+  --context-entries 'ContextKeyName=aws:PrincipalTag/shared_space_1,ContextKeyType=string,ContextKeyValues=salesdata' \
+  --query 'EvaluationResults[0].EvalDecision' --output text
+# empty slot value, GET bucket-root object -> implicitDeny (no leak)
+aws iam simulate-custom-policy --policy-input-list "$P" --action-names s3:GetObject \
+  --resource-arns "$B/anything.csv" \
+  --context-entries 'ContextKeyName=aws:PrincipalTag/shared_space_1,ContextKeyType=string,ContextKeyValues=' \
+  --query 'EvaluationResults[0].EvalDecision' --output text
+```
+
+- [x] Set slot allows that space's S3/Glue; unset/empty/other-space deny with no root leak.
+- [ ] The portal role can `sqs:SendMessage` to the request queue only (review the rendered policy / simulate `sqs:SendMessage`).
+
+### Trusted-actor binding + validate (FR-005)
+
+The provisioner Lambda verifies the caller's Cognito **ID token** (JWKS) → trusted
+`actor`, then authorizes against the registry; forged/unauthorized → `AuthorizationError`
+→ Step Function **Fail**, no side effects. The verbs are still stubs.
+
+- [x] **Unit-tested** (`lambdas/shared-space-provisioner/test_shared_space_provisioner.py`,
+  13 cases): the pure `authorize()` rules (owner-only, leave, create-any, unknown action)
+  and the handler flow (token actor overrides body `actor`; a **forged token is rejected
+  before the registry/verb runs**; non-owner owner-action rejected; bad schemaVersion/body
+  rejected).
+- [ ] **Live authorized-vs-forged** (deferred until SPEC-051+ produces real tokens, or mint
+  one manually): send a message with a valid ID token + `action:create` → SFN `SUCCEEDED`
+  (`{status:authorized,...}`); send one with a garbage `idToken` → SFN `FAILED` with
+  `AuthorizationError` in the execution history, registry untouched.
+
+---
+
 ## Notes
 
-- **No provisioning happens yet.** A SUCCEEDED execution + echo is the whole pass
-  condition for SPEC-050. If an execution FAILS with the placeholder error, the
-  Lambda **code** hasn't been deployed — run `deploy-lambdas.yml`.
-- **DLQ:** a message that fails delivery 3× lands on `${PROJECT}-${ENV}-shared-space-requests-dlq.fifo`. During this test, none should.
+- **No provisioning happens yet.** SPEC-050: a SUCCEEDED execution + echo is the pass
+  condition. SPEC-056: a SUCCEEDED execution returns `{status:"authorized",...}`. If an
+  execution FAILS with the placeholder error, the Lambda **code** hasn't been deployed —
+  run `deploy-lambdas.yml`.
+- **DLQ:** a message that fails delivery 3× lands on `${PROJECT}-${ENV}-shared-space-requests-dlq.fifo`. During these tests, none should.

@@ -40,6 +40,17 @@ resource "aws_lambda_function" "provisioner" {
   handler       = "shared_space_provisioner.handler"
   timeout       = 60
 
+  # SPEC-056 trusted-actor binding: the handler verifies the caller's Cognito ID
+  # token against the pool JWKS and derives the actor from cognito:username, then
+  # authorizes against the registry under shared-spaces/ in the admin bucket.
+  environment {
+    variables = {
+      COGNITO_USER_POOL_ID  = var.user_pool_id
+      COGNITO_APP_CLIENT_ID = var.app_client_id
+      ADMIN_BUCKET          = var.athena_admin_bucket_name
+    }
+  }
+
   # Bootstrap with the placeholder; CI replaces the code via update-function-code.
   filename         = data.archive_file.provisioner_placeholder.output_path
   source_code_hash = data.archive_file.provisioner_placeholder.output_base64sha256
