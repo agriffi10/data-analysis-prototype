@@ -195,6 +195,42 @@ docs/testing/shared-spaces-e2e.md    # control-plane smoke test (FR-005)
 execution + echo); `simulate-custom-policy` confirms the orchestrator role's scoped actions. Documented in
 `docs/testing/shared-spaces-e2e.md`.
 
+## Implementation Decisions (in-session, 2026-06-26)
+
+Reversible/technical choices made during build (per `docs/process.md` — decided in-session, recorded here):
+
+- **FIFO request queue + single `MessageGroupId`** (not a standard queue). The user
+  required the control plane to process requests **one at a time, not in parallel**, to
+  prevent two users creating the same shared-space name concurrently. The queue is FIFO
+  with a constant producer-supplied `MessageGroupId` and the Pipe reads `batch_size = 1`,
+  so intake is strictly serial. The Pipe → Standard-state-machine hop is `FIRE_AND_FORGET`
+  (Standard machines outlive a synchronous call; user chose Standard over Express to keep
+  per-execution history), so the **race-proof** duplicate-name guard is the atomic
+  conditional `PutObject` (`If-None-Match: *`) on the registry object — added with the
+  create action in **SPEC-051**, not here. `content_based_deduplication = true` absorbs a
+  double-click; it is not the correctness guard.
+- **One privileged orchestrator role for BOTH the Step Function and the Lambda**
+  (trust = `states.amazonaws.com` + `lambda.amazonaws.com`), per FR-003's "the single
+  privileged IAM role the Step Function/Lambda run under." A separate SFN execution role
+  is folded in; the only other role is the EventBridge Pipe role.
+- **FR-002 lifecycle mechanism = prefix-scoped expiry.** S3 lifecycle has no "exclude"; it
+  can only *include* a prefix. So the workgroup's fallback `OutputLocation` moved to
+  `s3://<admin>/fallback-results/` and `expire-admin-results` now filters
+  `prefix = "fallback-results/"`. The `shared-spaces/` registry prefix is simply never
+  matched → retained indefinitely.
+- **Deploy-role grants split into a second inline policy** (`deploy-policy-shared-spaces`).
+  The main `deploy-policy` is already ~8.5k of IAM's 10,240 non-whitespace-char inline
+  limit; adding the seven SPEC-050 statements there pushed it to ~11.2k (over). The
+  shared-space grants live in their own inline policy on the same role (a role may carry
+  multiple inline policies) — also the clean extension point for SPEC-056's additions.
+- **Cognito admin actions scoped to `userpool/*`** in the orchestrator policy (one pool;
+  avoids a cross-module dependency on `module.auth`'s generated pool ID), mirroring the
+  deploy policy's existing `userpool/*` scoping.
+- **Module bucket-name var is required (computed in root locals)**, not `default = null`
+  as the spec's Data Model sketch showed — matches the established analytics/data
+  cycle-free pattern (name computed once in root, passed to both the module and base's
+  deploy-policy scope).
+
 ## Open Questions
 
 - [x] **Resolved (2026-06-21):** registry **reuses the analytics admin bucket** under `shared-spaces/` (lifecycle

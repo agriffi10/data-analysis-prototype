@@ -46,3 +46,21 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
     aws_region                  = var.aws_region
   })
 }
+
+# SPEC-050 shared-space control-plane grants live in a SECOND inline policy: the
+# main deploy-policy is already near IAM's 10,240-char inline-policy limit (IAM
+# counts non-whitespace chars), and SPEC-056 adds more shared-space grants. Splitting
+# keeps each document well under the limit. A role may carry multiple inline policies
+# (no aggregate-size limit beyond per-policy), so this is a clean extension point.
+# All actions here are resource-scopable by ${project_name}-*-shared-space-* name
+# patterns (no "*"-only statements), verified with aws iam simulate-custom-policy.
+resource "aws_iam_role_policy" "github_actions_deploy_shared_spaces" {
+  name = "deploy-policy-shared-spaces"
+  role = aws_iam_role.github_actions_deploy.id
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-shared-spaces.json.tftpl", {
+    project_name            = var.project_name
+    aws_region              = var.aws_region
+    shared_space_bucket_arn = var.shared_space_bucket_arn
+  })
+}

@@ -67,3 +67,24 @@ output "athena_admin_bucket_name" {
   description = "Name of the admin-only Athena results bucket (SPEC-032). Exported for ops; not consumed by the app."
   value       = module.analytics.athena_admin_bucket_name
 }
+
+# ── Shared-space foundation (SPEC-050) ───────────────────────────────────────
+output "shared_space_bucket_name" {
+  description = "Name of the shared-space bucket (Bucket 2, SPEC-050). Maps to a VITE_* once shared-space file ops land (SPEC-057)."
+  value       = module.shared_spaces.shared_space_bucket_name
+}
+
+output "shared_space_request_queue_url" {
+  description = "URL of the FIFO shared-space request queue (SPEC-050). The browser enqueues control-plane requests here once granted sqs:SendMessage (SPEC-056); maps to VITE_SHARED_SPACE_QUEUE_URL."
+  value       = module.shared_spaces.request_queue_url
+}
+
+output "shared_space_orchestrator_role_arn" {
+  description = "ARN of the privileged shared-space orchestrator role (Step Function + provisioner Lambda, SPEC-050). Added as a Lake Formation admin in SPEC-056."
+  value       = module.shared_spaces.orchestrator_role_arn
+}
+
+output "shared_space_state_machine_arn" {
+  description = "ARN of the shared-space orchestrator Step Function (SPEC-050). Used by the control-plane smoke test (docs/testing/shared-spaces-e2e.md)."
+  value       = module.shared_spaces.state_machine_arn
+}
