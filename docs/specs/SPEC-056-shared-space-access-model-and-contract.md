@@ -1,8 +1,8 @@
 # Spec: Shared-Space Access Model & Request Contract (Membership Tags + Portal Slots + LF)
 
 **ID:** SPEC-056
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-26
 **Depends On:** SPEC-050 (shared bucket, registry storage, SQS/Pipe/Step Function + orchestrator role, provisioner Lambda infra), SPEC-032 (LF enforcement bootstrap + hybrid registration pattern; admin bucket), SPEC-033 (per-DB LF grant pattern; catalog-safe identifier rule), SPEC-011/013 (shared portal role + `username` principal tag), SPEC-006 (Cognito User Pool + Identity Pool)
 
 > **Reference:** `docs/shared-spaces-architecture.md` §3 (membership principal tag), §4 (registry), §5 (results
