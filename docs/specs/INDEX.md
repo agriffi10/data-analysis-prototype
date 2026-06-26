@@ -61,7 +61,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 053 — Shared-Space Member Management (Owner) | Draft |
 | 054 — Leave & Delete a Shared Space | Draft |
 | 055 — Shared-Space Query Results Routing & Save | Draft |
-| 056 — Shared-Space Access Model & Request Contract (membership tags + portal slots + LF) | Draft |
+| 056 — Shared-Space Access Model & Request Contract (membership tags + portal slots + LF) | Completed |
 | 057 — Shared Spaces in the File Browser | Draft |
 | 058 — Notifications Foundation Infrastructure (Write Pipeline + IAM) | Draft |
 | 059 — Notifications Data Layer (Read Service + Hook) | Draft |

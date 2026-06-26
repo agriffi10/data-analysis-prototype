@@ -57,7 +57,7 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 ## Specs
 
 Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own `Status`.
-**Current work:** SPEC-001→050 are **complete**. The shared-connections arc is in flight: SPEC-050 (foundation infra) shipped + deployed; next is **SPEC-056** (access model + request contract), then SPEC-051→055, 057. Notifications arc (058→060) still Draft.
+**Current work:** SPEC-001→050 + **056** are complete & deployed. Shared-connections arc in flight: foundation (050) + access model (056) done; **next is SPEC-051** (create shared connection), then 052→055, 057. Notifications arc (058→060) still Draft.
 
 ---
 
