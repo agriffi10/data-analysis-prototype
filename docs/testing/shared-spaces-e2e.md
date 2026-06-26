@@ -1,0 +1,119 @@
+# Shared-Space Control-Plane Smoke Test (SPEC-050)
+
+**Purpose:** Prove the shared-space **control plane** is wired end-to-end against
+deployed infrastructure: a message placed on the request queue flows
+`SQS → EventBridge Pipe → Step Function → provisioner Lambda` and is observable in
+CloudWatch. SPEC-050 is **foundation only** — the Lambda dispatches/echoes and
+provisions **nothing**; this test confirms plumbing, not behavior. Per-action
+provisioning (create/add/remove/leave/delete) arrives in SPEC-051→055 and gets its
+own acceptance steps then.
+
+**Scope covered:** FR-001 (shared bucket hygiene/CORS), FR-002 (registry prefix is
+lifecycle-exempt), FR-003 (control plane + orchestrator role), FR-005 (this test).
+
+> **Status:** ⬜ Not yet executed — run after the first `deploy-infra.yml` apply on
+> `main` (expect one self-grant-propagation failure → clean re-run; see step 0).
+
+---
+
+## Prerequisites
+
+- [ ] `deploy-infra.yml` has applied SPEC-050 (merge to `main`, or `tofu apply` in `infra/`).
+- [ ] `deploy-lambdas.yml` has deployed the `shared-space-provisioner` code (push touching `lambdas/**`, or run the workflow manually) — until then the placeholder raises on invoke.
+- [ ] AWS CLI configured against the same account/region.
+
+Capture environment values (from `infra/`):
+
+```bash
+QUEUE_URL=$(tofu output -raw shared_space_request_queue_url)   # see infra/outputs.tf wiring (SPEC-050)
+REGION=us-east-1
+PROJECT=dat ; ENV=prod
+SM_ARN="arn:aws:states:${REGION}:$(aws sts get-caller-identity --query Account --output text):stateMachine:${PROJECT}-${ENV}-shared-space-orchestrator"
+FN="${PROJECT}-${ENV}-shared-space-provisioner"
+```
+
+---
+
+## Step 0 — First-apply self-grant propagation (expected one-time failure)
+
+SPEC-050 adds SQS/Pipes/Step-Functions/Lambda/IAM/logs grants to the deploy role in
+the **same** apply that then creates those resources (`modules/base` → `module.shared_spaces`).
+The deploy role's `time_sleep` guards absorb most of the eventual-consistency window,
+but per architecture.md the very first apply that introduces a new resource type can
+still race the grant and fail with `AccessDenied`.
+
+- [ ] If the first `deploy-infra.yml` run fails with AccessDenied on an SQS/Pipes/States/Lambda call, **re-run it**. `module.base` attaches the policy first, so the grant has propagated by the re-run. A second consecutive failure is a real problem — investigate, don't loop.
+
+## Step 1 — Shared bucket hygiene + CORS (FR-001)
+
+```bash
+B="${PROJECT}-prod-shared-space"
+aws s3api get-public-access-block --bucket "$B"          # all four = true
+aws s3api get-bucket-encryption --bucket "$B"            # AES256
+aws s3api get-bucket-cors --bucket "$B"                  # GET/PUT/POST/DELETE/HEAD; localhost + app origin
+aws s3api get-bucket-lifecycle-configuration --bucket "$B"  # abort-incomplete-multipart, 7 days
+```
+
+- [ ] All four public-access settings are `true`; SSE = AES256; CORS lists the app origin; the abort-incomplete-multipart rule is present.
+
+## Step 2 — Registry prefix is lifecycle-exempt (FR-002)
+
+The registry lives under `shared-spaces/` in the **admin** bucket; the
+`expire-admin-results` rule is scoped to the `fallback-results/` prefix only, so
+registry objects must never expire.
+
+```bash
+A="${PROJECT}-prod-athena-admin"
+aws s3api get-bucket-lifecycle-configuration --bucket "$A"   # rule filter.Prefix == "fallback-results/"
+```
+
+- [ ] The `expire-admin-results` rule's `Filter.Prefix` is `fallback-results/` (not empty/whole-bucket). A test object written under `shared-spaces/` is therefore outside the rule and retained.
+
+## Step 3 — Drive the control plane (FR-003)
+
+Send a FIFO message with a constant `MessageGroupId` (the serial-intake convention).
+The body is a placeholder — there is no request contract until SPEC-056.
+
+```bash
+aws sqs send-message \
+  --queue-url "$QUEUE_URL" \
+  --message-group-id shared-space \
+  --message-body '{"action":"smoke-test","note":"SPEC-050 plumbing check"}'
+```
+
+- [ ] Within ~1 minute, a **new Step Function execution** appears and **Succeeds**:
+
+```bash
+aws stepfunctions list-executions --state-machine-arn "$SM_ARN" --max-results 1
+# status SUCCEEDED; describe-execution output shows the Lambda echo:
+#   {"status":"dispatched","count":1,"actions":["smoke-test"]}
+```
+
+- [ ] The provisioner Lambda logged the invocation:
+
+```bash
+aws logs tail "/aws/lambda/${FN}" --since 5m   # "shared-space-provisioner skeleton invoked: 1 record(s) ..."
+```
+
+## Step 4 — Serial intake (FIFO)
+
+- [ ] Send two messages quickly with the **same** `--message-group-id shared-space`; confirm the executions run/complete in order (FIFO single-group serializes intake). Duplicate-name *correctness* is not exercised here — that is the registry conditional-`PutObject` guard added in SPEC-051.
+
+## Step 5 — Orchestrator role scopability (FR-003)
+
+Local `aws iam simulate-custom-policy` (no AWS creds in the dev sandbox — run in CI or
+with an admin profile) confirms each orchestrator action is `allowed` on its intended
+ARN and the resource-scoped ones `implicitDeny` on a foreign ARN. Spot-check the
+scopable deploy-time actions too (e.g. `states:CreateStateMachine`, `pipes:CreatePipe`,
+`sqs:CreateQueue`) against the `*-shared-space-*` patterns.
+
+- [ ] `simulate-custom-policy` shows the orchestrator role allowed on its Glue/LF/S3/Cognito ARNs and the deploy role allowed on the `*-shared-space-*` resource patterns.
+
+---
+
+## Notes
+
+- **No provisioning happens yet.** A SUCCEEDED execution + echo is the whole pass
+  condition for SPEC-050. If an execution FAILS with the placeholder error, the
+  Lambda **code** hasn't been deployed — run `deploy-lambdas.yml`.
+- **DLQ:** a message that fails delivery 3× lands on `${PROJECT}-${ENV}-shared-space-requests-dlq.fifo`. During this test, none should.

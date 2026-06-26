@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConsumeRequestQueue",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "${queue_arn}"
+    },
+    {
+      "Sid": "StartOrchestrator",
+      "Effect": "Allow",
+      "Action": "states:StartExecution",
+      "Resource": "${state_machine_arn}"
+    }
+  ]
+}

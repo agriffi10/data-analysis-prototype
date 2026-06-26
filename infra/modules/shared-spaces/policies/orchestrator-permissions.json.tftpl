@@ -1,0 +1,118 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GlueSharedDatabases",
+      "Effect": "Allow",
+      "Action": [
+        "glue:CreateDatabase",
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:DeleteDatabase",
+        "glue:CreateTable",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:UpdateTable",
+        "glue:DeleteTable",
+        "glue:BatchDeleteTable"
+      ],
+      "Resource": [
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+        "arn:aws:glue:${aws_region}:${account_id}:database/*",
+        "arn:aws:glue:${aws_region}:${account_id}:table/*/*"
+      ]
+    },
+    {
+      "Sid": "LakeFormationGrants",
+      "Effect": "Allow",
+      "Action": [
+        "lakeformation:GrantPermissions",
+        "lakeformation:RevokePermissions",
+        "lakeformation:GetDataLakeSettings"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SharedSpaceBucketObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "${shared_space_bucket_arn}/*"
+    },
+    {
+      "Sid": "SharedSpaceBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${shared_space_bucket_arn}"
+    },
+    {
+      "Sid": "AdminRegistryObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
+    },
+    {
+      "Sid": "AdminRegistryList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "shared-spaces/*"
+        }
+      }
+    },
+    {
+      "Sid": "CognitoMembershipAttributes",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:ListUsers"
+      ],
+      "Resource": "arn:aws:cognito-idp:${aws_region}:${account_id}:userpool/*"
+    },
+    {
+      "Sid": "InvokeProvisioner",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "${provisioner_function_arn}"
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "${lambda_log_group_arn}:*",
+        "${sfn_log_group_arn}:*"
+      ]
+    },
+    {
+      "Sid": "StepFunctionLogDelivery",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogDelivery",
+        "logs:GetLogDelivery",
+        "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:ListLogDeliveries",
+        "logs:PutResourcePolicy",
+        "logs:DescribeResourcePolicies",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

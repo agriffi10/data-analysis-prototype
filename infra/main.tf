@@ -43,6 +43,13 @@ locals {
   athena_admin_bucket_name = var.athena_admin_bucket_name != "" ? var.athena_admin_bucket_name : "${var.project_name}-prod-athena-admin"
   athena_admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
 
+  # Shared-space bucket (Bucket 2, SPEC-050) computed once the same cycle-free way:
+  # the shared-spaces module creates the bucket, base's deploy policy is scoped to
+  # its ARN (constructed string -> no shared-spaces->base cycle). Overridable via the
+  # root shared_space_bucket_name variable (S3 names are globally unique).
+  shared_space_bucket_name = var.shared_space_bucket_name != "" ? var.shared_space_bucket_name : "${var.project_name}-prod-shared-space"
+  shared_space_bucket_arn  = "arn:aws:s3:::${local.shared_space_bucket_name}"
+
   # LF registration role ARN (SPEC-032), constructed cycle-free like the role ARNs
   # above (analytics creates it as "${project_name}-analytics-lf-registration-role").
   # Passed to the data module so the user-space bucket policy can EXCLUDE it from
@@ -88,6 +95,11 @@ module "base" {
   portal_role_arn             = local.portal_role_arn
   lambda_artifacts_bucket_arn = local.lambda_artifacts_bucket_arn
   athena_admin_bucket_arn     = local.athena_admin_bucket_arn
+
+  # Shared-space control-plane (SPEC-050): the bucket ARN scopes the deploy role's
+  # s3:* on Bucket 2; the rest of the SPEC-050 deploy grants are scoped by name
+  # pattern (${project_name}-*-shared-space-*) inside the policy template.
+  shared_space_bucket_arn = local.shared_space_bucket_arn
 }
 
 module "auth" {
@@ -179,4 +191,27 @@ module "analytics" {
   # data creates the user-space bucket + portal role that analytics registers in LF
   # and attaches the analytics policy to. Force both to settle first.
   depends_on = [module.base, module.data]
+}
+
+# Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control
+# plane (FIFO SQS -> EventBridge Pipe -> Step Function -> provisioner Lambda) under a
+# single privileged orchestrator role. Plumbing only — no access model, no action
+# semantics (SPEC-056 + SPEC-051->055). Standalone-deployable: every cross-module ARN
+# it references (the admin registry bucket, its own resources) is a constructed string
+# in the module's locals, so it plans without analytics/data resource attributes.
+module "shared_spaces" {
+  source = "./modules/shared-spaces"
+
+  project_name             = var.project_name
+  environment              = var.environment
+  aws_region               = var.aws_region
+  account_id               = data.aws_caller_identity.current.account_id
+  shared_space_bucket_name = local.shared_space_bucket_name
+  athena_admin_bucket_name = local.athena_admin_bucket_name
+  app_url                  = var.app_url
+
+  # base grants the deploy role its SQS/Pipes/Step-Functions/Lambda/IAM/logs/S3
+  # perms for this module; force that grant to settle before any resource is created
+  # (same first-apply propagation rationale as auth/data/analytics).
+  depends_on = [module.base]
 }

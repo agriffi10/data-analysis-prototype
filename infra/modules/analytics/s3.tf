@@ -60,6 +60,13 @@ resource "aws_s3_bucket_versioning" "athena_admin" {
 # Expire admin/fallback output after the retention window. (The user-facing
 # athenaresults/ prefix in the user-space bucket has NO expiry — kept indefinitely
 # per the SPEC-032 Open Questions decision; this lifecycle applies only here.)
+#
+# Scoped to the fallback-results/ prefix (SPEC-050 FR-002): the workgroup's fallback
+# OutputLocation now writes under fallback-results/ (athena.tf), and the SPEC-050
+# shared-spaces/ control-object registry also lives in this bucket. S3 lifecycle
+# rules can only INCLUDE a prefix (there is no exclude), so the rule targets only the
+# transient fallback output by prefix — registry objects under shared-spaces/ are
+# never matched and are retained indefinitely.
 resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   bucket = aws_s3_bucket.athena_admin.id
 
@@ -67,7 +74,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     id     = "expire-admin-results"
     status = "Enabled"
 
-    filter {}
+    filter {
+      prefix = "fallback-results/"
+    }
 
     expiration {
       days = var.admin_results_retention_days

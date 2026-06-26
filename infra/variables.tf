@@ -66,6 +66,12 @@ variable "athena_admin_bucket_name" {
   default     = ""
 }
 
+variable "shared_space_bucket_name" {
+  description = "Override for the shared-space (Bucket 2) S3 name (SPEC-050). When empty, defaults to {project_name}-prod-shared-space. Override only if that global name is already taken (S3 names are globally unique)."
+  type        = string
+  default     = ""
+}
+
 variable "principal_tag_key" {
   description = "IAM principal-tag key carrying the username (SPEC-011). Scopes the portal role's analytics Glue/results ARNs (SPEC-032 FR-006). Default 'username' — matches the Identity Pool attribute mapping."
   type        = string

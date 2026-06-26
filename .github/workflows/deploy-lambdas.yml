@@ -32,6 +32,7 @@ jobs:
         lambda:
           - name: pre-signup
           - name: post-confirmation
+          - name: shared-space-provisioner
 
     steps:
       - name: Checkout
