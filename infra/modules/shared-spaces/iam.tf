@@ -35,6 +35,32 @@ resource "aws_iam_role_policy" "orchestrator" {
   })
 }
 
+# ── Portal role — shared-space membership policy (SPEC-056 FR-002) ────────────
+# A THIRD inline policy on the shared portal role (after data's "user-space-access"
+# and analytics' "analytics-access"), attached BY NAME like the analytics module does
+# (the role is created in module.data; module-level depends_on = [module.data]
+# guarantees it exists first). Fixed size — ten slots regardless of how many shared
+# spaces exist — so it stays well inside the portal role's inline-policy aggregate.
+#
+# Each slot is templated on ${aws:PrincipalTag/shared_space_k}: S3 object CRUD +
+# multipart and Glue DB/table scoped to the slot's space, a ListBucket conditioned on
+# the slot prefix, plus the shared delete-denies (athenaresults/ + DO_NOT_DELETE.txt)
+# and the SINGLE privileged grant the browser receives — sqs:SendMessage to the
+# request queue only. An unset slot stamps no tag → the statement matches nothing
+# (implicit deny); verified with aws iam simulate-custom-policy.
+resource "aws_iam_role_policy" "portal_shared_space" {
+  name = "shared-space-membership"
+  role = var.portal_role_name
+
+  policy = templatefile("${path.module}/policies/portal-role-shared-space.json.tftpl", {
+    shared_space_bucket_arn = local.shared_space_bucket_arn
+    aws_region              = var.aws_region
+    account_id              = var.account_id
+    request_queue_arn       = aws_sqs_queue.requests.arn
+    max_shared_memberships  = var.max_shared_memberships
+  })
+}
+
 # ── Pipe role (EventBridge Pipe) ─────────────────────────────────────────────
 resource "aws_iam_role" "pipe" {
   name               = local.pipe_role_name

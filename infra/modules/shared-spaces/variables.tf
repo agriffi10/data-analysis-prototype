@@ -45,3 +45,16 @@ variable "app_url" {
   type        = string
   default     = ""
 }
+
+# ── SPEC-056 access model ────────────────────────────────────────────────────
+
+variable "max_shared_memberships" {
+  description = "SPEC-056: number of membership slots — drives the portal-role policy's ten templated S3/Glue statements scoped to the shared_space_k principal tag. Single source is the root variable of the same name."
+  type        = number
+  default     = 10
+}
+
+variable "portal_role_name" {
+  description = "SPEC-056: name of the shared portal role (SPEC-011) this module attaches the membership inline policy (slots + sqs:SendMessage + shared delete-denies) to, by name — mirrors how the analytics module attaches its portal policy."
+  type        = string
+}

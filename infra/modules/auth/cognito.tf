@@ -47,6 +47,30 @@ resource "aws_cognito_user_pool" "portal" {
     mutable             = true
   }
 
+  # SPEC-056 shared-space membership slots: custom:shared_space_1..N (mutable
+  # strings, not required). Each holds the name of a shared space the user belongs
+  # to, or is unset. The Identity Pool maps each to a principal tag shared_space_k
+  # (identity-pool.tf) and the portal-role policy scopes S3/Glue to
+  # ${aws:PrincipalTag/shared_space_k}; an unset slot stamps no tag → implicit deny.
+  # Only the privileged orchestrator role writes these (AdminUpdateUserAttributes).
+  # ADDING custom attributes to an existing pool is an in-place AddCustomAttributes
+  # (NOT a pool replacement); they cannot later be modified/removed, so the slot
+  # count is effectively permanent — raise max_shared_memberships, never lower it.
+  dynamic "schema" {
+    for_each = range(1, var.max_shared_memberships + 1)
+    content {
+      name                = "shared_space_${schema.value}"
+      attribute_data_type = "String"
+      required            = false
+      mutable             = true
+
+      string_attribute_constraints {
+        min_length = 0
+        max_length = 256
+      }
+    }
+  }
+
   # Tightened for bot/credential-stuffing resistance (SPEC-030 FR-002). All flags
   # were already on; temporary_password_validity_days is added to complete the block.
   password_policy {

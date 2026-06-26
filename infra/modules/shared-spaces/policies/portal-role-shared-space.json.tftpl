@@ -1,0 +1,78 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SharedSpaceObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+%{ for k in range(1, max_shared_memberships + 1) ~}
+        "${shared_space_bucket_arn}/$${aws:PrincipalTag/shared_space_${k}}/*"${k < max_shared_memberships ? "," : ""}
+%{ endfor ~}
+      ]
+    },
+    {
+      "Sid": "SharedSpaceList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${shared_space_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+%{ for k in range(1, max_shared_memberships + 1) ~}
+            "$${aws:PrincipalTag/shared_space_${k}}/",
+            "$${aws:PrincipalTag/shared_space_${k}}/*"${k < max_shared_memberships ? "," : ""}
+%{ endfor ~}
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "SharedSpaceGlue",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:GetPartition",
+        "glue:GetPartitions",
+        "glue:CreateTable",
+        "glue:UpdateTable",
+        "glue:DeleteTable",
+        "glue:BatchCreatePartition",
+        "glue:BatchDeletePartition"
+      ],
+      "Resource": [
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+%{ for k in range(1, max_shared_memberships + 1) ~}
+        "arn:aws:glue:${aws_region}:${account_id}:database/$${aws:PrincipalTag/shared_space_${k}}",
+        "arn:aws:glue:${aws_region}:${account_id}:table/$${aws:PrincipalTag/shared_space_${k}}/*"${k < max_shared_memberships ? "," : ""}
+%{ endfor ~}
+      ]
+    },
+    {
+      "Sid": "SharedResultsNoDelete",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": "${shared_space_bucket_arn}/*/athenaresults/*"
+    },
+    {
+      "Sid": "SharedMarkerNoDelete",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": "${shared_space_bucket_arn}/*/DO_NOT_DELETE.txt"
+    },
+    {
+      "Sid": "SharedSpaceEnqueue",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${request_queue_arn}"
+    }
+  ]
+}

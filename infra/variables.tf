@@ -72,6 +72,12 @@ variable "shared_space_bucket_name" {
   default     = ""
 }
 
+variable "max_shared_memberships" {
+  description = "SPEC-056: number of shared-space membership slots per user (Cognito custom attributes custom:shared_space_1..N + Identity-Pool principal tags shared_space_1..N + portal-role policy slots). Single source for the slot count across auth/data/shared-spaces. Bounded because a Cognito Identity Pool maps each claim to exactly one single-valued principal tag; raising it enlarges the portal-role policy (see docs/shared-spaces-architecture.md §3)."
+  type        = number
+  default     = 10
+}
+
 variable "principal_tag_key" {
   description = "IAM principal-tag key carrying the username (SPEC-011). Scopes the portal role's analytics Glue/results ARNs (SPEC-032 FR-006). Default 'username' — matches the Identity Pool attribute mapping."
   type        = string
