@@ -15,6 +15,8 @@ const shared: Connection = {
   label: 'Project Alpha',
   database: 'project_alpha',
   kind: 'shared',
+  status: 'active',
+  role: 'member',
 };
 
 function key(username: string) {
@@ -59,6 +61,18 @@ describe('useActiveDatabase (SPEC-047 FR-002)', () => {
     expect(result.current.fellBack).toBe(false);
     // Still resolves to personal even after dismissing the notice.
     expect(result.current.activeDatabase).toBe('alice');
+  });
+
+  it('falls back to personal when the active shared DB flips to non-usable (SPEC-052 FR-004)', () => {
+    // The targeted shared DB is still LISTED (so the rail can show its status) but
+    // has been revoked — status no longer 'active'. It must not stay the target.
+    sessionStorage.setItem(key('alice'), 'project_alpha');
+    const leaving: Connection = { ...shared, status: 'leaving' };
+    const { result } = renderHook(() =>
+      useActiveDatabase('alice', [personal, leaving]),
+    );
+    expect(result.current.activeDatabase).toBe('alice');
+    expect(result.current.fellBack).toBe(true);
   });
 
   it('re-applies a stored database once it becomes available again', () => {

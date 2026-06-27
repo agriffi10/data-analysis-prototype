@@ -9,13 +9,21 @@ import {
 } from 'vitest';
 
 vi.mock('../../lib/sqsClient', () => ({ getSqsClient: vi.fn() }));
+vi.mock('../../lib/s3Client', () => ({ getS3Client: vi.fn() }));
 vi.mock('../../lib/awsCredentials', () => ({ getIdToken: vi.fn() }));
 
 import { getSqsClient } from '../../lib/sqsClient';
+import { getS3Client } from '../../lib/s3Client';
 import { getIdToken } from '../../lib/awsCredentials';
-import { enqueueSharedSpaceRequest } from './sharedSpaces.service';
+import {
+  enqueueSharedSpaceRequest,
+  readSharedConnectionsCache,
+} from './sharedSpaces.service';
 
 const mockGetClient = getSqsClient as unknown as MockedFunction<
+  () => Promise<unknown>
+>;
+const mockGetS3 = getS3Client as unknown as MockedFunction<
   () => Promise<unknown>
 >;
 const mockGetIdToken = getIdToken as unknown as MockedFunction<
@@ -33,9 +41,30 @@ function fakeQueue() {
   return { send };
 }
 
+const USER_BUCKET = 'dat-prod-user-space';
+
+// Fake an S3 client whose GetObject returns the given body (or rejects with the
+// given error). `body === null` simulates a missing object.
+function fakeS3(opts: { body?: string | null; rejectWith?: unknown }) {
+  const send = vi.fn();
+  if (opts.rejectWith !== undefined) {
+    send.mockRejectedValue(opts.rejectWith);
+  } else {
+    send.mockResolvedValue({
+      Body:
+        opts.body == null
+          ? undefined
+          : { transformToString: async () => opts.body },
+    });
+  }
+  mockGetS3.mockResolvedValue({ success: true, data: { send } });
+  return { send };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('VITE_SHARED_SPACE_QUEUE_URL', QUEUE);
+  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', USER_BUCKET);
   mockGetIdToken.mockResolvedValue({ success: true, data: 'id-token-xyz' });
 });
 
@@ -124,6 +153,66 @@ describe('enqueueSharedSpaceRequest', () => {
     expect(result).toEqual({
       success: false,
       error: { message: 'network', code: 'NetworkError' },
+    });
+  });
+});
+
+describe('readSharedConnectionsCache (SPEC-052)', () => {
+  it('reads the per-user cache key and returns its valid entries', async () => {
+    const cache = {
+      version: 1,
+      connections: [
+        { name: 'sales', role: 'owner', status: 'active' },
+        { name: 'ops', role: 'member', status: 'provisioning' },
+      ],
+    };
+    const { send } = fakeS3({ body: JSON.stringify(cache) });
+
+    const result = await readSharedConnectionsCache('alice');
+
+    expect(result).toEqual({ success: true, data: cache });
+    const input = send.mock.calls[0][0].input;
+    expect(input.Bucket).toBe(USER_BUCKET);
+    expect(input.Key).toBe('alice/user_settings/shared-connections.json');
+  });
+
+  it('returns the empty cache (personal-only) when the file is missing', async () => {
+    fakeS3({ rejectWith: Object.assign(new Error('nope'), { name: 'NoSuchKey' }) });
+    const result = await readSharedConnectionsCache('alice');
+    expect(result).toEqual({ success: true, data: { version: 1, connections: [] } });
+  });
+
+  it('falls back to the empty cache when the body is malformed JSON', async () => {
+    fakeS3({ body: 'not json{' });
+    const result = await readSharedConnectionsCache('alice');
+    expect(result).toEqual({ success: true, data: { version: 1, connections: [] } });
+  });
+
+  it('drops malformed entries but keeps the well-formed ones', async () => {
+    const body = JSON.stringify({
+      version: 1,
+      connections: [
+        { name: 'good', role: 'owner', status: 'active' },
+        { name: '', role: 'owner', status: 'active' }, // empty name
+        { name: 'bad-status', role: 'owner', status: 'wat' },
+        { role: 'owner', status: 'active' }, // missing name
+      ],
+    });
+    fakeS3({ body });
+    const result = await readSharedConnectionsCache('alice');
+    expect(result.success && result.data.connections).toEqual([
+      { name: 'good', role: 'owner', status: 'active' },
+    ]);
+  });
+
+  it('returns a ServiceResult error (never throws) on a non-404 read failure', async () => {
+    fakeS3({
+      rejectWith: Object.assign(new Error('boom'), { name: 'AccessDenied' }),
+    });
+    const result = await readSharedConnectionsCache('alice');
+    expect(result).toEqual({
+      success: false,
+      error: { message: 'boom', code: 'AccessDenied' },
     });
   });
 });

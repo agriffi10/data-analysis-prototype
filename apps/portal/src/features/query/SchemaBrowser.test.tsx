@@ -147,7 +147,14 @@ describe('SchemaBrowser', () => {
 
   const connections = [
     { id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal' as const },
-    { id: 's1', label: 'Project Alpha', database: 'project_alpha', kind: 'shared' as const },
+    {
+      id: 's1',
+      label: 'Project Alpha',
+      database: 'project_alpha',
+      kind: 'shared' as const,
+      status: 'active' as const,
+      role: 'member' as const,
+    },
   ];
 
   it('keys the schema query off the active database', () => {
@@ -197,6 +204,35 @@ describe('SchemaBrowser', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Project Alpha' }));
     expect(onSelectDatabase).toHaveBeenCalledWith('project_alpha');
+  });
+
+  it('shows a provisioning shared connection disabled, not selectable (SPEC-052 FR-004)', () => {
+    const onSelectDatabase = vi.fn();
+    mockUseSchema.mockReturnValue(tableSchema);
+    render(
+      <SchemaBrowser
+        database="alice"
+        connections={[
+          connections[0],
+          {
+            id: 's2',
+            label: 'Project Beta',
+            database: 'project_beta',
+            kind: 'shared' as const,
+            status: 'provisioning' as const,
+            role: 'owner' as const,
+          },
+        ]}
+        onSelectDatabase={onSelectDatabase}
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />,
+    );
+    const beta = screen.getByRole('button', { name: /Project Beta/ });
+    expect(beta).toBeDisabled();
+    expect(beta).toHaveTextContent('Provisioning');
+    fireEvent.click(beta);
+    expect(onSelectDatabase).not.toHaveBeenCalled();
   });
 
   // --- SPEC-048 views ---

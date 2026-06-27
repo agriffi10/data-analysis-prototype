@@ -207,6 +207,8 @@ beforeEach(() => {
     connections: [personalConnection],
     isLoading: false,
     error: null,
+    refresh: vi.fn(),
+    isRefreshing: false,
   });
   // Default: no execution in flight, no results.
   mockUseExecution.mockReturnValue({ data: undefined } as unknown as ReturnType<
@@ -818,10 +820,19 @@ describe('QueryWorkspace', () => {
     mockUseConnections.mockReturnValue({
       connections: [
         personalConnection,
-        { id: 's1', label: 'Project Alpha', database: 'project_alpha', kind: 'shared' },
+        {
+          id: 's1',
+          label: 'Project Alpha',
+          database: 'project_alpha',
+          kind: 'shared',
+          status: 'active',
+          role: 'member',
+        },
       ],
       isLoading: false,
       error: null,
+      refresh: vi.fn(),
+      isRefreshing: false,
     });
     mockRunQuery.mockResolvedValue({
       success: true,
