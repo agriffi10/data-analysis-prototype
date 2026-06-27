@@ -81,18 +81,44 @@ class FakeLF:
         self.grants.append((Resource, Permissions))
 
 
+class FakeUserNotFound(Exception):
+    pass
+
+
 class FakeCognito:
+    """Two modes. Single-user (create tests): pass ``attrs`` — every Username maps to
+    that one attribute bag, exposed as ``.attrs``. Multi-user (add/remove tests): set
+    ``.users = {username: {attr: val}}`` — any Username not listed is unknown and
+    raises UserNotFoundException."""
+
     def __init__(self, attrs=None):
-        self.attrs = dict(attrs or {})
+        self._default = dict(attrs or {})
+        self.users = {}
         self.updates = []
+        self.exceptions = types.SimpleNamespace(UserNotFoundException=FakeUserNotFound)
+
+    @property
+    def attrs(self):
+        return self._default
+
+    def _bucket(self, username):
+        if self.users:  # multi-user mode: only listed users exist
+            return self.users.get(username)
+        return self._default  # single-user (create) mode
 
     def admin_get_user(self, UserPoolId, Username):
-        return {"UserAttributes": [{"Name": n, "Value": v} for n, v in self.attrs.items()]}
+        bucket = self._bucket(Username)
+        if bucket is None:
+            raise FakeUserNotFound()
+        return {"UserAttributes": [{"Name": n, "Value": v} for n, v in bucket.items()]}
 
     def admin_update_user_attributes(self, UserPoolId, Username, UserAttributes):
+        bucket = self._bucket(Username)
+        if bucket is None:
+            raise FakeUserNotFound()
         for a in UserAttributes:
-            self.attrs[a["Name"]] = a["Value"]
-        self.updates.append(UserAttributes)
+            bucket[a["Name"]] = a["Value"]
+        self.updates.append((Username, UserAttributes))
 
 
 def _install(cognito_attrs=None, max_memberships=10):
@@ -149,7 +175,9 @@ def test_create_happy_path_provisions_everything():
     # Marker written + per-user cache entry active.
     assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
     cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert cache["connections"] == [{"name": "sales", "role": "owner", "status": "active"}]
+    assert cache["connections"] == [
+        {"name": "sales", "role": "owner", "status": "active", "members": ["alice"]}
+    ]
 
 
 def test_create_name_collision_fails():
@@ -199,6 +227,131 @@ def test_create_slot_assignment_is_replay_safe():
     assert "custom:shared_space_1" not in p._cognito.attrs  # didn't grab a new slot
 
 
+# ── add_members / remove_members verbs (SPEC-053) ────────────────────────────
+def _active_reg(name="sales", owner="alice", members=None):
+    return {
+        "name": name,
+        "owner": owner,
+        "members": members if members is not None else [owner],
+        "status": "active",
+        "createdAt": "t0",
+        "lastRequestId": "r0",
+    }
+
+
+def _seed_reg(s3, reg):
+    s3.store[("admin-bkt", f"shared-spaces/{reg['name']}.json")] = json.dumps(reg).encode()
+
+
+def test_add_members_assigns_slot_registry_cache_and_owner_projection():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {}}  # bob exists with a free slot
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+
+    out = p.add_members("sales", ["bob"], "req-2", reg)
+    assert out["added"] == ["bob"]
+    assert out["ignoredUnknown"] == [] and out["skippedAtLimit"] == []
+    # bob got a slot + a member cache entry.
+    assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+    bob_cache = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    assert bob_cache["connections"] == [{"name": "sales", "role": "member", "status": "active"}]
+    # registry members updated; owner projection carries the full member list.
+    reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert set(reg2["members"]) == {"alice", "bob"} and reg2["owner"] == "alice"
+    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert owner_cache["connections"][0]["members"] == ["alice", "bob"]
+
+
+def test_add_members_ignores_unknown_users_silently():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {}}  # "ghost" is not in the pool
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+
+    out = p.add_members("sales", ["bob", "ghost"], "req-2", reg)
+    assert out["added"] == ["bob"] and out["ignoredUnknown"] == ["ghost"]
+    assert ("user-bkt", "ghost/user_settings/shared-connections.json") not in s3.store
+
+
+def test_add_members_skips_at_limit_target_and_still_adds_others():
+    s3, glue, lf, cognito = _install(max_memberships=2)
+    cognito.users = {
+        "full": {"custom:shared_space_1": "x", "custom:shared_space_2": "y"},
+        "bob": {},
+    }
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+
+    out = p.add_members("sales", ["full", "bob"], "req-2", reg)
+    assert out["skippedAtLimit"] == ["full"] and out["added"] == ["bob"]
+    reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert set(reg2["members"]) == {"alice", "bob"}  # full not added
+
+
+def test_add_members_idempotent_for_existing_member():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    reg = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg)
+
+    out = p.add_members("sales", ["bob"], "req-2", reg)
+    assert out["added"] == []  # already a member -> no-op
+    assert cognito.updates == []  # no slot reassignment
+
+
+def test_add_members_never_adds_the_owner():
+    s3, glue, lf, cognito = _install()
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+
+    out = p.add_members("sales", ["alice"], "req-2", reg)
+    assert out["added"] == [] and out["ignoredUnknown"] == []
+
+
+def test_remove_members_clears_slot_registry_and_cache_leaves_data():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    reg = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg)
+    s3.store[("user-bkt", "bob/user_settings/shared-connections.json")] = json.dumps(
+        {"version": 1, "connections": [{"name": "sales", "role": "member", "status": "active"}]}
+    ).encode()
+
+    out = p.remove_members("sales", ["bob"], "req-3", reg)
+    assert out["removed"] == ["bob"]
+    assert cognito.users["bob"]["custom:shared_space_1"] == ""  # slot cleared
+    reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert reg2["members"] == ["alice"]
+    bob_cache = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    assert bob_cache["connections"] == []
+    # owner projection reflects the removal; shared DB/marker untouched.
+    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert owner_cache["connections"][0]["members"] == ["alice"]
+    assert glue.created == []
+
+
+def test_remove_members_idempotent_for_non_member():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {}}
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+
+    out = p.remove_members("sales", ["bob"], "req-3", reg)
+    assert out["removed"] == []
+
+
+def test_remove_members_never_removes_the_owner():
+    s3, glue, lf, cognito = _install()
+    reg = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg)
+
+    out = p.remove_members("sales", ["alice"], "req-3", reg)
+    assert out["removed"] == []
+    reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert "alice" in reg2["members"]
+
+
 # ── handler() flow ───────────────────────────────────────────────────────────
 def _event(action="create", space="sales", token="tok"):
     body = {"schemaVersion": 1, "requestId": "r1", "action": action, "actor": "x", "space": space, "idToken": token}
@@ -227,6 +380,52 @@ def test_handler_forged_token_rejected_before_any_verb():
         assert glue.created == [] and s3.store == {}  # nothing provisioned
     finally:
         p.verified_username = orig
+
+
+def _members_event(action, space, members, request_id="r1"):
+    body = {
+        "schemaVersion": 1,
+        "requestId": request_id,
+        "action": action,
+        "actor": "x",
+        "space": space,
+        "idToken": "tok",
+        "payload": {"members": members},
+    }
+    return [{"body": json.dumps(body)}]
+
+
+def test_handler_add_members_runs_verb_for_owner():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {}}
+    _seed_reg(s3, _active_reg(members=["alice"]))
+    orig = p.verified_username
+    try:
+        p.verified_username = lambda tok: "alice"  # the owner
+        out = p.handler(_members_event("add_members", "sales", ["bob"]), None)
+        assert out["added"] == ["bob"]
+    finally:
+        p.verified_username = orig
+
+
+def test_handler_add_members_non_owner_fails_with_no_effect():
+    s3, glue, lf, cognito = _install()
+    cognito.users = {"bob": {}}
+    _seed_reg(s3, _active_reg(owner="alice", members=["alice"]))
+    orig = p.verified_username
+    try:
+        p.verified_username = lambda tok: "mallory"  # not the owner
+        _raises(
+            lambda: p.handler(_members_event("add_members", "sales", ["bob"]), None),
+            p.AuthorizationError,
+            "owner-only",
+        )
+    finally:
+        p.verified_username = orig
+    # No slot assigned, registry unchanged.
+    assert cognito.users["bob"] == {}
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert reg["members"] == ["alice"]
 
 
 def test_handler_bad_schema_version_rejected():
