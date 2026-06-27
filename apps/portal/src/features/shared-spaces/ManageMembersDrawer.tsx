@@ -73,7 +73,7 @@ export function ManageMembersDrawer({
         <p className="text-sm text-text-2">
           {others.length === 0
             ? 'Just you so far.'
-            : `${others.length + 1} member${others.length === 0 ? '' : 's'}`}
+            : `${others.length + 1} members`}
         </p>
         <Button variant="primary" onClick={() => setAddOpen(true)} disabled={busy}>
           Add members
