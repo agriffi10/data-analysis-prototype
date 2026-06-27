@@ -57,7 +57,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 049 — Save Query Results to Workspace (replaces Download CSV) | Completed |
 | 050 — Shared-Space Foundation Infrastructure (Bucket 2 + control plane) | Completed |
 | 051 — Create Shared Connection | Completed |
-| 052 — Shared Connections List, Selector Integration & Refresh | Draft |
+| 052 — Shared Connections List, Selector Integration & Refresh | Completed |
 | 053 — Shared-Space Member Management (Owner) | Draft |
 | 054 — Leave & Delete a Shared Space | Draft |
 | 055 — Shared-Space Query Results Routing & Save | Draft |
