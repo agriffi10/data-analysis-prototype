@@ -1,8 +1,8 @@
 # Spec: Leave & Delete a Shared Space
 
 **ID:** SPEC-054
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-27
 **Depends On:** SPEC-050 (Step Function, registry storage, orchestrator Glue/LF/S3/Cognito perms), SPEC-056 (request contract, membership slots, actor binding/validate), SPEC-051 (create + registry/cache shapes), SPEC-052 (connections screen + status), SPEC-053 (member model), SPEC-026 (confirm dialog), SPEC-044 (`Toast`)
 
 > **Reference:** `docs/shared-spaces-architecture.md` (§2 pipeline, §3 slot revoke, §4 registry, §5 data layout).

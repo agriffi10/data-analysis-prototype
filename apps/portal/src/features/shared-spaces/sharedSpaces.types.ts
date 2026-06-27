@@ -3,7 +3,7 @@
 // SPEC-052 reads/renders it. SPEC-051 only emits a LOCAL (in-memory) pending entry.
 
 export type SharedConnectionRole = 'owner' | 'member';
-export type SharedConnectionStatus = 'provisioning' | 'active' | 'failed' | 'leaving';
+export type SharedConnectionStatus = 'provisioning' | 'active' | 'failed' | 'leaving' | 'deleting';
 
 // One entry in the per-user cache (and the local optimistic pending list).
 export type SharedConnectionEntry = {

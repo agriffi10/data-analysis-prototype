@@ -69,4 +69,15 @@ describe('ConfirmDialog', () => {
     expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled();
     expect(screen.getByRole('button', {name: 'Deleting…'})).toBeDisabled();
   });
+
+  it('confirmDisabled disables only the confirm button, leaving Cancel live', () => {
+    render(
+      <ConfirmDialog
+        {...base}
+        confirmDisabled
+      />
+    );
+    expect(screen.getByRole('button', {name: 'Delete'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Cancel'})).toBeEnabled();
+  });
 });

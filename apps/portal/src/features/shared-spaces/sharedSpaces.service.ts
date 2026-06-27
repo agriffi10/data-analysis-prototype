@@ -82,7 +82,7 @@ export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<Se
 // READS it (the pipeline is the sole writer); `useConnections` merges it with the
 // personal database. Same protected `user_settings/` folder + read pattern as
 // query history / saved queries.
-const VALID_STATUS = new Set(['provisioning', 'active', 'failed', 'leaving']);
+const VALID_STATUS = new Set(['provisioning', 'active', 'failed', 'leaving', 'deleting']);
 const VALID_ROLE = new Set(['owner', 'member']);
 
 const emptyCache = (): SharedConnectionsCache => ({

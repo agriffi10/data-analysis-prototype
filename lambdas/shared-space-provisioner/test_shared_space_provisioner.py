@@ -63,22 +63,65 @@ class FakeS3:
         self.store[(Bucket, Key)] = Body if isinstance(Body, (bytes, bytearray)) else Body.encode()
         return {}
 
+    def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None):
+        keys = sorted(k for (b, k) in self.store if b == Bucket and k.startswith(Prefix))
+        return {"Contents": [{"Key": k} for k in keys], "IsTruncated": False}
+
+    def delete_objects(self, Bucket, Delete):
+        for obj in Delete.get("Objects", []):
+            self.store.pop((Bucket, obj["Key"]), None)
+        return {}
+
+    def delete_object(self, Bucket, Key):
+        self.store.pop((Bucket, Key), None)
+        return {}
+
+
+class FakeEntityNotFound(Exception):
+    pass
+
 
 class FakeGlue:
     def __init__(self):
         self.created = []
-        self.exceptions = types.SimpleNamespace(AlreadyExistsException=FakeAlreadyExists)
+        self.databases = set()
+        self.tables = {}  # db name -> [table names]
+        self.exceptions = types.SimpleNamespace(
+            AlreadyExistsException=FakeAlreadyExists, EntityNotFoundException=FakeEntityNotFound
+        )
 
     def create_database(self, DatabaseInput):
-        self.created.append(DatabaseInput["Name"])
+        name = DatabaseInput["Name"]
+        self.created.append(name)
+        self.databases.add(name)
+        self.tables.setdefault(name, [])
+
+    def get_tables(self, DatabaseName, NextToken=None):
+        if DatabaseName not in self.databases:
+            raise FakeEntityNotFound()
+        return {"TableList": [{"Name": t} for t in self.tables.get(DatabaseName, [])]}
+
+    def batch_delete_table(self, DatabaseName, TablesToDelete):
+        remaining = [t for t in self.tables.get(DatabaseName, []) if t not in TablesToDelete]
+        self.tables[DatabaseName] = remaining
+
+    def delete_database(self, Name):
+        if Name not in self.databases:
+            raise FakeEntityNotFound()
+        self.databases.discard(Name)
+        self.tables.pop(Name, None)
 
 
 class FakeLF:
     def __init__(self):
         self.grants = []
+        self.revokes = []
 
     def grant_permissions(self, Principal, Resource, Permissions):
         self.grants.append((Resource, Permissions))
+
+    def revoke_permissions(self, Principal, Resource, Permissions):
+        self.revokes.append((Resource, Permissions))
 
 
 class FakeUserNotFound(Exception):
@@ -352,6 +395,123 @@ def test_remove_members_never_removes_the_owner():
     assert "alice" in reg2["members"]
 
 
+# ── leave / delete verbs (SPEC-054) ──────────────────────────────────────────
+def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
+    """Seed a fully-provisioned shared space: registry, shared objects (marker +
+    data + an athenaresults entry), Glue DB + tables, and each member's slot +
+    cache entry. The first member is the owner."""
+    owner = members[0]
+    _seed_reg(s3, _active_reg(name=name, owner=owner, members=list(members)))
+    s3.store[("shared-bkt", f"{name}/DO_NOT_DELETE.txt")] = b"marker"
+    s3.store[("shared-bkt", f"{name}/data/file.csv")] = b"data"
+    s3.store[("shared-bkt", f"{name}/athenaresults/alice/q.csv")] = b"result"
+    glue.databases.add(name)
+    glue.tables[name] = ["t1", "t2"]
+    cognito.users = {}
+    for m in members:
+        cognito.users[m] = {"custom:shared_space_1": name}
+        role = "owner" if m == owner else "member"
+        s3.store[("user-bkt", f"{m}/user_settings/shared-connections.json")] = json.dumps(
+            {"version": 1, "connections": [{"name": name, "role": role, "status": "active"}]}
+        ).encode()
+
+
+def test_leave_clears_slot_cache_registry_and_owner_projection_leaves_data():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    out = p.leave_space("sales", "bob", "req-l", reg)
+    assert out["left"] is True
+    # bob's slot + cache cleared; registry membership + owner projection updated.
+    assert cognito.users["bob"]["custom:shared_space_1"] == ""
+    bob_cache = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    assert bob_cache["connections"] == []
+    reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert reg2["members"] == ["alice"]
+    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert owner_cache["connections"][0]["members"] == ["alice"]
+    # shared objects, DB + tables, and the owner are untouched.
+    assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
+    assert ("shared-bkt", "sales/data/file.csv") in s3.store
+    assert "sales" in glue.databases and glue.tables["sales"] == ["t1", "t2"]
+
+
+def test_leave_idempotent_for_non_member():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito, members=("alice",))  # only the owner
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    out = p.leave_space("sales", "carol", "req-l", reg)  # carol never joined
+    assert out["left"] is False
+    reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert reg2["members"] == ["alice"]  # unchanged
+
+
+def test_leave_defensive_owner_guard():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    _raises(lambda: p.leave_space("sales", "alice", "req-l", reg), p.AuthorizationError, "owner cannot leave")
+
+
+def test_delete_cascades_files_tables_db_members_and_registry_frees_name():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    out = p.delete_space("sales", "alice", "req-d", reg)
+    assert out["status"] == "ok" and set(out["revokedMembers"]) == {"alice", "bob"}
+    # All shared objects gone.
+    assert not any(b == "shared-bkt" and k.startswith("sales/") for (b, k) in s3.store)
+    # DB + tables dropped; LF grant revoked (DB + table wildcard).
+    assert "sales" not in glue.databases and "sales" not in glue.tables
+    assert len(lf.revokes) == 2
+    # Every member's slot + cache entry cleared.
+    for m in ("alice", "bob"):
+        assert cognito.users[m]["custom:shared_space_1"] == ""
+        cache = json.loads(s3.store[("user-bkt", f"{m}/user_settings/shared-connections.json")])
+        assert cache["connections"] == []
+    # Registry object removed LAST -> the name is free to reuse.
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
+
+def test_delete_idempotent_tolerant_of_partial_prior_progress():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    # Simulate a prior partial run: DB already dropped, shared objects already gone.
+    glue.databases.discard("sales")
+    glue.tables.pop("sales", None)
+    for key in [k for (b, k) in list(s3.store) if b == "shared-bkt"]:
+        s3.store.pop(("shared-bkt", key), None)
+
+    out = p.delete_space("sales", "alice", "req-d", reg)  # completes without error
+    assert out["status"] == "ok"
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+    for m in ("alice", "bob"):
+        assert cognito.users[m]["custom:shared_space_1"] == ""
+
+
+def test_delete_records_failure_and_reraises_without_deleting_registry():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    orig = p._drop_database
+    try:
+        def boom(name):
+            raise RuntimeError("glue throttled")
+
+        p._drop_database = boom
+        _raises(lambda: p.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
+    finally:
+        p._drop_database = orig
+    # Registry survives with a terminal failed status + reason (recoverable retry).
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["status"] == "failed" and "throttled" in saved["reason"]
+    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert owner_cache["connections"][0]["status"] == "failed"
+
+
 # ── handler() flow ───────────────────────────────────────────────────────────
 def _event(action="create", space="sales", token="tok"):
     body = {"schemaVersion": 1, "requestId": "r1", "action": action, "actor": "x", "space": space, "idToken": token}
@@ -426,6 +586,83 @@ def test_handler_add_members_non_owner_fails_with_no_effect():
     assert cognito.users["bob"] == {}
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert reg["members"] == ["alice"]
+
+
+def _simple_event(action, space, request_id="r1"):
+    body = {
+        "schemaVersion": 1,
+        "requestId": request_id,
+        "action": action,
+        "actor": "x",
+        "space": space,
+        "idToken": "tok",
+    }
+    return [{"body": json.dumps(body)}]
+
+
+def test_handler_leave_runs_verb_for_member():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    orig = p.verified_username
+    try:
+        p.verified_username = lambda tok: "bob"  # a member, not the owner
+        out = p.handler(_simple_event("leave", "sales"), None)
+        assert out["left"] is True
+    finally:
+        p.verified_username = orig
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert reg["members"] == ["alice"]
+    assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store  # data intact
+
+
+def test_handler_owner_leave_fails_with_no_effect():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    orig = p.verified_username
+    try:
+        p.verified_username = lambda tok: "alice"  # the owner
+        _raises(
+            lambda: p.handler(_simple_event("leave", "sales"), None),
+            p.AuthorizationError,
+            "owner cannot leave",
+        )
+    finally:
+        p.verified_username = orig
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert set(reg["members"]) == {"alice", "bob"}  # unchanged
+
+
+def test_handler_delete_runs_verb_for_owner():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    orig = p.verified_username
+    try:
+        p.verified_username = lambda tok: "alice"  # the owner
+        out = p.handler(_simple_event("delete", "sales"), None)
+        assert out["status"] == "ok"
+    finally:
+        p.verified_username = orig
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+    assert "sales" not in glue.databases
+
+
+def test_handler_non_owner_delete_fails_with_no_effect():
+    s3, glue, lf, cognito = _install()
+    _seed_full_space(s3, glue, cognito)
+    orig = p.verified_username
+    try:
+        p.verified_username = lambda tok: "bob"  # a member, not the owner
+        _raises(
+            lambda: p.handler(_simple_event("delete", "sales"), None),
+            p.AuthorizationError,
+            "owner-only",
+        )
+    finally:
+        p.verified_username = orig
+    # Nothing torn down: registry, DB, and shared objects intact.
+    assert ("admin-bkt", "shared-spaces/sales.json") in s3.store
+    assert "sales" in glue.databases
+    assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
 
 
 def test_handler_bad_schema_version_rejected():
