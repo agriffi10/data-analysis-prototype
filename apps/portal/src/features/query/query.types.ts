@@ -1,6 +1,11 @@
 // SPEC-034 Data Model. Shared types for the query-engine data layer consumed by
 // the SPEC-035 workspace UI and SPEC-036 history panel.
 
+import type {
+  SharedConnectionRole,
+  SharedConnectionStatus,
+} from '../shared-spaces/sharedSpaces.types';
+
 export type QueryState =
   | 'QUEUED'
   | 'RUNNING'
@@ -59,11 +64,22 @@ export type QueryHistory = {
 export type ConnectionKind = 'personal' | 'shared';
 
 export type Connection = {
-  id: string; // 'personal' for the user's own DB; a shared-space id later
-  label: string; // display name (the database name for personal; the shared-space name later)
+  id: string; // 'personal' for the user's own DB; the shared-space name for shared
+  label: string; // display name (the database name for personal; the shared-space name)
   database: string; // Glue database name targeted by queries
   kind: ConnectionKind;
+  // SPEC-052: surfaced from the per-user cache for shared connections only.
+  status?: SharedConnectionStatus;
+  role?: SharedConnectionRole;
+  reason?: string; // failure reason (present when status === 'failed')
 };
+
+// SPEC-052: a connection is targetable (queryable/browsable) only when it's the
+// personal DB or an `active` shared space; provisioning/failed/leaving shared
+// entries are shown but disabled across the schema rail, Files list, and tab.
+export function isConnectionUsable(c: Connection): boolean {
+  return c.kind === 'personal' || c.status === 'active';
+}
 
 // SPEC-041 multi-tab editor. Each tab is an independent query window.
 export type QueryTab = {

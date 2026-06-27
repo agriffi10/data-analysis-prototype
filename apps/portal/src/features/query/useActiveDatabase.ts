@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { QUERY_ACTIVE_DB_STORAGE_PREFIX } from './query.constants';
+import { isConnectionUsable } from './query.types';
 import type { Connection } from './query.types';
 
 // SPEC-047: the workspace-global active database — one target for all query tabs,
@@ -47,8 +48,13 @@ export function useActiveDatabase(
   connections: Connection[],
 ): UseActiveDatabaseResult {
   const personal = username ?? '';
+  // SPEC-052: only USABLE connections are valid targets — a shared DB that's
+  // provisioning/failed/leaving (revoked) is still listed (so the rail can show
+  // its status) but must not hold the active target. Deriving `available` from
+  // usable connections makes a once-active target fall back to personal the moment
+  // it stops being usable, not only when it disappears from the cache entirely.
   const available = useMemo(
-    () => connections.map((c) => c.database),
+    () => connections.filter(isConnectionUsable).map((c) => c.database),
     [connections],
   );
 

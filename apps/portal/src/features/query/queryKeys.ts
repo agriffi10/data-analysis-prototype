@@ -10,4 +10,8 @@ export const queryKeys = {
     [...queryKeys.all, 'history', username] as const,
   savedQueries: (username: string) =>
     [...queryKeys.all, 'savedQueries', username] as const,
+  // SPEC-052: the merged personal + shared connection list (read from the per-user
+  // shared-connections cache); Refresh-connections invalidates this key.
+  connections: (username: string) =>
+    [...queryKeys.all, 'connections', username] as const,
 };

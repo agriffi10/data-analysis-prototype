@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { cx } from '../../lib/cx';
 import { useSchema } from './useSchema';
 import { TableActionsMenu } from './TableActionsMenu';
+import { isConnectionUsable } from './query.types';
 import type { Connection, GlueTableSummary } from './query.types';
+import { connectionStatusLabel } from '../shared-spaces/connectionStatus';
 
 // SPEC-044: per-table actions, wired in QueryWorkspace.
 export type TableActions = {
@@ -68,23 +70,34 @@ function DatabaseList({
     <ul role="list" className="flex flex-col gap-0.5" aria-label="Databases">
       {items.map((conn) => {
         const active = conn.database === activeDatabase;
+        // SPEC-052 FR-004: provisioning/failed/leaving shared connections appear
+        // but are not selectable — disabled, with their status shown.
+        const usable = isConnectionUsable(conn);
         return (
           <li key={conn.id}>
             <button
               type="button"
+              disabled={!usable}
               aria-current={active ? 'true' : undefined}
-              onClick={() => onSelectDatabase?.(conn.database)}
+              onClick={usable ? () => onSelectDatabase?.(conn.database) : undefined}
               className={cx(
                 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-base font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                active
-                  ? 'bg-accent-soft text-accent-text'
-                  : 'text-text-2 hover:bg-surface-2 hover:text-text',
-                single && 'cursor-default',
+                !usable
+                  ? 'cursor-not-allowed text-text-3'
+                  : active
+                    ? 'bg-accent-soft text-accent-text'
+                    : 'text-text-2 hover:bg-surface-2 hover:text-text',
+                usable && single && 'cursor-default',
               )}
             >
               <DatabaseIcon />
               <span className="min-w-0 truncate">{conn.label}</span>
               {active && <span className="sr-only">(current database)</span>}
+              {conn.kind === 'shared' && conn.status && conn.status !== 'active' && (
+                <span className="ml-auto flex-none text-xs font-medium text-text-3">
+                  {connectionStatusLabel(conn.status)}
+                </span>
+              )}
             </button>
           </li>
         );
