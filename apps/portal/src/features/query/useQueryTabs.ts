@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { QUERY_TABS_MAX } from './query.constants';
 import type { QueryTab, QueryTabsState } from './query.types';
-import {
-  readTabsState,
-  writeTabsState,
-  migrateDraftToTabs,
-  initialTabsState,
-} from './queryTabs';
+import { readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState } from './queryTabs';
 
 export type OpenTabOpts = {
   label?: string; // verbatim label (saved query / table action); omit for a blank "Query N"
@@ -39,8 +34,7 @@ export type UseQueryTabsResult = {
 // single "Query 1". State is read once at mount and persisted on every change.
 export function useQueryTabs(username: string): UseQueryTabsResult {
   const [state, setState] = useState<QueryTabsState>(
-    () =>
-      readTabsState(username) ?? migrateDraftToTabs(username) ?? initialTabsState(),
+    () => readTabsState(username) ?? migrateDraftToTabs(username) ?? initialTabsState()
   );
 
   // Persist on change (writeTabsState no-ops for an empty/dev-unauth username).
@@ -50,7 +44,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
 
   const activeTab = useMemo(
     () => state.tabs.find((t) => t.id === state.activeTabId) ?? state.tabs[0],
-    [state.tabs, state.activeTabId],
+    [state.tabs, state.activeTabId]
   );
 
   const setActiveSql = (sql: string) =>
@@ -60,32 +54,24 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
     }));
 
   const setActiveTab = (id: string) =>
-    setState((s) =>
-      s.tabs.some((t) => t.id === id) ? { ...s, activeTabId: id } : s,
-    );
+    setState((s) => (s.tabs.some((t) => t.id === id) ? { ...s, activeTabId: id } : s));
 
   const setActiveSavedQueryId = (id: string | undefined) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) =>
-        t.id === s.activeTabId ? { ...t, savedQueryId: id } : t,
-      ),
+      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? { ...t, savedQueryId: id } : t)),
     }));
 
   const setActiveTabMeta = (meta: { label?: string; savedQueryId?: string }) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) =>
-        t.id === s.activeTabId ? { ...t, ...meta } : t,
-      ),
+      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? { ...t, ...meta } : t)),
     }));
 
   const unlinkSavedQuery = (savedQueryId: string) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) =>
-        t.savedQueryId === savedQueryId ? { ...t, savedQueryId: undefined } : t,
-      ),
+      tabs: s.tabs.map((t) => (t.savedQueryId === savedQueryId ? { ...t, savedQueryId: undefined } : t)),
     }));
 
   const openTab = (opts: OpenTabOpts = {}): string | null => {
@@ -145,7 +131,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
               label: `Query ${s.nextQueryNumber}`,
               savedQueryId: undefined,
             }
-          : t,
+          : t
       ),
       nextQueryNumber: s.nextQueryNumber + 1,
     }));

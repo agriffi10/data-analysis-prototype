@@ -18,9 +18,7 @@ import type { SharedConnectionsCache } from '../shared-spaces/sharedSpaces.types
 const mockRead = vi.mocked(readSharedConnectionsCache);
 const mockForceRefresh = vi.mocked(getSessionCredentials);
 
-function cache(
-  connections: SharedConnectionsCache['connections'],
-): SharedConnectionsCache {
+function cache(connections: SharedConnectionsCache['connections']): SharedConnectionsCache {
   return { version: 1, connections };
 }
 

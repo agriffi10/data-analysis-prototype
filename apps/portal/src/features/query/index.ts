@@ -11,16 +11,8 @@ export {
   isTerminalState,
 } from './query.service';
 export { getDatabase, listTables } from './glue.service';
-export {
-  getQueryHistory,
-  appendQueryHistory,
-  updateQueryHistoryEntry,
-} from './queryHistory.service';
-export {
-  getSavedQueries,
-  upsertSavedQuery,
-  removeSavedQuery,
-} from './savedQueries.service';
+export { getQueryHistory, appendQueryHistory, updateQueryHistoryEntry } from './queryHistory.service';
+export { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
 export { useQueryExecution } from './useQueryExecution';
 export { useQueryResults } from './useQueryResults';
 export type { UseQueryResultsResult } from './useQueryResults';

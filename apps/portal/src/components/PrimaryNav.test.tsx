@@ -8,31 +8,19 @@ describe('PrimaryNav (SPEC-035 + SPEC-052)', () => {
     render(
       <MemoryRouter>
         <PrimaryNav />
-      </MemoryRouter>,
+      </MemoryRouter>
     );
-    expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute(
-      'href',
-      '/files',
-    );
-    expect(screen.getByRole('link', { name: 'Query' })).toHaveAttribute(
-      'href',
-      '/query',
-    );
-    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute(
-      'href',
-      '/connections',
-    );
+    expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files');
+    expect(screen.getByRole('link', { name: 'Query' })).toHaveAttribute('href', '/query');
+    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '/connections');
   });
 
   it('marks the active tab via aria-current', () => {
     render(
       <MemoryRouter initialEntries={['/connections']}>
         <PrimaryNav />
-      </MemoryRouter>,
+      </MemoryRouter>
     );
-    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('aria-current', 'page');
   });
 });

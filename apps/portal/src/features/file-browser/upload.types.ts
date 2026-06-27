@@ -10,12 +10,7 @@ export type UploadStatus =
   // awaiting the user's Overwrite/Rename decision before the file is written —
   // SPEC-016 warn-and-confirm, FR-003). `collision` is the only non-`queued`
   // state the concurrency gate must NOT auto-start.
-  | 'queued'
-  | 'uploading'
-  | 'collision'
-  | 'done'
-  | 'failed'
-  | 'cancelled';
+  'queued' | 'uploading' | 'collision' | 'done' | 'failed' | 'cancelled';
 
 export type UploadItem = {
   id: string; // client-generated, index/name based — no Math.random in shared code
@@ -36,8 +31,4 @@ export type UploadItem = {
 export const UPLOAD_CONCURRENCY = 3;
 
 // Terminal states — eligible for dismiss / clear-finished (never re-started).
-export const TERMINAL_STATUSES: ReadonlySet<UploadStatus> = new Set<UploadStatus>([
-  'done',
-  'failed',
-  'cancelled',
-]);
+export const TERMINAL_STATUSES: ReadonlySet<UploadStatus> = new Set<UploadStatus>(['done', 'failed', 'cancelled']);

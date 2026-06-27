@@ -37,7 +37,7 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDia
       onSave={onSave}
       onCancel={onCancel}
       {...props}
-    />,
+    />
   );
   return { onSave, onCancel };
 }
@@ -90,11 +90,7 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
       ],
     });
     renderDialog();
-    expect(
-      screen.queryByRole('button', { name: /open folder athenaresults/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /open folder reports/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open folder athenaresults/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open folder reports/i })).toBeInTheDocument();
   });
 });

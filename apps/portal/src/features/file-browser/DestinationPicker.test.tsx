@@ -41,7 +41,7 @@ function renderPicker(props?: Partial<React.ComponentProps<typeof DestinationPic
       onConfirm={onConfirm}
       onCancel={onCancel}
       {...props}
-    />,
+    />
   );
   return { onConfirm, onCancel };
 }
@@ -67,9 +67,7 @@ describe('DestinationPicker', () => {
       folders: [folder('alice/athenaresults/', 'athenaresults'), folder('alice/x/', 'x')],
     });
     renderPicker();
-    expect(
-      screen.queryByRole('button', { name: /open folder athenaresults/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open folder athenaresults/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /open folder x/i })).toBeInTheDocument();
   });
 
@@ -84,7 +82,7 @@ describe('DestinationPicker', () => {
     expect(screen.getByRole('button', { name: /copy here/i })).toBeEnabled();
   });
 
-  it('blocks confirming inside a copied folder\'s own subtree', () => {
+  it("blocks confirming inside a copied folder's own subtree", () => {
     mockUseFileBrowser.mockReturnValue({
       ...base,
       folders: [folder('alice/photos/sub/', 'sub')],

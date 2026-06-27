@@ -4,11 +4,7 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UploadQueueProvider } from './UploadQueueProvider';
 import { useUploadQueue } from './uploadQueueContext';
-import {
-  uploadQueueReducer,
-  initialUploadQueueState,
-  type UploadQueueState,
-} from './uploadQueueContext';
+import { uploadQueueReducer, initialUploadQueueState, type UploadQueueState } from './uploadQueueContext';
 import type { UploadItem } from './upload.types';
 import { uploadFile } from './fileBrowser.service';
 import { invalidateListing } from '../../lib/queryClient';
@@ -100,19 +96,19 @@ describe('uploadQueueReducer', () => {
         type: 'fail',
         id: '0-a.txt',
         error: 'Access Denied',
-      }).items[0],
+      }).items[0]
     ).toMatchObject({ status: 'failed', error: 'Access Denied' });
     expect(
       uploadQueueReducer(stateWith([item({ status: 'uploading' })]), {
         type: 'collision',
         id: '0-a.txt',
-      }).items[0].status,
+      }).items[0].status
     ).toBe('collision');
     expect(
       uploadQueueReducer(stateWith([item({ status: 'uploading' })]), {
         type: 'cancelled',
         id: '0-a.txt',
-      }).items[0].status,
+      }).items[0].status
     ).toBe('cancelled');
   });
 
@@ -123,10 +119,11 @@ describe('uploadQueueReducer', () => {
     });
     expect(over.items[0]).toMatchObject({ status: 'queued', overwrite: true });
 
-    const renamed = uploadQueueReducer(
-      stateWith([item({ status: 'collision', key: 'alice/docs/a.txt' })]),
-      { type: 'retryRename', id: '0-a.txt', newName: 'b.txt' },
-    );
+    const renamed = uploadQueueReducer(stateWith([item({ status: 'collision', key: 'alice/docs/a.txt' })]), {
+      type: 'retryRename',
+      id: '0-a.txt',
+      newName: 'b.txt',
+    });
     expect(renamed.items[0]).toMatchObject({
       status: 'queued',
       overwrite: false,
@@ -142,16 +139,13 @@ describe('uploadQueueReducer', () => {
       item({ id: 'd', status: 'queued' }),
       item({ id: 'e', status: 'cancelled' }),
     ];
-    expect(
-      uploadQueueReducer(stateWith(items), { type: 'remove', id: 'b' }).items.map(
-        (i) => i.id,
-      ),
-    ).toEqual(['a', 'c', 'd', 'e']);
-    expect(
-      uploadQueueReducer(stateWith(items), { type: 'clearFinished' }).items.map(
-        (i) => i.id,
-      ),
-    ).toEqual(['b', 'd']); // uploading + queued survive
+    expect(uploadQueueReducer(stateWith(items), { type: 'remove', id: 'b' }).items.map((i) => i.id)).toEqual([
+      'a',
+      'c',
+      'd',
+      'e',
+    ]);
+    expect(uploadQueueReducer(stateWith(items), { type: 'clearFinished' }).items.map((i) => i.id)).toEqual(['b', 'd']); // uploading + queued survive
   });
 });
 
@@ -163,7 +157,7 @@ function wrapper(prefix = 'alice/') {
     createElement(
       QueryClientProvider,
       { client },
-      createElement(UploadQueueProvider, { bucket: 'us', prefix, children }),
+      createElement(UploadQueueProvider, { bucket: 'us', prefix, children })
     );
 }
 
@@ -172,22 +166,16 @@ function render(prefix = 'alice/') {
 }
 
 function files(n: number): File[] {
-  return Array.from({ length: n }, (_, i) =>
-    new File(['x'], `f${i}.txt`, { type: 'text/plain' }),
-  );
+  return Array.from({ length: n }, (_, i) => new File(['x'], `f${i}.txt`, { type: 'text/plain' }));
 }
 
-const countBy = (items: UploadItem[], status: UploadItem['status']) =>
-  items.filter((i) => i.status === status).length;
+const countBy = (items: UploadItem[], status: UploadItem['status']) => items.filter((i) => i.status === status).length;
 
 describe('UploadQueueProvider concurrency gate (FR-001)', () => {
   it('runs at most UPLOAD_CONCURRENCY (3) uploads at once and starts the next as a slot frees', async () => {
     // uploadFile never resolves on its own — we hold the resolvers to control timing.
-    const resolvers: ((v: { success: true; data: { key: string } }) => void)[] =
-      [];
-    mockUpload.mockImplementation(
-      () => new Promise((res) => resolvers.push(res)),
-    );
+    const resolvers: ((v: { success: true; data: { key: string } }) => void)[] = [];
+    mockUpload.mockImplementation(() => new Promise((res) => resolvers.push(res)));
 
     const { result } = render();
     act(() => result.current.enqueue(files(5)));
@@ -223,16 +211,14 @@ describe('UploadQueueProvider concurrency gate (FR-001)', () => {
 
     await waitFor(() => expect(result.current.items[0].status).toBe('collision'));
     expect(mockUpload).toHaveBeenCalledWith(
-      expect.objectContaining({ bucket: 'us', key: 'alice/f0.txt', overwrite: false }),
+      expect.objectContaining({ bucket: 'us', key: 'alice/f0.txt', overwrite: false })
     );
 
     // Overwrite re-queues with overwrite:true and re-runs.
     mockUpload.mockResolvedValue({ success: true, data: { key: 'alice/f0.txt' } });
     act(() => result.current.resolveOverwrite(result.current.items[0].id));
     await waitFor(() => expect(result.current.items[0].status).toBe('done'));
-    expect(mockUpload).toHaveBeenLastCalledWith(
-      expect.objectContaining({ overwrite: true }),
-    );
+    expect(mockUpload).toHaveBeenLastCalledWith(expect.objectContaining({ overwrite: true }));
   });
 
   it('rejects an oversize file on enqueue without ever calling uploadFile', async () => {
@@ -258,9 +244,9 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
             resolve({
               success: false,
               error: { message: 'Upload cancelled.', code: 'Cancelled' },
-            }),
+            })
           );
-        }),
+        })
     );
 
     const { result } = render();
@@ -283,9 +269,7 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
     const queued = result.current.items.find((i) => i.status === 'queued')!;
     act(() => result.current.cancel(queued.id));
 
-    await waitFor(() =>
-      expect(result.current.items.some((i) => i.id === queued.id)).toBe(false),
-    );
+    await waitFor(() => expect(result.current.items.some((i) => i.id === queued.id)).toBe(false));
     expect(mockUpload).toHaveBeenCalledTimes(3); // the queued one never started
   });
 

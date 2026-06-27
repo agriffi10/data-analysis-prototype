@@ -22,7 +22,7 @@ function renderAt() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/files" element={<div>files-page</div>} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
@@ -35,24 +35,16 @@ describe('LandingPage when authenticated', () => {
     takeReturnPath.mockReturnValue(null);
     renderAt();
 
-    expect(
-      screen.getAllByRole('button', { name: /go to dashboard/i }).length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.queryByRole('button', { name: /^sign in$/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /create account/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /go to dashboard/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /^sign in$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create account/i })).not.toBeInTheDocument();
   });
 
   it('navigates to /files when Go to Dashboard is clicked', () => {
     takeReturnPath.mockReturnValue(null);
     renderAt();
 
-    fireEvent.click(
-      screen.getAllByRole('button', { name: /go to dashboard/i })[0],
-    );
+    fireEvent.click(screen.getAllByRole('button', { name: /go to dashboard/i })[0]);
 
     expect(screen.getByText('files-page')).toBeInTheDocument();
   });
@@ -62,8 +54,6 @@ describe('LandingPage when authenticated', () => {
     renderAt();
 
     expect(screen.getByText('files-page')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /go to dashboard/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /go to dashboard/i })).not.toBeInTheDocument();
   });
 });

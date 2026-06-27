@@ -1,17 +1,9 @@
 // SPEC-034 Data Model. Shared types for the query-engine data layer consumed by
 // the SPEC-035 workspace UI and SPEC-036 history panel.
 
-import type {
-  SharedConnectionRole,
-  SharedConnectionStatus,
-} from '../shared-spaces/sharedSpaces.types';
+import type { SharedConnectionRole, SharedConnectionStatus } from '../shared-spaces/sharedSpaces.types';
 
-export type QueryState =
-  | 'QUEUED'
-  | 'RUNNING'
-  | 'SUCCEEDED'
-  | 'FAILED'
-  | 'CANCELLED';
+export type QueryState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
 export type QueryStatus = {
   queryExecutionId: string;

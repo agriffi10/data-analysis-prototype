@@ -29,34 +29,18 @@ function MetadataFields({
     <>
       <dl>
         <DetailField label="Name" value={file.name} />
-        <DetailField
-          label="Path"
-          value={relativePath(metadata.key, rootPrefix)}
-          copyLabel="path"
-        />
+        <DetailField label="Path" value={relativePath(metadata.key, rootPrefix)} copyLabel="path" />
         {/* The unambiguous, fully-qualified S3 URI for this object. */}
-        <DetailField
-          label="Full Cloud Path"
-          value={`s3://${bucket}/${metadata.key}`}
-          copyLabel="full cloud path"
-        />
-        <DetailField
-          label="Size"
-          value={`${formatSize(metadata.size)} (${metadata.size.toLocaleString()} bytes)`}
-        />
+        <DetailField label="Full Cloud Path" value={`s3://${bucket}/${metadata.key}`} copyLabel="full cloud path" />
+        <DetailField label="Size" value={`${formatSize(metadata.size)} (${metadata.size.toLocaleString()} bytes)`} />
         <DetailField label="Type" value={metadata.contentType} />
-        <DetailField
-          label="Last modified"
-          value={metadata.lastModified.toLocaleString()}
-        />
+        <DetailField label="Last modified" value={metadata.lastModified.toLocaleString()} />
         <DetailField label="ETag" value={metadata.etag.replace(/"/g, '')} />
         <DetailField label="Storage class" value={metadata.storageClass} />
       </dl>
 
       <div className="mt-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">
-          Custom metadata
-        </h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">Custom metadata</h3>
         {customEntries.length === 0 ? (
           <p className="mt-2 text-sm text-text-3">No custom metadata</p>
         ) : (
@@ -81,13 +65,7 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
   const { metadata, isLoading, error } = useObjectMetadata(bucket, file.key);
 
   return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={file.name}
-      ariaLabel={`Details for ${file.name}`}
-      closeLabel="Close details"
-    >
+    <Drawer open onClose={onClose} title={file.name} ariaLabel={`Details for ${file.name}`} closeLabel="Close details">
       {isLoading && (
         <div
           role="status"
@@ -99,22 +77,14 @@ export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
       )}
 
       {!isLoading && error !== null && (
-        <div
-          role="alert"
-          className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm"
-        >
+        <div role="alert" className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm">
           <p className="font-medium text-danger">Couldn’t load details</p>
           <p className="mt-1 text-danger/80">{error}</p>
         </div>
       )}
 
       {!isLoading && error === null && metadata && (
-        <MetadataFields
-          metadata={metadata}
-          file={file}
-          bucket={bucket}
-          rootPrefix={rootPrefix}
-        />
+        <MetadataFields metadata={metadata} file={file} bucket={bucket} rootPrefix={rootPrefix} />
       )}
     </Drawer>
   );

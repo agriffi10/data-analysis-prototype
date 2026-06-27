@@ -38,6 +38,6 @@ export function stripTrailingSemicolons(sql: string): string {
 // editor's pre-filled comment is still detected.
 export function isSchemaChangingSql(sql: string): boolean {
   return /^(create|drop|alter)\s+(or\s+replace\s+)?(external\s+|temporary\s+)?(table|view)\b/i.test(
-    stripLeadingSqlComments(sql),
+    stripLeadingSqlComments(sql)
   );
 }

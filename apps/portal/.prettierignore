@@ -1,0 +1,6 @@
+# Build output + deps (node_modules is ignored by default).
+dist
+coverage
+
+# Lockfiles are tool-managed.
+package-lock.json

@@ -163,9 +163,7 @@ export function UploadQueuePanel() {
       className="fixed bottom-4 right-4 z-30 flex max-h-[70vh] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
     >
       <header className="flex h-11 flex-shrink-0 items-center gap-2 border-b border-border px-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-3">
-          Uploads
-        </h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-3">Uploads</h2>
         <span className="text-sm text-text-2" aria-live="polite">
           {activeCount > 0 ? `${activeCount} in progress` : 'Complete'}
         </span>

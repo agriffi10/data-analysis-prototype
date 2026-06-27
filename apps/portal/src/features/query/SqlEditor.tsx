@@ -59,56 +59,54 @@ type SqlEditorProps = {
 
 // Monaco SQL editor. Forwards a ref exposing insertAtCursor; React.lazy forwards
 // the ref through to this inner forwardRef component once the chunk loads.
-export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
-  function SqlEditor({ value, onChange, onRun }, ref) {
-    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-    // Keep the latest onRun without rebinding the Monaco command each render.
-    const onRunRef = useRef(onRun);
-    onRunRef.current = onRun;
+export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
+  { value, onChange, onRun },
+  ref
+) {
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  // Keep the latest onRun without rebinding the Monaco command each render.
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
 
-    useImperativeHandle(ref, () => ({
-      insertAtCursor(text: string) {
-        const editor = editorRef.current;
-        if (!editor) return;
-        const selection = editor.getSelection();
-        if (!selection) return;
-        editor.executeEdits('schema-insert', [
-          { range: selection, text, forceMoveMarkers: true },
-        ]);
-        editor.focus();
-      },
-      focus() {
-        editorRef.current?.focus();
-      },
-    }));
+  useImperativeHandle(ref, () => ({
+    insertAtCursor(text: string) {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const selection = editor.getSelection();
+      if (!selection) return;
+      editor.executeEdits('schema-insert', [{ range: selection, text, forceMoveMarkers: true }]);
+      editor.focus();
+    },
+    focus() {
+      editorRef.current?.focus();
+    },
+  }));
 
-    const handleMount: OnMount = (editor, m) => {
-      editorRef.current = editor;
-      editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
-        onRunRef.current?.();
-      });
-    };
+  const handleMount: OnMount = (editor, m) => {
+    editorRef.current = editor;
+    editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
+      onRunRef.current?.();
+    });
+  };
 
-    return (
-      <Editor
-        height="100%"
-        defaultLanguage="sql"
-        theme={THEME}
-        beforeMount={defineTheme}
-        onMount={handleMount}
-        value={value}
-        onChange={(v) => onChange(v ?? '')}
-        options={{
-          minimap: { enabled: false },
-          fontSize: 13,
-          lineNumbersMinChars: 3,
-          scrollBeyondLastLine: false,
-          padding: { top: 12, bottom: 12 },
-          renderLineHighlight: 'line',
-          fontFamily:
-            '"SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace',
-        }}
-      />
-    );
-  },
-);
+  return (
+    <Editor
+      height="100%"
+      defaultLanguage="sql"
+      theme={THEME}
+      beforeMount={defineTheme}
+      onMount={handleMount}
+      value={value}
+      onChange={(v) => onChange(v ?? '')}
+      options={{
+        minimap: { enabled: false },
+        fontSize: 13,
+        lineNumbersMinChars: 3,
+        scrollBeyondLastLine: false,
+        padding: { top: 12, bottom: 12 },
+        renderLineHighlight: 'line',
+        fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace',
+      }}
+    />
+  );
+});

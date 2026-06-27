@@ -27,11 +27,7 @@ export const queryClient = new QueryClient({
 // mutation specs (upload, delete, move/rename) call this after a write so the
 // browser reflects the change. Exported as a free function (not a method) so it
 // can be unit-tested and called with any QueryClient instance.
-export async function invalidateListing(
-  client: QueryClient,
-  bucket: string,
-  prefix: string,
-): Promise<void> {
+export async function invalidateListing(client: QueryClient, bucket: string, prefix: string): Promise<void> {
   await client.invalidateQueries({
     queryKey: fileBrowserKeys.list(bucket, prefix),
   });

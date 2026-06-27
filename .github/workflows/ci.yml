@@ -26,6 +26,10 @@ jobs:
         working-directory: apps/portal
         run: npm run lint
 
+      - name: Format check (prettier)
+        working-directory: apps/portal
+        run: npm run format:check
+
       - name: Test
         working-directory: apps/portal
         run: npm run test

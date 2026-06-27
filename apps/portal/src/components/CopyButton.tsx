@@ -24,14 +24,10 @@ export function CopyButton({ value, label, className }: Props) {
       title={`Copy ${label}`}
       className={cx(
         'inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        className,
+        className
       )}
     >
-      {copied ? (
-        <CheckIcon className="h-4 w-4 text-success" />
-      ) : (
-        <CopyIcon className="h-4 w-4" />
-      )}
+      {copied ? <CheckIcon className="h-4 w-4 text-success" /> : <CopyIcon className="h-4 w-4" />}
       <span role="status" className="sr-only">
         {copied ? `${label} copied` : ''}
       </span>

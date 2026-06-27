@@ -51,19 +51,13 @@ type Acc = { moved: number; errors: MoveSummary['errors'] };
 // warn-and-confirm and useDelete's aggregation. `sourcePrefix` is the current view
 // (the items' common parent); both it and any destination prefix are invalidated
 // on completion so the moved items appear/disappear. Never throws.
-export function useMove(
-  bucket: string,
-  sourcePrefix: string,
-  username?: string,
-): UseMoveResult {
+export function useMove(bucket: string, sourcePrefix: string, username?: string): UseMoveResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<MoveSummary | null>(null);
-  const [renameCollision, setRenameCollision] = useState<RenameCollision | null>(
-    null,
-  );
+  const [renameCollision, setRenameCollision] = useState<RenameCollision | null>(null);
   const [moveCollision, setMoveCollision] = useState<MoveCollision | null>(null);
 
   async function invalidate(prefixes: string[]) {
@@ -72,11 +66,7 @@ export function useMove(
   }
 
   // ── Rename ────────────────────────────────────────────────────────────────
-  async function runRename(
-    item: SelectableItem,
-    newName: string,
-    overwrite: boolean,
-  ) {
+  async function runRename(item: SelectableItem, newName: string, overwrite: boolean) {
     if (!username) {
       setError('You must be signed in to rename files.');
       return;
@@ -151,12 +141,7 @@ export function useMove(
   }
 
   // ── Move ────────────────────────────────────────────────────────────────
-  async function runMove(
-    items: SelectableItem[],
-    destPrefix: string,
-    overwrite: boolean,
-    acc: Acc,
-  ) {
+  async function runMove(items: SelectableItem[], destPrefix: string, overwrite: boolean, acc: Acc) {
     if (!username) {
       setError('You must be signed in to move files.');
       return;
@@ -237,8 +222,7 @@ export function useMove(
     renameCollision,
     moveCollision,
     renameItem: (item, newName) => void runRename(item, newName, false),
-    moveItems: (items, destPrefix) =>
-      void runMove(items, destPrefix, false, { moved: 0, errors: [] }),
+    moveItems: (items, destPrefix) => void runMove(items, destPrefix, false, { moved: 0, errors: [] }),
     dismissError: () => setError(null),
     dismissSummary: () => setSummary(null),
     cancelCollision: () => {

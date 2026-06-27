@@ -16,10 +16,7 @@ export function RootLayout() {
     <div className="flex min-h-screen flex-col bg-bg">
       {/* Bypass Blocks (WCAG 2.4.1): first focusable element jumps keyboard
           users past the repeated header/nav to the page's <main id="main">. */}
-      <a
-        href="#main"
-        className="skip-link rounded-md bg-accent px-4 py-2 text-base font-medium text-white"
-      >
+      <a href="#main" className="skip-link rounded-md bg-accent px-4 py-2 text-base font-medium text-white">
         Skip to main content
       </a>
       {!isLanding && <Header />}

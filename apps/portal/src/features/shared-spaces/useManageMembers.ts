@@ -18,7 +18,7 @@ export function useManageMembers(username: string | null) {
     async (
       action: 'add_members' | 'remove_members',
       space: string,
-      members: string[],
+      members: string[]
     ): Promise<ServiceResult<{ requestId: string }>> => {
       if (!username) {
         return { success: false, error: { message: 'Not signed in' } };
@@ -36,19 +36,14 @@ export function useManageMembers(username: string | null) {
       setBusy(false);
       return result;
     },
-    [username],
+    [username]
   );
 
-  const addMembers = useCallback(
-    (space: string, members: string[]) =>
-      submit('add_members', space, members),
-    [submit],
-  );
+  const addMembers = useCallback((space: string, members: string[]) => submit('add_members', space, members), [submit]);
 
   const removeMembers = useCallback(
-    (space: string, members: string[]) =>
-      submit('remove_members', space, members),
-    [submit],
+    (space: string, members: string[]) => submit('remove_members', space, members),
+    [submit]
   );
 
   return { addMembers, removeMembers, busy };

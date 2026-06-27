@@ -1,18 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Hub } from 'aws-amplify/utils';
 import { AuthContext } from './authContext';
-import {
-  getCurrentAuthUser,
-  startSignIn,
-  startSignUp,
-  startSignOut,
-} from './auth.service';
+import { getCurrentAuthUser, startSignIn, startSignUp, startSignOut } from './auth.service';
 import { isAmplifyConfigured } from '../../lib/amplify';
 import { setReturnPathIfAbsent } from '../../lib/returnPath';
 import type { AuthStatus, AuthUser } from './auth.types';
@@ -21,14 +10,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Initial state is derived from config (a module constant) rather than set in
   // an effect: when Cognito isn't configured we start unauthenticated with a
   // non-blocking error; the file browser stays usable.
-  const [status, setStatus] = useState<AuthStatus>(
-    isAmplifyConfigured ? 'loading' : 'unauthenticated',
-  );
+  const [status, setStatus] = useState<AuthStatus>(isAmplifyConfigured ? 'loading' : 'unauthenticated');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [error, setError] = useState<string | null>(
-    isAmplifyConfigured
-      ? null
-      : 'Authentication is not configured. Set the Cognito environment variables.',
+    isAmplifyConfigured ? null : 'Authentication is not configured. Set the Cognito environment variables.'
   );
 
   // Derive auth state from the current Amplify session.
@@ -106,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({ status, user, error, signIn, signUp, signOut }),
-    [status, user, error, signIn, signUp, signOut],
+    [status, user, error, signIn, signUp, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

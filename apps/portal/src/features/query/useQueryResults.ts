@@ -36,10 +36,7 @@ export type UseQueryResultsResult = {
 // back is instant. A local pageIndex selects which cached page is shown — Next
 // fetches forward only when the next page isn't already cached; Prev is always
 // served from cache (FR-002/FR-003). Disabled while the id is null.
-export function useQueryResults(
-  queryExecutionId: string | null,
-  maxRows?: number,
-): UseQueryResultsResult {
+export function useQueryResults(queryExecutionId: string | null, maxRows?: number): UseQueryResultsResult {
   const pageSize = maxRows ?? QUERY_RESULTS_PAGE_SIZE;
   const [pageIndex, setPageIndex] = useState(0);
 

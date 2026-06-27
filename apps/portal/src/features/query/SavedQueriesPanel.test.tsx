@@ -14,10 +14,7 @@ function sq(id: string, name: string, updatedAt: string): SavedQuery {
   };
 }
 
-const queries = [
-  sq('a', 'Older', '2026-06-01T00:00:00.000Z'),
-  sq('b', 'Newer', '2026-06-10T00:00:00.000Z'),
-];
+const queries = [sq('a', 'Older', '2026-06-01T00:00:00.000Z'), sq('b', 'Newer', '2026-06-10T00:00:00.000Z')];
 
 function setup(over: Partial<Parameters<typeof SavedQueriesPanel>[0]> = {}) {
   const onClose = vi.fn();
@@ -33,7 +30,7 @@ function setup(over: Partial<Parameters<typeof SavedQueriesPanel>[0]> = {}) {
       onOpen={onOpen}
       onDelete={onDelete}
       {...over}
-    />,
+    />
   );
   return { onClose, onOpen, onDelete };
 }
@@ -53,17 +50,13 @@ describe('SavedQueriesPanel', () => {
   it('Open fires onOpen with the query', () => {
     const { onOpen } = setup();
     // The first card is "Newer" (b).
-    fireEvent.click(
-      screen.getAllByRole('button', { name: /open saved query/i })[0],
-    );
+    fireEvent.click(screen.getAllByRole('button', { name: /open saved query/i })[0]);
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }));
   });
 
   it('Delete confirms, then fires onDelete with the id', () => {
     const { onDelete } = setup();
-    fireEvent.click(
-      screen.getAllByRole('button', { name: /delete saved query/i })[0],
-    );
+    fireEvent.click(screen.getAllByRole('button', { name: /delete saved query/i })[0]);
     const dialog = screen.getByRole('alertdialog', {
       name: /confirm delete saved query/i,
     });

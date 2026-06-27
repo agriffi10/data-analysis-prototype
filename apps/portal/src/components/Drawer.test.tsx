@@ -7,7 +7,7 @@ describe('Drawer', () => {
     render(
       <Drawer open={false} onClose={vi.fn()} title="History">
         body
-      </Drawer>,
+      </Drawer>
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -16,14 +16,12 @@ describe('Drawer', () => {
     render(
       <Drawer open onClose={vi.fn()} title="History" footer={<div>foot</div>}>
         <p>body</p>
-      </Drawer>,
+      </Drawer>
     );
     expect(screen.getByRole('dialog', { name: 'History' })).toBeInTheDocument();
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByText('foot')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Close history' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close history' })).toBeInTheDocument();
   });
 
   it('closes on the close button, backdrop, and Escape', () => {
@@ -31,7 +29,7 @@ describe('Drawer', () => {
     render(
       <Drawer open onClose={onClose} title="History">
         body
-      </Drawer>,
+      </Drawer>
     );
     fireEvent.click(screen.getByRole('button', { name: 'Close history' }));
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -43,7 +41,7 @@ describe('Drawer', () => {
     render(
       <Drawer open onClose={onClose} title="History" closeOnEscape={false}>
         body
-      </Drawer>,
+      </Drawer>
     );
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
@@ -51,27 +49,19 @@ describe('Drawer', () => {
 
   it('honors a custom aria-label and close label', () => {
     render(
-      <Drawer
-        open
-        onClose={vi.fn()}
-        title="Upload"
-        ariaLabel="Upload files"
-        closeLabel="Close upload panel"
-      >
+      <Drawer open onClose={vi.fn()} title="Upload" ariaLabel="Upload files" closeLabel="Close upload panel">
         body
-      </Drawer>,
+      </Drawer>
     );
     expect(screen.getByRole('dialog', { name: 'Upload files' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Close upload panel' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close upload panel' })).toBeInTheDocument();
   });
 
   it('blurs the content behind via the scrim', () => {
     render(
       <Drawer open onClose={vi.fn()} title="History">
         body
-      </Drawer>,
+      </Drawer>
     );
     const scrim = screen.getByRole('dialog').parentElement!;
     expect(scrim).toHaveClass('backdrop-blur-sm');

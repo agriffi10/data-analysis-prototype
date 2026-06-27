@@ -111,15 +111,11 @@ describe('SchemaBrowser', () => {
 
     // Opening the menu must not expand the table row.
     fireEvent.click(screen.getByRole('button', { name: 'Options for sales_2026' }));
-    expect(
-      screen.getByRole('button', { name: 'sales_2026' }),
-    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'sales_2026' })).toHaveAttribute('aria-expanded', 'false');
 
     const menu = screen.getByRole('menu');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'View data' }));
-    expect(actions.onViewData).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'sales_2026' }),
-    );
+    expect(actions.onViewData).toHaveBeenCalledWith(expect.objectContaining({ name: 'sales_2026' }));
   });
 
   it('disables View source files when the location is out of the user space', () => {
@@ -128,9 +124,7 @@ describe('SchemaBrowser', () => {
     render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={actions} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Options for sales_2026' }));
-    expect(
-      screen.getByRole('menuitem', { name: 'View source files' }),
-    ).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'View source files' })).toBeDisabled();
   });
 
   it('closes the menu on Escape', () => {
@@ -166,7 +160,7 @@ describe('SchemaBrowser', () => {
         onSelectDatabase={vi.fn()}
         onInsert={vi.fn()}
         actions={makeActions()}
-      />,
+      />
     );
     expect(mockUseSchema).toHaveBeenCalledWith('project_alpha');
   });
@@ -180,14 +174,12 @@ describe('SchemaBrowser', () => {
         onSelectDatabase={vi.fn()}
         onInsert={vi.fn()}
         actions={makeActions()}
-      />,
+      />
     );
     const active = screen.getByRole('button', { name: /My workspace/ });
     expect(active).toHaveAttribute('aria-current', 'true');
     // The non-active one carries no aria-current (state conveyed, not color-only).
-    expect(
-      screen.getByRole('button', { name: 'Project Alpha' }),
-    ).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Project Alpha' })).not.toHaveAttribute('aria-current');
   });
 
   it('selecting a different database calls onSelectDatabase', () => {
@@ -200,7 +192,7 @@ describe('SchemaBrowser', () => {
         onSelectDatabase={onSelectDatabase}
         onInsert={vi.fn()}
         actions={makeActions()}
-      />,
+      />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Project Alpha' }));
     expect(onSelectDatabase).toHaveBeenCalledWith('project_alpha');
@@ -226,7 +218,7 @@ describe('SchemaBrowser', () => {
         onSelectDatabase={onSelectDatabase}
         onInsert={vi.fn()}
         actions={makeActions()}
-      />,
+      />
     );
     const beta = screen.getByRole('button', { name: /Project Beta/ });
     expect(beta).toBeDisabled();
@@ -271,12 +263,8 @@ describe('SchemaBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Options for revenue_view' }));
     const menu = screen.getByRole('menu');
     expect(within(menu).getByRole('menuitem', { name: 'Drop view' })).toBeInTheDocument();
-    expect(
-      within(menu).queryByRole('menuitem', { name: 'Drop table' }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(menu).getByRole('menuitem', { name: 'View source files' }),
-    ).toBeDisabled();
+    expect(within(menu).queryByRole('menuitem', { name: 'Drop table' })).not.toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'View source files' })).toBeDisabled();
   });
 
   it('shows a single current item with only the personal database', () => {
@@ -288,13 +276,10 @@ describe('SchemaBrowser', () => {
         onSelectDatabase={vi.fn()}
         onInsert={vi.fn()}
         actions={makeActions()}
-      />,
+      />
     );
     const dbList = screen.getByRole('list', { name: 'Databases' });
     expect(within(dbList).getAllByRole('button')).toHaveLength(1);
-    expect(within(dbList).getByRole('button', { name: /My workspace/ })).toHaveAttribute(
-      'aria-current',
-      'true',
-    );
+    expect(within(dbList).getByRole('button', { name: /My workspace/ })).toHaveAttribute('aria-current', 'true');
   });
 });

@@ -39,9 +39,7 @@ export function CreateViewDialog({ busy = false, onCreate, onCancel }: Props) {
     <Modal ariaLabel="Create view" onDismiss={onCancel} dismissible={!busy}>
       <div className="px-5 pb-4 pt-5">
         <h2 className="mb-3 text-md font-semibold text-text">Create view</h2>
-        <p className="mb-3 text-sm text-text-2">
-          Save the current query as a reusable view in your database.
-        </p>
+        <p className="mb-3 text-sm text-text-2">Save the current query as a reusable view in your database.</p>
         <Input
           ref={inputRef}
           id="create-view-name"

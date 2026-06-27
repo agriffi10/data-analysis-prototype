@@ -19,8 +19,7 @@ export function TabLimitDialog({ onDismiss }: Props) {
       onCancel={onDismiss}
     >
       <p className="mt-3 text-sm text-text-2">
-        You have the maximum of {QUERY_TABS_MAX} query tabs open. Close a tab
-        before opening another.
+        You have the maximum of {QUERY_TABS_MAX} query tabs open. Close a tab before opening another.
       </p>
     </ConfirmDialog>
   );

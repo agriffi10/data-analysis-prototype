@@ -1,15 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import {
-  readTabsState,
-  writeTabsState,
-  migrateDraftToTabs,
-  initialTabsState,
-} from './queryTabs';
-import {
-  QUERY_TABS_STORAGE_PREFIX,
-  QUERY_DRAFT_STORAGE_PREFIX,
-  DEFAULT_SQL,
-} from './query.constants';
+import { readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState } from './queryTabs';
+import { QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL } from './query.constants';
 import type { QueryTabsState } from './query.types';
 
 const KEY = `${QUERY_TABS_STORAGE_PREFIX}alice`;
@@ -64,21 +55,15 @@ describe('queryTabs', () => {
         tabs: [{ id: 'a', label: 'Query 1', sql: '' }],
         activeTabId: 'missing',
         nextQueryNumber: 2,
-      }),
+      })
     );
     expect(readTabsState('alice')).toBeNull();
   });
 
   it('rejects an empty tabs array and a wrong version', () => {
-    sessionStorage.setItem(
-      KEY,
-      JSON.stringify({ version: 1, tabs: [], activeTabId: 'a', nextQueryNumber: 2 }),
-    );
+    sessionStorage.setItem(KEY, JSON.stringify({ version: 1, tabs: [], activeTabId: 'a', nextQueryNumber: 2 }));
     expect(readTabsState('alice')).toBeNull();
-    sessionStorage.setItem(
-      KEY,
-      JSON.stringify({ ...sample(), version: 2 }),
-    );
+    sessionStorage.setItem(KEY, JSON.stringify({ ...sample(), version: 2 }));
     expect(readTabsState('alice')).toBeNull();
   });
 
@@ -109,18 +94,13 @@ describe('queryTabs', () => {
 
   describe('migrateDraftToTabs', () => {
     it('seeds tab 1 from a SPEC-040 draft and removes the old key', () => {
-      sessionStorage.setItem(
-        `${QUERY_DRAFT_STORAGE_PREFIX}alice`,
-        'SELECT migrated;',
-      );
+      sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'SELECT migrated;');
       const state = migrateDraftToTabs('alice');
       expect(state).not.toBeNull();
       expect(state!.tabs).toHaveLength(1);
       expect(state!.tabs[0].sql).toBe('SELECT migrated;');
       // Old draft key is cleaned up.
-      expect(
-        sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`),
-      ).toBeNull();
+      expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
     });
 
     it('returns null when there is no draft', () => {
@@ -132,9 +112,7 @@ describe('queryTabs', () => {
       sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'stale');
       expect(migrateDraftToTabs('alice')).toBeNull();
       // The stale draft is left alone (only migrated when tabs are absent).
-      expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBe(
-        'stale',
-      );
+      expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBe('stale');
     });
   });
 });

@@ -35,16 +35,12 @@ describe('useActiveDatabase (SPEC-047 FR-002)', () => {
 
   it('restores the persisted database across reloads', () => {
     sessionStorage.setItem(key('alice'), 'project_alpha');
-    const { result } = renderHook(() =>
-      useActiveDatabase('alice', [personal, shared]),
-    );
+    const { result } = renderHook(() => useActiveDatabase('alice', [personal, shared]));
     expect(result.current.activeDatabase).toBe('project_alpha');
   });
 
   it('setActiveDatabase updates and persists the choice', () => {
-    const { result } = renderHook(() =>
-      useActiveDatabase('alice', [personal, shared]),
-    );
+    const { result } = renderHook(() => useActiveDatabase('alice', [personal, shared]));
     act(() => result.current.setActiveDatabase('project_alpha'));
     expect(result.current.activeDatabase).toBe('project_alpha');
     expect(sessionStorage.getItem(key('alice'))).toBe('project_alpha');
@@ -68,19 +64,16 @@ describe('useActiveDatabase (SPEC-047 FR-002)', () => {
     // has been revoked — status no longer 'active'. It must not stay the target.
     sessionStorage.setItem(key('alice'), 'project_alpha');
     const leaving: Connection = { ...shared, status: 'leaving' };
-    const { result } = renderHook(() =>
-      useActiveDatabase('alice', [personal, leaving]),
-    );
+    const { result } = renderHook(() => useActiveDatabase('alice', [personal, leaving]));
     expect(result.current.activeDatabase).toBe('alice');
     expect(result.current.fellBack).toBe(true);
   });
 
   it('re-applies a stored database once it becomes available again', () => {
     sessionStorage.setItem(key('alice'), 'project_alpha');
-    const { result, rerender } = renderHook(
-      ({ conns }) => useActiveDatabase('alice', conns),
-      { initialProps: { conns: [personal] as Connection[] } },
-    );
+    const { result, rerender } = renderHook(({ conns }) => useActiveDatabase('alice', conns), {
+      initialProps: { conns: [personal] as Connection[] },
+    });
     expect(result.current.activeDatabase).toBe('alice'); // unavailable → personal
 
     rerender({ conns: [personal, shared] });

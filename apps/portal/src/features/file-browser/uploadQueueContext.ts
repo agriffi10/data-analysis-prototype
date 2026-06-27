@@ -25,9 +25,7 @@ export type UploadQueueContextValue = {
   clearFinished: () => void;
 };
 
-export const UploadQueueContext = createContext<UploadQueueContextValue | null>(
-  null,
-);
+export const UploadQueueContext = createContext<UploadQueueContextValue | null>(null);
 
 // Consume the upload queue. Throws outside a provider so a missing provider is a
 // loud development error, not a silent no-op (matches useSelection).
@@ -81,18 +79,11 @@ export type UploadQueueAction =
 export const initialUploadQueueState: UploadQueueState = { items: [], seq: 0 };
 
 // Map the one matching item through `fn`, returning a fresh array (never mutates).
-function patch(
-  items: UploadItem[],
-  id: string,
-  fn: (item: UploadItem) => UploadItem,
-): UploadItem[] {
+function patch(items: UploadItem[], id: string, fn: (item: UploadItem) => UploadItem): UploadItem[] {
   return items.map((item) => (item.id === id ? fn(item) : item));
 }
 
-export function uploadQueueReducer(
-  state: UploadQueueState,
-  action: UploadQueueAction,
-): UploadQueueState {
+export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueAction): UploadQueueState {
   switch (action.type) {
     case 'enqueue': {
       let seq = state.seq;
@@ -124,9 +115,7 @@ export function uploadQueueReducer(
         // Ignore stray progress for an item that's no longer uploading (e.g. a
         // late event after cancel) so a cancelled bar can't tick forward.
         items: patch(state.items, action.id, (it) =>
-          it.status === 'uploading'
-            ? { ...it, loaded: action.loaded, total: action.total }
-            : it,
+          it.status === 'uploading' ? { ...it, loaded: action.loaded, total: action.total } : it
         ),
       };
     case 'succeed':

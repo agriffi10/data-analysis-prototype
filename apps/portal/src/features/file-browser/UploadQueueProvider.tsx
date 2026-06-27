@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateListing } from '../../lib/queryClient';
 import { uploadFile } from './fileBrowser.service';
@@ -38,10 +31,7 @@ export function UploadQueueProvider({
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
-  const [state, dispatch] = useReducer(
-    uploadQueueReducer,
-    initialUploadQueueState,
-  );
+  const [state, dispatch] = useReducer(uploadQueueReducer, initialUploadQueueState);
 
   // Latest prefix for enqueue, and latest items for the cancel callback — read in
   // callbacks without making those callbacks churn on every change. Synced in
@@ -72,8 +62,7 @@ export function UploadQueueProvider({
         body: item.file,
         contentType: item.file.type || 'application/octet-stream',
         overwrite: item.overwrite,
-        onProgress: (loaded, total) =>
-          dispatch({ type: 'progress', id: item.id, loaded, total }),
+        onProgress: (loaded, total) => dispatch({ type: 'progress', id: item.id, loaded, total }),
         signal: controller.signal,
       });
 
@@ -93,16 +82,14 @@ export function UploadQueueProvider({
         dispatch({ type: 'fail', id: item.id, error: result.error.message });
       }
     },
-    [bucket, queryClient],
+    [bucket, queryClient]
   );
 
   // Concurrency gate: whenever the queue changes, fill open slots with the next
   // queued items, up to UPLOAD_CONCURRENCY in flight (FR-001). Idempotent under
   // StrictMode via the `launched` guard.
   useEffect(() => {
-    const inFlight = state.items.filter(
-      (i) => i.status === 'uploading',
-    ).length;
+    const inFlight = state.items.filter((i) => i.status === 'uploading').length;
     let slots = UPLOAD_CONCURRENCY - inFlight;
     if (slots <= 0) return;
     for (const item of state.items) {
@@ -156,19 +143,12 @@ export function UploadQueueProvider({
   }, []);
 
   const dismiss = useCallback((id: string) => dispatch({ type: 'remove', id }), []);
-  const resolveOverwrite = useCallback(
-    (id: string) => dispatch({ type: 'retryOverwrite', id }),
-    [],
-  );
+  const resolveOverwrite = useCallback((id: string) => dispatch({ type: 'retryOverwrite', id }), []);
   const resolveRename = useCallback(
-    (id: string, newName: string) =>
-      dispatch({ type: 'retryRename', id, newName }),
-    [],
+    (id: string, newName: string) => dispatch({ type: 'retryRename', id, newName }),
+    []
   );
-  const clearFinished = useCallback(
-    () => dispatch({ type: 'clearFinished' }),
-    [],
-  );
+  const clearFinished = useCallback(() => dispatch({ type: 'clearFinished' }), []);
 
   const value = useMemo<UploadQueueContextValue>(
     () => ({
@@ -180,20 +160,8 @@ export function UploadQueueProvider({
       resolveRename,
       clearFinished,
     }),
-    [
-      state.items,
-      enqueue,
-      cancel,
-      dismiss,
-      resolveOverwrite,
-      resolveRename,
-      clearFinished,
-    ],
+    [state.items, enqueue, cancel, dismiss, resolveOverwrite, resolveRename, clearFinished]
   );
 
-  return (
-    <UploadQueueContext.Provider value={value}>
-      {children}
-    </UploadQueueContext.Provider>
-  );
+  return <UploadQueueContext.Provider value={value}>{children}</UploadQueueContext.Provider>;
 }

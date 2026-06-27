@@ -1,8 +1,4 @@
-import {
-  QUERY_TABS_STORAGE_PREFIX,
-  QUERY_DRAFT_STORAGE_PREFIX,
-  DEFAULT_SQL,
-} from './query.constants';
+import { QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL } from './query.constants';
 import type { QueryTab, QueryTabsState } from './query.types';
 
 // SPEC-041: per-user, current-session persistence of the multi-tab editor state.

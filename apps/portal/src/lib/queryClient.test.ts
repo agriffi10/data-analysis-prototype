@@ -16,11 +16,6 @@ describe('invalidateListing', () => {
   });
 
   it('produces a key that matches the factory (single source of truth)', () => {
-    expect(fileBrowserKeys.list('b', 'p/')).toEqual([
-      'file-browser',
-      'list',
-      'b',
-      'p/',
-    ]);
+    expect(fileBrowserKeys.list('b', 'p/')).toEqual(['file-browser', 'list', 'b', 'p/']);
   });
 });

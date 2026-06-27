@@ -9,8 +9,7 @@ import { invalidateListing } from '../../lib/queryClient';
 vi.mock('./fileBrowser.service', () => ({
   uploadFile: vi.fn(),
   createFolder: vi.fn(),
-  uploadPercent: (loaded: number, total: number) =>
-    total > 0 ? Math.round((loaded / total) * 100) : 100,
+  uploadPercent: (loaded: number, total: number) => (total > 0 ? Math.round((loaded / total) * 100) : 100),
 }));
 vi.mock('../../lib/queryClient', () => ({
   invalidateListing: vi.fn().mockResolvedValue(undefined),
@@ -22,8 +21,7 @@ const mockInvalidate = vi.mocked(invalidateListing);
 
 function wrapper() {
   const client = new QueryClient();
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
 }
 
 function render() {
@@ -50,7 +48,7 @@ describe('useFileUpload', () => {
         key: 'alice/report.pdf',
         contentType: 'application/pdf',
         overwrite: false,
-      }),
+      })
     );
   });
 

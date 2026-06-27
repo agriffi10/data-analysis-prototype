@@ -7,7 +7,7 @@ describe('Modal', () => {
     render(
       <Modal ariaLabel="Test modal" onDismiss={vi.fn()}>
         <p>body</p>
-      </Modal>,
+      </Modal>
     );
     const dialog = screen.getByRole('dialog', { name: 'Test modal' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
@@ -18,7 +18,7 @@ describe('Modal', () => {
     render(
       <Modal ariaLabel="Alert" role="alertdialog" onDismiss={vi.fn()}>
         x
-      </Modal>,
+      </Modal>
     );
     expect(screen.getByRole('alertdialog', { name: 'Alert' })).toBeInTheDocument();
   });
@@ -28,7 +28,7 @@ describe('Modal', () => {
     render(
       <Modal ariaLabel="M" onDismiss={onDismiss}>
         <button>inside</button>
-      </Modal>,
+      </Modal>
     );
     // Click on the panel (its content) does not dismiss.
     fireEvent.click(screen.getByRole('button', { name: 'inside' }));
@@ -43,7 +43,7 @@ describe('Modal', () => {
     render(
       <Modal ariaLabel="M" dismissible={false} onDismiss={onDismiss}>
         x
-      </Modal>,
+      </Modal>
     );
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onDismiss).not.toHaveBeenCalled();
@@ -53,7 +53,7 @@ describe('Modal', () => {
     render(
       <Modal ariaLabel="M" onDismiss={vi.fn()}>
         x
-      </Modal>,
+      </Modal>
     );
     const scrim = screen.getByRole('dialog').parentElement!;
     expect(scrim).toHaveClass('backdrop-blur-sm');

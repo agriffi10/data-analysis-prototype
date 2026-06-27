@@ -4,9 +4,7 @@ import { createContext, useContext } from 'react';
 // is either a file (identified by its S3 key) or a folder (identified by its S3
 // prefix) — delete treats the two differently (folders are recursive), so the
 // distinction is kept in the selection itself.
-export type SelectableItem =
-  | { type: 'file'; key: string }
-  | { type: 'folder'; prefix: string };
+export type SelectableItem = { type: 'file'; key: string } | { type: 'folder'; prefix: string };
 
 // The stable id under which an item is tracked: its key (file) or prefix (folder).
 export function itemId(item: SelectableItem): string {
@@ -43,10 +41,7 @@ export type SelectionAction =
 
 export const initialSelectionState: SelectionState = { items: new Map() };
 
-export function selectionReducer(
-  state: SelectionState,
-  action: SelectionAction,
-): SelectionState {
+export function selectionReducer(state: SelectionState, action: SelectionAction): SelectionState {
   switch (action.type) {
     case 'toggle': {
       const next = new Map(state.items);

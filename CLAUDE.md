@@ -51,6 +51,7 @@ Don't add dependencies without noting them here first.
 
 ```bash
 npm run dev|build|test|lint -w apps/portal   # from repo root (or omit -w inside apps/portal/)
+npm run format|format:check -w apps/portal   # Prettier (prettier.config.js); format:check gates CI before tests
 tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -backend-config=backend.conf
 ```
 

@@ -1,6 +1,6 @@
-import { defineConfig } from 'vitest/config'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   // Some AWS SDK transitive deps (surfaced by @aws-sdk/lib-storage in SPEC-016)
@@ -15,4 +15,4 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
   },
-})
+});

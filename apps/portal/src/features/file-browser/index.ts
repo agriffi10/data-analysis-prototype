@@ -17,10 +17,7 @@ export { CopyDialog } from './CopyDialog';
 export { DestinationPicker } from './DestinationPicker';
 export { SelectionProvider } from './SelectionProvider';
 export { useSelection, itemId } from './selectionContext';
-export type {
-  SelectableItem,
-  SelectionContextValue,
-} from './selectionContext';
+export type { SelectableItem, SelectionContextValue } from './selectionContext';
 export { UploadQueueProvider } from './UploadQueueProvider';
 export { UploadQueuePanel } from './UploadQueuePanel';
 export { useUploadQueue } from './uploadQueueContext';
@@ -54,12 +51,5 @@ export type {
   MoveResult,
   CopyResult,
 } from './fileBrowser.types';
-export {
-  MAX_UPLOAD_BYTES,
-  MULTIPART_PART_SIZE,
-} from './fileBrowser.types';
-export {
-  PREFIX_MARKER_FILENAME,
-  PREFIX_MARKER_BODY,
-  prefixMarkerKey,
-} from './fileBrowser.constants';
+export { MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE } from './fileBrowser.types';
+export { PREFIX_MARKER_FILENAME, PREFIX_MARKER_BODY, prefixMarkerKey } from './fileBrowser.constants';

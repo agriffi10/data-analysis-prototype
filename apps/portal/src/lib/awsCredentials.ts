@@ -2,18 +2,14 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import type { ServiceResult } from '../types/service.types';
 
 // The Cognito Identity Pool credentials Amplify holds for the signed-in user.
-type SessionCredentials = NonNullable<
-  Awaited<ReturnType<typeof fetchAuthSession>>['credentials']
->;
+type SessionCredentials = NonNullable<Awaited<ReturnType<typeof fetchAuthSession>>['credentials']>;
 
 // Fetch the signed-in user's scoped Identity Pool credentials (SPEC-011). Shared
 // by the Athena and Glue client builders (SPEC-034 FR-001); `getS3Client` mirrors
 // this inline because it additionally constructs a dev-only static client and sets
 // checksum options. `forceRefresh` drives the credential-expiry retry path.
 // Never throws — returns the ServiceResult error shape instead.
-export async function getSessionCredentials(
-  forceRefresh = false,
-): Promise<ServiceResult<SessionCredentials>> {
+export async function getSessionCredentials(forceRefresh = false): Promise<ServiceResult<SessionCredentials>> {
   try {
     const session = await fetchAuthSession({ forceRefresh });
     if (!session.credentials) {
@@ -39,9 +35,7 @@ export async function getSessionCredentials(
 // binding: shared-space requests carry this token in the message; the provisioner
 // Lambda verifies it server-side and derives the actor from cognito:username, so
 // the caller's identity can't be spoofed. Never throws.
-export async function getIdToken(
-  forceRefresh = false,
-): Promise<ServiceResult<string>> {
+export async function getIdToken(forceRefresh = false): Promise<ServiceResult<string>> {
   try {
     const session = await fetchAuthSession({ forceRefresh });
     const idToken = session.tokens?.idToken?.toString();

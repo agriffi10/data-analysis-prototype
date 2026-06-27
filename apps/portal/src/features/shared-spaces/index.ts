@@ -1,8 +1,5 @@
 // Shared-spaces feature (SPEC-051: create; SPEC-052: list + refresh + tab).
-export {
-  enqueueSharedSpaceRequest,
-  readSharedConnectionsCache,
-} from './sharedSpaces.service';
+export { enqueueSharedSpaceRequest, readSharedConnectionsCache } from './sharedSpaces.service';
 export type { EnqueueInput } from './sharedSpaces.service';
 export { useCreateSharedConnection } from './useCreateSharedConnection';
 export { useManageMembers } from './useManageMembers';

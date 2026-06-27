@@ -20,22 +20,11 @@ const VARIANTS: Record<BannerVariant, string> = {
 
 // Dismissible status banner (SPEC-028) — inline success / warning / danger /
 // info feedback. Used for delete/move results and download/write errors.
-export function Banner({
-  variant,
-  title,
-  children,
-  onDismiss,
-  role = 'alert',
-  className,
-}: BannerProps) {
+export function Banner({ variant, title, children, onDismiss, role = 'alert', className }: BannerProps) {
   return (
     <div
       role={role}
-      className={cx(
-        'rounded-lg border p-3 text-sm flex items-start gap-3',
-        VARIANTS[variant],
-        className,
-      )}
+      className={cx('rounded-lg border p-3 text-sm flex items-start gap-3', VARIANTS[variant], className)}
     >
       <div className="min-w-0 flex-1">
         {title && <p className="font-medium">{title}</p>}

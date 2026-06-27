@@ -8,9 +8,7 @@ import type { ServiceResult } from '../types/service.types';
 // from the signed-in user's Identity Pool credentials, mirroring the S3/Athena/Glue
 // client builders (SPEC-034). `forceRefresh` drives the credential-expiry retry
 // path (withCredentialRetry). Never throws — returns the ServiceResult error shape.
-export async function getSqsClient(
-  forceRefresh = false,
-): Promise<ServiceResult<SQSClient>> {
+export async function getSqsClient(forceRefresh = false): Promise<ServiceResult<SQSClient>> {
   const creds = await getSessionCredentials(forceRefresh);
   if (!creds.success) return creds;
   return {

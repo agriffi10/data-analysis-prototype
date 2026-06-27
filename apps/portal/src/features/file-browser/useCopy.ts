@@ -1,13 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateListing } from '../../lib/queryClient';
-import {
-  copyObject,
-  copyFolder,
-  objectExists,
-  uploadPercent,
-  validateFolderName,
-} from './fileBrowser.service';
+import { copyObject, copyFolder, objectExists, uploadPercent, validateFolderName } from './fileBrowser.service';
 import { leafName, folderParts } from './fileBrowser.paths';
 import type { SelectableItem } from './selectionContext';
 
@@ -67,19 +61,14 @@ type Acc = { copied: number; errors: CopySummary['errors'] };
 // (no source delete) so ONLY the destination prefix is invalidated — the source
 // listing is unchanged. Adds the same-folder auto-number flow (FR-003) when the
 // chosen destination is the items' current parent. Never throws.
-export function useCopy(
-  bucket: string,
-  sourcePrefix: string,
-  username?: string,
-): UseCopyResult {
+export function useCopy(bucket: string, sourcePrefix: string, username?: string): UseCopyResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<CopySummary | null>(null);
   const [copyCollision, setCopyCollision] = useState<CopyCollision | null>(null);
-  const [sameFolderPrompt, setSameFolderPrompt] =
-    useState<SameFolderPrompt | null>(null);
+  const [sameFolderPrompt, setSameFolderPrompt] = useState<SameFolderPrompt | null>(null);
 
   async function invalidateDest(destPrefix: string) {
     await invalidateListing(queryClient, bucket, destPrefix);
@@ -89,11 +78,7 @@ export function useCopy(
   // Find the first ` (N)` name that doesn't already exist at the destination,
   // HEAD-checking each candidate. `baseName` is the source's leaf; `destPrefix`
   // is the folder it will sit in. For a folder, the dest key is `{name}/`.
-  async function firstFreeName(
-    baseName: string,
-    destPrefix: string,
-    isFile: boolean,
-  ): Promise<string | null> {
+  async function firstFreeName(baseName: string, destPrefix: string, isFile: boolean): Promise<string | null> {
     for (let n = 1; n < 1000; n += 1) {
       const candidate = numberedName(baseName, n, isFile);
       const key = isFile ? `${destPrefix}${candidate}` : `${destPrefix}${candidate}/`;
@@ -106,18 +91,12 @@ export function useCopy(
 
   // Runs a same-folder copy of a single item to an explicit (already-validated,
   // non-colliding) name within `destPrefix`. Folder copies recurse.
-  async function runSameFolderCopy(
-    item: SelectableItem,
-    destPrefix: string,
-    name: string,
-  ) {
+  async function runSameFolderCopy(item: SelectableItem, destPrefix: string, name: string) {
     setIsBusy(true);
     setError(null);
     setSummary(null);
 
-    let outcome:
-      | { ok: true; copied: number; errors: CopySummary['errors'] }
-      | { ok: false; message: string };
+    let outcome: { ok: true; copied: number; errors: CopySummary['errors'] } | { ok: false; message: string };
 
     if (item.type === 'file') {
       const r = await copyObject({
@@ -129,9 +108,7 @@ export function useCopy(
         // collision still gets a clear failure rather than a silent clobber.
         overwrite: false,
       });
-      outcome = r.success
-        ? { ok: true, copied: 1, errors: [] }
-        : { ok: false, message: r.error.message };
+      outcome = r.success ? { ok: true, copied: 1, errors: [] } : { ok: false, message: r.error.message };
     } else {
       const r = await copyFolder({
         bucket,
@@ -197,12 +174,7 @@ export function useCopy(
   }
 
   // ── Copy to a different folder ─────────────────────────────────────────────
-  async function runCopy(
-    items: SelectableItem[],
-    destPrefix: string,
-    overwrite: boolean,
-    acc: Acc,
-  ) {
+  async function runCopy(items: SelectableItem[], destPrefix: string, overwrite: boolean, acc: Acc) {
     setIsBusy(true);
     setError(null);
     setSummary(null);
@@ -235,9 +207,7 @@ export function useCopy(
         });
         if (r.success) {
           acc.copied += r.data.copied.length;
-          acc.errors.push(
-            ...r.data.errors.map((e) => ({ item: e.key, message: e.message })),
-          );
+          acc.errors.push(...r.data.errors.map((e) => ({ item: e.key, message: e.message })));
         } else if (r.error.code === 'Collision') {
           collided.push(item);
         } else {

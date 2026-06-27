@@ -28,7 +28,7 @@ function renderAt(path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <FilesPage />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
@@ -40,21 +40,17 @@ describe('FilesPage deep-link (SPEC-044 FR-002)', () => {
   it('seeds the browser at an in-space ?prefix=', () => {
     renderAt('/files?prefix=alice%2Fsales%2F');
     expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({ prefix: 'alice/sales/', rootPrefix: 'alice/' }),
+      expect.objectContaining({ prefix: 'alice/sales/', rootPrefix: 'alice/' })
     );
   });
 
   it('ignores an out-of-space ?prefix= and falls back to the user root', () => {
     renderAt('/files?prefix=bob%2Fsecret%2F');
-    expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({ prefix: 'alice/' }),
-    );
+    expect(fileBrowserProps).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'alice/' }));
   });
 
   it('defaults to the user root when no ?prefix= is present', () => {
     renderAt('/files');
-    expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({ prefix: 'alice/' }),
-    );
+    expect(fileBrowserProps).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'alice/' }));
   });
 });

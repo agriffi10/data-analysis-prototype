@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import {
-  expectNoA11yViolations,
-  COMPONENT_AXE_OPTIONS,
-} from '../../test/axe';
+import { expectNoA11yViolations, COMPONENT_AXE_OPTIONS } from '../../test/axe';
 import { QueryTabStrip } from './QueryTabStrip';
 import type { QueryTab } from './query.types';
 

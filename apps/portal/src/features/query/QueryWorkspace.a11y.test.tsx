@@ -12,18 +12,8 @@ vi.mock('../auth', () => ({
   useAuth: () => ({ user: { username: 'alice' }, status: 'authenticated' }),
 }));
 vi.mock('./SqlEditor', () => ({
-  SqlEditor: ({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-  }) => (
-    <textarea
-      aria-label="SQL editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
+  SqlEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <textarea aria-label="SQL editor" value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
 vi.mock('./useSchema', async (importOriginal) => ({

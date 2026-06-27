@@ -17,17 +17,13 @@ export function Sidebar() {
       aria-label="My files navigation"
       className="hidden w-[248px] flex-shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex"
     >
-      <p className="px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3">
-        My Files
-      </p>
+      <p className="px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3">My Files</p>
       <NavLink
         to="/files"
         className={({ isActive }) =>
           cx(
             'flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium',
-            isActive
-              ? 'bg-accent-soft text-accent-text'
-              : 'text-text-2 hover:bg-surface-2 hover:text-text',
+            isActive ? 'bg-accent-soft text-accent-text' : 'text-text-2 hover:bg-surface-2 hover:text-text'
           )
         }
       >

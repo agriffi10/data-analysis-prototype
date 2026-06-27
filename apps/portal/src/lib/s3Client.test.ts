@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 import { S3Client } from '@aws-sdk/client-s3';
 
 vi.mock('aws-amplify/auth', () => ({ fetchAuthSession: vi.fn() }));
@@ -58,9 +51,7 @@ describe('getS3Client', () => {
   });
 
   it('returns an error result (never throws) when fetchAuthSession rejects', async () => {
-    mockFetch.mockRejectedValueOnce(
-      Object.assign(new Error('network down'), { name: 'NetworkError' }),
-    );
+    mockFetch.mockRejectedValueOnce(Object.assign(new Error('network down'), { name: 'NetworkError' }));
 
     const result = await getS3Client();
 

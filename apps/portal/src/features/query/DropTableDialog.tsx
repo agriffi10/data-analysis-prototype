@@ -11,13 +11,7 @@ type Props = {
 // SPEC-044 FR-005 / SPEC-048 FR-006: warn-and-confirm before DROP TABLE / DROP
 // VIEW. Thin wrapper over the shared ConfirmDialog; locks + shows progress while
 // the drop is in flight.
-export function DropTableDialog({
-  table,
-  isDropping,
-  isView = false,
-  onConfirm,
-  onCancel,
-}: Props) {
+export function DropTableDialog({ table, isDropping, isView = false, onConfirm, onCancel }: Props) {
   const noun = isView ? 'view' : 'table';
   return (
     <ConfirmDialog

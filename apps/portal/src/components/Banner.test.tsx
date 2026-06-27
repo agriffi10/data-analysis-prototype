@@ -16,7 +16,7 @@ describe('Banner', () => {
     render(
       <Banner variant="success" title="Done">
         details
-      </Banner>,
+      </Banner>
     );
     expect(screen.getByText('Done')).toBeInTheDocument();
   });
@@ -24,14 +24,12 @@ describe('Banner', () => {
   it('shows a Dismiss button only when onDismiss is provided and calls it', () => {
     const onDismiss = vi.fn();
     const { rerender } = render(<Banner variant="danger">x</Banner>);
-    expect(
-      screen.queryByRole('button', { name: /dismiss/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /dismiss/i })).not.toBeInTheDocument();
 
     rerender(
       <Banner variant="danger" onDismiss={onDismiss}>
         x
-      </Banner>,
+      </Banner>
     );
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
     expect(onDismiss).toHaveBeenCalledOnce();
@@ -43,7 +41,7 @@ describe('Banner', () => {
     rerender(
       <Banner variant="success" role="status">
         a
-      </Banner>,
+      </Banner>
     );
     expect(screen.getByRole('status')).toBeInTheDocument();
   });

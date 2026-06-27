@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 
 vi.mock('../../lib/sqsClient', () => ({ getSqsClient: vi.fn() }));
 vi.mock('../../lib/s3Client', () => ({ getS3Client: vi.fn() }));
@@ -15,20 +7,11 @@ vi.mock('../../lib/awsCredentials', () => ({ getIdToken: vi.fn() }));
 import { getSqsClient } from '../../lib/sqsClient';
 import { getS3Client } from '../../lib/s3Client';
 import { getIdToken } from '../../lib/awsCredentials';
-import {
-  enqueueSharedSpaceRequest,
-  readSharedConnectionsCache,
-} from './sharedSpaces.service';
+import { enqueueSharedSpaceRequest, readSharedConnectionsCache } from './sharedSpaces.service';
 
-const mockGetClient = getSqsClient as unknown as MockedFunction<
-  () => Promise<unknown>
->;
-const mockGetS3 = getS3Client as unknown as MockedFunction<
-  () => Promise<unknown>
->;
-const mockGetIdToken = getIdToken as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+const mockGetClient = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
+const mockGetS3 = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
+const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unknown>>;
 
 const QUEUE = 'https://sqs.us-east-1.amazonaws.com/123/dat-prod-shared-space-requests.fifo';
 
@@ -51,10 +34,7 @@ function fakeS3(opts: { body?: string | null; rejectWith?: unknown }) {
     send.mockRejectedValue(opts.rejectWith);
   } else {
     send.mockResolvedValue({
-      Body:
-        opts.body == null
-          ? undefined
-          : { transformToString: async () => opts.body },
+      Body: opts.body == null ? undefined : { transformToString: async () => opts.body },
     });
   }
   mockGetS3.mockResolvedValue({ success: true, data: { send } });
@@ -106,9 +86,7 @@ describe('enqueueSharedSpaceRequest', () => {
   it('does not trust the body actor for auth — still carries the verified idToken', async () => {
     const { send } = fakeQueue();
     await enqueueSharedSpaceRequest({ action: 'create', actor: 'alice', space: 's' });
-    const body = JSON.parse(
-      send.mock.calls[0][0].input.MessageBody as string,
-    );
+    const body = JSON.parse(send.mock.calls[0][0].input.MessageBody as string);
     expect(body.idToken).toBe('id-token-xyz');
   });
 
@@ -141,9 +119,7 @@ describe('enqueueSharedSpaceRequest', () => {
 
   it('returns a ServiceResult error (never throws) when SendMessage fails', async () => {
     const send = vi.fn<(cmd: SqsCommand) => Promise<never>>();
-    send.mockRejectedValue(
-      Object.assign(new Error('network'), { name: 'NetworkError' }),
-    );
+    send.mockRejectedValue(Object.assign(new Error('network'), { name: 'NetworkError' }));
     mockGetClient.mockResolvedValue({ success: true, data: { send } });
     const result = await enqueueSharedSpaceRequest({
       action: 'create',
@@ -200,9 +176,7 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     });
     fakeS3({ body });
     const result = await readSharedConnectionsCache('alice');
-    expect(result.success && result.data.connections).toEqual([
-      { name: 'good', role: 'owner', status: 'active' },
-    ]);
+    expect(result.success && result.data.connections).toEqual([{ name: 'good', role: 'owner', status: 'active' }]);
   });
 
   it('returns a ServiceResult error (never throws) on a non-404 read failure', async () => {

@@ -16,9 +16,7 @@ export function BatchOverwritePrompt({ count, onOverwriteAll, onCancel }: Props)
       aria-label="Destination already has items"
       className="mb-4 rounded-lg border border-warning-soft bg-warning-soft p-4 text-sm text-warning"
     >
-      <p className="font-medium">
-        {count} item(s) already exist at the destination.
-      </p>
+      <p className="font-medium">{count} item(s) already exist at the destination.</p>
       <div className="mt-3 flex gap-2">
         <Button variant="danger" size="sm" onClick={onOverwriteAll}>
           Overwrite all

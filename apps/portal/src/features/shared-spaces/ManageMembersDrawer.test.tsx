@@ -22,14 +22,10 @@ describe('ManageMembersDrawer (SPEC-053 FR-001/003)', () => {
     setup();
     const ownerRow = screen.getByText('alice').closest('li')!;
     expect(within(ownerRow).getByText('Owner')).toBeInTheDocument();
-    expect(
-      within(ownerRow).queryByRole('button', { name: 'Remove' }),
-    ).not.toBeInTheDocument();
+    expect(within(ownerRow).queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
 
     const memberRow = screen.getByText('bob').closest('li')!;
-    expect(
-      within(memberRow).getByRole('button', { name: 'Remove' }),
-    ).toBeInTheDocument();
+    expect(within(memberRow).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
   });
 
   it('removing a member confirms, then calls onRemoveMembers with that user', () => {

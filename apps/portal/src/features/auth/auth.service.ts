@@ -1,16 +1,14 @@
-import {
-  getCurrentUser,
-  fetchAuthSession,
-  signInWithRedirect,
-  signOut,
-} from 'aws-amplify/auth';
+import { getCurrentUser, fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
 import type { AuthUser } from './auth.types';
 import type { ServiceResult } from '../../types/service.types';
 
 // Wraps Amplify auth calls in the project ServiceResult shape. These functions
 // never throw — callers branch on `success`.
 
-function toError(err: unknown, fallback: string): {
+function toError(
+  err: unknown,
+  fallback: string
+): {
   message: string;
   code?: string;
 } {

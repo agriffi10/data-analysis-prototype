@@ -64,9 +64,7 @@ describe('QueryHistoryPanel', () => {
   });
 
   it('shows a danger banner on a read error', () => {
-    mockUseHistory.mockReturnValue(
-      historyState([], { error: 'access denied' }),
-    );
+    mockUseHistory.mockReturnValue(historyState([], { error: 'access denied' }));
     render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();
   });
@@ -198,16 +196,12 @@ describe('QueryHistoryPanel', () => {
   });
 
   it('disables the Refresh button while a refresh is in flight', () => {
-    mockUseHistory.mockReturnValue(
-      historyState([sample], { isRefreshing: true }),
-    );
+    mockUseHistory.mockReturnValue(historyState([sample], { isRefreshing: true }));
     const { rerender } = render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByRole('button', { name: 'Refresh history' })).toBeDisabled();
 
     // Re-enables once the refetch settles.
-    mockUseHistory.mockReturnValue(
-      historyState([sample], { isRefreshing: false }),
-    );
+    mockUseHistory.mockReturnValue(historyState([sample], { isRefreshing: false }));
     rerender(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByRole('button', { name: 'Refresh history' })).toBeEnabled();
   });
@@ -225,9 +219,7 @@ describe('QueryHistoryPanel', () => {
   it('a refresh error shows the banner without dropping the existing list', () => {
     // The query reports an error but keeps the last-loaded entries (TanStack
     // retains data on a failed refetch) — both must render (FR-003).
-    mockUseHistory.mockReturnValue(
-      historyState([sample], { error: 'access denied' }),
-    );
+    mockUseHistory.mockReturnValue(historyState([sample], { error: 'access denied' }));
     render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();
     expect(screen.getByText('SELECT 1')).toBeInTheDocument();

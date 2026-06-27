@@ -20,8 +20,7 @@ function AppShell({ children }: { children: ReactNode }) {
 // without auth for local work without AWS, let protected routes through. Guarded
 // by import.meta.env.DEV (and the same flag the service/page use), so it is
 // stripped from production builds and can never weaken the real gate.
-const devBypass =
-  import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
+const devBypass = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
 export function ProtectedLayout() {
   const { status } = useAuth();

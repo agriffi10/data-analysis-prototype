@@ -26,19 +26,13 @@ export type UseDeleteResult = {
 // folder never aborts the rest (FR-003/FR-004). On completion the current prefix
 // listing is invalidated so successfully removed items disappear; the caller
 // clears the selection. Never throws.
-export function useDelete(
-  bucket: string,
-  prefix: string,
-  username?: string,
-): UseDeleteResult {
+export function useDelete(bucket: string, prefix: string, username?: string): UseDeleteResult {
   const queryClient = useQueryClient();
   const [isDeleting, setIsDeleting] = useState(false);
   const [summary, setSummary] = useState<DeleteSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function runDelete(
-    items: SelectableItem[],
-  ): Promise<DeleteSummary | null> {
+  async function runDelete(items: SelectableItem[]): Promise<DeleteSummary | null> {
     if (!username) {
       setError('You must be signed in to delete files.');
       return null;
@@ -52,9 +46,7 @@ export function useDelete(
     const fileKeys = items
       .filter((i): i is Extract<SelectableItem, { type: 'file' }> => i.type === 'file')
       .map((i) => i.key);
-    const folders = items.filter(
-      (i): i is Extract<SelectableItem, { type: 'folder' }> => i.type === 'folder',
-    );
+    const folders = items.filter((i): i is Extract<SelectableItem, { type: 'folder' }> => i.type === 'folder');
 
     const deleted: string[] = [];
     const errors: DeleteSummary['errors'] = [];

@@ -16,10 +16,6 @@ export const PICKER_LOCKED_FOLDERS = ['athenaresults', 'user_settings'] as const
 // Does `folderPrefix` name one of `names` at the user's own root
 // (`{rootPrefix}{name}/`)? Only the user-root instance matches — a nested folder
 // that happens to share the name is a normal user folder.
-export function isRootFolderNamed(
-  folderPrefix: string,
-  rootPrefix: string,
-  names: readonly string[],
-): boolean {
+export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, names: readonly string[]): boolean {
   return names.some((name) => folderPrefix === `${rootPrefix}${name}/`);
 }

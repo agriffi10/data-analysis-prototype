@@ -52,10 +52,7 @@ export function QueryResultsTable({
               <table className="w-full min-w-max border-collapse text-left">
                 <thead>
                   <tr className="h-10 border-b border-border bg-surface-2">
-                    <th
-                      scope="col"
-                      className="w-14 px-3 text-xs font-semibold uppercase tracking-wide text-text-3"
-                    >
+                    <th scope="col" className="w-14 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
                       #
                     </th>
                     {columns.map((column) => (

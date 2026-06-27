@@ -120,16 +120,12 @@ function AppPreview() {
       <div className="grid min-h-[320px] grid-cols-1 sm:grid-cols-[200px_1fr]">
         {/* Sidebar */}
         <div className="hidden border-r border-border-2 bg-surface p-4 sm:block">
-          <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">
-            My Files
-          </p>
+          <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">My Files</p>
           <div className="flex items-center gap-2 rounded-sm bg-accent-soft px-2 py-[7px] text-sm font-semibold text-accent-text">
             <span className="h-[7px] w-[7px] rounded-full bg-current opacity-50" />
             alice
           </div>
-          <p className="px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-[.04em] text-text-3">
-            Shared
-          </p>
+          <p className="px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Shared</p>
           <div className="flex items-center gap-2 rounded-sm px-2 py-[7px] text-sm text-text-2">
             <span className="h-[7px] w-[7px] rounded-full bg-current opacity-50" />
             Project Alpha
@@ -218,43 +214,25 @@ export default function LandingPage() {
             <BrandMark />
           </a>
           <div className="ml-8 hidden items-center gap-5 md:flex">
-            <a
-              href="#features"
-              className="text-base font-medium text-text-2 hover:text-text"
-            >
+            <a href="#features" className="text-base font-medium text-text-2 hover:text-text">
               Features
             </a>
-            <a
-              href="#security"
-              className="text-base font-medium text-text-2 hover:text-text"
-            >
+            <a href="#security" className="text-base font-medium text-text-2 hover:text-text">
               Security
             </a>
           </div>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             {isAuthed ? (
-              <Button
-                variant="primary"
-                className="!h-10 !px-5"
-                onClick={() => navigate('/files')}
-              >
+              <Button variant="primary" className="!h-10 !px-5" onClick={() => navigate('/files')}>
                 Go to Dashboard
               </Button>
             ) : (
               <>
-                <Button
-                  variant="ghost"
-                  className="!h-10 !px-5"
-                  onClick={() => void signIn()}
-                >
+                <Button variant="ghost" className="!h-10 !px-5" onClick={() => void signIn()}>
                   Sign in
                 </Button>
-                <Button
-                  variant="primary"
-                  className="!h-10 !px-5"
-                  onClick={() => void signUp()}
-                >
+                <Button variant="primary" className="!h-10 !px-5" onClick={() => void signUp()}>
                   Create account
                 </Button>
               </>
@@ -264,136 +242,114 @@ export default function LandingPage() {
       </nav>
 
       <main id="main">
-      {/* Hero */}
-      <section className="py-16 text-center">
-        <div className="mx-auto max-w-[1080px] px-6">
-          <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#e0e3ff] bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
-            <ShieldIcon />
-            Secure, per-user file storage on AWS
-          </span>
-          <h1 className="mx-auto mb-5 max-w-[760px] text-[46px] font-bold leading-tight tracking-[-0.02em]">
-            Your files in the cloud,{' '}
-            <span className="text-accent">scoped to you</span>.
-          </h1>
-          <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
-            Upload, organize, and share files in your own private space — and
-            connect to shared project data when you need it. Backed by AWS, with
-            isolation enforced at the infrastructure layer.
-          </p>
-          <div className="flex flex-wrap justify-center gap-3">
-            {isAuthed ? (
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={() => navigate('/files')}
-              >
-                Go to Dashboard
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={() => void signUp()}
-                >
-                  Create your account
-                </Button>
-                <Button
-                  variant="default"
-                  size="lg"
-                  onClick={() => void signIn()}
-                >
-                  Sign in
-                </Button>
-              </>
-            )}
-          </div>
-          {!isAuthed && (
-            <div className="mt-5 flex items-center justify-center gap-2 text-sm text-text-3">
-              <span className="text-success">
-                <CheckIcon />
-              </span>
-              Sign-in and sign-up are handled by AWS Cognito — we never see your
-              password.
-            </div>
-          )}
-
-          <AppPreview />
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="py-10">
-        <div className="mx-auto max-w-[1080px] px-6">
-          <div className="mb-8 text-center">
-            <h2 className="text-[30px] font-bold tracking-[-0.01em]">
-              Everything you need to manage your files
-            </h2>
-            <p className="mt-3 text-md text-text-2">
-              A focused workspace — no clutter, just your files where you expect
-              them.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-            {FEATURES.map((feature) => (
-              <div
-                key={feature.title}
-                className="rounded-lg border border-border bg-surface p-6 shadow-sm"
-              >
-                <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent">
-                  {feature.icon}
-                </div>
-                <h3 className="mb-2 text-md font-semibold">{feature.title}</h3>
-                <p className="text-sm text-text-2">{feature.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA strip */}
-      <section id="security" className="py-8 pb-10">
-        <div className="mx-auto max-w-[1080px] px-6">
-          <div className="rounded-lg bg-accent px-8 py-10 text-center text-white shadow-md">
-            <h2 className="mb-3 text-[28px] font-bold tracking-[-0.01em]">
-              Isolation enforced at the infrastructure layer
-            </h2>
-            <p className="mx-auto mb-6 max-w-[480px] text-md text-[#dfe0fb]">
-              Authentication runs on AWS Cognito and every user is scoped to
-              their own storage by AWS IAM — not by application code. Get started
-              in under a minute.
+        {/* Hero */}
+        <section className="py-16 text-center">
+          <div className="mx-auto max-w-[1080px] px-6">
+            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#e0e3ff] bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
+              <ShieldIcon />
+              Secure, per-user file storage on AWS
+            </span>
+            <h1 className="mx-auto mb-5 max-w-[760px] text-[46px] font-bold leading-tight tracking-[-0.02em]">
+              Your files in the cloud, <span className="text-accent">scoped to you</span>.
+            </h1>
+            <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
+              Upload, organize, and share files in your own private space — and connect to shared project data when you
+              need it. Backed by AWS, with isolation enforced at the infrastructure layer.
             </p>
             <div className="flex flex-wrap justify-center gap-3">
               {isAuthed ? (
-                <button
-                  type="button"
-                  onClick={() => navigate('/files')}
-                  className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
-                >
+                <Button variant="primary" size="lg" onClick={() => navigate('/files')}>
                   Go to Dashboard
-                </button>
+                </Button>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => void signUp()}
-                    className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
-                  >
-                    Create account
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void signIn()}
-                    className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20"
-                  >
+                  <Button variant="primary" size="lg" onClick={() => void signUp()}>
+                    Create your account
+                  </Button>
+                  <Button variant="default" size="lg" onClick={() => void signIn()}>
                     Sign in
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
+            {!isAuthed && (
+              <div className="mt-5 flex items-center justify-center gap-2 text-sm text-text-3">
+                <span className="text-success">
+                  <CheckIcon />
+                </span>
+                Sign-in and sign-up are handled by AWS Cognito — we never see your password.
+              </div>
+            )}
+
+            <AppPreview />
           </div>
-        </div>
-      </section>
+        </section>
+
+        {/* Features */}
+        <section id="features" className="py-10">
+          <div className="mx-auto max-w-[1080px] px-6">
+            <div className="mb-8 text-center">
+              <h2 className="text-[30px] font-bold tracking-[-0.01em]">Everything you need to manage your files</h2>
+              <p className="mt-3 text-md text-text-2">
+                A focused workspace — no clutter, just your files where you expect them.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+              {FEATURES.map((feature) => (
+                <div key={feature.title} className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+                  <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent">
+                    {feature.icon}
+                  </div>
+                  <h3 className="mb-2 text-md font-semibold">{feature.title}</h3>
+                  <p className="text-sm text-text-2">{feature.body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* CTA strip */}
+        <section id="security" className="py-8 pb-10">
+          <div className="mx-auto max-w-[1080px] px-6">
+            <div className="rounded-lg bg-accent px-8 py-10 text-center text-white shadow-md">
+              <h2 className="mb-3 text-[28px] font-bold tracking-[-0.01em]">
+                Isolation enforced at the infrastructure layer
+              </h2>
+              <p className="mx-auto mb-6 max-w-[480px] text-md text-[#dfe0fb]">
+                Authentication runs on AWS Cognito and every user is scoped to their own storage by AWS IAM — not by
+                application code. Get started in under a minute.
+              </p>
+              <div className="flex flex-wrap justify-center gap-3">
+                {isAuthed ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/files')}
+                    className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
+                  >
+                    Go to Dashboard
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void signUp()}
+                      className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
+                    >
+                      Create account
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void signIn()}
+                      className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20"
+                    >
+                      Sign in
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
 
       {/* Footer */}

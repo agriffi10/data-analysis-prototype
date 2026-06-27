@@ -26,14 +26,11 @@ export function useCreateSharedConnection(username: string | null) {
       });
       setBusy(false);
       if (result.success) {
-        setPending((prev) => [
-          ...prev,
-          { name, role: 'owner', status: 'provisioning' },
-        ]);
+        setPending((prev) => [...prev, { name, role: 'owner', status: 'provisioning' }]);
       }
       return result;
     },
-    [username],
+    [username]
   );
 
   return { create, busy, pending };

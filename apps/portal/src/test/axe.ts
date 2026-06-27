@@ -11,13 +11,7 @@ import { expect } from 'vitest';
 // config lives here and nowhere else.
 
 /** WCAG A/AA rule tags the suite asserts against (machine-detectable subset). */
-export const WCAG_TAGS = [
-  'wcag2a',
-  'wcag2aa',
-  'wcag21a',
-  'wcag21aa',
-  'wcag22aa',
-] as const;
+export const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] as const;
 
 const runAxe = configureAxe({
   runOnly: { type: 'tag', values: [...WCAG_TAGS] },
@@ -63,10 +57,7 @@ export const COMPONENT_AXE_OPTIONS: RunOptions = {
  * Callers compose any providers/router the node needs (mirroring the rest of the
  * suite), then hand the wrapped element here.
  */
-export async function expectNoA11yViolations(
-  ui: ReactElement,
-  axeOptions?: RunOptions,
-): Promise<void> {
+export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunOptions): Promise<void> {
   const { container, unmount } = render(ui);
   try {
     const results = await runAxe(container, axeOptions);

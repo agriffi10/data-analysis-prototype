@@ -50,8 +50,7 @@ export function SaveResultsDialog({
     >
       <h2 className="text-md font-semibold text-text">Save results to my files</h2>
       <p className="mt-1 text-sm text-text-2">
-        Saves the full result set as a CSV in your space. A <code>.csv</code>{' '}
-        extension is added automatically.
+        Saves the full result set as a CSV in your space. A <code>.csv</code> extension is added automatically.
       </p>
 
       <div className="mt-3">
@@ -68,9 +67,7 @@ export function SaveResultsDialog({
         />
       </div>
 
-      <p className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-text-3">
-        Destination folder
-      </p>
+      <p className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-text-3">Destination folder</p>
       <DestinationPicker
         bucket={bucket}
         items={[]}
@@ -82,9 +79,7 @@ export function SaveResultsDialog({
         confirmDisabled={!nameValid}
         confirmLabel="Save here"
         busyLabel="Saving…"
-        onConfirm={(destPrefix) =>
-          onSave({ destPrefix, filename: normalizeCsvName(name) })
-        }
+        onConfirm={(destPrefix) => onSave({ destPrefix, filename: normalizeCsvName(name) })}
         onCancel={onCancel}
       />
     </Modal>

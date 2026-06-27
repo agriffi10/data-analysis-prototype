@@ -90,82 +90,75 @@ export function QueryTabStrip({
           aria-required-children) — the +/Saved/History controls sit outside it.
           This is the only scrollable region (min-w-0 + overflow-x-auto); the
           surrounding controls stay pinned. */}
-      <div
-        role="tablist"
-        aria-label="Query tabs"
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-      >
-      {tabs.map((tab, index) => {
-        const active = tab.id === activeTabId;
-        return (
-          <div
-            key={tab.id}
-            ref={(el) => {
-              if (el) tabRefs.current.set(tab.id, el);
-              else tabRefs.current.delete(tab.id);
-            }}
-            id={`query-tab-${tab.id}`}
-            role="tab"
-            aria-selected={active}
-            aria-controls="query-tabpanel"
-            tabIndex={active ? 0 : -1}
-            onClick={() => onSelect(tab.id)}
-            onKeyDown={(e) => onTabKeyDown(e, index)}
-            className={cx(
-              'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm font-medium',
-              active
-                ? 'border-border bg-surface text-text shadow-sm'
-                : 'border-transparent text-text-2 hover:bg-surface hover:text-text',
-            )}
-          >
-            <span
+      <div role="tablist" aria-label="Query tabs" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        {tabs.map((tab, index) => {
+          const active = tab.id === activeTabId;
+          return (
+            <div
+              key={tab.id}
+              ref={(el) => {
+                if (el) tabRefs.current.set(tab.id, el);
+                else tabRefs.current.delete(tab.id);
+              }}
+              id={`query-tab-${tab.id}`}
+              role="tab"
+              aria-selected={active}
+              aria-controls="query-tabpanel"
+              tabIndex={active ? 0 : -1}
+              onClick={() => onSelect(tab.id)}
+              onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                'h-1.5 w-1.5 flex-none rounded-full bg-accent',
-                active ? 'opacity-100' : 'opacity-0',
+                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm font-medium',
+                active
+                  ? 'border-border bg-surface text-text shadow-sm'
+                  : 'border-transparent text-text-2 hover:bg-surface hover:text-text'
               )}
-              aria-hidden="true"
-            />
-            {dirtyTabIds.has(tab.id) && (
+            >
               <span
-                role="img"
-                className="flex-none font-bold text-accent"
-                title="Unsaved changes"
-                aria-label="Unsaved changes"
-              >
-                •
-              </span>
-            )}
-            <span className="truncate">{tab.label}</span>
-            {/* The ✕ is a decorative, non-focusable pointer affordance — NOT a
+                className={cx('h-1.5 w-1.5 flex-none rounded-full bg-accent', active ? 'opacity-100' : 'opacity-0')}
+                aria-hidden="true"
+              />
+              {dirtyTabIds.has(tab.id) && (
+                <span
+                  role="img"
+                  className="flex-none font-bold text-accent"
+                  title="Unsaved changes"
+                  aria-label="Unsaved changes"
+                >
+                  •
+                </span>
+              )}
+              <span className="truncate">{tab.label}</span>
+              {/* The ✕ is a decorative, non-focusable pointer affordance — NOT a
                 nested <button>, which would trip axe's nested-interactive rule
                 inside the role="tab". Keyboard/AT users close via the Delete key
                 on the focused tab (onTabKeyDown), so the same action stays fully
                 operable without this control (WCAG 2.1.1). */}
-            {!solo && (
-              <span
-                role="presentation"
-                title={`Close ${tab.label}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(tab.id);
-                }}
-                className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="h-3 w-3"
-                  aria-hidden="true"
+              {!solo && (
+                <span
+                  role="presentation"
+                  title={`Close ${tab.label}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(tab.id);
+                  }}
+                  className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger"
                 >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </span>
-            )}
-          </div>
-        );
-      })}
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                  >
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). They
@@ -175,13 +168,7 @@ export function QueryTabStrip({
         Saved queries
       </button>
       <button type="button" className={barButton} onClick={onOpenHistory}>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden="true"
-        >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
           <path d="M3 3v5h5" />
           <path d="M12 8v5l3 2" />

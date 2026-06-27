@@ -26,9 +26,7 @@ beforeEach(() => {
   mockUseFileBrowser.mockReturnValue(base);
 });
 
-function renderDialog(
-  props?: Partial<React.ComponentProps<typeof MoveDialog>>,
-) {
+function renderDialog(props?: Partial<React.ComponentProps<typeof MoveDialog>>) {
   const onMove = vi.fn();
   const onCancel = vi.fn();
   render(
@@ -41,7 +39,7 @@ function renderDialog(
       onMove={onMove}
       onCancel={onCancel}
       {...props}
-    />,
+    />
   );
   return { onMove, onCancel };
 }
@@ -53,9 +51,7 @@ describe('MoveDialog', () => {
       folders: [folder('alice/archive/', 'archive')],
     });
     renderDialog();
-    expect(
-      screen.getByRole('button', { name: /open folder archive/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open folder archive/i })).toBeInTheDocument();
   });
 
   it('moves to the browsed prefix when "Move here" is clicked', () => {
@@ -82,12 +78,8 @@ describe('MoveDialog', () => {
       items: [{ type: 'folder', prefix: 'alice/photos/' }],
       currentPrefix: 'alice/',
     });
-    expect(
-      screen.getByRole('button', { name: /open folder archive/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /open folder photos/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open folder archive/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open folder photos/i })).not.toBeInTheDocument();
   });
 
   it('navigates back up to the root via the ".." row and can move there', () => {
@@ -98,9 +90,7 @@ describe('MoveDialog', () => {
     const { onMove } = renderDialog();
 
     // No ".." at the root (already at the navigation floor).
-    expect(
-      screen.queryByRole('button', { name: /go up to parent folder/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /go up to parent folder/i })).not.toBeInTheDocument();
 
     // Descend, then the ".." row appears and climbs back to root.
     fireEvent.click(screen.getByRole('button', { name: /open folder archive/i }));

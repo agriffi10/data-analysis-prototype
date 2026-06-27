@@ -21,8 +21,7 @@ const mockInvalidate = vi.mocked(invalidateListing);
 
 function wrapper() {
   const client = new QueryClient();
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
 }
 
 function render(username: string | undefined = 'alice') {
@@ -52,11 +51,7 @@ describe('useDelete', () => {
     const { result } = render();
     let summary: DeleteSummary | null = null;
     await act(async () => {
-      summary = await result.current.runDelete([
-        file('alice/a.txt'),
-        file('alice/b.txt'),
-        folder('alice/p/'),
-      ]);
+      summary = await result.current.runDelete([file('alice/a.txt'), file('alice/b.txt'), folder('alice/p/')]);
     });
 
     expect(mockDeleteObjects).toHaveBeenCalledWith({
@@ -109,10 +104,7 @@ describe('useDelete', () => {
     const { result } = render();
     let summary: DeleteSummary | null = null;
     await act(async () => {
-      summary = await result.current.runDelete([
-        file('alice/a.txt'),
-        folder('alice/p/'),
-      ]);
+      summary = await result.current.runDelete([file('alice/a.txt'), folder('alice/p/')]);
     });
 
     expect(summary).toBeNull();
@@ -135,10 +127,7 @@ describe('useDelete', () => {
     const { result } = render();
     let summary: DeleteSummary | null = null;
     await act(async () => {
-      summary = await result.current.runDelete([
-        folder('alice/p/'),
-        folder('alice/q/'),
-      ]);
+      summary = await result.current.runDelete([folder('alice/p/'), folder('alice/q/')]);
     });
 
     expect(mockDeleteFolder).toHaveBeenCalledTimes(2);
@@ -154,19 +143,14 @@ describe('useDelete', () => {
       success: true,
       data: {
         deleted: ['alice/a.txt'],
-        errors: [
-          { key: 'alice/DO_NOT_DELETE.txt', message: 'cannot be deleted' },
-        ],
+        errors: [{ key: 'alice/DO_NOT_DELETE.txt', message: 'cannot be deleted' }],
       },
     });
 
     const { result } = render();
     let summary: DeleteSummary | null = null;
     await act(async () => {
-      summary = await result.current.runDelete([
-        file('alice/a.txt'),
-        file('alice/DO_NOT_DELETE.txt'),
-      ]);
+      summary = await result.current.runDelete([file('alice/a.txt'), file('alice/DO_NOT_DELETE.txt')]);
     });
 
     expect(summary).toEqual({

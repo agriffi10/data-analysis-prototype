@@ -23,7 +23,7 @@ const renderSidebar = () =>
   render(
     <MemoryRouter initialEntries={['/files']}>
       <Sidebar />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 
 describe('Sidebar', () => {

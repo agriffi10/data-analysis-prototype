@@ -15,10 +15,7 @@ export type UseObjectMetadataResult = {
 // when a file's Details action is open, so a failed fetch refetches on reopen
 // (a fresh observer mounts on the same key). The service never throws; we unwrap
 // its ServiceResult and throw here so Query treats a failure as a query error.
-export function useObjectMetadata(
-  bucket: string,
-  key: string | null,
-): UseObjectMetadataResult {
+export function useObjectMetadata(bucket: string, key: string | null): UseObjectMetadataResult {
   const query = useQuery({
     queryKey: fileBrowserKeys.metadata(bucket, key ?? ''),
     queryFn: async () => {

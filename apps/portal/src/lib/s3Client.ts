@@ -39,9 +39,7 @@ export const s3Client = new S3Client({
 // On an S3 call failing with a credential-expiry error, callers retry once with
 // getS3Client(true) — Amplify refreshes the underlying session and credentials.
 // Never throws — returns the ServiceResult error shape instead.
-export async function getS3Client(
-  forceRefresh = false,
-): Promise<ServiceResult<S3Client>> {
+export async function getS3Client(forceRefresh = false): Promise<ServiceResult<S3Client>> {
   try {
     const session = await fetchAuthSession({ forceRefresh });
     if (!session.credentials) {

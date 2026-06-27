@@ -30,11 +30,7 @@ function toServiceError(err: unknown, fallback: string) {
 
 function isNotFound(err: unknown): boolean {
   const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
-  return (
-    e.name === 'NoSuchKey' ||
-    e.name === 'NotFound' ||
-    e.$metadata?.httpStatusCode === 404
-  );
+  return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // Forgivingly parse the store body: a malformed/legacy file falls back to empty
@@ -51,14 +47,10 @@ function parseStore(body: string | undefined): SavedQueriesStore {
 }
 
 // FR-004: read + parse the store. A missing file is the empty state, not an error.
-export async function getSavedQueries(
-  username: string,
-): Promise<ServiceResult<SavedQueriesStore>> {
+export async function getSavedQueries(username: string): Promise<ServiceResult<SavedQueriesStore>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
-      const response = await client.send(
-        new GetObjectCommand({ Bucket: bucket(), Key: storeKey(username) }),
-      );
+      const response = await client.send(new GetObjectCommand({ Bucket: bucket(), Key: storeKey(username) }));
       const body = await response.Body?.transformToString();
       return { success: true, data: parseStore(body) };
     } catch (err) {
@@ -70,10 +62,7 @@ export async function getSavedQueries(
 
 // Overwrite the store file (PutObject — never a delete). Last-writer-wins on a
 // single user's own file, acceptable as for history (FR-004).
-async function writeStore(
-  username: string,
-  store: SavedQueriesStore,
-): Promise<ServiceResult<void>> {
+async function writeStore(username: string, store: SavedQueriesStore): Promise<ServiceResult<void>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
       await client.send(
@@ -82,7 +71,7 @@ async function writeStore(
           Key: storeKey(username),
           Body: JSON.stringify(store),
           ContentType: 'application/json',
-        }),
+        })
       );
       return { success: true, data: undefined };
     } catch (err) {
@@ -93,10 +82,7 @@ async function writeStore(
 
 // FR-004: create or replace a saved query by id, then write back. A matching id
 // is updated in place (keeping list position); a new id is prepended.
-export async function upsertSavedQuery(
-  username: string,
-  query: SavedQuery,
-): Promise<ServiceResult<SavedQueriesStore>> {
+export async function upsertSavedQuery(username: string, query: SavedQuery): Promise<ServiceResult<SavedQueriesStore>> {
   const current = await getSavedQueries(username);
   if (!current.success) return current;
 
@@ -114,10 +100,7 @@ export async function upsertSavedQuery(
 
 // FR-004 / FR-007: remove a saved query by id by rewriting the JSON without it
 // (never an S3 delete). An unknown id is a no-op success.
-export async function removeSavedQuery(
-  username: string,
-  id: string,
-): Promise<ServiceResult<SavedQueriesStore>> {
+export async function removeSavedQuery(username: string, id: string): Promise<ServiceResult<SavedQueriesStore>> {
   const current = await getSavedQueries(username);
   if (!current.success) return current;
 

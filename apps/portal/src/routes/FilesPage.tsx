@@ -1,10 +1,6 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  FileBrowser,
-  ensurePrefixMarker,
-  prefixMarkerKey,
-} from '../features/file-browser';
+import { FileBrowser, ensurePrefixMarker, prefixMarkerKey } from '../features/file-browser';
 import { Sidebar } from '../components/Sidebar';
 import { useAuth } from '../features/auth';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -12,17 +8,12 @@ import { usePageTitle } from '../hooks/usePageTitle';
 // Dev-only fallback (SPEC-013): browse a static/public test bucket without auth
 // for local work without AWS. Honoured ONLY in a dev build (matches the service
 // + ProtectedLayout guards), so production always uses the authenticated path.
-const devUnauthenticated =
-  import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
+const devUnauthenticated = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 const devBucket = import.meta.env.VITE_S3_BUCKET_NAME as string | undefined;
-const rawDevPrefix =
-  (import.meta.env.VITE_S3_ROOT_PREFIX as string | undefined) ?? '';
-const devPrefix =
-  rawDevPrefix && !rawDevPrefix.endsWith('/') ? `${rawDevPrefix}/` : rawDevPrefix;
+const rawDevPrefix = (import.meta.env.VITE_S3_ROOT_PREFIX as string | undefined) ?? '';
+const devPrefix = rawDevPrefix && !rawDevPrefix.endsWith('/') ? `${rawDevPrefix}/` : rawDevPrefix;
 
-const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as
-  | string
-  | undefined;
+const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined;
 
 // The file browser page (`/files`). Chrome (Header) and the auth gate live in
 // ProtectedLayout — this component only renders the browser content. In the
@@ -40,9 +31,7 @@ export default function FilesPage() {
   let rootLabel: string | undefined = 'My Files';
   // The prefix marker is hidden from the listing (SPEC-014 FR-002). Only set in
   // the authenticated flow — there is no per-user prefix in the dev fallback.
-  let markerKey: string | undefined = user
-    ? prefixMarkerKey(user.username)
-    : undefined;
+  let markerKey: string | undefined = user ? prefixMarkerKey(user.username) : undefined;
 
   if (devUnauthenticated) {
     bucket = devBucket;
@@ -58,8 +47,7 @@ export default function FilesPage() {
   // navigation doesn't touch the URL, so this only re-seeds on a fresh deep-link.
   const [searchParams] = useSearchParams();
   const prefixParam = searchParams.get('prefix') || undefined;
-  const initialPrefix =
-    prefixParam && prefixParam.startsWith(rootPrefix) ? prefixParam : rootPrefix;
+  const initialPrefix = prefixParam && prefixParam.startsWith(rootPrefix) ? prefixParam : rootPrefix;
 
   // SPEC-014 FR-001: guarantee the user's prefix marker exists on authenticated
   // load. Best-effort and non-blocking — a failure only logs a warning; the
@@ -73,9 +61,7 @@ export default function FilesPage() {
         username: user.username,
       });
       if (!result.success) {
-        console.warn(
-          `[prefix-marker] could not ensure marker: ${result.error.message}`,
-        );
+        console.warn(`[prefix-marker] could not ensure marker: ${result.error.message}`);
       }
     })();
   }, [user]);
@@ -97,14 +83,9 @@ export default function FilesPage() {
             username={devUnauthenticated ? undefined : user?.username}
           />
         ) : (
-          <div
-            role="alert"
-            className="rounded-lg border border-danger bg-danger-soft p-4 text-danger"
-          >
+          <div role="alert" className="rounded-lg border border-danger bg-danger-soft p-4 text-danger">
             <p className="font-medium">Configuration error</p>
-            <p className="mt-1 text-sm">
-              VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.
-            </p>
+            <p className="mt-1 text-sm">VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.</p>
           </div>
         )}
       </main>

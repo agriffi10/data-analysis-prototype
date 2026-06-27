@@ -25,15 +25,9 @@ export function AddMembersDialog({ busy = false, existing, onAdd, onCancel }: Pr
     ref.current?.focus();
   }, []);
 
-  const existingSet = useMemo(
-    () => new Set(existing.map((m) => m.toLowerCase())),
-    [existing],
-  );
+  const existingSet = useMemo(() => new Set(existing.map((m) => m.toLowerCase())), [existing]);
   // Valid, new (not already a member) usernames that will actually be sent.
-  const members = useMemo(
-    () => parseMemberInput(raw).filter((m) => !existingSet.has(m)),
-    [raw, existingSet],
-  );
+  const members = useMemo(() => parseMemberInput(raw).filter((m) => !existingSet.has(m)), [raw, existingSet]);
 
   const attempt = () => {
     if (members.length > 0 && !busy) onAdd(members);
@@ -44,9 +38,8 @@ export function AddMembersDialog({ busy = false, existing, onAdd, onCancel }: Pr
       <div className="px-5 pb-4 pt-5">
         <h2 className="mb-3 text-md font-semibold text-text">Add members</h2>
         <p className="mb-3 text-sm text-text-2">
-          Enter one or more usernames, separated by spaces, commas, or new lines.
-          Unknown usernames are ignored. Members get access to the same shared
-          files and tables.
+          Enter one or more usernames, separated by spaces, commas, or new lines. Unknown usernames are ignored. Members
+          get access to the same shared files and tables.
         </p>
         <textarea
           ref={ref}
@@ -69,11 +62,7 @@ export function AddMembersDialog({ busy = false, existing, onAdd, onCancel }: Pr
         <Button variant="ghost" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
-        <Button
-          variant="primary"
-          onClick={attempt}
-          disabled={members.length === 0 || busy}
-        >
+        <Button variant="primary" onClick={attempt} disabled={members.length === 0 || busy}>
           {busy ? 'Adding…' : 'Add'}
         </Button>
       </div>

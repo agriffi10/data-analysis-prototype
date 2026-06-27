@@ -17,7 +17,7 @@ export function useCopyToClipboard(resetMs = 1500): UseCopyToClipboardResult {
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    [],
+    []
   );
 
   const copy = useCallback(
@@ -32,7 +32,7 @@ export function useCopyToClipboard(resetMs = 1500): UseCopyToClipboardResult {
         setCopied(false);
       }
     },
-    [resetMs],
+    [resetMs]
   );
 
   return { copied, copy };
