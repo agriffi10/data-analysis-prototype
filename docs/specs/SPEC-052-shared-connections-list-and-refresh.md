@@ -1,7 +1,7 @@
 # Spec: Connections Tab, Connection Lists & Refresh
 
 **ID:** SPEC-052
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-21
 **Depends On:** SPEC-047 (`useConnections` seam + schema-rail database list), SPEC-051 (per-user cache shape + create flow), SPEC-056 (membership tags; token-refresh requirement), SPEC-035 (`PrimaryNav` Files | Query tabs), SPEC-046 (refresh-button pattern), SPEC-044 (`Toast`), SPEC-053 (member-management drawer — opened from here), SPEC-054 (leave/delete — invoked from here)
 
