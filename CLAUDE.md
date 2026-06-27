@@ -29,7 +29,7 @@ AWS directly with scoped credentials. Status: greenfield, no production users ye
 | Layer | Tech |
 |---|---|
 | Frontend | React 18 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
-| AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034) |
+| AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034); `@aws-sdk/client-sqs` (shared-space control plane, SPEC-051) |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router-dom` v7; TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library; `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier |
@@ -57,7 +57,7 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 ## Specs
 
 Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own `Status`.
-**Current work:** SPEC-001→050 + **056** are complete & deployed. Shared-connections arc in flight: foundation (050) + access model (056) done; **next is SPEC-051** (create shared connection), then 052→055, 057. Notifications arc (058→060) still Draft.
+**Current work:** SPEC-001→050 + **056** + **051** are complete & deployed. Shared-connections arc in flight: foundation (050) + access model (056) + create (051) done; **next is SPEC-052** (Connections tab + `useConnections` list + Refresh), then 053→055, 057. Notifications arc (058→060) still Draft.
 
 ---
 

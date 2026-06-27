@@ -21,8 +21,9 @@ before relying on them. Paths are relative to the repo root.
 | `getS3Client(forceRefresh?)` | `lib/s3Client.ts` | Authenticated S3 client from Amplify/Identity-Pool creds; `ServiceResult<S3Client>`. Pass `true` to force a credential refresh on expiry. |
 | `s3Client` | `lib/s3Client.ts` | Dev-only unsigned/static-cred S3 client singleton (SPEC-002 dev-unauth path). |
 | `getAthenaClient(forceRefresh?)` / `getGlueClient(forceRefresh?)` | `lib/athenaClient.ts` / `lib/glueClient.ts` | Authenticated Athena/Glue clients from the same scoped Identity-Pool creds (SPEC-034); `ServiceResult<...Client>`. |
-| `getSessionCredentials(forceRefresh?)` | `lib/awsCredentials.ts` | Fetch the signed-in user's scoped Identity-Pool credentials; shared by the Athena/Glue client builders (SPEC-034). |
-| `withCredentialRetry(getClient, op)` / `isExpiryError(code?)` | `lib/credentialRetry.ts` | Run an authenticated op with one transparent refresh-and-retry on credential-expiry; shared by the S3/Athena/Glue services (SPEC-034). |
+| `getSessionCredentials(forceRefresh?)` / `getIdToken(forceRefresh?)` | `lib/awsCredentials.ts` | Fetch the signed-in user's scoped Identity-Pool credentials (shared by the Athena/Glue/SQS client builders, SPEC-034); `getIdToken` returns the Cognito ID token JWT for server-side trusted-actor binding (SPEC-051/056). |
+| `getSqsClient(forceRefresh?)` | `lib/sqsClient.ts` | Authenticated SQS client from Identity-Pool creds; `ServiceResult<SQSClient>`. The browser's only shared-space write is `sqs:SendMessage` to the control queue (SPEC-051). |
+| `withCredentialRetry(getClient, op)` / `isExpiryError(code?)` | `lib/credentialRetry.ts` | Run an authenticated op with one transparent refresh-and-retry on credential-expiry; shared by the S3/Athena/Glue/SQS services (SPEC-034). |
 | `queryClient` | `lib/queryClient.ts` | App-wide TanStack `QueryClient` (staleTime 30s, retry 1, no refetch-on-focus). |
 | `invalidateListing(client, bucket, prefix)` | `lib/queryClient.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). |
 | `isAmplifyConfigured` | `lib/amplify.ts` | Boolean — whether Cognito/Amplify env is configured. |
@@ -230,3 +231,12 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`) — never hand-build keys. |
 | `QueryState`, `QueryStatus`, `QueryColumn`, `QueryResultPage`, `GlueColumn`, `GlueTableSummary`, `QueryHistoryEntry`, `QueryHistory` | `query.types.ts` | Feature data types. |
 | `POLL_INTERVAL_MS`, `MAX_POLL_DURATION_MS`, `DEFAULT_MAX_ROWS`, `QUERY_HISTORY_MAX` | `query.constants.ts` | Polling cadence/guard, default page size, history cap. |
+
+## Shared-spaces feature (`apps/portal/src/features/shared-spaces/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `enqueueSharedSpaceRequest(input)` | `sharedSpaces.service.ts` | Enqueue one shared-space request (FIFO `SendMessage`, constant MessageGroupId = serial intake, requestId dedup) carrying the verified ID token; `ServiceResult<{requestId}>`, never throws. The browser's only shared-space write (SPEC-051/056). |
+| `useCreateSharedConnection(username)` | `useCreateSharedConnection.ts` | `{create(name), busy, pending}` — enqueue a `create` + hold an optimistic LOCAL provisioning entry (no S3 write; the pipeline writes the cache) (SPEC-051). |
+| `CreateSharedConnectionDialog` | `CreateSharedConnectionDialog.tsx` | Name-prompt modal for a new shared connection; validates `CATALOG_IDENTIFIER_RE`; "permanent + globally unique" copy; busy-locks (SPEC-051). |
+| `SharedConnectionEntry`, `SharedConnectionsCache`, `SharedSpaceRequest`, `SharedSpaceAction`, `SharedConnectionRole/Status` | `sharedSpaces.types.ts` | Per-user cache entry/cache shapes + the SQS request contract types (SPEC-051/056). SPEC-052 reads the cache. |
