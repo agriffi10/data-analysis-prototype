@@ -10,9 +10,11 @@ import {
   parseS3Url,
   getTableDdl,
   runStatementToCompletion,
+  resultOutputLocation,
   stopQuery,
   isTerminalState
 } from './query.service';
+import type {Connection} from './query.types';
 
 const mockGetClient = getAthenaClient as unknown as MockedFunction<() => Promise<unknown>>;
 
@@ -25,6 +27,7 @@ function clientWithSend(send: (cmd: Sent) => Promise<unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
+  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
   vi.stubEnv('VITE_ATHENA_WORKGROUP', 'test-wg');
 });
 
@@ -51,6 +54,23 @@ describe('runQuery', () => {
     expect(input.ResultConfiguration).toEqual({
       OutputLocation: 's3://user-bucket/alice/athenaresults/'
     });
+  });
+
+  it('honors an explicit outputLocation (SPEC-055 shared routing)', async () => {
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({QueryExecutionId: 'q-shared'}));
+    clientWithSend(send);
+
+    await runQuery({
+      sql: 'SELECT 1',
+      database: 'salesdata',
+      username: 'alice',
+      outputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/'
+    });
+
+    expect(send.mock.calls[0][0].input.ResultConfiguration).toEqual({
+      OutputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/'
+    });
+    expect(send.mock.calls[0][0].input.QueryExecutionContext).toEqual({Database: 'salesdata'});
   });
 
   it('does not assume query type — DDL is sent verbatim', async () => {
@@ -292,6 +312,26 @@ describe('parseS3Url (SPEC-049)', () => {
 
   it('returns null for a non-s3 URL', () => {
     expect(parseS3Url('not-an-s3-url')).toBeNull();
+  });
+});
+
+describe('resultOutputLocation (SPEC-055)', () => {
+  const personal: Connection = {id: 'personal', label: 'alice', database: 'alice', kind: 'personal'};
+  const shared: Connection = {
+    id: 'salesdata',
+    label: 'salesdata',
+    database: 'salesdata',
+    kind: 'shared',
+    status: 'active',
+    role: 'member'
+  };
+
+  it('routes a personal connection to the user-space prefix', () => {
+    expect(resultOutputLocation(personal, 'alice')).toBe('s3://user-bucket/alice/athenaresults/');
+  });
+
+  it('routes a shared connection to {shared-bucket}/{name}/athenaresults/{username}/', () => {
+    expect(resultOutputLocation(shared, 'alice')).toBe('s3://shared-bucket/salesdata/athenaresults/alice/');
   });
 });
 
