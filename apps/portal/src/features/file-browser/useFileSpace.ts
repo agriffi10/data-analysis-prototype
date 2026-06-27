@@ -62,6 +62,9 @@ function connectionToSpaceTarget(
     };
   }
   if (!sharedSpaceBucket) return null;
+  // `database` (→ rootPrefix) and `label` (→ root crumb + marker owner) must name
+  // the same space; `useConnections` sets both to the shared name, so they stay in
+  // sync — keep it that way or the prefix and marker key would silently diverge.
   return {
     id: conn.id,
     bucket: sharedSpaceBucket,
@@ -131,7 +134,10 @@ export function useFileSpace({
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
+        // Drop both the stale space AND any prefix that was scoped to it, so no
+        // orphaned `?prefix=` lingers once we're back in the personal space.
         next.delete('space');
+        next.delete('prefix');
         return next;
       },
       {replace: true}
