@@ -1,8 +1,8 @@
 # Spec: Create Shared Connection
 
 **ID:** SPEC-051
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-27
 **Depends On:** SPEC-050 (shared bucket, request queue, Step Function, registry storage, orchestrator role), SPEC-056 (request contract, membership slots, portal `sqs:SendMessage`, actor binding/validate), SPEC-033 (catalog-safe identifier rule; Glue DB + LF grant pattern), SPEC-047 (`useConnections` seam), SPEC-026 (dialog pattern), SPEC-028 (Button/Input), SPEC-044 (`Toast`)
 
 > **Reference:** `docs/shared-spaces-architecture.md` (§2 pipeline, §3 enforcement, §4 registry, §6 async UX).
