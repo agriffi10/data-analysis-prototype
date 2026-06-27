@@ -36,3 +36,20 @@ resource "aws_lakeformation_resource" "shared_space" {
 
   depends_on = [aws_iam_role_policy.lf_registration]
 }
+
+# DATA_LOCATION_ACCESS for the shared portal role on the registered shared location
+# (SPEC-051) — a single location-level grant (mirrors analytics' user-space grant)
+# so members can CREATE tables / CTAS over dat-prod-shared-space. Per-space isolation
+# is still IAM (the membership-tag Glue DB + S3 prefix scoping, SPEC-056), not this
+# grant; the per-DB LF grant is issued by the provisioner at create time. Granted by
+# the deploy role (an LF admin via analytics' data_lake_settings).
+resource "aws_lakeformation_permissions" "portal_shared_location" {
+  principal   = local.portal_role_arn
+  permissions = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = aws_s3_bucket.shared_space.arn
+  }
+
+  depends_on = [aws_lakeformation_resource.shared_space]
+}

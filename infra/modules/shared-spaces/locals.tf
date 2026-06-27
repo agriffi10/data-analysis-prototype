@@ -25,4 +25,10 @@ locals {
 
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.athena_admin_bucket_name}"
+  user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
+
+  # The shared portal role (SPEC-011, created in module.data) — the LF grant target
+  # the provisioner targets per shared DB, and the env var it passes. Constructed
+  # from the role name (known at plan; no cross-module resource dependency).
+  portal_role_arn = "arn:aws:iam::${var.account_id}:role/${var.portal_role_name}"
 }

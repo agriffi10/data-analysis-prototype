@@ -150,6 +150,12 @@ module "data" {
   # this role) can read the registered location when serving Athena queries.
   lf_registration_role_arn = local.lf_registration_role_arn
 
+  # SPEC-051: also excluded from the Deny so the shared-space orchestrator can write
+  # each member's per-user cache ({username}/user_settings/shared-connections.json).
+  # Constructed string (locals) — known at plan; the role is created in
+  # module.shared_spaces, but a bucket-policy condition only needs the ARN string.
+  shared_space_orchestrator_role_arn = local.shared_space_orchestrator_role_arn
+
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
   identity_pool_id = module.auth.identity_pool_id
@@ -230,6 +236,10 @@ module "shared_spaces" {
   shared_space_bucket_name = local.shared_space_bucket_name
   athena_admin_bucket_name = local.athena_admin_bucket_name
   app_url                  = var.app_url
+
+  # SPEC-051: the orchestrator writes each member's per-user cache into the
+  # user-space bucket; it also targets the shared portal role in per-DB LF grants.
+  user_space_bucket_name = local.user_space_bucket_name
 
   # SPEC-056: the membership-slot count + the portal role this module attaches the
   # membership inline policy + sqs:SendMessage + shared delete-denies to.

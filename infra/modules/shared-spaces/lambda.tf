@@ -45,9 +45,13 @@ resource "aws_lambda_function" "provisioner" {
   # authorizes against the registry under shared-spaces/ in the admin bucket.
   environment {
     variables = {
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-      ADMIN_BUCKET          = var.athena_admin_bucket_name
+      COGNITO_USER_POOL_ID   = var.user_pool_id
+      COGNITO_APP_CLIENT_ID  = var.app_client_id
+      ADMIN_BUCKET           = var.athena_admin_bucket_name
+      SHARED_SPACE_BUCKET    = var.shared_space_bucket_name
+      USER_SPACE_BUCKET      = var.user_space_bucket_name
+      PORTAL_ROLE_ARN        = local.portal_role_arn
+      MAX_SHARED_MEMBERSHIPS = tostring(var.max_shared_memberships)
     }
   }
 

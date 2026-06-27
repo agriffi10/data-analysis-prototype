@@ -165,6 +165,40 @@ The provisioner Lambda verifies the caller's Cognito **ID token** (JWKS) → tru
 
 ---
 
+## SPEC-051 — create a shared connection (end to end)
+
+The browser enqueues a `create` request; the provisioner verb provisions the space.
+
+- [x] **App unit/component tests** (`apps/portal/src/features/shared-spaces/`,
+  `routes/ConnectionsPage.test.tsx`): dialog validation; one well-formed `create`
+  message carrying the `idToken`; no-send on missing queue/token; create → optimistic
+  pending + success toast; failure → error toast, no pending.
+- [x] **Lambda unit tests** (`lambdas/shared-space-provisioner/`): happy path
+  (registry+marker+Glue DB+LF grant+slot+cache, all written); name collision →
+  "name already taken"; replay (same requestId) → idempotent, no double-provision;
+  slot-full → "membership limit reached" recorded as `failed` in registry+cache;
+  replay-safe slot reuse; forged token rejected before any verb.
+- [ ] **Live** (deployed): in the app, Connections → New shared connection → a valid
+  name → success toast + provisioning entry. Then verify the pipeline:
+
+```bash
+NAME=teamspace1 ; ACCT=696000197480
+aws s3api get-object --bucket dat-prod-athena-admin --key "shared-spaces/$NAME.json" /dev/stdout   # status: active, owner
+aws glue get-database --name "$NAME"                                                                # exists
+aws s3api head-object --bucket dat-prod-shared-space --key "$NAME/DO_NOT_DELETE.txt"                # marker
+aws s3api get-object --bucket dat-prod-user-space --key "{username}/user_settings/shared-connections.json" /dev/stdout
+aws cognito-idp admin-get-user --user-pool-id <pool> --username <creator> \
+  --query "UserAttributes[?starts_with(Name,'custom:shared_space')]"                                # a slot == NAME
+```
+
+- [ ] **Duplicate name** → the second `create` Step Function execution FAILS
+  ("name already taken"); the first space is untouched.
+- [ ] After a **token refresh** (forced by SPEC-052's Refresh), the creator can query
+  `database/{name}` and read/write `dat-prod-shared-space/{name}/*` (membership slot
+  now stamped).
+
+---
+
 ## Notes
 
 - **No provisioning happens yet.** SPEC-050: a SUCCEEDED execution + echo is the pass
