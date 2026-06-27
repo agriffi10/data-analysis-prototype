@@ -1,11 +1,19 @@
-import {Suspense, lazy, useCallback, useEffect, useRef, useState} from 'react';
+import {Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
-import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, parseS3Url, isTerminalState} from './query.service';
+import {
+  runQuery,
+  stopQuery,
+  getTableDdl,
+  runStatementToCompletion,
+  parseS3Url,
+  resultOutputLocation,
+  isTerminalState
+} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
 import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
@@ -21,7 +29,7 @@ import {isSchemaChangingSql, sameSql, stripTrailingSemicolons} from './query.sql
 import {SchemaBrowser} from './SchemaBrowser';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
-import {SaveResultsDialog} from './SaveResultsDialog';
+import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {Toast, type ToastState} from './Toast';
 import {QueryStatusBar} from './QueryStatusBar';
@@ -34,6 +42,7 @@ import {CloseTabDialog} from './CloseTabDialog';
 import {TabLimitDialog} from './TabLimitDialog';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import type {SqlEditorHandle} from './SqlEditor';
+import {isConnectionUsable} from './query.types';
 import type {QueryHistoryEntry, QueryStatus, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
@@ -95,6 +104,8 @@ export function QueryWorkspace() {
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
   // Save-results copy stays within it.
   const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined;
+  // SPEC-055: the shared-space bucket (where shared-DB results land + a Save target).
+  const sharedSpaceBucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined;
 
   // SPEC-047: the workspace targets one active database for all tabs (persisted,
   // default = personal), chosen from the connections the user can query. The
@@ -105,6 +116,38 @@ export function QueryWorkspace() {
     connections
   );
   const database = activeDatabase;
+  // SPEC-055: the full active connection (not just its DB name) — drives where
+  // query results land (personal vs the shared space) and the Save destinations.
+  const activeConnection = useMemo(
+    () => connections.find((c) => c.database === activeDatabase) ?? null,
+    [connections, activeDatabase]
+  );
+
+  // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
+  // first, then every shared space they currently belong to (usable). The picker
+  // excludes each space's protected `athenaresults/` folder.
+  const saveSpaces = useMemo<DestinationSpace[]>(() => {
+    if (!userSpaceBucket) return [];
+    const personal: DestinationSpace = {
+      id: 'personal',
+      label: 'My files',
+      bucket: userSpaceBucket,
+      rootPrefix: `${username}/`,
+      rootLabel: 'My Files'
+    };
+    const shared: DestinationSpace[] = sharedSpaceBucket
+      ? connections
+          .filter((c) => c.kind === 'shared' && isConnectionUsable(c))
+          .map((c) => ({
+            id: c.database,
+            label: c.database,
+            bucket: sharedSpaceBucket,
+            rootPrefix: `${c.database}/`,
+            rootLabel: c.database
+          }))
+      : [];
+    return [personal, ...shared];
+  }, [userSpaceBucket, sharedSpaceBucket, username, connections]);
 
   const tabs = useQueryTabs(username);
   const {activeTab, activeTabId} = tabs;
@@ -133,8 +176,12 @@ export function QueryWorkspace() {
   const [saveResultsOpen, setSaveResultsOpen] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   // A pending overwrite confirm when the chosen destination key already exists.
+  // SPEC-055: carries source + dest buckets so the retry repeats the same
+  // (possibly cross-bucket) copy.
   const [overwritePrompt, setOverwritePrompt] = useState<{
+    sourceBucket: string;
     sourceKey: string;
+    destBucket: string;
     destPrefix: string;
     filename: string;
   } | null>(null);
@@ -217,7 +264,14 @@ export function QueryWorkspace() {
     setRunErrors((e) => ({...e, [tabId]: null}));
     setDismissed((d) => ({...d, [tabId]: false}));
     void (async () => {
-      const result = await runQuery({sql: sqlText, database, username});
+      const result = await runQuery({
+        sql: sqlText,
+        database,
+        username,
+        // SPEC-055 FR-001: route results to the shared space when the active
+        // connection is shared; personal otherwise (the default in runQuery).
+        ...(activeConnection ? {outputLocation: resultOutputLocation(activeConnection, username)} : {})
+      });
       if (!result.success) {
         setRunErrors((e) => ({...e, [tabId]: result.error.message}));
         return;
@@ -273,13 +327,20 @@ export function QueryWorkspace() {
   // rows, independent of how many pages the results table loaded. The destination
   // listing is invalidated so the new file appears if the user browses there, and a
   // success toast offers a "View in Files" deep-link (SPEC-044).
-  const doSaveCopy = (args: {sourceKey: string; destPrefix: string; filename: string; overwrite: boolean}) => {
-    if (!userSpaceBucket) return;
+  const doSaveCopy = (args: {
+    sourceBucket: string;
+    sourceKey: string;
+    destBucket: string;
+    destPrefix: string;
+    filename: string;
+    overwrite: boolean;
+  }) => {
     const destKey = `${args.destPrefix}${args.filename}`;
     setSaveInFlight(true);
     void (async () => {
       const result = await copyObject({
-        bucket: userSpaceBucket,
+        bucket: args.sourceBucket,
+        destBucket: args.destBucket,
         sourceKey: args.sourceKey,
         destKey,
         username,
@@ -291,7 +352,9 @@ export function QueryWorkspace() {
         if (result.error.code === 'Collision') {
           setSaveResultsOpen(false);
           setOverwritePrompt({
+            sourceBucket: args.sourceBucket,
             sourceKey: args.sourceKey,
+            destBucket: args.destBucket,
             destPrefix: args.destPrefix,
             filename: args.filename
           });
@@ -305,22 +368,27 @@ export function QueryWorkspace() {
       }
       setSaveResultsOpen(false);
       setOverwritePrompt(null);
-      void invalidateListing(queryClient, userSpaceBucket, args.destPrefix);
+      void invalidateListing(queryClient, args.destBucket, args.destPrefix);
+      // SPEC-055: the Files browser only renders the personal space until SPEC-057,
+      // so the "View in Files" deep-link is offered only for a personal-space save.
+      const isPersonalDest = args.destBucket === userSpaceBucket;
       setToast({
         variant: 'success',
         message: `Saved to ${args.destPrefix}${args.filename}`,
-        action: {
-          label: 'View in Files',
-          onClick: () => {
-            setToast(null);
-            navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
+        ...(isPersonalDest && {
+          action: {
+            label: 'View in Files',
+            onClick: () => {
+              setToast(null);
+              navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
+            }
           }
-        }
+        })
       });
     })();
   };
 
-  const handleSaveResults = (args: {destPrefix: string; filename: string}) => {
+  const handleSaveResults = (args: {destBucket: string; destPrefix: string; filename: string}) => {
     const outputLocation = activeStatus?.outputLocation;
     if (!outputLocation) return;
     const parsed = parseS3Url(outputLocation);
@@ -331,7 +399,7 @@ export function QueryWorkspace() {
       });
       return;
     }
-    doSaveCopy({...args, sourceKey: parsed.key, overwrite: false});
+    doSaveCopy({...args, sourceBucket: parsed.bucket, sourceKey: parsed.key, overwrite: false});
   };
 
   // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
@@ -882,11 +950,9 @@ export function QueryWorkspace() {
           onCancel={() => setDropping(null)}
         />
       )}
-      {saveResultsOpen && userSpaceBucket && (
+      {saveResultsOpen && saveSpaces.length > 0 && (
         <SaveResultsDialog
-          bucket={userSpaceBucket}
-          rootPrefix={`${username}/`}
-          rootLabel="My Files"
+          spaces={saveSpaces}
           defaultName={savedResultsDefaultName}
           isBusy={saveInFlight}
           onSave={handleSaveResults}
@@ -903,7 +969,9 @@ export function QueryWorkspace() {
           busyLabel="Saving…"
           onConfirm={() =>
             doSaveCopy({
+              sourceBucket: overwritePrompt.sourceBucket,
               sourceKey: overwritePrompt.sourceKey,
+              destBucket: overwritePrompt.destBucket,
               destPrefix: overwritePrompt.destPrefix,
               filename: overwritePrompt.filename,
               overwrite: true

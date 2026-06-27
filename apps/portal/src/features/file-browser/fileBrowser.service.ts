@@ -414,18 +414,23 @@ function buildCopySource(bucket: string, key: string): string {
   return `${bucket}/${encodedKey}`;
 }
 
-// SPEC-019 FR-001: copy a single object within the same bucket. Like uploadFile
-// (SPEC-016), unless `overwrite` is true the destination is HEAD-checked first and
-// the copy is refused with a `Collision` error rather than clobbering (versioning
-// is off). The root marker may be neither source nor destination. Never throws.
+// SPEC-019 FR-001: copy a single object. By default the copy stays within `bucket`
+// (same-bucket); SPEC-055 adds an optional `destBucket` so a query result can be
+// saved across buckets (e.g. a shared-space result into the user's own space). Like
+// uploadFile (SPEC-016), unless `overwrite` is true the DESTINATION is HEAD-checked
+// first and the copy is refused with a `Collision` error rather than clobbering
+// (versioning is off). The root marker may be neither source nor destination. Never
+// throws.
 export async function copyObject(params: {
-  bucket: string;
+  bucket: string; // source bucket
   sourceKey: string;
   destKey: string;
   username: string;
+  destBucket?: string; // defaults to `bucket` (same-bucket copy)
   overwrite?: boolean;
 }): Promise<ServiceResult<{destKey: string}>> {
   const {bucket, sourceKey, destKey, username, overwrite = false} = params;
+  const destBucket = params.destBucket ?? bucket;
 
   if (isPrefixMarkerKey(sourceKey, username) || isPrefixMarkerKey(destKey, username)) {
     return {
@@ -438,7 +443,7 @@ export async function copyObject(params: {
   }
 
   if (!overwrite) {
-    const exists = await objectExists({bucket, key: destKey});
+    const exists = await objectExists({bucket: destBucket, key: destKey});
     if (!exists.success) return exists;
     if (exists.data) {
       return {
@@ -452,7 +457,7 @@ export async function copyObject(params: {
     try {
       await client.send(
         new CopyObjectCommand({
-          Bucket: bucket,
+          Bucket: destBucket,
           Key: destKey,
           CopySource: buildCopySource(bucket, sourceKey)
         })

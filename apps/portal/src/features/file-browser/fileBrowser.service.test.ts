@@ -676,6 +676,47 @@ describe('copyObject', () => {
     });
   });
 
+  it('cross-bucket copy: CopySource from the source bucket, write to destBucket (SPEC-055 FR-004)', async () => {
+    mockSend.mockResolvedValueOnce({}); // CopyObject (overwrite skips HEAD)
+
+    const result = await copyObject({
+      bucket: 'shared-bkt',
+      destBucket: 'user-bkt',
+      sourceKey: 'salesdata/athenaresults/alice/q.csv',
+      destKey: 'alice/reports/out.csv',
+      username: 'alice',
+      overwrite: true
+    });
+
+    expect(result).toEqual({success: true, data: {destKey: 'alice/reports/out.csv'}});
+    const cmd = mockSend.mock.calls[0][0];
+    expect(cmd).toBeInstanceOf(CopyObjectCommand);
+    expect(cmd.input).toMatchObject({
+      Bucket: 'user-bkt',
+      Key: 'alice/reports/out.csv',
+      CopySource: 'shared-bkt/salesdata/athenaresults/alice/q.csv'
+    });
+  });
+
+  it('cross-bucket collision check HEADs the DESTINATION bucket (SPEC-055 FR-004)', async () => {
+    mockSend.mockResolvedValueOnce({}); // HEAD → exists in the dest bucket
+
+    const result = await copyObject({
+      bucket: 'shared-bkt',
+      destBucket: 'user-bkt',
+      sourceKey: 'salesdata/athenaresults/alice/q.csv',
+      destKey: 'alice/reports/out.csv',
+      username: 'alice'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('Collision');
+    const head = mockSend.mock.calls[0][0];
+    expect(head).toBeInstanceOf(HeadObjectCommand);
+    expect(head.input).toMatchObject({Bucket: 'user-bkt', Key: 'alice/reports/out.csv'});
+  });
+
   it('rejects the prefix marker as the source (no S3 call)', async () => {
     const result = await copyObject({
       bucket: 'us',

@@ -25,14 +25,27 @@ beforeEach(() => {
   vi.mocked(useFileBrowser).mockReturnValue(base);
 });
 
+const personalSpace = {
+  id: 'personal',
+  label: 'My files',
+  bucket: 'user-bucket',
+  rootPrefix: 'alice/',
+  rootLabel: 'My Files'
+};
+const sharedSpace = {
+  id: 'salesdata',
+  label: 'salesdata',
+  bucket: 'shared-bucket',
+  rootPrefix: 'salesdata/',
+  rootLabel: 'salesdata'
+};
+
 function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDialog>>) {
   const onSave = vi.fn();
   const onCancel = vi.fn();
   render(
     <SaveResultsDialog
-      bucket="user-bucket"
-      rootPrefix="alice/"
-      rootLabel="My Files"
+      spaces={[personalSpace]}
       defaultName="query-results-20260622-1430"
       onSave={onSave}
       onCancel={onCancel}
@@ -57,6 +70,7 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     // Default destination is the root; confirm there.
     fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
+      destBucket: 'user-bucket',
       destPrefix: 'alice/',
       filename: 'query-results-20260622-1430.csv'
     });
@@ -67,9 +81,28 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     fireEvent.click(screen.getByRole('button', {name: /open folder reports/i}));
     fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
+      destBucket: 'user-bucket',
       destPrefix: 'alice/reports/',
       filename: 'query-results-20260622-1430.csv'
     });
+  });
+
+  // SPEC-055: with shared spaces available, a selector chooses the destination
+  // space; switching to a shared space saves into that space's bucket + root.
+  it('offers a space selector and saves into the chosen shared space', () => {
+    const {onSave} = renderDialog({spaces: [personalSpace, sharedSpace]});
+    fireEvent.change(screen.getByLabelText('Save to'), {target: {value: 'salesdata'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
+    expect(onSave).toHaveBeenCalledWith({
+      destBucket: 'shared-bucket',
+      destPrefix: 'salesdata/',
+      filename: 'query-results-20260622-1430.csv'
+    });
+  });
+
+  it('shows no space selector when only the personal space is available', () => {
+    renderDialog();
+    expect(screen.queryByLabelText('Save to')).not.toBeInTheDocument();
   });
 
   it('disables Save while the name is invalid', () => {

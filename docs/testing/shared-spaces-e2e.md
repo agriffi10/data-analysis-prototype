@@ -295,6 +295,39 @@ aws glue get-database --name "$NAME"                                            
 
 ---
 
+## SPEC-055 — shared-DB query results routing & save
+
+With a shared connection selected as the workspace's active database (SPEC-047/052), query
+results route to the shared space so collaborators can see them, and Save-results can read a
+shared result and write into the user's own space or a shared space (cross-bucket). Frontend
+only — relies on the SPEC-050/056 membership-slot grants (no new IAM). Requires the
+`VITE_S3_SHARED_SPACE_BUCKET` GH repo variable (set to `dat-prod-shared-space`).
+
+- [x] **App unit/component tests:** `resultOutputLocation` (personal vs shared path); `runQuery`
+  honors an explicit `outputLocation`; `copyObject` cross-bucket (CopySource from source, write +
+  collision-HEAD on dest); `SaveResultsDialog` space selector; `QueryWorkspace` routes a shared
+  query to `…/{name}/athenaresults/{username}/`, lists personal + shared Save destinations, does
+  same- and cross-bucket saves (shared dest omits the Files link), copy error writes nothing.
+- [ ] **Live** (deployed): as a member of `$NAME`, select it as the active DB and run
+  `SELECT 1`. Verify the result object appears under the shared prefix:
+
+```bash
+NAME=teamspace1 ; ME=bob
+aws s3 ls "s3://dat-prod-shared-space/$NAME/athenaresults/$ME/"     # the result .csv (+ .metadata) is here
+aws s3 ls "s3://dat-prod-user-space/$ME/athenaresults/" | tail      # NOT here (personal prefix unchanged)
+```
+
+- [ ] **Read**: the results table renders the rows (Athena GetQueryResults is location-agnostic).
+- [ ] **Save → my space**: Save results → "My files" → a folder → the CSV lands in
+  `dat-prod-user-space/$ME/...`; the "View in Files" link opens it.
+- [ ] **Save → shared space** (cross-bucket): Save results → choose `$NAME` → a folder → the CSV
+  lands in `dat-prod-shared-space/$NAME/...` (success toast, **no** Files link until SPEC-057).
+- [ ] **Collision**: saving the same name twice prompts Overwrite at the chosen destination.
+- [ ] **Personal unchanged**: a personal-DB query still writes to `$ME/athenaresults/` and Save
+  behaves exactly as SPEC-049.
+
+---
+
 ## Notes
 
 - **No provisioning happens yet.** SPEC-050: a SUCCEEDED execution + echo is the pass

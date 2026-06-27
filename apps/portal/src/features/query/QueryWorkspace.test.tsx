@@ -83,19 +83,34 @@ vi.mock('../../lib/queryClient', () => ({invalidateListing: vi.fn()}));
 // the workspace's copy/collision/toast wiring is what's exercised.
 vi.mock('./SaveResultsDialog', () => ({
   SaveResultsDialog: ({
+    spaces,
     defaultName,
     onSave,
     onCancel
   }: {
+    spaces: {id: string; label: string; bucket: string; rootPrefix: string; rootLabel: string}[];
     defaultName: string;
-    onSave: (a: {destPrefix: string; filename: string}) => void;
+    onSave: (a: {destBucket: string; destPrefix: string; filename: string}) => void;
     onCancel: () => void;
   }) => (
     <div
       role="dialog"
       aria-label="Save results to my files">
       <span>default:{defaultName}</span>
-      <button onClick={() => onSave({destPrefix: 'alice/reports/', filename: 'out.csv'})}>save-here-stub</button>
+      <span>spaces:{spaces.map((s) => s.id).join(',')}</span>
+      {/* One save button per destination space (SPEC-055), saving into that
+          space's bucket; the first space is personal. */}
+      {spaces.map((s) => (
+        <button
+          key={s.id}
+          onClick={() => onSave({destBucket: s.bucket, destPrefix: `${s.rootPrefix}reports/`, filename: 'out.csv'})}>
+          save-to-{s.id}
+        </button>
+      ))}
+      {/* Back-compat alias for the original SPEC-049 personal-save tests. */}
+      <button onClick={() => onSave({destBucket: spaces[0].bucket, destPrefix: 'alice/reports/', filename: 'out.csv'})}>
+        save-here-stub
+      </button>
       <button onClick={onCancel}>save-cancel-stub</button>
     </div>
   )
@@ -113,7 +128,7 @@ import {useQueryHistory} from './useQueryHistory';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
 import {QueryWorkspace} from './QueryWorkspace';
-import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
+import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX, QUERY_ACTIVE_DB_STORAGE_PREFIX} from './query.constants';
 import type {QueryTabsState, SavedQuery} from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
@@ -128,6 +143,8 @@ const mockCopyObject = vi.mocked(copyObject);
 
 // SaveResultsDialog/handler read VITE_S3_USER_SPACE_BUCKET at module load.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
+// SPEC-055: shared-space routing/save reads the shared bucket.
+vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 
 const personalConnection = {
   id: 'personal',
@@ -925,9 +942,11 @@ describe('QueryWorkspace', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
     fireEvent.click(screen.getByRole('button', {name: 'save-here-stub'}));
 
-    // Source key derived from outputLocation; dest = chosen folder + filename.
+    // Source bucket + key derived from the result's outputLocation (SPEC-055);
+    // dest = the chosen space's bucket + folder + filename.
     expect(mockCopyObject).toHaveBeenCalledWith({
-      bucket: 'user-bucket',
+      bucket: 'b',
+      destBucket: 'user-bucket',
       sourceKey: 'alice/athenaresults/q-1.csv',
       destKey: 'alice/reports/out.csv',
       username: 'alice',
@@ -975,5 +994,115 @@ describe('QueryWorkspace', () => {
 
     expect(await screen.findByText(/Access Denied/)).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
+  const sharedConnection = {
+    id: 'salesdata',
+    label: 'salesdata',
+    database: 'salesdata',
+    kind: 'shared' as const,
+    status: 'active' as const,
+    role: 'member' as const
+  };
+
+  function withSharedActive() {
+    mockUseConnections.mockReturnValue({
+      connections: [personalConnection, sharedConnection],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+      isRefreshing: false
+    });
+    // Make the shared DB the workspace-global active target.
+    sessionStorage.setItem(`${QUERY_ACTIVE_DB_STORAGE_PREFIX}alice`, 'salesdata');
+  }
+
+  async function renderSharedSucceeded() {
+    withSharedActive();
+    mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
+    mockUseExecution.mockReturnValue({
+      data: {...succeededStatus.data, outputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/q-1.csv'}
+    } as unknown as ReturnType<typeof useQueryExecution>);
+    mockUseResults.mockReturnValue(rowsResult);
+    renderWorkspace();
+    fireEvent.click(screen.getByRole('button', {name: /Run/}));
+    await screen.findByText('Succeeded');
+  }
+
+  it('routes results to the shared prefix when the active connection is shared (FR-001)', async () => {
+    withSharedActive();
+    mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
+    renderWorkspace();
+
+    fireEvent.click(screen.getByRole('button', {name: /Run/}));
+    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
+    expect(mockRunQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        database: 'salesdata',
+        username: 'alice',
+        outputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/'
+      })
+    );
+  });
+
+  it('a personal query still omits an explicit shared outputLocation (FR-001)', async () => {
+    mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
+    renderWorkspace(); // default: only the personal connection, active = alice
+
+    fireEvent.click(screen.getByRole('button', {name: /Run/}));
+    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
+    const call = mockRunQuery.mock.calls[0][0];
+    expect(call.database).toBe('alice');
+    // Personal routing → runQuery falls back to its own personal default.
+    expect(call.outputLocation).toBe('s3://user-bucket/alice/athenaresults/');
+  });
+
+  it('the Save dialog offers personal + member-of shared destinations (FR-003)', async () => {
+    await renderSharedSucceeded();
+    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
+    expect(screen.getByText('spaces:personal,salesdata')).toBeInTheDocument();
+  });
+
+  it('saving a shared result into the user space is a cross-bucket copy with no Files link (FR-003/FR-004)', async () => {
+    mockCopyObject.mockResolvedValue({success: true, data: {destKey: 'alice/reports/out.csv'}});
+    await renderSharedSucceeded();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
+    fireEvent.click(screen.getByRole('button', {name: 'save-to-personal'}));
+
+    // Source bucket = the shared result's bucket; dest bucket = the user space.
+    expect(mockCopyObject).toHaveBeenCalledWith({
+      bucket: 'shared-bucket',
+      destBucket: 'user-bucket',
+      sourceKey: 'salesdata/athenaresults/alice/q-1.csv',
+      destKey: 'alice/reports/out.csv',
+      username: 'alice',
+      overwrite: false
+    });
+    expect(await screen.findByText(/Saved to alice\/reports\/out\.csv/)).toBeInTheDocument();
+    // Personal-dest save keeps the deep-link.
+    expect(screen.getByRole('button', {name: 'View in Files'})).toBeInTheDocument();
+  });
+
+  it('saving into a shared space copies within that bucket and offers no Files link (FR-003)', async () => {
+    mockCopyObject.mockResolvedValue({success: true, data: {destKey: 'salesdata/reports/out.csv'}});
+    await renderSharedSucceeded();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
+    fireEvent.click(screen.getByRole('button', {name: 'save-to-salesdata'}));
+
+    expect(mockCopyObject).toHaveBeenCalledWith({
+      bucket: 'shared-bucket',
+      destBucket: 'shared-bucket',
+      sourceKey: 'salesdata/athenaresults/alice/q-1.csv',
+      destKey: 'salesdata/reports/out.csv',
+      username: 'alice',
+      overwrite: false
+    });
+    expect(await screen.findByText(/Saved to salesdata\/reports\/out\.csv/)).toBeInTheDocument();
+    // The Files browser can't render shared spaces until SPEC-057 → no deep-link.
+    expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
   });
 });

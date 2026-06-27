@@ -8,7 +8,7 @@ import {getAthenaClient} from '../../lib/athenaClient';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './query.constants';
-import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
+import type {Connection, QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
 // per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts
@@ -18,6 +18,21 @@ import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './quer
 function outputLocation(username: string): string {
   const bucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
   return `s3://${bucket}/${username}/athenaresults/`;
+}
+
+// SPEC-055 FR-001: choose where a query's results land by the active workspace
+// connection (SPEC-047). A personal query writes to the user's own
+// `{username}/athenaresults/` (unchanged, SPEC-034); a SHARED-DB query writes under
+// the shared space so collaborators can find it —
+// `s3://{shared-bucket}/{name}/athenaresults/{username}/`. The `{username}/`
+// segment is required: the SPEC-050 membership-slot grant scopes writes (and the
+// delete-deny) to the space, and results land where every member can read them.
+export function resultOutputLocation(connection: Connection, username: string): string {
+  if (connection.kind === 'shared') {
+    const bucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string;
+    return `s3://${bucket}/${connection.database}/athenaresults/${username}/`;
+  }
+  return outputLocation(username);
 }
 
 // Athena terminal execution states — polling stops once one is reached (FR-003).
@@ -43,8 +58,12 @@ export async function runQuery(p: {
   sql: string;
   database: string;
   username: string;
+  // SPEC-055: where results land. Omitted → the personal prefix (SPEC-034); the
+  // caller passes a shared path for a shared-DB query (see resultOutputLocation).
+  // Internal DDL runs (runStatementToCompletion) omit it and stay personal.
+  outputLocation?: string;
 }): Promise<ServiceResult<{queryExecutionId: string}>> {
-  const {sql, database, username} = p;
+  const {sql, database, username, outputLocation: outLoc} = p;
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
       const response = await client.send(
@@ -52,7 +71,7 @@ export async function runQuery(p: {
           QueryString: sql,
           WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
           QueryExecutionContext: {Database: database},
-          ResultConfiguration: {OutputLocation: outputLocation(username)}
+          ResultConfiguration: {OutputLocation: outLoc ?? outputLocation(username)}
         })
       );
       const queryExecutionId = response.QueryExecutionId;

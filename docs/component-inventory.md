@@ -107,7 +107,7 @@ Public barrel: `features/file-browser/index.ts`.
 | `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker. |
 | `deleteObjects({ bucket, keys, username })` | Batch delete via `DeleteObjects`, chunked ≤1000/req; refuses the marker, aggregates per-key failures (never throws). `ServiceResult<DeleteResult>`. |
 | `deleteFolder({ bucket, prefix, username })` | Recursive folder delete: paginated delimiter-less listing → `deleteObjects`. `ServiceResult<DeleteResult>`. |
-| `copyObject({ bucket, sourceKey, destKey, username, overwrite? })` | Same-bucket `CopyObject` (URL-encoded CopySource); marker + collision guards. `ServiceResult<{ destKey }>`. |
+| `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `CopyObject` (URL-encoded CopySource); marker + collision guards. `destBucket` defaults to `bucket` (same-bucket); pass it for a cross-bucket copy, e.g. saving a shared-space result into the user space (SPEC-055). `ServiceResult<{ destKey }>`. |
 | `moveObject({ bucket, sourceKey, destKey, username, overwrite? })` | Copy-then-delete-source; same-key no-op; copy-failure leaves source. `ServiceResult<{ destKey }>`. |
 | `moveFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder move (per-key copy+delete); partial-failure + into-itself guards + collision pre-check. `ServiceResult<MoveResult>`. |
 | `copyFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder copy — `moveFolder` minus the deletes (additive, best-effort, no rollback); into-itself guard + collision pre-check. `ServiceResult<CopyResult>` (SPEC-039). |
@@ -177,7 +177,8 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `runQuery({ sql, database, username })` | `query.service.ts` | `StartQueryExecution` against the shared workgroup, results → the caller's own `{username}/athenaresults/`. Type-agnostic (SELECT + DDL). `ServiceResult<{ queryExecutionId }>`. |
+| `runQuery({ sql, database, username, outputLocation? })` | `query.service.ts` | `StartQueryExecution` against the shared workgroup. `outputLocation` omitted → the caller's own `{username}/athenaresults/`; pass a shared path for a shared-DB query (SPEC-055). Type-agnostic (SELECT + DDL). `ServiceResult<{ queryExecutionId }>`. |
+| `resultOutputLocation(connection, username)` | `query.service.ts` | Choose a query's Athena `OutputLocation` by connection kind — personal → `{username}/athenaresults/`; shared → `{shared-bucket}/{name}/athenaresults/{username}/` (SPEC-055). |
 | `getQueryStatus(id)` | `query.service.ts` | `GetQueryExecution` → `QueryStatus` (state/reason/stats/outputLocation). |
 | `getQueryResults({ queryExecutionId, nextToken?, maxRows? })` | `query.service.ts` | `GetQueryResults` → typed `QueryResultPage` (first-page header row stripped; paginates via `nextToken`). DDL → empty page. |
 | `getResultCsvUrl({ queryExecutionId, outputLocation })` | `query.service.ts` | Presigned CSV download of the raw result object (reuses `getDownloadUrl`). `ServiceResult<DownloadUrl>`. |
@@ -205,7 +206,7 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `SqlEditor` (+ `SqlEditorHandle`) | `SqlEditor.tsx` | Lazy, self-hosted Monaco SQL editor; `value`/`onChange`/`onRun` (⌘⏎), ref exposes `insertAtCursor`. |
 | `SchemaBrowser` | `SchemaBrowser.tsx` | Left rail: switchable **Database** list (SPEC-047 `connections`/`onSelectDatabase`, active via `aria-current`) + expandable tables/columns via `useSchema(activeDatabase)`; click-to-insert; loading/empty/setting-up/error states. |
 | `QueryStatusBar` | `QueryStatusBar.tsx` | Slim live-region execution status (running/succeeded/failed/cancelled) + **Save results to my files** (`onSaveResults`/`canSaveResults`, shown only for a row-returning success — SPEC-049). |
-| `SaveResultsDialog` (+ `normalizeCsvName` in `query.format.ts`) | `SaveResultsDialog.tsx` | Destination (`DestinationPicker`) + validated filename modal; server-side full-result `copyObject` into the user's space, `.csv`-normalized (SPEC-049). |
+| `SaveResultsDialog` / `DestinationSpace` (+ `normalizeCsvName` in `query.format.ts`) | `SaveResultsDialog.tsx` | Destination-space selector (personal + member-of shared spaces, SPEC-055) + folder `DestinationPicker` + validated filename modal; `onSave` returns `{destBucket, destPrefix, filename}` for a same- or cross-bucket full-result `copyObject`, `.csv`-normalized (SPEC-049). |
 | `QueryResultsTable` | `QueryResultsTable.tsx` | File-table-styled results (dynamic columns + type, horizontal scroll, empty/loading state); shows one page at a time with a Prev/Next pager + "Rows X–Y" indicator (replace, not append — SPEC-038). |
 | `QueryHistoryPanel` | `QueryHistoryPanel.tsx` | Right slide-over drawer listing per-user history (`useQueryHistory`); read-only, view/Open/Re-run; empty/loading/error states (SPEC-036). Client-side Prev/Next pager, 7/page newest-first, `"1–7 of N"`, reset-to-newest on open/append (SPEC-042). Header **Refresh** control re-reads from S3 (`useQueryHistory.refresh`/`isRefreshing`); reset-to-newest on success, non-destructive on error (SPEC-046). |
 | `QueryHistoryRow` | `QueryHistoryRow.tsx` | One history entry: status badge, relative time, SQL preview, stats, Open/Re-run (SPEC-036). |
