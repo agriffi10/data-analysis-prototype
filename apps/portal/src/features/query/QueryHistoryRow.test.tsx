@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { QueryHistoryRow } from './QueryHistoryRow';
-import type { QueryHistoryEntry } from './query.types';
+import {describe, it, expect, vi} from 'vitest';
+import {render, screen, fireEvent} from '@testing-library/react';
+import {QueryHistoryRow} from './QueryHistoryRow';
+import type {QueryHistoryEntry} from './query.types';
 
 function entry(overrides: Partial<QueryHistoryEntry> = {}): QueryHistoryEntry {
   return {
@@ -12,13 +12,20 @@ function entry(overrides: Partial<QueryHistoryEntry> = {}): QueryHistoryEntry {
     status: 'SUCCEEDED',
     dataScannedBytes: 2048,
     durationMs: 800,
-    ...overrides,
+    ...overrides
   };
 }
 
 describe('QueryHistoryRow', () => {
   it('renders the status, single-line SQL preview, and stats', () => {
-    render(<QueryHistoryRow entry={entry()} onReopen={vi.fn()} onRerun={vi.fn()} rerunDisabled={false} />);
+    render(
+      <QueryHistoryRow
+        entry={entry()}
+        onReopen={vi.fn()}
+        onRerun={vi.fn()}
+        rerunDisabled={false}
+      />
+    );
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
     // Whitespace collapsed to a single line.
     expect(screen.getByText('SELECT region, SUM(amount) FROM sales')).toBeInTheDocument();
@@ -28,22 +35,36 @@ describe('QueryHistoryRow', () => {
   it('fires onReopen / onRerun from the actions', () => {
     const onReopen = vi.fn();
     const onRerun = vi.fn();
-    render(<QueryHistoryRow entry={entry()} onReopen={onReopen} onRerun={onRerun} rerunDisabled={false} />);
-    fireEvent.click(screen.getByRole('button', { name: /open this query/i }));
-    fireEvent.click(screen.getByRole('button', { name: /re-run this query/i }));
+    render(
+      <QueryHistoryRow
+        entry={entry()}
+        onReopen={onReopen}
+        onRerun={onRerun}
+        rerunDisabled={false}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', {name: /open this query/i}));
+    fireEvent.click(screen.getByRole('button', {name: /re-run this query/i}));
     expect(onReopen).toHaveBeenCalledTimes(1);
     expect(onRerun).toHaveBeenCalledTimes(1);
   });
 
   it('disables Re-run while a query is in flight', () => {
-    render(<QueryHistoryRow entry={entry()} onReopen={vi.fn()} onRerun={vi.fn()} rerunDisabled />);
-    expect(screen.getByRole('button', { name: /re-run this query/i })).toBeDisabled();
+    render(
+      <QueryHistoryRow
+        entry={entry()}
+        onReopen={vi.fn()}
+        onRerun={vi.fn()}
+        rerunDisabled
+      />
+    );
+    expect(screen.getByRole('button', {name: /re-run this query/i})).toBeDisabled();
   });
 
   it('shows a neutral "Unknown" badge for a stale non-terminal entry', () => {
     render(
       <QueryHistoryRow
-        entry={entry({ status: 'RUNNING', dataScannedBytes: undefined, durationMs: undefined })}
+        entry={entry({status: 'RUNNING', dataScannedBytes: undefined, durationMs: undefined})}
         onReopen={vi.fn()}
         onRerun={vi.fn()}
         rerunDisabled={false}

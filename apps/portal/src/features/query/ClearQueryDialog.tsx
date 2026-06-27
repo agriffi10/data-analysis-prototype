@@ -1,4 +1,4 @@
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import {ConfirmDialog} from '../../components/ConfirmDialog';
 
 type Props = {
   onConfirm: () => void;
@@ -7,7 +7,7 @@ type Props = {
 
 // SPEC-040 FR-003: warn-and-confirm before Clear wipes the editor. Thin wrapper
 // over the shared ConfirmDialog (no undo → focus defaults to Cancel).
-export function ClearQueryDialog({ onConfirm, onCancel }: Props) {
+export function ClearQueryDialog({onConfirm, onCancel}: Props) {
   return (
     <ConfirmDialog
       title="Clear the query?"
@@ -17,8 +17,7 @@ export function ClearQueryDialog({ onConfirm, onCancel }: Props) {
       tone="danger"
       irreversible
       onConfirm={onConfirm}
-      onCancel={onCancel}
-    >
+      onCancel={onCancel}>
       <p className="mt-3 text-sm text-text-2">This empties the editor and discards the draft saved for this session.</p>
     </ConfirmDialog>
   );

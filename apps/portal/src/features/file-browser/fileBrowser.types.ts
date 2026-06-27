@@ -7,8 +7,8 @@ export type DownloadUrl = {
 
 // ── Upload (SPEC-016) ────────────────────────────────────────────────────────
 
-export type UploadResult = { key: string };
-export type CreateFolderResult = { prefix: string };
+export type UploadResult = {key: string};
+export type CreateFolderResult = {prefix: string};
 
 // ── Delete (SPEC-018) ────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ export type CreateFolderResult = { prefix: string };
 // guard refusal — so a partial failure is reported, never thrown (FR-002/FR-004).
 export type DeleteResult = {
   deleted: string[];
-  errors: { key: string; message: string }[];
+  errors: {key: string; message: string}[];
 };
 
 // ── Move / rename (SPEC-019) ─────────────────────────────────────────────────
@@ -28,7 +28,7 @@ export type DeleteResult = {
 // reported here, never thrown (FR-004).
 export type MoveResult = {
   moved: string[];
-  errors: { key: string; message: string }[];
+  errors: {key: string; message: string}[];
 };
 
 // ── Copy (SPEC-039) ──────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ export type MoveResult = {
 // folder copy leaves a partial duplicate the user can delete (FR-002).
 export type CopyResult = {
   copied: string[];
-  errors: { key: string; message: string }[];
+  errors: {key: string; message: string}[];
 };
 
 // ── Object metadata (SPEC-017) ───────────────────────────────────────────────

@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { readSharedConnectionsCache } from '../shared-spaces/sharedSpaces.service';
-import { getSessionCredentials } from '../../lib/awsCredentials';
-import { queryKeys } from './queryKeys';
-import type { Connection } from './query.types';
-import type { SharedConnectionsCache } from '../shared-spaces/sharedSpaces.types';
+import {useMemo} from 'react';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
+import {getSessionCredentials} from '../../lib/awsCredentials';
+import {queryKeys} from './queryKeys';
+import type {Connection} from './query.types';
+import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 
 export type UseConnectionsResult = {
   connections: Connection[];
@@ -40,7 +40,7 @@ export function useConnections(username: string | null): UseConnectionsResult {
       const result = await readSharedConnectionsCache(username as string);
       if (!result.success) throw new Error(result.error.message);
       return result.data;
-    },
+    }
   });
 
   const connections = useMemo<Connection[]>(() => {
@@ -49,7 +49,7 @@ export function useConnections(username: string | null): UseConnectionsResult {
       id: 'personal',
       label: username,
       database: username,
-      kind: 'personal',
+      kind: 'personal'
     };
     const shared = (query.data?.connections ?? [])
       .slice()
@@ -61,8 +61,8 @@ export function useConnections(username: string | null): UseConnectionsResult {
         kind: 'shared',
         status: entry.status,
         role: entry.role,
-        ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
-        ...(entry.members !== undefined ? { members: entry.members } : {}),
+        ...(entry.reason !== undefined ? {reason: entry.reason} : {}),
+        ...(entry.members !== undefined ? {members: entry.members} : {})
       }));
     return [personal, ...shared];
   }, [username, query.data]);
@@ -79,8 +79,8 @@ export function useConnections(username: string | null): UseConnectionsResult {
       // the prior list intact (invalidate is non-destructive). Credential refresh
       // failures shouldn't block the cache re-read — surface them via the query.
       await getSessionCredentials(true);
-      return queryClient.invalidateQueries({ queryKey: key });
+      return queryClient.invalidateQueries({queryKey: key});
     },
-    isRefreshing: query.isRefetching,
+    isRefreshing: query.isRefetching
   };
 }

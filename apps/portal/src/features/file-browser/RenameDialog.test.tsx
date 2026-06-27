@@ -1,8 +1,8 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { RenameDialog } from './RenameDialog';
+import {render, screen, fireEvent} from '@testing-library/react';
+import {describe, it, expect, vi} from 'vitest';
+import {RenameDialog} from './RenameDialog';
 
-function setup(overrides?: { kind?: 'file' | 'folder'; isBusy?: boolean }) {
+function setup(overrides?: {kind?: 'file' | 'folder'; isBusy?: boolean}) {
   const onRename = vi.fn();
   const onCancel = vi.fn();
   render(
@@ -14,7 +14,7 @@ function setup(overrides?: { kind?: 'file' | 'folder'; isBusy?: boolean }) {
       onCancel={onCancel}
     />
   );
-  return { onRename, onCancel };
+  return {onRename, onCancel};
 }
 
 describe('RenameDialog', () => {
@@ -22,15 +22,15 @@ describe('RenameDialog', () => {
     setup();
     const input = screen.getByLabelText(/new name/i) as HTMLInputElement;
     expect(input.value).toBe('report.pdf');
-    expect(screen.getByRole('button', { name: /^rename$/i })).toBeDisabled();
+    expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
   });
 
   it('enables Rename for a changed, valid name and submits it', () => {
-    const { onRename } = setup();
+    const {onRename} = setup();
     fireEvent.change(screen.getByLabelText(/new name/i), {
-      target: { value: 'final.pdf' },
+      target: {value: 'final.pdf'}
     });
-    const btn = screen.getByRole('button', { name: /^rename$/i });
+    const btn = screen.getByRole('button', {name: /^rename$/i});
     expect(btn).toBeEnabled();
     fireEvent.click(btn);
     expect(onRename).toHaveBeenCalledWith('final.pdf');
@@ -39,21 +39,21 @@ describe('RenameDialog', () => {
   it('rejects an invalid name (contains a slash) and keeps Rename disabled', () => {
     setup();
     fireEvent.change(screen.getByLabelText(/new name/i), {
-      target: { value: 'a/b' },
+      target: {value: 'a/b'}
     });
     expect(screen.getByRole('alert')).toHaveTextContent('/');
-    expect(screen.getByRole('button', { name: /^rename$/i })).toBeDisabled();
+    expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
   });
 
   it('cancels on Escape', () => {
-    const { onCancel } = setup();
-    fireEvent.keyDown(document, { key: 'Escape' });
+    const {onCancel} = setup();
+    fireEvent.keyDown(document, {key: 'Escape'});
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
   it('shows progress and disables actions while busy', () => {
-    setup({ isBusy: true });
-    expect(screen.getByRole('button', { name: /renaming/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
+    setup({isBusy: true});
+    expect(screen.getByRole('button', {name: /renaming/i})).toBeDisabled();
+    expect(screen.getByRole('button', {name: /cancel/i})).toBeDisabled();
   });
 });

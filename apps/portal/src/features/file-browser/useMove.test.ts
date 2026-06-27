@@ -1,18 +1,18 @@
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createElement, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useMove } from './useMove';
-import { moveObject, moveFolder } from './fileBrowser.service';
-import { invalidateListing } from '../../lib/queryClient';
+import {renderHook, act, waitFor} from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {createElement, type ReactNode} from 'react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {useMove} from './useMove';
+import {moveObject, moveFolder} from './fileBrowser.service';
+import {invalidateListing} from '../../lib/queryClient';
 
 vi.mock('./fileBrowser.service', () => ({
   moveObject: vi.fn(),
   moveFolder: vi.fn(),
-  uploadPercent: (loaded: number, total: number) => (total > 0 ? Math.round((loaded / total) * 100) : 100),
+  uploadPercent: (loaded: number, total: number) => (total > 0 ? Math.round((loaded / total) * 100) : 100)
 }));
 vi.mock('../../lib/queryClient', () => ({
-  invalidateListing: vi.fn().mockResolvedValue(undefined),
+  invalidateListing: vi.fn().mockResolvedValue(undefined)
 }));
 
 const mockMoveObject = vi.mocked(moveObject);
@@ -21,12 +21,12 @@ const mockInvalidate = vi.mocked(invalidateListing);
 
 function wrapper() {
   const client = new QueryClient();
-  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
 }
 
 function render(username: string | undefined = 'alice') {
   return renderHook(() => useMove('us', 'alice/docs/', username), {
-    wrapper: wrapper(),
+    wrapper: wrapper()
   });
 }
 
@@ -38,19 +38,19 @@ describe('useMove — rename', () => {
   it('renames a file within its parent and invalidates the source listing', async () => {
     mockMoveObject.mockResolvedValue({
       success: true,
-      data: { destKey: 'alice/docs/new.txt' },
+      data: {destKey: 'alice/docs/new.txt'}
     });
 
-    const { result } = render();
-    act(() => result.current.renameItem({ type: 'file', key: 'alice/docs/old.txt' }, 'new.txt'));
+    const {result} = render();
+    act(() => result.current.renameItem({type: 'file', key: 'alice/docs/old.txt'}, 'new.txt'));
 
-    await waitFor(() => expect(result.current.summary).toEqual({ movedCount: 1, errors: [] }));
+    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 1, errors: []}));
     expect(mockMoveObject).toHaveBeenCalledWith({
       bucket: 'us',
       sourceKey: 'alice/docs/old.txt',
       destKey: 'alice/docs/new.txt',
       username: 'alice',
-      overwrite: false,
+      overwrite: false
     });
     expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
   });
@@ -58,20 +58,20 @@ describe('useMove — rename', () => {
   it('renames a folder recursively to a new leaf prefix', async () => {
     mockMoveFolder.mockResolvedValue({
       success: true,
-      data: { moved: ['alice/docs/old/', 'alice/docs/old/a.txt'], errors: [] },
+      data: {moved: ['alice/docs/old/', 'alice/docs/old/a.txt'], errors: []}
     });
 
-    const { result } = render();
-    act(() => result.current.renameItem({ type: 'folder', prefix: 'alice/docs/old/' }, 'new'));
+    const {result} = render();
+    act(() => result.current.renameItem({type: 'folder', prefix: 'alice/docs/old/'}, 'new'));
 
-    await waitFor(() => expect(result.current.summary).toEqual({ movedCount: 2, errors: [] }));
+    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 2, errors: []}));
     expect(mockMoveFolder).toHaveBeenCalledWith(
       expect.objectContaining({
         bucket: 'us',
         sourcePrefix: 'alice/docs/old/',
         destPrefix: 'alice/docs/new/',
         username: 'alice',
-        overwrite: false,
+        overwrite: false
       })
     );
   });
@@ -80,27 +80,27 @@ describe('useMove — rename', () => {
     mockMoveObject
       .mockResolvedValueOnce({
         success: false,
-        error: { message: 'exists', code: 'Collision' },
+        error: {message: 'exists', code: 'Collision'}
       })
       .mockResolvedValueOnce({
         success: true,
-        data: { destKey: 'alice/docs/new.txt' },
+        data: {destKey: 'alice/docs/new.txt'}
       });
 
-    const { result } = render();
-    act(() => result.current.renameItem({ type: 'file', key: 'alice/docs/old.txt' }, 'new.txt'));
+    const {result} = render();
+    act(() => result.current.renameItem({type: 'file', key: 'alice/docs/old.txt'}, 'new.txt'));
 
     await waitFor(() => expect(result.current.renameCollision).not.toBeNull());
     expect(result.current.renameCollision?.kind).toBe('file');
 
     act(() => result.current.renameCollision?.onOverwrite());
-    await waitFor(() => expect(result.current.summary).toEqual({ movedCount: 1, errors: [] }));
-    expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({ overwrite: true }));
+    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 1, errors: []}));
+    expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
   });
 
   it('errors and does nothing when there is no username', async () => {
-    const { result } = renderHook(() => useMove('us', 'alice/docs/', undefined), { wrapper: wrapper() });
-    act(() => result.current.renameItem({ type: 'file', key: 'alice/docs/a.txt' }, 'b.txt'));
+    const {result} = renderHook(() => useMove('us', 'alice/docs/', undefined), {wrapper: wrapper()});
+    act(() => result.current.renameItem({type: 'file', key: 'alice/docs/a.txt'}, 'b.txt'));
 
     await waitFor(() => expect(result.current.error).toMatch(/signed in/i));
     expect(mockMoveObject).not.toHaveBeenCalled();
@@ -111,37 +111,37 @@ describe('useMove — move', () => {
   it('moves files (per object) and folders (recursive), invalidating both prefixes', async () => {
     mockMoveObject.mockResolvedValue({
       success: true,
-      data: { destKey: 'alice/dest/f.txt' },
+      data: {destKey: 'alice/dest/f.txt'}
     });
     mockMoveFolder.mockResolvedValue({
       success: true,
-      data: { moved: ['alice/dest/x/', 'alice/dest/x/a'], errors: [] },
+      data: {moved: ['alice/dest/x/', 'alice/dest/x/a'], errors: []}
     });
 
-    const { result } = render();
+    const {result} = render();
     act(() =>
       result.current.moveItems(
         [
-          { type: 'file', key: 'alice/docs/f.txt' },
-          { type: 'folder', prefix: 'alice/docs/x/' },
+          {type: 'file', key: 'alice/docs/f.txt'},
+          {type: 'folder', prefix: 'alice/docs/x/'}
         ],
         'alice/dest/'
       )
     );
 
-    await waitFor(() => expect(result.current.summary).toEqual({ movedCount: 3, errors: [] }));
+    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 3, errors: []}));
     expect(mockMoveObject).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceKey: 'alice/docs/f.txt',
         destKey: 'alice/dest/f.txt',
-        overwrite: false,
+        overwrite: false
       })
     );
     expect(mockMoveFolder).toHaveBeenCalledWith(
       expect.objectContaining({
         sourcePrefix: 'alice/docs/x/',
         destPrefix: 'alice/dest/x/',
-        overwrite: false,
+        overwrite: false
       })
     );
     expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
@@ -152,22 +152,22 @@ describe('useMove — move', () => {
     mockMoveObject
       .mockResolvedValueOnce({
         success: false,
-        error: { message: 'exists', code: 'Collision' },
+        error: {message: 'exists', code: 'Collision'}
       })
       .mockResolvedValueOnce({
         success: true,
-        data: { destKey: 'alice/dest/f.txt' },
+        data: {destKey: 'alice/dest/f.txt'}
       });
 
-    const { result } = render();
-    act(() => result.current.moveItems([{ type: 'file', key: 'alice/docs/f.txt' }], 'alice/dest/'));
+    const {result} = render();
+    act(() => result.current.moveItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
 
     await waitFor(() => expect(result.current.moveCollision).not.toBeNull());
     expect(result.current.moveCollision?.count).toBe(1);
 
     act(() => result.current.moveCollision?.onOverwriteAll());
-    await waitFor(() => expect(result.current.summary).toEqual({ movedCount: 1, errors: [] }));
-    expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({ overwrite: true }));
+    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 1, errors: []}));
+    expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
   });
 
   it('aggregates a per-key folder failure into the move summary', async () => {
@@ -175,17 +175,17 @@ describe('useMove — move', () => {
       success: true,
       data: {
         moved: ['alice/dest/x/'],
-        errors: [{ key: 'alice/docs/x/locked', message: 'Access Denied' }],
-      },
+        errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
+      }
     });
 
-    const { result } = render();
-    act(() => result.current.moveItems([{ type: 'folder', prefix: 'alice/docs/x/' }], 'alice/dest/'));
+    const {result} = render();
+    act(() => result.current.moveItems([{type: 'folder', prefix: 'alice/docs/x/'}], 'alice/dest/'));
 
     await waitFor(() => expect(result.current.summary).not.toBeNull());
     expect(result.current.summary).toEqual({
       movedCount: 1,
-      errors: [{ key: 'alice/docs/x/locked', message: 'Access Denied' }],
+      errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
     });
   });
 });

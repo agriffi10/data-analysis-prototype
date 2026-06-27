@@ -16,10 +16,10 @@ export function fileParent(key: string): string {
 
 // Parent prefix + leaf name of a folder prefix:
 // `a/b/photos/` → `{ parent: 'a/b/', leaf: 'photos' }`.
-export function folderParts(prefix: string): { parent: string; leaf: string } {
+export function folderParts(prefix: string): {parent: string; leaf: string} {
   const trimmed = prefix.replace(/\/$/, '');
   const i = trimmed.lastIndexOf('/');
-  return i === -1 ? { parent: '', leaf: trimmed } : { parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1) };
+  return i === -1 ? {parent: '', leaf: trimmed} : {parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1)};
 }
 
 // Path shown to the user: a key or prefix with the user-root prefix stripped,
@@ -36,7 +36,7 @@ export function lastSegment(keyOrPrefix: string): string {
 
 // Uppercased file extension for a type chip, e.g. `report.pdf` → `PDF`. Returns
 // `fallback` when there's no extension; `maxLen` caps the chip width.
-export function fileExtension(name: string, opts?: { fallback?: string; maxLen?: number }): string {
+export function fileExtension(name: string, opts?: {fallback?: string; maxLen?: number}): string {
   const fallback = opts?.fallback ?? 'File';
   const dot = name.lastIndexOf('.');
   if (dot <= 0 || dot === name.length - 1) return fallback;

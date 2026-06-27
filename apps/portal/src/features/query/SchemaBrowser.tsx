@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { cx } from '../../lib/cx';
-import { useSchema } from './useSchema';
-import { TableActionsMenu } from './TableActionsMenu';
-import { isConnectionUsable } from './query.types';
-import type { Connection, GlueTableSummary } from './query.types';
-import { connectionStatusLabel } from '../shared-spaces/connectionStatus';
+import {useState} from 'react';
+import {cx} from '../../lib/cx';
+import {useSchema} from './useSchema';
+import {TableActionsMenu} from './TableActionsMenu';
+import {isConnectionUsable} from './query.types';
+import type {Connection, GlueTableSummary} from './query.types';
+import {connectionStatusLabel} from '../shared-spaces/connectionStatus';
 
 // SPEC-044: per-table actions, wired in QueryWorkspace.
 export type TableActions = {
@@ -18,7 +18,7 @@ export type TableActions = {
 };
 
 const railClass =
-  'hidden w-[248px] flex-shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex';
+  'hidden w-[248px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex';
 const labelClass = 'px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3';
 
 function DatabaseIcon() {
@@ -29,9 +29,13 @@ function DatabaseIcon() {
       stroke="currentColor"
       strokeWidth="2"
       className="h-[18px] w-[18px] flex-none"
-      aria-hidden="true"
-    >
-      <ellipse cx="12" cy="6" rx="8" ry="3" />
+      aria-hidden="true">
+      <ellipse
+        cx="12"
+        cy="6"
+        rx="8"
+        ry="3"
+      />
       <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
       <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
     </svg>
@@ -46,7 +50,7 @@ function DatabaseIcon() {
 function DatabaseList({
   connections,
   activeDatabase,
-  onSelectDatabase,
+  onSelectDatabase
 }: {
   connections: Connection[];
   activeDatabase: string;
@@ -60,13 +64,16 @@ function DatabaseList({
             id: 'personal',
             label: activeDatabase || '—',
             database: activeDatabase,
-            kind: 'personal' as const,
-          },
+            kind: 'personal' as const
+          }
         ];
   const single = items.length <= 1;
 
   return (
-    <ul role="list" className="flex flex-col gap-0.5" aria-label="Databases">
+    <ul
+      role="list"
+      className="flex flex-col gap-0.5"
+      aria-label="Databases">
       {items.map((conn) => {
         const active = conn.database === activeDatabase;
         // SPEC-052 FR-004: provisioning/failed/leaving shared connections appear
@@ -87,8 +94,7 @@ function DatabaseList({
                     ? 'bg-accent-soft text-accent-text'
                     : 'text-text-2 hover:bg-surface-2 hover:text-text',
                 usable && single && 'cursor-default'
-              )}
-            >
+              )}>
               <DatabaseIcon />
               <span className="min-w-0 truncate">{conn.label}</span>
               {active && <span className="sr-only">(current database)</span>}
@@ -109,7 +115,7 @@ function Rail({
   connections,
   activeDatabase,
   onSelectDatabase,
-  children,
+  children
 }: {
   connections: Connection[];
   activeDatabase: string;
@@ -117,9 +123,15 @@ function Rail({
   children: React.ReactNode;
 }) {
   return (
-    <aside className={railClass} aria-label="Schema browser">
+    <aside
+      className={railClass}
+      aria-label="Schema browser">
       <p className={labelClass}>Database</p>
-      <DatabaseList connections={connections} activeDatabase={activeDatabase} onSelectDatabase={onSelectDatabase} />
+      <DatabaseList
+        connections={connections}
+        activeDatabase={activeDatabase}
+        onSelectDatabase={onSelectDatabase}
+      />
       {children}
     </aside>
   );
@@ -134,7 +146,7 @@ export function SchemaBrowser({
   connections = [],
   onSelectDatabase,
   onInsert,
-  actions,
+  actions
 }: {
   database: string; // the active database (drives useSchema + the run target)
   connections?: Connection[]; // SPEC-047: selectable databases (default: single personal)
@@ -142,7 +154,7 @@ export function SchemaBrowser({
   onInsert: (name: string) => void;
   actions: TableActions;
 }) {
-  const { data, isPending, isError, error } = useSchema(database || null);
+  const {data, isPending, isError, error} = useSchema(database || null);
   const [openTables, setOpenTables] = useState<Set<string>>(new Set());
 
   const toggle = (name: string) =>
@@ -156,7 +168,9 @@ export function SchemaBrowser({
   let body: React.ReactNode;
   if (!database || isPending) {
     body = (
-      <p role="status" className="px-3 py-2 text-sm text-text-3">
+      <p
+        role="status"
+        className="px-3 py-2 text-sm text-text-3">
         Loading schema&hellip;
       </p>
     );
@@ -165,12 +179,16 @@ export function SchemaBrowser({
     // backfill window) — present it as "setting up", not an error.
     const message = (error as Error)?.message ?? '';
     body = /does not exist/i.test(message) ? (
-      <p role="status" className="px-3 text-sm leading-relaxed text-text-3">
+      <p
+        role="status"
+        className="px-3 text-sm leading-relaxed text-text-3">
         Setting up your database&hellip; This is automatic right after sign-up. If it persists, contact an
         administrator.
       </p>
     ) : (
-      <p role="alert" className="px-3 text-sm leading-relaxed text-danger">
+      <p
+        role="alert"
+        className="px-3 text-sm leading-relaxed text-danger">
         Couldn&rsquo;t load your schema. {message}
       </p>
     );
@@ -198,7 +216,10 @@ export function SchemaBrowser({
   }
 
   return (
-    <Rail connections={connections} activeDatabase={database} onSelectDatabase={onSelectDatabase}>
+    <Rail
+      connections={connections}
+      activeDatabase={database}
+      onSelectDatabase={onSelectDatabase}>
       <p className={labelClass}>Tables</p>
       {body}
     </Rail>
@@ -210,7 +231,7 @@ function TableRow({
   open,
   onToggle,
   onInsert,
-  actions,
+  actions
 }: {
   table: GlueTableSummary;
   open: boolean;
@@ -229,17 +250,21 @@ function TableRow({
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-text"
-        >
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-text">
           <svg
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
             className="h-[15px] w-[15px] flex-none text-text-3"
-            aria-hidden="true"
-          >
-            <rect x="3" y="4" width="18" height="16" rx="2" />
+            aria-hidden="true">
+            <rect
+              x="3"
+              y="4"
+              width="18"
+              height="16"
+              rx="2"
+            />
             <path d="M3 9h18M9 4v16" />
           </svg>
           <span className="min-w-0 truncate">{table.name}</span>
@@ -254,8 +279,7 @@ function TableRow({
             stroke="currentColor"
             strokeWidth="2"
             className={cx('ml-auto h-[13px] w-[13px] flex-none text-text-3 transition-transform', open && 'rotate-90')}
-            aria-hidden="true"
-          >
+            aria-hidden="true">
             <path d="m9 6 6 6-6 6" />
           </svg>
         </button>
@@ -267,25 +291,25 @@ function TableRow({
                 key: 'view-source',
                 label: 'View source files',
                 onSelect: () => actions.onViewSourceFiles(table),
-                disabled: !actions.canViewSourceFiles(table),
+                disabled: !actions.canViewSourceFiles(table)
               },
               {
                 key: 'view-ddl',
                 label: 'View DDL',
-                onSelect: () => actions.onViewDdl(table),
+                onSelect: () => actions.onViewDdl(table)
               },
               {
                 key: 'view-data',
                 label: 'View data',
-                onSelect: () => actions.onViewData(table),
+                onSelect: () => actions.onViewData(table)
               },
               {
                 key: 'drop',
                 label: isView ? 'Drop view' : 'Drop table',
                 onSelect: () => actions.onDropTable(table),
                 danger: true,
-                separatorBefore: true,
-              },
+                separatorBefore: true
+              }
             ]}
           />
         </div>
@@ -302,8 +326,7 @@ function TableRow({
                 onClick={() => onInsert(column.name)}
                 title={`Insert "${column.name}"`}
                 aria-label={`Insert column ${column.name} into the query editor`}
-                className="flex items-baseline gap-2 rounded-sm px-2 py-[3px] text-left text-sm text-text-2 hover:bg-surface-2 hover:text-text"
-              >
+                className="flex items-baseline gap-2 rounded-sm px-2 py-[3px] text-left text-sm text-text-2 hover:bg-surface-2 hover:text-text">
                 <span className="min-w-0 truncate">{column.name}</span>
                 <span className="ml-auto flex-none font-mono text-xs text-text-3">{column.type}</span>
               </button>

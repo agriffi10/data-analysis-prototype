@@ -1,10 +1,10 @@
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createElement, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFileBrowser } from './useFileBrowser';
-import { listFiles } from './fileBrowser.service';
-import type { FileListPage } from '../../types/s3.types';
+import {renderHook, waitFor, act} from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {createElement, type ReactNode} from 'react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {useFileBrowser} from './useFileBrowser';
+import {listFiles} from './fileBrowser.service';
+import type {FileListPage} from '../../types/s3.types';
 
 vi.mock('./fileBrowser.service');
 
@@ -14,13 +14,13 @@ const mockListFiles = vi.mocked(listFiles);
 // instead of waiting on the default retry/backoff.
 function wrapper() {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: {queries: {retry: false}}
   });
-  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
 }
 
 function page(over: Partial<FileListPage> = {}): FileListPage {
-  return { files: [], folders: [], isTruncated: false, ...over };
+  return {files: [], folders: [], isTruncated: false, ...over};
 }
 
 const sampleFile = {
@@ -28,12 +28,12 @@ const sampleFile = {
   key: 'docs/report.pdf',
   name: 'report.pdf',
   size: 1024,
-  lastModified: new Date('2024-01-15'),
+  lastModified: new Date('2024-01-15')
 };
 const sampleFolder = {
   type: 'folder' as const,
   prefix: 'docs/archive/',
-  name: 'archive',
+  name: 'archive'
 };
 
 beforeEach(() => {
@@ -44,11 +44,11 @@ describe('useFileBrowser', () => {
   it('starts in loading state', () => {
     mockListFiles.mockResolvedValue({
       success: true,
-      data: page({ files: [sampleFile], folders: [sampleFolder] }),
+      data: page({files: [sampleFile], folders: [sampleFolder]})
     });
 
-    const { result } = renderHook(() => useFileBrowser('my-bucket'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useFileBrowser('my-bucket'), {
+      wrapper: wrapper()
     });
 
     expect(result.current.isLoading).toBe(true);
@@ -60,11 +60,11 @@ describe('useFileBrowser', () => {
   it('resolves to data on success', async () => {
     mockListFiles.mockResolvedValue({
       success: true,
-      data: page({ files: [sampleFile], folders: [sampleFolder] }),
+      data: page({files: [sampleFile], folders: [sampleFolder]})
     });
 
-    const { result } = renderHook(() => useFileBrowser('my-bucket'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useFileBrowser('my-bucket'), {
+      wrapper: wrapper()
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -78,11 +78,11 @@ describe('useFileBrowser', () => {
   it('sets error string on failure and leaves files and folders empty', async () => {
     mockListFiles.mockResolvedValue({
       success: false,
-      error: { message: 'Access Denied', code: 'AccessDenied' },
+      error: {message: 'Access Denied', code: 'AccessDenied'}
     });
 
-    const { result } = renderHook(() => useFileBrowser('my-bucket'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useFileBrowser('my-bucket'), {
+      wrapper: wrapper()
     });
 
     await waitFor(() => expect(result.current.error).toBe('Access Denied'));
@@ -91,10 +91,10 @@ describe('useFileBrowser', () => {
   });
 
   it('passes the prefix to listFiles', async () => {
-    mockListFiles.mockResolvedValue({ success: true, data: page() });
+    mockListFiles.mockResolvedValue({success: true, data: page()});
 
-    const { result } = renderHook(() => useFileBrowser('my-bucket', 'docs/'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useFileBrowser('my-bucket', 'docs/'), {
+      wrapper: wrapper()
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -111,21 +111,21 @@ describe('useFileBrowser', () => {
             key: 'alice/DO_NOT_DELETE.txt',
             name: 'DO_NOT_DELETE.txt',
             size: 100,
-            lastModified: new Date('2024-01-01'),
+            lastModified: new Date('2024-01-01')
           },
           {
             type: 'file',
             key: 'alice/report.pdf',
             name: 'report.pdf',
             size: 1024,
-            lastModified: new Date('2024-01-15'),
-          },
-        ],
-      }),
+            lastModified: new Date('2024-01-15')
+          }
+        ]
+      })
     });
 
-    const { result } = renderHook(() => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'), {
+      wrapper: wrapper()
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -133,20 +133,20 @@ describe('useFileBrowser', () => {
   });
 
   it('exposes hasMore and merges a second page on loadMore (SPEC-015 FR-002)', async () => {
-    const fileA = { ...sampleFile, key: 'a.txt', name: 'a.txt' };
-    const fileB = { ...sampleFile, key: 'b.txt', name: 'b.txt' };
+    const fileA = {...sampleFile, key: 'a.txt', name: 'a.txt'};
+    const fileB = {...sampleFile, key: 'b.txt', name: 'b.txt'};
     mockListFiles
       .mockResolvedValueOnce({
         success: true,
-        data: page({ files: [fileB], isTruncated: true, nextContinuationToken: 'T2' }),
+        data: page({files: [fileB], isTruncated: true, nextContinuationToken: 'T2'})
       })
       .mockResolvedValueOnce({
         success: true,
-        data: page({ files: [fileA], isTruncated: false }),
+        data: page({files: [fileA], isTruncated: false})
       });
 
-    const { result } = renderHook(() => useFileBrowser('my-bucket', 'p/'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useFileBrowser('my-bucket', 'p/'), {
+      wrapper: wrapper()
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));

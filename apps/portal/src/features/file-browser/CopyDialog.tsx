@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { DestinationPicker } from './DestinationPicker';
-import type { SelectableItem } from './selectionContext';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { Modal } from '../../components/Modal';
+import {useEffect, useRef, useState} from 'react';
+import {DestinationPicker} from './DestinationPicker';
+import type {SelectableItem} from './selectionContext';
+import {Button} from '../../components/Button';
+import {Input} from '../../components/Input';
+import {Modal} from '../../components/Modal';
 
 // The same-folder editable-name prompt shape, surfaced by useCopy (FR-003).
 type SameFolderPrompt = {
@@ -32,7 +32,7 @@ type Props = {
 // The editable-name view for a same-folder copy (FR-003). Pre-filled with the
 // proposed `{name} (N)`; validated with the create-folder/rename rules; the user
 // can override before confirming.
-function SameFolderNameField({ prompt }: { prompt: SameFolderPrompt }) {
+function SameFolderNameField({prompt}: {prompt: SameFolderPrompt}) {
   const [name, setName] = useState(prompt.proposedName);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -63,10 +63,15 @@ function SameFolderNameField({ prompt }: { prompt: SameFolderPrompt }) {
         />
       </div>
       <div className="-mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button variant="ghost" onClick={prompt.onCancel}>
+        <Button
+          variant="ghost"
+          onClick={prompt.onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={() => prompt.onConfirm(name)} disabled={!canConfirm}>
+        <Button
+          variant="primary"
+          onClick={() => prompt.onConfirm(name)}
+          disabled={!canConfirm}>
           Copy
         </Button>
       </div>
@@ -89,15 +94,14 @@ export function CopyDialog({
   isBusy = false,
   sameFolderPrompt,
   onCopy,
-  onCancel,
+  onCancel
 }: Props) {
   return (
     <Modal
       ariaLabel="Copy to folder"
       dismissible={!isBusy}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5"
-    >
+      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
       <h2 className="text-md font-semibold text-text">
         Copy {items.length} {items.length === 1 ? 'item' : 'items'}
       </h2>

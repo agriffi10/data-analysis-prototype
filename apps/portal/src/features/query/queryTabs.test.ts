@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState } from './queryTabs';
-import { QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL } from './query.constants';
-import type { QueryTabsState } from './query.types';
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
+import {readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState} from './queryTabs';
+import {QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL} from './query.constants';
+import type {QueryTabsState} from './query.types';
 
 const KEY = `${QUERY_TABS_STORAGE_PREFIX}alice`;
 
@@ -9,11 +9,11 @@ function sample(): QueryTabsState {
   return {
     version: 1,
     tabs: [
-      { id: 'a', label: 'Query 1', sql: 'SELECT 1;' },
-      { id: 'b', label: 'Monthly revenue', sql: 'SELECT 2;', savedQueryId: 'sq-1' },
+      {id: 'a', label: 'Query 1', sql: 'SELECT 1;'},
+      {id: 'b', label: 'Monthly revenue', sql: 'SELECT 2;', savedQueryId: 'sq-1'}
     ],
     activeTabId: 'b',
-    nextQueryNumber: 2,
+    nextQueryNumber: 2
   };
 }
 
@@ -52,18 +52,18 @@ describe('queryTabs', () => {
       KEY,
       JSON.stringify({
         version: 1,
-        tabs: [{ id: 'a', label: 'Query 1', sql: '' }],
+        tabs: [{id: 'a', label: 'Query 1', sql: ''}],
         activeTabId: 'missing',
-        nextQueryNumber: 2,
+        nextQueryNumber: 2
       })
     );
     expect(readTabsState('alice')).toBeNull();
   });
 
   it('rejects an empty tabs array and a wrong version', () => {
-    sessionStorage.setItem(KEY, JSON.stringify({ version: 1, tabs: [], activeTabId: 'a', nextQueryNumber: 2 }));
+    sessionStorage.setItem(KEY, JSON.stringify({version: 1, tabs: [], activeTabId: 'a', nextQueryNumber: 2}));
     expect(readTabsState('alice')).toBeNull();
-    sessionStorage.setItem(KEY, JSON.stringify({ ...sample(), version: 2 }));
+    sessionStorage.setItem(KEY, JSON.stringify({...sample(), version: 2}));
     expect(readTabsState('alice')).toBeNull();
   });
 
@@ -83,7 +83,7 @@ describe('queryTabs', () => {
     vi.stubGlobal('sessionStorage', {
       setItem,
       getItem,
-      removeItem: vi.fn(),
+      removeItem: vi.fn()
     });
 
     expect(() => writeTabsState('alice', sample())).not.toThrow();

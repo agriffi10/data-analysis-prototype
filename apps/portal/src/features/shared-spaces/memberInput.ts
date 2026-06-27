@@ -1,4 +1,4 @@
-import { CATALOG_IDENTIFIER_RE } from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 
 // Parse a single-or-bulk member input (comma / whitespace / newline separated)
 // into a clean, de-duplicated, lowercased username list. Tokens that don't match

@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { useFileBrowser } from './useFileBrowser';
-import type { SelectableItem } from './selectionContext';
-import { Button } from '../../components/Button';
-import { PICKER_LOCKED_FOLDERS, isRootFolderNamed } from './protectedFolders';
+import {useState} from 'react';
+import {useFileBrowser} from './useFileBrowser';
+import type {SelectableItem} from './selectionContext';
+import {Button} from '../../components/Button';
+import {PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
 
 type Props = {
   bucket: string;
@@ -27,7 +27,7 @@ type Props = {
   onCancel: () => void;
 };
 
-type Crumb = { label: string; prefix: string };
+type Crumb = {label: string; prefix: string};
 
 // Is this folder prefix an app-managed root folder (athenaresults/ results or
 // user_settings/), which is never a valid move/copy destination? Only the
@@ -51,14 +51,14 @@ function parentOf(prefix: string, rootPrefix: string): string {
 function crumbsFor(browsePrefix: string, rootPrefix: string, rootLabel?: string): Crumb[] {
   const rootParts = rootPrefix.split('/').filter(Boolean);
   const label = rootLabel ?? rootParts[rootParts.length - 1] ?? 'Home';
-  const crumbs: Crumb[] = [{ label, prefix: rootPrefix }];
+  const crumbs: Crumb[] = [{label, prefix: rootPrefix}];
   if (browsePrefix === rootPrefix) return crumbs;
 
   const sub = browsePrefix.split('/').filter(Boolean).slice(rootParts.length);
   sub.forEach((part, i) => {
     crumbs.push({
       label: part,
-      prefix: [...rootParts, ...sub.slice(0, i + 1)].join('/') + '/',
+      prefix: [...rootParts, ...sub.slice(0, i + 1)].join('/') + '/'
     });
   });
   return crumbs;
@@ -86,14 +86,10 @@ export function DestinationPicker({
   busyLabel,
   selfMessage = "You can't copy a folder into itself.",
   onConfirm,
-  onCancel,
+  onCancel
 }: Props) {
   const [browsePrefix, setBrowsePrefix] = useState(rootPrefix);
-  const { folders, isLoading, error, hasMore, loadMore, isLoadingMore } = useFileBrowser(
-    bucket,
-    browsePrefix,
-    markerKey
-  );
+  const {folders, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(bucket, browsePrefix, markerKey);
 
   // Folders being operated on can't be navigated into (you can't move/copy a
   // folder inside itself), so hide them from the picker. The protected results
@@ -120,23 +116,33 @@ export function DestinationPicker({
   return (
     <>
       {/* Destination breadcrumb */}
-      <nav aria-label="destination breadcrumb" className="mt-1">
+      <nav
+        aria-label="destination breadcrumb"
+        className="mt-1">
         <ol className="flex flex-wrap items-center gap-1 text-sm text-text-2">
           {crumbs.map((crumb, i) => {
             const isLast = i === crumbs.length - 1;
             return (
-              <li key={crumb.prefix} className="flex items-center gap-1">
+              <li
+                key={crumb.prefix}
+                className="flex items-center gap-1">
                 {i > 0 && (
-                  <span aria-hidden="true" className="mx-0.5 text-text-3">
+                  <span
+                    aria-hidden="true"
+                    className="mx-0.5 text-text-3">
                     /
                   </span>
                 )}
                 {isLast ? (
-                  <span aria-current="page" className="font-medium text-text">
+                  <span
+                    aria-current="page"
+                    className="font-medium text-text">
                     {crumb.label}
                   </span>
                 ) : (
-                  <button className="hover:text-text hover:underline" onClick={() => setBrowsePrefix(crumb.prefix)}>
+                  <button
+                    className="hover:text-text hover:underline"
+                    onClick={() => setBrowsePrefix(crumb.prefix)}>
                     {crumb.label}
                   </button>
                 )}
@@ -150,12 +156,17 @@ export function DestinationPicker({
       <div className="mt-4">
         <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-surface">
           {isLoading && (
-            <p role="status" aria-label="Loading" className="py-4 text-center text-sm text-text-3">
+            <p
+              role="status"
+              aria-label="Loading"
+              className="py-4 text-center text-sm text-text-3">
               Loading…
             </p>
           )}
           {!isLoading && error !== null && (
-            <p role="alert" className="p-4 text-sm text-danger">
+            <p
+              role="alert"
+              className="p-4 text-sm text-danger">
               {error}
             </p>
           )}
@@ -170,17 +181,19 @@ export function DestinationPicker({
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => setBrowsePrefix(parentOf(browsePrefix, rootPrefix))}
-                  aria-label="Go up to parent folder"
-                >
+                  aria-label="Go up to parent folder">
                   <svg
                     viewBox="0 0 20 20"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="1.5"
-                    className="h-4 w-4 flex-shrink-0 text-text-3"
-                    aria-hidden="true"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 10l4-4m-4 4l4 4m-4-4h8a4 4 0 014 4v2" />
+                    className="h-4 w-4 shrink-0 text-text-3"
+                    aria-hidden="true">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 10l4-4m-4 4l4 4m-4-4h8a4 4 0 014 4v2"
+                    />
                   </svg>
                   <span className="flex-1 truncate">..</span>
                 </button>
@@ -191,14 +204,12 @@ export function DestinationPicker({
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => setBrowsePrefix(folder.prefix)}
-                  aria-label={`Open folder ${folder.name}`}
-                >
+                  aria-label={`Open folder ${folder.name}`}>
                   <svg
                     viewBox="0 0 20 20"
                     fill="currentColor"
-                    className="h-4 w-4 flex-shrink-0 text-accent"
-                    aria-hidden="true"
-                  >
+                    className="h-4 w-4 shrink-0 text-accent"
+                    aria-hidden="true">
                     <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
                   </svg>
                   <span className="flex-1 truncate">{folder.name}</span>
@@ -211,8 +222,7 @@ export function DestinationPicker({
               <button
                 className="h-8 rounded-md px-3 text-sm text-text-2 hover:bg-surface-2 disabled:opacity-45"
                 onClick={loadMore}
-                disabled={isLoadingMore}
-              >
+                disabled={isLoadingMore}>
                 {isLoadingMore ? 'Loading…' : 'Load more'}
               </button>
             </div>
@@ -220,22 +230,27 @@ export function DestinationPicker({
         </div>
 
         {disabledReason && (
-          <p id="dest-disabled-reason" role="status" className="mt-2 text-xs text-text-3">
+          <p
+            id="dest-disabled-reason"
+            role="status"
+            className="mt-2 text-xs text-text-3">
             {disabledReason}
           </p>
         )}
       </div>
 
       <div className="-mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button variant="ghost" onClick={onCancel} disabled={isBusy}>
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={isBusy}>
           Cancel
         </Button>
         <Button
           variant="primary"
           onClick={() => onConfirm(browsePrefix)}
           disabled={!canConfirm}
-          aria-describedby={disabledReason ? 'dest-disabled-reason' : undefined}
-        >
+          aria-describedby={disabledReason ? 'dest-disabled-reason' : undefined}>
           {isBusy ? busyLabel : confirmLabel}
         </Button>
       </div>

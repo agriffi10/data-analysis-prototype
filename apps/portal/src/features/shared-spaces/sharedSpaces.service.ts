@@ -1,15 +1,15 @@
-import { SendMessageCommand } from '@aws-sdk/client-sqs';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSqsClient } from '../../lib/sqsClient';
-import { getS3Client } from '../../lib/s3Client';
-import { getIdToken } from '../../lib/awsCredentials';
-import { withCredentialRetry } from '../../lib/credentialRetry';
-import type { ServiceResult } from '../../types/service.types';
+import {SendMessageCommand} from '@aws-sdk/client-sqs';
+import {GetObjectCommand} from '@aws-sdk/client-s3';
+import {getSqsClient} from '../../lib/sqsClient';
+import {getS3Client} from '../../lib/s3Client';
+import {getIdToken} from '../../lib/awsCredentials';
+import {withCredentialRetry} from '../../lib/credentialRetry';
+import type {ServiceResult} from '../../types/service.types';
 import type {
   SharedConnectionEntry,
   SharedConnectionsCache,
   SharedSpaceAction,
-  SharedSpaceRequest,
+  SharedSpaceRequest
 } from './sharedSpaces.types';
 
 // The browser's ONLY shared-space write: enqueue a request onto the FIFO control
@@ -28,14 +28,14 @@ export type EnqueueInput = {
 
 // Send one shared-space request. Returns the generated requestId on success.
 // Never throws — returns the ServiceResult error shape.
-export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{ requestId: string }>> {
+export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{requestId: string}>> {
   // Read at call time (not module load) so tests can stub the env (the SPEC-040
   // lesson: a module-level import.meta.env const is read before vi.stubEnv runs).
   const queueUrl = import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined;
   if (!queueUrl) {
     return {
       success: false,
-      error: { message: 'Shared connections are not configured' },
+      error: {message: 'Shared connections are not configured'}
     };
   }
 
@@ -50,7 +50,7 @@ export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<Se
     actor: input.actor,
     space: input.space,
     payload: input.payload ?? {},
-    idToken: token.data,
+    idToken: token.data
   };
 
   return withCredentialRetry(getSqsClient, async (client) => {
@@ -60,18 +60,18 @@ export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<Se
           QueueUrl: queueUrl,
           MessageBody: JSON.stringify(body),
           MessageGroupId: MESSAGE_GROUP_ID,
-          MessageDeduplicationId: requestId,
+          MessageDeduplicationId: requestId
         })
       );
-      return { success: true, data: { requestId } };
+      return {success: true, data: {requestId}};
     } catch (err) {
-      const e = err as { message?: string; name?: string };
+      const e = err as {message?: string; name?: string};
       return {
         success: false,
         error: {
           message: e.message ?? 'Failed to submit the request',
-          code: e.name,
-        },
+          code: e.name
+        }
       };
     }
   });
@@ -87,7 +87,7 @@ const VALID_ROLE = new Set(['owner', 'member']);
 
 const emptyCache = (): SharedConnectionsCache => ({
   version: 1,
-  connections: [],
+  connections: []
 });
 
 function cacheKey(username: string): string {
@@ -99,7 +99,7 @@ function userSpaceBucket(): string {
 }
 
 function isNotFound(err: unknown): boolean {
-  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
   return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
@@ -125,7 +125,7 @@ function parseCache(body: string | undefined): SharedConnectionsCache {
   try {
     const parsed = JSON.parse(body) as SharedConnectionsCache;
     if (parsed?.version === 1 && Array.isArray(parsed.connections)) {
-      return { version: 1, connections: parsed.connections.filter(isValidEntry) };
+      return {version: 1, connections: parsed.connections.filter(isValidEntry)};
     }
     return emptyCache();
   } catch {
@@ -141,20 +141,20 @@ export async function readSharedConnectionsCache(username: string): Promise<Serv
       const response = await client.send(
         new GetObjectCommand({
           Bucket: userSpaceBucket(),
-          Key: cacheKey(username),
+          Key: cacheKey(username)
         })
       );
       const body = await response.Body?.transformToString();
-      return { success: true, data: parseCache(body) };
+      return {success: true, data: parseCache(body)};
     } catch (err) {
-      if (isNotFound(err)) return { success: true, data: emptyCache() };
-      const e = err as { message?: string; name?: string };
+      if (isNotFound(err)) return {success: true, data: emptyCache()};
+      const e = err as {message?: string; name?: string};
       return {
         success: false,
         error: {
           message: e.message ?? 'Failed to load shared connections',
-          code: e.name,
-        },
+          code: e.name
+        }
       };
     }
   });

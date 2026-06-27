@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { invalidateListing } from '../../lib/queryClient';
-import { uploadFile } from './fileBrowser.service';
-import { MAX_UPLOAD_BYTES } from './fileBrowser.types';
-import { UPLOAD_CONCURRENCY, type UploadItem } from './upload.types';
+import {useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {invalidateListing} from '../../lib/queryClient';
+import {uploadFile} from './fileBrowser.service';
+import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
+import {UPLOAD_CONCURRENCY, type UploadItem} from './upload.types';
 import {
   UploadQueueContext,
   uploadQueueReducer,
   initialUploadQueueState,
   keyPrefix,
   type NewUploadEntry,
-  type UploadQueueContextValue,
+  type UploadQueueContextValue
 } from './uploadQueueContext';
 
 // SPEC-020 FR-001/FR-002: drives the upload queue. The pure reducer
@@ -21,15 +21,7 @@ import {
 // `prefix` is the folder new files are enqueued into; the destination key is
 // captured per item at enqueue time, so navigating to another folder mid-upload
 // never re-targets an in-flight upload (the panel stays non-blocking, FR-003).
-export function UploadQueueProvider({
-  bucket,
-  prefix,
-  children,
-}: {
-  bucket: string;
-  prefix: string;
-  children: ReactNode;
-}) {
+export function UploadQueueProvider({bucket, prefix, children}: {bucket: string; prefix: string; children: ReactNode}) {
   const queryClient = useQueryClient();
   const [state, dispatch] = useReducer(uploadQueueReducer, initialUploadQueueState);
 
@@ -54,7 +46,7 @@ export function UploadQueueProvider({
     async (item: UploadItem) => {
       const controller = new AbortController();
       controllers.current.set(item.id, controller);
-      dispatch({ type: 'start', id: item.id });
+      dispatch({type: 'start', id: item.id});
 
       const result = await uploadFile({
         bucket,
@@ -62,24 +54,24 @@ export function UploadQueueProvider({
         body: item.file,
         contentType: item.file.type || 'application/octet-stream',
         overwrite: item.overwrite,
-        onProgress: (loaded, total) => dispatch({ type: 'progress', id: item.id, loaded, total }),
-        signal: controller.signal,
+        onProgress: (loaded, total) => dispatch({type: 'progress', id: item.id, loaded, total}),
+        signal: controller.signal
       });
 
       controllers.current.delete(item.id);
       launched.current.delete(item.id);
 
       if (result.success) {
-        dispatch({ type: 'succeed', id: item.id });
+        dispatch({type: 'succeed', id: item.id});
         // Invalidate the destination folder so the finished file appears there,
         // whether or not the user is still viewing it (FR-001).
         await invalidateListing(queryClient, bucket, keyPrefix(item.key));
       } else if (result.error.code === 'Cancelled') {
-        dispatch({ type: 'cancelled', id: item.id });
+        dispatch({type: 'cancelled', id: item.id});
       } else if (result.error.code === 'Collision') {
-        dispatch({ type: 'collision', id: item.id });
+        dispatch({type: 'collision', id: item.id});
       } else {
-        dispatch({ type: 'fail', id: item.id, error: result.error.message });
+        dispatch({type: 'fail', id: item.id, error: result.error.message});
       }
     },
     [bucket, queryClient]
@@ -120,12 +112,12 @@ export function UploadQueueProvider({
           file,
           key,
           status: 'failed',
-          error: 'This file exceeds the maximum upload size.',
+          error: 'This file exceeds the maximum upload size.'
         };
       }
-      return { file, key, status: 'queued' };
+      return {file, key, status: 'queued'};
     });
-    if (entries.length > 0) dispatch({ type: 'enqueue', entries });
+    if (entries.length > 0) dispatch({type: 'enqueue', entries});
   }, []);
 
   const cancel = useCallback((id: string) => {
@@ -138,17 +130,14 @@ export function UploadQueueProvider({
     } else {
       // Queued or awaiting a collision decision — nothing was written; drop it.
       launched.current.delete(id);
-      dispatch({ type: 'remove', id });
+      dispatch({type: 'remove', id});
     }
   }, []);
 
-  const dismiss = useCallback((id: string) => dispatch({ type: 'remove', id }), []);
-  const resolveOverwrite = useCallback((id: string) => dispatch({ type: 'retryOverwrite', id }), []);
-  const resolveRename = useCallback(
-    (id: string, newName: string) => dispatch({ type: 'retryRename', id, newName }),
-    []
-  );
-  const clearFinished = useCallback(() => dispatch({ type: 'clearFinished' }), []);
+  const dismiss = useCallback((id: string) => dispatch({type: 'remove', id}), []);
+  const resolveOverwrite = useCallback((id: string) => dispatch({type: 'retryOverwrite', id}), []);
+  const resolveRename = useCallback((id: string, newName: string) => dispatch({type: 'retryRename', id, newName}), []);
+  const clearFinished = useCallback(() => dispatch({type: 'clearFinished'}), []);
 
   const value = useMemo<UploadQueueContextValue>(
     () => ({
@@ -158,7 +147,7 @@ export function UploadQueueProvider({
       dismiss,
       resolveOverwrite,
       resolveRename,
-      clearFinished,
+      clearFinished
     }),
     [state.items, enqueue, cancel, dismiss, resolveOverwrite, resolveRename, clearFinished]
   );

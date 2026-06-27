@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { formatSize } from './fileBrowser.format';
+import {describe, it, expect} from 'vitest';
+import {formatSize} from './fileBrowser.format';
 
 describe('formatSize', () => {
   it('formats across the byte boundaries', () => {

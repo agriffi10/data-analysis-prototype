@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getQueryStatus, isTerminalState } from './query.service';
-import { queryKeys } from './queryKeys';
-import { POLL_INTERVAL_MS, MAX_POLL_DURATION_MS } from './query.constants';
-import type { QueryStatus } from './query.types';
+import {useEffect, useRef} from 'react';
+import {useQuery} from '@tanstack/react-query';
+import {getQueryStatus, isTerminalState} from './query.service';
+import {queryKeys} from './queryKeys';
+import {POLL_INTERVAL_MS, MAX_POLL_DURATION_MS} from './query.constants';
+import type {QueryStatus} from './query.types';
 
 // SPEC-034 FR-003: poll a running query to a terminal state. Disabled while the id
 // is null (no query in flight). While the execution is non-terminal the query
@@ -35,6 +35,6 @@ export function useQueryExecution(queryExecutionId: string | null) {
         return false;
       }
       return POLL_INTERVAL_MS;
-    },
+    }
   });
 }

@@ -1,13 +1,13 @@
-import { useState } from 'react';
-import { Banner } from '../../components/Banner';
-import { Drawer } from '../../components/Drawer';
-import { IconButton } from '../../components/IconButton';
-import { Pager } from '../../components/Pager';
-import { cx } from '../../lib/cx';
-import { useQueryHistory } from './useQueryHistory';
-import { QueryHistoryRow } from './QueryHistoryRow';
-import { QUERY_HISTORY_PAGE_SIZE } from './query.constants';
-import type { QueryHistoryEntry } from './query.types';
+import {useState} from 'react';
+import {Banner} from '../../components/Banner';
+import {Drawer} from '../../components/Drawer';
+import {IconButton} from '../../components/IconButton';
+import {Pager} from '../../components/Pager';
+import {cx} from '../../lib/cx';
+import {useQueryHistory} from './useQueryHistory';
+import {QueryHistoryRow} from './QueryHistoryRow';
+import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
+import type {QueryHistoryEntry} from './query.types';
 
 type QueryHistoryPanelProps = {
   open: boolean;
@@ -21,18 +21,11 @@ type QueryHistoryPanelProps = {
 // SPEC-036: per-user query history (newest-first), read-only — view / Open /
 // Re-run, no delete. Renders in the shared Drawer; paginated 7/page (SPEC-042)
 // via the shared Pager.
-export function QueryHistoryPanel({
-  open,
-  onClose,
-  username,
-  onReopen,
-  onRerun,
-  rerunDisabled,
-}: QueryHistoryPanelProps) {
+export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, rerunDisabled}: QueryHistoryPanelProps) {
   // Always subscribe to the live history key (not gated on `open`) so an entry
   // appended/updated while the panel is open shows immediately, and the panel and
   // the workspace's mutations share one cache entry. Drawer visibility is `open`.
-  const { history, isLoading, error, refresh, isRefreshing } = useQueryHistory(username || null);
+  const {history, isLoading, error, refresh, isRefreshing} = useQueryHistory(username || null);
 
   // SPEC-042: client-side Prev/Next pager over the in-memory newest-first list.
   const [pageIndex, setPageIndex] = useState(0);
@@ -66,15 +59,18 @@ export function QueryHistoryPanel({
   };
 
   const refreshButton = (
-    <IconButton label="Refresh history" size="sm" disabled={isRefreshing} onClick={() => void handleRefresh()}>
+    <IconButton
+      label="Refresh history"
+      size="sm"
+      disabled={isRefreshing}
+      onClick={() => void handleRefresh()}>
       <svg
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
         className={cx('h-4 w-4', isRefreshing && 'animate-spin')}
-        aria-hidden="true"
-      >
+        aria-hidden="true">
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
         <path d="M21 3v5h-5" />
         <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
@@ -86,7 +82,7 @@ export function QueryHistoryPanel({
   const footer =
     !isLoading && history.length > 0 ? (
       <Pager
-        className="flex-shrink-0 border-t border-border px-5 py-4"
+        className="shrink-0 border-t border-border px-5 py-4"
         hasPrev={hasPrev}
         hasNext={hasNext}
         onPrev={() => setPageIndex(Math.max(0, safeIndex - 1))}
@@ -101,11 +97,18 @@ export function QueryHistoryPanel({
     ) : undefined;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Query history" headerAccessory={refreshButton} footer={footer}>
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="Query history"
+      headerAccessory={refreshButton}
+      footer={footer}>
       {/* A read/refresh error is shown above the list and never clears it, so a
           failed Refresh is non-destructive (FR-003). */}
       {error && (
-        <Banner variant="danger" title="Couldn’t load history.">
+        <Banner
+          variant="danger"
+          title="Couldn’t load history.">
           {error}
         </Banner>
       )}
@@ -120,8 +123,7 @@ export function QueryHistoryPanel({
               stroke="currentColor"
               strokeWidth="2"
               className="h-8 w-8 text-text-3"
-              aria-hidden="true"
-            >
+              aria-hidden="true">
               <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
               <path d="M3 3v5h5" />
               <path d="M12 8v5l3 2" />

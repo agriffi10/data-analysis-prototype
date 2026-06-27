@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react';
-import { enqueueSharedSpaceRequest } from './sharedSpaces.service';
-import type { ServiceResult } from '../../types/service.types';
-import type { SharedConnectionEntry } from './sharedSpaces.types';
+import {useCallback, useState} from 'react';
+import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
+import type {ServiceResult} from '../../types/service.types';
+import type {SharedConnectionEntry} from './sharedSpaces.types';
 
 // Create-shared-connection flow (SPEC-051): enqueue a `create` request and, on a
 // successful enqueue, hold an optimistic LOCAL pending entry (provisioning…) so the
@@ -13,25 +13,25 @@ export function useCreateSharedConnection(username: string | null) {
   const [busy, setBusy] = useState(false);
 
   const create = useCallback(
-    async (name: string): Promise<ServiceResult<{ requestId: string }>> => {
+    async (name: string): Promise<ServiceResult<{requestId: string}>> => {
       if (!username) {
-        return { success: false, error: { message: 'Not signed in' } };
+        return {success: false, error: {message: 'Not signed in'}};
       }
       setBusy(true);
       const result = await enqueueSharedSpaceRequest({
         action: 'create',
         actor: username,
         space: name,
-        payload: {},
+        payload: {}
       });
       setBusy(false);
       if (result.success) {
-        setPending((prev) => [...prev, { name, role: 'owner', status: 'provisioning' }]);
+        setPending((prev) => [...prev, {name, role: 'owner', status: 'provisioning'}]);
       }
       return result;
     },
     [username]
   );
 
-  return { create, busy, pending };
+  return {create, busy, pending};
 }

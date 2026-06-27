@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { leafName, fileParent, folderParts, lastSegment, fileExtension } from './fileBrowser.paths';
+import {describe, it, expect} from 'vitest';
+import {leafName, fileParent, folderParts, lastSegment, fileExtension} from './fileBrowser.paths';
 
 describe('fileBrowser.paths', () => {
   it('leafName returns the last segment of a file key', () => {
@@ -13,8 +13,8 @@ describe('fileBrowser.paths', () => {
   });
 
   it('folderParts splits a folder prefix into parent + leaf', () => {
-    expect(folderParts('a/b/photos/')).toEqual({ parent: 'a/b/', leaf: 'photos' });
-    expect(folderParts('photos/')).toEqual({ parent: '', leaf: 'photos' });
+    expect(folderParts('a/b/photos/')).toEqual({parent: 'a/b/', leaf: 'photos'});
+    expect(folderParts('photos/')).toEqual({parent: '', leaf: 'photos'});
   });
 
   it('lastSegment tolerates a trailing slash (files and folders)', () => {
@@ -25,8 +25,8 @@ describe('fileBrowser.paths', () => {
   it('fileExtension uppercases the extension with a fallback + optional cap', () => {
     expect(fileExtension('report.pdf')).toBe('PDF');
     expect(fileExtension('noext')).toBe('File');
-    expect(fileExtension('noext', { fallback: 'FILE' })).toBe('FILE');
-    expect(fileExtension('archive.tarball', { maxLen: 4 })).toBe('TARB');
+    expect(fileExtension('noext', {fallback: 'FILE'})).toBe('FILE');
+    expect(fileExtension('archive.tarball', {maxLen: 4})).toBe('TARB');
     expect(fileExtension('.gitignore')).toBe('File'); // leading dot → no ext
   });
 });

@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {render, screen, fireEvent, within} from '@testing-library/react';
 
-vi.mock('./useSchema', () => ({ useSchema: vi.fn() }));
+vi.mock('./useSchema', () => ({useSchema: vi.fn()}));
 
-import { useSchema } from './useSchema';
-import { SchemaBrowser, type TableActions } from './SchemaBrowser';
+import {useSchema} from './useSchema';
+import {SchemaBrowser, type TableActions} from './SchemaBrowser';
 
 const mockUseSchema = vi.mocked(useSchema);
 
@@ -17,7 +17,7 @@ function makeActions(over: Partial<TableActions> = {}): TableActions {
     onViewData: vi.fn(),
     onDropTable: vi.fn(),
     canViewSourceFiles: () => true,
-    ...over,
+    ...over
   };
 }
 
@@ -25,18 +25,18 @@ const tableSchema = {
   isPending: false,
   isError: false,
   data: {
-    database: { name: 'alice' },
+    database: {name: 'alice'},
     tables: [
       {
         name: 'sales_2026',
         location: 's3://bucket/alice/sales/',
         columns: [
-          { name: 'order_id', type: 'bigint' },
-          { name: 'region', type: 'string' },
-        ],
-      },
-    ],
-  },
+          {name: 'order_id', type: 'bigint'},
+          {name: 'region', type: 'string'}
+        ]
+      }
+    ]
+  }
 } as unknown as SchemaState;
 
 beforeEach(() => {
@@ -48,9 +48,15 @@ describe('SchemaBrowser', () => {
     mockUseSchema.mockReturnValue({
       isPending: true,
       isError: false,
-      data: undefined,
+      data: undefined
     } as unknown as SchemaState);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={makeActions()} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />
+    );
     expect(screen.getByText(/Loading schema/)).toBeInTheDocument();
   });
 
@@ -60,24 +66,30 @@ describe('SchemaBrowser', () => {
       isPending: false,
       isError: false,
       data: {
-        database: { name: 'alice' },
+        database: {name: 'alice'},
         tables: [
           {
             name: 'sales_2026',
             columns: [
-              { name: 'order_id', type: 'bigint' },
-              { name: 'region', type: 'string' },
-            ],
-          },
-        ],
-      },
+              {name: 'order_id', type: 'bigint'},
+              {name: 'region', type: 'string'}
+            ]
+          }
+        ]
+      }
     } as unknown as SchemaState);
 
-    render(<SchemaBrowser database="alice" onInsert={onInsert} actions={makeActions()} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={onInsert}
+        actions={makeActions()}
+      />
+    );
 
     // Expand the table, then click a column.
-    fireEvent.click(screen.getByRole('button', { name: 'sales_2026' }));
-    fireEvent.click(screen.getByRole('button', { name: /region/ }));
+    fireEvent.click(screen.getByRole('button', {name: 'sales_2026'}));
+    fireEvent.click(screen.getByRole('button', {name: /region/}));
     expect(onInsert).toHaveBeenCalledWith('region');
   });
 
@@ -85,9 +97,15 @@ describe('SchemaBrowser', () => {
     mockUseSchema.mockReturnValue({
       isPending: false,
       isError: false,
-      data: { database: { name: 'alice' }, tables: [] },
+      data: {database: {name: 'alice'}, tables: []}
     } as unknown as SchemaState);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={makeActions()} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />
+    );
     expect(screen.getByText(/No tables yet/)).toBeInTheDocument();
   });
 
@@ -96,9 +114,15 @@ describe('SchemaBrowser', () => {
       isPending: false,
       isError: true,
       error: new Error('Database "alice" does not exist yet.'),
-      data: undefined,
+      data: undefined
     } as unknown as SchemaState);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={makeActions()} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />
+    );
     expect(screen.getByText(/Setting up your database/)).toBeInTheDocument();
   });
 
@@ -107,48 +131,66 @@ describe('SchemaBrowser', () => {
   it('opens the options menu and fires each action (without toggling expand)', () => {
     const actions = makeActions();
     mockUseSchema.mockReturnValue(tableSchema);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={actions} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={actions}
+      />
+    );
 
     // Opening the menu must not expand the table row.
-    fireEvent.click(screen.getByRole('button', { name: 'Options for sales_2026' }));
-    expect(screen.getByRole('button', { name: 'sales_2026' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
+    expect(screen.getByRole('button', {name: 'sales_2026'})).toHaveAttribute('aria-expanded', 'false');
 
     const menu = screen.getByRole('menu');
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'View data' }));
-    expect(actions.onViewData).toHaveBeenCalledWith(expect.objectContaining({ name: 'sales_2026' }));
+    fireEvent.click(within(menu).getByRole('menuitem', {name: 'View data'}));
+    expect(actions.onViewData).toHaveBeenCalledWith(expect.objectContaining({name: 'sales_2026'}));
   });
 
   it('disables View source files when the location is out of the user space', () => {
-    const actions = makeActions({ canViewSourceFiles: () => false });
+    const actions = makeActions({canViewSourceFiles: () => false});
     mockUseSchema.mockReturnValue(tableSchema);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={actions} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={actions}
+      />
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Options for sales_2026' }));
-    expect(screen.getByRole('menuitem', { name: 'View source files' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
+    expect(screen.getByRole('menuitem', {name: 'View source files'})).toBeDisabled();
   });
 
   it('closes the menu on Escape', () => {
     mockUseSchema.mockReturnValue(tableSchema);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={makeActions()} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Options for sales_2026' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
     expect(screen.getByRole('menu')).toBeInTheDocument();
-    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('menu'), {key: 'Escape'});
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   // --- SPEC-047 database switcher ---
 
   const connections = [
-    { id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal' as const },
+    {id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal' as const},
     {
       id: 's1',
       label: 'Project Alpha',
       database: 'project_alpha',
       kind: 'shared' as const,
       status: 'active' as const,
-      role: 'member' as const,
-    },
+      role: 'member' as const
+    }
   ];
 
   it('keys the schema query off the active database', () => {
@@ -176,10 +218,10 @@ describe('SchemaBrowser', () => {
         actions={makeActions()}
       />
     );
-    const active = screen.getByRole('button', { name: /My workspace/ });
+    const active = screen.getByRole('button', {name: /My workspace/});
     expect(active).toHaveAttribute('aria-current', 'true');
     // The non-active one carries no aria-current (state conveyed, not color-only).
-    expect(screen.getByRole('button', { name: 'Project Alpha' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', {name: 'Project Alpha'})).not.toHaveAttribute('aria-current');
   });
 
   it('selecting a different database calls onSelectDatabase', () => {
@@ -194,7 +236,7 @@ describe('SchemaBrowser', () => {
         actions={makeActions()}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Project Alpha' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Project Alpha'}));
     expect(onSelectDatabase).toHaveBeenCalledWith('project_alpha');
   });
 
@@ -212,15 +254,15 @@ describe('SchemaBrowser', () => {
             database: 'project_beta',
             kind: 'shared' as const,
             status: 'provisioning' as const,
-            role: 'owner' as const,
-          },
+            role: 'owner' as const
+          }
         ]}
         onSelectDatabase={onSelectDatabase}
         onInsert={vi.fn()}
         actions={makeActions()}
       />
     );
-    const beta = screen.getByRole('button', { name: /Project Beta/ });
+    const beta = screen.getByRole('button', {name: /Project Beta/});
     expect(beta).toBeDisabled();
     expect(beta).toHaveTextContent('Provisioning');
     fireEvent.click(beta);
@@ -233,38 +275,50 @@ describe('SchemaBrowser', () => {
     isPending: false,
     isError: false,
     data: {
-      database: { name: 'alice' },
+      database: {name: 'alice'},
       tables: [
         {
           name: 'revenue_view',
           tableType: 'VIRTUAL_VIEW',
-          columns: [{ name: 'total', type: 'double' }],
-        },
-      ],
-    },
+          columns: [{name: 'total', type: 'double'}]
+        }
+      ]
+    }
   } as unknown as SchemaState;
 
   it('renders a view with a View badge', () => {
     mockUseSchema.mockReturnValue(viewSchema);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={makeActions()} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={makeActions()}
+      />
+    );
     expect(screen.getByText('View')).toBeInTheDocument();
     // The row toggle's accessible name leads with the view name (the badge follows).
-    expect(screen.getByRole('button', { name: /^revenue_view/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /^revenue_view/})).toBeInTheDocument();
   });
 
   it('a view row offers "Drop view" and a disabled "View source files"', () => {
     // Mirrors the workspace wiring: a view has no S3 location → source files off.
     const actions = makeActions({
-      canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW',
+      canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW'
     });
     mockUseSchema.mockReturnValue(viewSchema);
-    render(<SchemaBrowser database="alice" onInsert={vi.fn()} actions={actions} />);
+    render(
+      <SchemaBrowser
+        database="alice"
+        onInsert={vi.fn()}
+        actions={actions}
+      />
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Options for revenue_view' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Options for revenue_view'}));
     const menu = screen.getByRole('menu');
-    expect(within(menu).getByRole('menuitem', { name: 'Drop view' })).toBeInTheDocument();
-    expect(within(menu).queryByRole('menuitem', { name: 'Drop table' })).not.toBeInTheDocument();
-    expect(within(menu).getByRole('menuitem', { name: 'View source files' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', {name: 'Drop table'})).not.toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', {name: 'View source files'})).toBeDisabled();
   });
 
   it('shows a single current item with only the personal database', () => {
@@ -278,8 +332,8 @@ describe('SchemaBrowser', () => {
         actions={makeActions()}
       />
     );
-    const dbList = screen.getByRole('list', { name: 'Databases' });
+    const dbList = screen.getByRole('list', {name: 'Databases'});
     expect(within(dbList).getAllByRole('button')).toHaveLength(1);
-    expect(within(dbList).getByRole('button', { name: /My workspace/ })).toHaveAttribute('aria-current', 'true');
+    expect(within(dbList).getByRole('button', {name: /My workspace/})).toHaveAttribute('aria-current', 'true');
   });
 });

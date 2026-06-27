@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 
 export type UseCopyToClipboardResult = {
   copied: boolean;
@@ -35,5 +35,5 @@ export function useCopyToClipboard(resetMs = 1500): UseCopyToClipboardResult {
     [resetMs]
   );
 
-  return { copied, copy };
+  return {copied, copy};
 }

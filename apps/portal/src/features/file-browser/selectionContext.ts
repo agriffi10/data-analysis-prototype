@@ -1,10 +1,10 @@
-import { createContext, useContext } from 'react';
+import {createContext, useContext} from 'react';
 
 // SPEC-018 FR-001: multi-select state for bulk actions (delete). A selected item
 // is either a file (identified by its S3 key) or a folder (identified by its S3
 // prefix) — delete treats the two differently (folders are recursive), so the
 // distinction is kept in the selection itself.
-export type SelectableItem = { type: 'file'; key: string } | { type: 'folder'; prefix: string };
+export type SelectableItem = {type: 'file'; key: string} | {type: 'folder'; prefix: string};
 
 // The stable id under which an item is tracked: its key (file) or prefix (folder).
 export function itemId(item: SelectableItem): string {
@@ -35,11 +35,11 @@ export type SelectionState = {
 };
 
 export type SelectionAction =
-  | { type: 'toggle'; item: SelectableItem }
-  | { type: 'selectAll'; items: SelectableItem[] }
-  | { type: 'clear' };
+  | {type: 'toggle'; item: SelectableItem}
+  | {type: 'selectAll'; items: SelectableItem[]}
+  | {type: 'clear'};
 
-export const initialSelectionState: SelectionState = { items: new Map() };
+export const initialSelectionState: SelectionState = {items: new Map()};
 
 export function selectionReducer(state: SelectionState, action: SelectionAction): SelectionState {
   switch (action.type) {
@@ -51,7 +51,7 @@ export function selectionReducer(state: SelectionState, action: SelectionAction)
       } else {
         next.set(id, action.item);
       }
-      return { items: next };
+      return {items: next};
     }
     case 'selectAll': {
       // Replace the selection with exactly the given (loaded) items. The header
@@ -60,7 +60,7 @@ export function selectionReducer(state: SelectionState, action: SelectionAction)
       for (const item of action.items) {
         next.set(itemId(item), item);
       }
-      return { items: next };
+      return {items: next};
     }
     case 'clear':
       // Preserve referential identity when already empty so navigate-clears on an

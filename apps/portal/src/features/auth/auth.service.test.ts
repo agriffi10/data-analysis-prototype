@@ -1,21 +1,21 @@
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
-import { getCurrentAuthUser, startSignIn, startSignUp, startSignOut } from './auth.service';
+import {describe, it, expect, vi, beforeEach, type MockedFunction} from 'vitest';
+import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
 
 vi.mock('aws-amplify/auth', () => ({
   getCurrentUser: vi.fn(),
   fetchAuthSession: vi.fn(),
   signInWithRedirect: vi.fn(),
-  signOut: vi.fn(),
+  signOut: vi.fn()
 }));
 
-import { getCurrentUser, fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
+import {getCurrentUser, fetchAuthSession, signInWithRedirect, signOut} from 'aws-amplify/auth';
 
 const mockGetCurrentUser = getCurrentUser as unknown as MockedFunction<() => Promise<unknown>>;
 const mockFetchAuthSession = fetchAuthSession as unknown as MockedFunction<() => Promise<unknown>>;
 
 // Build a fetchAuthSession result whose ID token carries the given email claim.
 const sessionWithEmail = (email?: string) => ({
-  tokens: { idToken: { payload: email ? { email } : {} } },
+  tokens: {idToken: {payload: email ? {email} : {}}}
 });
 const mockSignInWithRedirect = signInWithRedirect as unknown as MockedFunction<() => Promise<void>>;
 const mockSignOut = signOut as unknown as MockedFunction<() => Promise<void>>;
@@ -26,30 +26,30 @@ beforeEach(() => {
 
 describe('getCurrentAuthUser', () => {
   it('returns the username and email from the ID token claim when signed in', async () => {
-    mockGetCurrentUser.mockResolvedValueOnce({ username: 'alice' });
+    mockGetCurrentUser.mockResolvedValueOnce({username: 'alice'});
     mockFetchAuthSession.mockResolvedValueOnce(sessionWithEmail('alice@example.com'));
 
     const result = await getCurrentAuthUser();
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data).toEqual({ username: 'alice', email: 'alice@example.com' });
+    expect(result.data).toEqual({username: 'alice', email: 'alice@example.com'});
   });
 
   it('returns the user without email when the ID token has no email claim', async () => {
-    mockGetCurrentUser.mockResolvedValueOnce({ username: 'bob' });
+    mockGetCurrentUser.mockResolvedValueOnce({username: 'bob'});
     mockFetchAuthSession.mockResolvedValueOnce(sessionWithEmail(undefined));
 
     const result = await getCurrentAuthUser();
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data).toEqual({ username: 'bob', email: undefined });
+    expect(result.data).toEqual({username: 'bob', email: undefined});
   });
 
   it('returns success: false when there is no session (getCurrentUser throws)', async () => {
     const err = Object.assign(new Error('No current user'), {
-      name: 'UserUnAuthenticatedException',
+      name: 'UserUnAuthenticatedException'
     });
     mockGetCurrentUser.mockRejectedValueOnce(err);
 
@@ -74,9 +74,7 @@ describe('startSignIn', () => {
   });
 
   it('returns success: false without throwing when redirect fails', async () => {
-    mockSignInWithRedirect.mockRejectedValueOnce(
-      Object.assign(new Error('redirect blocked'), { name: 'RedirectError' })
-    );
+    mockSignInWithRedirect.mockRejectedValueOnce(Object.assign(new Error('redirect blocked'), {name: 'RedirectError'}));
 
     const result = await startSignIn();
 
@@ -102,9 +100,7 @@ describe('startSignUp', () => {
   });
 
   it('returns success: false without throwing when the redirect fails', async () => {
-    mockSignInWithRedirect.mockRejectedValueOnce(
-      Object.assign(new Error('redirect blocked'), { name: 'RedirectError' })
-    );
+    mockSignInWithRedirect.mockRejectedValueOnce(Object.assign(new Error('redirect blocked'), {name: 'RedirectError'}));
 
     const result = await startSignUp();
 

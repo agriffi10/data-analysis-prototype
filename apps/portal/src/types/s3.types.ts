@@ -29,4 +29,4 @@ export type FileListPage = FileList & {
 
 // ServiceResult now lives in service.types.ts (it is not S3-specific).
 // Re-exported here for back-compat with existing imports.
-export type { ServiceResult } from './service.types';
+export type {ServiceResult} from './service.types';

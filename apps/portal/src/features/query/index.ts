@@ -8,23 +8,23 @@ export {
   runStatementToCompletion,
   parseS3Url,
   stopQuery,
-  isTerminalState,
+  isTerminalState
 } from './query.service';
-export { getDatabase, listTables } from './glue.service';
-export { getQueryHistory, appendQueryHistory, updateQueryHistoryEntry } from './queryHistory.service';
-export { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
-export { useQueryExecution } from './useQueryExecution';
-export { useQueryResults } from './useQueryResults';
-export type { UseQueryResultsResult } from './useQueryResults';
-export { useSchema, invalidateSchema } from './useSchema';
-export type { SchemaData } from './useSchema';
-export { useQueryHistory } from './useQueryHistory';
-export type { UseQueryHistoryResult } from './useQueryHistory';
-export { useQueryTabs } from './useQueryTabs';
-export type { UseQueryTabsResult, OpenTabOpts } from './useQueryTabs';
-export { useSavedQueries } from './useSavedQueries';
-export type { UseSavedQueriesResult } from './useSavedQueries';
-export { queryKeys } from './queryKeys';
+export {getDatabase, listTables} from './glue.service';
+export {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
+export {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+export {useQueryExecution} from './useQueryExecution';
+export {useQueryResults} from './useQueryResults';
+export type {UseQueryResultsResult} from './useQueryResults';
+export {useSchema, invalidateSchema} from './useSchema';
+export type {SchemaData} from './useSchema';
+export {useQueryHistory} from './useQueryHistory';
+export type {UseQueryHistoryResult} from './useQueryHistory';
+export {useQueryTabs} from './useQueryTabs';
+export type {UseQueryTabsResult, OpenTabOpts} from './useQueryTabs';
+export {useSavedQueries} from './useSavedQueries';
+export type {UseSavedQueriesResult} from './useSavedQueries';
+export {queryKeys} from './queryKeys';
 export {
   POLL_INTERVAL_MS,
   MAX_POLL_DURATION_MS,
@@ -34,7 +34,7 @@ export {
   QUERY_TABS_MAX,
   QUERY_HISTORY_PAGE_SIZE,
   TABLE_PREVIEW_ROW_LIMIT,
-  DEFAULT_SQL,
+  DEFAULT_SQL
 } from './query.constants';
 export type {
   QueryState,
@@ -48,5 +48,5 @@ export type {
   QueryTab,
   QueryTabsState,
   SavedQuery,
-  SavedQueriesStore,
+  SavedQueriesStore
 } from './query.types';

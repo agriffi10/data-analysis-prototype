@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
-import { queryKeys } from './queryKeys';
-import type { SavedQueriesStore, SavedQuery } from './query.types';
+import {useQuery, useMutation, useQueryClient} from '@tanstack/react-query';
+import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+import {queryKeys} from './queryKeys';
+import type {SavedQueriesStore, SavedQuery} from './query.types';
 
 export type UseSavedQueriesResult = {
   queries: SavedQuery[];
@@ -25,7 +25,7 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
       const result = await getSavedQueries(username as string);
       if (!result.success) throw new Error(result.error.message);
       return result.data;
-    },
+    }
   });
 
   const upsert = useMutation({
@@ -34,7 +34,7 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: (data) => queryClient.setQueryData(key, data),
+    onSuccess: (data) => queryClient.setQueryData(key, data)
   });
 
   const remove = useMutation({
@@ -43,7 +43,7 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: (data) => queryClient.setQueryData(key, data),
+    onSuccess: (data) => queryClient.setQueryData(key, data)
   });
 
   return {
@@ -51,6 +51,6 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
     isLoading: query.isPending,
     error: query.isError ? (query.error as Error).message : null,
     upsert: upsert.mutateAsync,
-    remove: remove.mutateAsync,
+    remove: remove.mutateAsync
   };
 }

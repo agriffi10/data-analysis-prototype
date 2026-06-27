@@ -1,5 +1,5 @@
-import { forwardRef, useId } from 'react';
-import { cx } from '../lib/cx';
+import {forwardRef, useId} from 'react';
+import {cx} from '../lib/cx';
 
 type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   error?: string | null; // when set: shows the message + invalid ring
@@ -12,7 +12,7 @@ const BASE =
 // Single-line text input (SPEC-028) with built-in error state and optional
 // label. Forwards a ref and all native <input> attributes.
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ error, label, id, className, 'aria-describedby': describedBy, ...rest }, ref) => {
+  ({error, label, id, className, 'aria-describedby': describedBy, ...rest}, ref) => {
     const hasError = error != null && error !== '';
     // Always have a stable id so the <label> and the error message are
     // programmatically associated even when the caller omits `id` (1.3.1 / 3.3.2).
@@ -22,7 +22,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div>
         {label && (
-          <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-text">
+          <label
+            htmlFor={inputId}
+            className="mb-1.5 block text-sm font-medium text-text">
             {label}
           </label>
         )}
@@ -39,7 +41,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {...rest}
         />
         {hasError && (
-          <p id={errorId} role="alert" className="mt-1.5 text-xs text-danger">
+          <p
+            id={errorId}
+            role="alert"
+            className="mt-1.5 text-xs text-danger">
             {error}
           </p>
         )}

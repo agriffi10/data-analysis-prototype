@@ -1,10 +1,10 @@
-import { useQuery, type QueryClient } from '@tanstack/react-query';
-import { getDatabase, listTables } from './glue.service';
-import { queryKeys } from './queryKeys';
-import type { GlueTableSummary } from './query.types';
+import {useQuery, type QueryClient} from '@tanstack/react-query';
+import {getDatabase, listTables} from './glue.service';
+import {queryKeys} from './queryKeys';
+import type {GlueTableSummary} from './query.types';
 
 export type SchemaData = {
-  database: { name: string };
+  database: {name: string};
   tables: GlueTableSummary[];
 };
 
@@ -22,13 +22,13 @@ export function useSchema(databaseName: string | null) {
       if (!dbResult.success) throw new Error(dbResult.error.message);
       const tablesResult = await listTables(db);
       if (!tablesResult.success) throw new Error(tablesResult.error.message);
-      return { database: dbResult.data, tables: tablesResult.data };
-    },
+      return {database: dbResult.data, tables: tablesResult.data};
+    }
   });
 }
 
 // FR-006: refresh a database's schema after table DDL runs through runQuery.
 // Exported (not a method) so it can be called with any QueryClient and unit-tested.
 export async function invalidateSchema(client: QueryClient, databaseName: string): Promise<void> {
-  await client.invalidateQueries({ queryKey: queryKeys.schema(databaseName) });
+  await client.invalidateQueries({queryKey: queryKeys.schema(databaseName)});
 }

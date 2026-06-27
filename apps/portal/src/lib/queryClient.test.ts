@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { QueryClient } from '@tanstack/react-query';
-import { invalidateListing } from './queryClient';
-import { fileBrowserKeys } from '../features/file-browser/fileBrowserKeys';
+import {describe, it, expect, vi} from 'vitest';
+import {QueryClient} from '@tanstack/react-query';
+import {invalidateListing} from './queryClient';
+import {fileBrowserKeys} from '../features/file-browser/fileBrowserKeys';
 
 describe('invalidateListing', () => {
   it('invalidates exactly the listing key for the given bucket + prefix', async () => {
@@ -11,7 +11,7 @@ describe('invalidateListing', () => {
     await invalidateListing(client, 'my-bucket', 'alice/');
 
     expect(spy).toHaveBeenCalledWith({
-      queryKey: fileBrowserKeys.list('my-bucket', 'alice/'),
+      queryKey: fileBrowserKeys.list('my-bucket', 'alice/')
     });
   });
 

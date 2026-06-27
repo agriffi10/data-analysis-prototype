@@ -1,6 +1,6 @@
-import { AthenaClient } from '@aws-sdk/client-athena';
-import { getSessionCredentials } from './awsCredentials';
-import type { ServiceResult } from '../types/service.types';
+import {AthenaClient} from '@aws-sdk/client-athena';
+import {getSessionCredentials} from './awsCredentials';
+import type {ServiceResult} from '../types/service.types';
 
 // Authenticated Athena client (SPEC-034 FR-001). Built from the same Cognito
 // Identity Pool credentials as getS3Client (via getSessionCredentials): the
@@ -16,7 +16,7 @@ export async function getAthenaClient(forceRefresh = false): Promise<ServiceResu
     success: true,
     data: new AthenaClient({
       region: import.meta.env.VITE_AWS_REGION,
-      credentials: creds.data,
-    }),
+      credentials: creds.data
+    })
   };
 }

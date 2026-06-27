@@ -1,5 +1,5 @@
-import { ConnectionsPage as ConnectionsView } from '../features/shared-spaces';
-import { usePageTitle } from '../hooks/usePageTitle';
+import {ConnectionsPage as ConnectionsView} from '../features/shared-spaces';
+import {usePageTitle} from '../hooks/usePageTitle';
 
 // The Connections tab (`/connections`) — SPEC-052 manages shared spaces here.
 // Chrome (Header + primary tabs) and the auth gate live in

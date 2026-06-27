@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { FileBrowser, ensurePrefixMarker, prefixMarkerKey } from '../features/file-browser';
-import { Sidebar } from '../components/Sidebar';
-import { useAuth } from '../features/auth';
-import { usePageTitle } from '../hooks/usePageTitle';
+import {useEffect} from 'react';
+import {useSearchParams} from 'react-router-dom';
+import {FileBrowser, ensurePrefixMarker, prefixMarkerKey} from '../features/file-browser';
+import {Sidebar} from '../components/Sidebar';
+import {useAuth} from '../features/auth';
+import {usePageTitle} from '../hooks/usePageTitle';
 
 // Dev-only fallback (SPEC-013): browse a static/public test bucket without auth
 // for local work without AWS. Honoured ONLY in a dev build (matches the service
@@ -20,7 +20,7 @@ const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | un
 // authenticated flow (SPEC-013) it shows the user's own space in the user-space
 // bucket, rooted at `{username}/`, with the username hidden from the UI.
 export default function FilesPage() {
-  const { user } = useAuth();
+  const {user} = useAuth();
   usePageTitle('Files');
 
   // Authenticated flow: scope to the user's own prefix in the user-space bucket.
@@ -58,7 +58,7 @@ export default function FilesPage() {
     void (async () => {
       const result = await ensurePrefixMarker({
         bucket: userSpaceBucket,
-        username: user.username,
+        username: user.username
       });
       if (!result.success) {
         console.warn(`[prefix-marker] could not ensure marker: ${result.error.message}`);
@@ -69,7 +69,9 @@ export default function FilesPage() {
   return (
     <>
       <Sidebar />
-      <main id="main" className="min-w-0 flex-1 px-4 py-6">
+      <main
+        id="main"
+        className="min-w-0 flex-1 px-4 py-6">
         <h1 className="sr-only">{rootLabel ?? 'My Files'}</h1>
         {bucket && (devUnauthenticated || user) ? (
           <FileBrowser
@@ -83,7 +85,9 @@ export default function FilesPage() {
             username={devUnauthenticated ? undefined : user?.username}
           />
         ) : (
-          <div role="alert" className="rounded-lg border border-danger bg-danger-soft p-4 text-danger">
+          <div
+            role="alert"
+            className="rounded-lg border border-danger bg-danger-soft p-4 text-danger">
             <p className="font-medium">Configuration error</p>
             <p className="mt-1 text-sm">VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.</p>
           </div>

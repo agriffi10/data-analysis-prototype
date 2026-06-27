@@ -1,51 +1,44 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '../auth';
-import { Button } from '../../components/Button';
-import { Banner } from '../../components/Banner';
-import { cx } from '../../lib/cx';
-import {
-  runQuery,
-  stopQuery,
-  getTableDdl,
-  runStatementToCompletion,
-  parseS3Url,
-  isTerminalState,
-} from './query.service';
-import { copyObject } from '../file-browser/fileBrowser.service';
-import { invalidateListing } from '../../lib/queryClient';
-import { TABLE_PREVIEW_ROW_LIMIT } from './query.constants';
-import { useQueryExecution } from './useQueryExecution';
-import { useQueryResults } from './useQueryResults';
-import { useQueryHistory } from './useQueryHistory';
-import { useQueryTabs } from './useQueryTabs';
-import { useSavedQueries } from './useSavedQueries';
-import { useConnections } from './useConnections';
-import { useActiveDatabase } from './useActiveDatabase';
-import { invalidateSchema } from './useSchema';
-import { isSchemaChangingSql, sameSql, stripTrailingSemicolons } from './query.sql';
-import { SchemaBrowser } from './SchemaBrowser';
-import { DropTableDialog } from './DropTableDialog';
-import { CreateViewDialog } from './CreateViewDialog';
-import { SaveResultsDialog } from './SaveResultsDialog';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { Toast, type ToastState } from './Toast';
-import { QueryStatusBar } from './QueryStatusBar';
-import { QueryResultsTable } from './QueryResultsTable';
-import { QueryHistoryPanel } from './QueryHistoryPanel';
-import { SavedQueriesPanel } from './SavedQueriesPanel';
-import { QueryTabStrip } from './QueryTabStrip';
-import { ClearQueryDialog } from './ClearQueryDialog';
-import { CloseTabDialog } from './CloseTabDialog';
-import { TabLimitDialog } from './TabLimitDialog';
-import { SaveQueryDialog } from './SaveQueryDialog';
-import type { SqlEditorHandle } from './SqlEditor';
-import type { QueryHistoryEntry, QueryStatus, QueryTab, SavedQuery, GlueTableSummary } from './query.types';
+import {Suspense, lazy, useCallback, useEffect, useRef, useState} from 'react';
+import {useNavigate} from 'react-router-dom';
+import {useQueryClient} from '@tanstack/react-query';
+import {useAuth} from '../auth';
+import {Button} from '../../components/Button';
+import {Banner} from '../../components/Banner';
+import {cx} from '../../lib/cx';
+import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, parseS3Url, isTerminalState} from './query.service';
+import {copyObject} from '../file-browser/fileBrowser.service';
+import {invalidateListing} from '../../lib/queryClient';
+import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
+import {useQueryExecution} from './useQueryExecution';
+import {useQueryResults} from './useQueryResults';
+import {useQueryHistory} from './useQueryHistory';
+import {useQueryTabs} from './useQueryTabs';
+import {useSavedQueries} from './useSavedQueries';
+import {useConnections} from './useConnections';
+import {useActiveDatabase} from './useActiveDatabase';
+import {invalidateSchema} from './useSchema';
+import {isSchemaChangingSql, sameSql, stripTrailingSemicolons} from './query.sql';
+import {SchemaBrowser} from './SchemaBrowser';
+import {DropTableDialog} from './DropTableDialog';
+import {CreateViewDialog} from './CreateViewDialog';
+import {SaveResultsDialog} from './SaveResultsDialog';
+import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {Toast, type ToastState} from './Toast';
+import {QueryStatusBar} from './QueryStatusBar';
+import {QueryResultsTable} from './QueryResultsTable';
+import {QueryHistoryPanel} from './QueryHistoryPanel';
+import {SavedQueriesPanel} from './SavedQueriesPanel';
+import {QueryTabStrip} from './QueryTabStrip';
+import {ClearQueryDialog} from './ClearQueryDialog';
+import {CloseTabDialog} from './CloseTabDialog';
+import {TabLimitDialog} from './TabLimitDialog';
+import {SaveQueryDialog} from './SaveQueryDialog';
+import type {SqlEditorHandle} from './SqlEditor';
+import type {QueryHistoryEntry, QueryStatus, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
-const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
+const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
 
 // SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). `submittedSql` is kept so the background finalizer can decide
@@ -65,7 +58,7 @@ function TabExecutionPoller({
   executionId,
   submittedSql,
   onStatus,
-  onFinalize,
+  onFinalize
 }: {
   tabId: string;
   executionId: string;
@@ -96,7 +89,7 @@ function TabExecutionPoller({
 // each tab is an independent query window with its own SQL + run state; Run/Clear/
 // Stop/status/results all act on the active tab.
 export function QueryWorkspace() {
-  const { user } = useAuth();
+  const {user} = useAuth();
   const username = user?.username ?? '';
   const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
@@ -106,15 +99,15 @@ export function QueryWorkspace() {
   // SPEC-047: the workspace targets one active database for all tabs (persisted,
   // default = personal), chosen from the connections the user can query. The
   // shared-spaces arc extends `useConnections` without touching this wiring.
-  const { connections } = useConnections(username || null);
-  const { activeDatabase, setActiveDatabase, fellBack, dismissFellBack } = useActiveDatabase(
+  const {connections} = useConnections(username || null);
+  const {activeDatabase, setActiveDatabase, fellBack, dismissFellBack} = useActiveDatabase(
     username || null,
     connections
   );
   const database = activeDatabase;
 
   const tabs = useQueryTabs(username);
-  const { activeTab, activeTabId } = tabs;
+  const {activeTab, activeTabId} = tabs;
 
   // Per-tab run state, keyed by tab id (in-memory for the session).
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
@@ -132,7 +125,7 @@ export function QueryWorkspace() {
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<GlueTableSummary | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
-  const [toast, setToast] = useState<(ToastState & { action?: { label: string; onClick: () => void } }) | null>(null);
+  const [toast, setToast] = useState<(ToastState & {action?: {label: string; onClick: () => void}}) | null>(null);
   // SPEC-048: Create view.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewInFlight, setCreateViewInFlight] = useState(false);
@@ -149,7 +142,7 @@ export function QueryWorkspace() {
   const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
 
-  const { appendEntry, updateEntry } = useQueryHistory(username || null);
+  const {appendEntry, updateEntry} = useQueryHistory(username || null);
   const saved = useSavedQueries(username || null);
 
   // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the
@@ -187,7 +180,7 @@ export function QueryWorkspace() {
 
   // Stable callbacks for the per-tab pollers.
   const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
-    setStatuses((s) => (s[tabId] === status ? s : { ...s, [tabId]: status }));
+    setStatuses((s) => (s[tabId] === status ? s : {...s, [tabId]: status}));
   }, []);
   const handleFinalize = useCallback(
     (executionId: string, status: QueryStatus, sql: string) => {
@@ -196,8 +189,8 @@ export function QueryWorkspace() {
         patch: {
           status: status.state,
           dataScannedBytes: status.dataScannedBytes,
-          durationMs: status.engineExecutionTimeMillis,
-        },
+          durationMs: status.engineExecutionTimeMillis
+        }
       }).catch((e) => console.warn('[query-history] update failed', e));
 
       if (status.state === 'SUCCEEDED' && database && isSchemaChangingSql(sql)) {
@@ -221,17 +214,17 @@ export function QueryWorkspace() {
     const linkedId = tabs.tabs.find((t) => t.id === tabId)?.savedQueryId;
     const linkedSaved = linkedId ? savedById.get(linkedId) : undefined;
 
-    setRunErrors((e) => ({ ...e, [tabId]: null }));
-    setDismissed((d) => ({ ...d, [tabId]: false }));
+    setRunErrors((e) => ({...e, [tabId]: null}));
+    setDismissed((d) => ({...d, [tabId]: false}));
     void (async () => {
-      const result = await runQuery({ sql: sqlText, database, username });
+      const result = await runQuery({sql: sqlText, database, username});
       if (!result.success) {
-        setRunErrors((e) => ({ ...e, [tabId]: result.error.message }));
+        setRunErrors((e) => ({...e, [tabId]: result.error.message}));
         return;
       }
       const id = result.data.queryExecutionId;
       // Reset any prior terminal status so the UI shows "running" immediately.
-      setStatuses((s) => ({ ...s, [tabId]: undefined }));
+      setStatuses((s) => ({...s, [tabId]: undefined}));
       // Persist the history entry BEFORE recording the run (which mounts the
       // poller). The finalizer's updateEntry is a read-modify-write, so if the
       // append hasn't landed yet it would read a history without this entry and
@@ -244,12 +237,12 @@ export function QueryWorkspace() {
         submittedAt: new Date().toISOString(),
         ...(linkedSaved && {
           savedQueryId: linkedSaved.id,
-          savedQueryName: linkedSaved.name,
-        }),
+          savedQueryName: linkedSaved.name
+        })
       }).catch((e) => console.warn('[query-history] append failed', e));
       setRuns((r) => ({
         ...r,
-        [tabId]: { executionId: id, startedAt: Date.now(), submittedSql: sqlText },
+        [tabId]: {executionId: id, startedAt: Date.now(), submittedSql: sqlText}
       }));
     })();
   };
@@ -280,7 +273,7 @@ export function QueryWorkspace() {
   // rows, independent of how many pages the results table loaded. The destination
   // listing is invalidated so the new file appears if the user browses there, and a
   // success toast offers a "View in Files" deep-link (SPEC-044).
-  const doSaveCopy = (args: { sourceKey: string; destPrefix: string; filename: string; overwrite: boolean }) => {
+  const doSaveCopy = (args: {sourceKey: string; destPrefix: string; filename: string; overwrite: boolean}) => {
     if (!userSpaceBucket) return;
     const destKey = `${args.destPrefix}${args.filename}`;
     setSaveInFlight(true);
@@ -290,7 +283,7 @@ export function QueryWorkspace() {
         sourceKey: args.sourceKey,
         destKey,
         username,
-        overwrite: args.overwrite,
+        overwrite: args.overwrite
       });
       setSaveInFlight(false);
       if (!result.success) {
@@ -300,13 +293,13 @@ export function QueryWorkspace() {
           setOverwritePrompt({
             sourceKey: args.sourceKey,
             destPrefix: args.destPrefix,
-            filename: args.filename,
+            filename: args.filename
           });
           return;
         }
         setToast({
           variant: 'danger',
-          message: `Couldn’t save results: ${result.error.message}`,
+          message: `Couldn’t save results: ${result.error.message}`
         });
         return;
       }
@@ -321,24 +314,24 @@ export function QueryWorkspace() {
           onClick: () => {
             setToast(null);
             navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
-          },
-        },
+          }
+        }
       });
     })();
   };
 
-  const handleSaveResults = (args: { destPrefix: string; filename: string }) => {
+  const handleSaveResults = (args: {destPrefix: string; filename: string}) => {
     const outputLocation = activeStatus?.outputLocation;
     if (!outputLocation) return;
     const parsed = parseS3Url(outputLocation);
     if (!parsed) {
       setToast({
         variant: 'danger',
-        message: 'Couldn’t read the query result location.',
+        message: 'Couldn’t read the query result location.'
       });
       return;
     }
-    doSaveCopy({ ...args, sourceKey: parsed.key, overwrite: false });
+    doSaveCopy({...args, sourceKey: parsed.key, overwrite: false});
   };
 
   // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
@@ -352,7 +345,7 @@ export function QueryWorkspace() {
   // server-side; history is the durable record).
   const dropRunState = (id: string) => {
     const without = <T,>(m: Record<string, T>) => {
-      const next = { ...m };
+      const next = {...m};
       delete next[id];
       return next;
     };
@@ -390,7 +383,7 @@ export function QueryWorkspace() {
   // the saved query to write into (an existing id) or null to create a new one;
   // either way the active tab is (re)linked + relabelled and its dirty marker
   // clears (the saved sql now matches the tab sql).
-  const handleSaveConfirm = ({ name, targetId }: { name: string; targetId: string | null }) => {
+  const handleSaveConfirm = ({name, targetId}: {name: string; targetId: string | null}) => {
     const now = new Date().toISOString();
     const existing = targetId ? savedById.get(targetId) : undefined;
     const query: SavedQuery = {
@@ -399,17 +392,17 @@ export function QueryWorkspace() {
       sql: activeTab.sql,
       database,
       createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
+      updatedAt: now
     };
     saved.upsert(query).catch((e) => console.warn('[saved-queries] save failed', e));
-    tabs.setActiveTabMeta({ label: name, savedQueryId: query.id });
+    tabs.setActiveTabMeta({label: name, savedQueryId: query.id});
     setSaveOpen(false);
     editorRef.current?.focus();
   };
 
   // FR-006: open a saved query into a new linked tab (cap dialog honored).
   const handleOpenSaved = (q: SavedQuery) => {
-    const id = tabs.openTab({ label: q.name, sql: q.sql, savedQueryId: q.id });
+    const id = tabs.openTab({label: q.name, sql: q.sql, savedQueryId: q.id});
     if (id === null) {
       setLimitOpen(true);
       return;
@@ -447,25 +440,25 @@ export function QueryWorkspace() {
     // FR-003: SHOW CREATE TABLE → a new, non-run "DDL: {table}" tab.
     onViewDdl: (table: GlueTableSummary) => {
       if (!database) return;
-      setToast({ variant: 'info', message: `Loading DDL for ${table.name}…` });
+      setToast({variant: 'info', message: `Loading DDL for ${table.name}…`});
       void (async () => {
         const result = await getTableDdl({
           database,
           table: table.name,
           username,
-          isView: table.tableType === 'VIRTUAL_VIEW',
+          isView: table.tableType === 'VIRTUAL_VIEW'
         });
         if (!result.success) {
           setToast({
             variant: 'danger',
-            message: `Couldn’t load DDL: ${result.error.message}`,
+            message: `Couldn’t load DDL: ${result.error.message}`
           });
           return;
         }
         setToast(null);
         const id = tabs.openTab({
           label: `DDL: ${table.name}`,
-          sql: result.data,
+          sql: result.data
         });
         if (id === null) setLimitOpen(true);
         else editorRef.current?.focus();
@@ -474,7 +467,7 @@ export function QueryWorkspace() {
     // FR-004: open a "{table}" tab pre-filled with SELECT * LIMIT N and auto-run.
     onViewData: (table: GlueTableSummary) => {
       const sql = `SELECT * FROM ${database}.${table.name} LIMIT ${TABLE_PREVIEW_ROW_LIMIT}`;
-      const id = tabs.openTab({ label: table.name, sql });
+      const id = tabs.openTab({label: table.name, sql});
       if (id === null) {
         setLimitOpen(true);
         return;
@@ -483,7 +476,7 @@ export function QueryWorkspace() {
       submit(sql, id); // auto-run into the just-opened tab
     },
     // FR-005: confirm, then drop in the background (handled on confirm).
-    onDropTable: (table: GlueTableSummary) => setDropping(table),
+    onDropTable: (table: GlueTableSummary) => setDropping(table)
   };
 
   // SPEC-048 FR-001–004: turn the active tab's SQL into a named view in the active
@@ -494,13 +487,13 @@ export function QueryWorkspace() {
     const sql = `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`;
     setCreateViewInFlight(true);
     void (async () => {
-      const result = await runStatementToCompletion({ sql, database, username });
+      const result = await runStatementToCompletion({sql, database, username});
       setCreateViewInFlight(false);
       setCreateViewOpen(false);
       if (!result.success) {
         setToast({
           variant: 'danger',
-          message: `Couldn’t create view ${name}: ${result.error.message}`,
+          message: `Couldn’t create view ${name}: ${result.error.message}`
         });
         return;
       }
@@ -513,16 +506,16 @@ export function QueryWorkspace() {
         submittedAt: new Date().toISOString(),
         status: status.state,
         dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis,
+        durationMs: status.engineExecutionTimeMillis
       }).catch((e) => console.warn('[query-history] append failed', e));
 
       if (status.state === 'SUCCEEDED') {
         void invalidateSchema(queryClient, database);
-        setToast({ variant: 'success', message: `Created view ${name}` });
+        setToast({variant: 'success', message: `Created view ${name}`});
       } else {
         setToast({
           variant: 'danger',
-          message: `Couldn’t create view ${name}: ${status.stateChangeReason ?? 'Create view failed'}`,
+          message: `Couldn’t create view ${name}: ${status.stateChangeReason ?? 'Create view failed'}`
         });
       }
     })();
@@ -538,14 +531,14 @@ export function QueryWorkspace() {
       const result = await runStatementToCompletion({
         sql,
         database,
-        username,
+        username
       });
       setDropInFlight(false);
       setDropping(null);
       if (!result.success) {
         setToast({
           variant: 'danger',
-          message: `Couldn’t drop ${table.name}: ${result.error.message}`,
+          message: `Couldn’t drop ${table.name}: ${result.error.message}`
         });
         return;
       }
@@ -558,16 +551,16 @@ export function QueryWorkspace() {
         submittedAt: new Date().toISOString(),
         status: status.state,
         dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis,
+        durationMs: status.engineExecutionTimeMillis
       }).catch((e) => console.warn('[query-history] append failed', e));
 
       if (status.state === 'SUCCEEDED') {
         void invalidateSchema(queryClient, database);
-        setToast({ variant: 'success', message: `Dropped ${table.name}` });
+        setToast({variant: 'success', message: `Dropped ${table.name}`});
       } else {
         setToast({
           variant: 'danger',
-          message: `Couldn’t drop ${table.name}: ${status.stateChangeReason ?? 'Drop failed'}`,
+          message: `Couldn’t drop ${table.name}: ${status.stateChangeReason ?? 'Drop failed'}`
         });
       }
     })();
@@ -621,7 +614,9 @@ export function QueryWorkspace() {
         />
       ))}
 
-      <main id="main" className="flex min-w-0 flex-1 flex-col">
+      <main
+        id="main"
+        className="flex min-w-0 flex-1 flex-col">
         <h1 className="sr-only">Query workspace</h1>
         <QueryTabStrip
           tabs={tabs.tabs}
@@ -640,47 +635,59 @@ export function QueryWorkspace() {
           role="tabpanel"
           id="query-tabpanel"
           aria-labelledby={`query-tab-${activeTabId}`}
-          className="flex min-w-0 flex-1 flex-col"
-        >
+          className="flex min-w-0 flex-1 flex-col">
           {/* SPEC-047 FR-002: a persisted database that's no longer available resets
             to the personal workspace — surfaced non-blockingly here. */}
           {fellBack && (
             <div className="px-5 pt-4">
-              <Banner variant="info" role="status" title="Switched to your workspace" onDismiss={dismissFellBack}>
+              <Banner
+                variant="info"
+                role="status"
+                title="Switched to your workspace"
+                onDismiss={dismissFellBack}>
                 The database you were querying is no longer available, so we switched back to your personal workspace.
               </Banner>
             </div>
           )}
           <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
             <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-sm text-text-2">
-              <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
+              <span
+                className="h-2 w-2 rounded-full bg-accent"
+                aria-hidden="true"
+              />
               querying <code className="font-mono text-text">{database}</code>
             </span>
             <div className="flex-1" />
-            <Button variant="ghost" onClick={() => setClearOpen(true)} disabled={!canClear} aria-label="Clear query">
+            <Button
+              variant="ghost"
+              onClick={() => setClearOpen(true)}
+              disabled={!canClear}
+              aria-label="Clear query">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
                 className="h-4 w-4"
-                aria-hidden="true"
-              >
+                aria-hidden="true">
                 <path d="M3 6h18" />
                 <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
               </svg>
               Clear
             </Button>
-            <Button variant="ghost" onClick={() => setSaveOpen(true)} disabled={!canSave} aria-label="Save query">
+            <Button
+              variant="ghost"
+              onClick={() => setSaveOpen(true)}
+              disabled={!canSave}
+              aria-label="Save query">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
                 className="h-4 w-4"
-                aria-hidden="true"
-              >
+                aria-hidden="true">
                 <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
                 <path d="M9 4v5h6" />
                 <path d="M8 21v-7h8v7" />
@@ -691,18 +698,20 @@ export function QueryWorkspace() {
               variant="ghost"
               onClick={() => setCreateViewOpen(true)}
               disabled={!canSave}
-              aria-label="Create view"
-            >
+              aria-label="Create view">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
                 className="h-4 w-4"
-                aria-hidden="true"
-              >
+                aria-hidden="true">
                 <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-                <circle cx="12" cy="12" r="3" />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="3"
+                />
               </svg>
               Create view
             </Button>
@@ -711,23 +720,36 @@ export function QueryWorkspace() {
                 variant="ghost"
                 onClick={handleStop}
                 aria-label="Stop the running query"
-                className="text-danger hover:bg-danger-soft hover:text-danger"
-              >
+                className="text-danger hover:bg-danger-soft hover:text-danger">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
                   className="h-4 w-4"
-                  aria-hidden="true"
-                >
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                  aria-hidden="true">
+                  <rect
+                    x="6"
+                    y="6"
+                    width="12"
+                    height="12"
+                    rx="2"
+                  />
                 </svg>
                 Stop
               </Button>
             ) : (
-              <Button variant="primary" onClick={handleRun} disabled={!canRun} aria-label="Run query">
-                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className="h-4 w-4" aria-hidden="true">
+              <Button
+                variant="primary"
+                onClick={handleRun}
+                disabled={!canRun}
+                aria-label="Run query">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  stroke="none"
+                  className="h-4 w-4"
+                  aria-hidden="true">
                   <path d="M7 5v14l11-7z" />
                 </svg>
                 Run
@@ -741,9 +763,13 @@ export function QueryWorkspace() {
                 <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
                   Loading editor&hellip;
                 </div>
-              }
-            >
-              <SqlEditor ref={editorRef} value={activeTab.sql} onChange={tabs.setActiveSql} onRun={handleRun} />
+              }>
+              <SqlEditor
+                ref={editorRef}
+                value={activeTab.sql}
+                onChange={tabs.setActiveSql}
+                onRun={handleRun}
+              />
             </Suspense>
           </div>
 
@@ -765,10 +791,9 @@ export function QueryWorkspace() {
                 variant="danger"
                 title="Query failed."
                 onDismiss={() => {
-                  setRunErrors((e) => ({ ...e, [activeTabId]: null }));
-                  setDismissed((d) => ({ ...d, [activeTabId]: true }));
-                }}
-              >
+                  setRunErrors((e) => ({...e, [activeTabId]: null}));
+                  setDismissed((d) => ({...d, [activeTabId]: true}));
+                }}>
                 <code className="font-mono text-xs">{errorMessage}</code>
               </Banner>
             </div>
@@ -818,7 +843,12 @@ export function QueryWorkspace() {
         onDelete={handleDeleteSaved}
       />
 
-      {clearOpen && <ClearQueryDialog onConfirm={handleClearConfirm} onCancel={() => setClearOpen(false)} />}
+      {clearOpen && (
+        <ClearQueryDialog
+          onConfirm={handleClearConfirm}
+          onCancel={() => setClearOpen(false)}
+        />
+      )}
       {saveOpen && (
         <SaveQueryDialog
           initialName={activeLinkedSaved?.name ?? ''}
@@ -828,7 +858,13 @@ export function QueryWorkspace() {
           onCancel={() => setSaveOpen(false)}
         />
       )}
-      {closing && <CloseTabDialog label={closing.label} onConfirm={confirmClose} onCancel={() => setClosing(null)} />}
+      {closing && (
+        <CloseTabDialog
+          label={closing.label}
+          onConfirm={confirmClose}
+          onCancel={() => setClosing(null)}
+        />
+      )}
       {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
       {createViewOpen && (
         <CreateViewDialog
@@ -870,21 +906,25 @@ export function QueryWorkspace() {
               sourceKey: overwritePrompt.sourceKey,
               destPrefix: overwritePrompt.destPrefix,
               filename: overwritePrompt.filename,
-              overwrite: true,
+              overwrite: true
             })
           }
           onCancel={() => {
             setOverwritePrompt(null);
             setSaveResultsOpen(true); // return to the dialog with the name editable
-          }}
-        >
+          }}>
           <p className="mt-3 text-sm text-text-2">
             A file named “{overwritePrompt.filename}” already exists in that folder. Saving will replace it.
           </p>
         </ConfirmDialog>
       )}
       {toast && (
-        <Toast variant={toast.variant} message={toast.message} action={toast.action} onDismiss={() => setToast(null)} />
+        <Toast
+          variant={toast.variant}
+          message={toast.message}
+          action={toast.action}
+          onDismiss={() => setToast(null)}
+        />
       )}
     </div>
   );

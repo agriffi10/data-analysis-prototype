@@ -1,6 +1,6 @@
-import { getCurrentUser, fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
-import type { AuthUser } from './auth.types';
-import type { ServiceResult } from '../../types/service.types';
+import {getCurrentUser, fetchAuthSession, signInWithRedirect, signOut} from 'aws-amplify/auth';
+import type {AuthUser} from './auth.types';
+import type {ServiceResult} from '../../types/service.types';
 
 // Wraps Amplify auth calls in the project ServiceResult shape. These functions
 // never throw — callers branch on `success`.
@@ -12,8 +12,8 @@ function toError(
   message: string;
   code?: string;
 } {
-  const e = err as { message?: string; name?: string };
-  return { message: e.message ?? fallback, code: e.name };
+  const e = err as {message?: string; name?: string};
+  return {message: e.message ?? fallback, code: e.name};
 }
 
 /**
@@ -23,7 +23,7 @@ function toError(
  */
 export async function getCurrentAuthUser(): Promise<ServiceResult<AuthUser>> {
   try {
-    const { username } = await getCurrentUser();
+    const {username} = await getCurrentUser();
 
     // Email comes from the ID token's claims (we request the `email` OAuth scope),
     // NOT from fetchUserAttributes()/GetUser: the Hosted UI access token lacks the
@@ -39,9 +39,9 @@ export async function getCurrentAuthUser(): Promise<ServiceResult<AuthUser>> {
       // The session/claim is optional; username alone is a valid authenticated user.
     }
 
-    return { success: true, data: { username, email } };
+    return {success: true, data: {username, email}};
   } catch (err) {
-    return { success: false, error: toError(err, 'Not signed in') };
+    return {success: false, error: toError(err, 'Not signed in')};
   }
 }
 
@@ -49,9 +49,9 @@ export async function getCurrentAuthUser(): Promise<ServiceResult<AuthUser>> {
 export async function startSignIn(): Promise<ServiceResult<void>> {
   try {
     await signInWithRedirect();
-    return { success: true, data: undefined };
+    return {success: true, data: undefined};
   } catch (err) {
-    return { success: false, error: toError(err, 'Unable to start sign-in') };
+    return {success: false, error: toError(err, 'Unable to start sign-in')};
   }
 }
 
@@ -74,8 +74,8 @@ export async function startSignUp(): Promise<ServiceResult<void>> {
 export async function startSignOut(): Promise<ServiceResult<void>> {
   try {
     await signOut();
-    return { success: true, data: undefined };
+    return {success: true, data: undefined};
   } catch (err) {
-    return { success: false, error: toError(err, 'Unable to sign out') };
+    return {success: false, error: toError(err, 'Unable to sign out')};
   }
 }

@@ -1,22 +1,22 @@
-import { describe, it, expect, vi, type MockedFunction } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { Sidebar } from './Sidebar';
-import type { AuthContextValue } from '../features/auth';
+import {describe, it, expect, vi, type MockedFunction} from 'vitest';
+import {render, screen} from '@testing-library/react';
+import {MemoryRouter} from 'react-router-dom';
+import {Sidebar} from './Sidebar';
+import type {AuthContextValue} from '../features/auth';
 
-vi.mock('../features/auth', () => ({ useAuth: vi.fn() }));
+vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
 
-import { useAuth } from '../features/auth';
+import {useAuth} from '../features/auth';
 
 const mockUseAuth = useAuth as unknown as MockedFunction<() => AuthContextValue>;
 
 const authValue = (username: string | null): AuthContextValue => ({
   status: username ? 'authenticated' : 'unauthenticated',
-  user: username ? { username } : null,
+  user: username ? {username} : null,
   error: null,
   signIn: vi.fn(),
   signUp: vi.fn(),
-  signOut: vi.fn(),
+  signOut: vi.fn()
 });
 
 const renderSidebar = () =>
@@ -32,7 +32,7 @@ describe('Sidebar', () => {
     renderSidebar();
 
     expect(screen.getByText('My Files')).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /alice/i });
+    const link = screen.getByRole('link', {name: /alice/i});
     expect(link).toHaveAttribute('href', '/files');
   });
 

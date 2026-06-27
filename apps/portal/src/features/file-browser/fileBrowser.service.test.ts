@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {
   HeadObjectCommand,
   PutObjectCommand,
@@ -6,9 +6,9 @@ import {
   DeleteObjectsCommand,
   CopyObjectCommand,
   ListObjectsV2Command,
-  GetObjectCommand,
+  GetObjectCommand
 } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
 import {
   listFiles,
   ensurePrefixMarker,
@@ -27,13 +27,13 @@ import {
   validateFolderName,
   uploadPercent,
   getObjectMetadata,
-  __resetPrefixMarkerCache,
+  __resetPrefixMarkerCache
 } from './fileBrowser.service';
-import { LISTING_PAGE_SIZE } from './fileBrowser.constants';
-import { PREFIX_MARKER_BODY } from './fileBrowser.constants';
-import { MAX_UPLOAD_BYTES } from './fileBrowser.types';
+import {LISTING_PAGE_SIZE} from './fileBrowser.constants';
+import {PREFIX_MARKER_BODY} from './fileBrowser.constants';
+import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
 
-vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }));
+vi.mock('@aws-sdk/s3-request-presigner', () => ({getSignedUrl: vi.fn()}));
 const mockGetSignedUrl = vi.mocked(getSignedUrl);
 
 // Mock the managed lib-storage Upload. `uploadState` captures the constructor
@@ -41,9 +41,9 @@ const mockGetSignedUrl = vi.mocked(getSignedUrl);
 // how done() resolves/rejects.
 const uploadState = vi.hoisted(() => ({
   ctorArgs: null as unknown,
-  progressCb: null as null | ((p: { loaded?: number; total?: number }) => void),
+  progressCb: null as null | ((p: {loaded?: number; total?: number}) => void),
   doneImpl: null as null | (() => Promise<unknown>),
-  aborted: false,
+  aborted: false
 }));
 
 vi.mock('@aws-sdk/lib-storage', () => ({
@@ -51,7 +51,7 @@ vi.mock('@aws-sdk/lib-storage', () => ({
     constructor(args: unknown) {
       uploadState.ctorArgs = args;
     }
-    on(_event: string, cb: (p: { loaded?: number; total?: number }) => void) {
+    on(_event: string, cb: (p: {loaded?: number; total?: number}) => void) {
       uploadState.progressCb = cb;
     }
     async done() {
@@ -60,26 +60,26 @@ vi.mock('@aws-sdk/lib-storage', () => ({
     async abort() {
       uploadState.aborted = true;
     }
-  },
+  }
 }));
 
 // The service now obtains an authenticated client via getS3Client() (SPEC-013).
 // Mock that + the client's send. vi.hoisted lets the mock factory reference these.
-const { mockSend, mockGetS3Client, mockStaticSend } = vi.hoisted(() => ({
+const {mockSend, mockGetS3Client, mockStaticSend} = vi.hoisted(() => ({
   mockSend: vi.fn(),
   mockGetS3Client: vi.fn(),
-  mockStaticSend: vi.fn(),
+  mockStaticSend: vi.fn()
 }));
 
 vi.mock('../../lib/s3Client', () => ({
-  s3Client: { send: mockStaticSend }, // dev-only fallback; unused on the auth path
-  getS3Client: mockGetS3Client,
+  s3Client: {send: mockStaticSend}, // dev-only fallback; unused on the auth path
+  getS3Client: mockGetS3Client
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: an authenticated client whose send is mockSend.
-  mockGetS3Client.mockResolvedValue({ success: true, data: { send: mockSend } });
+  mockGetS3Client.mockResolvedValue({success: true, data: {send: mockSend}});
   // Reset the once-per-session marker guard so each case starts clean.
   __resetPrefixMarkerCache();
   uploadState.ctorArgs = null;
@@ -92,7 +92,7 @@ beforeEach(() => {
 function notFoundError() {
   return Object.assign(new Error('Not Found'), {
     name: 'NotFound',
-    $metadata: { httpStatusCode: 404 },
+    $metadata: {httpStatusCode: 404}
   });
 }
 
@@ -103,15 +103,15 @@ describe('listFiles', () => {
         {
           Key: 'documents/report.pdf',
           Size: 1024,
-          LastModified: new Date('2024-01-15T10:00:00Z'),
+          LastModified: new Date('2024-01-15T10:00:00Z')
         },
         {
           Key: 'documents/notes.txt',
           Size: 512,
-          LastModified: new Date('2024-01-10T08:00:00Z'),
-        },
+          LastModified: new Date('2024-01-10T08:00:00Z')
+        }
       ],
-      CommonPrefixes: [{ Prefix: 'documents/archive/' }],
+      CommonPrefixes: [{Prefix: 'documents/archive/'}]
     });
 
     const result = await listFiles('my-bucket', 'documents/');
@@ -123,7 +123,7 @@ describe('listFiles', () => {
     expect(result.data.folders[0]).toEqual({
       type: 'folder',
       prefix: 'documents/archive/',
-      name: 'archive',
+      name: 'archive'
     });
 
     expect(result.data.files).toHaveLength(2);
@@ -132,24 +132,24 @@ describe('listFiles', () => {
       key: 'documents/notes.txt',
       name: 'notes.txt',
       size: 512,
-      lastModified: new Date('2024-01-10T08:00:00Z'),
+      lastModified: new Date('2024-01-10T08:00:00Z')
     });
     expect(result.data.files[1]).toEqual({
       type: 'file',
       key: 'documents/report.pdf',
       name: 'report.pdf',
       size: 1024,
-      lastModified: new Date('2024-01-15T10:00:00Z'),
+      lastModified: new Date('2024-01-15T10:00:00Z')
     });
   });
 
   it('sorts folders before files, both alphabetically', async () => {
     mockSend.mockResolvedValueOnce({
       Contents: [
-        { Key: 'zebra.txt', Size: 10, LastModified: new Date() },
-        { Key: 'apple.txt', Size: 10, LastModified: new Date() },
+        {Key: 'zebra.txt', Size: 10, LastModified: new Date()},
+        {Key: 'apple.txt', Size: 10, LastModified: new Date()}
       ],
-      CommonPrefixes: [{ Prefix: 'monkeys/' }, { Prefix: 'ants/' }],
+      CommonPrefixes: [{Prefix: 'monkeys/'}, {Prefix: 'ants/'}]
     });
 
     const result = await listFiles('my-bucket');
@@ -164,10 +164,10 @@ describe('listFiles', () => {
   it('excludes the prefix key itself from files (S3 folder placeholder)', async () => {
     mockSend.mockResolvedValueOnce({
       Contents: [
-        { Key: 'documents/', Size: 0, LastModified: new Date() },
-        { Key: 'documents/file.txt', Size: 100, LastModified: new Date() },
+        {Key: 'documents/', Size: 0, LastModified: new Date()},
+        {Key: 'documents/file.txt', Size: 100, LastModified: new Date()}
       ],
-      CommonPrefixes: [],
+      CommonPrefixes: []
     });
 
     const result = await listFiles('my-bucket', 'documents/');
@@ -180,7 +180,7 @@ describe('listFiles', () => {
   });
 
   it('returns empty lists when bucket/prefix is empty', async () => {
-    mockSend.mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
+    mockSend.mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
 
     const result = await listFiles('my-bucket');
 
@@ -205,7 +205,7 @@ describe('listFiles', () => {
 
   it('returns success: false on SDK error without throwing', async () => {
     const sdkError = Object.assign(new Error('Access Denied'), {
-      name: 'AccessDenied',
+      name: 'AccessDenied'
     });
     mockSend.mockRejectedValueOnce(sdkError);
 
@@ -221,7 +221,7 @@ describe('listFiles', () => {
   });
 
   it('sends a ListObjectsV2Command with the correct bucket and prefix', async () => {
-    mockSend.mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
+    mockSend.mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
 
     await listFiles('test-bucket', 'some/prefix/');
 
@@ -233,8 +233,8 @@ describe('listFiles', () => {
           Prefix: 'some/prefix/',
           Delimiter: '/',
           MaxKeys: LISTING_PAGE_SIZE,
-          ContinuationToken: undefined,
-        },
+          ContinuationToken: undefined
+        }
       })
     );
   });
@@ -244,7 +244,7 @@ describe('listFiles', () => {
       Contents: [],
       CommonPrefixes: [],
       IsTruncated: true,
-      NextContinuationToken: 'TOKEN-2',
+      NextContinuationToken: 'TOKEN-2'
     });
 
     const result = await listFiles('my-bucket', 'alice/', 'TOKEN-1');
@@ -257,14 +257,14 @@ describe('listFiles', () => {
       expect.objectContaining({
         input: expect.objectContaining({
           ContinuationToken: 'TOKEN-1',
-          MaxKeys: LISTING_PAGE_SIZE,
-        }),
+          MaxKeys: LISTING_PAGE_SIZE
+        })
       })
     );
   });
 
   it('defaults isTruncated to false when S3 omits it', async () => {
-    mockSend.mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
+    mockSend.mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
 
     const result = await listFiles('my-bucket');
 
@@ -276,8 +276,8 @@ describe('listFiles', () => {
 
   it('retries once with refreshed credentials on an expired-token error', async () => {
     mockSend
-      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' }))
-      .mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), {name: 'ExpiredToken'}))
+      .mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
 
     const result = await listFiles('my-bucket', 'alice/');
 
@@ -292,7 +292,7 @@ describe('listFiles', () => {
   it('surfaces the credential error when getS3Client fails (not signed in)', async () => {
     mockGetS3Client.mockResolvedValueOnce({
       success: false,
-      error: { message: 'No AWS credentials — sign in required' },
+      error: {message: 'No AWS credentials — sign in required'}
     });
 
     const result = await listFiles('my-bucket', 'alice/');
@@ -310,7 +310,7 @@ describe('ensurePrefixMarker', () => {
       .mockRejectedValueOnce(notFoundError()) // HEAD → 404
       .mockResolvedValueOnce({}); // PUT → ok
 
-    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -324,14 +324,14 @@ describe('ensurePrefixMarker', () => {
       Bucket: 'us',
       Key: 'alice/DO_NOT_DELETE.txt',
       Body: PREFIX_MARKER_BODY,
-      ContentType: 'text/plain',
+      ContentType: 'text/plain'
     });
   });
 
   it('does not overwrite an existing marker (HEAD succeeds → no PUT)', async () => {
     mockSend.mockResolvedValueOnce({}); // HEAD → exists
 
-    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -343,8 +343,8 @@ describe('ensurePrefixMarker', () => {
   it('runs at most once per session — repeat calls issue no further HEADs', async () => {
     mockSend.mockResolvedValueOnce({}); // HEAD → exists (first call only)
 
-    const first = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
-    const second = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+    const first = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
+    const second = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
 
     expect(first.success && second.success).toBe(true);
     expect(mockSend).toHaveBeenCalledTimes(1);
@@ -353,9 +353,9 @@ describe('ensurePrefixMarker', () => {
   it('returns failure (never throws) when PUT fails', async () => {
     mockSend
       .mockRejectedValueOnce(notFoundError()) // HEAD → 404
-      .mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' })); // PUT → fail
+      .mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'})); // PUT → fail
 
-    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -364,10 +364,10 @@ describe('ensurePrefixMarker', () => {
 
   it('retries once with refreshed credentials when HEAD hits an expired token', async () => {
     mockSend
-      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' })) // HEAD → expiry
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), {name: 'ExpiredToken'})) // HEAD → expiry
       .mockResolvedValueOnce({}); // HEAD (retry) → exists
 
-    const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
+    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
 
     expect(result.success).toBe(true);
     expect(mockGetS3Client).toHaveBeenCalledTimes(2);
@@ -390,7 +390,7 @@ describe('deleteObject', () => {
     const result = await deleteObject({
       bucket: 'us',
       key: 'alice/DO_NOT_DELETE.txt',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(false);
@@ -405,7 +405,7 @@ describe('deleteObject', () => {
     const result = await deleteObject({
       bucket: 'us',
       key: 'alice/report.pdf',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -422,19 +422,19 @@ describe('deleteObjects', () => {
   function echoDeleted() {
     mockSend.mockImplementation((cmd: DeleteObjectsCommand) =>
       Promise.resolve({
-        Deleted: (cmd.input.Delete?.Objects ?? []).map((o) => ({ Key: o.Key })),
-        Errors: [],
+        Deleted: (cmd.input.Delete?.Objects ?? []).map((o) => ({Key: o.Key})),
+        Errors: []
       })
     );
   }
 
   it('deletes a single key via DeleteObjects and returns it', async () => {
-    mockSend.mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
+    mockSend.mockResolvedValueOnce({Deleted: [{Key: 'alice/a.txt'}], Errors: []});
 
     const result = await deleteObjects({
       bucket: 'us',
       keys: ['alice/a.txt'],
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -446,21 +446,21 @@ describe('deleteObjects', () => {
     expect(cmd).toBeInstanceOf(DeleteObjectsCommand);
     expect(cmd.input).toEqual({
       Bucket: 'us',
-      Delete: { Objects: [{ Key: 'alice/a.txt' }], Quiet: false },
+      Delete: {Objects: [{Key: 'alice/a.txt'}], Quiet: false}
     });
   });
 
   it('returns an empty result and makes no S3 call for an empty key list', async () => {
-    const result = await deleteObjects({ bucket: 'us', keys: [], username: 'alice' });
-    expect(result).toEqual({ success: true, data: { deleted: [], errors: [] } });
+    const result = await deleteObjects({bucket: 'us', keys: [], username: 'alice'});
+    expect(result).toEqual({success: true, data: {deleted: [], errors: []}});
     expect(mockSend).not.toHaveBeenCalled();
   });
 
   it('chunks more than 1000 keys into separate DeleteObjects requests', async () => {
     echoDeleted();
-    const keys = Array.from({ length: 1500 }, (_, i) => `alice/f${i}.txt`);
+    const keys = Array.from({length: 1500}, (_, i) => `alice/f${i}.txt`);
 
-    const result = await deleteObjects({ bucket: 'us', keys, username: 'alice' });
+    const result = await deleteObjects({bucket: 'us', keys, username: 'alice'});
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -471,12 +471,12 @@ describe('deleteObjects', () => {
   });
 
   it('refuses the prefix marker without sending it, but deletes the rest', async () => {
-    mockSend.mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
+    mockSend.mockResolvedValueOnce({Deleted: [{Key: 'alice/a.txt'}], Errors: []});
 
     const result = await deleteObjects({
       bucket: 'us',
       keys: ['alice/DO_NOT_DELETE.txt', 'alice/a.txt'],
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -485,18 +485,18 @@ describe('deleteObjects', () => {
     expect(result.data.errors).toEqual([
       {
         key: 'alice/DO_NOT_DELETE.txt',
-        message: expect.stringMatching(/cannot be deleted/i),
-      },
+        message: expect.stringMatching(/cannot be deleted/i)
+      }
     ]);
     // The marker was never part of the DeleteObjects request.
-    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toEqual([{ Key: 'alice/a.txt' }]);
+    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toEqual([{Key: 'alice/a.txt'}]);
   });
 
   it('makes no S3 call when the only key is the protected marker', async () => {
     const result = await deleteObjects({
       bucket: 'us',
       keys: ['alice/DO_NOT_DELETE.txt'],
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -508,50 +508,50 @@ describe('deleteObjects', () => {
 
   it('aggregates per-key S3 errors without throwing (partial failure)', async () => {
     mockSend.mockResolvedValueOnce({
-      Deleted: [{ Key: 'alice/a.txt' }],
-      Errors: [{ Key: 'alice/locked.txt', Code: 'AccessDenied', Message: 'Access Denied' }],
+      Deleted: [{Key: 'alice/a.txt'}],
+      Errors: [{Key: 'alice/locked.txt', Code: 'AccessDenied', Message: 'Access Denied'}]
     });
 
     const result = await deleteObjects({
       bucket: 'us',
       keys: ['alice/a.txt', 'alice/locked.txt'],
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.deleted).toEqual(['alice/a.txt']);
-    expect(result.data.errors).toEqual([{ key: 'alice/locked.txt', message: 'Access Denied' }]);
+    expect(result.data.errors).toEqual([{key: 'alice/locked.txt', message: 'Access Denied'}]);
   });
 
   it('records a non-expiry whole-batch failure as per-key errors, no retry', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Service Unavailable'), { name: 'ServiceUnavailable' }));
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Service Unavailable'), {name: 'ServiceUnavailable'}));
 
     const result = await deleteObjects({
       bucket: 'us',
       keys: ['alice/a.txt', 'alice/b.txt'],
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.deleted).toEqual([]);
     expect(result.data.errors).toEqual([
-      { key: 'alice/a.txt', message: 'Service Unavailable' },
-      { key: 'alice/b.txt', message: 'Service Unavailable' },
+      {key: 'alice/a.txt', message: 'Service Unavailable'},
+      {key: 'alice/b.txt', message: 'Service Unavailable'}
     ]);
     expect(mockGetS3Client).toHaveBeenCalledTimes(1); // no credential refresh
   });
 
   it('retries once with refreshed credentials on an expired-token error', async () => {
     mockSend
-      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' }))
-      .mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), {name: 'ExpiredToken'}))
+      .mockResolvedValueOnce({Deleted: [{Key: 'alice/a.txt'}], Errors: []});
 
     const result = await deleteObjects({
       bucket: 'us',
       keys: ['alice/a.txt'],
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -567,25 +567,25 @@ describe('deleteFolder', () => {
     mockSend
       // page 1 of the recursive listing (truncated)
       .mockResolvedValueOnce({
-        Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }],
+        Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}],
         IsTruncated: true,
-        NextContinuationToken: 'TOKEN-2',
+        NextContinuationToken: 'TOKEN-2'
       })
       // page 2 (final)
       .mockResolvedValueOnce({
-        Contents: [{ Key: 'alice/photos/b.jpg' }],
-        IsTruncated: false,
+        Contents: [{Key: 'alice/photos/b.jpg'}],
+        IsTruncated: false
       })
       // the DeleteObjects batch
       .mockResolvedValueOnce({
-        Deleted: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }, { Key: 'alice/photos/b.jpg' }],
-        Errors: [],
+        Deleted: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}, {Key: 'alice/photos/b.jpg'}],
+        Errors: []
       });
 
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/photos/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -597,7 +597,7 @@ describe('deleteFolder', () => {
     expect(listCmds[0][0].input).toMatchObject({
       Bucket: 'us',
       Prefix: 'alice/photos/',
-      MaxKeys: 1000,
+      MaxKeys: 1000
     });
     // Recursive: no Delimiter, so nested keys are returned, not collapsed.
     expect(listCmds[0][0].input.Delimiter).toBeUndefined();
@@ -609,13 +609,13 @@ describe('deleteFolder', () => {
 
   it('deletes the lone folder marker when the folder is otherwise empty', async () => {
     mockSend
-      .mockResolvedValueOnce({ Contents: [{ Key: 'alice/empty/' }], IsTruncated: false })
-      .mockResolvedValueOnce({ Deleted: [{ Key: 'alice/empty/' }], Errors: [] });
+      .mockResolvedValueOnce({Contents: [{Key: 'alice/empty/'}], IsTruncated: false})
+      .mockResolvedValueOnce({Deleted: [{Key: 'alice/empty/'}], Errors: []});
 
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/empty/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -624,26 +624,26 @@ describe('deleteFolder', () => {
   });
 
   it('returns an empty result and issues no delete when the prefix has no objects', async () => {
-    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({Contents: [], IsTruncated: false});
 
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/ghost/',
-      username: 'alice',
+      username: 'alice'
     });
 
-    expect(result).toEqual({ success: true, data: { deleted: [], errors: [] } });
+    expect(result).toEqual({success: true, data: {deleted: [], errors: []}});
     const delCmds = mockSend.mock.calls.filter((c) => c[0] instanceof DeleteObjectsCommand);
     expect(delCmds).toHaveLength(0);
   });
 
   it('surfaces a listing failure without attempting a delete', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
 
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/photos/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(false);
@@ -663,16 +663,16 @@ describe('copyObject', () => {
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
 
-    expect(result).toEqual({ success: true, data: { destKey: 'alice/b.txt' } });
+    expect(result).toEqual({success: true, data: {destKey: 'alice/b.txt'}});
     const cmd = mockSend.mock.calls[0][0];
     expect(cmd).toBeInstanceOf(CopyObjectCommand);
     expect(cmd.input).toMatchObject({
       Bucket: 'us',
       Key: 'alice/b.txt',
-      CopySource: 'us/alice/a.txt',
+      CopySource: 'us/alice/a.txt'
     });
   });
 
@@ -682,7 +682,7 @@ describe('copyObject', () => {
       sourceKey: 'alice/DO_NOT_DELETE.txt',
       destKey: 'alice/x.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -696,7 +696,7 @@ describe('copyObject', () => {
       sourceKey: 'alice/x.txt',
       destKey: 'alice/DO_NOT_DELETE.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -711,7 +711,7 @@ describe('copyObject', () => {
       bucket: 'us',
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(false);
@@ -730,7 +730,7 @@ describe('copyObject', () => {
       bucket: 'us',
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -746,7 +746,7 @@ describe('copyObject', () => {
       bucket: 'us',
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
-      username: 'alice',
+      username: 'alice'
     });
 
     const deletes = mockSend.mock.calls
@@ -758,20 +758,20 @@ describe('copyObject', () => {
   it('retries once with a refreshed client on credential expiry', async () => {
     const refreshedSend = vi.fn().mockResolvedValueOnce({}); // CopyObject succeeds
     mockGetS3Client
-      .mockResolvedValueOnce({ success: true, data: { send: mockSend } })
-      .mockResolvedValueOnce({ success: true, data: { send: refreshedSend } });
+      .mockResolvedValueOnce({success: true, data: {send: mockSend}})
+      .mockResolvedValueOnce({success: true, data: {send: refreshedSend}});
     // First client's CopyObject fails with an expiry error so the helper refreshes.
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('expired'), { name: 'ExpiredToken' }));
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('expired'), {name: 'ExpiredToken'}));
 
     const result = await copyObject({
       bucket: 'us',
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
 
-    expect(result).toEqual({ success: true, data: { destKey: 'alice/b.txt' } });
+    expect(result).toEqual({success: true, data: {destKey: 'alice/b.txt'}});
     expect(refreshedSend).toHaveBeenCalledTimes(1);
   });
 });
@@ -787,15 +787,15 @@ describe('moveObject', () => {
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
 
-    expect(result).toEqual({ success: true, data: { destKey: 'alice/b.txt' } });
+    expect(result).toEqual({success: true, data: {destKey: 'alice/b.txt'}});
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(CopyObjectCommand);
     expect(mockSend.mock.calls[1][0]).toBeInstanceOf(DeleteObjectCommand);
     expect(mockSend.mock.calls[1][0].input).toEqual({
       Bucket: 'us',
-      Key: 'alice/a.txt',
+      Key: 'alice/a.txt'
     });
   });
 
@@ -804,21 +804,21 @@ describe('moveObject', () => {
       bucket: 'us',
       sourceKey: 'alice/a.txt',
       destKey: 'alice/a.txt',
-      username: 'alice',
+      username: 'alice'
     });
-    expect(result).toEqual({ success: true, data: { destKey: 'alice/a.txt' } });
+    expect(result).toEqual({success: true, data: {destKey: 'alice/a.txt'}});
     expect(mockSend).not.toHaveBeenCalled();
   });
 
   it('leaves the source intact when the copy fails (no delete)', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' })); // CopyObject fails
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'})); // CopyObject fails
 
     const result = await moveObject({
       bucket: 'us',
       sourceKey: 'alice/a.txt',
       destKey: 'alice/b.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
 
     expect(result.success).toBe(false);
@@ -834,7 +834,7 @@ describe('moveObject', () => {
       sourceKey: 'alice/DO_NOT_DELETE.txt',
       destKey: 'alice/x.txt',
       username: 'alice',
-      overwrite: true,
+      overwrite: true
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -847,8 +847,8 @@ describe('moveFolder', () => {
   // Route mocked sends by command type + prefix so source/dest listings and the
   // per-key copy/delete can all be served from one implementation.
   function routeSends(opts: {
-    sourcePages: { Contents: { Key: string }[]; IsTruncated?: boolean; NextContinuationToken?: string }[];
-    destContents?: { Key: string }[];
+    sourcePages: {Contents: {Key: string}[]; IsTruncated?: boolean; NextContinuationToken?: string}[];
+    destContents?: {Key: string}[];
     failCopyForDestKey?: string;
   }) {
     let sourcePage = 0;
@@ -857,11 +857,11 @@ describe('moveFolder', () => {
         if (cmd.input.Prefix === 'alice/photos/') {
           return Promise.resolve(opts.sourcePages[sourcePage++]);
         }
-        return Promise.resolve({ Contents: opts.destContents ?? [], IsTruncated: false });
+        return Promise.resolve({Contents: opts.destContents ?? [], IsTruncated: false});
       }
       if (cmd instanceof CopyObjectCommand) {
         if (cmd.input.Key === opts.failCopyForDestKey) {
-          return Promise.reject(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
+          return Promise.reject(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
         }
         return Promise.resolve({});
       }
@@ -873,12 +873,12 @@ describe('moveFolder', () => {
     routeSends({
       sourcePages: [
         {
-          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }],
+          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}],
           IsTruncated: true,
-          NextContinuationToken: 'T2',
+          NextContinuationToken: 'T2'
         },
-        { Contents: [{ Key: 'alice/photos/b.jpg' }], IsTruncated: false },
-      ],
+        {Contents: [{Key: 'alice/photos/b.jpg'}], IsTruncated: false}
+      ]
     });
     const onProgress = vi.fn();
 
@@ -887,7 +887,7 @@ describe('moveFolder', () => {
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
       username: 'alice',
-      onProgress,
+      onProgress
     });
 
     expect(result.success).toBe(true);
@@ -899,7 +899,7 @@ describe('moveFolder', () => {
     expect(copies.map((c) => c.input.Key)).toEqual([
       'alice/archive/photos/',
       'alice/archive/photos/a.jpg',
-      'alice/archive/photos/b.jpg',
+      'alice/archive/photos/b.jpg'
     ]);
     expect(copies[1].input.CopySource).toBe('us/alice/photos/a.jpg');
 
@@ -913,24 +913,24 @@ describe('moveFolder', () => {
     routeSends({
       sourcePages: [
         {
-          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }, { Key: 'alice/photos/b.jpg' }],
-          IsTruncated: false,
-        },
+          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}, {Key: 'alice/photos/b.jpg'}],
+          IsTruncated: false
+        }
       ],
-      failCopyForDestKey: 'alice/archive/photos/a.jpg',
+      failCopyForDestKey: 'alice/archive/photos/a.jpg'
     });
 
     const result = await moveFolder({
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.moved).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([{ key: 'alice/photos/a.jpg', message: 'Access Denied' }]);
+    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied'}]);
 
     // The failed key's source must not be deleted.
     const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
@@ -939,15 +939,15 @@ describe('moveFolder', () => {
 
   it('refuses up front when destinations already exist (Collision, no copies)', async () => {
     routeSends({
-      sourcePages: [{ Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false }],
-      destContents: [{ Key: 'alice/archive/photos/x.jpg' }],
+      sourcePages: [{Contents: [{Key: 'alice/photos/x.jpg'}], IsTruncated: false}],
+      destContents: [{Key: 'alice/archive/photos/x.jpg'}]
     });
 
     const result = await moveFolder({
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(false);
@@ -964,7 +964,7 @@ describe('moveFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/photos/sub/',
-      username: 'alice',
+      username: 'alice'
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -977,9 +977,9 @@ describe('moveFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/photos/',
-      username: 'alice',
+      username: 'alice'
     });
-    expect(result).toEqual({ success: true, data: { moved: [], errors: [] } });
+    expect(result).toEqual({success: true, data: {moved: [], errors: []}});
     expect(mockSend).not.toHaveBeenCalled();
   });
 });
@@ -990,11 +990,11 @@ describe('copyFolder', () => {
   // router, minus any delete handling (copy never deletes).
   function routeSends(opts: {
     sourcePages: {
-      Contents: { Key: string }[];
+      Contents: {Key: string}[];
       IsTruncated?: boolean;
       NextContinuationToken?: string;
     }[];
-    destContents?: { Key: string }[];
+    destContents?: {Key: string}[];
     failCopyForDestKey?: string;
   }) {
     let sourcePage = 0;
@@ -1003,11 +1003,11 @@ describe('copyFolder', () => {
         if (cmd.input.Prefix === 'alice/photos/') {
           return Promise.resolve(opts.sourcePages[sourcePage++]);
         }
-        return Promise.resolve({ Contents: opts.destContents ?? [], IsTruncated: false });
+        return Promise.resolve({Contents: opts.destContents ?? [], IsTruncated: false});
       }
       if (cmd instanceof CopyObjectCommand) {
         if (cmd.input.Key === opts.failCopyForDestKey) {
-          return Promise.reject(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
+          return Promise.reject(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
         }
         return Promise.resolve({});
       }
@@ -1019,12 +1019,12 @@ describe('copyFolder', () => {
     routeSends({
       sourcePages: [
         {
-          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }],
+          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}],
           IsTruncated: true,
-          NextContinuationToken: 'T2',
+          NextContinuationToken: 'T2'
         },
-        { Contents: [{ Key: 'alice/photos/b.jpg' }], IsTruncated: false },
-      ],
+        {Contents: [{Key: 'alice/photos/b.jpg'}], IsTruncated: false}
+      ]
     });
     const onProgress = vi.fn();
 
@@ -1033,7 +1033,7 @@ describe('copyFolder', () => {
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
       username: 'alice',
-      onProgress,
+      onProgress
     });
 
     expect(result.success).toBe(true);
@@ -1045,7 +1045,7 @@ describe('copyFolder', () => {
     expect(copies.map((c) => c.input.Key)).toEqual([
       'alice/archive/photos/',
       'alice/archive/photos/a.jpg',
-      'alice/archive/photos/b.jpg',
+      'alice/archive/photos/b.jpg'
     ]);
     expect(copies[1].input.CopySource).toBe('us/alice/photos/a.jpg');
 
@@ -1062,24 +1062,24 @@ describe('copyFolder', () => {
     routeSends({
       sourcePages: [
         {
-          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }, { Key: 'alice/photos/b.jpg' }],
-          IsTruncated: false,
-        },
+          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}, {Key: 'alice/photos/b.jpg'}],
+          IsTruncated: false
+        }
       ],
-      failCopyForDestKey: 'alice/archive/photos/a.jpg',
+      failCopyForDestKey: 'alice/archive/photos/a.jpg'
     });
 
     const result = await copyFolder({
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.copied).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([{ key: 'alice/photos/a.jpg', message: 'Access Denied' }]);
+    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied'}]);
 
     const deletes = mockSend.mock.calls
       .map((c) => c[0])
@@ -1089,15 +1089,15 @@ describe('copyFolder', () => {
 
   it('refuses up front when destinations already exist (Collision, no copies)', async () => {
     routeSends({
-      sourcePages: [{ Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false }],
-      destContents: [{ Key: 'alice/archive/photos/x.jpg' }],
+      sourcePages: [{Contents: [{Key: 'alice/photos/x.jpg'}], IsTruncated: false}],
+      destContents: [{Key: 'alice/archive/photos/x.jpg'}]
     });
 
     const result = await copyFolder({
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(false);
@@ -1114,7 +1114,7 @@ describe('copyFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/photos/sub/',
-      username: 'alice',
+      username: 'alice'
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1131,11 +1131,11 @@ describe('copyFolder', () => {
       if (cmd instanceof ListObjectsV2Command) {
         if (cmd.input.Prefix === 'alice/') {
           return Promise.resolve({
-            Contents: [{ Key: 'alice/DO_NOT_DELETE.txt' }, { Key: 'alice/a.txt' }],
-            IsTruncated: false,
+            Contents: [{Key: 'alice/DO_NOT_DELETE.txt'}, {Key: 'alice/a.txt'}],
+            IsTruncated: false
           });
         }
-        return Promise.resolve({ Contents: [], IsTruncated: false });
+        return Promise.resolve({Contents: [], IsTruncated: false});
       }
       return Promise.resolve({});
     });
@@ -1144,7 +1144,7 @@ describe('copyFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/',
       destPrefix: 'backup-of-alice/',
-      username: 'alice',
+      username: 'alice'
     });
 
     expect(result.success).toBe(true);
@@ -1162,9 +1162,9 @@ describe('copyFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/photos/',
-      username: 'alice',
+      username: 'alice'
     });
-    expect(result).toEqual({ success: true, data: { copied: [], errors: [] } });
+    expect(result).toEqual({success: true, data: {copied: [], errors: []}});
     expect(mockSend).not.toHaveBeenCalled();
   });
 });
@@ -1178,20 +1178,20 @@ describe('getDownloadUrl', () => {
         credentials: vi.fn().mockResolvedValue({
           accessKeyId: 'AKIA',
           secretAccessKey: 'secret',
-          expiration: new Date(Date.now() + secondsFromNow * 1000),
-        }),
-      },
+          expiration: new Date(Date.now() + secondsFromNow * 1000)
+        })
+      }
     };
   }
 
   it('builds a presigned GetObject URL with attachment disposition + default expiry', async () => {
     mockGetS3Client.mockResolvedValue({
       success: true,
-      data: clientWithExpiry(3600),
+      data: clientWithExpiry(3600)
     });
     mockGetSignedUrl.mockResolvedValue('https://signed.example/report.pdf');
 
-    const result = await getDownloadUrl({ bucket: 'us', key: 'alice/report.pdf' });
+    const result = await getDownloadUrl({bucket: 'us', key: 'alice/report.pdf'});
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -1203,27 +1203,27 @@ describe('getDownloadUrl', () => {
     expect((command as GetObjectCommand).input).toMatchObject({
       Bucket: 'us',
       Key: 'alice/report.pdf',
-      ResponseContentDisposition: 'attachment; filename="report.pdf"',
+      ResponseContentDisposition: 'attachment; filename="report.pdf"'
     });
     // Far-future credentials → uncapped default of 900s.
-    expect(options).toEqual({ expiresIn: 900 });
+    expect(options).toEqual({expiresIn: 900});
   });
 
   it('defaults the filename to the last path segment', async () => {
-    mockGetS3Client.mockResolvedValue({ success: true, data: clientWithExpiry(3600) });
+    mockGetS3Client.mockResolvedValue({success: true, data: clientWithExpiry(3600)});
     mockGetSignedUrl.mockResolvedValue('https://signed');
 
-    await getDownloadUrl({ bucket: 'us', key: 'alice/docs/2024/q1.csv' });
+    await getDownloadUrl({bucket: 'us', key: 'alice/docs/2024/q1.csv'});
 
     const [, command] = mockGetSignedUrl.mock.calls[0];
     expect((command as GetObjectCommand).input.ResponseContentDisposition).toBe('attachment; filename="q1.csv"');
   });
 
   it('caps the expiry to the remaining credential lifetime', async () => {
-    mockGetS3Client.mockResolvedValue({ success: true, data: clientWithExpiry(120) });
+    mockGetS3Client.mockResolvedValue({success: true, data: clientWithExpiry(120)});
     mockGetSignedUrl.mockResolvedValue('https://signed');
 
-    await getDownloadUrl({ bucket: 'us', key: 'alice/f.txt', expiresInSeconds: 900 });
+    await getDownloadUrl({bucket: 'us', key: 'alice/f.txt', expiresInSeconds: 900});
 
     const options = mockGetSignedUrl.mock.calls[0][2];
     expect(options?.expiresIn).toBeGreaterThan(0);
@@ -1234,14 +1234,14 @@ describe('getDownloadUrl', () => {
     mockGetS3Client
       .mockResolvedValueOnce({
         success: false,
-        error: { message: 'No AWS credentials — sign in required' },
+        error: {message: 'No AWS credentials — sign in required'}
       })
       .mockResolvedValueOnce({
         success: false,
-        error: { message: 'No AWS credentials — sign in required' },
+        error: {message: 'No AWS credentials — sign in required'}
       });
 
-    const result = await getDownloadUrl({ bucket: 'us', key: 'alice/f.txt' });
+    const result = await getDownloadUrl({bucket: 'us', key: 'alice/f.txt'});
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1255,20 +1255,20 @@ describe('getDownloadUrl', () => {
 describe('objectExists', () => {
   it('returns true when HeadObject succeeds', async () => {
     mockSend.mockResolvedValueOnce({});
-    const result = await objectExists({ bucket: 'us', key: 'alice/f.txt' });
-    expect(result).toEqual({ success: true, data: true });
+    const result = await objectExists({bucket: 'us', key: 'alice/f.txt'});
+    expect(result).toEqual({success: true, data: true});
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
   });
 
   it('returns false on NotFound (404), not an error', async () => {
     mockSend.mockRejectedValueOnce(notFoundError());
-    const result = await objectExists({ bucket: 'us', key: 'alice/missing' });
-    expect(result).toEqual({ success: true, data: false });
+    const result = await objectExists({bucket: 'us', key: 'alice/missing'});
+    expect(result).toEqual({success: true, data: false});
   });
 
   it('surfaces a non-404 error', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
-    const result = await objectExists({ bucket: 'us', key: 'alice/f.txt' });
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
+    const result = await objectExists({bucket: 'us', key: 'alice/f.txt'});
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('AccessDenied');
@@ -1321,27 +1321,27 @@ describe('uploadFile', () => {
       key: 'alice/report.pdf',
       body: blob(10),
       contentType: 'application/pdf',
-      overwrite: true,
+      overwrite: true
     });
 
-    expect(result).toEqual({ success: true, data: { key: 'alice/report.pdf' } });
+    expect(result).toEqual({success: true, data: {key: 'alice/report.pdf'}});
     // overwrite:true → no HEAD collision check.
     expect(mockSend).not.toHaveBeenCalled();
     expect(uploadState.ctorArgs).toMatchObject({
       params: {
         Bucket: 'us',
         Key: 'alice/report.pdf',
-        ContentType: 'application/pdf',
+        ContentType: 'application/pdf'
       },
       partSize: 5 * 1024 * 1024,
-      queueSize: 4,
+      queueSize: 4
     });
   });
 
   it('reports progress via onProgress', async () => {
     const onProgress = vi.fn();
     uploadState.doneImpl = async () => {
-      uploadState.progressCb?.({ loaded: 512, total: 1024 });
+      uploadState.progressCb?.({loaded: 512, total: 1024});
       return {};
     };
     await uploadFile({
@@ -1350,7 +1350,7 @@ describe('uploadFile', () => {
       body: blob(1024),
       contentType: 'application/octet-stream',
       overwrite: true,
-      onProgress,
+      onProgress
     });
     expect(onProgress).toHaveBeenCalledWith(512, 1024);
   });
@@ -1361,7 +1361,7 @@ describe('uploadFile', () => {
       bucket: 'us',
       key: 'alice/report.pdf',
       body: blob(10),
-      contentType: 'application/pdf',
+      contentType: 'application/pdf'
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1376,7 +1376,7 @@ describe('uploadFile', () => {
       bucket: 'us',
       key: 'alice/new.pdf',
       body: blob(10),
-      contentType: 'application/pdf',
+      contentType: 'application/pdf'
     });
     expect(result.success).toBe(true);
     expect(uploadState.ctorArgs).not.toBeNull();
@@ -1386,9 +1386,9 @@ describe('uploadFile', () => {
     const result = await uploadFile({
       bucket: 'us',
       key: 'alice/huge.bin',
-      body: { size: MAX_UPLOAD_BYTES + 1 } as Blob,
+      body: {size: MAX_UPLOAD_BYTES + 1} as Blob,
       contentType: 'application/octet-stream',
-      overwrite: true,
+      overwrite: true
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1405,7 +1405,7 @@ describe('uploadFile', () => {
       body: blob(10),
       contentType: 'application/octet-stream',
       overwrite: true,
-      signal: controller.signal,
+      signal: controller.signal
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1425,7 +1425,7 @@ describe('uploadFile', () => {
       body: blob(10),
       contentType: 'application/octet-stream',
       overwrite: true,
-      signal: controller.signal,
+      signal: controller.signal
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1435,14 +1435,14 @@ describe('uploadFile', () => {
 
   it('surfaces a no-credentials error without uploading', async () => {
     mockGetS3Client
-      .mockResolvedValueOnce({ success: false, error: { message: 'No AWS credentials — sign in required' } })
-      .mockResolvedValueOnce({ success: false, error: { message: 'No AWS credentials — sign in required' } });
+      .mockResolvedValueOnce({success: false, error: {message: 'No AWS credentials — sign in required'}})
+      .mockResolvedValueOnce({success: false, error: {message: 'No AWS credentials — sign in required'}});
     const result = await uploadFile({
       bucket: 'us',
       key: 'alice/f.bin',
       body: blob(10),
       contentType: 'application/octet-stream',
-      overwrite: true, // skip HEAD so the first getS3Client is uploadFile's own
+      overwrite: true // skip HEAD so the first getS3Client is uploadFile's own
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1459,10 +1459,10 @@ describe('getObjectMetadata', () => {
       LastModified: new Date('2024-03-01T12:00:00Z'),
       ETag: '"abc123"',
       StorageClass: 'STANDARD_IA',
-      Metadata: { author: 'alice', project: 'q1' },
+      Metadata: {author: 'alice', project: 'q1'}
     });
 
-    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/report.pdf' });
+    const result = await getObjectMetadata({bucket: 'us', key: 'alice/report.pdf'});
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -1473,12 +1473,12 @@ describe('getObjectMetadata', () => {
       lastModified: new Date('2024-03-01T12:00:00Z'),
       etag: '"abc123"',
       storageClass: 'STANDARD_IA',
-      userMetadata: { author: 'alice', project: 'q1' },
+      userMetadata: {author: 'alice', project: 'q1'}
     });
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
     expect(mockSend.mock.calls[0][0].input).toEqual({
       Bucket: 'us',
-      Key: 'alice/report.pdf',
+      Key: 'alice/report.pdf'
     });
   });
 
@@ -1487,11 +1487,11 @@ describe('getObjectMetadata', () => {
       ContentLength: 10,
       ContentType: 'text/plain',
       LastModified: new Date('2024-01-01T00:00:00Z'),
-      ETag: '"e"',
+      ETag: '"e"'
       // no StorageClass, no Metadata
     });
 
-    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/f.txt' });
+    const result = await getObjectMetadata({bucket: 'us', key: 'alice/f.txt'});
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -1502,7 +1502,7 @@ describe('getObjectMetadata', () => {
   it('returns a NotFound error (not a throw) when the object is missing', async () => {
     mockSend.mockRejectedValueOnce(notFoundError());
 
-    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/gone.txt' });
+    const result = await getObjectMetadata({bucket: 'us', key: 'alice/gone.txt'});
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1512,15 +1512,15 @@ describe('getObjectMetadata', () => {
 
   it('retries once with refreshed credentials on an expired token', async () => {
     mockSend
-      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' }))
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), {name: 'ExpiredToken'}))
       .mockResolvedValueOnce({
         ContentLength: 1,
         ContentType: 'text/plain',
         LastModified: new Date('2024-01-01T00:00:00Z'),
-        ETag: '"e"',
+        ETag: '"e"'
       });
 
-    const result = await getObjectMetadata({ bucket: 'us', key: 'alice/f.txt' });
+    const result = await getObjectMetadata({bucket: 'us', key: 'alice/f.txt'});
 
     expect(result.success).toBe(true);
     expect(mockGetS3Client).toHaveBeenCalledTimes(2);
@@ -1533,21 +1533,21 @@ describe('createFolder', () => {
     mockSend
       .mockRejectedValueOnce(notFoundError()) // HEAD → not found
       .mockResolvedValueOnce({}); // PUT → ok
-    const result = await createFolder({ bucket: 'us', prefix: 'alice/', name: 'photos' });
+    const result = await createFolder({bucket: 'us', prefix: 'alice/', name: 'photos'});
 
-    expect(result).toEqual({ success: true, data: { prefix: 'alice/photos/' } });
+    expect(result).toEqual({success: true, data: {prefix: 'alice/photos/'}});
     const put = mockSend.mock.calls[1][0];
     expect(put).toBeInstanceOf(PutObjectCommand);
     expect(put.input).toMatchObject({
       Bucket: 'us',
       Key: 'alice/photos/',
       Body: '',
-      ContentType: 'application/x-directory',
+      ContentType: 'application/x-directory'
     });
   });
 
   it('rejects an invalid name before any request', async () => {
-    const result = await createFolder({ bucket: 'us', prefix: 'alice/', name: 'a/b' });
+    const result = await createFolder({bucket: 'us', prefix: 'alice/', name: 'a/b'});
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('InvalidName');
@@ -1556,7 +1556,7 @@ describe('createFolder', () => {
 
   it('prompts collision when the folder already exists (no PUT)', async () => {
     mockSend.mockResolvedValueOnce({}); // HEAD → exists
-    const result = await createFolder({ bucket: 'us', prefix: 'alice/', name: 'photos' });
+    const result = await createFolder({bucket: 'us', prefix: 'alice/', name: 'photos'});
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('Collision');

@@ -1,10 +1,10 @@
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createElement, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useSavedQueries } from './useSavedQueries';
-import { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
-import type { SavedQueriesStore, SavedQuery } from './query.types';
+import {renderHook, waitFor, act} from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {createElement, type ReactNode} from 'react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {useSavedQueries} from './useSavedQueries';
+import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+import type {SavedQueriesStore, SavedQuery} from './query.types';
 
 vi.mock('./savedQueries.service');
 
@@ -14,9 +14,9 @@ const mockRemove = vi.mocked(removeSavedQuery);
 
 function wrapper() {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: {queries: {retry: false}}
   });
-  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
 }
 
 function sq(id: string, name = id): SavedQuery {
@@ -26,31 +26,31 @@ function sq(id: string, name = id): SavedQuery {
     sql: 'SELECT 1',
     database: 'alice',
     createdAt: '2026-06-18T10:00:00.000Z',
-    updatedAt: '2026-06-18T10:00:00.000Z',
+    updatedAt: '2026-06-18T10:00:00.000Z'
   };
 }
 
 function store(queries: SavedQuery[]): SavedQueriesStore {
-  return { version: 1, queries };
+  return {version: 1, queries};
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGet.mockResolvedValue({ success: true, data: store([sq('a')]) });
+  mockGet.mockResolvedValue({success: true, data: store([sq('a')])});
 });
 
 describe('useSavedQueries', () => {
   it('is disabled (loading, empty) while username is null', () => {
-    const { result } = renderHook(() => useSavedQueries(null), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useSavedQueries(null), {
+      wrapper: wrapper()
     });
     expect(result.current.queries).toEqual([]);
     expect(mockGet).not.toHaveBeenCalled();
   });
 
   it('loads the user’s saved queries', async () => {
-    const { result } = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useSavedQueries('alice'), {
+      wrapper: wrapper()
     });
     await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['a']));
   });
@@ -58,10 +58,10 @@ describe('useSavedQueries', () => {
   it('upsert seeds the cache so the list reflects the change', async () => {
     mockUpsert.mockResolvedValue({
       success: true,
-      data: store([sq('b'), sq('a')]),
+      data: store([sq('b'), sq('a')])
     });
-    const { result } = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useSavedQueries('alice'), {
+      wrapper: wrapper()
     });
     await waitFor(() => expect(result.current.queries).toHaveLength(1));
 
@@ -72,9 +72,9 @@ describe('useSavedQueries', () => {
   });
 
   it('remove seeds the cache so the entry disappears', async () => {
-    mockRemove.mockResolvedValue({ success: true, data: store([]) });
-    const { result } = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper(),
+    mockRemove.mockResolvedValue({success: true, data: store([])});
+    const {result} = renderHook(() => useSavedQueries('alice'), {
+      wrapper: wrapper()
     });
     await waitFor(() => expect(result.current.queries).toHaveLength(1));
 
@@ -88,10 +88,10 @@ describe('useSavedQueries', () => {
   it('surfaces a load error', async () => {
     mockGet.mockResolvedValue({
       success: false,
-      error: { message: 'access denied' },
+      error: {message: 'access denied'}
     });
-    const { result } = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper(),
+    const {result} = renderHook(() => useSavedQueries('alice'), {
+      wrapper: wrapper()
     });
     await waitFor(() => expect(result.current.error).toBe('access denied'));
   });

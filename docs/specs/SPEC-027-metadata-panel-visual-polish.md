@@ -45,9 +45,9 @@ The header row shows the filename and a close button.
 
 #### Acceptance Criteria
 
-- [ ] Header: `flex items-center justify-between border-b border-border px-4 h-14 flex-shrink-0`.
+- [ ] Header: `flex items-center justify-between border-b border-border px-4 h-14 shrink-0`.
 - [ ] Filename: `text-base font-semibold text-text truncate flex-1 min-w-0` with `title={file.name}`.
-- [ ] Close button: ghost icon button — `flex-shrink-0 ml-3 h-8 w-8 flex items-center justify-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text` containing an ✕ SVG (16×16) or the inline `×` character. Replace the current `✕` text character with:
+- [ ] Close button: ghost icon button — `shrink-0 ml-3 h-8 w-8 flex items-center justify-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text` containing an ✕ SVG (16×16) or the inline `×` character. Replace the current `✕` text character with:
 
 ```tsx
 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"

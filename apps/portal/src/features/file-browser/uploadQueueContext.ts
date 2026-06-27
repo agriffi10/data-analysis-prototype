@@ -1,6 +1,6 @@
-import { createContext, useContext } from 'react';
-import type { UploadItem, UploadStatus } from './upload.types';
-import { TERMINAL_STATUSES } from './upload.types';
+import {createContext, useContext} from 'react';
+import type {UploadItem, UploadStatus} from './upload.types';
+import {TERMINAL_STATUSES} from './upload.types';
 
 // SPEC-020: the upload-queue store. Like selectionContext (SPEC-018), the pure
 // reducer + context + hook live in this non-component module so the reducer is
@@ -64,19 +64,19 @@ export type UploadQueueState = {
 };
 
 export type UploadQueueAction =
-  | { type: 'enqueue'; entries: NewUploadEntry[] }
-  | { type: 'start'; id: string }
-  | { type: 'progress'; id: string; loaded: number; total: number }
-  | { type: 'succeed'; id: string }
-  | { type: 'fail'; id: string; error: string }
-  | { type: 'collision'; id: string }
-  | { type: 'cancelled'; id: string }
-  | { type: 'remove'; id: string }
-  | { type: 'retryOverwrite'; id: string }
-  | { type: 'retryRename'; id: string; newName: string }
-  | { type: 'clearFinished' };
+  | {type: 'enqueue'; entries: NewUploadEntry[]}
+  | {type: 'start'; id: string}
+  | {type: 'progress'; id: string; loaded: number; total: number}
+  | {type: 'succeed'; id: string}
+  | {type: 'fail'; id: string; error: string}
+  | {type: 'collision'; id: string}
+  | {type: 'cancelled'; id: string}
+  | {type: 'remove'; id: string}
+  | {type: 'retryOverwrite'; id: string}
+  | {type: 'retryRename'; id: string; newName: string}
+  | {type: 'clearFinished'};
 
-export const initialUploadQueueState: UploadQueueState = { items: [], seq: 0 };
+export const initialUploadQueueState: UploadQueueState = {items: [], seq: 0};
 
 // Map the one matching item through `fn`, returning a fresh array (never mutates).
 function patch(items: UploadItem[], id: string, fn: (item: UploadItem) => UploadItem): UploadItem[] {
@@ -95,9 +95,9 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
         loaded: 0,
         total: e.file.size,
         overwrite: false,
-        error: e.error,
+        error: e.error
       }));
-      return { items: [...state.items, ...added], seq };
+      return {items: [...state.items, ...added], seq};
     }
     case 'start':
       return {
@@ -106,8 +106,8 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
           ...it,
           status: 'uploading',
           loaded: 0,
-          error: undefined,
-        })),
+          error: undefined
+        }))
       };
     case 'progress':
       return {
@@ -115,8 +115,8 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
         // Ignore stray progress for an item that's no longer uploading (e.g. a
         // late event after cancel) so a cancelled bar can't tick forward.
         items: patch(state.items, action.id, (it) =>
-          it.status === 'uploading' ? { ...it, loaded: action.loaded, total: action.total } : it
-        ),
+          it.status === 'uploading' ? {...it, loaded: action.loaded, total: action.total} : it
+        )
       };
     case 'succeed':
       return {
@@ -124,8 +124,8 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
         items: patch(state.items, action.id, (it) => ({
           ...it,
           status: 'done',
-          loaded: it.total,
-        })),
+          loaded: it.total
+        }))
       };
     case 'fail':
       return {
@@ -133,27 +133,27 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
         items: patch(state.items, action.id, (it) => ({
           ...it,
           status: 'failed',
-          error: action.error,
-        })),
+          error: action.error
+        }))
       };
     case 'collision':
       return {
         ...state,
         items: patch(state.items, action.id, (it) => ({
           ...it,
-          status: 'collision',
-        })),
+          status: 'collision'
+        }))
       };
     case 'cancelled':
       return {
         ...state,
         items: patch(state.items, action.id, (it) => ({
           ...it,
-          status: 'cancelled',
-        })),
+          status: 'cancelled'
+        }))
       };
     case 'remove':
-      return { ...state, items: state.items.filter((it) => it.id !== action.id) };
+      return {...state, items: state.items.filter((it) => it.id !== action.id)};
     case 'retryOverwrite':
       return {
         ...state,
@@ -162,8 +162,8 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
           status: 'queued',
           overwrite: true,
           loaded: 0,
-          error: undefined,
-        })),
+          error: undefined
+        }))
       };
     case 'retryRename':
       return {
@@ -174,13 +174,13 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
           overwrite: false,
           loaded: 0,
           error: undefined,
-          key: keyPrefix(it.key) + action.newName,
-        })),
+          key: keyPrefix(it.key) + action.newName
+        }))
       };
     case 'clearFinished':
       return {
         ...state,
-        items: state.items.filter((it) => !TERMINAL_STATUSES.has(it.status)),
+        items: state.items.filter((it) => !TERMINAL_STATUSES.has(it.status))
       };
     default:
       return state;

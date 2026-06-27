@@ -1,4 +1,4 @@
-import { Amplify } from 'aws-amplify';
+import {Amplify} from 'aws-amplify';
 
 // Cognito config comes from build-time env vars (tofu output — SPEC-006).
 const userPoolId = import.meta.env.VITE_COGNITO_USER_POOL_ID as string | undefined;
@@ -25,7 +25,7 @@ if (isAmplifyConfigured) {
     scopes: ['openid', 'email', 'profile'],
     redirectSignIn: [appUrl!],
     redirectSignOut: [appUrl!],
-    responseType: 'code' as const,
+    responseType: 'code' as const
   };
 
   if (identityPoolId) {
@@ -35,9 +35,9 @@ if (isAmplifyConfigured) {
           userPoolId: userPoolId!,
           userPoolClientId: userPoolClientId!,
           identityPoolId,
-          loginWith: { oauth },
-        },
-      },
+          loginWith: {oauth}
+        }
+      }
     });
   } else {
     Amplify.configure({
@@ -45,9 +45,9 @@ if (isAmplifyConfigured) {
         Cognito: {
           userPoolId: userPoolId!,
           userPoolClientId: userPoolClientId!,
-          loginWith: { oauth },
-        },
-      },
+          loginWith: {oauth}
+        }
+      }
     });
   }
 }

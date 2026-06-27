@@ -1,14 +1,14 @@
-import { type ReactNode } from 'react';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useAuth } from '../features/auth';
-import { setReturnPath } from '../lib/returnPath';
-import { LoadingState } from './LoadingState';
+import {type ReactNode} from 'react';
+import {Navigate, Outlet, useLocation} from 'react-router-dom';
+import {useAuth} from '../features/auth';
+import {setReturnPath} from '../lib/returnPath';
+import {LoadingState} from './LoadingState';
 
 // Authenticated app shell. The left rail is owned by each route's page (the file
 // browser renders <Sidebar>, the query workspace renders its schema browser —
 // which needs the editor wiring, so it can't live in the shell), so this is just
 // the row container the page fills (SPEC-035 FR-002).
-function AppShell({ children }: { children: ReactNode }) {
+function AppShell({children}: {children: ReactNode}) {
   return <div className="flex flex-1">{children}</div>;
 }
 
@@ -23,7 +23,7 @@ function AppShell({ children }: { children: ReactNode }) {
 const devBypass = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
 export function ProtectedLayout() {
-  const { status } = useAuth();
+  const {status} = useAuth();
   const location = useLocation();
 
   if (devBypass)
@@ -43,7 +43,12 @@ export function ProtectedLayout() {
   // page. Capturing the path here also covers signing out from a protected route.
   if (status === 'unauthenticated') {
     setReturnPath(location.pathname + location.search);
-    return <Navigate to="/" replace />;
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
   }
 
   return (

@@ -1,6 +1,6 @@
-import { S3Client } from '@aws-sdk/client-s3';
-import { fetchAuthSession } from 'aws-amplify/auth';
-import type { ServiceResult } from '../types/service.types';
+import {S3Client} from '@aws-sdk/client-s3';
+import {fetchAuthSession} from 'aws-amplify/auth';
+import type {ServiceResult} from '../types/service.types';
 
 const accessKeyId = import.meta.env.VITE_AWS_ACCESS_KEY_ID as string | undefined;
 
@@ -12,7 +12,7 @@ const accessKeyId = import.meta.env.VITE_AWS_ACCESS_KEY_ID as string | undefined
 // ETag/MD5 integrity and everything is over TLS.
 const CHECKSUM_OPTS = {
   requestChecksumCalculation: 'WHEN_REQUIRED',
-  responseChecksumValidation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED'
 } as const;
 
 // Dev-only anonymous/static client (SPEC-002): omitting credentials uses unsigned
@@ -25,10 +25,10 @@ export const s3Client = new S3Client({
     ? {
         credentials: {
           accessKeyId,
-          secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY as string,
-        },
+          secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY as string
+        }
       }
-    : {}),
+    : {})
 });
 
 // Authenticated S3 client (SPEC-011). Credentials come from the Cognito Identity
@@ -41,11 +41,11 @@ export const s3Client = new S3Client({
 // Never throws — returns the ServiceResult error shape instead.
 export async function getS3Client(forceRefresh = false): Promise<ServiceResult<S3Client>> {
   try {
-    const session = await fetchAuthSession({ forceRefresh });
+    const session = await fetchAuthSession({forceRefresh});
     if (!session.credentials) {
       return {
         success: false,
-        error: { message: 'No AWS credentials — sign in required' },
+        error: {message: 'No AWS credentials — sign in required'}
       };
     }
     return {
@@ -53,17 +53,17 @@ export async function getS3Client(forceRefresh = false): Promise<ServiceResult<S
       data: new S3Client({
         region: import.meta.env.VITE_AWS_REGION,
         credentials: session.credentials,
-        ...CHECKSUM_OPTS,
-      }),
+        ...CHECKSUM_OPTS
+      })
     };
   } catch (err) {
-    const e = err as { message?: string; name?: string };
+    const e = err as {message?: string; name?: string};
     return {
       success: false,
       error: {
         message: e.message ?? 'Failed to obtain AWS credentials',
-        code: e.name,
-      },
+        code: e.name
+      }
     };
   }
 }

@@ -94,7 +94,7 @@ Folder rows use an SVG folder icon (not the 📁 emoji), design-system hover sta
 - [ ] Row selected: add `bg-accent-soft` (use conditional class — remove hover when selected).
 - [ ] Checkbox column (40px, `canModify` only): `<input type="checkbox">` with `accent-color: #4f46e5` via `className="accent-accent"` (Tailwind v4 accent-color utility, or use `style={{ accentColor: 'var(--color-accent)' }}`).
 - [ ] Name cell: `flex-1 flex items-center gap-2.5 min-w-0 px-4`.
-  - SVG folder icon: 20×20, `text-accent`, filled. Use a simple filled folder SVG: `<svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-accent flex-shrink-0">` with a folder path.
+  - SVG folder icon: 20×20, `text-accent`, filled. Use a simple filled folder SVG: `<svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-accent shrink-0">` with a folder path.
   - Folder name: `text-base font-medium text-text truncate`.
 - [ ] Size cell: `w-24 text-right text-sm text-text-3 pr-4` — shows `—` (em-dash) for folders.
 - [ ] Modified cell: `w-40 text-right text-sm text-text-2 pr-4` — empty for folders.
@@ -111,7 +111,7 @@ File rows follow the same grid layout and hover pattern as folder rows, with a d
 #### Acceptance Criteria
 
 - [ ] Row structure, column widths, hover/selected states: identical to FR-005.
-- [ ] SVG file icon: 20×20, `text-text-3`, outlined. Use a simple document SVG: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-text-3 flex-shrink-0">` with a page/doc path.
+- [ ] SVG file icon: 20×20, `text-text-3`, outlined. Use a simple document SVG: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-text-3 shrink-0">` with a page/doc path.
 - [ ] File name: `text-base font-medium text-text truncate`.
 - [ ] Size: `text-sm text-text-2`.
 - [ ] Modified: `text-sm text-text-2`.
@@ -187,14 +187,14 @@ SVG icons needed (inline, no icon library):
 
 **Folder (filled, 20×20):**
 ```tsx
-<svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-accent flex-shrink-0" aria-hidden="true">
+<svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-accent shrink-0" aria-hidden="true">
   <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
 </svg>
 ```
 
 **File (outlined, 20×20):**
 ```tsx
-<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-text-3 flex-shrink-0" aria-hidden="true">
+<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-text-3 shrink-0" aria-hidden="true">
   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 3H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7.5L13.5 3z" />
   <path strokeLinecap="round" strokeLinejoin="round" d="M13 3v4.5H17.5" />
 </svg>

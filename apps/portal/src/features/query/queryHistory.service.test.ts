@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
 
-vi.mock('../../lib/s3Client', () => ({ getS3Client: vi.fn() }));
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
-import { getS3Client } from '../../lib/s3Client';
-import { getQueryHistory, appendQueryHistory, updateQueryHistoryEntry } from './queryHistory.service';
-import type { QueryHistory, QueryHistoryEntry } from './query.types';
+import {getS3Client} from '../../lib/s3Client';
+import {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
+import type {QueryHistory, QueryHistoryEntry} from './query.types';
 
 const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
 
@@ -12,19 +12,19 @@ const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unk
 // NoSuchKey when absent); PutObject (input has a Body) overwrites it.
 function fakeBucket(initial: string | null) {
   let stored = initial;
-  const send = vi.fn(async (cmd: { input: { Body?: string } }) => {
+  const send = vi.fn(async (cmd: {input: {Body?: string}}) => {
     if (cmd.input.Body !== undefined) {
       stored = cmd.input.Body;
       return {};
     }
     if (stored === null) {
-      throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+      throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
     }
     const body = stored;
-    return { Body: { transformToString: async () => body } };
+    return {Body: {transformToString: async () => body}};
   });
-  mockGetClient.mockResolvedValue({ success: true, data: { send } });
-  return { send, stored: () => stored };
+  mockGetClient.mockResolvedValue({success: true, data: {send}});
+  return {send, stored: () => stored};
 }
 
 function entry(id: string): QueryHistoryEntry {
@@ -32,7 +32,7 @@ function entry(id: string): QueryHistoryEntry {
     queryExecutionId: id,
     sql: 'SELECT 1',
     database: 'alice',
-    submittedAt: '2026-06-18T10:00:00.000Z',
+    submittedAt: '2026-06-18T10:00:00.000Z'
   };
 }
 
@@ -51,11 +51,11 @@ describe('getQueryHistory', () => {
 
     const result = await getQueryHistory('alice');
 
-    expect(result).toEqual({ success: true, data: { version: 1, entries: [] } });
+    expect(result).toEqual({success: true, data: {version: 1, entries: []}});
   });
 
   it('reads and parses an existing history file', async () => {
-    fakeBucket(JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory));
+    fakeBucket(JSON.stringify({version: 1, entries: [entry('q1')]} as QueryHistory));
 
     const result = await getQueryHistory('alice');
 
@@ -70,13 +70,13 @@ describe('getQueryHistory', () => {
 
     const result = await getQueryHistory('alice');
 
-    expect(result).toEqual({ success: true, data: { version: 1, entries: [] } });
+    expect(result).toEqual({success: true, data: {version: 1, entries: []}});
   });
 });
 
 describe('appendQueryHistory', () => {
   it('prepends newest-first and writes back', async () => {
-    const fake = fakeBucket(JSON.stringify({ version: 1, entries: [entry('old')] } as QueryHistory));
+    const fake = fakeBucket(JSON.stringify({version: 1, entries: [entry('old')]} as QueryHistory));
 
     const result = await appendQueryHistory('alice', entry('new'));
 
@@ -88,8 +88,8 @@ describe('appendQueryHistory', () => {
   });
 
   it('caps the list at QUERY_HISTORY_MAX, dropping the oldest', async () => {
-    const existing = Array.from({ length: 100 }, (_, i) => entry(`old-${i}`));
-    fakeBucket(JSON.stringify({ version: 1, entries: existing } as QueryHistory));
+    const existing = Array.from({length: 100}, (_, i) => entry(`old-${i}`));
+    fakeBucket(JSON.stringify({version: 1, entries: existing} as QueryHistory));
 
     const result = await appendQueryHistory('alice', entry('new'));
 
@@ -114,12 +114,12 @@ describe('appendQueryHistory', () => {
 
 describe('updateQueryHistoryEntry', () => {
   it('updates a matching entry in place and writes back', async () => {
-    fakeBucket(JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory));
+    fakeBucket(JSON.stringify({version: 1, entries: [entry('q1')]} as QueryHistory));
 
     const result = await updateQueryHistoryEntry('alice', 'q1', {
       status: 'SUCCEEDED',
       dataScannedBytes: 2048,
-      durationMs: 120,
+      durationMs: 120
     });
 
     expect(result.success).toBe(true);
@@ -128,15 +128,15 @@ describe('updateQueryHistoryEntry', () => {
       queryExecutionId: 'q1',
       status: 'SUCCEEDED',
       dataScannedBytes: 2048,
-      durationMs: 120,
+      durationMs: 120
     });
   });
 
   it('is a no-op success (no write) for an unknown id', async () => {
-    const fake = fakeBucket(JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory));
+    const fake = fakeBucket(JSON.stringify({version: 1, entries: [entry('q1')]} as QueryHistory));
 
     const result = await updateQueryHistoryEntry('alice', 'unknown', {
-      status: 'FAILED',
+      status: 'FAILED'
     });
 
     expect(result.success).toBe(true);

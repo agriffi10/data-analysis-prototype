@@ -1,7 +1,7 @@
-import { cx } from '../lib/cx';
+import {cx} from '../lib/cx';
 
 // Neutral type pill (SPEC-028) — file/folder type labels in the file table.
-export function Badge({ className, ...rest }: React.HTMLAttributes<HTMLSpanElement>) {
+export function Badge({className, ...rest}: React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       className={cx(

@@ -1,23 +1,23 @@
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach, type MockedFunction} from 'vitest';
+import {renderHook, act} from '@testing-library/react';
 
 vi.mock('./sharedSpaces.service', () => ({
-  enqueueSharedSpaceRequest: vi.fn(),
+  enqueueSharedSpaceRequest: vi.fn()
 }));
 
-import { enqueueSharedSpaceRequest } from './sharedSpaces.service';
-import { useManageMembers } from './useManageMembers';
+import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
+import {useManageMembers} from './useManageMembers';
 
 const mockEnqueue = enqueueSharedSpaceRequest as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockEnqueue.mockResolvedValue({ success: true, data: { requestId: 'r1' } });
+  mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
 });
 
 describe('useManageMembers (SPEC-053 FR-002/003)', () => {
   it('addMembers enqueues one add_members request with the members payload', async () => {
-    const { result } = renderHook(() => useManageMembers('alice'));
+    const {result} = renderHook(() => useManageMembers('alice'));
     await act(async () => {
       await result.current.addMembers('salesdata', ['bob', 'cara']);
     });
@@ -25,12 +25,12 @@ describe('useManageMembers (SPEC-053 FR-002/003)', () => {
       action: 'add_members',
       actor: 'alice',
       space: 'salesdata',
-      payload: { members: ['bob', 'cara'] },
+      payload: {members: ['bob', 'cara']}
     });
   });
 
   it('removeMembers enqueues one remove_members request', async () => {
-    const { result } = renderHook(() => useManageMembers('alice'));
+    const {result} = renderHook(() => useManageMembers('alice'));
     await act(async () => {
       await result.current.removeMembers('salesdata', ['bob']);
     });
@@ -38,7 +38,7 @@ describe('useManageMembers (SPEC-053 FR-002/003)', () => {
       action: 'remove_members',
       actor: 'alice',
       space: 'salesdata',
-      payload: { members: ['bob'] },
+      payload: {members: ['bob']}
     });
   });
 

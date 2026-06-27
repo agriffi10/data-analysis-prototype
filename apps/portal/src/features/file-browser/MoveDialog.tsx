@@ -1,6 +1,6 @@
-import { DestinationPicker } from './DestinationPicker';
-import { Modal } from '../../components/Modal';
-import type { SelectableItem } from './selectionContext';
+import {DestinationPicker} from './DestinationPicker';
+import {Modal} from '../../components/Modal';
+import type {SelectableItem} from './selectionContext';
 
 type Props = {
   bucket: string;
@@ -27,15 +27,14 @@ export function MoveDialog({
   markerKey,
   isBusy = false,
   onMove,
-  onCancel,
+  onCancel
 }: Props) {
   return (
     <Modal
       ariaLabel="Move to folder"
       dismissible={!isBusy}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5"
-    >
+      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
       <h2 className="text-md font-semibold text-text">
         Move {items.length} {items.length === 1 ? 'item' : 'items'}
       </h2>

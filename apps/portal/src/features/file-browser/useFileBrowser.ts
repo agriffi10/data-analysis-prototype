@@ -1,9 +1,9 @@
-import { useCallback, useMemo } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { listFiles } from './fileBrowser.service';
-import { fileBrowserKeys } from './fileBrowserKeys';
-import { invalidateListing } from '../../lib/queryClient';
-import type { S3FileItem, S3FolderItem, FileListPage } from '../../types/s3.types';
+import {useCallback, useMemo} from 'react';
+import {useInfiniteQuery, useQueryClient} from '@tanstack/react-query';
+import {listFiles} from './fileBrowser.service';
+import {fileBrowserKeys} from './fileBrowserKeys';
+import {invalidateListing} from '../../lib/queryClient';
+import type {S3FileItem, S3FolderItem, FileListPage} from '../../types/s3.types';
 
 export type UseFileBrowserResult = {
   files: S3FileItem[];
@@ -33,7 +33,7 @@ export function useFileBrowser(
   // continuation token; pages accumulate in query.data.pages.
   const query = useInfiniteQuery({
     queryKey: fileBrowserKeys.list(bucket, normalizedPrefix),
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({pageParam}) => {
       // The service never throws; unwrap its ServiceResult and throw here so
       // TanStack Query treats a failed listing as a query error.
       const result = await listFiles(bucket, prefix, pageParam);
@@ -41,20 +41,20 @@ export function useFileBrowser(
       return result.data;
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: FileListPage) => (lastPage.isTruncated ? lastPage.nextContinuationToken : undefined),
+    getNextPageParam: (lastPage: FileListPage) => (lastPage.isTruncated ? lastPage.nextContinuationToken : undefined)
   });
 
   // Merge folders/files across all loaded pages and re-sort globally so the
   // ordering matches the single-page SPEC-002 behavior (folders before files,
   // each alphabetical). The SPEC-014 root marker is filtered by exact key.
-  const { folders, files } = useMemo(() => {
+  const {folders, files} = useMemo(() => {
     const pages = query.data?.pages ?? [];
     const mergedFolders = pages.flatMap((p) => p.folders).sort((a, b) => a.name.localeCompare(b.name));
     const mergedFiles = pages
       .flatMap((p) => p.files)
       .filter((f) => !markerKey || f.key !== markerKey)
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { folders: mergedFolders, files: mergedFiles };
+    return {folders: mergedFolders, files: mergedFiles};
   }, [query.data, markerKey]);
 
   const refresh = useCallback(() => {
@@ -73,6 +73,6 @@ export function useFileBrowser(
     refresh,
     hasMore: query.hasNextPage,
     loadMore,
-    isLoadingMore: query.isFetchingNextPage,
+    isLoadingMore: query.isFetchingNextPage
   };
 }

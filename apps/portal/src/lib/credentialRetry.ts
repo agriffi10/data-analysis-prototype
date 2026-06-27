@@ -1,4 +1,4 @@
-import type { ServiceResult } from '../types/service.types';
+import type {ServiceResult} from '../types/service.types';
 
 // SDK error names that mean the temporary credentials have expired mid-session
 // (SPEC-011/013). On these, an authenticated operation is retried once after a
@@ -7,7 +7,7 @@ export const EXPIRY_ERROR_CODES = new Set([
   'ExpiredToken',
   'ExpiredTokenException',
   'CredentialsProviderError',
-  'InvalidToken',
+  'InvalidToken'
 ]);
 
 export function isExpiryError(code?: string): boolean {

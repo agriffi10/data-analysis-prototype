@@ -1,6 +1,6 @@
-import { SQSClient } from '@aws-sdk/client-sqs';
-import { getSessionCredentials } from './awsCredentials';
-import type { ServiceResult } from '../types/service.types';
+import {SQSClient} from '@aws-sdk/client-sqs';
+import {getSessionCredentials} from './awsCredentials';
+import type {ServiceResult} from '../types/service.types';
 
 // SQS client for the shared-space control plane (SPEC-051). The browser's ONLY
 // privileged shared-space action is sqs:SendMessage to the request queue (SPEC-056
@@ -15,7 +15,7 @@ export async function getSqsClient(forceRefresh = false): Promise<ServiceResult<
     success: true,
     data: new SQSClient({
       region: import.meta.env.VITE_AWS_REGION,
-      credentials: creds.data,
-    }),
+      credentials: creds.data
+    })
   };
 }

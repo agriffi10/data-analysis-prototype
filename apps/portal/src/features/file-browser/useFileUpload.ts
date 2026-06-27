@@ -1,11 +1,11 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { invalidateListing } from '../../lib/queryClient';
-import { uploadFile, createFolder, uploadPercent } from './fileBrowser.service';
+import {useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {invalidateListing} from '../../lib/queryClient';
+import {uploadFile, createFolder, uploadPercent} from './fileBrowser.service';
 
 // What the user is being asked to confirm when a name already exists (FR-003).
 // `retry` re-runs the write with overwrite, or with a new name on rename.
-type CollisionDecision = { overwrite: true } | { rename: string };
+type CollisionDecision = {overwrite: true} | {rename: string};
 
 type PendingCollision = {
   kind: 'file' | 'folder';
@@ -48,7 +48,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
       body: file,
       contentType: file.type || 'application/octet-stream',
       overwrite,
-      onProgress: (loaded, total) => setProgress(uploadPercent(loaded, total)),
+      onProgress: (loaded, total) => setProgress(uploadPercent(loaded, total))
     });
     setProgress(null);
     setIsBusy(false);
@@ -59,7 +59,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
       setPendingCollision({
         kind: 'file',
         label: name,
-        retry: (decision) => runUpload(file, 'overwrite' in decision, 'rename' in decision ? decision.rename : name),
+        retry: (decision) => runUpload(file, 'overwrite' in decision, 'rename' in decision ? decision.rename : name)
       });
     } else {
       setError(result.error.message);
@@ -69,7 +69,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
   async function runCreateFolder(name: string, overwrite: boolean) {
     setIsBusy(true);
     setError(null);
-    const result = await createFolder({ bucket, prefix, name, overwrite });
+    const result = await createFolder({bucket, prefix, name, overwrite});
     setIsBusy(false);
 
     if (result.success) {
@@ -79,7 +79,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
         kind: 'folder',
         label: name,
         retry: (decision) =>
-          'overwrite' in decision ? runCreateFolder(name, true) : runCreateFolder(decision.rename, false),
+          'overwrite' in decision ? runCreateFolder(name, true) : runCreateFolder(decision.rename, false)
       });
     } else {
       setError(result.error.message);
@@ -92,7 +92,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
     retry: (decision) => {
       setPendingCollision(null);
       pendingCollision.retry(decision);
-    },
+    }
   };
 
   return {
@@ -103,6 +103,6 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
     uploadOne: (file) => void runUpload(file, false, file.name),
     createNewFolder: (name) => void runCreateFolder(name, false),
     cancelCollision: () => setPendingCollision(null),
-    dismissError: () => setError(null),
+    dismissError: () => setError(null)
   };
 }

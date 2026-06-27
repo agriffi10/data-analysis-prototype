@@ -1,10 +1,10 @@
-import { useObjectMetadata } from './useObjectMetadata';
-import type { ObjectMetadata } from './fileBrowser.types';
-import type { S3FileItem } from '../../types/s3.types';
-import { Drawer } from '../../components/Drawer';
-import { formatSize } from './fileBrowser.format';
-import { relativePath } from './fileBrowser.paths';
-import { DetailField } from './DetailField';
+import {useObjectMetadata} from './useObjectMetadata';
+import type {ObjectMetadata} from './fileBrowser.types';
+import type {S3FileItem} from '../../types/s3.types';
+import {Drawer} from '../../components/Drawer';
+import {formatSize} from './fileBrowser.format';
+import {relativePath} from './fileBrowser.paths';
+import {DetailField} from './DetailField';
 
 type Props = {
   bucket: string;
@@ -17,7 +17,7 @@ function MetadataFields({
   metadata,
   file,
   bucket,
-  rootPrefix,
+  rootPrefix
 }: {
   metadata: ObjectMetadata;
   file: S3FileItem;
@@ -28,15 +28,41 @@ function MetadataFields({
   return (
     <>
       <dl>
-        <DetailField label="Name" value={file.name} />
-        <DetailField label="Path" value={relativePath(metadata.key, rootPrefix)} copyLabel="path" />
+        <DetailField
+          label="Name"
+          value={file.name}
+        />
+        <DetailField
+          label="Path"
+          value={relativePath(metadata.key, rootPrefix)}
+          copyLabel="path"
+        />
         {/* The unambiguous, fully-qualified S3 URI for this object. */}
-        <DetailField label="Full Cloud Path" value={`s3://${bucket}/${metadata.key}`} copyLabel="full cloud path" />
-        <DetailField label="Size" value={`${formatSize(metadata.size)} (${metadata.size.toLocaleString()} bytes)`} />
-        <DetailField label="Type" value={metadata.contentType} />
-        <DetailField label="Last modified" value={metadata.lastModified.toLocaleString()} />
-        <DetailField label="ETag" value={metadata.etag.replace(/"/g, '')} />
-        <DetailField label="Storage class" value={metadata.storageClass} />
+        <DetailField
+          label="Full Cloud Path"
+          value={`s3://${bucket}/${metadata.key}`}
+          copyLabel="full cloud path"
+        />
+        <DetailField
+          label="Size"
+          value={`${formatSize(metadata.size)} (${metadata.size.toLocaleString()} bytes)`}
+        />
+        <DetailField
+          label="Type"
+          value={metadata.contentType}
+        />
+        <DetailField
+          label="Last modified"
+          value={metadata.lastModified.toLocaleString()}
+        />
+        <DetailField
+          label="ETag"
+          value={metadata.etag.replace(/"/g, '')}
+        />
+        <DetailField
+          label="Storage class"
+          value={metadata.storageClass}
+        />
       </dl>
 
       <div className="mt-6">
@@ -46,7 +72,11 @@ function MetadataFields({
         ) : (
           <dl className="mt-2">
             {customEntries.map(([k, v]) => (
-              <DetailField key={k} label={k} value={v} />
+              <DetailField
+                key={k}
+                label={k}
+                value={v}
+              />
             ))}
           </dl>
         )}
@@ -61,30 +91,41 @@ function MetadataFields({
 // close). The fetch state (loading / inline error / data) comes from
 // useObjectMetadata; reopening after an error refetches because a fresh observer
 // mounts on the same query key.
-export function MetadataPanel({ bucket, file, rootPrefix, onClose }: Props) {
-  const { metadata, isLoading, error } = useObjectMetadata(bucket, file.key);
+export function MetadataPanel({bucket, file, rootPrefix, onClose}: Props) {
+  const {metadata, isLoading, error} = useObjectMetadata(bucket, file.key);
 
   return (
-    <Drawer open onClose={onClose} title={file.name} ariaLabel={`Details for ${file.name}`} closeLabel="Close details">
+    <Drawer
+      open
+      onClose={onClose}
+      title={file.name}
+      ariaLabel={`Details for ${file.name}`}
+      closeLabel="Close details">
       {isLoading && (
         <div
           role="status"
           aria-label="Loading details"
-          className="flex flex-col items-center justify-center py-16 text-sm text-text-3"
-        >
+          className="flex flex-col items-center justify-center py-16 text-sm text-text-3">
           Loading…
         </div>
       )}
 
       {!isLoading && error !== null && (
-        <div role="alert" className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm">
+        <div
+          role="alert"
+          className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm">
           <p className="font-medium text-danger">Couldn’t load details</p>
           <p className="mt-1 text-danger/80">{error}</p>
         </div>
       )}
 
       {!isLoading && error === null && metadata && (
-        <MetadataFields metadata={metadata} file={file} bucket={bucket} rootPrefix={rootPrefix} />
+        <MetadataFields
+          metadata={metadata}
+          file={file}
+          bucket={bucket}
+          rootPrefix={rootPrefix}
+        />
       )}
     </Drawer>
   );

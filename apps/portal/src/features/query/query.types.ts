@@ -1,7 +1,7 @@
 // SPEC-034 Data Model. Shared types for the query-engine data layer consumed by
 // the SPEC-035 workspace UI and SPEC-036 history panel.
 
-import type { SharedConnectionRole, SharedConnectionStatus } from '../shared-spaces/sharedSpaces.types';
+import type {SharedConnectionRole, SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
 
 export type QueryState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
@@ -14,7 +14,7 @@ export type QueryStatus = {
   outputLocation?: string; // s3://.../{username}/athenaresults/<id>.csv, on SUCCEEDED
 };
 
-export type QueryColumn = { name: string; type: string };
+export type QueryColumn = {name: string; type: string};
 
 export type QueryResultPage = {
   columns: QueryColumn[];
@@ -22,7 +22,7 @@ export type QueryResultPage = {
   nextToken?: string;
 };
 
-export type GlueColumn = { name: string; type: string };
+export type GlueColumn = {name: string; type: string};
 export type GlueTableSummary = {
   name: string;
   columns: GlueColumn[];

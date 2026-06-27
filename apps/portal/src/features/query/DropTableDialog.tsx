@@ -1,4 +1,4 @@
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import {ConfirmDialog} from '../../components/ConfirmDialog';
 
 type Props = {
   table: string;
@@ -11,7 +11,7 @@ type Props = {
 // SPEC-044 FR-005 / SPEC-048 FR-006: warn-and-confirm before DROP TABLE / DROP
 // VIEW. Thin wrapper over the shared ConfirmDialog; locks + shows progress while
 // the drop is in flight.
-export function DropTableDialog({ table, isDropping, isView = false, onConfirm, onCancel }: Props) {
+export function DropTableDialog({table, isDropping, isView = false, onConfirm, onCancel}: Props) {
   const noun = isView ? 'view' : 'table';
   return (
     <ConfirmDialog
@@ -24,8 +24,7 @@ export function DropTableDialog({ table, isDropping, isView = false, onConfirm, 
       tone="danger"
       irreversible
       onConfirm={onConfirm}
-      onCancel={onCancel}
-    >
+      onCancel={onCancel}>
       <p className="mt-3 text-sm text-text-2">
         {isView
           ? 'This removes the view definition from your database. No underlying data is deleted.'

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
-import { SavedQueriesPanel } from './SavedQueriesPanel';
-import type { SavedQuery } from './query.types';
+import {describe, it, expect, vi} from 'vitest';
+import {render, screen, fireEvent, within} from '@testing-library/react';
+import {SavedQueriesPanel} from './SavedQueriesPanel';
+import type {SavedQuery} from './query.types';
 
 function sq(id: string, name: string, updatedAt: string): SavedQuery {
   return {
@@ -10,7 +10,7 @@ function sq(id: string, name: string, updatedAt: string): SavedQuery {
     sql: 'SELECT 1',
     database: 'alice',
     createdAt: '2026-06-01T00:00:00.000Z',
-    updatedAt,
+    updatedAt
   };
 }
 
@@ -32,12 +32,12 @@ function setup(over: Partial<Parameters<typeof SavedQueriesPanel>[0]> = {}) {
       {...over}
     />
   );
-  return { onClose, onOpen, onDelete };
+  return {onClose, onOpen, onDelete};
 }
 
 describe('SavedQueriesPanel', () => {
   it('renders nothing when closed', () => {
-    setup({ open: false });
+    setup({open: false});
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -48,29 +48,29 @@ describe('SavedQueriesPanel', () => {
   });
 
   it('Open fires onOpen with the query', () => {
-    const { onOpen } = setup();
+    const {onOpen} = setup();
     // The first card is "Newer" (b).
-    fireEvent.click(screen.getAllByRole('button', { name: /open saved query/i })[0]);
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }));
+    fireEvent.click(screen.getAllByRole('button', {name: /open saved query/i})[0]);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({id: 'b'}));
   });
 
   it('Delete confirms, then fires onDelete with the id', () => {
-    const { onDelete } = setup();
-    fireEvent.click(screen.getAllByRole('button', { name: /delete saved query/i })[0]);
+    const {onDelete} = setup();
+    fireEvent.click(screen.getAllByRole('button', {name: /delete saved query/i})[0]);
     const dialog = screen.getByRole('alertdialog', {
-      name: /confirm delete saved query/i,
+      name: /confirm delete saved query/i
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
     expect(onDelete).toHaveBeenCalledWith('b');
   });
 
   it('shows a friendly empty state', () => {
-    setup({ queries: [] });
+    setup({queries: []});
     expect(screen.getByText('No saved queries yet')).toBeInTheDocument();
   });
 
   it('shows a danger banner on error', () => {
-    setup({ error: 'access denied' });
+    setup({error: 'access denied'});
     expect(screen.getByText(/Couldn’t load saved queries/)).toBeInTheDocument();
   });
 });

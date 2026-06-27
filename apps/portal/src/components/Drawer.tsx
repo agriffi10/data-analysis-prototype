@@ -1,8 +1,8 @@
-import { useRef, type ReactNode } from 'react';
-import { FocusTrap } from 'focus-trap-react';
-import { cx } from '../lib/cx';
-import { IconButton } from './IconButton';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import {useRef, type ReactNode} from 'react';
+import {FocusTrap} from 'focus-trap-react';
+import {cx} from '../lib/cx';
+import {IconButton} from './IconButton';
+import {useEscapeKey} from '../hooks/useEscapeKey';
 
 type DrawerProps = {
   open: boolean;
@@ -31,7 +31,7 @@ export function Drawer({
   headerAccessory,
   bodyClassName = 'gap-3',
   children,
-  footer,
+  footer
 }: DrawerProps) {
   useEscapeKey(onClose, open && closeOnEscape);
   const panelRef = useRef<HTMLElement>(null);
@@ -47,10 +47,11 @@ export function Drawer({
         initialFocus: false,
         fallbackFocus: () => panelRef.current ?? document.body,
         escapeDeactivates: false,
-        allowOutsideClick: true,
-      }}
-    >
-      <div className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-sm" onClick={onClose}>
+        allowOutsideClick: true
+      }}>
+      <div
+        className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-sm"
+        onClick={onClose}>
         <aside
           ref={panelRef}
           role="dialog"
@@ -58,22 +59,25 @@ export function Drawer({
           aria-label={ariaLabel ?? title}
           tabIndex={-1}
           className="flex h-full w-full max-w-[440px] flex-col bg-surface shadow-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-border px-5">
+          onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-5">
             <h2 className="text-md font-semibold text-text">{title}</h2>
             {headerAccessory}
             <div className="flex-1" />
-            <IconButton label={closeLabel ?? `Close ${title.toLowerCase()}`} onClick={onClose}>
+            <IconButton
+              label={closeLabel ?? `Close ${title.toLowerCase()}`}
+              onClick={onClose}>
               <svg
                 viewBox="0 0 16 16"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
                 className="h-4 w-4"
-                aria-hidden="true"
-              >
-                <path strokeLinecap="round" d="M2 2l12 12M14 2L2 14" />
+                aria-hidden="true">
+                <path
+                  strokeLinecap="round"
+                  d="M2 2l12 12M14 2L2 14"
+                />
               </svg>
             </IconButton>
           </div>

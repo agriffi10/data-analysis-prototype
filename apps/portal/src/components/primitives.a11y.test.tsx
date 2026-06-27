@@ -1,12 +1,12 @@
-import { describe, it, vi } from 'vitest';
-import { expectNoA11yViolations, COMPONENT_AXE_OPTIONS } from '../test/axe';
-import { Modal } from './Modal';
-import { ConfirmDialog } from './ConfirmDialog';
-import { Drawer } from './Drawer';
-import { Input } from './Input';
-import { Banner, type BannerVariant } from './Banner';
-import { Pager } from './Pager';
-import { Toast, type ToastState } from '../features/query/Toast';
+import {describe, it, vi} from 'vitest';
+import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../test/axe';
+import {Modal} from './Modal';
+import {ConfirmDialog} from './ConfirmDialog';
+import {Drawer} from './Drawer';
+import {Input} from './Input';
+import {Banner, type BannerVariant} from './Banner';
+import {Pager} from './Pager';
+import {Toast, type ToastState} from '../features/query/Toast';
 
 const noop = () => {};
 
@@ -17,7 +17,9 @@ const noop = () => {};
 describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
   it('Modal has an accessible name and no violations', async () => {
     await expectNoA11yViolations(
-      <Modal ariaLabel="Example dialog" onDismiss={noop}>
+      <Modal
+        ariaLabel="Example dialog"
+        onDismiss={noop}>
         <div className="p-4">
           <p>Body</p>
           <button type="button">OK</button>
@@ -37,8 +39,7 @@ describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
         tone="danger"
         irreversible
         onConfirm={noop}
-        onCancel={noop}
-      >
+        onCancel={noop}>
         <p className="mt-2 text-sm">This removes the item permanently.</p>
       </ConfirmDialog>,
       COMPONENT_AXE_OPTIONS
@@ -52,8 +53,7 @@ describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
         onClose={noop}
         title="History"
         headerAccessory={<span className="text-xs">3 items</span>}
-        footer={<div className="p-3">footer</div>}
-      >
+        footer={<div className="p-3">footer</div>}>
         <p>Drawer body content.</p>
       </Drawer>,
       COMPONENT_AXE_OPTIONS
@@ -64,7 +64,11 @@ describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
 describe('Input accessibility', () => {
   it('error state wires invalid + described-by with no violations', async () => {
     await expectNoA11yViolations(
-      <Input label="Folder name" error="Enter a valid name." defaultValue="x/" />,
+      <Input
+        label="Folder name"
+        error="Enter a valid name."
+        defaultValue="x/"
+      />,
       COMPONENT_AXE_OPTIONS
     );
   });
@@ -74,7 +78,10 @@ describe('Banner accessibility (every variant)', () => {
   const variants: BannerVariant[] = ['success', 'warning', 'danger', 'info'];
   it.each(variants)('%s variant has no violations', async (variant) => {
     await expectNoA11yViolations(
-      <Banner variant={variant} title="Heads up" onDismiss={noop}>
+      <Banner
+        variant={variant}
+        title="Heads up"
+        onDismiss={noop}>
         <p>Something happened.</p>
       </Banner>,
       COMPONENT_AXE_OPTIONS
@@ -86,7 +93,11 @@ describe('Toast accessibility (every variant)', () => {
   const variants: ToastState['variant'][] = ['success', 'danger', 'info'];
   it.each(variants)('%s variant has no violations', async (variant) => {
     await expectNoA11yViolations(
-      <Toast variant={variant} message="Saved your changes." onDismiss={vi.fn()} />,
+      <Toast
+        variant={variant}
+        message="Saved your changes."
+        onDismiss={vi.fn()}
+      />,
       COMPONENT_AXE_OPTIONS
     );
   });
@@ -95,7 +106,13 @@ describe('Toast accessibility (every variant)', () => {
 describe('Pager accessibility', () => {
   it('has no violations (both directions enabled)', async () => {
     await expectNoA11yViolations(
-      <Pager hasPrev hasNext onPrev={noop} onNext={noop} label="1–20 of 57" />,
+      <Pager
+        hasPrev
+        hasNext
+        onPrev={noop}
+        onNext={noop}
+        label="1–20 of 57"
+      />,
       COMPONENT_AXE_OPTIONS
     );
   });

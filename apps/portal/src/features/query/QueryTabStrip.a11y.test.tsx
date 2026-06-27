@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { expectNoA11yViolations, COMPONENT_AXE_OPTIONS } from '../../test/axe';
-import { QueryTabStrip } from './QueryTabStrip';
-import type { QueryTab } from './query.types';
+import {describe, it, expect} from 'vitest';
+import {render, screen} from '@testing-library/react';
+import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
+import {QueryTabStrip} from './QueryTabStrip';
+import type {QueryTab} from './query.types';
 
 const tabs: QueryTab[] = [
-  { id: 't1', label: 'Query 1', sql: 'SELECT 1;' },
-  { id: 't2', label: 'Revenue', sql: 'SELECT 2;', savedQueryId: 'sq1' },
-  { id: 't3', label: 'Query 3', sql: '' },
+  {id: 't1', label: 'Query 1', sql: 'SELECT 1;'},
+  {id: 't2', label: 'Revenue', sql: 'SELECT 2;', savedQueryId: 'sq1'},
+  {id: 't3', label: 'Query 3', sql: ''}
 ];
 
 const noop = () => {};
@@ -27,7 +27,11 @@ function strip(activeTabId = 't1') {
       />
       {/* The panel the tablist's `aria-controls` points at (lives in
           QueryWorkspace at runtime). */}
-      <div role="tabpanel" id="query-tabpanel" aria-labelledby="query-tab-t1" />
+      <div
+        role="tabpanel"
+        id="query-tabpanel"
+        aria-labelledby="query-tab-t1"
+      />
     </div>
   );
 }
@@ -42,7 +46,7 @@ describe('QueryTabStrip accessibility (SPEC-045 FR-004)', () => {
 
   it('exposes a tablist whose only children are tabs, linked to one tabpanel', () => {
     render(strip());
-    const tablist = screen.getByRole('tablist', { name: 'Query tabs' });
+    const tablist = screen.getByRole('tablist', {name: 'Query tabs'});
     expect(tablist).toBeInTheDocument();
 
     const tabEls = screen.getAllByRole('tab');

@@ -1,4 +1,4 @@
-import type { SharedConnectionStatus } from './sharedSpaces.types';
+import type {SharedConnectionStatus} from './sharedSpaces.types';
 
 // SPEC-052: human labels for a shared connection's lifecycle status. Used by the
 // Connections tab badge and the disabled-entry hint in the Query schema rail /
@@ -7,7 +7,7 @@ const STATUS_LABELS: Record<SharedConnectionStatus, string> = {
   provisioning: 'Provisioning…',
   active: 'Active',
   failed: 'Failed',
-  leaving: 'Leaving…',
+  leaving: 'Leaving…'
 };
 
 export function connectionStatusLabel(status: SharedConnectionStatus): string {

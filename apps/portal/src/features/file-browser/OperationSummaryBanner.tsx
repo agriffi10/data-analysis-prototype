@@ -1,6 +1,6 @@
-import { Banner } from '../../components/Banner';
+import {Banner} from '../../components/Banner';
 
-export type OperationError = { label: string; message: string };
+export type OperationError = {label: string; message: string};
 
 type Props = {
   count: number; // how many items succeeded
@@ -13,7 +13,7 @@ type Props = {
 // SPEC-018/019/039: result banner for a bulk delete/move/copy — success count
 // plus any per-item failures. Shared shell extracted from the three near-identical
 // FileBrowser banners (react-best-practices abstraction pass).
-export function OperationSummaryBanner({ count, pastVerb, failVerb, errors, onDismiss }: Props) {
+export function OperationSummaryBanner({count, pastVerb, failVerb, errors, onDismiss}: Props) {
   return (
     <Banner
       variant={errors.length === 0 ? 'success' : 'warning'}
@@ -22,8 +22,7 @@ export function OperationSummaryBanner({ count, pastVerb, failVerb, errors, onDi
       role={errors.length === 0 ? 'status' : 'alert'}
       onDismiss={onDismiss}
       className="mb-4"
-      title={`${pastVerb} ${count} ${count === 1 ? 'item' : 'items'}.`}
-    >
+      title={`${pastVerb} ${count} ${count === 1 ? 'item' : 'items'}.`}>
       {errors.length > 0 && (
         <>
           <p className="mt-1">

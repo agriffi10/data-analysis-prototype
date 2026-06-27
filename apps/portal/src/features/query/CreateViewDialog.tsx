@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { Modal } from '../../components/Modal';
-import { CATALOG_IDENTIFIER_RE } from './query.constants';
+import {useEffect, useRef, useState} from 'react';
+import {Button} from '../../components/Button';
+import {Input} from '../../components/Input';
+import {Modal} from '../../components/Modal';
+import {CATALOG_IDENTIFIER_RE} from './query.constants';
 
 type Props = {
   // In-flight while the CREATE VIEW runs in the background — locks Create + dismiss.
@@ -14,7 +14,7 @@ type Props = {
 // SPEC-048 FR-001/002: name-prompt modal for "Create view". The name is validated
 // against the shared catalog-safe identifier rule (SPEC-033) — Create stays
 // disabled, with an inline error, until it passes. Composes the shared Modal.
-export function CreateViewDialog({ busy = false, onCreate, onCancel }: Props) {
+export function CreateViewDialog({busy = false, onCreate, onCancel}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +36,10 @@ export function CreateViewDialog({ busy = false, onCreate, onCancel }: Props) {
   };
 
   return (
-    <Modal ariaLabel="Create view" onDismiss={onCancel} dismissible={!busy}>
+    <Modal
+      ariaLabel="Create view"
+      onDismiss={onCancel}
+      dismissible={!busy}>
       <div className="px-5 pb-4 pt-5">
         <h2 className="mb-3 text-md font-semibold text-text">Create view</h2>
         <p className="mb-3 text-sm text-text-2">Save the current query as a reusable view in your database.</p>
@@ -63,10 +66,16 @@ export function CreateViewDialog({ busy = false, onCreate, onCancel }: Props) {
         />
       </div>
       <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={busy}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={attempt} disabled={!valid || busy}>
+        <Button
+          variant="primary"
+          onClick={attempt}
+          disabled={!valid || busy}>
           {busy ? 'Creating…' : 'Create'}
         </Button>
       </div>

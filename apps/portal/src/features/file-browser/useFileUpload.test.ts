@@ -1,18 +1,18 @@
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createElement, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFileUpload } from './useFileUpload';
-import { uploadFile, createFolder } from './fileBrowser.service';
-import { invalidateListing } from '../../lib/queryClient';
+import {renderHook, waitFor, act} from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {createElement, type ReactNode} from 'react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {useFileUpload} from './useFileUpload';
+import {uploadFile, createFolder} from './fileBrowser.service';
+import {invalidateListing} from '../../lib/queryClient';
 
 vi.mock('./fileBrowser.service', () => ({
   uploadFile: vi.fn(),
   createFolder: vi.fn(),
-  uploadPercent: (loaded: number, total: number) => (total > 0 ? Math.round((loaded / total) * 100) : 100),
+  uploadPercent: (loaded: number, total: number) => (total > 0 ? Math.round((loaded / total) * 100) : 100)
 }));
 vi.mock('../../lib/queryClient', () => ({
-  invalidateListing: vi.fn().mockResolvedValue(undefined),
+  invalidateListing: vi.fn().mockResolvedValue(undefined)
 }));
 
 const mockUpload = vi.mocked(uploadFile);
@@ -21,14 +21,14 @@ const mockInvalidate = vi.mocked(invalidateListing);
 
 function wrapper() {
   const client = new QueryClient();
-  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
 }
 
 function render() {
-  return renderHook(() => useFileUpload('us', 'alice/'), { wrapper: wrapper() });
+  return renderHook(() => useFileUpload('us', 'alice/'), {wrapper: wrapper()});
 }
 
-const file = new File(['hello'], 'report.pdf', { type: 'application/pdf' });
+const file = new File(['hello'], 'report.pdf', {type: 'application/pdf'});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -36,9 +36,9 @@ beforeEach(() => {
 
 describe('useFileUpload', () => {
   it('uploads to currentPrefix + name and invalidates the listing on success', async () => {
-    mockUpload.mockResolvedValue({ success: true, data: { key: 'alice/report.pdf' } });
+    mockUpload.mockResolvedValue({success: true, data: {key: 'alice/report.pdf'}});
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.uploadOne(file));
 
     await waitFor(() => expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/'));
@@ -47,52 +47,52 @@ describe('useFileUpload', () => {
         bucket: 'us',
         key: 'alice/report.pdf',
         contentType: 'application/pdf',
-        overwrite: false,
+        overwrite: false
       })
     );
   });
 
   it('surfaces a collision and overwrites on confirm', async () => {
     mockUpload
-      .mockResolvedValueOnce({ success: false, error: { message: 'exists', code: 'Collision' } })
-      .mockResolvedValueOnce({ success: true, data: { key: 'alice/report.pdf' } });
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
+      .mockResolvedValueOnce({success: true, data: {key: 'alice/report.pdf'}});
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.uploadOne(file));
 
     await waitFor(() => expect(result.current.pendingCollision).not.toBeNull());
     expect(result.current.pendingCollision?.kind).toBe('file');
 
-    act(() => result.current.pendingCollision!.retry({ overwrite: true }));
+    act(() => result.current.pendingCollision!.retry({overwrite: true}));
 
     await waitFor(() => expect(mockInvalidate).toHaveBeenCalled());
     expect(mockUpload).toHaveBeenCalledTimes(2);
-    expect(mockUpload.mock.calls[1][0]).toMatchObject({ overwrite: true });
+    expect(mockUpload.mock.calls[1][0]).toMatchObject({overwrite: true});
     expect(result.current.pendingCollision).toBeNull();
   });
 
   it('renames on collision by re-running with the new key', async () => {
     mockUpload
-      .mockResolvedValueOnce({ success: false, error: { message: 'exists', code: 'Collision' } })
-      .mockResolvedValueOnce({ success: true, data: { key: 'alice/renamed.pdf' } });
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
+      .mockResolvedValueOnce({success: true, data: {key: 'alice/renamed.pdf'}});
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.uploadOne(file));
 
     await waitFor(() => expect(result.current.pendingCollision).not.toBeNull());
-    act(() => result.current.pendingCollision!.retry({ rename: 'renamed.pdf' }));
+    act(() => result.current.pendingCollision!.retry({rename: 'renamed.pdf'}));
 
     await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(2));
     expect(mockUpload.mock.calls[1][0]).toMatchObject({
       key: 'alice/renamed.pdf',
-      overwrite: false,
+      overwrite: false
     });
   });
 
   it('creates a folder and invalidates on success', async () => {
-    mockCreateFolder.mockResolvedValue({ success: true, data: { prefix: 'alice/photos/' } });
+    mockCreateFolder.mockResolvedValue({success: true, data: {prefix: 'alice/photos/'}});
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.createNewFolder('photos'));
 
     await waitFor(() => expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/'));
@@ -100,29 +100,29 @@ describe('useFileUpload', () => {
       bucket: 'us',
       prefix: 'alice/',
       name: 'photos',
-      overwrite: false,
+      overwrite: false
     });
   });
 
   it('a folder collision + rename re-runs createFolder with the new name', async () => {
     mockCreateFolder
-      .mockResolvedValueOnce({ success: false, error: { message: 'exists', code: 'Collision' } })
-      .mockResolvedValueOnce({ success: true, data: { prefix: 'alice/pics/' } });
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
+      .mockResolvedValueOnce({success: true, data: {prefix: 'alice/pics/'}});
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.createNewFolder('photos'));
 
     await waitFor(() => expect(result.current.pendingCollision?.kind).toBe('folder'));
-    act(() => result.current.pendingCollision!.retry({ rename: 'pics' }));
+    act(() => result.current.pendingCollision!.retry({rename: 'pics'}));
 
     await waitFor(() => expect(mockCreateFolder).toHaveBeenCalledTimes(2));
-    expect(mockCreateFolder.mock.calls[1][0]).toMatchObject({ name: 'pics', overwrite: false });
+    expect(mockCreateFolder.mock.calls[1][0]).toMatchObject({name: 'pics', overwrite: false});
   });
 
   it('surfaces a non-collision error and clears it on dismiss', async () => {
-    mockUpload.mockResolvedValue({ success: false, error: { message: 'Access Denied' } });
+    mockUpload.mockResolvedValue({success: false, error: {message: 'Access Denied'}});
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.uploadOne(file));
 
     await waitFor(() => expect(result.current.error).toBe('Access Denied'));
@@ -141,12 +141,12 @@ describe('useFileUpload', () => {
       });
     });
 
-    const { result } = render();
+    const {result} = render();
     act(() => result.current.uploadOne(file));
 
     await waitFor(() => expect(result.current.progress).toBe(50));
 
-    act(() => resolveUpload({ success: true, data: { key: 'alice/report.pdf' } }));
+    act(() => resolveUpload({success: true, data: {key: 'alice/report.pdf'}}));
     await waitFor(() => expect(result.current.progress).toBeNull());
   });
 });

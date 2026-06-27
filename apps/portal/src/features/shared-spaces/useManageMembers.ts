@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
-import { enqueueSharedSpaceRequest } from './sharedSpaces.service';
-import type { ServiceResult } from '../../types/service.types';
+import {useCallback, useState} from 'react';
+import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
+import type {ServiceResult} from '../../types/service.types';
 
 // SPEC-053: owner member management. Enqueues `add_members` / `remove_members`
 // requests onto the shared-space pipeline (the browser never touches
@@ -19,19 +19,19 @@ export function useManageMembers(username: string | null) {
       action: 'add_members' | 'remove_members',
       space: string,
       members: string[]
-    ): Promise<ServiceResult<{ requestId: string }>> => {
+    ): Promise<ServiceResult<{requestId: string}>> => {
       if (!username) {
-        return { success: false, error: { message: 'Not signed in' } };
+        return {success: false, error: {message: 'Not signed in'}};
       }
       if (members.length === 0) {
-        return { success: false, error: { message: 'No members specified' } };
+        return {success: false, error: {message: 'No members specified'}};
       }
       setBusy(true);
       const result = await enqueueSharedSpaceRequest({
         action,
         actor: username,
         space,
-        payload: { members },
+        payload: {members}
       });
       setBusy(false);
       return result;
@@ -46,5 +46,5 @@ export function useManageMembers(username: string | null) {
     [submit]
   );
 
-  return { addMembers, removeMembers, busy };
+  return {addMembers, removeMembers, busy};
 }

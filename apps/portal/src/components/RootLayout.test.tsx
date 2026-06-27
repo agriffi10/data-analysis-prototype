@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { RootLayout } from './RootLayout';
-import type { AuthContextValue } from '../features/auth';
+import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
+import {render, screen, cleanup} from '@testing-library/react';
+import {MemoryRouter, Routes, Route} from 'react-router-dom';
+import {RootLayout} from './RootLayout';
+import type {AuthContextValue} from '../features/auth';
 
-vi.mock('../features/auth', () => ({ useAuth: vi.fn() }));
+vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
 
-import { useAuth } from '../features/auth';
+import {useAuth} from '../features/auth';
 
 const mockUseAuth = useAuth as unknown as MockedFunction<() => AuthContextValue>;
 
@@ -17,7 +17,7 @@ beforeEach(() => {
     error: null,
     signIn: vi.fn(),
     signUp: vi.fn(),
-    signOut: vi.fn(),
+    signOut: vi.fn()
   });
 });
 
@@ -31,7 +31,10 @@ describe('RootLayout', () => {
       <MemoryRouter initialEntries={['/files']}>
         <Routes>
           <Route element={<RootLayout />}>
-            <Route path="/files" element={<div>CHILD CONTENT</div>} />
+            <Route
+              path="/files"
+              element={<div>CHILD CONTENT</div>}
+            />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -47,7 +50,10 @@ describe('RootLayout', () => {
       <MemoryRouter initialEntries={['/']}>
         <Routes>
           <Route element={<RootLayout />}>
-            <Route path="/" element={<div>LANDING CONTENT</div>} />
+            <Route
+              path="/"
+              element={<div>LANDING CONTENT</div>}
+            />
           </Route>
         </Routes>
       </MemoryRouter>

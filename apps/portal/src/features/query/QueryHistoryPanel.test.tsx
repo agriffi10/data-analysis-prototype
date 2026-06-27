@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {render, screen, fireEvent} from '@testing-library/react';
 
-vi.mock('./useQueryHistory', () => ({ useQueryHistory: vi.fn() }));
+vi.mock('./useQueryHistory', () => ({useQueryHistory: vi.fn()}));
 
-import { useQueryHistory } from './useQueryHistory';
-import { QueryHistoryPanel } from './QueryHistoryPanel';
-import type { QueryHistoryEntry } from './query.types';
+import {useQueryHistory} from './useQueryHistory';
+import {QueryHistoryPanel} from './QueryHistoryPanel';
+import type {QueryHistoryEntry} from './query.types';
 
 const mockUseHistory = vi.mocked(useQueryHistory);
 
@@ -18,7 +18,7 @@ function historyState(history: QueryHistoryEntry[], extra = {}) {
     updateEntry: vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
     isRefreshing: false,
-    ...extra,
+    ...extra
   } as ReturnType<typeof useQueryHistory>;
 }
 
@@ -27,7 +27,7 @@ const sample: QueryHistoryEntry = {
   sql: 'SELECT 1',
   database: 'alice',
   submittedAt: new Date().toISOString(),
-  status: 'SUCCEEDED',
+  status: 'SUCCEEDED'
 };
 
 const baseProps = {
@@ -36,7 +36,7 @@ const baseProps = {
   username: 'alice',
   onReopen: vi.fn(),
   onRerun: vi.fn(),
-  rerunDisabled: false,
+  rerunDisabled: false
 };
 
 beforeEach(() => {
@@ -46,14 +46,19 @@ beforeEach(() => {
 describe('QueryHistoryPanel', () => {
   it('renders nothing when closed', () => {
     mockUseHistory.mockReturnValue(historyState([]));
-    render(<QueryHistoryPanel {...baseProps} open={false} />);
+    render(
+      <QueryHistoryPanel
+        {...baseProps}
+        open={false}
+      />
+    );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('lists history entries newest-first', () => {
     mockUseHistory.mockReturnValue(historyState([sample]));
     render(<QueryHistoryPanel {...baseProps} />);
-    expect(screen.getByRole('dialog', { name: 'Query history' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', {name: 'Query history'})).toBeInTheDocument();
     expect(screen.getByText('SELECT 1')).toBeInTheDocument();
   });
 
@@ -64,7 +69,7 @@ describe('QueryHistoryPanel', () => {
   });
 
   it('shows a danger banner on a read error', () => {
-    mockUseHistory.mockReturnValue(historyState([], { error: 'access denied' }));
+    mockUseHistory.mockReturnValue(historyState([], {error: 'access denied'}));
     render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();
   });
@@ -72,20 +77,25 @@ describe('QueryHistoryPanel', () => {
   it('fires onReopen with the entry', () => {
     const onReopen = vi.fn();
     mockUseHistory.mockReturnValue(historyState([sample]));
-    render(<QueryHistoryPanel {...baseProps} onReopen={onReopen} />);
-    fireEvent.click(screen.getByRole('button', { name: /open this query/i }));
+    render(
+      <QueryHistoryPanel
+        {...baseProps}
+        onReopen={onReopen}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', {name: /open this query/i}));
     expect(onReopen).toHaveBeenCalledWith(sample);
   });
 
   // --- SPEC-042 pagination (7 per page, newest-first) ---
 
   function makeEntries(n: number): QueryHistoryEntry[] {
-    return Array.from({ length: n }, (_, i) => ({
+    return Array.from({length: n}, (_, i) => ({
       queryExecutionId: `id${i}`,
       sql: `q${i}`,
       database: 'alice',
       submittedAt: new Date().toISOString(),
-      status: 'SUCCEEDED' as const,
+      status: 'SUCCEEDED' as const
     }));
   }
 
@@ -97,21 +107,21 @@ describe('QueryHistoryPanel', () => {
     expect(screen.getByText('q6')).toBeInTheDocument();
     expect(screen.queryByText('q7')).not.toBeInTheDocument();
     expect(screen.getByText(/^1.7 of 23$/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Prev' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(screen.getByRole('button', {name: 'Prev'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Next'})).toBeEnabled();
   });
 
   it('Next replaces the list with the next 7; Prev returns', () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
     render(<QueryHistoryPanel {...baseProps} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText('q7')).toBeInTheDocument();
     expect(screen.getByText('q13')).toBeInTheDocument();
     expect(screen.queryByText('q0')).not.toBeInTheDocument(); // replaced, not appended
     expect(screen.getByText(/^8.14 of 23$/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prev' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Prev'}));
     expect(screen.getByText('q0')).toBeInTheDocument();
     expect(screen.getByText(/^1.7 of 23$/)).toBeInTheDocument();
   });
@@ -120,46 +130,56 @@ describe('QueryHistoryPanel', () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
     render(<QueryHistoryPanel {...baseProps} />);
 
-    const next = screen.getByRole('button', { name: 'Next' });
+    const next = screen.getByRole('button', {name: 'Next'});
     fireEvent.click(next); // 8–14
     fireEvent.click(next); // 15–21
     fireEvent.click(next); // 22–23 (last)
     expect(screen.getByText(/^22.23 of 23$/)).toBeInTheDocument();
     expect(screen.getByText('q22')).toBeInTheDocument();
     expect(next).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Prev' })).toBeEnabled();
+    expect(screen.getByRole('button', {name: 'Prev'})).toBeEnabled();
   });
 
   it('disables both controls with 7 or fewer entries', () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(5)));
     render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/^1.5 of 5$/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Prev' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Prev'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Next'})).toBeDisabled();
   });
 
   it('shows no pager in the empty state', () => {
     mockUseHistory.mockReturnValue(historyState([]));
     render(<QueryHistoryPanel {...baseProps} />);
-    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Next'})).not.toBeInTheDocument();
   });
 
   it('resets to page 1 when reopened', () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
-    const { rerender } = render(<QueryHistoryPanel {...baseProps} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    const {rerender} = render(<QueryHistoryPanel {...baseProps} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText(/^8.14 of 23$/)).toBeInTheDocument();
 
     // Close then reopen → back to page 1.
-    rerender(<QueryHistoryPanel {...baseProps} open={false} />);
-    rerender(<QueryHistoryPanel {...baseProps} open={true} />);
+    rerender(
+      <QueryHistoryPanel
+        {...baseProps}
+        open={false}
+      />
+    );
+    rerender(
+      <QueryHistoryPanel
+        {...baseProps}
+        open={true}
+      />
+    );
     expect(screen.getByText(/^1.7 of 23$/)).toBeInTheDocument();
   });
 
   it('resets to page 1 when a new entry is appended', () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
-    const { rerender } = render(<QueryHistoryPanel {...baseProps} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    const {rerender} = render(<QueryHistoryPanel {...baseProps} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText(/^8.14 of 23$/)).toBeInTheDocument();
 
     // A fresh Run appends → list grows → newest visible on page 1.
@@ -170,8 +190,8 @@ describe('QueryHistoryPanel', () => {
 
   it('clamps to the last valid page when the list shrinks', () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
-    const { rerender } = render(<QueryHistoryPanel {...baseProps} />);
-    const next = screen.getByRole('button', { name: 'Next' });
+    const {rerender} = render(<QueryHistoryPanel {...baseProps} />);
+    const next = screen.getByRole('button', {name: 'Next'});
     fireEvent.click(next);
     fireEvent.click(next);
     fireEvent.click(next); // last page (22–23 of 23)
@@ -188,38 +208,38 @@ describe('QueryHistoryPanel', () => {
 
   it('clicking Refresh re-reads the history store', () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
-    mockUseHistory.mockReturnValue(historyState([sample], { refresh }));
+    mockUseHistory.mockReturnValue(historyState([sample], {refresh}));
     render(<QueryHistoryPanel {...baseProps} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh history' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Refresh history'}));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('disables the Refresh button while a refresh is in flight', () => {
-    mockUseHistory.mockReturnValue(historyState([sample], { isRefreshing: true }));
-    const { rerender } = render(<QueryHistoryPanel {...baseProps} />);
-    expect(screen.getByRole('button', { name: 'Refresh history' })).toBeDisabled();
+    mockUseHistory.mockReturnValue(historyState([sample], {isRefreshing: true}));
+    const {rerender} = render(<QueryHistoryPanel {...baseProps} />);
+    expect(screen.getByRole('button', {name: 'Refresh history'})).toBeDisabled();
 
     // Re-enables once the refetch settles.
-    mockUseHistory.mockReturnValue(historyState([sample], { isRefreshing: false }));
+    mockUseHistory.mockReturnValue(historyState([sample], {isRefreshing: false}));
     rerender(<QueryHistoryPanel {...baseProps} />);
-    expect(screen.getByRole('button', { name: 'Refresh history' })).toBeEnabled();
+    expect(screen.getByRole('button', {name: 'Refresh history'})).toBeEnabled();
   });
 
   it('returns to the newest page after a successful refresh', async () => {
     mockUseHistory.mockReturnValue(historyState(makeEntries(23)));
     render(<QueryHistoryPanel {...baseProps} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText(/^8.14 of 23$/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh history' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Refresh history'}));
     expect(await screen.findByText(/^1.7 of 23$/)).toBeInTheDocument();
   });
 
   it('a refresh error shows the banner without dropping the existing list', () => {
     // The query reports an error but keeps the last-loaded entries (TanStack
     // retains data on a failed refetch) — both must render (FR-003).
-    mockUseHistory.mockReturnValue(historyState([sample], { error: 'access denied' }));
+    mockUseHistory.mockReturnValue(historyState([sample], {error: 'access denied'}));
     render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();
     expect(screen.getByText('SELECT 1')).toBeInTheDocument();

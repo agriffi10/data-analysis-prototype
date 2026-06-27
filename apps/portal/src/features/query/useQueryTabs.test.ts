@@ -1,21 +1,21 @@
-import { renderHook, act } from '@testing-library/react';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useQueryTabs } from './useQueryTabs';
-import { readTabsState } from './queryTabs';
-import { QUERY_TABS_MAX } from './query.constants';
+import {renderHook, act} from '@testing-library/react';
+import {describe, it, expect, beforeEach} from 'vitest';
+import {useQueryTabs} from './useQueryTabs';
+import {readTabsState} from './queryTabs';
+import {QUERY_TABS_MAX} from './query.constants';
 
 beforeEach(() => sessionStorage.clear());
 
 describe('useQueryTabs', () => {
   it('opens with a single Query 1 on a fresh session', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     expect(result.current.tabs).toHaveLength(1);
     expect(result.current.tabs[0].label).toBe('Query 1');
     expect(result.current.activeTab.id).toBe(result.current.tabs[0].id);
   });
 
   it('hands out monotonic Query N labels, never reusing across a close', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
 
     act(() => void result.current.openTab()); // Query 2
     act(() => void result.current.openTab()); // Query 3
@@ -30,20 +30,20 @@ describe('useQueryTabs', () => {
   });
 
   it('blank + tab is empty and becomes active', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     act(() => void result.current.openTab());
     expect(result.current.activeTab.label).toBe('Query 2');
     expect(result.current.activeTab.sql).toBe('');
   });
 
   it('opens a named tab verbatim without consuming a Query N number (FR-009)', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     act(
       () =>
         void result.current.openTab({
           label: 'Monthly revenue',
           sql: 'SELECT * FROM rev;',
-          savedQueryId: 'sq-1',
+          savedQueryId: 'sq-1'
         })
     );
     const active = result.current.activeTab;
@@ -57,7 +57,7 @@ describe('useQueryTabs', () => {
   });
 
   it('isolates edits to the active tab', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     act(() => result.current.setActiveSql('SELECT first;'));
     const first = result.current.tabs[0].id;
 
@@ -70,7 +70,7 @@ describe('useQueryTabs', () => {
   });
 
   it('refuses to open past QUERY_TABS_MAX, returning null', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     // Start at 1 tab; open up to the cap.
     for (let i = result.current.tabs.length; i < QUERY_TABS_MAX; i++) {
       act(() => void result.current.openTab());
@@ -86,14 +86,14 @@ describe('useQueryTabs', () => {
   });
 
   it('never closes the last remaining tab', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     const only = result.current.tabs[0].id;
     act(() => result.current.closeTab(only));
     expect(result.current.tabs).toHaveLength(1);
   });
 
   it('activates the left neighbor when the active tab is closed', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     act(() => void result.current.openTab()); // Query 2 (active)
     act(() => void result.current.openTab()); // Query 3 (active)
     const [q1, q2, q3] = result.current.tabs.map((t) => t.id);
@@ -106,7 +106,7 @@ describe('useQueryTabs', () => {
   });
 
   it('clearActive empties only the active tab', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     act(() => result.current.setActiveSql('SELECT keep;'));
     act(() => void result.current.openTab());
     act(() => result.current.setActiveSql('SELECT clearme;'));
@@ -117,14 +117,14 @@ describe('useQueryTabs', () => {
   });
 
   it('clearActive resets the tab name and unlinks any saved query', () => {
-    const { result } = renderHook(() => useQueryTabs('alice'));
+    const {result} = renderHook(() => useQueryTabs('alice'));
     // Open a saved-query tab: named label + saved-query link.
     act(
       () =>
         void result.current.openTab({
           label: 'Revenue',
           sql: 'SELECT 1',
-          savedQueryId: 'sq-1',
+          savedQueryId: 'sq-1'
         })
     );
     expect(result.current.activeTab.label).toBe('Revenue');
@@ -139,7 +139,7 @@ describe('useQueryTabs', () => {
 
   it('persists across remount (restore from sessionStorage)', () => {
     const first = renderHook(() => useQueryTabs('alice'));
-    act(() => void first.result.current.openTab({ label: 'Saved', sql: 'X' }));
+    act(() => void first.result.current.openTab({label: 'Saved', sql: 'X'}));
     expect(readTabsState('alice')?.tabs).toHaveLength(2);
     first.unmount();
 

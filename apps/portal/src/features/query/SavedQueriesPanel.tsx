@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { Banner } from '../../components/Banner';
-import { Drawer } from '../../components/Drawer';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { DocumentIcon } from '../../components/icons';
-import { formatRelativeTime } from './query.format';
-import type { SavedQuery } from './query.types';
+import {useState} from 'react';
+import {Banner} from '../../components/Banner';
+import {Drawer} from '../../components/Drawer';
+import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {DocumentIcon} from '../../components/icons';
+import {formatRelativeTime} from './query.format';
+import type {SavedQuery} from './query.types';
 
 type Props = {
   open: boolean;
@@ -19,16 +19,22 @@ type Props = {
 // SPEC-043 FR-005/006/007: saved-queries drawer (most-recently-updated first),
 // Open (→ new linked tab) + Delete (→ confirm). Renders in the shared Drawer;
 // the delete confirm is the shared ConfirmDialog and owns Escape while open.
-export function SavedQueriesPanel({ open, onClose, queries, isLoading, error, onOpen, onDelete }: Props) {
+export function SavedQueriesPanel({open, onClose, queries, isLoading, error, onOpen, onDelete}: Props) {
   const [pendingDelete, setPendingDelete] = useState<SavedQuery | null>(null);
 
   const sorted = [...queries].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   return (
     <>
-      <Drawer open={open} onClose={onClose} title="Saved queries" closeOnEscape={!pendingDelete}>
+      <Drawer
+        open={open}
+        onClose={onClose}
+        title="Saved queries"
+        closeOnEscape={!pendingDelete}>
         {error ? (
-          <Banner variant="danger" title="Couldn’t load saved queries.">
+          <Banner
+            variant="danger"
+            title="Couldn’t load saved queries.">
             {error}
           </Banner>
         ) : isLoading ? (
@@ -45,17 +51,20 @@ export function SavedQueriesPanel({ open, onClose, queries, isLoading, error, on
           sorted.map((q) => {
             const preview = q.sql.replace(/\s+/g, ' ').trim();
             return (
-              <div key={q.id} className="rounded-md border border-border p-3">
+              <div
+                key={q.id}
+                className="rounded-md border border-border p-3">
                 <div className="mb-1.5 flex items-center gap-2">
                   <span className="truncate font-semibold text-text">{q.name}</span>
                   <span
                     className="ml-auto flex-none text-xs text-text-3"
-                    title={new Date(q.updatedAt).toLocaleString()}
-                  >
+                    title={new Date(q.updatedAt).toLocaleString()}>
                     {formatRelativeTime(q.updatedAt)}
                   </span>
                 </div>
-                <p className="truncate font-mono text-sm text-text-2" title={preview}>
+                <p
+                  className="truncate font-mono text-sm text-text-2"
+                  title={preview}>
                   {preview}
                 </p>
                 <div className="mt-2 flex items-center gap-3">
@@ -64,16 +73,14 @@ export function SavedQueriesPanel({ open, onClose, queries, isLoading, error, on
                     type="button"
                     onClick={() => onOpen(q)}
                     aria-label={`Open saved query ${q.name}`}
-                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
+                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
                     Open
                   </button>
                   <button
                     type="button"
                     onClick={() => setPendingDelete(q)}
                     aria-label={`Delete saved query ${q.name}`}
-                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-danger hover:bg-danger-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-                  >
+                    className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-danger hover:bg-danger-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
                     Delete
                   </button>
                 </div>
@@ -94,8 +101,7 @@ export function SavedQueriesPanel({ open, onClose, queries, isLoading, error, on
             onDelete(pendingDelete.id);
             setPendingDelete(null);
           }}
-          onCancel={() => setPendingDelete(null)}
-        >
+          onCancel={() => setPendingDelete(null)}>
           <p className="mt-3 text-sm text-text-2">
             This removes the saved query. Any open tab linked to it keeps its SQL but is no longer linked.
           </p>

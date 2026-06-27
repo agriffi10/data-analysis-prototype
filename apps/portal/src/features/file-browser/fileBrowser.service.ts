@@ -6,14 +6,14 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
-  type S3Client,
+  type S3Client
 } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Upload } from '@aws-sdk/lib-storage';
-import { getS3Client, s3Client } from '../../lib/s3Client';
-import { isExpiryError, withCredentialRetry } from '../../lib/credentialRetry';
-import type { FileListPage } from '../../types/s3.types';
-import type { ServiceResult } from '../../types/service.types';
+import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
+import {Upload} from '@aws-sdk/lib-storage';
+import {getS3Client, s3Client} from '../../lib/s3Client';
+import {isExpiryError, withCredentialRetry} from '../../lib/credentialRetry';
+import type {FileListPage} from '../../types/s3.types';
+import type {ServiceResult} from '../../types/service.types';
 import type {
   DownloadUrl,
   UploadResult,
@@ -21,10 +21,10 @@ import type {
   ObjectMetadata,
   DeleteResult,
   MoveResult,
-  CopyResult,
+  CopyResult
 } from './fileBrowser.types';
-import { MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE, PART_CONCURRENCY } from './fileBrowser.types';
-import { LISTING_PAGE_SIZE, PREFIX_MARKER_BODY, prefixMarkerKey } from './fileBrowser.constants';
+import {MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE, PART_CONCURRENCY} from './fileBrowser.types';
+import {LISTING_PAGE_SIZE, PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
 
 // Credential-expiry detection + one-shot refresh-and-retry now live in the shared
 // src/lib/credentialRetry helper (SPEC-034 FR-001), reused by the S3/Athena/Glue
@@ -73,17 +73,17 @@ async function listWithClient(
       Prefix: prefix,
       Delimiter: '/',
       MaxKeys: LISTING_PAGE_SIZE,
-      ContinuationToken: continuationToken,
+      ContinuationToken: continuationToken
     });
 
     const response = await client.send(command);
 
     const folders = (response.CommonPrefixes ?? [])
-      .filter((p): p is { Prefix: string } => typeof p.Prefix === 'string')
+      .filter((p): p is {Prefix: string} => typeof p.Prefix === 'string')
       .map((p) => ({
         type: 'folder' as const,
         prefix: p.Prefix,
-        name: folderName(p.Prefix, prefix),
+        name: folderName(p.Prefix, prefix)
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -94,7 +94,7 @@ async function listWithClient(
         key: obj.Key!,
         name: fileName(obj.Key!),
         size: obj.Size ?? 0,
-        lastModified: obj.LastModified ?? new Date(0),
+        lastModified: obj.LastModified ?? new Date(0)
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -104,17 +104,17 @@ async function listWithClient(
         files,
         folders,
         isTruncated: response.IsTruncated ?? false,
-        nextContinuationToken: response.NextContinuationToken,
-      },
+        nextContinuationToken: response.NextContinuationToken
+      }
     };
   } catch (err) {
-    const error = err as { message?: string; name?: string };
+    const error = err as {message?: string; name?: string};
     return {
       success: false,
       error: {
         message: error.message ?? 'Unknown error listing files',
-        code: error.name,
-      },
+        code: error.name
+      }
     };
   }
 }
@@ -140,15 +140,15 @@ async function withAuthenticatedClient<T>(
 }
 
 function toServiceError(err: unknown, fallback: string) {
-  const e = err as { message?: string; name?: string };
+  const e = err as {message?: string; name?: string};
   return {
     success: false as const,
-    error: { message: e.message ?? fallback, code: e.name },
+    error: {message: e.message ?? fallback, code: e.name}
   };
 }
 
 function isNotFound(err: unknown): boolean {
-  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
   // HeadObject on a missing key surfaces as `NotFound` (404) in the v3 SDK.
   return e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
@@ -162,8 +162,8 @@ const ensuredMarkers = new Set<string>();
 export async function ensurePrefixMarker(params: {
   bucket: string;
   username: string;
-}): Promise<ServiceResult<{ created: boolean }>> {
-  const { bucket, username } = params;
+}): Promise<ServiceResult<{created: boolean}>> {
+  const {bucket, username} = params;
   const key = prefixMarkerKey(username);
   const cacheKey = `${bucket}/${key}`;
 
@@ -171,15 +171,15 @@ export async function ensurePrefixMarker(params: {
   // double-invocations and repeat navigation within a session. A fresh page load
   // (new session) starts with an empty set, so a prior failure retries then.
   if (ensuredMarkers.has(cacheKey)) {
-    return { success: true, data: { created: false } };
+    return {success: true, data: {created: false}};
   }
   ensuredMarkers.add(cacheKey);
 
-  return withAuthenticatedClient<{ created: boolean }>(async (client) => {
+  return withAuthenticatedClient<{created: boolean}>(async (client) => {
     try {
       // HEAD first — never overwrite an existing marker (FR-001).
-      await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-      return { success: true, data: { created: false } };
+      await client.send(new HeadObjectCommand({Bucket: bucket, Key: key}));
+      return {success: true, data: {created: false}};
     } catch (err) {
       if (!isNotFound(err)) {
         // Expiry errors propagate the code so withAuthenticatedClient retries;
@@ -194,10 +194,10 @@ export async function ensurePrefixMarker(params: {
           Bucket: bucket,
           Key: key,
           Body: PREFIX_MARKER_BODY,
-          ContentType: 'text/plain',
+          ContentType: 'text/plain'
         })
       );
-      return { success: true, data: { created: true } };
+      return {success: true, data: {created: true}};
     } catch (err) {
       return toServiceError(err, 'Failed to create prefix marker');
     }
@@ -220,23 +220,23 @@ export async function deleteObject(params: {
   bucket: string;
   key: string;
   username: string;
-}): Promise<ServiceResult<{ key: string }>> {
-  const { bucket, key, username } = params;
+}): Promise<ServiceResult<{key: string}>> {
+  const {bucket, key, username} = params;
 
   if (isPrefixMarkerKey(key, username)) {
     return {
       success: false,
       error: {
         message: 'This file keeps your storage space active and cannot be deleted.',
-        code: 'ProtectedObject',
-      },
+        code: 'ProtectedObject'
+      }
     };
   }
 
   return withAuthenticatedClient(async (client) => {
     try {
-      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-      return { success: true, data: { key } };
+      await client.send(new DeleteObjectCommand({Bucket: bucket, Key: key}));
+      return {success: true, data: {key}};
     } catch (err) {
       return toServiceError(err, 'Failed to delete object');
     }
@@ -270,7 +270,7 @@ export async function deleteObjects(params: {
   keys: string[];
   username: string;
 }): Promise<ServiceResult<DeleteResult>> {
-  const { bucket, keys, username } = params;
+  const {bucket, keys, username} = params;
   const markerKey = prefixMarkerKey(username);
 
   // Partition out the protected marker before touching S3 (FR-002).
@@ -280,7 +280,7 @@ export async function deleteObjects(params: {
     if (key === markerKey) {
       markerErrors.push({
         key,
-        message: 'This file keeps your storage space active and cannot be deleted.',
+        message: 'This file keeps your storage space active and cannot be deleted.'
       });
     } else {
       toDelete.push(key);
@@ -288,7 +288,7 @@ export async function deleteObjects(params: {
   }
 
   if (toDelete.length === 0) {
-    return { success: true, data: { deleted: [], errors: markerErrors } };
+    return {success: true, data: {deleted: [], errors: markerErrors}};
   }
 
   const result = await withAuthenticatedClient((client) => deleteInBatches(client, bucket, toDelete));
@@ -298,8 +298,8 @@ export async function deleteObjects(params: {
     success: true,
     data: {
       deleted: result.data.deleted,
-      errors: [...markerErrors, ...result.data.errors],
-    },
+      errors: [...markerErrors, ...result.data.errors]
+    }
   };
 }
 
@@ -318,9 +318,9 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: {
-            Objects: batch.map((Key) => ({ Key })),
-            Quiet: false,
-          },
+            Objects: batch.map((Key) => ({Key})),
+            Quiet: false
+          }
         })
       );
       for (const d of response.Deleted ?? []) {
@@ -330,22 +330,22 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
         if (e.Key) {
           errors.push({
             key: e.Key,
-            message: e.Message ?? e.Code ?? 'Failed to delete object',
+            message: e.Message ?? e.Code ?? 'Failed to delete object'
           });
         }
       }
     } catch (err) {
-      const e = err as { name?: string; message?: string };
+      const e = err as {name?: string; message?: string};
       // Let credential expiry bubble up so the whole operation is retried once.
       if (isExpiryError(e.name)) return toServiceError(err, 'Failed to delete objects');
       // Other whole-batch failure: record each key and keep going.
       for (const key of batch) {
-        errors.push({ key, message: e.message ?? 'Failed to delete object' });
+        errors.push({key, message: e.message ?? 'Failed to delete object'});
       }
     }
   }
 
-  return { success: true, data: { deleted, errors } };
+  return {success: true, data: {deleted, errors}};
 }
 
 // SPEC-018 FR-003: delete a folder and everything beneath it. Lists every key
@@ -359,16 +359,16 @@ export async function deleteFolder(params: {
   prefix: string;
   username: string;
 }): Promise<ServiceResult<DeleteResult>> {
-  const { bucket, prefix, username } = params;
+  const {bucket, prefix, username} = params;
 
   const listResult = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, prefix));
   if (!listResult.success) return listResult;
 
   if (listResult.data.length === 0) {
-    return { success: true, data: { deleted: [], errors: [] } };
+    return {success: true, data: {deleted: [], errors: []}};
   }
 
-  return deleteObjects({ bucket, keys: listResult.data, username });
+  return deleteObjects({bucket, keys: listResult.data, username});
 }
 
 // Collects every object key under a prefix, paginating ListObjectsV2 past 1000
@@ -389,7 +389,7 @@ async function listAllKeysUnderPrefix(
           Bucket: bucket,
           Prefix: prefix,
           MaxKeys: BULK_KEY_PAGE_SIZE,
-          ContinuationToken: continuationToken,
+          ContinuationToken: continuationToken
         })
       );
       for (const obj of response.Contents ?? []) {
@@ -398,7 +398,7 @@ async function listAllKeysUnderPrefix(
       continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
     } while (continuationToken);
 
-    return { success: true, data: keys };
+    return {success: true, data: keys};
   } catch (err) {
     return toServiceError(err, 'Failed to list folder contents');
   }
@@ -424,26 +424,26 @@ export async function copyObject(params: {
   destKey: string;
   username: string;
   overwrite?: boolean;
-}): Promise<ServiceResult<{ destKey: string }>> {
-  const { bucket, sourceKey, destKey, username, overwrite = false } = params;
+}): Promise<ServiceResult<{destKey: string}>> {
+  const {bucket, sourceKey, destKey, username, overwrite = false} = params;
 
   if (isPrefixMarkerKey(sourceKey, username) || isPrefixMarkerKey(destKey, username)) {
     return {
       success: false,
       error: {
         message: 'This file keeps your storage space active and cannot be moved or renamed.',
-        code: 'ProtectedObject',
-      },
+        code: 'ProtectedObject'
+      }
     };
   }
 
   if (!overwrite) {
-    const exists = await objectExists({ bucket, key: destKey });
+    const exists = await objectExists({bucket, key: destKey});
     if (!exists.success) return exists;
     if (exists.data) {
       return {
         success: false,
-        error: { message: `"${destKey}" already exists.`, code: 'Collision' },
+        error: {message: `"${destKey}" already exists.`, code: 'Collision'}
       };
     }
   }
@@ -454,10 +454,10 @@ export async function copyObject(params: {
         new CopyObjectCommand({
           Bucket: bucket,
           Key: destKey,
-          CopySource: buildCopySource(bucket, sourceKey),
+          CopySource: buildCopySource(bucket, sourceKey)
         })
       );
-      return { success: true, data: { destKey } };
+      return {success: true, data: {destKey}};
     } catch (err) {
       return toServiceError(err, 'Failed to copy object');
     }
@@ -473,11 +473,11 @@ export async function moveObject(params: {
   destKey: string;
   username: string;
   overwrite?: boolean;
-}): Promise<ServiceResult<{ destKey: string }>> {
-  const { bucket, sourceKey, destKey, username, overwrite } = params;
+}): Promise<ServiceResult<{destKey: string}>> {
+  const {bucket, sourceKey, destKey, username, overwrite} = params;
 
   if (sourceKey === destKey) {
-    return { success: true, data: { destKey } };
+    return {success: true, data: {destKey}};
   }
 
   const copied = await copyObject({
@@ -485,14 +485,14 @@ export async function moveObject(params: {
     sourceKey,
     destKey,
     username,
-    overwrite,
+    overwrite
   });
   if (!copied.success) return copied;
 
-  const deleted = await deleteObject({ bucket, key: sourceKey, username });
+  const deleted = await deleteObject({bucket, key: sourceKey, username});
   if (!deleted.success) return deleted;
 
-  return { success: true, data: { destKey } };
+  return {success: true, data: {destKey}};
 }
 
 // SPEC-019 FR-004: move a folder and everything beneath it. Lists every key under
@@ -513,10 +513,10 @@ export async function moveFolder(params: {
   overwrite?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<MoveResult>> {
-  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } = params;
+  const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
 
   if (sourcePrefix === destPrefix) {
-    return { success: true, data: { moved: [], errors: [] } };
+    return {success: true, data: {moved: [], errors: []}};
   }
   // Moving a folder inside its own subtree would copy keys into themselves.
   if (destPrefix.startsWith(sourcePrefix)) {
@@ -524,8 +524,8 @@ export async function moveFolder(params: {
       success: false,
       error: {
         message: 'A folder cannot be moved into itself.',
-        code: 'InvalidDestination',
-      },
+        code: 'InvalidDestination'
+      }
     };
   }
 
@@ -534,7 +534,7 @@ export async function moveFolder(params: {
 
   const sourceKeys = listed.data;
   if (sourceKeys.length === 0) {
-    return { success: true, data: { moved: [], errors: [] } };
+    return {success: true, data: {moved: [], errors: []}};
   }
 
   const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
@@ -550,8 +550,8 @@ export async function moveFolder(params: {
         success: false,
         error: {
           message: `${collisions} item(s) already exist at the destination.`,
-          code: 'Collision',
-        },
+          code: 'Collision'
+        }
       };
     }
   }
@@ -569,17 +569,17 @@ export async function moveFolder(params: {
       sourceKey,
       destKey: destKeyFor(sourceKey),
       username,
-      overwrite: true,
+      overwrite: true
     });
     if (result.success) {
       moved.push(sourceKey);
     } else {
-      errors.push({ key: sourceKey, message: result.error.message });
+      errors.push({key: sourceKey, message: result.error.message});
     }
     onProgress?.(++processed, total);
   }
 
-  return { success: true, data: { moved, errors } };
+  return {success: true, data: {moved, errors}};
 }
 
 // ── Copy (SPEC-039) ──────────────────────────────────────────────────────────
@@ -604,10 +604,10 @@ export async function copyFolder(params: {
   overwrite?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<CopyResult>> {
-  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } = params;
+  const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
 
   if (sourcePrefix === destPrefix) {
-    return { success: true, data: { copied: [], errors: [] } };
+    return {success: true, data: {copied: [], errors: []}};
   }
   // Copying a folder inside its own subtree would copy keys into themselves.
   if (destPrefix.startsWith(sourcePrefix)) {
@@ -615,8 +615,8 @@ export async function copyFolder(params: {
       success: false,
       error: {
         message: 'A folder cannot be copied into itself.',
-        code: 'InvalidDestination',
-      },
+        code: 'InvalidDestination'
+      }
     };
   }
 
@@ -625,7 +625,7 @@ export async function copyFolder(params: {
 
   const sourceKeys = listed.data;
   if (sourceKeys.length === 0) {
-    return { success: true, data: { copied: [], errors: [] } };
+    return {success: true, data: {copied: [], errors: []}};
   }
 
   const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
@@ -641,8 +641,8 @@ export async function copyFolder(params: {
         success: false,
         error: {
           message: `${collisions} item(s) already exist at the destination.`,
-          code: 'Collision',
-        },
+          code: 'Collision'
+        }
       };
     }
   }
@@ -660,17 +660,17 @@ export async function copyFolder(params: {
       sourceKey,
       destKey: destKeyFor(sourceKey),
       username,
-      overwrite: true,
+      overwrite: true
     });
     if (result.success) {
       copied.push(sourceKey);
     } else {
-      errors.push({ key: sourceKey, message: result.error.message });
+      errors.push({key: sourceKey, message: result.error.message});
     }
     onProgress?.(++processed, total);
   }
 
-  return { success: true, data: { copied, errors } };
+  return {success: true, data: {copied, errors}};
 }
 
 // SPEC-015 FR-003. Default presigned-download lifetime: 15 minutes.
@@ -702,7 +702,7 @@ export async function getDownloadUrl(params: {
   fileName?: string; // defaults to the last path segment of the key
   expiresInSeconds?: number; // default 900, capped to credential TTL
 }): Promise<ServiceResult<DownloadUrl>> {
-  const { bucket, key } = params;
+  const {bucket, key} = params;
   const downloadName = params.fileName ?? fileName(key);
   const requested = params.expiresInSeconds ?? DEFAULT_DOWNLOAD_EXPIRY_SECONDS;
 
@@ -722,12 +722,12 @@ export async function getDownloadUrl(params: {
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
-      ResponseContentDisposition: `attachment; filename="${downloadName}"`,
+      ResponseContentDisposition: `attachment; filename="${downloadName}"`
     });
 
-    const url = await getSignedUrl(client, command, { expiresIn });
+    const url = await getSignedUrl(client, command, {expiresIn});
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-    return { success: true, data: { url, expiresAt } };
+    return {success: true, data: {url, expiresAt}};
   } catch (err) {
     return toServiceError(err, 'Failed to generate download URL');
   }
@@ -738,14 +738,14 @@ export async function getDownloadUrl(params: {
 // SPEC-016 FR-003: does an object already exist at this key? HEAD it; a
 // NotFound/404 is a clean `false` (not an error). Callers use this to drive the
 // warn-and-confirm collision prompt.
-export async function objectExists(params: { bucket: string; key: string }): Promise<ServiceResult<boolean>> {
-  const { bucket, key } = params;
+export async function objectExists(params: {bucket: string; key: string}): Promise<ServiceResult<boolean>> {
+  const {bucket, key} = params;
   return withAuthenticatedClient(async (client) => {
     try {
-      await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-      return { success: true, data: true };
+      await client.send(new HeadObjectCommand({Bucket: bucket, Key: key}));
+      return {success: true, data: true};
     } catch (err) {
-      if (isNotFound(err)) return { success: true, data: false };
+      if (isNotFound(err)) return {success: true, data: false};
       return toServiceError(err, 'Failed to check whether the object exists');
     }
   });
@@ -789,30 +789,30 @@ export async function uploadFile(params: {
   onProgress?: (loaded: number, total: number) => void;
   signal?: AbortSignal;
 }): Promise<ServiceResult<UploadResult>> {
-  const { bucket, key, body, contentType, overwrite = false, onProgress, signal } = params;
+  const {bucket, key, body, contentType, overwrite = false, onProgress, signal} = params;
 
   if (body.size > MAX_UPLOAD_BYTES) {
     return {
       success: false,
       error: {
         message: `File exceeds the maximum upload size of ${MAX_UPLOAD_BYTES} bytes.`,
-        code: 'TooLarge',
-      },
+        code: 'TooLarge'
+      }
     };
   }
 
   if (signal?.aborted) {
-    return { success: false, error: { message: 'Upload cancelled.', code: 'Cancelled' } };
+    return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};
   }
 
   // Collision guard (FR-003) unless the caller has chosen to overwrite.
   if (!overwrite) {
-    const exists = await objectExists({ bucket, key });
+    const exists = await objectExists({bucket, key});
     if (!exists.success) return exists;
     if (exists.data) {
       return {
         success: false,
-        error: { message: `"${key}" already exists.`, code: 'Collision' },
+        error: {message: `"${key}" already exists.`, code: 'Collision'}
       };
     }
   }
@@ -828,9 +828,9 @@ export async function uploadFile(params: {
   try {
     const upload = new Upload({
       client: clientResult.data,
-      params: { Bucket: bucket, Key: key, Body: body, ContentType: contentType },
+      params: {Bucket: bucket, Key: key, Body: body, ContentType: contentType},
       partSize: MULTIPART_PART_SIZE,
-      queueSize: PART_CONCURRENCY,
+      queueSize: PART_CONCURRENCY
     });
 
     if (onProgress) {
@@ -840,14 +840,14 @@ export async function uploadFile(params: {
     }
 
     if (signal) {
-      signal.addEventListener('abort', () => void upload.abort(), { once: true });
+      signal.addEventListener('abort', () => void upload.abort(), {once: true});
     }
 
     await upload.done();
-    return { success: true, data: { key } };
+    return {success: true, data: {key}};
   } catch (err) {
     if (signal?.aborted) {
-      return { success: false, error: { message: 'Upload cancelled.', code: 'Cancelled' } };
+      return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};
     }
     return toServiceError(err, 'Failed to upload file');
   }
@@ -862,25 +862,25 @@ export async function createFolder(params: {
   name: string;
   overwrite?: boolean;
 }): Promise<ServiceResult<CreateFolderResult>> {
-  const { bucket, prefix, name, overwrite = false } = params;
+  const {bucket, prefix, name, overwrite = false} = params;
 
   const nameError = validateFolderName(name);
   if (nameError) {
-    return { success: false, error: { message: nameError, code: 'InvalidName' } };
+    return {success: false, error: {message: nameError, code: 'InvalidName'}};
   }
 
   const folderPrefix = `${prefix}${name}/`;
 
   if (!overwrite) {
-    const exists = await objectExists({ bucket, key: folderPrefix });
+    const exists = await objectExists({bucket, key: folderPrefix});
     if (!exists.success) return exists;
     if (exists.data) {
       return {
         success: false,
         error: {
           message: `A folder named "${name}" already exists.`,
-          code: 'Collision',
-        },
+          code: 'Collision'
+        }
       };
     }
   }
@@ -892,10 +892,10 @@ export async function createFolder(params: {
           Bucket: bucket,
           Key: folderPrefix,
           Body: '',
-          ContentType: 'application/x-directory',
+          ContentType: 'application/x-directory'
         })
       );
-      return { success: true, data: { prefix: folderPrefix } };
+      return {success: true, data: {prefix: folderPrefix}};
     } catch (err) {
       return toServiceError(err, 'Failed to create folder');
     }
@@ -909,14 +909,11 @@ export async function createFolder(params: {
 // to "STANDARD" when S3 omits it. A NotFound/404 is surfaced as a clear
 // ServiceResult error (the file was deleted out from under the listing), not a
 // throw; credential expiry is retried once by withAuthenticatedClient.
-export async function getObjectMetadata(params: {
-  bucket: string;
-  key: string;
-}): Promise<ServiceResult<ObjectMetadata>> {
-  const { bucket, key } = params;
+export async function getObjectMetadata(params: {bucket: string; key: string}): Promise<ServiceResult<ObjectMetadata>> {
+  const {bucket, key} = params;
   return withAuthenticatedClient(async (client) => {
     try {
-      const response = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+      const response = await client.send(new HeadObjectCommand({Bucket: bucket, Key: key}));
       return {
         success: true,
         data: {
@@ -926,14 +923,14 @@ export async function getObjectMetadata(params: {
           lastModified: response.LastModified ?? new Date(0),
           etag: response.ETag ?? '',
           storageClass: response.StorageClass ?? 'STANDARD',
-          userMetadata: response.Metadata ?? {},
-        },
+          userMetadata: response.Metadata ?? {}
+        }
       };
     } catch (err) {
       if (isNotFound(err)) {
         return {
           success: false,
-          error: { message: 'This file no longer exists.', code: 'NotFound' },
+          error: {message: 'This file no longer exists.', code: 'NotFound'}
         };
       }
       return toServiceError(err, 'Failed to load file details');

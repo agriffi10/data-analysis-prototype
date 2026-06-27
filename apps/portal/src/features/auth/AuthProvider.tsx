@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Hub } from 'aws-amplify/utils';
-import { AuthContext } from './authContext';
-import { getCurrentAuthUser, startSignIn, startSignUp, startSignOut } from './auth.service';
-import { isAmplifyConfigured } from '../../lib/amplify';
-import { setReturnPathIfAbsent } from '../../lib/returnPath';
-import type { AuthStatus, AuthUser } from './auth.types';
+import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {Hub} from 'aws-amplify/utils';
+import {AuthContext} from './authContext';
+import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
+import {isAmplifyConfigured} from '../../lib/amplify';
+import {setReturnPathIfAbsent} from '../../lib/returnPath';
+import type {AuthStatus, AuthUser} from './auth.types';
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({children}: {children: ReactNode}) {
   // Initial state is derived from config (a module constant) rather than set in
   // an effect: when Cognito isn't configured we start unauthenticated with a
   // non-blocking error; the file browser stays usable.
@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await refresh();
     })();
 
-    const unsubscribe = Hub.listen('auth', ({ payload }) => {
+    const unsubscribe = Hub.listen('auth', ({payload}) => {
       switch (payload.event) {
         // `signedIn` covers SRP/programmatic sign-in. `signInWithRedirect` is the
         // event Amplify v6 emits once the Hosted-UI OAuth redirect completes and
@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ status, user, error, signIn, signUp, signOut }),
+    () => ({status, user, error, signIn, signUp, signOut}),
     [status, user, error, signIn, signUp, signOut]
   );
 

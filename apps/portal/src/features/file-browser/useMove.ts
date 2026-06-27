@@ -1,15 +1,15 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { invalidateListing } from '../../lib/queryClient';
-import { moveObject, moveFolder, uploadPercent } from './fileBrowser.service';
-import { leafName, fileParent, folderParts } from './fileBrowser.paths';
-import type { SelectableItem } from './selectionContext';
+import {useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {invalidateListing} from '../../lib/queryClient';
+import {moveObject, moveFolder, uploadPercent} from './fileBrowser.service';
+import {leafName, fileParent, folderParts} from './fileBrowser.paths';
+import type {SelectableItem} from './selectionContext';
 
 // Aggregated outcome of a rename or (possibly multi-item, recursive) move:
 // how many objects S3 relocated, and any per-item/per-key failures (FR-004).
 export type MoveSummary = {
   movedCount: number;
-  errors: { key: string; message: string }[];
+  errors: {key: string; message: string}[];
 };
 
 // A rename hit an existing destination (FR-005). The user picks Overwrite or a
@@ -44,7 +44,7 @@ export type UseMoveResult = {
   cancelCollision: () => void;
 };
 
-type Acc = { moved: number; errors: MoveSummary['errors'] };
+type Acc = {moved: number; errors: MoveSummary['errors']};
 
 // SPEC-019 Phase 2: orchestrates rename + move (single + multi-select) on top of
 // the moveObject/moveFolder service primitives. Mirrors useFileUpload's collision
@@ -77,9 +77,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
 
     // Normalize both primitives' results into a common outcome so the shared
     // failure/collision handling below doesn't re-narrow the union.
-    let outcome:
-      | { ok: true; moved: number; errors: MoveSummary['errors'] }
-      | { ok: false; code?: string; message: string };
+    let outcome: {ok: true; moved: number; errors: MoveSummary['errors']} | {ok: false; code?: string; message: string};
 
     if (item.type === 'file') {
       const r = await moveObject({
@@ -87,24 +85,24 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         sourceKey: item.key,
         destKey: fileParent(item.key) + newName,
         username,
-        overwrite,
+        overwrite
       });
       outcome = r.success
-        ? { ok: true, moved: 1, errors: [] }
-        : { ok: false, code: r.error.code, message: r.error.message };
+        ? {ok: true, moved: 1, errors: []}
+        : {ok: false, code: r.error.code, message: r.error.message};
     } else {
-      const { parent } = folderParts(item.prefix);
+      const {parent} = folderParts(item.prefix);
       const r = await moveFolder({
         bucket,
         sourcePrefix: item.prefix,
         destPrefix: `${parent}${newName}/`,
         username,
         overwrite,
-        onProgress: (p, t) => setProgress(uploadPercent(p, t)),
+        onProgress: (p, t) => setProgress(uploadPercent(p, t))
       });
       outcome = r.success
-        ? { ok: true, moved: r.data.moved.length, errors: r.data.errors }
-        : { ok: false, code: r.error.code, message: r.error.message };
+        ? {ok: true, moved: r.data.moved.length, errors: r.data.errors}
+        : {ok: false, code: r.error.code, message: r.error.message};
     }
 
     setProgress(null);
@@ -126,7 +124,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
           onCancel: () => {
             setRenameCollision(null);
             setIsBusy(false);
-          },
+          }
         });
         return;
       }
@@ -136,7 +134,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
     }
 
     await invalidate([sourcePrefix]);
-    setSummary({ movedCount: outcome.moved, errors: outcome.errors });
+    setSummary({movedCount: outcome.moved, errors: outcome.errors});
     setIsBusy(false);
   }
 
@@ -161,20 +159,20 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
           sourceKey: item.key,
           destKey: destPrefix + leafName(item.key),
           username,
-          overwrite,
+          overwrite
         });
         if (r.success) acc.moved += 1;
         else if (r.error.code === 'Collision') collided.push(item);
-        else acc.errors.push({ key: item.key, message: r.error.message });
+        else acc.errors.push({key: item.key, message: r.error.message});
       } else {
-        const { leaf } = folderParts(item.prefix);
+        const {leaf} = folderParts(item.prefix);
         const r = await moveFolder({
           bucket,
           sourcePrefix: item.prefix,
           destPrefix: `${destPrefix}${leaf}/`,
           username,
           overwrite,
-          onProgress: (p, t) => setProgress(uploadPercent(p, t)),
+          onProgress: (p, t) => setProgress(uploadPercent(p, t))
         });
         if (r.success) {
           acc.moved += r.data.moved.length;
@@ -182,7 +180,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         } else if (r.error.code === 'Collision') {
           collided.push(item);
         } else {
-          acc.errors.push({ key: item.prefix, message: r.error.message });
+          acc.errors.push({key: item.prefix, message: r.error.message});
         }
       }
     }
@@ -200,7 +198,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         onCancel: () => {
           setMoveCollision(null);
           void finalizeMove(acc, destPrefix);
-        },
+        }
       });
       return;
     }
@@ -210,7 +208,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
 
   async function finalizeMove(acc: Acc, destPrefix: string) {
     await invalidate([sourcePrefix, destPrefix]);
-    setSummary({ movedCount: acc.moved, errors: acc.errors });
+    setSummary({movedCount: acc.moved, errors: acc.errors});
     setIsBusy(false);
   }
 
@@ -222,13 +220,13 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
     renameCollision,
     moveCollision,
     renameItem: (item, newName) => void runRename(item, newName, false),
-    moveItems: (items, destPrefix) => void runMove(items, destPrefix, false, { moved: 0, errors: [] }),
+    moveItems: (items, destPrefix) => void runMove(items, destPrefix, false, {moved: 0, errors: []}),
     dismissError: () => setError(null),
     dismissSummary: () => setSummary(null),
     cancelCollision: () => {
       setRenameCollision(null);
       setMoveCollision(null);
       setIsBusy(false);
-    },
+    }
   };
 }

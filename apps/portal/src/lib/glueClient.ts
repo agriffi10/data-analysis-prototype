@@ -1,6 +1,6 @@
-import { GlueClient } from '@aws-sdk/client-glue';
-import { getSessionCredentials } from './awsCredentials';
-import type { ServiceResult } from '../types/service.types';
+import {GlueClient} from '@aws-sdk/client-glue';
+import {getSessionCredentials} from './awsCredentials';
+import type {ServiceResult} from '../types/service.types';
 
 // Authenticated Glue client (SPEC-034 FR-001). Same scoped Identity Pool
 // credentials as getAthenaClient/getS3Client; the portal role's analytics policy
@@ -16,7 +16,7 @@ export async function getGlueClient(forceRefresh = false): Promise<ServiceResult
     success: true,
     data: new GlueClient({
       region: import.meta.env.VITE_AWS_REGION,
-      credentials: creds.data,
-    }),
+      credentials: creds.data
+    })
   };
 }

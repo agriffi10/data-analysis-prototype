@@ -5,5 +5,5 @@ export const fileBrowserKeys = {
   all: ['file-browser'] as const,
   list: (bucket: string, prefix: string) => [...fileBrowserKeys.all, 'list', bucket, prefix] as const,
   // Per-object HeadObject metadata (SPEC-017), cached independently of listings.
-  metadata: (bucket: string, key: string) => [...fileBrowserKeys.all, 'metadata', bucket, key] as const,
+  metadata: (bucket: string, key: string) => [...fileBrowserKeys.all, 'metadata', bucket, key] as const
 };

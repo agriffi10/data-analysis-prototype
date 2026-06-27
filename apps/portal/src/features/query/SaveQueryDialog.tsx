@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { Modal } from '../../components/Modal';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
-import type { SavedQuery } from './query.types';
+import {useEffect, useRef, useState} from 'react';
+import {Button} from '../../components/Button';
+import {Input} from '../../components/Input';
+import {Modal} from '../../components/Modal';
+import {ConfirmDialog} from '../../components/ConfirmDialog';
+import type {SavedQuery} from './query.types';
 
 type Props = {
   initialName: string; // '' for a new save; the saved query's name on re-save
   savedQueries: SavedQuery[]; // to detect name collisions
   linkedId?: string; // active tab's savedQueryId (its own name isn't a collision)
   // targetId: the saved query id to write into — null = create a new one.
-  onSave: (result: { name: string; targetId: string | null }) => void;
+  onSave: (result: {name: string; targetId: string | null}) => void;
   onCancel: () => void;
 };
 
@@ -18,7 +18,7 @@ type Props = {
 // step. New save → empty; re-save → pre-filled. Saving under a name owned by a
 // *different* saved query asks to replace it; re-saving under the tab's own name
 // is the normal in-place update. Composes the shared Modal + ConfirmDialog.
-export function SaveQueryDialog({ initialName, savedQueries, linkedId, onSave, onCancel }: Props) {
+export function SaveQueryDialog({initialName, savedQueries, linkedId, onSave, onCancel}: Props) {
   const [name, setName] = useState(initialName);
   const [collision, setCollision] = useState<SavedQuery | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,7 +40,7 @@ export function SaveQueryDialog({ initialName, savedQueries, linkedId, onSave, o
       return;
     }
     // Re-save in place (own name) or brand-new name.
-    onSave({ name: trimmed, targetId: linkedId ?? null });
+    onSave({name: trimmed, targetId: linkedId ?? null});
   };
 
   if (collision) {
@@ -50,9 +50,8 @@ export function SaveQueryDialog({ initialName, savedQueries, linkedId, onSave, o
         ariaLabel="Confirm replace saved query"
         confirmLabel="Replace"
         confirmVariant="danger"
-        onConfirm={() => onSave({ name: trimmed, targetId: collision.id })}
-        onCancel={() => setCollision(null)}
-      >
+        onConfirm={() => onSave({name: trimmed, targetId: collision.id})}
+        onCancel={() => setCollision(null)}>
         <p className="mt-3 text-sm text-text-2">
           A saved query named “{collision.name}” already exists. Saving will replace it with the current SQL.
         </p>
@@ -61,7 +60,9 @@ export function SaveQueryDialog({ initialName, savedQueries, linkedId, onSave, o
   }
 
   return (
-    <Modal ariaLabel="Save query" onDismiss={onCancel}>
+    <Modal
+      ariaLabel="Save query"
+      onDismiss={onCancel}>
       <div className="px-5 pb-4 pt-5">
         <h2 className="mb-3 text-md font-semibold text-text">Save query</h2>
         <Input
@@ -82,10 +83,15 @@ export function SaveQueryDialog({ initialName, savedQueries, linkedId, onSave, o
         />
       </div>
       <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button variant="ghost" onClick={onCancel}>
+        <Button
+          variant="ghost"
+          onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={attemptSave} disabled={!canSave}>
+        <Button
+          variant="primary"
+          onClick={attemptSave}
+          disabled={!canSave}>
           Save
         </Button>
       </div>

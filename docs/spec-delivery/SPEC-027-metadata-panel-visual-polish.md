@@ -7,7 +7,7 @@
 - **Drawer**: `fixed inset-y-0 right-0 z-40 flex w-full max-w-[380px] flex-col bg-surface
   border-l border-border shadow-lg overflow-hidden` (was `max-w-sm` + `shadow-xl`); scrolling
   moved to the body. No scrim — the panel remains non-blocking (`aria-modal="false"`).
-- **Header**: `flex h-14 items-center justify-between border-b border-border px-4 flex-shrink-0`;
+- **Header**: `flex h-14 items-center justify-between border-b border-border px-4 shrink-0`;
   filename `text-base font-semibold text-text truncate flex-1 min-w-0`; close button is now a
   ghost icon button (`h-8 w-8 rounded-md text-text-3 hover:bg-surface-2`) with an ✕ SVG
   replacing the `✕` character (`aria-label="Close details"` preserved).

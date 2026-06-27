@@ -1,9 +1,9 @@
 import './index.css';
-import { Suspense, lazy } from 'react';
-import { Routes, Route } from 'react-router-dom';
-import { RootLayout } from './components/RootLayout';
-import { ProtectedLayout } from './components/ProtectedLayout';
-import { LoadingState } from './components/LoadingState';
+import {Suspense, lazy} from 'react';
+import {Routes, Route} from 'react-router-dom';
+import {RootLayout} from './components/RootLayout';
+import {ProtectedLayout} from './components/ProtectedLayout';
+import {LoadingState} from './components/LoadingState';
 import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotFoundPage from './routes/NotFoundPage';
@@ -22,9 +22,15 @@ export default function App() {
   return (
     <Routes>
       <Route element={<RootLayout />}>
-        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/"
+          element={<LandingPage />}
+        />
         <Route element={<ProtectedLayout />}>
-          <Route path="/files" element={<FilesPage />} />
+          <Route
+            path="/files"
+            element={<FilesPage />}
+          />
           <Route
             path="/query"
             element={
@@ -42,7 +48,10 @@ export default function App() {
             }
           />
         </Route>
-        <Route path="*" element={<NotFoundPage />} />
+        <Route
+          path="*"
+          element={<NotFoundPage />}
+        />
       </Route>
     </Routes>
   );

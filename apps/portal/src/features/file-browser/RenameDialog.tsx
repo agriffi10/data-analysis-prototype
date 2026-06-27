@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { validateFolderName } from './fileBrowser.service';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { Modal } from '../../components/Modal';
+import {useEffect, useRef, useState} from 'react';
+import {validateFolderName} from './fileBrowser.service';
+import {Button} from '../../components/Button';
+import {Input} from '../../components/Input';
+import {Modal} from '../../components/Modal';
 
 type Props = {
   kind: 'file' | 'folder';
@@ -17,7 +17,7 @@ type Props = {
 // leading/trailing whitespace, no control chars). Modal; Escape cancels; the input
 // is prefilled with the current name and the Rename action is disabled until the
 // name is valid and changed.
-export function RenameDialog({ kind, currentName, isBusy = false, onRename, onCancel }: Props) {
+export function RenameDialog({kind, currentName, isBusy = false, onRename, onCancel}: Props) {
   const [name, setName] = useState(currentName);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -35,7 +35,10 @@ export function RenameDialog({ kind, currentName, isBusy = false, onRename, onCa
   }
 
   return (
-    <Modal ariaLabel={`Rename ${kind}`} dismissible={!isBusy} onDismiss={onCancel}>
+    <Modal
+      ariaLabel={`Rename ${kind}`}
+      dismissible={!isBusy}
+      onDismiss={onCancel}>
       <div className="px-5 pb-4 pt-5">
         <h2 className="text-md font-semibold text-text">
           Rename {kind} “{currentName}”
@@ -60,10 +63,16 @@ export function RenameDialog({ kind, currentName, isBusy = false, onRename, onCa
       </div>
 
       <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button variant="ghost" onClick={onCancel} disabled={isBusy}>
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={isBusy}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={submit} disabled={!canRename}>
+        <Button
+          variant="primary"
+          onClick={submit}
+          disabled={!canRename}>
           {isBusy ? 'Renaming…' : 'Rename'}
         </Button>
       </div>

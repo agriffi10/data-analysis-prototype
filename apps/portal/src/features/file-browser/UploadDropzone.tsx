@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import {useRef, useState} from 'react';
 
 type Props = {
   onFiles: (files: File[]) => void; // enqueue all selected/dropped files (SPEC-020)
@@ -9,7 +9,7 @@ type Props = {
 // dropping any number of files enqueues them all onto the upload queue; per-file
 // progress, status, and cancel live in the non-blocking UploadQueuePanel, not here
 // (this is purely the "add files" surface). Upgrades SPEC-016's single-file zone.
-export function UploadDropzone({ onFiles, disabled }: Props) {
+export function UploadDropzone({onFiles, disabled}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -34,18 +34,24 @@ export function UploadDropzone({ onFiles, disabled }: Props) {
         e.preventDefault();
         setDragOver(false);
         if (!disabled) emit(e.dataTransfer.files);
-      }}
-    >
+      }}>
       <svg
         viewBox="0 0 32 32"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
         className={`mx-auto h-8 w-8 ${iconColor}`}
-        aria-hidden="true"
-      >
-        <circle cx="16" cy="16" r="13" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16 21v-9m0 0l-3 3m3-3l3 3" />
+        aria-hidden="true">
+        <circle
+          cx="16"
+          cy="16"
+          r="13"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16 21v-9m0 0l-3 3m3-3l3 3"
+        />
       </svg>
 
       <p className="mt-3 text-sm font-medium text-text">Drag files here</p>
@@ -55,8 +61,7 @@ export function UploadDropzone({ onFiles, disabled }: Props) {
           type="button"
           className="font-medium text-accent-text hover:underline disabled:cursor-not-allowed disabled:opacity-45"
           onClick={() => inputRef.current?.click()}
-          disabled={disabled}
-        >
+          disabled={disabled}>
           choose files
         </button>
       </p>

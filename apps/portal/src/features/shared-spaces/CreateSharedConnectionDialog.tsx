@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { Modal } from '../../components/Modal';
-import { CATALOG_IDENTIFIER_RE } from '../query/query.constants';
+import {useEffect, useRef, useState} from 'react';
+import {Button} from '../../components/Button';
+import {Input} from '../../components/Input';
+import {Modal} from '../../components/Modal';
+import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 
 type Props = {
   // In-flight while the create request is being enqueued — locks Create + dismiss.
@@ -17,7 +17,7 @@ type Props = {
 // disabled (with an inline error) until it passes. The copy states the name is
 // permanent (no rename) and globally unique, so a later collision reads as expected
 // UX, not a surprise. Composes the shared Modal/Input/Button primitives.
-export function CreateSharedConnectionDialog({ busy = false, onCreate, onCancel }: Props) {
+export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -38,7 +38,10 @@ export function CreateSharedConnectionDialog({ busy = false, onCreate, onCancel 
   };
 
   return (
-    <Modal ariaLabel="Create shared connection" onDismiss={onCancel} dismissible={!busy}>
+    <Modal
+      ariaLabel="Create shared connection"
+      onDismiss={onCancel}
+      dismissible={!busy}>
       <div className="px-5 pb-4 pt-5">
         <h2 className="mb-3 text-md font-semibold text-text">New shared connection</h2>
         <p className="mb-3 text-sm text-text-2">
@@ -69,10 +72,16 @@ export function CreateSharedConnectionDialog({ busy = false, onCreate, onCancel 
         />
       </div>
       <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={busy}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={attempt} disabled={!valid || busy}>
+        <Button
+          variant="primary"
+          onClick={attempt}
+          disabled={!valid || busy}>
           {busy ? 'Creating…' : 'Create'}
         </Button>
       </div>

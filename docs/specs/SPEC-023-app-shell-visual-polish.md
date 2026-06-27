@@ -48,7 +48,7 @@ The left side of the topbar shows a 32×32 rounded accent square with a white up
 
 #### Acceptance Criteria
 
-- [ ] Mark: `<div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent flex-shrink-0">` containing a 16×16 white SVG icon.
+- [ ] Mark: `<div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent shrink-0">` containing a 16×16 white SVG icon.
 - [ ] Wordmark: `<span className="text-md font-semibold text-text">S3 File Portal</span>`.
 - [ ] Mark + wordmark are wrapped in `<div className="flex items-center gap-2">`.
 - [ ] A suitable SVG: a simple upward-arrow (e.g. a chevron or outlined upload icon). Use an inline SVG with `stroke="currentColor"` and `className="text-white"`, 16×16, `stroke-width="2"`.
@@ -165,7 +165,7 @@ Replace the JSX and all `className` props. Logic (signIn, signOut, status checks
 
     {/* Brand */}
     <div className="flex items-center gap-2">
-      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent flex-shrink-0">
+      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent shrink-0">
         <svg ...16×16 white upload icon... />
       </div>
       <span className="text-md font-semibold text-text">S3 File Portal</span>

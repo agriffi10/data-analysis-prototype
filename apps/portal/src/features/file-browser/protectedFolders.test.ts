@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { HIDDEN_BROWSER_FOLDERS, PICKER_LOCKED_FOLDERS, isRootFolderNamed } from './protectedFolders';
+import {describe, it, expect} from 'vitest';
+import {HIDDEN_BROWSER_FOLDERS, PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
 
 describe('protectedFolders', () => {
   it('hides user_settings/ from the browser; locks athenaresults/ + user_settings/ from the picker', () => {

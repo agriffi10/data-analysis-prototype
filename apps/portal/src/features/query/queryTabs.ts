@@ -1,5 +1,5 @@
-import { QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL } from './query.constants';
-import type { QueryTab, QueryTabsState } from './query.types';
+import {QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL} from './query.constants';
+import type {QueryTab, QueryTabsState} from './query.types';
 
 // SPEC-041: per-user, current-session persistence of the multi-tab editor state.
 // Supersedes SPEC-040's single draft (queryDraft.ts). As in SPEC-040 all access
@@ -31,9 +31,9 @@ export function initialTabsState(): QueryTabsState {
   const id = newId();
   return {
     version: 1,
-    tabs: [{ id, label: 'Query 1', sql: DEFAULT_SQL }],
+    tabs: [{id, label: 'Query 1', sql: DEFAULT_SQL}],
     activeTabId: id,
-    nextQueryNumber: 2,
+    nextQueryNumber: 2
   };
 }
 

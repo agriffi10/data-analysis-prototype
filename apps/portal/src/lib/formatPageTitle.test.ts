@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { formatPageTitle } from './formatPageTitle';
+import {describe, it, expect} from 'vitest';
+import {formatPageTitle} from './formatPageTitle';
 
 describe('formatPageTitle', () => {
   it('appends the app name with an em-dash when a page is given', () => {

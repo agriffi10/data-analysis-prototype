@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { Drawer } from '../../components/Drawer';
-import { Button } from '../../components/Button';
-import { Banner } from '../../components/Banner';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { AddMembersDialog } from './AddMembersDialog';
+import {useState} from 'react';
+import {Drawer} from '../../components/Drawer';
+import {Button} from '../../components/Button';
+import {Banner} from '../../components/Banner';
+import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {AddMembersDialog} from './AddMembersDialog';
 
 type Props = {
   open: boolean;
@@ -35,7 +35,7 @@ export function ManageMembersDrawer({
   unavailable = false,
   busy = false,
   onAddMembers,
-  onRemoveMembers,
+  onRemoveMembers
 }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -63,13 +63,15 @@ export function ManageMembersDrawer({
       title="Manage members"
       headerAccessory={<span className="truncate font-mono text-sm text-text-3">{space}</span>}
       // While a nested dialog is open it owns Escape (SPEC-036 pattern).
-      closeOnEscape={!addOpen && !removing}
-    >
+      closeOnEscape={!addOpen && !removing}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-text-2">
           {others.length === 0 ? 'Just you so far.' : `${others.length + 1} members`}
         </p>
-        <Button variant="primary" onClick={() => setAddOpen(true)} disabled={busy}>
+        <Button
+          variant="primary"
+          onClick={() => setAddOpen(true)}
+          disabled={busy}>
           Add members
         </Button>
       </div>
@@ -80,7 +82,9 @@ export function ManageMembersDrawer({
         </Banner>
       )}
 
-      <ul role="list" className="divide-y divide-border rounded-lg border border-border">
+      <ul
+        role="list"
+        className="divide-y divide-border rounded-lg border border-border">
         <li className="flex items-center justify-between gap-3 px-4 py-2.5">
           <span className="min-w-0 truncate font-mono text-sm text-text">{owner}</span>
           <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2">
@@ -88,9 +92,14 @@ export function ManageMembersDrawer({
           </span>
         </li>
         {others.map((member) => (
-          <li key={member} className="flex items-center justify-between gap-3 px-4 py-2.5">
+          <li
+            key={member}
+            className="flex items-center justify-between gap-3 px-4 py-2.5">
             <span className="min-w-0 truncate font-mono text-sm text-text">{member}</span>
-            <Button variant="ghost" onClick={() => setRemoving(member)} disabled={busy}>
+            <Button
+              variant="ghost"
+              onClick={() => setRemoving(member)}
+              disabled={busy}>
               Remove
             </Button>
           </li>
@@ -102,7 +111,12 @@ export function ManageMembersDrawer({
       </p>
 
       {addOpen && (
-        <AddMembersDialog busy={busy} existing={members} onAdd={handleAdd} onCancel={() => setAddOpen(false)} />
+        <AddMembersDialog
+          busy={busy}
+          existing={members}
+          onAdd={handleAdd}
+          onCancel={() => setAddOpen(false)}
+        />
       )}
       {removing && (
         <ConfirmDialog
@@ -114,8 +128,7 @@ export function ManageMembersDrawer({
           busy={busy}
           busyLabel="Removing…"
           onConfirm={confirmRemove}
-          onCancel={() => setRemoving(null)}
-        >
+          onCancel={() => setRemoving(null)}>
           <p>
             Remove <span className="font-mono">{removing}</span> from <span className="font-mono">{space}</span>? They
             lose access to its files and tables. The shared data isn&apos;t deleted.

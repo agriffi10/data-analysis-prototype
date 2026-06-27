@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import {describe, it, expect, vi, beforeEach, type MockedFunction} from 'vitest';
 
-vi.mock('../../lib/glueClient', () => ({ getGlueClient: vi.fn() }));
+vi.mock('../../lib/glueClient', () => ({getGlueClient: vi.fn()}));
 
-import { getGlueClient } from '../../lib/glueClient';
-import { getDatabase, listTables } from './glue.service';
+import {getGlueClient} from '../../lib/glueClient';
+import {getDatabase, listTables} from './glue.service';
 
 const mockGetClient = getGlueClient as unknown as MockedFunction<() => Promise<unknown>>;
 
-type Sent = { input: Record<string, unknown> };
+type Sent = {input: Record<string, unknown>};
 function clientWithSend(send: (cmd: Sent) => Promise<unknown>) {
-  mockGetClient.mockResolvedValue({ success: true, data: { send } });
+  mockGetClient.mockResolvedValue({success: true, data: {send}});
 }
 
 beforeEach(() => {
@@ -18,18 +18,18 @@ beforeEach(() => {
 
 describe('getDatabase', () => {
   it('returns the database name when it exists', async () => {
-    clientWithSend(vi.fn(async () => ({ Database: { Name: 'alice' } })));
+    clientWithSend(vi.fn(async () => ({Database: {Name: 'alice'}})));
 
     const result = await getDatabase('alice');
 
-    expect(result).toEqual({ success: true, data: { name: 'alice' } });
+    expect(result).toEqual({success: true, data: {name: 'alice'}});
   });
 
   it('maps EntityNotFoundException to a clean NotFound error', async () => {
     clientWithSend(
       vi.fn(async () => {
         throw Object.assign(new Error('missing'), {
-          name: 'EntityNotFoundException',
+          name: 'EntityNotFoundException'
         });
       })
     );
@@ -54,23 +54,23 @@ describe('listTables', () => {
             StorageDescriptor: {
               Location: 's3://user-bucket/alice/events/',
               Columns: [
-                { Name: 'id', Type: 'bigint' },
-                { Name: 'ts', Type: 'timestamp' },
-              ],
-            },
-          },
+                {Name: 'id', Type: 'bigint'},
+                {Name: 'ts', Type: 'timestamp'}
+              ]
+            }
+          }
         ],
-        NextToken: 'page2',
+        NextToken: 'page2'
       })
       .mockResolvedValueOnce({
-        TableList: [{ Name: 'lookup', StorageDescriptor: { Columns: [] } }],
+        TableList: [{Name: 'lookup', StorageDescriptor: {Columns: []}}]
       });
     clientWithSend(send);
 
     const result = await listTables('alice');
 
     expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[1][0].input).toMatchObject({ NextToken: 'page2' });
+    expect(send.mock.calls[1][0].input).toMatchObject({NextToken: 'page2'});
     expect(result).toEqual({
       success: true,
       data: [
@@ -79,12 +79,12 @@ describe('listTables', () => {
           tableType: 'EXTERNAL_TABLE',
           location: 's3://user-bucket/alice/events/',
           columns: [
-            { name: 'id', type: 'bigint' },
-            { name: 'ts', type: 'timestamp' },
-          ],
+            {name: 'id', type: 'bigint'},
+            {name: 'ts', type: 'timestamp'}
+          ]
         },
-        { name: 'lookup', tableType: undefined, location: undefined, columns: [] },
-      ],
+        {name: 'lookup', tableType: undefined, location: undefined, columns: []}
+      ]
     });
   });
 
@@ -92,21 +92,21 @@ describe('listTables', () => {
     clientWithSend(
       vi.fn(async () => {
         throw Object.assign(new Error('no db'), {
-          name: 'EntityNotFoundException',
+          name: 'EntityNotFoundException'
         });
       })
     );
 
     const result = await listTables('alice');
 
-    expect(result).toEqual({ success: true, data: [] });
+    expect(result).toEqual({success: true, data: []});
   });
 
   it('maps AccessDenied to a clean error', async () => {
     clientWithSend(
       vi.fn(async () => {
         throw Object.assign(new Error('denied'), {
-          name: 'AccessDeniedException',
+          name: 'AccessDeniedException'
         });
       })
     );

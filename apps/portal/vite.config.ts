@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import {defineConfig} from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -7,12 +7,12 @@ export default defineConfig({
   // reference Node's `global`, which doesn't exist in the browser and throws
   // "Can't find variable: global" at bundle load. Map it to `globalThis`.
   define: {
-    global: 'globalThis',
+    global: 'globalThis'
   },
   plugins: [react(), tailwindcss()],
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['./src/test-setup.ts'],
-  },
+    setupFiles: ['./src/test-setup.ts']
+  }
 });

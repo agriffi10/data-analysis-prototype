@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { formatBytes, formatDurationMs, formatRelativeTime } from './query.format';
+import {describe, it, expect} from 'vitest';
+import {formatBytes, formatDurationMs, formatRelativeTime} from './query.format';
 
 describe('formatBytes', () => {
   it('formats byte sizes with sensible units + precision', () => {

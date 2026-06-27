@@ -1,23 +1,23 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {render, screen, fireEvent} from '@testing-library/react';
 
 // The DestinationPicker inside the dialog browses folders via useFileBrowser.
 vi.mock('../file-browser/useFileBrowser');
 
-import { SaveResultsDialog } from './SaveResultsDialog';
-import { normalizeCsvName } from './query.format';
-import { useFileBrowser } from '../file-browser/useFileBrowser';
-import type { UseFileBrowserResult } from '../file-browser/useFileBrowser';
+import {SaveResultsDialog} from './SaveResultsDialog';
+import {normalizeCsvName} from './query.format';
+import {useFileBrowser} from '../file-browser/useFileBrowser';
+import type {UseFileBrowserResult} from '../file-browser/useFileBrowser';
 
 const base: UseFileBrowserResult = {
   files: [],
-  folders: [{ type: 'folder', prefix: 'alice/reports/', name: 'reports' }],
+  folders: [{type: 'folder', prefix: 'alice/reports/', name: 'reports'}],
   isLoading: false,
   error: null,
   refresh: vi.fn(),
   hasMore: false,
   loadMore: vi.fn(),
-  isLoadingMore: false,
+  isLoadingMore: false
 };
 
 beforeEach(() => {
@@ -39,7 +39,7 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDia
       {...props}
     />
   );
-  return { onSave, onCancel };
+  return {onSave, onCancel};
 }
 
 describe('normalizeCsvName (SPEC-049)', () => {
@@ -53,31 +53,31 @@ describe('normalizeCsvName (SPEC-049)', () => {
 
 describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
   it('saves the .csv-normalized name into the chosen destination (root)', () => {
-    const { onSave } = renderDialog();
+    const {onSave} = renderDialog();
     // Default destination is the root; confirm there.
-    fireEvent.click(screen.getByRole('button', { name: 'Save here' }));
+    fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
       destPrefix: 'alice/',
-      filename: 'query-results-20260622-1430.csv',
+      filename: 'query-results-20260622-1430.csv'
     });
   });
 
   it('saves into a navigated subfolder', () => {
-    const { onSave } = renderDialog();
-    fireEvent.click(screen.getByRole('button', { name: /open folder reports/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save here' }));
+    const {onSave} = renderDialog();
+    fireEvent.click(screen.getByRole('button', {name: /open folder reports/i}));
+    fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
       destPrefix: 'alice/reports/',
-      filename: 'query-results-20260622-1430.csv',
+      filename: 'query-results-20260622-1430.csv'
     });
   });
 
   it('disables Save while the name is invalid', () => {
     renderDialog();
     fireEvent.change(screen.getByLabelText('File name'), {
-      target: { value: 'bad/name' },
+      target: {value: 'bad/name'}
     });
-    expect(screen.getByRole('button', { name: 'Save here' })).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Save here'})).toBeDisabled();
     expect(screen.getByText(/cannot contain/i)).toBeInTheDocument();
   });
 
@@ -85,12 +85,12 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     vi.mocked(useFileBrowser).mockReturnValue({
       ...base,
       folders: [
-        { type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults' },
-        { type: 'folder', prefix: 'alice/reports/', name: 'reports' },
-      ],
+        {type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults'},
+        {type: 'folder', prefix: 'alice/reports/', name: 'reports'}
+      ]
     });
     renderDialog();
-    expect(screen.queryByRole('button', { name: /open folder athenaresults/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /open folder reports/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /open folder athenaresults/i})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /open folder reports/i})).toBeInTheDocument();
   });
 });

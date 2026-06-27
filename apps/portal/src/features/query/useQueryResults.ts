@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { getQueryResults } from './query.service';
-import { queryKeys } from './queryKeys';
-import { QUERY_RESULTS_PAGE_SIZE } from './query.constants';
-import type { QueryColumn, QueryResultPage } from './query.types';
+import {useCallback, useState} from 'react';
+import {useInfiniteQuery} from '@tanstack/react-query';
+import {getQueryResults} from './query.service';
+import {queryKeys} from './queryKeys';
+import {QUERY_RESULTS_PAGE_SIZE} from './query.constants';
+import type {QueryColumn, QueryResultPage} from './query.types';
 
 export type UseQueryResultsResult = {
   // Current page only — never more than one page (≤ pageSize rows) is exposed,
@@ -53,17 +53,17 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
   const query = useInfiniteQuery({
     queryKey: queryKeys.results(queryExecutionId ?? '__none__'),
     enabled: queryExecutionId !== null,
-    queryFn: async ({ pageParam }): Promise<QueryResultPage> => {
+    queryFn: async ({pageParam}): Promise<QueryResultPage> => {
       const result = await getQueryResults({
         queryExecutionId: queryExecutionId as string,
         nextToken: pageParam,
-        maxRows: pageSize,
+        maxRows: pageSize
       });
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: QueryResultPage) => lastPage.nextToken,
+    getNextPageParam: (lastPage: QueryResultPage) => lastPage.nextToken
   });
 
   const pages = query.data?.pages ?? [];
@@ -115,6 +115,6 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
     goPrev,
     goNext: () => {
       void goNext();
-    },
+    }
   };
 }

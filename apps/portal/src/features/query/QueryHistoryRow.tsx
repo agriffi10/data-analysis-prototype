@@ -1,7 +1,7 @@
-import { cx } from '../../lib/cx';
-import { DocumentIcon } from '../../components/icons';
-import { formatBytes, formatDurationMs, formatRelativeTime } from './query.format';
-import type { QueryHistoryEntry, QueryState } from './query.types';
+import {cx} from '../../lib/cx';
+import {DocumentIcon} from '../../components/icons';
+import {formatBytes, formatDurationMs, formatRelativeTime} from './query.format';
+import type {QueryHistoryEntry, QueryState} from './query.types';
 
 // Status → badge presentation. A prior-session entry left non-terminal (tab
 // closed mid-run) has a non-terminal/absent status — shown as a neutral
@@ -16,25 +16,25 @@ function badgeFor(status?: QueryState): {
       return {
         label: 'Succeeded',
         className: 'bg-success-soft text-success',
-        dotClassName: 'bg-success',
+        dotClassName: 'bg-success'
       };
     case 'FAILED':
       return {
         label: 'Failed',
         className: 'bg-danger-soft text-danger',
-        dotClassName: 'bg-danger',
+        dotClassName: 'bg-danger'
       };
     case 'CANCELLED':
       return {
         label: 'Cancelled',
         className: 'border border-border bg-surface-2 text-text-2',
-        dotClassName: 'bg-text-3',
+        dotClassName: 'bg-text-3'
       };
     default:
       return {
         label: 'Unknown',
         className: 'border border-border bg-surface-2 text-text-2',
-        dotClassName: 'bg-text-3',
+        dotClassName: 'bg-text-3'
       };
   }
 }
@@ -45,7 +45,7 @@ export function QueryHistoryRow({
   entry,
   onReopen,
   onRerun,
-  rerunDisabled,
+  rerunDisabled
 }: {
   entry: QueryHistoryEntry;
   onReopen: () => void;
@@ -56,7 +56,7 @@ export function QueryHistoryRow({
   const preview = entry.sql.replace(/\s+/g, ' ').trim();
   const stats = [
     entry.dataScannedBytes !== undefined && `${formatBytes(entry.dataScannedBytes)} scanned`,
-    entry.durationMs !== undefined && formatDurationMs(entry.durationMs),
+    entry.durationMs !== undefined && formatDurationMs(entry.durationMs)
   ].filter(Boolean);
 
   return (
@@ -66,12 +66,16 @@ export function QueryHistoryRow({
           className={cx(
             'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
             badge.className
-          )}
-        >
-          <span className={cx('h-[7px] w-[7px] rounded-full', badge.dotClassName)} aria-hidden="true" />
+          )}>
+          <span
+            className={cx('h-[7px] w-[7px] rounded-full', badge.dotClassName)}
+            aria-hidden="true"
+          />
           {badge.label}
         </span>
-        <span className="ml-auto text-xs text-text-3" title={new Date(entry.submittedAt).toLocaleString()}>
+        <span
+          className="ml-auto text-xs text-text-3"
+          title={new Date(entry.submittedAt).toLocaleString()}>
           {formatRelativeTime(entry.submittedAt)}
         </span>
       </div>
@@ -83,7 +87,9 @@ export function QueryHistoryRow({
         </span>
       )}
 
-      <p className="truncate font-mono text-sm text-text" title={preview}>
+      <p
+        className="truncate font-mono text-sm text-text"
+        title={preview}>
         {preview}
       </p>
 
@@ -95,8 +101,7 @@ export function QueryHistoryRow({
           type="button"
           onClick={onReopen}
           aria-label="Open this query in the editor"
-          className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
+          className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           Open
         </button>
         <button
@@ -104,8 +109,7 @@ export function QueryHistoryRow({
           onClick={onRerun}
           disabled={rerunDisabled}
           aria-label="Re-run this query"
-          className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
+          className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           Re-run
         </button>
       </div>

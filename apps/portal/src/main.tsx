@@ -1,12 +1,12 @@
 import './lib/amplify'; // must be first — configures Amplify before any component renders
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import { QueryClientProvider } from '@tanstack/react-query';
+import {StrictMode} from 'react';
+import {createRoot} from 'react-dom/client';
+import {BrowserRouter} from 'react-router-dom';
+import {QueryClientProvider} from '@tanstack/react-query';
 import './index.css';
 import App from './App.tsx';
-import { AuthProvider } from './features/auth';
-import { queryClient } from './lib/queryClient';
+import {AuthProvider} from './features/auth';
+import {queryClient} from './lib/queryClient';
 
 // AuthProvider wraps the router so route guards (SPEC-008 ProtectedLayout) can
 // call useAuth; BrowserRouter nests inside it. QueryClientProvider (SPEC-015)

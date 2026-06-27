@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { Input } from '../../components/Input';
-import { Modal } from '../../components/Modal';
-import { DestinationPicker, validateFolderName } from '../file-browser';
-import { normalizeCsvName } from './query.format';
+import {useEffect, useRef, useState} from 'react';
+import {Input} from '../../components/Input';
+import {Modal} from '../../components/Modal';
+import {DestinationPicker, validateFolderName} from '../file-browser';
+import {normalizeCsvName} from './query.format';
 
 type Props = {
   bucket: string;
@@ -12,7 +12,7 @@ type Props = {
   isBusy?: boolean;
   // destPrefix is a full in-space key prefix (ends with "/"); filename is the
   // final ".csv"-normalized leaf.
-  onSave: (args: { destPrefix: string; filename: string }) => void;
+  onSave: (args: {destPrefix: string; filename: string}) => void;
   onCancel: () => void;
 };
 
@@ -27,7 +27,7 @@ export function SaveResultsDialog({
   defaultName,
   isBusy = false,
   onSave,
-  onCancel,
+  onCancel
 }: Props) {
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,8 +46,7 @@ export function SaveResultsDialog({
       ariaLabel="Save results to my files"
       dismissible={!isBusy}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5"
-    >
+      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
       <h2 className="text-md font-semibold text-text">Save results to my files</h2>
       <p className="mt-1 text-sm text-text-2">
         Saves the full result set as a CSV in your space. A <code>.csv</code> extension is added automatically.
@@ -79,7 +78,7 @@ export function SaveResultsDialog({
         confirmDisabled={!nameValid}
         confirmLabel="Save here"
         busyLabel="Saving…"
-        onConfirm={(destPrefix) => onSave({ destPrefix, filename: normalizeCsvName(name) })}
+        onConfirm={(destPrefix) => onSave({destPrefix, filename: normalizeCsvName(name)})}
         onCancel={onCancel}
       />
     </Modal>

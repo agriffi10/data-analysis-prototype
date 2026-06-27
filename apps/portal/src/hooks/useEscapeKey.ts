@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import {useEffect} from 'react';
 
 // Calls `onEscape` when the Escape key is pressed, while `enabled` (default true).
 // Consolidates the keydown-listener Effect that was duplicated across every modal

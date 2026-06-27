@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
-import { QUERY_ACTIVE_DB_STORAGE_PREFIX } from './query.constants';
-import { isConnectionUsable } from './query.types';
-import type { Connection } from './query.types';
+import {useCallback, useMemo, useState} from 'react';
+import {QUERY_ACTIVE_DB_STORAGE_PREFIX} from './query.constants';
+import {isConnectionUsable} from './query.types';
+import type {Connection} from './query.types';
 
 // SPEC-047: the workspace-global active database — one target for all query tabs,
 // persisted per-user in sessionStorage (mirroring the SPEC-041 tabs store), default
@@ -75,5 +75,5 @@ export function useActiveDatabase(username: string | null, connections: Connecti
 
   const dismissFellBack = useCallback(() => setDismissed(true), []);
 
-  return { activeDatabase, setActiveDatabase, fellBack, dismissFellBack };
+  return {activeDatabase, setActiveDatabase, fellBack, dismissFellBack};
 }

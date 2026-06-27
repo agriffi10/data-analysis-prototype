@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { isSchemaChangingSql, sameSql } from './query.sql';
+import {describe, it, expect} from 'vitest';
+import {isSchemaChangingSql, sameSql} from './query.sql';
 
 describe('sameSql', () => {
   it('ignores trailing/leading whitespace and CRLF line endings', () => {

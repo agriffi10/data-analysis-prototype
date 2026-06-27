@@ -1,5 +1,5 @@
-import { Pager } from '../../components/Pager';
-import type { QueryColumn } from './query.types';
+import {Pager} from '../../components/Pager';
+import type {QueryColumn} from './query.types';
 
 type QueryResultsTableProps = {
   columns: QueryColumn[];
@@ -35,7 +35,7 @@ export function QueryResultsTable({
   isFetchingNext,
   isLoading,
   onPrev,
-  onNext,
+  onNext
 }: QueryResultsTableProps) {
   return (
     <div>
@@ -52,15 +52,16 @@ export function QueryResultsTable({
               <table className="w-full min-w-max border-collapse text-left">
                 <thead>
                   <tr className="h-10 border-b border-border bg-surface-2">
-                    <th scope="col" className="w-14 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                    <th
+                      scope="col"
+                      className="w-14 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
                       #
                     </th>
                     {columns.map((column) => (
                       <th
                         key={column.name}
                         scope="col"
-                        className="whitespace-nowrap px-3 text-xs font-semibold uppercase tracking-wide text-text-3"
-                      >
+                        className="whitespace-nowrap px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
                         <span className="block">{column.name}</span>
                         <span className="block font-mono text-[10px] normal-case tracking-normal text-text-3">
                           {column.type}
@@ -73,12 +74,13 @@ export function QueryResultsTable({
                   {rows.map((row, rowIndex) => (
                     <tr
                       key={rowIndex}
-                      className="h-12 border-b border-border-2 font-mono text-sm last:border-0 hover:bg-surface-2"
-                    >
+                      className="h-12 border-b border-border-2 font-mono text-sm last:border-0 hover:bg-surface-2">
                       {/* Absolute row number across pages, not the in-page index. */}
                       <td className="px-3 text-text-3">{rangeStart + rowIndex}</td>
                       {row.map((cell, cellIndex) => (
-                        <td key={cellIndex} className="whitespace-nowrap px-3">
+                        <td
+                          key={cellIndex}
+                          className="whitespace-nowrap px-3">
                           {cell}
                         </td>
                       ))}

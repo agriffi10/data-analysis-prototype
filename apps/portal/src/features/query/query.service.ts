@@ -2,13 +2,13 @@ import {
   StartQueryExecutionCommand,
   GetQueryExecutionCommand,
   GetQueryResultsCommand,
-  StopQueryExecutionCommand,
+  StopQueryExecutionCommand
 } from '@aws-sdk/client-athena';
-import { getAthenaClient } from '../../lib/athenaClient';
-import { withCredentialRetry } from '../../lib/credentialRetry';
-import type { ServiceResult } from '../../types/service.types';
-import { DEFAULT_MAX_ROWS } from './query.constants';
-import type { QueryColumn, QueryResultPage, QueryState, QueryStatus } from './query.types';
+import {getAthenaClient} from '../../lib/athenaClient';
+import {withCredentialRetry} from '../../lib/credentialRetry';
+import type {ServiceResult} from '../../types/service.types';
+import {DEFAULT_MAX_ROWS} from './query.constants';
+import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
 // per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts
@@ -28,10 +28,10 @@ export function isTerminalState(state: QueryState): boolean {
 }
 
 function toServiceError(err: unknown, fallback: string) {
-  const e = err as { message?: string; name?: string };
+  const e = err as {message?: string; name?: string};
   return {
     success: false as const,
-    error: { message: e.message ?? fallback, code: e.name },
+    error: {message: e.message ?? fallback, code: e.name}
   };
 }
 
@@ -43,26 +43,26 @@ export async function runQuery(p: {
   sql: string;
   database: string;
   username: string;
-}): Promise<ServiceResult<{ queryExecutionId: string }>> {
-  const { sql, database, username } = p;
+}): Promise<ServiceResult<{queryExecutionId: string}>> {
+  const {sql, database, username} = p;
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
       const response = await client.send(
         new StartQueryExecutionCommand({
           QueryString: sql,
           WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
-          QueryExecutionContext: { Database: database },
-          ResultConfiguration: { OutputLocation: outputLocation(username) },
+          QueryExecutionContext: {Database: database},
+          ResultConfiguration: {OutputLocation: outputLocation(username)}
         })
       );
       const queryExecutionId = response.QueryExecutionId;
       if (!queryExecutionId) {
         return {
           success: false,
-          error: { message: 'Athena did not return a query execution id' },
+          error: {message: 'Athena did not return a query execution id'}
         };
       }
-      return { success: true, data: { queryExecutionId } };
+      return {success: true, data: {queryExecutionId}};
     } catch (err) {
       return toServiceError(err, 'Failed to start query');
     }
@@ -75,7 +75,7 @@ export async function runQuery(p: {
 export async function getQueryStatus(queryExecutionId: string): Promise<ServiceResult<QueryStatus>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
-      const response = await client.send(new GetQueryExecutionCommand({ QueryExecutionId: queryExecutionId }));
+      const response = await client.send(new GetQueryExecutionCommand({QueryExecutionId: queryExecutionId}));
       const exec = response.QueryExecution;
       const state = (exec?.Status?.State ?? 'QUEUED') as QueryState;
       return {
@@ -86,8 +86,8 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
           stateChangeReason: exec?.Status?.StateChangeReason,
           dataScannedBytes: exec?.Statistics?.DataScannedInBytes,
           engineExecutionTimeMillis: exec?.Statistics?.EngineExecutionTimeInMillis,
-          outputLocation: exec?.ResultConfiguration?.OutputLocation,
-        },
+          outputLocation: exec?.ResultConfiguration?.OutputLocation
+        }
       };
     } catch (err) {
       return toServiceError(err, 'Failed to get query status');
@@ -100,8 +100,8 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
 export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
-      await client.send(new StopQueryExecutionCommand({ QueryExecutionId: queryExecutionId }));
-      return { success: true, data: undefined };
+      await client.send(new StopQueryExecutionCommand({QueryExecutionId: queryExecutionId}));
+      return {success: true, data: undefined};
     } catch (err) {
       return toServiceError(err, 'Failed to cancel query');
     }
@@ -117,7 +117,7 @@ export async function getQueryResults(p: {
   nextToken?: string;
   maxRows?: number;
 }): Promise<ServiceResult<QueryResultPage>> {
-  const { queryExecutionId, nextToken, maxRows } = p;
+  const {queryExecutionId, nextToken, maxRows} = p;
   const pageSize = maxRows ?? DEFAULT_MAX_ROWS;
   // Athena prepends the column names as the first row of the FIRST page of a
   // SELECT (the header foot-gun handled below). Request one extra row on page 1
@@ -131,14 +131,14 @@ export async function getQueryResults(p: {
         new GetQueryResultsCommand({
           QueryExecutionId: queryExecutionId,
           NextToken: nextToken,
-          MaxResults: isFirstPage ? pageSize + 1 : pageSize,
+          MaxResults: isFirstPage ? pageSize + 1 : pageSize
         })
       );
 
       const meta = response.ResultSet?.ResultSetMetadata;
       const columns: QueryColumn[] = (meta?.ColumnInfo ?? []).map((c) => ({
         name: c.Name ?? '',
-        type: c.Type ?? '',
+        type: c.Type ?? ''
       }));
       let rows: string[][] = (response.ResultSet?.Rows ?? []).map((r) =>
         (r.Data ?? []).map((d) => d.VarCharValue ?? '')
@@ -156,7 +156,7 @@ export async function getQueryResults(p: {
 
       return {
         success: true,
-        data: { columns, rows, nextToken: response.NextToken },
+        data: {columns, rows, nextToken: response.NextToken}
       };
     } catch (err) {
       return toServiceError(err, 'Failed to fetch query results');
@@ -189,13 +189,13 @@ export async function runStatementToCompletion(p: {
     if (i === STMT_MAX_POLLS - 1) {
       return {
         success: false,
-        error: { message: 'Timed out waiting for the query', code: 'Timeout' },
+        error: {message: 'Timed out waiting for the query', code: 'Timeout'}
       };
     }
     await delay(STMT_POLL_INTERVAL_MS);
   }
   // Unreachable (the loop returns), but satisfies the type checker.
-  return { success: false, error: { message: 'Polling ended unexpectedly' } };
+  return {success: false, error: {message: 'Polling ended unexpectedly'}};
 }
 
 // SPEC-044 FR-003 / SPEC-048 FR-006: fetch a table's (or view's) authoritative DDL
@@ -212,7 +212,7 @@ export async function getTableDdl(p: {
   const done = await runStatementToCompletion({
     sql: `${verb} ${p.database}.${p.table}`,
     database: p.database,
-    username: p.username,
+    username: p.username
   });
   if (!done.success) return done;
   if (done.data.state !== 'SUCCEEDED') {
@@ -220,26 +220,26 @@ export async function getTableDdl(p: {
       success: false,
       error: {
         message: done.data.stateChangeReason ?? `${verb} failed`,
-        code: done.data.state,
-      },
+        code: done.data.state
+      }
     };
   }
 
   // SHOW CREATE TABLE returns one column; each row is a DDL line.
   const results = await getQueryResults({
     queryExecutionId: done.data.queryExecutionId,
-    maxRows: 1000,
+    maxRows: 1000
   });
   if (!results.success) return results;
   const ddl = results.data.rows.map((r) => r[0] ?? '').join('\n');
-  return { success: true, data: ddl };
+  return {success: true, data: ddl};
 }
 
 // Parse an `s3://bucket/key` URL into its parts; null if it isn't one. Exported
 // (SPEC-049) so the Save-results flow can derive the source key from a query's
 // `outputLocation` (`s3://{bucket}/{username}/athenaresults/{id}.csv`).
-export function parseS3Url(url: string): { bucket: string; key: string } | null {
+export function parseS3Url(url: string): {bucket: string; key: string} | null {
   const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(url);
   if (!match) return null;
-  return { bucket: match[1], key: match[2] };
+  return {bucket: match[1], key: match[2]};
 }

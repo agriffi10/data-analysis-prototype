@@ -1,15 +1,15 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { invalidateListing } from '../../lib/queryClient';
-import { copyObject, copyFolder, objectExists, uploadPercent, validateFolderName } from './fileBrowser.service';
-import { leafName, folderParts } from './fileBrowser.paths';
-import type { SelectableItem } from './selectionContext';
+import {useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {invalidateListing} from '../../lib/queryClient';
+import {copyObject, copyFolder, objectExists, uploadPercent, validateFolderName} from './fileBrowser.service';
+import {leafName, folderParts} from './fileBrowser.paths';
+import type {SelectableItem} from './selectionContext';
 
 // Aggregated outcome of a (possibly multi-item, recursive) copy: how many objects
 // S3 duplicated, and any per-item/per-key failures (SPEC-039 FR-004).
 export type CopySummary = {
   copiedCount: number;
-  errors: { item: string; message: string }[];
+  errors: {item: string; message: string}[];
 };
 
 // A copy into a different folder hit existing destination objects (FR-005). One
@@ -54,7 +54,7 @@ function numberedName(name: string, n: number, isFile: boolean): string {
   return `${name.slice(0, dot)} (${n})${name.slice(dot)}`;
 }
 
-type Acc = { copied: number; errors: CopySummary['errors'] };
+type Acc = {copied: number; errors: CopySummary['errors']};
 
 // SPEC-039 Phase 2: orchestrates copy (single + multi-select) on top of the
 // copyObject/copyFolder service primitives. Mirrors useMove, but copy is additive
@@ -82,7 +82,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     for (let n = 1; n < 1000; n += 1) {
       const candidate = numberedName(baseName, n, isFile);
       const key = isFile ? `${destPrefix}${candidate}` : `${destPrefix}${candidate}/`;
-      const exists = await objectExists({ bucket, key });
+      const exists = await objectExists({bucket, key});
       if (!exists.success) return null; // surface the error to the caller
       if (!exists.data) return candidate;
     }
@@ -96,7 +96,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     setError(null);
     setSummary(null);
 
-    let outcome: { ok: true; copied: number; errors: CopySummary['errors'] } | { ok: false; message: string };
+    let outcome: {ok: true; copied: number; errors: CopySummary['errors']} | {ok: false; message: string};
 
     if (item.type === 'file') {
       const r = await copyObject({
@@ -106,16 +106,16 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         username: username!,
         // The name was HEAD-checked free (or the user picked it), but a genuine
         // collision still gets a clear failure rather than a silent clobber.
-        overwrite: false,
+        overwrite: false
       });
-      outcome = r.success ? { ok: true, copied: 1, errors: [] } : { ok: false, message: r.error.message };
+      outcome = r.success ? {ok: true, copied: 1, errors: []} : {ok: false, message: r.error.message};
     } else {
       const r = await copyFolder({
         bucket,
         sourcePrefix: item.prefix,
         destPrefix: `${destPrefix}${name}/`,
         username: username!,
-        onProgress: (p, t) => setProgress(uploadPercent(p, t)),
+        onProgress: (p, t) => setProgress(uploadPercent(p, t))
       });
       outcome = r.success
         ? {
@@ -123,10 +123,10 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
             copied: r.data.copied.length,
             errors: r.data.errors.map((e) => ({
               item: e.key,
-              message: e.message,
-            })),
+              message: e.message
+            }))
           }
-        : { ok: false, message: r.error.message };
+        : {ok: false, message: r.error.message};
     }
 
     setProgress(null);
@@ -138,7 +138,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     }
 
     await invalidateDest(destPrefix);
-    setSummary({ copiedCount: outcome.copied, errors: outcome.errors });
+    setSummary({copiedCount: outcome.copied, errors: outcome.errors});
     setIsBusy(false);
   }
 
@@ -169,7 +169,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
       },
       onCancel: () => {
         setSameFolderPrompt(null);
-      },
+      }
     });
   }
 
@@ -190,28 +190,28 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
           sourceKey: item.key,
           destKey: destPrefix + leafName(item.key),
           username: username!,
-          overwrite,
+          overwrite
         });
         if (r.success) acc.copied += 1;
         else if (r.error.code === 'Collision') collided.push(item);
-        else acc.errors.push({ item: item.key, message: r.error.message });
+        else acc.errors.push({item: item.key, message: r.error.message});
       } else {
-        const { leaf } = folderParts(item.prefix);
+        const {leaf} = folderParts(item.prefix);
         const r = await copyFolder({
           bucket,
           sourcePrefix: item.prefix,
           destPrefix: `${destPrefix}${leaf}/`,
           username: username!,
           overwrite,
-          onProgress: (p, t) => setProgress(uploadPercent(p, t)),
+          onProgress: (p, t) => setProgress(uploadPercent(p, t))
         });
         if (r.success) {
           acc.copied += r.data.copied.length;
-          acc.errors.push(...r.data.errors.map((e) => ({ item: e.key, message: e.message })));
+          acc.errors.push(...r.data.errors.map((e) => ({item: e.key, message: e.message})));
         } else if (r.error.code === 'Collision') {
           collided.push(item);
         } else {
-          acc.errors.push({ item: item.prefix, message: r.error.message });
+          acc.errors.push({item: item.prefix, message: r.error.message});
         }
       }
     }
@@ -229,7 +229,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         onCancel: () => {
           setCopyCollision(null);
           void finalizeCopy(acc, destPrefix);
-        },
+        }
       });
       return;
     }
@@ -240,7 +240,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   async function finalizeCopy(acc: Acc, destPrefix: string) {
     // Copy is additive: only the DESTINATION listing changed (FR-004).
     await invalidateDest(destPrefix);
-    setSummary({ copiedCount: acc.copied, errors: acc.errors });
+    setSummary({copiedCount: acc.copied, errors: acc.errors});
     setIsBusy(false);
   }
 
@@ -263,7 +263,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
       return;
     }
 
-    void runCopy(items, destPrefix, false, { copied: 0, errors: [] });
+    void runCopy(items, destPrefix, false, {copied: 0, errors: []});
   }
 
   return {
@@ -280,6 +280,6 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
       setCopyCollision(null);
       setSameFolderPrompt(null);
       setIsBusy(false);
-    },
+    }
   };
 }

@@ -1,25 +1,25 @@
-import { describe, it, expect } from 'vitest';
-import { renderHook, render, act } from '@testing-library/react';
-import { type ReactNode } from 'react';
-import { SelectionProvider } from './SelectionProvider';
+import {describe, it, expect} from 'vitest';
+import {renderHook, render, act} from '@testing-library/react';
+import {type ReactNode} from 'react';
+import {SelectionProvider} from './SelectionProvider';
 import {
   selectionReducer,
   initialSelectionState,
   useSelection,
   type SelectionState,
   type SelectableItem,
-  type SelectionContextValue,
+  type SelectionContextValue
 } from './selectionContext';
 
-const fileA: SelectableItem = { type: 'file', key: 'alice/a.txt' };
-const fileB: SelectableItem = { type: 'file', key: 'alice/b.txt' };
-const folder: SelectableItem = { type: 'folder', prefix: 'alice/docs/' };
+const fileA: SelectableItem = {type: 'file', key: 'alice/a.txt'};
+const fileB: SelectableItem = {type: 'file', key: 'alice/b.txt'};
+const folder: SelectableItem = {type: 'folder', prefix: 'alice/docs/'};
 
 describe('selectionReducer', () => {
   it('toggle adds an unselected item', () => {
     const next = selectionReducer(initialSelectionState, {
       type: 'toggle',
-      item: fileA,
+      item: fileA
     });
     expect(next.items.size).toBe(1);
     expect(next.items.get('alice/a.txt')).toEqual(fileA);
@@ -28,16 +28,16 @@ describe('selectionReducer', () => {
   it('toggle removes an already-selected item', () => {
     const withA = selectionReducer(initialSelectionState, {
       type: 'toggle',
-      item: fileA,
+      item: fileA
     });
-    const without = selectionReducer(withA, { type: 'toggle', item: fileA });
+    const without = selectionReducer(withA, {type: 'toggle', item: fileA});
     expect(without.items.size).toBe(0);
   });
 
   it('toggles files and folders by their distinct ids (key vs prefix)', () => {
     let state: SelectionState = initialSelectionState;
-    state = selectionReducer(state, { type: 'toggle', item: fileA });
-    state = selectionReducer(state, { type: 'toggle', item: folder });
+    state = selectionReducer(state, {type: 'toggle', item: fileA});
+    state = selectionReducer(state, {type: 'toggle', item: folder});
     expect(state.items.size).toBe(2);
     expect(state.items.has('alice/a.txt')).toBe(true);
     expect(state.items.has('alice/docs/')).toBe(true);
@@ -46,11 +46,11 @@ describe('selectionReducer', () => {
   it('selectAll replaces the selection with exactly the given items', () => {
     const withA = selectionReducer(initialSelectionState, {
       type: 'toggle',
-      item: fileA,
+      item: fileA
     });
     const all = selectionReducer(withA, {
       type: 'selectAll',
-      items: [fileB, folder],
+      items: [fileB, folder]
     });
     expect(all.items.size).toBe(2);
     expect(all.items.has('alice/a.txt')).toBe(false); // replaced, not merged
@@ -61,21 +61,21 @@ describe('selectionReducer', () => {
   it('clear empties the selection', () => {
     const withItems = selectionReducer(initialSelectionState, {
       type: 'selectAll',
-      items: [fileA, fileB],
+      items: [fileA, fileB]
     });
-    const cleared = selectionReducer(withItems, { type: 'clear' });
+    const cleared = selectionReducer(withItems, {type: 'clear'});
     expect(cleared.items.size).toBe(0);
   });
 
   it('clear preserves referential identity when already empty', () => {
-    const cleared = selectionReducer(initialSelectionState, { type: 'clear' });
+    const cleared = selectionReducer(initialSelectionState, {type: 'clear'});
     expect(cleared).toBe(initialSelectionState);
   });
 
   it('does not mutate the previous state (returns a fresh Map)', () => {
     const next = selectionReducer(initialSelectionState, {
       type: 'toggle',
-      item: fileA,
+      item: fileA
     });
     expect(initialSelectionState.items.size).toBe(0);
     expect(next.items).not.toBe(initialSelectionState.items);
@@ -85,14 +85,12 @@ describe('selectionReducer', () => {
 describe('SelectionProvider', () => {
   function renderSelection(prefix: string) {
     return renderHook(() => useSelection(), {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <SelectionProvider prefix={prefix}>{children}</SelectionProvider>
-      ),
+      wrapper: ({children}: {children: ReactNode}) => <SelectionProvider prefix={prefix}>{children}</SelectionProvider>
     });
   }
 
   it('exposes selection actions and derived count/isSelected', () => {
-    const { result } = renderSelection('alice/');
+    const {result} = renderSelection('alice/');
 
     act(() => result.current.toggle(fileA));
     expect(result.current.count).toBe(1);
@@ -114,7 +112,7 @@ describe('SelectionProvider', () => {
       </SelectionProvider>
     );
 
-    const { rerender } = render(harness('alice/'));
+    const {rerender} = render(harness('alice/'));
 
     act(() => latest.toggle(fileA));
     expect(latest.count).toBe(1);

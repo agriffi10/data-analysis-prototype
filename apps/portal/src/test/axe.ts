@@ -1,8 +1,8 @@
-import type { ReactElement } from 'react';
-import type { RunOptions } from 'axe-core';
-import { render } from '@testing-library/react';
-import { configureAxe } from 'vitest-axe';
-import { expect } from 'vitest';
+import type {ReactElement} from 'react';
+import type {RunOptions} from 'axe-core';
+import {render} from '@testing-library/react';
+import {configureAxe} from 'vitest-axe';
+import {expect} from 'vitest';
 
 // ─── Centralised axe configuration (SPEC-045 FR-002) ──────────────────────────
 //
@@ -14,14 +14,14 @@ import { expect } from 'vitest';
 export const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] as const;
 
 const runAxe = configureAxe({
-  runOnly: { type: 'tag', values: [...WCAG_TAGS] },
+  runOnly: {type: 'tag', values: [...WCAG_TAGS]},
   rules: {
     // jsdom has no layout engine or computed styles, so axe cannot evaluate
     // contrast — it would error, not pass. Contrast is governed by the design
     // tokens (verified by hand in PR #89) and stays a manual/visual concern.
     // Disabled here deliberately, never faked. (Out of Scope, SPEC-045.)
-    'color-contrast': { enabled: false },
-  },
+    'color-contrast': {enabled: false}
+  }
 });
 
 /**
@@ -30,11 +30,11 @@ const runAxe = configureAxe({
  * meaning for a full page (FR-003). Pass this as the second arg for route specs.
  */
 export const ROUTE_AXE_OPTIONS: RunOptions = {
-  runOnly: { type: 'tag', values: [...WCAG_TAGS, 'best-practice'] },
+  runOnly: {type: 'tag', values: [...WCAG_TAGS, 'best-practice']},
   rules: {
-    'color-contrast': { enabled: false },
-    region: { enabled: true },
-  },
+    'color-contrast': {enabled: false},
+    region: {enabled: true}
+  }
 };
 
 /**
@@ -45,8 +45,8 @@ export const ROUTE_AXE_OPTIONS: RunOptions = {
  */
 export const COMPONENT_AXE_OPTIONS: RunOptions = {
   rules: {
-    region: { enabled: false },
-  },
+    region: {enabled: false}
+  }
 };
 
 /**
@@ -58,7 +58,7 @@ export const COMPONENT_AXE_OPTIONS: RunOptions = {
  * suite), then hand the wrapped element here.
  */
 export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunOptions): Promise<void> {
-  const { container, unmount } = render(ui);
+  const {container, unmount} = render(ui);
   try {
     const results = await runAxe(container, axeOptions);
     expect(results).toHaveNoViolations();

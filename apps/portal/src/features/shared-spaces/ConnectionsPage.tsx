@@ -1,16 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Button } from '../../components/Button';
-import { Banner } from '../../components/Banner';
-import { useAuth } from '../auth';
-import { useConnections } from '../query/useConnections';
-import { Toast, type ToastState } from '../query/Toast';
-import { CreateSharedConnectionDialog } from './CreateSharedConnectionDialog';
-import { useCreateSharedConnection } from './useCreateSharedConnection';
-import { useManageMembers } from './useManageMembers';
-import { ManageMembersDrawer } from './ManageMembersDrawer';
-import { RefreshConnectionsButton } from './RefreshConnectionsButton';
-import { connectionStatusLabel } from './connectionStatus';
-import type { SharedConnectionRole, SharedConnectionStatus } from './sharedSpaces.types';
+import {useMemo, useState} from 'react';
+import {Button} from '../../components/Button';
+import {Banner} from '../../components/Banner';
+import {useAuth} from '../auth';
+import {useConnections} from '../query/useConnections';
+import {Toast, type ToastState} from '../query/Toast';
+import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
+import {useCreateSharedConnection} from './useCreateSharedConnection';
+import {useManageMembers} from './useManageMembers';
+import {ManageMembersDrawer} from './ManageMembersDrawer';
+import {RefreshConnectionsButton} from './RefreshConnectionsButton';
+import {connectionStatusLabel} from './connectionStatus';
+import type {SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
 
 // One renderable shared-connection row, normalized from the cache (via
 // useConnections) and the local optimistic pending list (SPEC-051 create).
@@ -30,12 +30,12 @@ type ConnectionRow = {
 // cache. Owners get a Manage-members drawer (SPEC-053); leave/delete land in
 // SPEC-054.
 export function ConnectionsPage() {
-  const { user } = useAuth();
+  const {user} = useAuth();
   const username = user?.username ?? null;
 
-  const { connections, isLoading, error, refresh, isRefreshing } = useConnections(username);
-  const { create, busy, pending } = useCreateSharedConnection(username);
-  const { addMembers, removeMembers, busy: membersBusy } = useManageMembers(username);
+  const {connections, isLoading, error, refresh, isRefreshing} = useConnections(username);
+  const {create, busy, pending} = useCreateSharedConnection(username);
+  const {addMembers, removeMembers, busy: membersBusy} = useManageMembers(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [managing, setManaging] = useState<ConnectionRow | null>(null);
@@ -54,16 +54,16 @@ export function ConnectionsPage() {
         role: c.role ?? 'member',
         status: c.status ?? 'active',
         reason: c.reason,
-        members: c.members,
+        members: c.members
       }));
     const cacheNames = new Set(fromCache.map((r) => r.name));
     // Local pending entries not yet reflected in the cache (cache wins on dupes).
     const fromPending: ConnectionRow[] = pending
       .filter((p) => !cacheNames.has(p.name))
-      .map((p) => ({ name: p.name, role: p.role, status: p.status }));
+      .map((p) => ({name: p.name, role: p.role, status: p.status}));
     return [...fromCache, ...fromPending]
       .filter((r) => !dismissed.has(r.name))
-      .map((r) => (retrying.has(r.name) ? { ...r, status: 'provisioning' as const } : r))
+      .map((r) => (retrying.has(r.name) ? {...r, status: 'provisioning' as const} : r))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [connections, pending, dismissed, retrying]);
 
@@ -79,9 +79,9 @@ export function ConnectionsPage() {
     setDialogOpen(false);
     const result = await create(name);
     if (result.success) {
-      setToast({ variant: 'success', message: `Creating “${name}”…` });
+      setToast({variant: 'success', message: `Creating “${name}”…`});
     } else {
-      setToast({ variant: 'danger', message: result.error.message });
+      setToast({variant: 'danger', message: result.error.message});
     }
   };
 
@@ -91,10 +91,10 @@ export function ConnectionsPage() {
       const n = toAdd.length;
       setToast({
         variant: 'success',
-        message: `Adding ${n} member${n === 1 ? '' : 's'} to “${space}”… Refresh to see updates.`,
+        message: `Adding ${n} member${n === 1 ? '' : 's'} to “${space}”… Refresh to see updates.`
       });
     } else {
-      setToast({ variant: 'danger', message: result.error.message });
+      setToast({variant: 'danger', message: result.error.message});
     }
   };
 
@@ -103,10 +103,10 @@ export function ConnectionsPage() {
     if (result.success) {
       setToast({
         variant: 'success',
-        message: `Removing ${toRemove.join(', ')} from “${space}”… Refresh to see updates.`,
+        message: `Removing ${toRemove.join(', ')} from “${space}”… Refresh to see updates.`
       });
     } else {
-      setToast({ variant: 'danger', message: result.error.message });
+      setToast({variant: 'danger', message: result.error.message});
     }
   };
 
@@ -118,14 +118,14 @@ export function ConnectionsPage() {
     setRetrying((prev) => new Set(prev).add(name));
     const result = await create(name);
     if (result.success) {
-      setToast({ variant: 'success', message: `Retrying “${name}”…` });
+      setToast({variant: 'success', message: `Retrying “${name}”…`});
     } else {
       setRetrying((prev) => {
         const next = new Set(prev);
         next.delete(name);
         return next;
       });
-      setToast({ variant: 'danger', message: result.error.message });
+      setToast({variant: 'danger', message: result.error.message});
     }
   };
 
@@ -140,21 +140,30 @@ export function ConnectionsPage() {
             </p>
           </div>
           <div className="flex flex-none items-center gap-2">
-            <RefreshConnectionsButton refreshing={isRefreshing} onRefresh={handleRefresh} />
-            <Button variant="primary" onClick={() => setDialogOpen(true)}>
+            <RefreshConnectionsButton
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+            />
+            <Button
+              variant="primary"
+              onClick={() => setDialogOpen(true)}>
               New shared connection
             </Button>
           </div>
         </div>
 
         {error && (
-          <Banner variant="danger" className="mb-4">
+          <Banner
+            variant="danger"
+            className="mb-4">
             Couldn&apos;t load your shared connections: {error}
           </Banner>
         )}
 
         {isLoading ? (
-          <p role="status" className="px-1 py-10 text-center text-sm text-text-3">
+          <p
+            role="status"
+            className="px-1 py-10 text-center text-sm text-text-3">
             Loading your connections…
           </p>
         ) : rows.length === 0 ? (
@@ -177,7 +186,11 @@ export function ConnectionsPage() {
       </div>
 
       {dialogOpen && (
-        <CreateSharedConnectionDialog busy={busy} onCreate={handleCreate} onCancel={() => setDialogOpen(false)} />
+        <CreateSharedConnectionDialog
+          busy={busy}
+          onCreate={handleCreate}
+          onCancel={() => setDialogOpen(false)}
+        />
       )}
       {managing && username && (
         <ManageMembersDrawer
@@ -192,7 +205,12 @@ export function ConnectionsPage() {
           onRemoveMembers={(toRemove) => void handleRemoveMembers(managing.name, toRemove)}
         />
       )}
-      {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          {...toast}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }
@@ -201,7 +219,7 @@ function ConnectionRowItem({
   row,
   onManage,
   onDismiss,
-  onRetry,
+  onRetry
 }: {
   row: ConnectionRow;
   // Present only for an active connection the user owns (SPEC-053).
@@ -217,7 +235,9 @@ function ConnectionRowItem({
           <RolePill role={row.role} />
           <StatusBadge status={row.status} />
           {onManage && (
-            <Button variant="ghost" onClick={onManage}>
+            <Button
+              variant="ghost"
+              onClick={onManage}>
               Manage
             </Button>
           )}
@@ -230,15 +250,13 @@ function ConnectionRowItem({
             <button
               type="button"
               onClick={onRetry}
-              className="font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
+              className="font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
               Retry
             </button>
             <button
               type="button"
               onClick={onDismiss}
-              className="font-medium opacity-80 hover:underline hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
+              className="font-medium opacity-80 hover:underline hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
               Dismiss
             </button>
           </div>
@@ -248,7 +266,7 @@ function ConnectionRowItem({
   );
 }
 
-function RolePill({ role }: { role: SharedConnectionRole }) {
+function RolePill({role}: {role: SharedConnectionRole}) {
   return (
     <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium capitalize text-text-2">
       {role}
@@ -258,7 +276,7 @@ function RolePill({ role }: { role: SharedConnectionRole }) {
 
 // Status as text + icon (never color-only, a11y). A spinner for the transient
 // states, a check for active, an alert mark for failed.
-function StatusBadge({ status }: { status: SharedConnectionStatus }) {
+function StatusBadge({status}: {status: SharedConnectionStatus}) {
   const transient = status === 'provisioning' || status === 'leaving';
   const tone =
     status === 'active'
@@ -268,8 +286,7 @@ function StatusBadge({ status }: { status: SharedConnectionStatus }) {
         : 'border-border bg-surface text-text-2';
   return (
     <span
-      className={`flex-none inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}
-    >
+      className={`flex-none inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
       <svg
         viewBox="0 0 24 24"
         fill="none"
@@ -278,8 +295,7 @@ function StatusBadge({ status }: { status: SharedConnectionStatus }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
-        className={`h-3 w-3 ${transient ? 'animate-spin' : ''}`}
-      >
+        className={`h-3 w-3 ${transient ? 'animate-spin' : ''}`}>
         {transient ? (
           <>
             <path d="M21 12a9 9 0 1 1-2.64-6.36" />
@@ -289,7 +305,11 @@ function StatusBadge({ status }: { status: SharedConnectionStatus }) {
           <path d="M20 6 9 17l-5-5" />
         ) : (
           <>
-            <circle cx="12" cy="12" r="9" />
+            <circle
+              cx="12"
+              cy="12"
+              r="9"
+            />
             <path d="M12 8v4M12 16h.01" />
           </>
         )}

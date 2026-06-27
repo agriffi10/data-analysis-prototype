@@ -1,7 +1,7 @@
-import { useRef } from 'react';
-import { cx } from '../../lib/cx';
-import { DocumentIcon } from '../../components/icons';
-import type { QueryTab } from './query.types';
+import {useRef} from 'react';
+import {cx} from '../../lib/cx';
+import {DocumentIcon} from '../../components/icons';
+import type {QueryTab} from './query.types';
 
 type Props = {
   tabs: QueryTab[];
@@ -30,7 +30,7 @@ export function QueryTabStrip({
   onClose,
   onNew,
   onOpenSaved,
-  onOpenHistory,
+  onOpenHistory
 }: Props) {
   const solo = tabs.length === 1;
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
@@ -72,16 +72,14 @@ export function QueryTabStrip({
         aria-label="New query tab"
         title="New query tab"
         onClick={onNew}
-        className="grid h-7 w-7 flex-none place-items-center rounded-md border border-transparent text-text-2 hover:bg-surface hover:text-text"
-      >
+        className="grid h-7 w-7 flex-none place-items-center rounded-md border border-transparent text-text-2 hover:bg-surface hover:text-text">
         <svg
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
           className="h-4 w-4"
-          aria-hidden="true"
-        >
+          aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
@@ -90,7 +88,10 @@ export function QueryTabStrip({
           aria-required-children) — the +/Saved/History controls sit outside it.
           This is the only scrollable region (min-w-0 + overflow-x-auto); the
           surrounding controls stay pinned. */}
-      <div role="tablist" aria-label="Query tabs" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <div
+        role="tablist"
+        aria-label="Query tabs"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {tabs.map((tab, index) => {
           const active = tab.id === activeTabId;
           return (
@@ -112,8 +113,7 @@ export function QueryTabStrip({
                 active
                   ? 'border-border bg-surface text-text shadow-sm'
                   : 'border-transparent text-text-2 hover:bg-surface hover:text-text'
-              )}
-            >
+              )}>
               <span
                 className={cx('h-1.5 w-1.5 flex-none rounded-full bg-accent', active ? 'opacity-100' : 'opacity-0')}
                 aria-hidden="true"
@@ -123,8 +123,7 @@ export function QueryTabStrip({
                   role="img"
                   className="flex-none font-bold text-accent"
                   title="Unsaved changes"
-                  aria-label="Unsaved changes"
-                >
+                  aria-label="Unsaved changes">
                   •
                 </span>
               )}
@@ -142,16 +141,14 @@ export function QueryTabStrip({
                     e.stopPropagation();
                     onClose(tab.id);
                   }}
-                  className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger"
-                >
+                  className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2"
                     className="h-3 w-3"
-                    aria-hidden="true"
-                  >
+                    aria-hidden="true">
                     <path d="M6 6l12 12M18 6L6 18" />
                   </svg>
                 </span>
@@ -163,12 +160,23 @@ export function QueryTabStrip({
 
       {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). They
           sit outside the scrollable tablist so they stay visible at any tab count. */}
-      <button type="button" className={barButton} onClick={onOpenSaved}>
+      <button
+        type="button"
+        className={barButton}
+        onClick={onOpenSaved}>
         <DocumentIcon />
         Saved queries
       </button>
-      <button type="button" className={barButton} onClick={onOpenHistory}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <button
+        type="button"
+        className={barButton}
+        onClick={onOpenHistory}>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true">
           <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
           <path d="M3 3v5h5" />
           <path d="M12 8v5l3 2" />

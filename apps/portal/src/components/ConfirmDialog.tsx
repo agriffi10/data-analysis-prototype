@@ -1,6 +1,6 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { Button } from './Button';
-import { Modal } from './Modal';
+import {useEffect, useRef, type ReactNode} from 'react';
+import {Button} from './Button';
+import {Modal} from './Modal';
 
 type ConfirmDialogProps = {
   title: string;
@@ -44,7 +44,7 @@ export function ConfirmDialog({
   focusConfirm,
   onConfirm,
   onCancel,
-  children,
+  children
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
@@ -56,21 +56,31 @@ export function ConfirmDialog({
   }, [focusTheConfirm]);
 
   return (
-    <Modal role="alertdialog" ariaLabel={ariaLabel} dismissible={!busy} onDismiss={onCancel}>
+    <Modal
+      role="alertdialog"
+      ariaLabel={ariaLabel}
+      dismissible={!busy}
+      onDismiss={onCancel}>
       <div className="px-5 pb-4 pt-5">
         {tone === 'danger' ? (
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 rounded-full bg-danger-soft p-1 text-danger">
+            <span className="shrink-0 rounded-full bg-danger-soft p-1 text-danger">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
                 className="h-6 w-6"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="9" />
-                <path strokeLinecap="round" d="M12 8v5M12 16h.01" />
+                aria-hidden="true">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="9"
+                />
+                <path
+                  strokeLinecap="round"
+                  d="M12 8v5M12 16h.01"
+                />
               </svg>
             </span>
             <h2 className="text-md font-semibold text-text">{title}</h2>
@@ -86,11 +96,19 @@ export function ConfirmDialog({
 
       <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
         {!dismissOnly && (
-          <Button ref={cancelRef} variant="ghost" onClick={onCancel} disabled={busy}>
+          <Button
+            ref={cancelRef}
+            variant="ghost"
+            onClick={onCancel}
+            disabled={busy}>
             {cancelLabel}
           </Button>
         )}
-        <Button ref={confirmRef} variant={confirmVariant} onClick={onConfirm} disabled={busy}>
+        <Button
+          ref={confirmRef}
+          variant={confirmVariant}
+          onClick={onConfirm}
+          disabled={busy}>
           {busy && busyLabel ? busyLabel : confirmLabel}
         </Button>
       </div>

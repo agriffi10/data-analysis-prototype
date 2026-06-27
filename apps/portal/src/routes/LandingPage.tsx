@@ -1,10 +1,10 @@
-import { Navigate, useNavigate } from 'react-router-dom';
-import { useAuth } from '../features/auth';
-import { takeReturnPath } from '../lib/returnPath';
-import { BrandMark } from '../components/BrandMark';
-import { Button } from '../components/Button';
-import { UploadIcon, FolderIcon } from '../components/icons';
-import { usePageTitle } from '../hooks/usePageTitle';
+import {Navigate, useNavigate} from 'react-router-dom';
+import {useAuth} from '../features/auth';
+import {takeReturnPath} from '../lib/returnPath';
+import {BrandMark} from '../components/BrandMark';
+import {Button} from '../components/Button';
+import {UploadIcon, FolderIcon} from '../components/icons';
+import {usePageTitle} from '../hooks/usePageTitle';
 
 // ─── Inline icons (from docs/design/landing.html) ─────────────────────────────
 
@@ -17,8 +17,7 @@ function ShieldIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth="2.2"
-      aria-hidden="true"
-    >
+      aria-hidden="true">
       <path d="M12 2 4 5v6c0 5 3.4 8.3 8 10 4.6-1.7 8-5 8-10V5z" />
     </svg>
   );
@@ -33,8 +32,7 @@ function CheckIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth="2.4"
-      aria-hidden="true"
-    >
+      aria-hidden="true">
       <path d="M20 6 9 17l-5-5" />
     </svg>
   );
@@ -45,7 +43,12 @@ function UploadFeatureIcon() {
 }
 
 function FolderFeatureIcon() {
-  return <FolderIcon filled className="h-5 w-5" />;
+  return (
+    <FolderIcon
+      filled
+      className="h-5 w-5"
+    />
+  );
 }
 
 function LinkFeatureIcon() {
@@ -59,8 +62,7 @@ function LinkFeatureIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      aria-hidden="true"
-    >
+      aria-hidden="true">
       <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
       <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
     </svg>
@@ -70,7 +72,12 @@ function LinkFeatureIcon() {
 // ─── Static app-preview illustration (decorative) ─────────────────────────────
 
 function PreviewFolderIcon() {
-  return <FolderIcon filled className="h-[18px] w-[18px] text-accent" />;
+  return (
+    <FolderIcon
+      filled
+      className="h-[18px] w-[18px] text-accent"
+    />
+  );
 }
 
 function PreviewFileIcon() {
@@ -81,8 +88,7 @@ function PreviewFileIcon() {
       stroke="currentColor"
       strokeWidth="2"
       className="h-[18px] w-[18px] text-text-3"
-      aria-hidden="true"
-    >
+      aria-hidden="true">
       <path d="M6 2h8l4 4v16H6z" />
       <path d="M14 2v4h4" />
     </svg>
@@ -97,18 +103,17 @@ type PreviewRow = {
 };
 
 const PREVIEW_ROWS: PreviewRow[] = [
-  { icon: 'folder', name: '2026-q1', size: '—', date: 'Mar 3' },
-  { icon: 'file', name: 'annual-summary.pdf', size: '2.4 MB', date: 'Mar 2' },
-  { icon: 'file', name: 'revenue-model.xlsx', size: '847 KB', date: 'Feb 27' },
-  { icon: 'file', name: 'dataset-export.csv', size: '12.1 MB', date: 'Feb 24' },
+  {icon: 'folder', name: '2026-q1', size: '—', date: 'Mar 3'},
+  {icon: 'file', name: 'annual-summary.pdf', size: '2.4 MB', date: 'Mar 2'},
+  {icon: 'file', name: 'revenue-model.xlsx', size: '847 KB', date: 'Feb 27'},
+  {icon: 'file', name: 'dataset-export.csv', size: '12.1 MB', date: 'Feb 24'}
 ];
 
 function AppPreview() {
   return (
     <div
       aria-hidden="true"
-      className="mx-auto mt-10 max-w-[920px] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
-    >
+      className="mx-auto mt-10 max-w-[920px] overflow-hidden rounded-lg border border-border bg-surface shadow-lg">
       {/* Browser chrome */}
       <div className="flex h-[38px] items-center gap-[7px] border-b border-border bg-surface-2 px-4">
         <span className="h-[11px] w-[11px] rounded-full bg-border" />
@@ -147,8 +152,7 @@ function AppPreview() {
           {PREVIEW_ROWS.map((row) => (
             <div
               key={row.name}
-              className="grid h-[42px] grid-cols-[22px_1fr_80px_90px] items-center gap-3 border-b border-border-2 text-sm"
-            >
+              className="grid h-[42px] grid-cols-[22px_1fr_80px_90px] items-center gap-3 border-b border-border-2 text-sm">
               {row.icon === 'folder' ? <PreviewFolderIcon /> : <PreviewFileIcon />}
               <span className="font-medium text-text">{row.name}</span>
               <span className="text-text-3">{row.size}</span>
@@ -167,18 +171,18 @@ const FEATURES = [
   {
     icon: <UploadFeatureIcon />,
     title: 'Fast, resilient uploads',
-    body: 'Drag and drop files up to several gigabytes. Large files switch to multipart upload automatically, with live progress for every file.',
+    body: 'Drag and drop files up to several gigabytes. Large files switch to multipart upload automatically, with live progress for every file.'
   },
   {
     icon: <FolderFeatureIcon />,
     title: "A space that's yours",
-    body: 'Browse, organize into folders, rename, move, and download. Your space is private to you — no one else can see or touch it.',
+    body: 'Browse, organize into folders, rename, move, and download. Your space is private to you — no one else can see or touch it.'
   },
   {
     icon: <LinkFeatureIcon />,
     title: 'Connect to shared data',
-    body: 'Link the shared project prefixes you have access to and work with them alongside your own files, all from one place.',
-  },
+    body: 'Link the shared project prefixes you have access to and work with them alongside your own files, all from one place.'
+  }
 ] as const;
 
 // ─── Landing page ─────────────────────────────────────────────────────────────
@@ -186,7 +190,7 @@ const FEATURES = [
 // Public marketing landing page (`/`), SPEC-029. Renders its own self-contained
 // nav (the app Header is suppressed on '/' by RootLayout) and makes no S3 calls.
 export default function LandingPage() {
-  const { status, signIn, signUp } = useAuth();
+  const {status, signIn, signUp} = useAuth();
   const navigate = useNavigate();
   usePageTitle();
 
@@ -199,7 +203,13 @@ export default function LandingPage() {
   // "Go to Dashboard" entry point instead of the sign-in/sign-up buttons.
   if (isAuthed) {
     const target = takeReturnPath();
-    if (target) return <Navigate to={target} replace />;
+    if (target)
+      return (
+        <Navigate
+          to={target}
+          replace
+        />
+      );
   }
 
   return (
@@ -207,32 +217,46 @@ export default function LandingPage() {
       {/* Sticky nav */}
       <nav
         aria-label="Primary"
-        className="sticky top-0 z-20 h-16 border-b border-border bg-white/80 backdrop-blur-sm backdrop-saturate-150"
-      >
+        className="sticky top-0 z-20 h-16 border-b border-border bg-white/80 backdrop-blur-sm backdrop-saturate-150">
         <div className="mx-auto flex h-full max-w-[1080px] items-center gap-4 px-6">
-          <a href="/" aria-label="S3 File Portal home">
+          <a
+            href="/"
+            aria-label="S3 File Portal home">
             <BrandMark />
           </a>
           <div className="ml-8 hidden items-center gap-5 md:flex">
-            <a href="#features" className="text-base font-medium text-text-2 hover:text-text">
+            <a
+              href="#features"
+              className="text-base font-medium text-text-2 hover:text-text">
               Features
             </a>
-            <a href="#security" className="text-base font-medium text-text-2 hover:text-text">
+            <a
+              href="#security"
+              className="text-base font-medium text-text-2 hover:text-text">
               Security
             </a>
           </div>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             {isAuthed ? (
-              <Button variant="primary" className="!h-10 !px-5" onClick={() => navigate('/files')}>
+              <Button
+                variant="primary"
+                className="!h-10 !px-5"
+                onClick={() => navigate('/files')}>
                 Go to Dashboard
               </Button>
             ) : (
               <>
-                <Button variant="ghost" className="!h-10 !px-5" onClick={() => void signIn()}>
+                <Button
+                  variant="ghost"
+                  className="!h-10 !px-5"
+                  onClick={() => void signIn()}>
                   Sign in
                 </Button>
-                <Button variant="primary" className="!h-10 !px-5" onClick={() => void signUp()}>
+                <Button
+                  variant="primary"
+                  className="!h-10 !px-5"
+                  onClick={() => void signUp()}>
                   Create account
                 </Button>
               </>
@@ -258,15 +282,24 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-wrap justify-center gap-3">
               {isAuthed ? (
-                <Button variant="primary" size="lg" onClick={() => navigate('/files')}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => navigate('/files')}>
                   Go to Dashboard
                 </Button>
               ) : (
                 <>
-                  <Button variant="primary" size="lg" onClick={() => void signUp()}>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={() => void signUp()}>
                     Create your account
                   </Button>
-                  <Button variant="default" size="lg" onClick={() => void signIn()}>
+                  <Button
+                    variant="default"
+                    size="lg"
+                    onClick={() => void signIn()}>
                     Sign in
                   </Button>
                 </>
@@ -286,7 +319,9 @@ export default function LandingPage() {
         </section>
 
         {/* Features */}
-        <section id="features" className="py-10">
+        <section
+          id="features"
+          className="py-10">
           <div className="mx-auto max-w-[1080px] px-6">
             <div className="mb-8 text-center">
               <h2 className="text-[30px] font-bold tracking-[-0.01em]">Everything you need to manage your files</h2>
@@ -296,7 +331,9 @@ export default function LandingPage() {
             </div>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
               {FEATURES.map((feature) => (
-                <div key={feature.title} className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+                <div
+                  key={feature.title}
+                  className="rounded-lg border border-border bg-surface p-6 shadow-sm">
                   <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent">
                     {feature.icon}
                   </div>
@@ -309,7 +346,9 @@ export default function LandingPage() {
         </section>
 
         {/* CTA strip */}
-        <section id="security" className="py-8 pb-10">
+        <section
+          id="security"
+          className="py-8 pb-10">
           <div className="mx-auto max-w-[1080px] px-6">
             <div className="rounded-lg bg-accent px-8 py-10 text-center text-white shadow-md">
               <h2 className="mb-3 text-[28px] font-bold tracking-[-0.01em]">
@@ -324,8 +363,7 @@ export default function LandingPage() {
                   <button
                     type="button"
                     onClick={() => navigate('/files')}
-                    className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
-                  >
+                    className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]">
                     Go to Dashboard
                   </button>
                 ) : (
@@ -333,15 +371,13 @@ export default function LandingPage() {
                     <button
                       type="button"
                       onClick={() => void signUp()}
-                      className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]"
-                    >
+                      className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]">
                       Create account
                     </button>
                     <button
                       type="button"
                       onClick={() => void signIn()}
-                      className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20"
-                    >
+                      className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20">
                       Sign in
                     </button>
                   </>
@@ -355,16 +391,22 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-border bg-surface">
         <div className="mx-auto flex h-16 max-w-[1080px] items-center gap-4 px-6">
-          <a href="/" aria-label="S3 File Portal home">
+          <a
+            href="/"
+            aria-label="S3 File Portal home">
             <BrandMark size="sm" />
           </a>
           <div className="flex-1" />
           <p className="text-sm text-text-3">
             © 2026 FilePortal ·{' '}
-            <a href="#" className="text-text-2 hover:text-text">
+            <a
+              href="#"
+              className="text-text-2 hover:text-text">
               Privacy
             </a>{' '}
-            <a href="#" className="text-text-2 hover:text-text">
+            <a
+              href="#"
+              className="text-text-2 hover:text-text">
               Terms
             </a>
           </p>

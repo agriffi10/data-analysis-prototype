@@ -1,5 +1,5 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react';
-import Editor, { loader, type OnMount } from '@monaco-editor/react';
+import {forwardRef, useImperativeHandle, useRef} from 'react';
+import Editor, {loader, type OnMount} from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 
@@ -12,9 +12,9 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 self.MonacoEnvironment = {
   getWorker() {
     return new editorWorker();
-  },
+  }
 };
-loader.config({ monaco });
+loader.config({monaco});
 
 // Token theme mapped onto the design tokens (design-system §6): keywords accent,
 // strings success, numbers warning, comments muted italic, functions violet.
@@ -24,20 +24,20 @@ function defineTheme(m: typeof monaco) {
     base: 'vs',
     inherit: true,
     rules: [
-      { token: 'keyword', foreground: '4338ca', fontStyle: 'bold' },
-      { token: 'keyword.sql', foreground: '4338ca', fontStyle: 'bold' },
-      { token: 'operator.sql', foreground: '5b6573' },
-      { token: 'string', foreground: '0f9d6e' },
-      { token: 'string.sql', foreground: '0f9d6e' },
-      { token: 'number', foreground: 'c2820a' },
-      { token: 'comment', foreground: '8a93a2', fontStyle: 'italic' },
-      { token: 'predefined.sql', foreground: '7c3aed' },
+      {token: 'keyword', foreground: '4338ca', fontStyle: 'bold'},
+      {token: 'keyword.sql', foreground: '4338ca', fontStyle: 'bold'},
+      {token: 'operator.sql', foreground: '5b6573'},
+      {token: 'string', foreground: '0f9d6e'},
+      {token: 'string.sql', foreground: '0f9d6e'},
+      {token: 'number', foreground: 'c2820a'},
+      {token: 'comment', foreground: '8a93a2', fontStyle: 'italic'},
+      {token: 'predefined.sql', foreground: '7c3aed'}
     ],
     colors: {
       'editor.background': '#ffffff',
       'editorLineNumber.foreground': '#8a93a2',
-      'editorGutter.background': '#fafbfc',
-    },
+      'editorGutter.background': '#fafbfc'
+    }
   });
 }
 
@@ -59,10 +59,7 @@ type SqlEditorProps = {
 
 // Monaco SQL editor. Forwards a ref exposing insertAtCursor; React.lazy forwards
 // the ref through to this inner forwardRef component once the chunk loads.
-export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
-  { value, onChange, onRun },
-  ref
-) {
+export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor({value, onChange, onRun}, ref) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   // Keep the latest onRun without rebinding the Monaco command each render.
   const onRunRef = useRef(onRun);
@@ -74,12 +71,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       if (!editor) return;
       const selection = editor.getSelection();
       if (!selection) return;
-      editor.executeEdits('schema-insert', [{ range: selection, text, forceMoveMarkers: true }]);
+      editor.executeEdits('schema-insert', [{range: selection, text, forceMoveMarkers: true}]);
       editor.focus();
     },
     focus() {
       editorRef.current?.focus();
-    },
+    }
   }));
 
   const handleMount: OnMount = (editor, m) => {
@@ -99,13 +96,13 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       value={value}
       onChange={(v) => onChange(v ?? '')}
       options={{
-        minimap: { enabled: false },
+        minimap: {enabled: false},
         fontSize: 13,
         lineNumbersMinChars: 3,
         scrollBeyondLastLine: false,
-        padding: { top: 12, bottom: 12 },
+        padding: {top: 12, bottom: 12},
         renderLineHighlight: 'line',
-        fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace',
+        fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace'
       }}
     />
   );

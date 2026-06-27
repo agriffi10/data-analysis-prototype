@@ -175,7 +175,7 @@ A dismissible status banner for inline success/warning/danger/info feedback. Use
   - `info`: `bg-accent-soft border-accent-soft text-accent-text`
 - [ ] Container: `rounded-lg border p-3 text-sm flex items-start gap-3 {variantClasses}`.
 - [ ] `title` renders as `<p className="font-medium">{title}</p>` before `children`.
-- [ ] Dismiss button (when `onDismiss` provided): right-aligned `text-xs font-medium opacity-70 hover:opacity-100 hover:underline ml-auto flex-shrink-0` — label "Dismiss".
+- [ ] Dismiss button (when `onDismiss` provided): right-aligned `text-xs font-medium opacity-70 hover:opacity-100 hover:underline ml-auto shrink-0` — label "Dismiss".
 - [ ] No `forwardRef` needed.
 - [ ] Test: renders each variant, shows dismiss button when `onDismiss` provided, calls `onDismiss` on click.
 

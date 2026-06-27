@@ -1,14 +1,14 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { invalidateListing } from '../../lib/queryClient';
-import { deleteObjects, deleteFolder } from './fileBrowser.service';
-import type { SelectableItem } from './selectionContext';
+import {useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {invalidateListing} from '../../lib/queryClient';
+import {deleteObjects, deleteFolder} from './fileBrowser.service';
+import type {SelectableItem} from './selectionContext';
 
 // The outcome surfaced to the UI after a (possibly mixed file + folder) delete:
 // how many objects S3 removed, and any per-item failures to report (FR-004).
 export type DeleteSummary = {
   deletedCount: number;
-  errors: { key: string; message: string }[];
+  errors: {key: string; message: string}[];
 };
 
 export type UseDeleteResult = {
@@ -44,9 +44,9 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
     setSummary(null);
 
     const fileKeys = items
-      .filter((i): i is Extract<SelectableItem, { type: 'file' }> => i.type === 'file')
+      .filter((i): i is Extract<SelectableItem, {type: 'file'}> => i.type === 'file')
       .map((i) => i.key);
-    const folders = items.filter((i): i is Extract<SelectableItem, { type: 'folder' }> => i.type === 'folder');
+    const folders = items.filter((i): i is Extract<SelectableItem, {type: 'folder'}> => i.type === 'folder');
 
     const deleted: string[] = [];
     const errors: DeleteSummary['errors'] = [];
@@ -54,7 +54,7 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
     // Loose files: one batched (chunked) DeleteObjects call. A systemic failure
     // here (e.g. credentials gone) affects everything, so abort and surface it.
     if (fileKeys.length > 0) {
-      const result = await deleteObjects({ bucket, keys: fileKeys, username });
+      const result = await deleteObjects({bucket, keys: fileKeys, username});
       if (!result.success) {
         setError(result.error.message);
         setIsDeleting(false);
@@ -70,10 +70,10 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
       const result = await deleteFolder({
         bucket,
         prefix: folder.prefix,
-        username,
+        username
       });
       if (!result.success) {
-        errors.push({ key: folder.prefix, message: result.error.message });
+        errors.push({key: folder.prefix, message: result.error.message});
         continue;
       }
       deleted.push(...result.data.deleted);
@@ -82,7 +82,7 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
 
     await invalidateListing(queryClient, bucket, prefix);
 
-    const result: DeleteSummary = { deletedCount: deleted.length, errors };
+    const result: DeleteSummary = {deletedCount: deleted.length, errors};
     setSummary(result);
     setIsDeleting(false);
     return result;
@@ -94,6 +94,6 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
     error,
     runDelete,
     dismissSummary: () => setSummary(null),
-    dismissError: () => setError(null),
+    dismissError: () => setError(null)
   };
 }

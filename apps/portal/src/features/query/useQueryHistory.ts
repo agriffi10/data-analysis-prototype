@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getQueryHistory, appendQueryHistory, updateQueryHistoryEntry } from './queryHistory.service';
-import { queryKeys } from './queryKeys';
-import type { QueryHistory, QueryHistoryEntry } from './query.types';
+import {useQuery, useMutation, useQueryClient} from '@tanstack/react-query';
+import {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
+import {queryKeys} from './queryKeys';
+import type {QueryHistory, QueryHistoryEntry} from './query.types';
 
 export type UseQueryHistoryResult = {
   history: QueryHistoryEntry[];
@@ -9,7 +9,7 @@ export type UseQueryHistoryResult = {
   error: string | null;
   // Append at submit time; update once the execution reaches a terminal state.
   appendEntry: (entry: QueryHistoryEntry) => Promise<QueryHistory>;
-  updateEntry: (vars: { queryExecutionId: string; patch: Partial<QueryHistoryEntry> }) => Promise<QueryHistory>;
+  updateEntry: (vars: {queryExecutionId: string; patch: Partial<QueryHistoryEntry>}) => Promise<QueryHistory>;
   // SPEC-046: manual re-read of the store from S3 (invalidate + refetch the
   // history key). `isRefreshing` is the in-flight state for the drawer's Refresh
   // control (true only for a refetch, not the initial load).
@@ -32,7 +32,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
       const result = await getQueryHistory(username as string);
       if (!result.success) throw new Error(result.error.message);
       return result.data;
-    },
+    }
   });
 
   // Seed the cache for an instant UI update, then invalidate so the next read
@@ -40,7 +40,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
   // the services' read-modify-write writes.
   const onWriteSuccess = (data: QueryHistory) => {
     queryClient.setQueryData(key, data);
-    void queryClient.invalidateQueries({ queryKey: key });
+    void queryClient.invalidateQueries({queryKey: key});
   };
 
   const append = useMutation({
@@ -49,19 +49,16 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: onWriteSuccess,
+    onSuccess: onWriteSuccess
   });
 
   const update = useMutation({
-    mutationFn: async (vars: {
-      queryExecutionId: string;
-      patch: Partial<QueryHistoryEntry>;
-    }): Promise<QueryHistory> => {
+    mutationFn: async (vars: {queryExecutionId: string; patch: Partial<QueryHistoryEntry>}): Promise<QueryHistory> => {
       const result = await updateQueryHistoryEntry(username as string, vars.queryExecutionId, vars.patch);
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: onWriteSuccess,
+    onSuccess: onWriteSuccess
   });
 
   return {
@@ -72,7 +69,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
     updateEntry: update.mutateAsync,
     // invalidateQueries re-reads from S3 for the active observer and resolves once
     // the refetch settles; a failed refetch keeps the last data (non-destructive).
-    refresh: () => queryClient.invalidateQueries({ queryKey: key }),
-    isRefreshing: query.isRefetching,
+    refresh: () => queryClient.invalidateQueries({queryKey: key}),
+    isRefreshing: query.isRefetching
   };
 }

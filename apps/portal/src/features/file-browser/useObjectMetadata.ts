@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
-import { getObjectMetadata } from './fileBrowser.service';
-import { fileBrowserKeys } from './fileBrowserKeys';
-import type { ObjectMetadata } from './fileBrowser.types';
+import {useQuery} from '@tanstack/react-query';
+import {getObjectMetadata} from './fileBrowser.service';
+import {fileBrowserKeys} from './fileBrowserKeys';
+import type {ObjectMetadata} from './fileBrowser.types';
 
 export type UseObjectMetadataResult = {
   metadata: ObjectMetadata | null;
@@ -19,16 +19,16 @@ export function useObjectMetadata(bucket: string, key: string | null): UseObject
   const query = useQuery({
     queryKey: fileBrowserKeys.metadata(bucket, key ?? ''),
     queryFn: async () => {
-      const result = await getObjectMetadata({ bucket, key: key! });
+      const result = await getObjectMetadata({bucket, key: key!});
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    enabled: key !== null,
+    enabled: key !== null
   });
 
   return {
     metadata: query.data ?? null,
     isLoading: key !== null && query.isPending,
-    error: query.isError ? (query.error as Error).message : null,
+    error: query.isError ? (query.error as Error).message : null
   };
 }

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { QUERY_TABS_MAX } from './query.constants';
-import type { QueryTab, QueryTabsState } from './query.types';
-import { readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState } from './queryTabs';
+import {useEffect, useMemo, useState} from 'react';
+import {QUERY_TABS_MAX} from './query.constants';
+import type {QueryTab, QueryTabsState} from './query.types';
+import {readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState} from './queryTabs';
 
 export type OpenTabOpts = {
   label?: string; // verbatim label (saved query / table action); omit for a blank "Query N"
@@ -18,7 +18,7 @@ export type UseQueryTabsResult = {
   setActiveSavedQueryId: (id: string | undefined) => void;
   // SPEC-043: patch the active tab's label/savedQueryId together (used when a
   // save links + relabels the active tab in one step).
-  setActiveTabMeta: (meta: { label?: string; savedQueryId?: string }) => void;
+  setActiveTabMeta: (meta: {label?: string; savedQueryId?: string}) => void;
   // SPEC-043 FR-007: clear the link on every tab pointing at a deleted saved
   // query (the tabs keep their label/SQL; a later Save creates a new record).
   unlinkSavedQuery: (savedQueryId: string) => void;
@@ -50,28 +50,27 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
   const setActiveSql = (sql: string) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? { ...t, sql } : t)),
+      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, sql} : t))
     }));
 
-  const setActiveTab = (id: string) =>
-    setState((s) => (s.tabs.some((t) => t.id === id) ? { ...s, activeTabId: id } : s));
+  const setActiveTab = (id: string) => setState((s) => (s.tabs.some((t) => t.id === id) ? {...s, activeTabId: id} : s));
 
   const setActiveSavedQueryId = (id: string | undefined) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? { ...t, savedQueryId: id } : t)),
+      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, savedQueryId: id} : t))
     }));
 
-  const setActiveTabMeta = (meta: { label?: string; savedQueryId?: string }) =>
+  const setActiveTabMeta = (meta: {label?: string; savedQueryId?: string}) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? { ...t, ...meta } : t)),
+      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, ...meta} : t))
     }));
 
   const unlinkSavedQuery = (savedQueryId: string) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) => (t.savedQueryId === savedQueryId ? { ...t, savedQueryId: undefined } : t)),
+      tabs: s.tabs.map((t) => (t.savedQueryId === savedQueryId ? {...t, savedQueryId: undefined} : t))
     }));
 
   const openTab = (opts: OpenTabOpts = {}): string | null => {
@@ -89,14 +88,14 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
         id,
         label: named ? opts.label! : `Query ${s.nextQueryNumber}`,
         sql: opts.sql ?? '',
-        savedQueryId: opts.savedQueryId,
+        savedQueryId: opts.savedQueryId
       };
       return {
         ...s,
         tabs: [...s.tabs, tab],
         activeTabId: id,
         // Only blank "Query N" tabs consume a number; named tabs do not.
-        nextQueryNumber: named ? s.nextQueryNumber : s.nextQueryNumber + 1,
+        nextQueryNumber: named ? s.nextQueryNumber : s.nextQueryNumber + 1
       };
     });
     return id;
@@ -114,7 +113,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
         const neighbor = idx > 0 ? idx - 1 : 0;
         activeTabId = tabs[Math.min(neighbor, tabs.length - 1)].id;
       }
-      return { ...s, tabs, activeTabId };
+      return {...s, tabs, activeTabId};
     });
 
   // SPEC-040 Clear, scoped to the active tab: empty its SQL and reset the tab back
@@ -129,11 +128,11 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
               ...t,
               sql: '',
               label: `Query ${s.nextQueryNumber}`,
-              savedQueryId: undefined,
+              savedQueryId: undefined
             }
           : t
       ),
-      nextQueryNumber: s.nextQueryNumber + 1,
+      nextQueryNumber: s.nextQueryNumber + 1
     }));
 
   return {
@@ -147,6 +146,6 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
     unlinkSavedQuery,
     openTab,
     closeTab,
-    clearActive,
+    clearActive
   };
 }

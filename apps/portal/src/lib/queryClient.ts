@@ -1,5 +1,5 @@
-import { QueryClient } from '@tanstack/react-query';
-import { fileBrowserKeys } from '../features/file-browser/fileBrowserKeys';
+import {QueryClient} from '@tanstack/react-query';
+import {fileBrowserKeys} from '../features/file-browser/fileBrowserKeys';
 
 // Single app-wide QueryClient (SPEC-015 FR-001). Server state (S3 reads/writes)
 // lives here so later file-operation specs get caching, refetch, and
@@ -18,9 +18,9 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
+      refetchOnWindowFocus: false
+    }
+  }
 });
 
 // Invalidate a single prefix listing so the next read refetches from S3. Later
@@ -29,6 +29,6 @@ export const queryClient = new QueryClient({
 // can be unit-tested and called with any QueryClient instance.
 export async function invalidateListing(client: QueryClient, bucket: string, prefix: string): Promise<void> {
   await client.invalidateQueries({
-    queryKey: fileBrowserKeys.list(bucket, prefix),
+    queryKey: fileBrowserKeys.list(bucket, prefix)
   });
 }

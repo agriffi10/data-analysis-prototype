@@ -1,17 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { QueryStatusBar } from './QueryStatusBar';
-import type { QueryStatus } from './query.types';
+import {describe, it, expect, vi} from 'vitest';
+import {render, screen, fireEvent} from '@testing-library/react';
+import {QueryStatusBar} from './QueryStatusBar';
+import type {QueryStatus} from './query.types';
 
 function status(partial: Partial<QueryStatus>): QueryStatus {
-  return { queryExecutionId: 'q-1', state: 'SUCCEEDED', ...partial };
+  return {queryExecutionId: 'q-1', state: 'SUCCEEDED', ...partial};
 }
 
 describe('QueryStatusBar', () => {
   it('shows a running indicator while in flight', () => {
     render(
       <QueryStatusBar
-        status={status({ state: 'RUNNING' })}
+        status={status({state: 'RUNNING'})}
         isInFlight
         startedAt={Date.now() - 3000}
         onSaveResults={vi.fn()}
@@ -28,7 +28,7 @@ describe('QueryStatusBar', () => {
         status={status({
           state: 'SUCCEEDED',
           dataScannedBytes: 1_258_291,
-          engineExecutionTimeMillis: 800,
+          engineExecutionTimeMillis: 800
         })}
         isInFlight={false}
         startedAt={null}
@@ -41,14 +41,14 @@ describe('QueryStatusBar', () => {
 
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
     expect(screen.getByText(/4 rows · 1\.2 MB scanned · 800 ms/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Save results to my files/ }));
+    fireEvent.click(screen.getByRole('button', {name: /Save results to my files/}));
     expect(onSaveResults).toHaveBeenCalledTimes(1);
   });
 
   it('hides Save results when there is no savable result (DDL / no rows)', () => {
     render(
       <QueryStatusBar
-        status={status({ state: 'SUCCEEDED' })}
+        status={status({state: 'SUCCEEDED'})}
         isInFlight={false}
         startedAt={null}
         canSaveResults={false}
@@ -56,13 +56,13 @@ describe('QueryStatusBar', () => {
       />
     );
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Save results/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
   });
 
   it('renders terminal Failed and Cancelled indicators', () => {
-    const { rerender } = render(
+    const {rerender} = render(
       <QueryStatusBar
-        status={status({ state: 'FAILED' })}
+        status={status({state: 'FAILED'})}
         isInFlight={false}
         startedAt={null}
         onSaveResults={vi.fn()}
@@ -72,7 +72,7 @@ describe('QueryStatusBar', () => {
 
     rerender(
       <QueryStatusBar
-        status={status({ state: 'CANCELLED' })}
+        status={status({state: 'CANCELLED'})}
         isInFlight={false}
         startedAt={null}
         onSaveResults={vi.fn()}

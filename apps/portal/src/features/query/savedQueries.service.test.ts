@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
 
-vi.mock('../../lib/s3Client', () => ({ getS3Client: vi.fn() }));
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
-import { getS3Client } from '../../lib/s3Client';
-import { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
-import type { SavedQueriesStore, SavedQuery } from './query.types';
+import {getS3Client} from '../../lib/s3Client';
+import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+import type {SavedQueriesStore, SavedQuery} from './query.types';
 
 const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
 
@@ -15,20 +15,20 @@ const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unk
 function fakeBucket(initial: string | null) {
   let stored = initial;
   const commands: string[] = [];
-  const send = vi.fn(async (cmd: { constructor: { name: string }; input: { Body?: string } }) => {
+  const send = vi.fn(async (cmd: {constructor: {name: string}; input: {Body?: string}}) => {
     commands.push(cmd.constructor.name);
     if (cmd.input.Body !== undefined) {
       stored = cmd.input.Body;
       return {};
     }
     if (stored === null) {
-      throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+      throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
     }
     const body = stored;
-    return { Body: { transformToString: async () => body } };
+    return {Body: {transformToString: async () => body}};
   });
-  mockGetClient.mockResolvedValue({ success: true, data: { send } });
-  return { send, stored: () => stored, commands };
+  mockGetClient.mockResolvedValue({success: true, data: {send}});
+  return {send, stored: () => stored, commands};
 }
 
 function sq(id: string, name = id, sql = 'SELECT 1'): SavedQuery {
@@ -38,7 +38,7 @@ function sq(id: string, name = id, sql = 'SELECT 1'): SavedQuery {
     sql,
     database: 'alice',
     createdAt: '2026-06-18T10:00:00.000Z',
-    updatedAt: '2026-06-18T10:00:00.000Z',
+    updatedAt: '2026-06-18T10:00:00.000Z'
   };
 }
 
@@ -55,11 +55,11 @@ describe('getSavedQueries', () => {
   it('returns an empty store (no error) when the file is absent', async () => {
     fakeBucket(null);
     const result = await getSavedQueries('alice');
-    expect(result).toEqual({ success: true, data: { version: 1, queries: [] } });
+    expect(result).toEqual({success: true, data: {version: 1, queries: []}});
   });
 
   it('reads and parses an existing store', async () => {
-    fakeBucket(JSON.stringify({ version: 1, queries: [sq('a')] } as SavedQueriesStore));
+    fakeBucket(JSON.stringify({version: 1, queries: [sq('a')]} as SavedQueriesStore));
     const result = await getSavedQueries('alice');
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -69,13 +69,13 @@ describe('getSavedQueries', () => {
   it('falls back to empty on a malformed file', async () => {
     fakeBucket('not json{');
     const result = await getSavedQueries('alice');
-    expect(result).toEqual({ success: true, data: { version: 1, queries: [] } });
+    expect(result).toEqual({success: true, data: {version: 1, queries: []}});
   });
 });
 
 describe('upsertSavedQuery', () => {
   it('creates a new query (prepended) when the id is unseen', async () => {
-    const fake = fakeBucket(JSON.stringify({ version: 1, queries: [sq('a')] } as SavedQueriesStore));
+    const fake = fakeBucket(JSON.stringify({version: 1, queries: [sq('a')]} as SavedQueriesStore));
     const result = await upsertSavedQuery('alice', sq('b'));
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -87,7 +87,7 @@ describe('upsertSavedQuery', () => {
     fakeBucket(
       JSON.stringify({
         version: 1,
-        queries: [sq('a', 'A', 'SELECT 1'), sq('b')],
+        queries: [sq('a', 'A', 'SELECT 1'), sq('b')]
       } as SavedQueriesStore)
     );
     const result = await upsertSavedQuery('alice', sq('a', 'A2', 'SELECT 2'));
@@ -105,7 +105,7 @@ describe('removeSavedQuery', () => {
     const fake = fakeBucket(
       JSON.stringify({
         version: 1,
-        queries: [sq('a'), sq('b')],
+        queries: [sq('a'), sq('b')]
       } as SavedQueriesStore)
     );
     const result = await removeSavedQuery('alice', 'a');
@@ -118,7 +118,7 @@ describe('removeSavedQuery', () => {
   });
 
   it('is a no-op success for an unknown id (no write)', async () => {
-    const fake = fakeBucket(JSON.stringify({ version: 1, queries: [sq('a')] } as SavedQueriesStore));
+    const fake = fakeBucket(JSON.stringify({version: 1, queries: [sq('a')]} as SavedQueriesStore));
     const result = await removeSavedQuery('alice', 'missing');
     expect(result.success).toBe(true);
     expect(fake.commands).not.toContain('PutObjectCommand');

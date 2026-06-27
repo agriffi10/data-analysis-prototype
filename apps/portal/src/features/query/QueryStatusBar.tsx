@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { formatBytes, formatDurationMs } from './query.format';
-import type { QueryStatus } from './query.types';
+import {useEffect, useState} from 'react';
+import {formatBytes, formatDurationMs} from './query.format';
+import type {QueryStatus} from './query.types';
 
 type QueryStatusBarProps = {
   status?: QueryStatus;
@@ -24,7 +24,7 @@ export function QueryStatusBar({
   rowCount,
   hasMoreRows,
   canSaveResults = false,
-  onSaveResults,
+  onSaveResults
 }: QueryStatusBarProps) {
   // Tick once a second while in flight so the elapsed time advances. The initial
   // tick is scheduled async (setTimeout) rather than set synchronously in the
@@ -48,8 +48,7 @@ export function QueryStatusBar({
     <div
       role="status"
       aria-live="polite"
-      className="flex h-11 flex-none items-center gap-3 border-b border-border bg-surface px-5 text-sm"
-    >
+      className="flex h-11 flex-none items-center gap-3 border-b border-border bg-surface px-5 text-sm">
       {isInFlight && (
         <>
           <span className="inline-flex items-center gap-2 font-semibold text-accent-text">
@@ -63,7 +62,9 @@ export function QueryStatusBar({
             elapsed {formatDurationMs(elapsedMs)}
             {status?.dataScannedBytes !== undefined && ` · ${formatBytes(status.dataScannedBytes)} scanned`}
           </span>
-          <span className="h-1.5 w-40 overflow-hidden rounded-full bg-accent-soft" aria-hidden="true">
+          <span
+            className="h-1.5 w-40 overflow-hidden rounded-full bg-accent-soft"
+            aria-hidden="true">
             <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" />
           </span>
         </>
@@ -72,7 +73,10 @@ export function QueryStatusBar({
       {!isInFlight && state === 'SUCCEEDED' && (
         <>
           <span className="inline-flex items-center gap-2 font-semibold text-success">
-            <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
+            <span
+              className="h-2 w-2 rounded-full bg-success"
+              aria-hidden="true"
+            />
             Succeeded
           </span>
           <span className="text-text-2">
@@ -86,16 +90,14 @@ export function QueryStatusBar({
               <button
                 type="button"
                 onClick={onSaveResults}
-                className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
+                className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
                   className="h-4 w-4"
-                  aria-hidden="true"
-                >
+                  aria-hidden="true">
                   <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
                   <path d="M9 4v5h6" />
                   <path d="M8 21v-7h8v7" />
@@ -109,14 +111,20 @@ export function QueryStatusBar({
 
       {!isInFlight && state === 'FAILED' && (
         <span className="inline-flex items-center gap-2 font-semibold text-danger">
-          <span className="h-2 w-2 rounded-full bg-danger" aria-hidden="true" />
+          <span
+            className="h-2 w-2 rounded-full bg-danger"
+            aria-hidden="true"
+          />
           Failed
         </span>
       )}
 
       {!isInFlight && state === 'CANCELLED' && (
         <span className="inline-flex items-center gap-2 font-semibold text-text-2">
-          <span className="h-2 w-2 rounded-full bg-text-3" aria-hidden="true" />
+          <span
+            className="h-2 w-2 rounded-full bg-text-3"
+            aria-hidden="true"
+          />
           Cancelled
         </span>
       )}

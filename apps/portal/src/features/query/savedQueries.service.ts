@@ -1,8 +1,8 @@
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getS3Client } from '../../lib/s3Client';
-import { withCredentialRetry } from '../../lib/credentialRetry';
-import type { ServiceResult } from '../../types/service.types';
-import type { SavedQueriesStore, SavedQuery } from './query.types';
+import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
+import {getS3Client} from '../../lib/s3Client';
+import {withCredentialRetry} from '../../lib/credentialRetry';
+import type {ServiceResult} from '../../types/service.types';
+import type {SavedQueriesStore, SavedQuery} from './query.types';
 
 // SPEC-043 FR-004: per-user saved queries stored as JSON, mirroring the SPEC-034
 // history store. Lives in the protected `user_settings/` folder whose policy
@@ -10,7 +10,7 @@ import type { SavedQueriesStore, SavedQuery } from './query.types';
 // ever overwrite the whole file, never an S3 object delete. The folder is hidden
 // from the file browser.
 
-const emptyStore = (): SavedQueriesStore => ({ version: 1, queries: [] });
+const emptyStore = (): SavedQueriesStore => ({version: 1, queries: []});
 
 function storeKey(username: string): string {
   return `${username}/user_settings/saved-queries.json`;
@@ -21,15 +21,15 @@ function bucket(): string {
 }
 
 function toServiceError(err: unknown, fallback: string) {
-  const e = err as { message?: string; name?: string };
+  const e = err as {message?: string; name?: string};
   return {
     success: false as const,
-    error: { message: e.message ?? fallback, code: e.name },
+    error: {message: e.message ?? fallback, code: e.name}
   };
 }
 
 function isNotFound(err: unknown): boolean {
-  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
   return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
@@ -50,11 +50,11 @@ function parseStore(body: string | undefined): SavedQueriesStore {
 export async function getSavedQueries(username: string): Promise<ServiceResult<SavedQueriesStore>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
-      const response = await client.send(new GetObjectCommand({ Bucket: bucket(), Key: storeKey(username) }));
+      const response = await client.send(new GetObjectCommand({Bucket: bucket(), Key: storeKey(username)}));
       const body = await response.Body?.transformToString();
-      return { success: true, data: parseStore(body) };
+      return {success: true, data: parseStore(body)};
     } catch (err) {
-      if (isNotFound(err)) return { success: true, data: emptyStore() };
+      if (isNotFound(err)) return {success: true, data: emptyStore()};
       return toServiceError(err, 'Failed to load saved queries');
     }
   });
@@ -70,10 +70,10 @@ async function writeStore(username: string, store: SavedQueriesStore): Promise<S
           Bucket: bucket(),
           Key: storeKey(username),
           Body: JSON.stringify(store),
-          ContentType: 'application/json',
+          ContentType: 'application/json'
         })
       );
-      return { success: true, data: undefined };
+      return {success: true, data: undefined};
     } catch (err) {
       return toServiceError(err, 'Failed to save query');
     }
@@ -92,10 +92,10 @@ export async function upsertSavedQuery(username: string, query: SavedQuery): Pro
       ? [query, ...current.data.queries]
       : current.data.queries.map((q) => (q.id === query.id ? query : q));
 
-  const next: SavedQueriesStore = { version: 1, queries };
+  const next: SavedQueriesStore = {version: 1, queries};
   const written = await writeStore(username, next);
   if (!written.success) return written;
-  return { success: true, data: next };
+  return {success: true, data: next};
 }
 
 // FR-004 / FR-007: remove a saved query by id by rewriting the JSON without it
@@ -106,11 +106,11 @@ export async function removeSavedQuery(username: string, id: string): Promise<Se
 
   const queries = current.data.queries.filter((q) => q.id !== id);
   if (queries.length === current.data.queries.length) {
-    return { success: true, data: current.data }; // unknown id → no-op
+    return {success: true, data: current.data}; // unknown id → no-op
   }
 
-  const next: SavedQueriesStore = { version: 1, queries };
+  const next: SavedQueriesStore = {version: 1, queries};
   const written = await writeStore(username, next);
   if (!written.success) return written;
-  return { success: true, data: next };
+  return {success: true, data: next};
 }
