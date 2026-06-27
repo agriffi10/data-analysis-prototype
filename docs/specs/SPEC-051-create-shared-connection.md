@@ -187,6 +187,33 @@ A real Create drives the pipeline: registry object + Glue DB + creator slot/gran
 appear; a duplicate name fails with "name already taken"; replay doesn't double-provision; after a token refresh
 the creator can query `database/{name}` and read/write `dat-prod-shared-space/{name}/*`. `docs/testing/shared-spaces-e2e.md` updated.
 
+## Implementation Decisions (in-session, 2026-06-26)
+
+- **Minimal Connections tab now** (user decision): SPEC-051 introduces the third
+  top-level Connections tab (`PrimaryNav` + lazy `/connections` route +
+  `ConnectionsPage` shell) hosting the New-connection control + the optimistic local
+  pending list. SPEC-052 enriches it (full personal+shared list, Refresh, selector).
+- **ID token in the message body** (`idToken`), verified by the Lambda → trusted
+  actor (SPEC-056); the body `actor` is advisory. `getIdToken()` added to
+  `awsCredentials`. New dep `@aws-sdk/client-sqs`; new `VITE_SHARED_SPACE_QUEUE_URL`.
+- **FIFO send:** constant `MessageGroupId = "shared-space"` (serial intake, SPEC-050)
+  + `MessageDeduplicationId = requestId`.
+- **Optimistic pending is LOCAL/in-memory** (FR-003) — the browser never writes the
+  cache. The pipeline writes the per-user cache (active/failed); SPEC-052 reads it.
+- **DATA_LOCATION_ACCESS = a single Terraform grant** on the whole registered shared
+  bucket (`shared-spaces/lakeformation.tf`, mirrors analytics' user-space grant), not
+  a per-create Lambda grant. The Lambda's create verb issues only the per-DB LF grant
+  (DB + tables to the portal role, mirroring SPEC-033). Per-space isolation is the IAM
+  membership tag, not LF.
+- **Orchestrator per-user cache write:** the orchestrator writes
+  `{username}/user_settings/shared-connections.json` in the **user-space** bucket, so
+  it gains `s3:Get/PutObject` on that path **and** is added to the user-space
+  bucket-policy Deny-exclusion list (else the resource-policy Deny overrides its
+  identity allow). The intended privileged cross-user write.
+- **No new deploy-role IAM / no new resource types** — all edits use grants the deploy
+  role already holds (PutRolePolicy on `*-shared-space-*`, PutBucketPolicy,
+  UpdateFunctionConfiguration, lakeformation:GrantPermissions). No IAM-first PR needed.
+
 ## Open Questions
 
 - [x] **Resolved (2026-06-21):** the name is the catalog-safe identifier (SPEC-033) and is **permanent + globally

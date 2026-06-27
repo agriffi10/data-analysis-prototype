@@ -46,6 +46,11 @@ variable "app_url" {
   default     = ""
 }
 
+variable "user_space_bucket_name" {
+  description = "SPEC-051: name of the user-space bucket (Bucket 1). The orchestrator writes each member's per-user cache to {username}/user_settings/shared-connections.json here (env USER_SPACE_BUCKET + scoped in the orchestrator policy)."
+  type        = string
+}
+
 # ── SPEC-056 access model ────────────────────────────────────────────────────
 
 variable "max_shared_memberships" {

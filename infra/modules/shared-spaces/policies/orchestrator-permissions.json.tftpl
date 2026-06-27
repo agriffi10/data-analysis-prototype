@@ -72,6 +72,15 @@
       }
     },
     {
+      "Sid": "UserSpaceCacheWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "${user_space_bucket_arn}/*/user_settings/shared-connections.json"
+    },
+    {
       "Sid": "CognitoMembershipAttributes",
       "Effect": "Allow",
       "Action": [

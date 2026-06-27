@@ -29,6 +29,7 @@ resource "aws_iam_role_policy" "orchestrator" {
     account_id               = var.account_id
     shared_space_bucket_arn  = local.shared_space_bucket_arn
     admin_bucket_arn         = local.admin_bucket_arn
+    user_space_bucket_arn    = local.user_space_bucket_arn
     provisioner_function_arn = local.provisioner_function_arn
     lambda_log_group_arn     = local.lambda_log_group_arn
     sfn_log_group_arn        = local.sfn_log_group_arn

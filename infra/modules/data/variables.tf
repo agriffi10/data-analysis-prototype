@@ -33,3 +33,9 @@ variable "lf_registration_role_arn" {
   description = "ARN of the analytics Lake Formation registration role (modules/analytics, SPEC-032), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny: LF assumes this role to read the registered location when serving Athena queries, so the explicit Deny would otherwise block its s3:ListBucket/GetObject and queries fail with PERMISSION_DENIED."
   type        = string
 }
+
+variable "shared_space_orchestrator_role_arn" {
+  description = "SPEC-051: ARN of the shared-space orchestrator role (SPEC-050), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so the privileged pipeline can write each member's per-user cache ({username}/user_settings/shared-connections.json); without the exclusion the resource-policy Deny would override the orchestrator's identity-policy Allow."
+  type        = string
+  default     = ""
+}
