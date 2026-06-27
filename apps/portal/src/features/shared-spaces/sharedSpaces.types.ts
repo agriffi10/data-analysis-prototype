@@ -11,6 +11,10 @@ export type SharedConnectionEntry = {
   role: SharedConnectionRole;
   status: SharedConnectionStatus;
   reason?: string; // present when status === 'failed'
+  // SPEC-053 owner-readable projection: the pipeline writes the current member
+  // list into the OWNER's entry (only) so the Manage drawer can render it without
+  // reading the admin-bucket registry. Absent on member entries.
+  members?: string[];
 };
 
 export type SharedConnectionsCache = {

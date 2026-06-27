@@ -72,6 +72,9 @@ export type Connection = {
   status?: SharedConnectionStatus;
   role?: SharedConnectionRole;
   reason?: string; // failure reason (present when status === 'failed')
+  // SPEC-053: owner-readable member list (present only on a connection the user
+  // owns); drives the Manage-members drawer without an admin-bucket read.
+  members?: string[];
 };
 
 // SPEC-052: a connection is targetable (queryable/browsable) only when it's the

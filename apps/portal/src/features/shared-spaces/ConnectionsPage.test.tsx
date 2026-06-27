@@ -177,3 +177,58 @@ describe('ConnectionsPage (SPEC-052)', () => {
     expect(screen.getByText('Provisioning…')).toBeInTheDocument();
   });
 });
+
+describe('ConnectionsPage — Manage members (SPEC-053)', () => {
+  it('shows Manage only on an active connection the user owns, and opens the drawer', async () => {
+    mockRead.mockResolvedValue(
+      cache([
+        { name: 'owned', role: 'owner', status: 'active', members: ['alice', 'bob'] },
+        { name: 'joined', role: 'member', status: 'active' },
+        { name: 'pending', role: 'owner', status: 'provisioning' },
+      ]),
+    );
+    renderPage();
+
+    const owned = (await screen.findByText('owned')).closest('li')!;
+    expect(within(owned).getByRole('button', { name: 'Manage' })).toBeInTheDocument();
+    // No Manage for a space the user only belongs to, or one still provisioning.
+    expect(
+      within(screen.getByText('joined').closest('li')!).queryByRole('button', {
+        name: 'Manage',
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByText('pending').closest('li')!).queryByRole('button', {
+        name: 'Manage',
+      }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(owned).getByRole('button', { name: 'Manage' }));
+    const drawer = screen.getByRole('dialog', { name: 'Manage members' });
+    expect(within(drawer).getByText('bob')).toBeInTheDocument();
+  });
+
+  it('adding a member from the drawer enqueues one add_members request', async () => {
+    mockRead.mockResolvedValue(
+      cache([{ name: 'owned', role: 'owner', status: 'active', members: ['alice'] }]),
+    );
+    mockEnqueue.mockResolvedValue({ success: true, data: { requestId: 'r1' } });
+    renderPage();
+
+    const owned = (await screen.findByText('owned')).closest('li')!;
+    fireEvent.click(within(owned).getByRole('button', { name: 'Manage' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add members' }));
+    fireEvent.change(screen.getByLabelText('Usernames'), {
+      target: { value: 'bob' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue).toHaveBeenCalledWith({
+      action: 'add_members',
+      actor: 'alice',
+      space: 'owned',
+      payload: { members: ['bob'] },
+    });
+  });
+});
