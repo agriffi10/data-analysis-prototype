@@ -6,6 +6,8 @@ import { useConnections } from '../query/useConnections';
 import { Toast, type ToastState } from '../query/Toast';
 import { CreateSharedConnectionDialog } from './CreateSharedConnectionDialog';
 import { useCreateSharedConnection } from './useCreateSharedConnection';
+import { useManageMembers } from './useManageMembers';
+import { ManageMembersDrawer } from './ManageMembersDrawer';
 import { RefreshConnectionsButton } from './RefreshConnectionsButton';
 import { connectionStatusLabel } from './connectionStatus';
 import type {
@@ -20,6 +22,7 @@ type ConnectionRow = {
   role: SharedConnectionRole;
   status: SharedConnectionStatus;
   reason?: string;
+  members?: string[]; // SPEC-053: owner-readable projection (owner rows only)
 };
 
 // SPEC-052 FR-002: the management surface for shared connections. Lists the user's
@@ -27,7 +30,8 @@ type ConnectionRow = {
 // list comes from the ONE `useConnections` hook (the same source the Query schema
 // rail and Files list read), merged with the local optimistic pending entries so a
 // just-created connection shows "provisioning…" before the pipeline writes the
-// cache. Member management / leave / delete entry points land in SPEC-053/054.
+// cache. Owners get a Manage-members drawer (SPEC-053); leave/delete land in
+// SPEC-054.
 export function ConnectionsPage() {
   const { user } = useAuth();
   const username = user?.username ?? null;
@@ -35,8 +39,11 @@ export function ConnectionsPage() {
   const { connections, isLoading, error, refresh, isRefreshing } =
     useConnections(username);
   const { create, busy, pending } = useCreateSharedConnection(username);
+  const { addMembers, removeMembers, busy: membersBusy } =
+    useManageMembers(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [managing, setManaging] = useState<ConnectionRow | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   // Failed entries the user has hidden (FR-005 Dismiss) and ones being retried
   // (shown optimistically as provisioning). Both are local-only; a Refresh
@@ -52,6 +59,7 @@ export function ConnectionsPage() {
         role: c.role ?? 'member',
         status: c.status ?? 'active',
         reason: c.reason,
+        members: c.members,
       }));
     const cacheNames = new Set(fromCache.map((r) => r.name));
     // Local pending entries not yet reflected in the cache (cache wins on dupes).
@@ -79,6 +87,31 @@ export function ConnectionsPage() {
     const result = await create(name);
     if (result.success) {
       setToast({ variant: 'success', message: `Creating “${name}”…` });
+    } else {
+      setToast({ variant: 'danger', message: result.error.message });
+    }
+  };
+
+  const handleAddMembers = async (space: string, toAdd: string[]) => {
+    const result = await addMembers(space, toAdd);
+    if (result.success) {
+      const n = toAdd.length;
+      setToast({
+        variant: 'success',
+        message: `Adding ${n} member${n === 1 ? '' : 's'} to “${space}”… Refresh to see updates.`,
+      });
+    } else {
+      setToast({ variant: 'danger', message: result.error.message });
+    }
+  };
+
+  const handleRemoveMembers = async (space: string, toRemove: string[]) => {
+    const result = await removeMembers(space, toRemove);
+    if (result.success) {
+      setToast({
+        variant: 'success',
+        message: `Removing ${toRemove.join(', ')} from “${space}”… Refresh to see updates.`,
+      });
     } else {
       setToast({ variant: 'danger', message: result.error.message });
     }
@@ -145,6 +178,11 @@ export function ConnectionsPage() {
               <ConnectionRowItem
                 key={row.name}
                 row={row}
+                onManage={
+                  row.role === 'owner' && row.status === 'active'
+                    ? () => setManaging(row)
+                    : undefined
+                }
                 onDismiss={() => handleDismiss(row.name)}
                 onRetry={() => void handleRetry(row.name)}
               />
@@ -160,6 +198,21 @@ export function ConnectionsPage() {
           onCancel={() => setDialogOpen(false)}
         />
       )}
+      {managing && username && (
+        <ManageMembersDrawer
+          open
+          onClose={() => setManaging(null)}
+          space={managing.name}
+          owner={username}
+          members={managing.members ?? [username]}
+          unavailable={managing.members === undefined}
+          busy={membersBusy}
+          onAddMembers={(toAdd) => void handleAddMembers(managing.name, toAdd)}
+          onRemoveMembers={(toRemove) =>
+            void handleRemoveMembers(managing.name, toRemove)
+          }
+        />
+      )}
       {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
     </div>
   );
@@ -167,10 +220,13 @@ export function ConnectionsPage() {
 
 function ConnectionRowItem({
   row,
+  onManage,
   onDismiss,
   onRetry,
 }: {
   row: ConnectionRow;
+  // Present only for an active connection the user owns (SPEC-053).
+  onManage?: () => void;
   onDismiss: () => void;
   onRetry: () => void;
 }) {
@@ -183,6 +239,11 @@ function ConnectionRowItem({
         <div className="flex flex-none items-center gap-2">
           <RolePill role={row.role} />
           <StatusBadge status={row.status} />
+          {onManage && (
+            <Button variant="ghost" onClick={onManage}>
+              Manage
+            </Button>
+          )}
         </div>
       </div>
       {row.status === 'failed' && (
