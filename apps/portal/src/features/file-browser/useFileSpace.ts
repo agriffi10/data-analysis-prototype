@@ -1,0 +1,148 @@
+import {useCallback, useMemo} from 'react';
+import {useSearchParams} from 'react-router-dom';
+import {isConnectionUsable} from '../query/query.types';
+import type {Connection} from '../query/query.types';
+
+// SPEC-057 Data Model: the file browser's active "space" — derived from a
+// `Connection` (SPEC-047/052). Selecting a space points the browser at that
+// space's bucket + root prefix; personal → the user-space bucket at `{username}/`,
+// shared → `dat-prod-shared-space/{name}/`. `label` is the root breadcrumb crumb
+// AND the marker-owner segment (the personal marker lives at `{username}/…`, a
+// shared one at `{name}/…`), so the delete/move/copy marker guard keys off it.
+export type FileSpaceKind = 'personal' | 'shared';
+
+export type FileSpaceTarget = {
+  id: string; // connection id: 'personal' | the shared-space name
+  bucket: string;
+  rootPrefix: string; // '{username}/' | '{name}/'
+  kind: FileSpaceKind;
+  label: string; // username | shared name
+};
+
+export type UseFileSpaceParams = {
+  username: string | null;
+  connections: Connection[];
+  // True while the connections cache is still loading — suppresses the
+  // vanished-space notice so a valid shared deep-link doesn't flash a fallback
+  // before the cache resolves.
+  isLoading: boolean;
+  userSpaceBucket: string | undefined;
+  sharedSpaceBucket: string | undefined;
+};
+
+export type UseFileSpaceResult = {
+  // null only when the bucket env / username needed to target the space is
+  // missing — the page surfaces its existing configuration-error UI.
+  space: FileSpaceTarget | null;
+  activeSpaceId: string;
+  selectSpace: (id: string) => void;
+  // True when the URL named a space the user can't browse (gone/revoked/not-yet-
+  // active) and we fell back to the personal space — drives a non-blocking notice
+  // (FR-004/FR-005). Dismissing clears the stale `?space=` param.
+  fellBack: boolean;
+  dismissFellBack: () => void;
+};
+
+// Derive the browser target for a connection. Returns null when the bucket it
+// needs isn't configured (personal → user-space bucket; shared → shared bucket).
+function connectionToSpaceTarget(
+  conn: Connection,
+  username: string,
+  userSpaceBucket: string | undefined,
+  sharedSpaceBucket: string | undefined
+): FileSpaceTarget | null {
+  if (conn.kind === 'personal') {
+    if (!userSpaceBucket) return null;
+    return {
+      id: 'personal',
+      bucket: userSpaceBucket,
+      rootPrefix: `${username}/`,
+      kind: 'personal',
+      label: username
+    };
+  }
+  if (!sharedSpaceBucket) return null;
+  return {
+    id: conn.id,
+    bucket: sharedSpaceBucket,
+    rootPrefix: `${conn.database}/`,
+    kind: 'shared',
+    label: conn.label
+  };
+}
+
+// SPEC-057 FR-002/FR-004/FR-005: the file browser's active-space state, derived
+// from `useConnections` (SPEC-052) and synced to the `?space=` route param.
+// Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
+// sidebar click are one mechanism, and a vanished/unusable space reconciles to the
+// personal space purely during render (mirrors SPEC-047's `useActiveDatabase`).
+export function useFileSpace({
+  username,
+  connections,
+  isLoading,
+  userSpaceBucket,
+  sharedSpaceBucket
+}: UseFileSpaceParams): UseFileSpaceResult {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const spaceParam = searchParams.get('space');
+
+  const {space, fellBack} = useMemo(() => {
+    if (!username) return {space: null, fellBack: false};
+    const personalConn = connections.find((c) => c.kind === 'personal') ?? null;
+
+    // Resolve the requested shared space; fall back to personal when it's absent
+    // or not yet usable (provisioning/failed/leaving). Suppress the fallback
+    // notice while the cache is still loading so a valid deep-link doesn't flash.
+    let targetConn: Connection | null = personalConn;
+    let didFallBack = false;
+    if (spaceParam) {
+      const match = connections.find((c) => c.id === spaceParam) ?? null;
+      if (match && isConnectionUsable(match)) {
+        targetConn = match;
+      } else if (!isLoading) {
+        didFallBack = true;
+      }
+    }
+
+    const target = targetConn
+      ? connectionToSpaceTarget(targetConn, username, userSpaceBucket, sharedSpaceBucket)
+      : null;
+    return {space: target, fellBack: didFallBack};
+  }, [username, connections, spaceParam, isLoading, userSpaceBucket, sharedSpaceBucket]);
+
+  const selectSpace = useCallback(
+    (id: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          // A space switch resets navigation to the space's root.
+          next.delete('prefix');
+          if (id === 'personal') next.delete('space');
+          else next.set('space', id);
+          return next;
+        },
+        {replace: false}
+      );
+    },
+    [setSearchParams]
+  );
+
+  const dismissFellBack = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('space');
+        return next;
+      },
+      {replace: true}
+    );
+  }, [setSearchParams]);
+
+  return {
+    space,
+    activeSpaceId: space?.id ?? 'personal',
+    selectSpace,
+    fellBack,
+    dismissFellBack
+  };
+}

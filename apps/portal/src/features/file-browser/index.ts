@@ -1,4 +1,6 @@
 export {FileBrowser} from './FileBrowser';
+export {useFileSpace} from './useFileSpace';
+export type {FileSpaceTarget, FileSpaceKind, UseFileSpaceResult} from './useFileSpace';
 export {MetadataPanel} from './MetadataPanel';
 export {useFileBrowser} from './useFileBrowser';
 export type {UseFileBrowserResult} from './useFileBrowser';

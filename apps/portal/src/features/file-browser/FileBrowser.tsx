@@ -55,8 +55,10 @@ type Props = {
   // (SPEC-014 FR-002)
   writable?: boolean; // show upload + create-folder controls (SPEC-016). Off in
   // the dev-unauth path (no scoped write credentials).
-  username?: string; // authenticated username — required for delete's marker
-  // guard (SPEC-018). Present only in the authenticated flow.
+  username?: string; // the space's root-prefix owner — the marker guard protects
+  // `{username}/DO_NOT_DELETE.txt` and it gates the modify controls (SPEC-018).
+  // The signed-in username for the personal space; the shared-space name for a
+  // shared space (SPEC-057). Present only in the authenticated flow.
 };
 
 type BreadcrumbItem = {

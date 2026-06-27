@@ -1,47 +1,77 @@
-import {describe, it, expect, vi, type MockedFunction} from 'vitest';
-import {render, screen} from '@testing-library/react';
+import {describe, it, expect, vi} from 'vitest';
+import {render, screen, fireEvent} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import {Sidebar} from './Sidebar';
-import type {AuthContextValue} from '../features/auth';
+import type {Connection} from '../features/query/query.types';
 
-vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
+const personal: Connection = {id: 'personal', label: 'alice', database: 'alice', kind: 'personal'};
+const activeShared: Connection = {
+  id: 'marketing_data',
+  label: 'marketing_data',
+  database: 'marketing_data',
+  kind: 'shared',
+  status: 'active',
+  role: 'member'
+};
+const pendingShared: Connection = {
+  id: 'sales_2026',
+  label: 'sales_2026',
+  database: 'sales_2026',
+  kind: 'shared',
+  status: 'provisioning',
+  role: 'owner'
+};
 
-import {useAuth} from '../features/auth';
-
-const mockUseAuth = useAuth as unknown as MockedFunction<() => AuthContextValue>;
-
-const authValue = (username: string | null): AuthContextValue => ({
-  status: username ? 'authenticated' : 'unauthenticated',
-  user: username ? {username} : null,
-  error: null,
-  signIn: vi.fn(),
-  signUp: vi.fn(),
-  signOut: vi.fn()
-});
-
-const renderSidebar = () =>
+const renderSidebar = (connections: Connection[], activeSpaceId = 'personal', onSelectSpace = vi.fn()) =>
   render(
     <MemoryRouter initialEntries={['/files']}>
-      <Sidebar />
+      <Sidebar
+        connections={connections}
+        activeSpaceId={activeSpaceId}
+        onSelectSpace={onSelectSpace}
+      />
     </MemoryRouter>
   );
 
-describe('Sidebar', () => {
-  it('shows the My Files section and the username as a link to /files', () => {
-    mockUseAuth.mockReturnValue(authValue('alice'));
-    renderSidebar();
-
-    expect(screen.getByText('My Files')).toBeInTheDocument();
-    const link = screen.getByRole('link', {name: /alice/i});
-    expect(link).toHaveAttribute('href', '/files');
+describe('Sidebar (SPEC-057)', () => {
+  it('lists the personal space (by username) plus shared connections', () => {
+    renderSidebar([personal, activeShared]);
+    expect(screen.getByText('Spaces')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /alice/i})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /marketing_data/i})).toBeInTheDocument();
   });
 
-  it('falls back to a generic label when there is no user (dev-unauth)', () => {
-    mockUseAuth.mockReturnValue(authValue(null));
-    renderSidebar();
+  it('marks the active space with aria-current', () => {
+    renderSidebar([personal, activeShared], 'marketing_data');
+    expect(screen.getByRole('button', {name: /marketing_data/i})).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', {name: /alice/i})).not.toHaveAttribute('aria-current');
+  });
 
-    // "My Files" appears as the section label; the link reuses it as the label.
-    expect(screen.getAllByText('My Files').length).toBeGreaterThan(0);
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/files');
+  it('selecting a usable space calls onSelectSpace with its id', () => {
+    const onSelectSpace = vi.fn();
+    renderSidebar([personal, activeShared], 'personal', onSelectSpace);
+    fireEvent.click(screen.getByRole('button', {name: /marketing_data/i}));
+    expect(onSelectSpace).toHaveBeenCalledWith('marketing_data');
+  });
+
+  it('renders provisioning/failed shared connections disabled with their status', () => {
+    const onSelectSpace = vi.fn();
+    renderSidebar([personal, pendingShared], 'personal', onSelectSpace);
+    const btn = screen.getByRole('button', {name: /sales_2026/i});
+    expect(btn).toBeDisabled();
+    expect(screen.getByText('Provisioning…')).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onSelectSpace).not.toHaveBeenCalled();
+  });
+
+  it('a personal-only user sees just their own space', () => {
+    renderSidebar([personal]);
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.getByRole('button', {name: /alice/i})).toBeInTheDocument();
+  });
+
+  it('links to the Connections tab for managing connections', () => {
+    renderSidebar([personal]);
+    expect(screen.getByRole('link', {name: /manage connections/i})).toHaveAttribute('href', '/connections');
   });
 });

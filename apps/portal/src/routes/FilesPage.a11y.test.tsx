@@ -27,6 +27,14 @@ vi.mock('../hooks/usePageTitle', () => ({usePageTitle: vi.fn()}));
 vi.mock('../components/Sidebar', () => ({
   Sidebar: () => <nav aria-label="Your spaces" />
 }));
+// useConnections is mocked (personal-only) so the page needs no QueryClient; the
+// real useFileSpace then resolves the default personal space.
+vi.mock('../features/query/useConnections', () => ({
+  useConnections: () => ({
+    connections: [{id: 'personal', label: 'alice', database: 'alice', kind: 'personal'}],
+    isLoading: false
+  })
+}));
 vi.mock('../features/file-browser/useFileBrowser');
 vi.mock('../features/file-browser/useFileUpload');
 vi.mock('../features/file-browser/useDelete');
