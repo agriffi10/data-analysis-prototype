@@ -1,7 +1,7 @@
 # Spec: Shared-Space Member Management (Owner)
 
 **ID:** SPEC-053
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-21
 **Depends On:** SPEC-050 (Step Function, registry storage, orchestrator role perms incl. `AdminGetUser`/`ListUsers`/`AdminUpdateUserAttributes`), SPEC-056 (request contract, membership slots, actor binding/validate), SPEC-051 (create + cache/registry shapes), SPEC-052 (Connections tab — hosts the **Manage** entry point + roles/status), SPEC-036 (right slide-over `Drawer` pattern), SPEC-026 (dialog), SPEC-028 (Button/Input), SPEC-044 (`Toast`)
 
