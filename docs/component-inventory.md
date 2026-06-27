@@ -45,7 +45,7 @@ before relying on them. Paths are relative to the repo root.
 | `RootLayout` | `components/RootLayout.tsx` | Top-level route layout. |
 | `ProtectedLayout` | `components/ProtectedLayout.tsx` | Auth-gated layout wrapper (redirects unauthenticated users). |
 | `Header` | `components/Header.tsx` | App header (sign-in/out, identity). |
-| `Sidebar` | `components/Sidebar.tsx` | Left nav for the authenticated shell — "My Files" user-space entry (shared-connections omitted until built). Rendered by `ProtectedLayout`. |
+| `Sidebar` | `components/Sidebar.tsx` | Left nav for the authenticated shell — a **Spaces** list (`{connections, activeSpaceId, onSelectSpace}`): personal first, active shared A–Z, pending/failed disabled with status; "Manage connections →" link. Rendered by `FilesPage` (SPEC-057). |
 | `Button` (+ `ButtonVariant`/`ButtonSize`) | `components/Button.tsx` | Design-system button — `variant` primary/default/ghost/danger, `size` sm/md/lg, `forwardRef` (SPEC-028; `lg` added SPEC-029). |
 | `IconButton` | `components/IconButton.tsx` | Ghost icon-only button; `label` → aria-label, `forwardRef` (SPEC-028). |
 | `Input` | `components/Input.tsx` | Text input with `label` + `error` state, aria wiring, `forwardRef` (SPEC-028). |
@@ -123,6 +123,7 @@ Public barrel: `features/file-browser/index.ts`.
 | Symbol | File | Purpose |
 |---|---|---|
 | `useFileBrowser(bucket, prefix?, markerKey?)` | `useFileBrowser.ts` | Paginated listing via `useInfiniteQuery`; merges/sorts pages, hides the marker. |
+| `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
 | `useDelete(bucket, prefix, username?)` | `useDelete.ts` | Deletes a mixed file/folder selection (files batched, folders recursive); aggregates a `DeleteSummary`, invalidates the listing. Never throws. |

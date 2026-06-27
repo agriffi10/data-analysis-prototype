@@ -1,8 +1,8 @@
 # Spec: Shared Spaces in the File Browser
 
 **ID:** SPEC-057
-**Status:** Draft
-**Last Updated:** 2026-06-21
+**Status:** Completed
+**Last Updated:** 2026-06-27
 **Depends On:** SPEC-052 (`useConnections` returns personal + shared; status/role), SPEC-050 (shared bucket), SPEC-056 (membership-slot S3 perms incl. shared delete-denies), SPEC-013 (authenticated file browser + prefix model), SPEC-015→020 + SPEC-039 (file operations — all already `bucket`-parameterized), SPEC-035 (app shell / `Sidebar`), SPEC-044 (`/files?prefix=` deep-link)
 
 > **Reference:** `docs/shared-spaces-architecture.md` §3/§5. The **Files** surface lists the user's personal space and
