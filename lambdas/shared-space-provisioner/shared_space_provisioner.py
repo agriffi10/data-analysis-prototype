@@ -449,6 +449,10 @@ def add_members(space, members, request_id, registry):
     current_set = set(current)
     summary = {"added": [], "ignoredUnknown": [], "skippedAtLimit": []}
 
+    # The registry write below is the consistency point: if a hard error (e.g. a
+    # throttle, not unknown/at-limit) aborts mid-loop, some users may hold a slot +
+    # cache entry not yet in the registry. The Step Function retries from the top —
+    # already-slotted users are idempotent and the registry then catches up.
     for member in _normalize_members(members, owner):
         if member in current_set:
             continue  # already a member (idempotent)
