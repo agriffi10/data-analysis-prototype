@@ -7,7 +7,8 @@ const STATUS_LABELS: Record<SharedConnectionStatus, string> = {
   provisioning: 'Provisioning…',
   active: 'Active',
   failed: 'Failed',
-  leaving: 'Leaving…'
+  leaving: 'Leaving…',
+  deleting: 'Deleting…'
 };
 
 export function connectionStatusLabel(status: SharedConnectionStatus): string {

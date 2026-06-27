@@ -240,6 +240,61 @@ aws s3api get-object --bucket dat-prod-user-space --key "$OWNER/user_settings/sh
 
 ---
 
+## SPEC-054 — leave (member) & delete (owner cascade)
+
+Two terminal lifecycle actions. A **member** clicks **Leave** (simple confirm) → enqueue
+`leave`: the provisioner clears only the caller's slot + cache entry and drops them from
+the registry — shared objects/tables/DB and every other member are untouched. An
+**owner** clicks **Delete** (irreversible, **type-the-name** confirm) → enqueue `delete`:
+the provisioner cascades — recursive S3 delete of `dat-prod-shared-space/{name}/`, revoke
+the LF grant, drop all tables + the Glue DB, clear **every** member's slot + cache entry,
+then delete the registry object **last** (name freed). Both are async (pending →
+gone-on-Refresh, SPEC-052) and idempotent. `authorize` (SPEC-056) blocks an owner `leave`
+and a non-owner `delete`.
+
+- [x] **App unit/component tests** (`apps/portal/src/features/shared-spaces/`):
+  `LeaveSharedSpaceDialog` (danger confirm, busy-locks); `DeleteSharedSpaceDialog`
+  (type-the-name gates Delete, Enter-to-confirm only on match, irreversible line);
+  `ConfirmDialog` `confirmDisabled` (confirm disabled, Cancel live); Connections screen —
+  **Leave** shown only to members (confirm → one `leave`), **Delete** only to owners
+  (type-the-name → one `delete`), neither on a non-active row, optimistic
+  `leaving`/`deleting` overlay, no direct AWS mutation.
+- [x] **Lambda unit tests** (`lambdas/shared-space-provisioner/`): leave clears
+  slot+cache+registry+owner-projection and leaves data/DB/other-members intact, no-op
+  success for a non-member, defensive owner guard; delete cascades
+  files+LF-revoke+tables+DB+all-members+registry and **frees the name**, idempotent /
+  tolerant of partial prior progress, records `failed`+reason without deleting the
+  registry on a hard error; handler runs leave for a member + delete for the owner, and
+  **owner-leave + non-owner-delete both fail with no effect**.
+- [ ] **Live** (deployed) — **leave**: as `bob` (a member of `$NAME`), Connections →
+  Leave → confirm. After **bob's** next token refresh:
+
+```bash
+NAME=teamspace1 ; OWNER=alice ; MEMBER=bob ; POOL=<pool>
+aws s3api get-object --bucket dat-prod-athena-admin --key "shared-spaces/$NAME.json" /dev/stdout   # members no longer has bob
+aws cognito-idp admin-get-user --user-pool-id $POOL --username $MEMBER \
+  --query "UserAttributes[?starts_with(Name,'custom:shared_space')]"                                # the NAME slot is cleared
+aws s3api get-object --bucket dat-prod-user-space --key "$MEMBER/user_settings/shared-connections.json" /dev/stdout  # entry gone
+aws s3api ls "s3://dat-prod-shared-space/$NAME/"                                                    # objects still present (not deleted)
+```
+
+- [ ] **Delete** (owner): as `alice`, Connections → Delete → type `$NAME` → confirm. After it runs:
+
+```bash
+aws s3api get-object --bucket dat-prod-athena-admin --key "shared-spaces/$NAME.json" /dev/stdout   # NoSuchKey — registry gone, name free
+aws s3api ls "s3://dat-prod-shared-space/$NAME/"                                                    # empty — all objects deleted
+aws glue get-database --name "$NAME"                                                                # EntityNotFoundException
+# every member's NAME slot cleared + cache entry dropped (check each as above)
+```
+
+- [ ] **Owner leave** (crafted `leave` from the owner) and **non-owner delete** (crafted
+  `delete` from a member) → Step Function FAILS ("owner cannot leave" / "owner-only")
+  with no side effects.
+- [ ] **Reuse**: after a successful delete, a fresh `create` of the same `$NAME` succeeds
+  (uniqueness check passes).
+
+---
+
 ## Notes
 
 - **No provisioning happens yet.** SPEC-050: a SUCCEEDED execution + echo is the pass

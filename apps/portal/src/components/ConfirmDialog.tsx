@@ -16,6 +16,9 @@ type ConfirmDialogProps = {
   // In-flight: locks both buttons + dismissal; confirm shows `busyLabel`.
   busy?: boolean;
   busyLabel?: string;
+  // Independently disable the confirm button (e.g. a type-the-name guard) while
+  // keeping Cancel + dismissal live. `busy` still disables both.
+  confirmDisabled?: boolean;
   // Informational single-button mode (no Cancel) — e.g. a limit notice.
   dismissOnly?: boolean;
   // Focus the confirm button on open instead of Cancel (default: Cancel, or
@@ -40,6 +43,7 @@ export function ConfirmDialog({
   irreversible,
   busy = false,
   busyLabel,
+  confirmDisabled = false,
   dismissOnly = false,
   focusConfirm,
   onConfirm,
@@ -108,7 +112,7 @@ export function ConfirmDialog({
           ref={confirmRef}
           variant={confirmVariant}
           onClick={onConfirm}
-          disabled={busy}>
+          disabled={busy || confirmDisabled}>
           {busy && busyLabel ? busyLabel : confirmLabel}
         </Button>
       </div>

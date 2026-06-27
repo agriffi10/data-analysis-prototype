@@ -7,7 +7,10 @@ import {Toast, type ToastState} from '../query/Toast';
 import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 import {useCreateSharedConnection} from './useCreateSharedConnection';
 import {useManageMembers} from './useManageMembers';
+import {useLeaveOrDeleteSharedSpace} from './useLeaveOrDeleteSharedSpace';
 import {ManageMembersDrawer} from './ManageMembersDrawer';
+import {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
+import {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
 import {connectionStatusLabel} from './connectionStatus';
 import type {SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
@@ -36,10 +39,16 @@ export function ConnectionsPage() {
   const {connections, isLoading, error, refresh, isRefreshing} = useConnections(username);
   const {create, busy, pending} = useCreateSharedConnection(username);
   const {addMembers, removeMembers, busy: membersBusy} = useManageMembers(username);
+  const {leave, remove, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [managing, setManaging] = useState<ConnectionRow | null>(null);
+  const [leaving, setLeaving] = useState<ConnectionRow | null>(null);
+  const [deleting, setDeleting] = useState<ConnectionRow | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  // SPEC-054: connections the user has just left/deleted, shown optimistically as
+  // leaving/deleting until a Refresh reconciles them away (mirrors `retrying`).
+  const [transitioning, setTransitioning] = useState<Map<string, 'leaving' | 'deleting'>>(new Map());
   // Failed entries the user has hidden (FR-005 Dismiss) and ones being retried
   // (shown optimistically as provisioning). Both are local-only; a Refresh
   // reconciles against the authoritative cache.
@@ -64,14 +73,20 @@ export function ConnectionsPage() {
     return [...fromCache, ...fromPending]
       .filter((r) => !dismissed.has(r.name))
       .map((r) => (retrying.has(r.name) ? {...r, status: 'provisioning' as const} : r))
+      .map((r) => {
+        const t = transitioning.get(r.name);
+        return t ? {...r, status: t} : r;
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [connections, pending, dismissed, retrying]);
+  }, [connections, pending, dismissed, retrying, transitioning]);
 
   const handleRefresh = () => {
     // The cache is authoritative after a refresh — drop local-only overrides so
-    // a still-failed entry reappears and a now-active retry reflects reality.
+    // a still-failed entry reappears and a now-active retry/leave/delete reflects
+    // reality (a successful leave/delete is simply gone from the cache).
     setDismissed(new Set());
     setRetrying(new Set());
+    setTransitioning(new Map());
     void refresh();
   };
 
@@ -105,6 +120,28 @@ export function ConnectionsPage() {
         variant: 'success',
         message: `Removing ${toRemove.join(', ')} from “${space}”… Refresh to see updates.`
       });
+    } else {
+      setToast({variant: 'danger', message: result.error.message});
+    }
+  };
+
+  const handleLeave = async (space: string) => {
+    const result = await leave(space);
+    setLeaving(null);
+    if (result.success) {
+      setTransitioning((prev) => new Map(prev).set(space, 'leaving'));
+      setToast({variant: 'success', message: `Leaving “${space}”… Refresh to update.`});
+    } else {
+      setToast({variant: 'danger', message: result.error.message});
+    }
+  };
+
+  const handleDelete = async (space: string) => {
+    const result = await remove(space);
+    setDeleting(null);
+    if (result.success) {
+      setTransitioning((prev) => new Map(prev).set(space, 'deleting'));
+      setToast({variant: 'success', message: `Deleting “${space}”… Refresh to update.`});
     } else {
       setToast({variant: 'danger', message: result.error.message});
     }
@@ -177,6 +214,8 @@ export function ConnectionsPage() {
                 key={row.name}
                 row={row}
                 onManage={row.role === 'owner' && row.status === 'active' ? () => setManaging(row) : undefined}
+                onDelete={row.role === 'owner' && row.status === 'active' ? () => setDeleting(row) : undefined}
+                onLeave={row.role === 'member' && row.status === 'active' ? () => setLeaving(row) : undefined}
                 onDismiss={() => handleDismiss(row.name)}
                 onRetry={() => void handleRetry(row.name)}
               />
@@ -205,6 +244,22 @@ export function ConnectionsPage() {
           onRemoveMembers={(toRemove) => void handleRemoveMembers(managing.name, toRemove)}
         />
       )}
+      {leaving && (
+        <LeaveSharedSpaceDialog
+          space={leaving.name}
+          busy={lifecycleBusy}
+          onConfirm={() => void handleLeave(leaving.name)}
+          onCancel={() => setLeaving(null)}
+        />
+      )}
+      {deleting && (
+        <DeleteSharedSpaceDialog
+          space={deleting.name}
+          busy={lifecycleBusy}
+          onConfirm={() => void handleDelete(deleting.name)}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
       {toast && (
         <Toast
           {...toast}
@@ -218,12 +273,17 @@ export function ConnectionsPage() {
 function ConnectionRowItem({
   row,
   onManage,
+  onDelete,
+  onLeave,
   onDismiss,
   onRetry
 }: {
   row: ConnectionRow;
-  // Present only for an active connection the user owns (SPEC-053).
+  // Present only for an active connection the user owns (SPEC-053/054).
   onManage?: () => void;
+  onDelete?: () => void;
+  // Present only for an active connection where the user is a member (SPEC-054).
+  onLeave?: () => void;
   onDismiss: () => void;
   onRetry: () => void;
 }) {
@@ -239,6 +299,20 @@ function ConnectionRowItem({
               variant="ghost"
               onClick={onManage}>
               Manage
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              onClick={onDelete}>
+              Delete
+            </Button>
+          )}
+          {onLeave && (
+            <Button
+              variant="ghost"
+              onClick={onLeave}>
+              Leave
             </Button>
           )}
         </div>
@@ -277,7 +351,7 @@ function RolePill({role}: {role: SharedConnectionRole}) {
 // Status as text + icon (never color-only, a11y). A spinner for the transient
 // states, a check for active, an alert mark for failed.
 function StatusBadge({status}: {status: SharedConnectionStatus}) {
-  const transient = status === 'provisioning' || status === 'leaving';
+  const transient = status === 'provisioning' || status === 'leaving' || status === 'deleting';
   const tone =
     status === 'active'
       ? 'border-success-soft bg-success-soft text-success'

@@ -3,8 +3,9 @@
 The Step Function invokes this Lambda with a shared-space request (one SQS record).
 Every request is first VALIDATEd (SPEC-056): verify the caller's Cognito ID token,
 derive the trusted actor, authorize against the registry. Then the per-action verb
-runs. SPEC-051 implements **create**; add_members/remove_members/leave/delete remain
-stubs (SPEC-053/054).
+runs. SPEC-051 implements **create**; SPEC-053 add_members/remove_members; SPEC-054
+**leave** (a member revokes only their own access) and **delete** (the owner cascades
+the whole space away).
 
 Trusted-actor binding (SPEC-056): the request body carries the caller's Cognito ID
 token (`idToken`). We verify it against the pool JWKS and derive the trusted ``actor``
@@ -502,6 +503,158 @@ def remove_members(space, members, request_id, registry):
     return {"status": "ok", "action": "remove_members", "space": space, "removed": removed}
 
 
+# ── leave verb (SPEC-054) ────────────────────────────────────────────────────
+def leave_space(space, actor, request_id, registry):
+    """A member leaves: clear their membership slot + per-user cache entry and drop
+    them from the registry. Shared objects/tables/DB and every OTHER member are
+    untouched (it's shared, not owned). Idempotent — if ``actor`` isn't a member
+    (e.g. a retry after the registry write), it's a clean no-op success. The
+    registry write is LAST, so a mid-way failure leaves the actor still listed and
+    a retry re-runs the (idempotent) slot/cache clears, never a dangling half-state.
+    ``authorize`` already blocks the owner; the guard here is defence in depth."""
+    owner = registry["owner"]
+    members = list(registry.get("members", []))
+    if actor == owner:
+        raise AuthorizationError("owner cannot leave their own space (delete it instead)")
+    if actor not in members:
+        return {"status": "ok", "action": "leave", "space": space, "left": False}
+    _clear_slot(actor, space)
+    _remove_cache_entry(actor, space)
+    remaining = [m for m in members if m != actor]
+    _save_registry_members(registry, remaining, request_id)
+    _write_owner_projection(owner, space, remaining)
+    logger.info("leave %s: %s left (%d remaining)", space, actor, len(remaining))
+    return {"status": "ok", "action": "leave", "space": space, "left": True}
+
+
+# ── delete verb (SPEC-054 cascade) ───────────────────────────────────────────
+def _delete_shared_prefix(name):
+    """Recursively delete every object under ``{name}/`` in the shared-space bucket
+    (paginated list + batched delete, incl. the marker and every athenaresults/).
+    Idempotent — an empty/absent prefix is a no-op."""
+    s3 = _s3c()
+    prefix = f"{name}/"
+    token = None
+    while True:
+        kwargs = {"Bucket": SHARED_SPACE_BUCKET, "Prefix": prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        page = s3.list_objects_v2(**kwargs)
+        objects = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+        if objects:
+            s3.delete_objects(Bucket=SHARED_SPACE_BUCKET, Delete={"Objects": objects})
+        if page.get("IsTruncated"):
+            token = page.get("NextContinuationToken")
+        else:
+            break
+
+
+def _revoke_portal_role(name):
+    """Best-effort revoke of the shared portal role's LF grants on ``name`` (DB +
+    table wildcard). Cleanup only — per-user isolation is the IAM membership tag,
+    not this grant (architecture) — so a failure (e.g. the DB already dropped on a
+    retry) is logged and tolerated, never fatal to the cascade."""
+    lf = _lfc()
+    for resource, permissions in (
+        ({"Database": {"Name": name}}, _DATABASE_PERMISSIONS),
+        ({"Table": {"DatabaseName": name, "TableWildcard": {}}}, _TABLE_PERMISSIONS),
+    ):
+        try:
+            lf.revoke_permissions(
+                Principal={"DataLakePrincipalIdentifier": PORTAL_ROLE_ARN},
+                Resource=resource,
+                Permissions=permissions,
+            )
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            logger.warning("LF revoke on %s (%s) failed; continuing", name, next(iter(resource)))
+
+
+def _drop_database(name):
+    """Drop every table in the Glue database ``name`` (paginated, batched) then the
+    database itself. Idempotent — a missing DB/table is a no-op (already dropped)."""
+    glue = _gluec()
+    try:
+        tables = []
+        token = None
+        while True:
+            kwargs = {"DatabaseName": name}
+            if token:
+                kwargs["NextToken"] = token
+            page = glue.get_tables(**kwargs)
+            tables.extend(t["Name"] for t in page.get("TableList", []))
+            token = page.get("NextToken")
+            if not token:
+                break
+    except glue.exceptions.EntityNotFoundException:
+        return  # database already gone
+    for i in range(0, len(tables), 100):
+        glue.batch_delete_table(DatabaseName=name, TablesToDelete=tables[i : i + 100])
+    try:
+        glue.delete_database(Name=name)
+    except glue.exceptions.EntityNotFoundException:
+        pass
+
+
+def _set_registry_status(registry, status, request_id, reason=None):
+    """Rewrite the registry record with a new status, preserving owner/members/etc.
+    Flags a space ``deleting`` before the cascade and ``failed`` on a hard error."""
+    record = dict(registry)
+    record["status"] = status
+    record["lastRequestId"] = request_id
+    record["updatedAt"] = _now_iso()
+    if reason:
+        record["reason"] = reason
+    else:
+        record.pop("reason", None)
+    _s3c().put_object(
+        Bucket=ADMIN_BUCKET,
+        Key=_registry_key(record["name"]),
+        Body=json.dumps(record).encode(),
+        ContentType="application/json",
+    )
+
+
+def _delete_registry(name):
+    """Delete the registry object — the LAST cascade step, which frees the name for
+    reuse. Idempotent (deleting an absent key is a no-op in S3)."""
+    _s3c().delete_object(Bucket=ADMIN_BUCKET, Key=_registry_key(name))
+
+
+def delete_space(space, actor, request_id, registry):
+    """Owner cascade-delete (irreversible). Flags the registry ``deleting`` first,
+    then tears down in a safe order: remove all shared objects, revoke the LF grant,
+    drop all tables + the Glue DB, clear every member's slot + cache entry, and
+    finally delete the registry object (LAST -> name freed). Every step is idempotent
+    and tolerant of partial prior progress, so a re-run completes a half-done
+    teardown; the registry never returns to ``active`` mid-cascade. On a hard error it
+    records a terminal ``failed`` status (registry + the owner's cache, with a reason)
+    for the screen's Retry affordance, then re-raises -> Fail."""
+    owner = registry["owner"]
+    members = list(registry.get("members", []))
+    _set_registry_status(registry, "deleting", request_id)
+    try:
+        _delete_shared_prefix(space)
+        _revoke_portal_role(space)
+        _drop_database(space)
+        for member in members:
+            _clear_slot(member, space)
+            _remove_cache_entry(member, space)
+        _delete_registry(space)  # LAST — the name is now free to reuse
+    except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
+        reason = str(exc)
+        logger.error("delete %s failed: %s", space, reason)
+        try:
+            _set_registry_status(registry, "failed", request_id, reason)
+            _upsert_cache_entry(
+                owner, {"name": space, "role": "owner", "status": "failed", "reason": reason}
+            )
+        except Exception:  # noqa: BLE001 - best-effort failure recording
+            logger.exception("failed to record delete failure for %s", space)
+        raise
+    logger.info("delete %s by %s: cascade complete (%d members revoked)", space, actor, len(members))
+    return {"status": "ok", "action": "delete", "space": space, "revokedMembers": members}
+
+
 def _extract_record(event):
     if isinstance(event, list):
         if not event:
@@ -551,6 +704,8 @@ def handler(event, context):
             return add_members(space, members, request_id, registry)
         return remove_members(space, members, request_id, registry)
 
-    # leave / delete — stubs (SPEC-054).
-    logger.info("authorized %s on %s by %s (verb stubbed)", action, space, actor)
-    return {"status": "authorized", "action": action, "space": space, "actor": actor}
+    if action == "leave":
+        return leave_space(space, actor, req.get("requestId"), registry)
+
+    # delete (SPEC-054 cascade).
+    return delete_space(space, actor, req.get("requestId"), registry)

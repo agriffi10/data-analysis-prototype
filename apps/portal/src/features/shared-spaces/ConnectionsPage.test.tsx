@@ -184,3 +184,66 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
     });
   });
 });
+
+describe('ConnectionsPage — Leave & Delete (SPEC-054)', () => {
+  it('offers Leave (not Delete/Manage) to a member, enqueues one leave request, shows leaving', async () => {
+    mockRead.mockResolvedValue(cache([{name: 'joined', role: 'member', status: 'active'}]));
+    mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
+    renderPage();
+
+    const row = (await screen.findByText('joined')).closest('li')!;
+    expect(within(row).getByRole('button', {name: 'Leave'})).toBeInTheDocument();
+    expect(within(row).queryByRole('button', {name: 'Delete'})).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', {name: 'Manage'})).not.toBeInTheDocument();
+
+    fireEvent.click(within(row).getByRole('button', {name: 'Leave'}));
+    const dialog = screen.getByRole('alertdialog', {name: 'Leave joined'});
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Leave'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue).toHaveBeenCalledWith({action: 'leave', actor: 'alice', space: 'joined'});
+    expect(within(row).getByText('Leaving…')).toBeInTheDocument();
+  });
+
+  it('offers Delete (not Leave) to an owner; the type-the-name guard gates the destructive button', async () => {
+    mockRead.mockResolvedValue(cache([{name: 'owned', role: 'owner', status: 'active', members: ['alice']}]));
+    mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
+    renderPage();
+
+    const row = (await screen.findByText('owned')).closest('li')!;
+    expect(within(row).getByRole('button', {name: 'Delete'})).toBeInTheDocument();
+    expect(within(row).queryByRole('button', {name: 'Leave'})).not.toBeInTheDocument();
+
+    fireEvent.click(within(row).getByRole('button', {name: 'Delete'}));
+    const dialog = screen.getByRole('alertdialog', {name: 'Delete owned'});
+    const confirm = within(dialog).getByRole('button', {name: 'Delete'});
+    expect(confirm).toBeDisabled();
+
+    // Wrong text keeps it disabled; the exact name enables it.
+    const field = within(dialog).getByLabelText(/to confirm/);
+    fireEvent.change(field, {target: {value: 'owne'}});
+    expect(confirm).toBeDisabled();
+    fireEvent.change(field, {target: {value: 'owned'}});
+    expect(confirm).toBeEnabled();
+
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue).toHaveBeenCalledWith({action: 'delete', actor: 'alice', space: 'owned'});
+    expect(within(row).getByText('Deleting…')).toBeInTheDocument();
+  });
+
+  it('offers neither Leave nor Delete on a non-active connection', async () => {
+    mockRead.mockResolvedValue(
+      cache([
+        {name: 'pending', role: 'owner', status: 'provisioning'},
+        {name: 'joining', role: 'member', status: 'provisioning'}
+      ])
+    );
+    renderPage();
+
+    const pending = (await screen.findByText('pending')).closest('li')!;
+    expect(within(pending).queryByRole('button', {name: 'Delete'})).not.toBeInTheDocument();
+    const joining = screen.getByText('joining').closest('li')!;
+    expect(within(joining).queryByRole('button', {name: 'Leave'})).not.toBeInTheDocument();
+  });
+});

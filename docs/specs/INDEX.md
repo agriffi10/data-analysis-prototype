@@ -59,7 +59,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 051 — Create Shared Connection | Completed |
 | 052 — Shared Connections List, Selector Integration & Refresh | Completed |
 | 053 — Shared-Space Member Management (Owner) | Completed |
-| 054 — Leave & Delete a Shared Space | Draft |
+| 054 — Leave & Delete a Shared Space | Completed |
 | 055 — Shared-Space Query Results Routing & Save | Draft |
 | 056 — Shared-Space Access Model & Request Contract (membership tags + portal slots + LF) | Completed |
 | 057 — Shared Spaces in the File Browser | Draft |
