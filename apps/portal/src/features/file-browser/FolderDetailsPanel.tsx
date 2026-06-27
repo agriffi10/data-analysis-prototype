@@ -25,17 +25,9 @@ export function FolderDetailsPanel({ bucket, folder, rootPrefix, onClose }: Prop
     >
       <dl>
         <DetailField label="Name" value={folder.name} />
-        <DetailField
-          label="Path"
-          value={relativePath(folder.prefix, rootPrefix)}
-          copyLabel="path"
-        />
+        <DetailField label="Path" value={relativePath(folder.prefix, rootPrefix)} copyLabel="path" />
         {/* The unambiguous, fully-qualified S3 URI for this folder prefix. */}
-        <DetailField
-          label="Full Cloud Path"
-          value={`s3://${bucket}/${folder.prefix}`}
-          copyLabel="full cloud path"
-        />
+        <DetailField label="Full Cloud Path" value={`s3://${bucket}/${folder.prefix}`} copyLabel="full cloud path" />
       </dl>
     </Drawer>
   );

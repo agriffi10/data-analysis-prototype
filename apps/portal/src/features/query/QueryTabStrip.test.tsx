@@ -25,7 +25,7 @@ function setup(over: Partial<Parameters<typeof QueryTabStrip>[0]> = {}) {
       onOpenSaved={onOpenSaved}
       onOpenHistory={onOpenHistory}
       {...over}
-    />,
+    />
   );
   return { onSelect, onClose, onNew, onOpenSaved, onOpenHistory };
 }
@@ -35,14 +35,8 @@ describe('QueryTabStrip', () => {
     setup();
     const tablist = screen.getByRole('tablist', { name: 'Query tabs' });
     expect(tablist).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Query 1/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    expect(screen.getByRole('tab', { name: /Monthly revenue/ })).toHaveAttribute(
-      'aria-selected',
-      'false',
-    );
+    expect(screen.getByRole('tab', { name: /Query 1/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Monthly revenue/ })).toHaveAttribute('aria-selected', 'false');
   });
 
   it('selects a tab on click and closes via the × control', () => {

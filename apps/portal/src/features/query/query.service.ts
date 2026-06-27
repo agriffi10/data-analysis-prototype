@@ -8,12 +8,7 @@ import { getAthenaClient } from '../../lib/athenaClient';
 import { withCredentialRetry } from '../../lib/credentialRetry';
 import type { ServiceResult } from '../../types/service.types';
 import { DEFAULT_MAX_ROWS } from './query.constants';
-import type {
-  QueryColumn,
-  QueryResultPage,
-  QueryState,
-  QueryStatus,
-} from './query.types';
+import type { QueryColumn, QueryResultPage, QueryState, QueryStatus } from './query.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
 // per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts
@@ -26,11 +21,7 @@ function outputLocation(username: string): string {
 }
 
 // Athena terminal execution states — polling stops once one is reached (FR-003).
-const TERMINAL_STATES: ReadonlySet<QueryState> = new Set([
-  'SUCCEEDED',
-  'FAILED',
-  'CANCELLED',
-]);
+const TERMINAL_STATES: ReadonlySet<QueryState> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
 export function isTerminalState(state: QueryState): boolean {
   return TERMINAL_STATES.has(state);
@@ -62,7 +53,7 @@ export async function runQuery(p: {
           WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
           QueryExecutionContext: { Database: database },
           ResultConfiguration: { OutputLocation: outputLocation(username) },
-        }),
+        })
       );
       const queryExecutionId = response.QueryExecutionId;
       if (!queryExecutionId) {
@@ -81,14 +72,10 @@ export async function runQuery(p: {
 // FR-003: fetch a query's current execution status, mapped onto QueryStatus. The
 // Athena state strings map 1:1 onto QueryState; a missing status defaults to
 // QUEUED (the query was just submitted).
-export async function getQueryStatus(
-  queryExecutionId: string,
-): Promise<ServiceResult<QueryStatus>> {
+export async function getQueryStatus(queryExecutionId: string): Promise<ServiceResult<QueryStatus>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
-      const response = await client.send(
-        new GetQueryExecutionCommand({ QueryExecutionId: queryExecutionId }),
-      );
+      const response = await client.send(new GetQueryExecutionCommand({ QueryExecutionId: queryExecutionId }));
       const exec = response.QueryExecution;
       const state = (exec?.Status?.State ?? 'QUEUED') as QueryState;
       return {
@@ -110,14 +97,10 @@ export async function getQueryStatus(
 
 // FR-005: cancel a running query. StopQueryExecution transitions the execution to
 // CANCELLED, which the FR-003 poller then observes as a terminal state.
-export async function stopQuery(
-  queryExecutionId: string,
-): Promise<ServiceResult<void>> {
+export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
-      await client.send(
-        new StopQueryExecutionCommand({ QueryExecutionId: queryExecutionId }),
-      );
+      await client.send(new StopQueryExecutionCommand({ QueryExecutionId: queryExecutionId }));
       return { success: true, data: undefined };
     } catch (err) {
       return toServiceError(err, 'Failed to cancel query');
@@ -149,7 +132,7 @@ export async function getQueryResults(p: {
           QueryExecutionId: queryExecutionId,
           NextToken: nextToken,
           MaxResults: isFirstPage ? pageSize + 1 : pageSize,
-        }),
+        })
       );
 
       const meta = response.ResultSet?.ResultSetMetadata;
@@ -158,7 +141,7 @@ export async function getQueryResults(p: {
         type: c.Type ?? '',
       }));
       let rows: string[][] = (response.ResultSet?.Rows ?? []).map((r) =>
-        (r.Data ?? []).map((d) => d.VarCharValue ?? ''),
+        (r.Data ?? []).map((d) => d.VarCharValue ?? '')
       );
 
       // Athena foot-gun: for `SELECT`, GetQueryResults repeats the column names as
@@ -167,9 +150,7 @@ export async function getQueryResults(p: {
       // a no-op there.
       if (!nextToken && rows.length > 0) {
         const first = rows[0];
-        const isHeaderRow =
-          first.length === columns.length &&
-          first.every((value, i) => value === columns[i].name);
+        const isHeaderRow = first.length === columns.length && first.every((value, i) => value === columns[i].name);
         if (isHeaderRow) rows = rows.slice(1);
       }
 

@@ -9,9 +9,7 @@ import type { ServiceResult } from '../types/service.types';
 // requests the user's own derived database — anything else is denied by IAM.
 // On a credential-expiry error, callers retry via withCredentialRetry(getGlueClient,
 // ...). Never throws — returns the ServiceResult error shape.
-export async function getGlueClient(
-  forceRefresh = false,
-): Promise<ServiceResult<GlueClient>> {
+export async function getGlueClient(forceRefresh = false): Promise<ServiceResult<GlueClient>> {
   const creds = await getSessionCredentials(forceRefresh);
   if (!creds.success) return creds;
   return {

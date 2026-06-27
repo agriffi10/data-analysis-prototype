@@ -19,17 +19,13 @@ export function fileParent(key: string): string {
 export function folderParts(prefix: string): { parent: string; leaf: string } {
   const trimmed = prefix.replace(/\/$/, '');
   const i = trimmed.lastIndexOf('/');
-  return i === -1
-    ? { parent: '', leaf: trimmed }
-    : { parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1) };
+  return i === -1 ? { parent: '', leaf: trimmed } : { parent: trimmed.slice(0, i + 1), leaf: trimmed.slice(i + 1) };
 }
 
 // Path shown to the user: a key or prefix with the user-root prefix stripped,
 // so the raw root segment (e.g. the username) is never surfaced (SPEC-013).
 export function relativePath(keyOrPrefix: string, rootPrefix?: string): string {
-  return rootPrefix && keyOrPrefix.startsWith(rootPrefix)
-    ? keyOrPrefix.slice(rootPrefix.length)
-    : keyOrPrefix;
+  return rootPrefix && keyOrPrefix.startsWith(rootPrefix) ? keyOrPrefix.slice(rootPrefix.length) : keyOrPrefix;
 }
 
 // Last path segment of a key OR folder prefix (trailing slash tolerated), for
@@ -40,10 +36,7 @@ export function lastSegment(keyOrPrefix: string): string {
 
 // Uppercased file extension for a type chip, e.g. `report.pdf` → `PDF`. Returns
 // `fallback` when there's no extension; `maxLen` caps the chip width.
-export function fileExtension(
-  name: string,
-  opts?: { fallback?: string; maxLen?: number },
-): string {
+export function fileExtension(name: string, opts?: { fallback?: string; maxLen?: number }): string {
   const fallback = opts?.fallback ?? 'File';
   const dot = name.lastIndexOf('.');
   if (dot <= 0 || dot === name.length - 1) return fallback;

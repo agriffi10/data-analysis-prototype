@@ -1,17 +1,5 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  type MockedFunction,
-} from 'vitest';
-import {
-  getCurrentAuthUser,
-  startSignIn,
-  startSignUp,
-  startSignOut,
-} from './auth.service';
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { getCurrentAuthUser, startSignIn, startSignUp, startSignOut } from './auth.service';
 
 vi.mock('aws-amplify/auth', () => ({
   getCurrentUser: vi.fn(),
@@ -20,27 +8,16 @@ vi.mock('aws-amplify/auth', () => ({
   signOut: vi.fn(),
 }));
 
-import {
-  getCurrentUser,
-  fetchAuthSession,
-  signInWithRedirect,
-  signOut,
-} from 'aws-amplify/auth';
+import { getCurrentUser, fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
 
-const mockGetCurrentUser = getCurrentUser as unknown as MockedFunction<
-  () => Promise<unknown>
->;
-const mockFetchAuthSession = fetchAuthSession as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+const mockGetCurrentUser = getCurrentUser as unknown as MockedFunction<() => Promise<unknown>>;
+const mockFetchAuthSession = fetchAuthSession as unknown as MockedFunction<() => Promise<unknown>>;
 
 // Build a fetchAuthSession result whose ID token carries the given email claim.
 const sessionWithEmail = (email?: string) => ({
   tokens: { idToken: { payload: email ? { email } : {} } },
 });
-const mockSignInWithRedirect = signInWithRedirect as unknown as MockedFunction<
-  () => Promise<void>
->;
+const mockSignInWithRedirect = signInWithRedirect as unknown as MockedFunction<() => Promise<void>>;
 const mockSignOut = signOut as unknown as MockedFunction<() => Promise<void>>;
 
 beforeEach(() => {
@@ -50,9 +27,7 @@ beforeEach(() => {
 describe('getCurrentAuthUser', () => {
   it('returns the username and email from the ID token claim when signed in', async () => {
     mockGetCurrentUser.mockResolvedValueOnce({ username: 'alice' });
-    mockFetchAuthSession.mockResolvedValueOnce(
-      sessionWithEmail('alice@example.com'),
-    );
+    mockFetchAuthSession.mockResolvedValueOnce(sessionWithEmail('alice@example.com'));
 
     const result = await getCurrentAuthUser();
 
@@ -100,7 +75,7 @@ describe('startSignIn', () => {
 
   it('returns success: false without throwing when redirect fails', async () => {
     mockSignInWithRedirect.mockRejectedValueOnce(
-      Object.assign(new Error('redirect blocked'), { name: 'RedirectError' }),
+      Object.assign(new Error('redirect blocked'), { name: 'RedirectError' })
     );
 
     const result = await startSignIn();
@@ -128,7 +103,7 @@ describe('startSignUp', () => {
 
   it('returns success: false without throwing when the redirect fails', async () => {
     mockSignInWithRedirect.mockRejectedValueOnce(
-      Object.assign(new Error('redirect blocked'), { name: 'RedirectError' }),
+      Object.assign(new Error('redirect blocked'), { name: 'RedirectError' })
     );
 
     const result = await startSignUp();

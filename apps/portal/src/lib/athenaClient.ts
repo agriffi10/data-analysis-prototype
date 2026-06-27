@@ -9,9 +9,7 @@ import type { ServiceResult } from '../types/service.types';
 // and Glue to `database/${aws:PrincipalTag/username}`. On a call failing with a
 // credential-expiry error, callers retry via withCredentialRetry(getAthenaClient,
 // ...). Never throws — returns the ServiceResult error shape.
-export async function getAthenaClient(
-  forceRefresh = false,
-): Promise<ServiceResult<AthenaClient>> {
+export async function getAthenaClient(forceRefresh = false): Promise<ServiceResult<AthenaClient>> {
   const creds = await getSessionCredentials(forceRefresh);
   if (!creds.success) return creds;
   return {

@@ -3,11 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSavedQueries } from './useSavedQueries';
-import {
-  getSavedQueries,
-  upsertSavedQuery,
-  removeSavedQuery,
-} from './savedQueries.service';
+import { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
 import type { SavedQueriesStore, SavedQuery } from './query.types';
 
 vi.mock('./savedQueries.service');
@@ -20,8 +16,7 @@ function wrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
 }
 
 function sq(id: string, name = id): SavedQuery {
@@ -57,9 +52,7 @@ describe('useSavedQueries', () => {
     const { result } = renderHook(() => useSavedQueries('alice'), {
       wrapper: wrapper(),
     });
-    await waitFor(() =>
-      expect(result.current.queries.map((q) => q.id)).toEqual(['a']),
-    );
+    await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['a']));
   });
 
   it('upsert seeds the cache so the list reflects the change', async () => {
@@ -75,9 +68,7 @@ describe('useSavedQueries', () => {
     await act(async () => {
       await result.current.upsert(sq('b'));
     });
-    await waitFor(() =>
-      expect(result.current.queries.map((q) => q.id)).toEqual(['b', 'a']),
-    );
+    await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['b', 'a']));
   });
 
   it('remove seeds the cache so the entry disappears', async () => {

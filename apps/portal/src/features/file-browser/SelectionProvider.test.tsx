@@ -125,8 +125,6 @@ describe('SelectionProvider', () => {
   });
 
   it('throws when useSelection is used outside a provider', () => {
-    expect(() => renderHook(() => useSelection())).toThrow(
-      /must be used within a SelectionProvider/,
-    );
+    expect(() => renderHook(() => useSelection())).toThrow(/must be used within a SelectionProvider/);
   });
 });

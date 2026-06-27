@@ -1,26 +1,12 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 
 vi.mock('../../lib/s3Client', () => ({ getS3Client: vi.fn() }));
 
 import { getS3Client } from '../../lib/s3Client';
-import {
-  getQueryHistory,
-  appendQueryHistory,
-  updateQueryHistoryEntry,
-} from './queryHistory.service';
+import { getQueryHistory, appendQueryHistory, updateQueryHistoryEntry } from './queryHistory.service';
 import type { QueryHistory, QueryHistoryEntry } from './query.types';
 
-const mockGetClient = getS3Client as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
 
 // A stateful fake user-space bucket: GetObject reads the stored JSON (or throws
 // NoSuchKey when absent); PutObject (input has a Body) overwrites it.
@@ -69,9 +55,7 @@ describe('getQueryHistory', () => {
   });
 
   it('reads and parses an existing history file', async () => {
-    fakeBucket(
-      JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory),
-    );
+    fakeBucket(JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory));
 
     const result = await getQueryHistory('alice');
 
@@ -92,22 +76,15 @@ describe('getQueryHistory', () => {
 
 describe('appendQueryHistory', () => {
   it('prepends newest-first and writes back', async () => {
-    const fake = fakeBucket(
-      JSON.stringify({ version: 1, entries: [entry('old')] } as QueryHistory),
-    );
+    const fake = fakeBucket(JSON.stringify({ version: 1, entries: [entry('old')] } as QueryHistory));
 
     const result = await appendQueryHistory('alice', entry('new'));
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.entries.map((e) => e.queryExecutionId)).toEqual([
-      'new',
-      'old',
-    ]);
+    expect(result.data.entries.map((e) => e.queryExecutionId)).toEqual(['new', 'old']);
     // Persisted via PutObject (overwrite).
-    expect(JSON.parse(fake.stored() as string).entries[0].queryExecutionId).toBe(
-      'new',
-    );
+    expect(JSON.parse(fake.stored() as string).entries[0].queryExecutionId).toBe('new');
   });
 
   it('caps the list at QUERY_HISTORY_MAX, dropping the oldest', async () => {
@@ -137,9 +114,7 @@ describe('appendQueryHistory', () => {
 
 describe('updateQueryHistoryEntry', () => {
   it('updates a matching entry in place and writes back', async () => {
-    fakeBucket(
-      JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory),
-    );
+    fakeBucket(JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory));
 
     const result = await updateQueryHistoryEntry('alice', 'q1', {
       status: 'SUCCEEDED',
@@ -158,9 +133,7 @@ describe('updateQueryHistoryEntry', () => {
   });
 
   it('is a no-op success (no write) for an unknown id', async () => {
-    const fake = fakeBucket(
-      JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory),
-    );
+    const fake = fakeBucket(JSON.stringify({ version: 1, entries: [entry('q1')] } as QueryHistory));
 
     const result = await updateQueryHistoryEntry('alice', 'unknown', {
       status: 'FAILED',

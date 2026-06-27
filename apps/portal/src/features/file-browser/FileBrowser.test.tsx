@@ -96,13 +96,7 @@ vi.mock('./RenameDialog', () => ({
 // Stub the metadata drawer so these tests don't pull in its TanStack Query hook
 // (covered by MetadataPanel.test.tsx). The stub echoes the file it was opened for.
 vi.mock('./MetadataPanel', () => ({
-  MetadataPanel: ({
-    file,
-    onClose,
-  }: {
-    file: { name: string };
-    onClose: () => void;
-  }) => (
+  MetadataPanel: ({ file, onClose }: { file: { name: string }; onClose: () => void }) => (
     <div role="dialog" aria-label={`Details for ${file.name}`}>
       <button onClick={onClose}>close-stub</button>
     </div>
@@ -110,13 +104,7 @@ vi.mock('./MetadataPanel', () => ({
 }));
 // Folder details drawer stub — echoes the folder it was opened for.
 vi.mock('./FolderDetailsPanel', () => ({
-  FolderDetailsPanel: ({
-    folder,
-    onClose,
-  }: {
-    folder: { name: string };
-    onClose: () => void;
-  }) => (
+  FolderDetailsPanel: ({ folder, onClose }: { folder: { name: string }; onClose: () => void }) => (
     <div role="dialog" aria-label={`Details for ${folder.name}`}>
       <button onClick={onClose}>close-folder-stub</button>
     </div>
@@ -374,28 +362,17 @@ describe('folder drill-down', () => {
 
 describe('root prefix clamping', () => {
   it('shows the root prefix folder name instead of Home when rootPrefix is set', () => {
-    render(
-      <FileBrowser bucket="my-bucket" prefix="project-alpha/" rootPrefix="project-alpha/" />,
-    );
+    render(<FileBrowser bucket="my-bucket" prefix="project-alpha/" rootPrefix="project-alpha/" />);
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
     expect(nav).toHaveTextContent('project-alpha');
     expect(within(nav).queryByText('Home')).not.toBeInTheDocument();
     // At root prefix the root crumb is aria-current="page", not a button
-    expect(
-      within(nav).queryByRole('button', { name: 'project-alpha' }),
-    ).not.toBeInTheDocument();
+    expect(within(nav).queryByRole('button', { name: 'project-alpha' })).not.toBeInTheDocument();
   });
 
   it('uses rootLabel for the root crumb, hiding the raw prefix segment (SPEC-013)', () => {
     // The username is the navigation floor but must never be shown to the user.
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="alice/"
-        rootPrefix="alice/"
-        rootLabel="My Files"
-      />,
-    );
+    render(<FileBrowser bucket="my-bucket" prefix="alice/" rootPrefix="alice/" rootLabel="My Files" />);
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
     expect(within(nav).getByText('My Files')).toBeInTheDocument();
     // The raw username segment is never rendered.
@@ -405,19 +382,9 @@ describe('root prefix clamping', () => {
   it('keeps showing the username segment as the floor label when browsing deeper, still hidden', () => {
     mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
       ...base,
-      folders:
-        prefix === 'alice/'
-          ? [{ type: 'folder', prefix: 'alice/docs/', name: 'docs' }]
-          : [],
+      folders: prefix === 'alice/' ? [{ type: 'folder', prefix: 'alice/docs/', name: 'docs' }] : [],
     }));
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="alice/"
-        rootPrefix="alice/"
-        rootLabel="My Files"
-      />,
-    );
+    render(<FileBrowser bucket="my-bucket" prefix="alice/" rootPrefix="alice/" rootLabel="My Files" />);
 
     fireEvent.click(screen.getByRole('button', { name: /open folder docs/i }));
 
@@ -430,14 +397,9 @@ describe('root prefix clamping', () => {
   it('does not show path segments above rootPrefix when browsing deeper', () => {
     mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
       ...base,
-      folders:
-        prefix === 'project-alpha/'
-          ? [{ type: 'folder', prefix: 'project-alpha/docs/', name: 'docs' }]
-          : [],
+      folders: prefix === 'project-alpha/' ? [{ type: 'folder', prefix: 'project-alpha/docs/', name: 'docs' }] : [],
     }));
-    render(
-      <FileBrowser bucket="my-bucket" prefix="project-alpha/" rootPrefix="project-alpha/" />,
-    );
+    render(<FileBrowser bucket="my-bucket" prefix="project-alpha/" rootPrefix="project-alpha/" />);
 
     fireEvent.click(screen.getByRole('button', { name: /open folder docs/i }));
 
@@ -450,14 +412,9 @@ describe('root prefix clamping', () => {
   it('clicking the root prefix crumb navigates to rootPrefix not bucket root', () => {
     mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
       ...base,
-      folders:
-        prefix === 'project-alpha/'
-          ? [{ type: 'folder', prefix: 'project-alpha/docs/', name: 'docs' }]
-          : [],
+      folders: prefix === 'project-alpha/' ? [{ type: 'folder', prefix: 'project-alpha/docs/', name: 'docs' }] : [],
     }));
-    render(
-      <FileBrowser bucket="my-bucket" prefix="project-alpha/" rootPrefix="project-alpha/" />,
-    );
+    render(<FileBrowser bucket="my-bucket" prefix="project-alpha/" rootPrefix="project-alpha/" />);
 
     // Drill into docs/
     fireEvent.click(screen.getByRole('button', { name: /open folder docs/i }));
@@ -478,30 +435,21 @@ describe('breadcrumb', () => {
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
     expect(nav).toHaveTextContent('Home');
     // Home is aria-current="page" at root, not a button
-    expect(
-      within(nav).queryByRole('button', { name: 'Home' }),
-    ).not.toBeInTheDocument();
+    expect(within(nav).queryByRole('button', { name: 'Home' })).not.toBeInTheDocument();
   });
 
   it('updates to show the folder name after drilling in', () => {
     mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
       ...base,
-      folders:
-        prefix === undefined
-          ? [{ type: 'folder', prefix: 'reports/', name: 'reports' }]
-          : [],
+      folders: prefix === undefined ? [{ type: 'folder', prefix: 'reports/', name: 'reports' }] : [],
     }));
     render(<FileBrowser bucket="my-bucket" />);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /open folder reports/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /open folder reports/i }));
 
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i });
     expect(nav).toHaveTextContent('Home');
-    expect(
-      within(nav).getByText('reports'),
-    ).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByText('reports')).toHaveAttribute('aria-current', 'page');
     // Home is now a clickable button
     expect(within(nav).getByRole('button', { name: 'Home' })).toBeInTheDocument();
   });
@@ -509,17 +457,12 @@ describe('breadcrumb', () => {
   it('clicking an ancestor crumb navigates back up', () => {
     mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
       ...base,
-      folders:
-        prefix === undefined
-          ? [{ type: 'folder', prefix: 'archive/', name: 'archive' }]
-          : [],
+      folders: prefix === undefined ? [{ type: 'folder', prefix: 'archive/', name: 'archive' }] : [],
     }));
     render(<FileBrowser bucket="my-bucket" />);
 
     // drill in
-    fireEvent.click(
-      screen.getByRole('button', { name: /open folder archive/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /open folder archive/i }));
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'archive/', undefined);
 
     // navigate back via breadcrumb
@@ -616,9 +559,7 @@ describe('download', () => {
 
   it('exposes a Download action per file', () => {
     render(<FileBrowser bucket="my-bucket" />);
-    expect(
-      screen.getByRole('button', { name: /download report\.pdf/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /download report\.pdf/i })).toBeInTheDocument();
   });
 
   it('folders expose no Download action', () => {
@@ -631,9 +572,7 @@ describe('download', () => {
   });
 
   it('requests a presigned URL and triggers the browser download on success', async () => {
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     mockGetDownloadUrl.mockResolvedValue({
       success: true,
       data: { url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z' },
@@ -660,9 +599,7 @@ describe('download', () => {
     render(<FileBrowser bucket="my-bucket" />);
     fireEvent.click(screen.getByRole('button', { name: /download report\.pdf/i }));
 
-    expect(
-      await screen.findByText(/could not download report\.pdf/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/could not download report\.pdf/i)).toBeInTheDocument();
   });
 });
 
@@ -680,9 +617,7 @@ describe('details panel', () => {
   it('exposes a Details action per file', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
     render(<FileBrowser bucket="my-bucket" />);
-    expect(
-      screen.getByRole('button', { name: /details for report\.pdf/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /details for report\.pdf/i })).toBeInTheDocument();
   });
 
   it('exposes a Details action per folder', () => {
@@ -691,9 +626,7 @@ describe('details panel', () => {
       folders: [{ type: 'folder', prefix: 'docs/', name: 'docs' }],
     });
     render(<FileBrowser bucket="my-bucket" />);
-    expect(
-      screen.getByRole('button', { name: /details for docs/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /details for docs/i })).toBeInTheDocument();
   });
 
   it('opens the folder details drawer when a folder Details is clicked', () => {
@@ -703,46 +636,32 @@ describe('details panel', () => {
     });
     render(<FileBrowser bucket="my-bucket" />);
 
-    expect(
-      screen.queryByRole('dialog', { name: /details for docs/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /details for docs/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /details for docs/i }));
 
-    expect(
-      screen.getByRole('dialog', { name: /details for docs/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /details for docs/i })).toBeInTheDocument();
   });
 
   it('opens the metadata drawer for the file when Details is clicked', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
     render(<FileBrowser bucket="my-bucket" />);
 
-    expect(
-      screen.queryByRole('dialog', { name: /details for report\.pdf/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /details for report\.pdf/i })).not.toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /details for report\.pdf/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /details for report\.pdf/i }));
 
-    expect(
-      screen.getByRole('dialog', { name: /details for report\.pdf/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /details for report\.pdf/i })).toBeInTheDocument();
   });
 
   it('closes the drawer when the panel requests close', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [fileItem] });
     render(<FileBrowser bucket="my-bucket" />);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /details for report\.pdf/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /details for report\.pdf/i }));
     fireEvent.click(screen.getByRole('button', { name: /close-stub/i }));
 
-    expect(
-      screen.queryByRole('dialog', { name: /details for report\.pdf/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /details for report\.pdf/i })).not.toBeInTheDocument();
   });
 });
 
@@ -805,9 +724,7 @@ describe('selection + delete', () => {
     render(<FileBrowser {...authProps} />);
     expect(screen.getByRole('checkbox', { name: /select all/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /select report\.pdf/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole('checkbox', { name: /select folder photos/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /select folder photos/i })).toBeInTheDocument();
   });
 
   it('disables Delete until something is selected', () => {
@@ -829,9 +746,7 @@ describe('selection + delete', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: /select all/i }));
     expect(screen.getByRole('checkbox', { name: /select report\.pdf/i })).toBeChecked();
-    expect(
-      screen.getByRole('checkbox', { name: /select folder photos/i }),
-    ).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /select folder photos/i })).toBeChecked();
   });
 
   it('opens a confirmation naming the item and deletes nothing until confirmed', () => {
@@ -868,7 +783,7 @@ describe('selection + delete', () => {
       expect.arrayContaining([
         { type: 'file', key: 'alice/report.pdf' },
         { type: 'folder', prefix: 'alice/photos/' },
-      ]),
+      ])
     );
     expect(items).toHaveLength(2);
   });
@@ -954,10 +869,7 @@ describe('rename + move', () => {
     const dialog = screen.getByRole('dialog', { name: /rename/i });
     fireEvent.click(within(dialog).getByRole('button', { name: /rename-submit-stub/i }));
 
-    expect(moveBase.renameItem).toHaveBeenCalledWith(
-      { type: 'file', key: 'alice/report.pdf' },
-      'renamed',
-    );
+    expect(moveBase.renameItem).toHaveBeenCalledWith({ type: 'file', key: 'alice/report.pdf' }, 'renamed');
   });
 
   it('does not render per-row Rename buttons (actions live in the toolbar)', () => {
@@ -967,12 +879,8 @@ describe('rename + move', () => {
       folders: [oneFolder],
     });
     render(<FileBrowser {...authProps} />);
-    expect(
-      screen.queryByRole('button', { name: /rename report\.pdf/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /rename folder photos/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /rename report\.pdf/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /rename folder photos/i })).not.toBeInTheDocument();
   });
 
   it('disables Move until something is selected', () => {
@@ -992,10 +900,7 @@ describe('rename + move', () => {
     expect(dialog).toHaveTextContent(/moving 1/i);
     fireEvent.click(within(dialog).getByRole('button', { name: /move-here-stub/i }));
 
-    expect(moveBase.moveItems).toHaveBeenCalledWith(
-      [{ type: 'file', key: 'alice/report.pdf' }],
-      'alice/dest/',
-    );
+    expect(moveBase.moveItems).toHaveBeenCalledWith([{ type: 'file', key: 'alice/report.pdf' }], 'alice/dest/');
   });
 
   it('shows a move result summary with the moved count', () => {
@@ -1021,9 +926,7 @@ describe('rename + move', () => {
       },
     });
     render(<FileBrowser {...authProps} />);
-    expect(
-      screen.getByRole('alertdialog', { name: /already exists/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', { name: /already exists/i })).toBeInTheDocument();
   });
 });
 
@@ -1051,12 +954,8 @@ describe('copy', () => {
       folders: [oneFolder],
     });
     render(<FileBrowser {...authProps} />);
-    expect(
-      screen.queryByRole('button', { name: /copy report\.pdf/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /copy folder photos/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy report\.pdf/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy folder photos/i })).not.toBeInTheDocument();
   });
 
   it('selection-bar Copy copies the selected items', () => {
@@ -1073,10 +972,7 @@ describe('copy', () => {
     const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
     fireEvent.click(within(dialog).getByRole('button', { name: /copy-here-stub/i }));
 
-    expect(copyBase.copyItems).toHaveBeenCalledWith(
-      [{ type: 'file', key: 'alice/report.pdf' }],
-      'alice/dest/',
-    );
+    expect(copyBase.copyItems).toHaveBeenCalledWith([{ type: 'file', key: 'alice/report.pdf' }], 'alice/dest/');
   });
 
   it('keeps the copy dialog open for a same-folder copy (auto-number flow)', () => {
@@ -1087,19 +983,12 @@ describe('copy', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /select report\.pdf/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy selected items' }));
     const dialog = screen.getByRole('dialog', { name: /copy to folder/i });
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: /copy-same-folder-stub/i }),
-    );
+    fireEvent.click(within(dialog).getByRole('button', { name: /copy-same-folder-stub/i }));
 
     // copyItems is called with the current parent, and the dialog stays open so the
     // same-folder editable-name prompt (rendered by the real CopyDialog) can show.
-    expect(copyBase.copyItems).toHaveBeenCalledWith(
-      [{ type: 'file', key: 'alice/report.pdf' }],
-      'alice/',
-    );
-    expect(
-      screen.getByRole('dialog', { name: /copy to folder/i }),
-    ).toBeInTheDocument();
+    expect(copyBase.copyItems).toHaveBeenCalledWith([{ type: 'file', key: 'alice/report.pdf' }], 'alice/');
+    expect(screen.getByRole('dialog', { name: /copy to folder/i })).toBeInTheDocument();
   });
 
   it('shows a copy result summary with the copied count', () => {
@@ -1133,9 +1022,7 @@ describe('copy', () => {
       copyCollision: { count: 2, onOverwriteAll: vi.fn(), onCancel: vi.fn() },
     });
     render(<FileBrowser {...authProps} />);
-    expect(
-      screen.getByRole('alertdialog', { name: /destination already has items/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', { name: /destination already has items/i })).toBeInTheDocument();
     expect(screen.getByText(/2 item\(s\) already exist/i)).toBeInTheDocument();
   });
 });
@@ -1162,9 +1049,7 @@ describe('toolbar download', () => {
   });
 
   it('downloads the selected file from the toolbar', async () => {
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     mockGetDownloadUrl.mockResolvedValue({
       success: true,
       data: { url: 'https://signed/report.pdf', expiresAt: '2026-01-01T00:00:00Z' },
@@ -1187,11 +1072,7 @@ describe('toolbar download', () => {
   it('does not show a per-row Download in the authenticated flow (Details only)', () => {
     mockUseFileBrowser.mockReturnValue({ ...base, files: [oneFile] });
     render(<FileBrowser {...authProps} />);
-    expect(
-      screen.getByRole('button', { name: /details for report\.pdf/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /download report\.pdf/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /details for report\.pdf/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /download report\.pdf/i })).not.toBeInTheDocument();
   });
 });

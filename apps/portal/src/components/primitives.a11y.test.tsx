@@ -1,8 +1,5 @@
 import { describe, it, vi } from 'vitest';
-import {
-  expectNoA11yViolations,
-  COMPONENT_AXE_OPTIONS,
-} from '../test/axe';
+import { expectNoA11yViolations, COMPONENT_AXE_OPTIONS } from '../test/axe';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Drawer } from './Drawer';
@@ -26,7 +23,7 @@ describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
           <button type="button">OK</button>
         </div>
       </Modal>,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 
@@ -44,7 +41,7 @@ describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
       >
         <p className="mt-2 text-sm">This removes the item permanently.</p>
       </ConfirmDialog>,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 
@@ -59,7 +56,7 @@ describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
       >
         <p>Drawer body content.</p>
       </Drawer>,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });
@@ -68,7 +65,7 @@ describe('Input accessibility', () => {
   it('error state wires invalid + described-by with no violations', async () => {
     await expectNoA11yViolations(
       <Input label="Folder name" error="Enter a valid name." defaultValue="x/" />,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });
@@ -80,7 +77,7 @@ describe('Banner accessibility (every variant)', () => {
       <Banner variant={variant} title="Heads up" onDismiss={noop}>
         <p>Something happened.</p>
       </Banner>,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });
@@ -90,7 +87,7 @@ describe('Toast accessibility (every variant)', () => {
   it.each(variants)('%s variant has no violations', async (variant) => {
     await expectNoA11yViolations(
       <Toast variant={variant} message="Saved your changes." onDismiss={vi.fn()} />,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });
@@ -98,14 +95,8 @@ describe('Toast accessibility (every variant)', () => {
 describe('Pager accessibility', () => {
   it('has no violations (both directions enabled)', async () => {
     await expectNoA11yViolations(
-      <Pager
-        hasPrev
-        hasNext
-        onPrev={noop}
-        onNext={noop}
-        label="1–20 of 57"
-      />,
-      COMPONENT_AXE_OPTIONS,
+      <Pager hasPrev hasNext onPrev={noop} onNext={noop} label="1–20 of 57" />,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });

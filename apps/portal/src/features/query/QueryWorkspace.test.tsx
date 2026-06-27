@@ -11,18 +11,8 @@ vi.mock('../auth', () => ({
 }));
 vi.mock('./SqlEditor', () => ({
   // A textarea wired to value/onChange so per-tab text + switching is observable.
-  SqlEditor: ({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-  }) => (
-    <textarea
-      data-testid="sql-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
+  SqlEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <textarea data-testid="sql-editor" value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
 // Expose the SPEC-044 table-action callbacks as buttons so they can be driven
@@ -97,11 +87,7 @@ vi.mock('./SaveResultsDialog', () => ({
   }) => (
     <div role="dialog" aria-label="Save results to my files">
       <span>default:{defaultName}</span>
-      <button
-        onClick={() => onSave({ destPrefix: 'alice/reports/', filename: 'out.csv' })}
-      >
-        save-here-stub
-      </button>
+      <button onClick={() => onSave({ destPrefix: 'alice/reports/', filename: 'out.csv' })}>save-here-stub</button>
       <button onClick={onCancel}>save-cancel-stub</button>
     </div>
   ),
@@ -119,10 +105,7 @@ import { useQueryHistory } from './useQueryHistory';
 import { useSavedQueries } from './useSavedQueries';
 import { useConnections } from './useConnections';
 import { QueryWorkspace } from './QueryWorkspace';
-import {
-  QUERY_DRAFT_STORAGE_PREFIX,
-  QUERY_TABS_STORAGE_PREFIX,
-} from './query.constants';
+import { QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX } from './query.constants';
 import type { QueryTabsState, SavedQuery } from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
@@ -159,15 +142,12 @@ function renderWorkspace() {
       <QueryClientProvider client={client}>
         <QueryWorkspace />
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
 function seedTabs(state: QueryTabsState) {
-  sessionStorage.setItem(
-    `${QUERY_TABS_STORAGE_PREFIX}alice`,
-    JSON.stringify(state),
-  );
+  sessionStorage.setItem(`${QUERY_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
 }
 
 const succeededStatus = {
@@ -211,9 +191,7 @@ beforeEach(() => {
     isRefreshing: false,
   });
   // Default: no execution in flight, no results.
-  mockUseExecution.mockReturnValue({ data: undefined } as unknown as ReturnType<
-    typeof useQueryExecution
-  >);
+  mockUseExecution.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useQueryExecution>);
   mockUseResults.mockReturnValue({
     ...rowsResult,
     columns: [],
@@ -261,9 +239,7 @@ describe('QueryWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Run/ }));
 
-    expect(
-      await screen.findByRole('button', { name: /Stop/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Stop/ })).toBeInTheDocument();
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
     expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
       database: 'alice',
@@ -316,24 +292,16 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
 
     expect(await screen.findByTestId('sql-editor')).toHaveValue('SELECT two;');
-    expect(screen.getByRole('tab', { name: /Scratch/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    expect(screen.getByRole('tab', { name: /Scratch/ })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('migrates a SPEC-040 draft into tab 1 on first load (back-compat)', async () => {
-    sessionStorage.setItem(
-      `${QUERY_DRAFT_STORAGE_PREFIX}alice`,
-      'SELECT migrated;',
-    );
+    sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'SELECT migrated;');
     renderWorkspace();
 
     expect(await screen.findByTestId('sql-editor')).toHaveValue('SELECT migrated;');
     // The old draft key is consumed by the migration.
-    expect(
-      sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`),
-    ).toBeNull();
+    expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
   });
 
   // --- SPEC-041 tabs behavior ---
@@ -411,9 +379,7 @@ describe('QueryWorkspace', () => {
 
     // 11th attempt raises the dialog and creates nothing.
     fireEvent.click(newTabBtn);
-    expect(
-      screen.getByRole('alertdialog', { name: /query tab limit reached/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', { name: /query tab limit reached/i })).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(10);
   });
 
@@ -471,9 +437,7 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
     fireEvent.click(screen.getByRole('button', { name: /Run/ }));
 
-    expect(
-      await screen.findByRole('button', { name: /Stop/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Stop/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Clear query' })).toBeDisabled();
   });
 
@@ -502,9 +466,7 @@ describe('QueryWorkspace', () => {
     // Query 2 is active with no run of its own…
     expect(screen.getByText('Run a query to see results.')).toBeInTheDocument();
     // …yet Query 1's execution finalized in the background.
-    expect(updateEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ queryExecutionId: 'q-1' }),
-    );
+    expect(updateEntry).toHaveBeenCalledWith(expect.objectContaining({ queryExecutionId: 'q-1' }));
 
     // Returning to Query 1 shows its already-ready results.
     fireEvent.click(screen.getByRole('tab', { name: /Query 1/ }));
@@ -529,13 +491,9 @@ describe('QueryWorkspace', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
 
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'My report' }),
-    );
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ name: 'My report' }));
     // Active tab is relabelled to the saved query's name.
-    expect(
-      await screen.findByRole('tab', { name: /My report/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: /My report/ })).toBeInTheDocument();
   });
 
   it('shows a dirty marker on a linked tab whose SQL diverged', async () => {
@@ -555,7 +513,7 @@ describe('QueryWorkspace', () => {
           createdAt: '2026-06-01T00:00:00.000Z',
           updatedAt: '2026-06-01T00:00:00.000Z',
         },
-      ]),
+      ])
     );
     renderWorkspace();
     await screen.findByTestId('sql-editor');
@@ -580,7 +538,7 @@ describe('QueryWorkspace', () => {
           createdAt: '2026-06-01T00:00:00.000Z',
           updatedAt: '2026-06-01T00:00:00.000Z',
         },
-      ]),
+      ])
     );
     mockRunQuery.mockResolvedValue({
       success: true,
@@ -592,7 +550,7 @@ describe('QueryWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /Run/ }));
     await screen.findByRole('button', { name: /Stop/ });
     expect(appendEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ savedQueryId: 'sq1', savedQueryName: 'Revenue' }),
+      expect.objectContaining({ savedQueryId: 'sq1', savedQueryName: 'Revenue' })
     );
   });
 
@@ -607,15 +565,13 @@ describe('QueryWorkspace', () => {
           createdAt: '2026-06-01T00:00:00.000Z',
           updatedAt: '2026-06-01T00:00:00.000Z',
         },
-      ]),
+      ])
     );
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
     fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: /open saved query/i }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: /open saved query/i }));
 
     expect(screen.getByRole('tab', { name: /Revenue/ })).toBeInTheDocument();
     expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT r;');
@@ -633,15 +589,13 @@ describe('QueryWorkspace', () => {
           createdAt: '2026-06-01T00:00:00.000Z',
           updatedAt: '2026-06-01T00:00:00.000Z',
         },
-      ]),
+      ])
     );
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
     fireEvent.click(screen.getByRole('button', { name: 'Saved queries' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: /delete saved query/i }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: /delete saved query/i }));
     const dialog = screen.getByRole('alertdialog', {
       name: /confirm delete saved query/i,
     });
@@ -691,12 +645,8 @@ describe('QueryWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'ddl' }));
 
-    expect(
-      await screen.findByRole('tab', { name: /DDL: sales_2026/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('sql-editor')).toHaveValue(
-      'CREATE EXTERNAL TABLE sales_2026 (...)',
-    );
+    expect(await screen.findByRole('tab', { name: /DDL: sales_2026/ })).toBeInTheDocument();
+    expect(screen.getByTestId('sql-editor')).toHaveValue('CREATE EXTERNAL TABLE sales_2026 (...)');
     // A DDL fetch is not a user run — no query is started for it.
     expect(mockRunQuery).not.toHaveBeenCalled();
   });
@@ -711,14 +661,10 @@ describe('QueryWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'data' }));
 
-    expect(
-      await screen.findByRole('tab', { name: /sales_2026/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('sql-editor')).toHaveValue(
-      'SELECT * FROM alice.sales_2026 LIMIT 10',
-    );
+    expect(await screen.findByRole('tab', { name: /sales_2026/ })).toBeInTheDocument();
+    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT * FROM alice.sales_2026 LIMIT 10');
     expect(mockRunQuery).toHaveBeenCalledWith(
-      expect.objectContaining({ sql: 'SELECT * FROM alice.sales_2026 LIMIT 10' }),
+      expect.objectContaining({ sql: 'SELECT * FROM alice.sales_2026 LIMIT 10' })
     );
   });
 
@@ -740,12 +686,8 @@ describe('QueryWorkspace', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Drop table' }));
 
     expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
-    expect(mockRunToCompletion).toHaveBeenCalledWith(
-      expect.objectContaining({ sql: 'DROP TABLE alice.sales_2026' }),
-    );
-    expect(appendEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ queryExecutionId: 'q-drop' }),
-    );
+    expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({ sql: 'DROP TABLE alice.sales_2026' }));
+    expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({ queryExecutionId: 'q-drop' }));
   });
 
   it('Drop table shows an error toast and leaves the schema on failure', async () => {
@@ -762,10 +704,9 @@ describe('QueryWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'drop' }));
     fireEvent.click(
-      within(screen.getByRole('alertdialog', { name: /confirm drop table/i })).getByRole(
-        'button',
-        { name: 'Drop table' },
-      ),
+      within(screen.getByRole('alertdialog', { name: /confirm drop table/i })).getByRole('button', {
+        name: 'Drop table',
+      })
     );
 
     expect(await screen.findByText(/table locked/)).toBeInTheDocument();
@@ -796,9 +737,7 @@ describe('QueryWorkspace', () => {
 
     renderWorkspace();
     fireEvent.click(screen.getByRole('button', { name: /History/ }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: /re-run this query/i }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: /re-run this query/i }));
 
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
     expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
@@ -851,9 +790,7 @@ describe('QueryWorkspace', () => {
       username: 'alice', // results still route to {username}/athenaresults/
     });
     // Persisted workspace-globally for the next reload.
-    expect(
-      sessionStorage.getItem('s3portal.query.activeDatabase.alice'),
-    ).toBe('project_alpha');
+    expect(sessionStorage.getItem('s3portal.query.activeDatabase.alice')).toBe('project_alpha');
   });
 
   // --- SPEC-048 Create view + view-aware schema actions ---
@@ -892,12 +829,10 @@ describe('QueryWorkspace', () => {
         sql: 'CREATE OR REPLACE VIEW alice.region_view AS SELECT region FROM sales',
         database: 'alice',
         username: 'alice',
-      }),
+      })
     );
     // The run is recorded once in history; the editor keeps the user's SELECT.
-    expect(appendEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ queryExecutionId: 'q-view' }),
-    );
+    expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({ queryExecutionId: 'q-view' }));
     expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT region FROM sales;');
   });
 
@@ -911,17 +846,11 @@ describe('QueryWorkspace', () => {
     fireEvent.change(editor, { target: { value: 'SELECT 1;' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create view' }));
-    fireEvent.change(
-      within(screen.getByRole('dialog', { name: 'Create view' })).getByLabelText(
-        'View name',
-      ),
-      { target: { value: 'dupe' } },
-    );
+    fireEvent.change(within(screen.getByRole('dialog', { name: 'Create view' })).getByLabelText('View name'), {
+      target: { value: 'dupe' },
+    });
     fireEvent.click(
-      within(screen.getByRole('dialog', { name: 'Create view' })).getByRole(
-        'button',
-        { name: 'Create' },
-      ),
+      within(screen.getByRole('dialog', { name: 'Create view' })).getByRole('button', { name: 'Create' })
     );
 
     expect(await screen.findByText(/TABLE_ALREADY_EXISTS/)).toBeInTheDocument();
@@ -939,9 +868,7 @@ describe('QueryWorkspace', () => {
     await screen.findByTestId('sql-editor');
 
     fireEvent.click(screen.getByRole('button', { name: 'ddl:view' }));
-    expect(mockGetTableDdl).toHaveBeenCalledWith(
-      expect.objectContaining({ table: 'revenue_view', isView: true }),
-    );
+    expect(mockGetTableDdl).toHaveBeenCalledWith(expect.objectContaining({ table: 'revenue_view', isView: true }));
   });
 
   it('Drop on a view confirms and runs DROP VIEW', async () => {
@@ -962,9 +889,7 @@ describe('QueryWorkspace', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Drop view' }));
 
     expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
-    expect(mockRunToCompletion).toHaveBeenCalledWith(
-      expect.objectContaining({ sql: 'DROP VIEW alice.revenue_view' }),
-    );
+    expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({ sql: 'DROP VIEW alice.revenue_view' }));
   });
 
   // --- SPEC-049 Save results to my files ---
@@ -983,9 +908,7 @@ describe('QueryWorkspace', () => {
 
   it('offers Save results for a succeeded row-returning query', async () => {
     await renderSucceededWithRows();
-    expect(
-      screen.getByRole('button', { name: 'Save results to my files' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save results to my files' })).toBeInTheDocument();
   });
 
   it('saving copies the full result object to the chosen destination + toast with a Files link', async () => {
@@ -1032,9 +955,7 @@ describe('QueryWorkspace', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Overwrite' }));
 
-    expect(mockCopyObject).toHaveBeenLastCalledWith(
-      expect.objectContaining({ overwrite: true }),
-    );
+    expect(mockCopyObject).toHaveBeenLastCalledWith(expect.objectContaining({ overwrite: true }));
     expect(await screen.findByText(/Saved to alice\/reports\/out\.csv/)).toBeInTheDocument();
   });
 

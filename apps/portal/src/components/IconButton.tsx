@@ -22,7 +22,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       className={cx(BASE, SIZES[size], className)}
       {...rest}
     />
-  ),
+  )
 );
 
 IconButton.displayName = 'IconButton';

@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 
 vi.mock('../../lib/athenaClient', () => ({ getAthenaClient: vi.fn() }));
 
@@ -22,9 +14,7 @@ import {
   isTerminalState,
 } from './query.service';
 
-const mockGetClient = getAthenaClient as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+const mockGetClient = getAthenaClient as unknown as MockedFunction<() => Promise<unknown>>;
 
 // Athena commands expose their params as `.input`; the fake client records them.
 type Sent = { input: Record<string, unknown> };
@@ -44,7 +34,7 @@ afterEach(() => {
 
 describe('runQuery', () => {
   it('starts the query against the workgroup, database, and per-user output location', async () => {
-    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () =>({ QueryExecutionId: 'q-123' }));
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({ QueryExecutionId: 'q-123' }));
     clientWithSend(send);
 
     const result = await runQuery({
@@ -64,11 +54,11 @@ describe('runQuery', () => {
   });
 
   it('does not assume query type — DDL is sent verbatim', async () => {
-    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () =>({ QueryExecutionId: 'q-ddl' }));
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({ QueryExecutionId: 'q-ddl' }));
     clientWithSend(send);
 
     await runQuery({
-      sql: 'CREATE EXTERNAL TABLE t (id int) LOCATION \'s3://user-bucket/alice/t/\'',
+      sql: "CREATE EXTERNAL TABLE t (id int) LOCATION 's3://user-bucket/alice/t/'",
       database: 'alice',
       username: 'alice',
     });
@@ -90,7 +80,7 @@ describe('runQuery', () => {
     clientWithSend(
       vi.fn(async () => {
         throw Object.assign(new Error('bad sql'), { name: 'InvalidRequestException' });
-      }),
+      })
     );
 
     const result = await runQuery({ sql: 'SELEKT 1', database: 'alice', username: 'alice' });
@@ -116,7 +106,7 @@ describe('getQueryStatus', () => {
             OutputLocation: 's3://user-bucket/alice/athenaresults/q-1.csv',
           },
         },
-      })),
+      }))
     );
 
     const result = await getQueryStatus('q-1');
@@ -140,7 +130,7 @@ describe('getQueryStatus', () => {
         QueryExecution: {
           Status: { State: 'FAILED', StateChangeReason: 'SYNTAX_ERROR: line 1' },
         },
-      })),
+      }))
     );
 
     const result = await getQueryStatus('q-2');
@@ -165,7 +155,7 @@ describe('getQueryStatus', () => {
     clientWithSend(
       vi.fn(async () => {
         throw Object.assign(new Error('gone'), { name: 'InvalidRequestException' });
-      }),
+      })
     );
 
     const result = await getQueryStatus('q-4');
@@ -176,7 +166,7 @@ describe('getQueryStatus', () => {
 
 describe('stopQuery', () => {
   it('issues StopQueryExecution and returns success', async () => {
-    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () =>({}));
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({}));
     clientWithSend(send);
 
     const result = await stopQuery('q-5');
@@ -189,7 +179,7 @@ describe('stopQuery', () => {
     clientWithSend(
       vi.fn(async () => {
         throw Object.assign(new Error('nope'), { name: 'InvalidRequestException' });
-      }),
+      })
     );
 
     const result = await stopQuery('q-6');
@@ -200,7 +190,7 @@ describe('stopQuery', () => {
 
 describe('getQueryResults', () => {
   it('strips the duplicate header row on the first page and normalizes columns/rows', async () => {
-    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () =>({
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({
       ResultSet: {
         ResultSetMetadata: {
           ColumnInfo: [
@@ -255,7 +245,7 @@ describe('getQueryResults', () => {
   });
 
   it('does not strip a row on a continuation page and threads the token + maxRows', async () => {
-    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () =>({
+    const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({
       ResultSet: {
         ResultSetMetadata: { ColumnInfo: [{ Name: 'id', Type: 'integer' }] },
         Rows: [{ Data: [{ VarCharValue: '3' }] }],
@@ -294,9 +284,10 @@ describe('getQueryResults', () => {
 
 describe('parseS3Url (SPEC-049)', () => {
   it('splits an s3:// URL into bucket + key', () => {
-    expect(
-      parseS3Url('s3://user-bucket/alice/athenaresults/q-1.csv'),
-    ).toEqual({ bucket: 'user-bucket', key: 'alice/athenaresults/q-1.csv' });
+    expect(parseS3Url('s3://user-bucket/alice/athenaresults/q-1.csv')).toEqual({
+      bucket: 'user-bucket',
+      key: 'alice/athenaresults/q-1.csv',
+    });
   });
 
   it('returns null for a non-s3 URL', () => {
@@ -386,9 +377,7 @@ describe('getTableDdl', () => {
     if (!result.success) return;
     expect(result.data).toBe('CREATE EXTERNAL TABLE foo (\n  id bigint\n)');
     // It issued SHOW CREATE TABLE for the table.
-    const start = send.mock.calls.find(
-      (c) => c[0].constructor.name === 'StartQueryExecutionCommand',
-    );
+    const start = send.mock.calls.find((c) => c[0].constructor.name === 'StartQueryExecutionCommand');
     expect(start?.[0].input.QueryString).toBe('SHOW CREATE TABLE alice.foo');
   });
 
@@ -416,9 +405,7 @@ describe('getTableDdl', () => {
       isView: true,
     });
     expect(result.success).toBe(true);
-    const start = send.mock.calls.find(
-      (c) => c[0].constructor.name === 'StartQueryExecutionCommand',
-    );
+    const start = send.mock.calls.find((c) => c[0].constructor.name === 'StartQueryExecutionCommand');
     expect(start?.[0].input.QueryString).toBe('SHOW CREATE VIEW alice.foo');
   });
 });

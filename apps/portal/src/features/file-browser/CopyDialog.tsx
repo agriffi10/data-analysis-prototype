@@ -46,9 +46,7 @@ function SameFolderNameField({ prompt }: { prompt: SameFolderPrompt }) {
 
   return (
     <>
-      <p className="mt-2 text-sm text-text-2">
-        Copying into the same folder. The copy will be named:
-      </p>
+      <p className="mt-2 text-sm text-text-2">Copying into the same folder. The copy will be named:</p>
       <div className="mt-3">
         <Input
           id="copy-name-input"
@@ -68,11 +66,7 @@ function SameFolderNameField({ prompt }: { prompt: SameFolderPrompt }) {
         <Button variant="ghost" onClick={prompt.onCancel}>
           Cancel
         </Button>
-        <Button
-          variant="primary"
-          onClick={() => prompt.onConfirm(name)}
-          disabled={!canConfirm}
-        >
+        <Button variant="primary" onClick={() => prompt.onConfirm(name)} disabled={!canConfirm}>
           Copy
         </Button>
       </div>

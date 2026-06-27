@@ -28,14 +28,10 @@ export type EnqueueInput = {
 
 // Send one shared-space request. Returns the generated requestId on success.
 // Never throws — returns the ServiceResult error shape.
-export async function enqueueSharedSpaceRequest(
-  input: EnqueueInput,
-): Promise<ServiceResult<{ requestId: string }>> {
+export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{ requestId: string }>> {
   // Read at call time (not module load) so tests can stub the env (the SPEC-040
   // lesson: a module-level import.meta.env const is read before vi.stubEnv runs).
-  const queueUrl = import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as
-    | string
-    | undefined;
+  const queueUrl = import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined;
   if (!queueUrl) {
     return {
       success: false,
@@ -65,7 +61,7 @@ export async function enqueueSharedSpaceRequest(
           MessageBody: JSON.stringify(body),
           MessageGroupId: MESSAGE_GROUP_ID,
           MessageDeduplicationId: requestId,
-        }),
+        })
       );
       return { success: true, data: { requestId } };
     } catch (err) {
@@ -104,11 +100,7 @@ function userSpaceBucket(): string {
 
 function isNotFound(err: unknown): boolean {
   const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
-  return (
-    e.name === 'NoSuchKey' ||
-    e.name === 'NotFound' ||
-    e.$metadata?.httpStatusCode === 404
-  );
+  return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // Keep only well-formed entries — a corrupt/partial entry is dropped, not fatal
@@ -143,16 +135,14 @@ function parseCache(body: string | undefined): SharedConnectionsCache {
 
 // Read + parse the per-user shared-connections cache. A missing/corrupt file is the
 // empty state (personal-only), not an error. Never throws.
-export async function readSharedConnectionsCache(
-  username: string,
-): Promise<ServiceResult<SharedConnectionsCache>> {
+export async function readSharedConnectionsCache(username: string): Promise<ServiceResult<SharedConnectionsCache>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
       const response = await client.send(
         new GetObjectCommand({
           Bucket: userSpaceBucket(),
           Key: cacheKey(username),
-        }),
+        })
       );
       const body = await response.Body?.transformToString();
       return { success: true, data: parseCache(body) };

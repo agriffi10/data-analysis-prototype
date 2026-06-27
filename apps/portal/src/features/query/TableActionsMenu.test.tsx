@@ -41,10 +41,9 @@ describe('TableActionsMenu', () => {
       <div>
         <button>outside</button>
         <TableActionsMenu tableName="sales" items={items()} />
-      </div>,
+      </div>
     );
-    const open = () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Options for sales' }));
+    const open = () => fireEvent.click(screen.getByRole('button', { name: 'Options for sales' }));
 
     open();
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });

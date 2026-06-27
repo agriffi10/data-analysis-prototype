@@ -19,34 +19,16 @@ const pagerButton =
 // SPEC-038 Prev/Next pager (react-best-practices abstraction pass). Shared by the
 // query-results table and the history drawer: Prev — range indicator — Next, with
 // the consistent ghost-button styling and disabled states.
-export function Pager({
-  hasPrev,
-  hasNext,
-  onPrev,
-  onNext,
-  label,
-  nextBusy = false,
-  className,
-}: PagerProps) {
+export function Pager({ hasPrev, hasNext, onPrev, onNext, label, nextBusy = false, className }: PagerProps) {
   return (
     <div className={cx('flex items-center justify-between gap-3', className)}>
-      <button
-        type="button"
-        onClick={onPrev}
-        disabled={!hasPrev}
-        className={pagerButton}
-      >
+      <button type="button" onClick={onPrev} disabled={!hasPrev} className={pagerButton}>
         Prev
       </button>
       <span className="text-sm text-text-2" aria-live="polite">
         {label}
       </span>
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={!hasNext || nextBusy}
-        className={pagerButton}
-      >
+      <button type="button" onClick={onNext} disabled={!hasNext || nextBusy} className={pagerButton}>
         {nextBusy ? 'Loading…' : 'Next'}
       </button>
     </div>

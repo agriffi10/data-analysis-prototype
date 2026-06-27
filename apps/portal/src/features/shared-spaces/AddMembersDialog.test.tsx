@@ -5,18 +5,12 @@ import { parseMemberInput } from './memberInput';
 
 describe('parseMemberInput (SPEC-053 FR-002)', () => {
   it('splits on commas/whitespace/newlines, trims, lowercases, de-dupes', () => {
-    expect(parseMemberInput('Bob, cara\n  bob   DAVE')).toEqual([
-      'bob',
-      'cara',
-      'dave',
-    ]);
+    expect(parseMemberInput('Bob, cara\n  bob   DAVE')).toEqual(['bob', 'cara', 'dave']);
   });
 
   it('drops tokens that fail the catalog-safe username rule', () => {
     // 'x' too short, 'No-Dashes' has a dash, '1leading' starts with a digit.
-    expect(parseMemberInput('x, no-dashes, 1leading, validname')).toEqual([
-      'validname',
-    ]);
+    expect(parseMemberInput('x, no-dashes, 1leading, validname')).toEqual(['validname']);
   });
 
   it('returns an empty list for blank input', () => {
@@ -27,9 +21,7 @@ describe('parseMemberInput (SPEC-053 FR-002)', () => {
 describe('AddMembersDialog', () => {
   it('sends the parsed list, excluding usernames already in the space', () => {
     const onAdd = vi.fn();
-    render(
-      <AddMembersDialog existing={['owner', 'cara']} onAdd={onAdd} onCancel={vi.fn()} />,
-    );
+    render(<AddMembersDialog existing={['owner', 'cara']} onAdd={onAdd} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Usernames'), {
       target: { value: 'bob, cara, dave' }, // cara already a member
     });

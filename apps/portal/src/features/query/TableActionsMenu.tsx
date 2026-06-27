@@ -73,7 +73,7 @@ export function TableActionsMenu({ tableName, items }: Props) {
         }}
         className={cx(
           'grid h-6 w-6 place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-          open && 'bg-surface-2 text-text',
+          open && 'bg-surface-2 text-text'
         )}
       >
         <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
@@ -105,9 +105,7 @@ export function TableActionsMenu({ tableName, items }: Props) {
         >
           {items.map((item, i) => (
             <div key={item.key}>
-              {item.separatorBefore && (
-                <div className="my-1 h-px bg-border" aria-hidden="true" />
-              )}
+              {item.separatorBefore && <div className="my-1 h-px bg-border" aria-hidden="true" />}
               <button
                 ref={(el) => {
                   itemRefs.current[i] = el;
@@ -121,9 +119,7 @@ export function TableActionsMenu({ tableName, items }: Props) {
                 }}
                 className={cx(
                   'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45',
-                  item.danger
-                    ? 'text-danger hover:bg-danger-soft'
-                    : 'text-text hover:bg-surface-2',
+                  item.danger ? 'text-danger hover:bg-danger-soft' : 'text-text hover:bg-surface-2'
                 )}
               >
                 {item.label}

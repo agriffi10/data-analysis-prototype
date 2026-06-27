@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  leafName,
-  fileParent,
-  folderParts,
-  lastSegment,
-  fileExtension,
-} from './fileBrowser.paths';
+import { leafName, fileParent, folderParts, lastSegment, fileExtension } from './fileBrowser.paths';
 
 describe('fileBrowser.paths', () => {
   it('leafName returns the last segment of a file key', () => {

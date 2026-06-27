@@ -15,7 +15,7 @@ describe('QueryStatusBar', () => {
         isInFlight
         startedAt={Date.now() - 3000}
         onSaveResults={vi.fn()}
-      />,
+      />
     );
     expect(screen.getByText('Running…')).toBeInTheDocument();
     expect(screen.getByText(/elapsed/)).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe('QueryStatusBar', () => {
         hasMoreRows={false}
         canSaveResults
         onSaveResults={onSaveResults}
-      />,
+      />
     );
 
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
@@ -53,12 +53,10 @@ describe('QueryStatusBar', () => {
         startedAt={null}
         canSaveResults={false}
         onSaveResults={vi.fn()}
-      />,
+      />
     );
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /Save results/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Save results/ })).not.toBeInTheDocument();
   });
 
   it('renders terminal Failed and Cancelled indicators', () => {
@@ -68,7 +66,7 @@ describe('QueryStatusBar', () => {
         isInFlight={false}
         startedAt={null}
         onSaveResults={vi.fn()}
-      />,
+      />
     );
     expect(screen.getByText('Failed')).toBeInTheDocument();
 
@@ -78,7 +76,7 @@ describe('QueryStatusBar', () => {
         isInFlight={false}
         startedAt={null}
         onSaveResults={vi.fn()}
-      />,
+      />
     );
     expect(screen.getByText('Cancelled')).toBeInTheDocument();
   });

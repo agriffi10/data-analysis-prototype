@@ -23,7 +23,7 @@ export function isExpiryError(code?: string): boolean {
 // and retry. Never throws — propagates the ServiceResult error shape.
 export async function withCredentialRetry<C, T>(
   getClient: (forceRefresh?: boolean) => Promise<ServiceResult<C>>,
-  op: (client: C) => Promise<ServiceResult<T>>,
+  op: (client: C) => Promise<ServiceResult<T>>
 ): Promise<ServiceResult<T>> {
   const clientResult = await getClient();
   if (!clientResult.success) return clientResult;

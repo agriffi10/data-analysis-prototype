@@ -66,9 +66,7 @@ describe('UploadQueuePanel', () => {
   it('dismisses a finished item (no cancel on a terminal row)', () => {
     setItems([item({ status: 'done', loaded: 100 })]);
     render(<UploadQueuePanel />);
-    expect(
-      screen.queryByRole('button', { name: /cancel upload/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel upload/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /dismiss a\.txt/i }));
     expect(actions.dismiss).toHaveBeenCalledWith('id-1');
   });
@@ -95,9 +93,7 @@ describe('UploadQueuePanel', () => {
   it('offers Clear finished only when a terminal item exists', () => {
     setItems([item({ status: 'uploading' })]);
     const { rerender } = render(<UploadQueuePanel />);
-    expect(
-      screen.queryByRole('button', { name: /clear finished/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /clear finished/i })).not.toBeInTheDocument();
 
     setItems([item({ id: 'id-2', status: 'done' })]);
     rerender(<UploadQueuePanel />);

@@ -18,13 +18,7 @@ type Props = {
 // step. New save → empty; re-save → pre-filled. Saving under a name owned by a
 // *different* saved query asks to replace it; re-saving under the tab's own name
 // is the normal in-place update. Composes the shared Modal + ConfirmDialog.
-export function SaveQueryDialog({
-  initialName,
-  savedQueries,
-  linkedId,
-  onSave,
-  onCancel,
-}: Props) {
+export function SaveQueryDialog({ initialName, savedQueries, linkedId, onSave, onCancel }: Props) {
   const [name, setName] = useState(initialName);
   const [collision, setCollision] = useState<SavedQuery | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,9 +33,7 @@ export function SaveQueryDialog({
 
   const attemptSave = () => {
     if (!canSave) return;
-    const existing = savedQueries.find(
-      (q) => q.name.toLowerCase() === trimmed.toLowerCase(),
-    );
+    const existing = savedQueries.find((q) => q.name.toLowerCase() === trimmed.toLowerCase());
     // A name owned by a *different* saved query → confirm overwrite (FR-003).
     if (existing && existing.id !== linkedId) {
       setCollision(existing);
@@ -62,8 +54,7 @@ export function SaveQueryDialog({
         onCancel={() => setCollision(null)}
       >
         <p className="mt-3 text-sm text-text-2">
-          A saved query named “{collision.name}” already exists. Saving will
-          replace it with the current SQL.
+          A saved query named “{collision.name}” already exists. Saving will replace it with the current SQL.
         </p>
       </ConfirmDialog>
     );

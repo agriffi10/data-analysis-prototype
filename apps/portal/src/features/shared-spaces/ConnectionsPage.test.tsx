@@ -1,18 +1,5 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  type MockedFunction,
-} from 'vitest';
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
@@ -27,28 +14,17 @@ vi.mock('../../lib/awsCredentials', () => ({
 }));
 
 import { useAuth } from '../auth';
-import {
-  enqueueSharedSpaceRequest,
-  readSharedConnectionsCache,
-} from './sharedSpaces.service';
+import { enqueueSharedSpaceRequest, readSharedConnectionsCache } from './sharedSpaces.service';
 import { getSessionCredentials } from '../../lib/awsCredentials';
 import { ConnectionsPage } from './ConnectionsPage';
 import type { SharedConnectionsCache } from './sharedSpaces.types';
 
 const mockUseAuth = useAuth as unknown as MockedFunction<() => unknown>;
-const mockEnqueue = enqueueSharedSpaceRequest as unknown as MockedFunction<
-  (...args: unknown[]) => Promise<unknown>
->;
-const mockRead = readSharedConnectionsCache as unknown as MockedFunction<
-  (u: string) => Promise<unknown>
->;
-const mockForceRefresh = getSessionCredentials as unknown as MockedFunction<
-  (f?: boolean) => Promise<unknown>
->;
+const mockEnqueue = enqueueSharedSpaceRequest as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+const mockRead = readSharedConnectionsCache as unknown as MockedFunction<(u: string) => Promise<unknown>>;
+const mockForceRefresh = getSessionCredentials as unknown as MockedFunction<(f?: boolean) => Promise<unknown>>;
 
-function cache(
-  connections: SharedConnectionsCache['connections'],
-): { success: true; data: SharedConnectionsCache } {
+function cache(connections: SharedConnectionsCache['connections']): { success: true; data: SharedConnectionsCache } {
   return { success: true, data: { version: 1, connections } };
 }
 
@@ -72,9 +48,7 @@ describe('ConnectionsPage (SPEC-052)', () => {
   it('shows the empty state when the cache has no shared connections', async () => {
     mockRead.mockResolvedValue(cache([]));
     renderPage();
-    expect(
-      await screen.findByText(/No shared connections yet/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/No shared connections yet/)).toBeInTheDocument();
   });
 
   it('lists shared connections with role + status from the cache', async () => {
@@ -82,7 +56,7 @@ describe('ConnectionsPage (SPEC-052)', () => {
       cache([
         { name: 'sales', role: 'owner', status: 'active' },
         { name: 'ops', role: 'member', status: 'provisioning' },
-      ]),
+      ])
     );
     renderPage();
 
@@ -99,21 +73,15 @@ describe('ConnectionsPage (SPEC-052)', () => {
     mockRead.mockResolvedValue({ success: false, error: { message: 'boom' } });
     renderPage();
     expect(await screen.findByText(/Couldn.t load/)).toHaveTextContent('boom');
-    expect(
-      screen.getByRole('button', { name: 'New shared connection' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New shared connection' })).toBeInTheDocument();
   });
 
   it('Refresh forces a credential refresh then re-reads, picking up a now-active connection', async () => {
     mockRead.mockResolvedValueOnce(cache([]));
     renderPage();
-    expect(
-      await screen.findByText(/No shared connections yet/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/No shared connections yet/)).toBeInTheDocument();
 
-    mockRead.mockResolvedValueOnce(
-      cache([{ name: 'team', role: 'owner', status: 'active' }]),
-    );
+    mockRead.mockResolvedValueOnce(cache([{ name: 'team', role: 'owner', status: 'active' }]));
     fireEvent.click(screen.getByRole('button', { name: 'Refresh connections' }));
 
     expect(mockForceRefresh).toHaveBeenCalledWith(true);
@@ -122,11 +90,7 @@ describe('ConnectionsPage (SPEC-052)', () => {
   });
 
   it('a failed entry shows its reason with Dismiss (removes) and Retry (re-enqueues)', async () => {
-    mockRead.mockResolvedValue(
-      cache([
-        { name: 'broken', role: 'owner', status: 'failed', reason: 'name taken' },
-      ]),
-    );
+    mockRead.mockResolvedValue(cache([{ name: 'broken', role: 'owner', status: 'failed', reason: 'name taken' }]));
     mockEnqueue.mockResolvedValue({ success: true, data: { requestId: 'r1' } });
     renderPage();
 
@@ -136,23 +100,17 @@ describe('ConnectionsPage (SPEC-052)', () => {
     // Retry re-enqueues a create and flips the row to provisioning optimistically.
     fireEvent.click(within(row).getByRole('button', { name: 'Retry' }));
     await waitFor(() =>
-      expect(mockEnqueue).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'create', space: 'broken' }),
-      ),
+      expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({ action: 'create', space: 'broken' }))
     );
     expect(within(row).getByText('Provisioning…')).toBeInTheDocument();
   });
 
   it('Dismiss removes a failed entry from the list', async () => {
-    mockRead.mockResolvedValue(
-      cache([{ name: 'broken', role: 'owner', status: 'failed', reason: 'x' }]),
-    );
+    mockRead.mockResolvedValue(cache([{ name: 'broken', role: 'owner', status: 'failed', reason: 'x' }]));
     renderPage();
     const row = (await screen.findByText('broken')).closest('li')!;
     fireEvent.click(within(row).getByRole('button', { name: 'Dismiss' }));
-    await waitFor(() =>
-      expect(screen.queryByText('broken')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByText('broken')).not.toBeInTheDocument());
   });
 
   it('create enqueues one request and shows an optimistic pending entry + toast', async () => {
@@ -161,17 +119,13 @@ describe('ConnectionsPage (SPEC-052)', () => {
     renderPage();
     await screen.findByText(/No shared connections yet/);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'New shared connection' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'New shared connection' }));
     fireEvent.change(screen.getByLabelText('Connection name'), {
       target: { value: 'sales_data' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
-    await waitFor(() =>
-      expect(screen.getByText(/Creating .*sales_data/)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/Creating .*sales_data/)).toBeInTheDocument());
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
     expect(screen.getByText('sales_data')).toBeInTheDocument();
     expect(screen.getByText('Provisioning…')).toBeInTheDocument();
@@ -185,7 +139,7 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
         { name: 'owned', role: 'owner', status: 'active', members: ['alice', 'bob'] },
         { name: 'joined', role: 'member', status: 'active' },
         { name: 'pending', role: 'owner', status: 'provisioning' },
-      ]),
+      ])
     );
     renderPage();
 
@@ -195,12 +149,12 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
     expect(
       within(screen.getByText('joined').closest('li')!).queryByRole('button', {
         name: 'Manage',
-      }),
+      })
     ).not.toBeInTheDocument();
     expect(
       within(screen.getByText('pending').closest('li')!).queryByRole('button', {
         name: 'Manage',
-      }),
+      })
     ).not.toBeInTheDocument();
 
     fireEvent.click(within(owned).getByRole('button', { name: 'Manage' }));
@@ -209,9 +163,7 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
   });
 
   it('adding a member from the drawer enqueues one add_members request', async () => {
-    mockRead.mockResolvedValue(
-      cache([{ name: 'owned', role: 'owner', status: 'active', members: ['alice'] }]),
-    );
+    mockRead.mockResolvedValue(cache([{ name: 'owned', role: 'owner', status: 'active', members: ['alice'] }]));
     mockEnqueue.mockResolvedValue({ success: true, data: { requestId: 'r1' } });
     renderPage();
 

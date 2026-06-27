@@ -27,12 +27,8 @@ describe('isSchemaChangingSql', () => {
 
   it('detects DDL written under a leading comment (the missed-refresh regression)', () => {
     // The editor pre-fills a `-- …` comment; a CREATE under it must still count.
-    expect(
-      isSchemaChangingSql('-- make a table\nCREATE TABLE employees (id int)'),
-    ).toBe(true);
-    expect(isSchemaChangingSql('/* block */\n  create table t (id int)')).toBe(
-      true,
-    );
+    expect(isSchemaChangingSql('-- make a table\nCREATE TABLE employees (id int)')).toBe(true);
+    expect(isSchemaChangingSql('/* block */\n  create table t (id int)')).toBe(true);
   });
 
   it('does not flag non-schema statements', () => {

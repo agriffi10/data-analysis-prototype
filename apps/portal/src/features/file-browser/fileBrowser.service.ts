@@ -23,16 +23,8 @@ import type {
   MoveResult,
   CopyResult,
 } from './fileBrowser.types';
-import {
-  MAX_UPLOAD_BYTES,
-  MULTIPART_PART_SIZE,
-  PART_CONCURRENCY,
-} from './fileBrowser.types';
-import {
-  LISTING_PAGE_SIZE,
-  PREFIX_MARKER_BODY,
-  prefixMarkerKey,
-} from './fileBrowser.constants';
+import { MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE, PART_CONCURRENCY } from './fileBrowser.types';
+import { LISTING_PAGE_SIZE, PREFIX_MARKER_BODY, prefixMarkerKey } from './fileBrowser.constants';
 
 // Credential-expiry detection + one-shot refresh-and-retry now live in the shared
 // src/lib/credentialRetry helper (SPEC-034 FR-001), reused by the S3/Athena/Glue
@@ -41,8 +33,7 @@ import {
 // Dev-only escape hatch (SPEC-013): browse a public/static test bucket without
 // auth for local work without AWS. Honoured ONLY in a dev build, so the
 // SPEC-001/002 anonymous/static-credential path is unreachable in production.
-const devUnauthenticated =
-  import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
+const devUnauthenticated = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
 // MaxKeys for the recursive collect-all-keys pass (delete/move, SPEC-018/019).
 // 1000 is the S3 hard cap per page; a small page size here would only mean more
@@ -52,7 +43,7 @@ const BULK_KEY_PAGE_SIZE = 1000;
 export async function listFiles(
   bucket: string,
   prefix?: string,
-  continuationToken?: string,
+  continuationToken?: string
 ): Promise<ServiceResult<FileListPage>> {
   if (devUnauthenticated) {
     return listWithClient(s3Client, bucket, prefix, continuationToken);
@@ -61,12 +52,7 @@ export async function listFiles(
   const clientResult = await getS3Client();
   if (!clientResult.success) return clientResult;
 
-  const result = await listWithClient(
-    clientResult.data,
-    bucket,
-    prefix,
-    continuationToken,
-  );
+  const result = await listWithClient(clientResult.data, bucket, prefix, continuationToken);
   if (result.success || !isExpiryError(result.error.code)) return result;
 
   // Credentials expired mid-session — refresh once and retry transparently.
@@ -79,7 +65,7 @@ async function listWithClient(
   client: S3Client,
   bucket: string,
   prefix?: string,
-  continuationToken?: string,
+  continuationToken?: string
 ): Promise<ServiceResult<FileListPage>> {
   try {
     const command = new ListObjectsV2Command({
@@ -139,9 +125,7 @@ function fileName(key: string): string {
 }
 
 function folderName(folderPrefix: string, parentPrefix?: string): string {
-  const withoutParent = parentPrefix
-    ? folderPrefix.slice(parentPrefix.length)
-    : folderPrefix;
+  const withoutParent = parentPrefix ? folderPrefix.slice(parentPrefix.length) : folderPrefix;
   return withoutParent.replace(/\/$/, '');
 }
 
@@ -150,7 +134,7 @@ function folderName(folderPrefix: string, parentPrefix?: string): string {
 // listFiles, the marker/delete operations have no dev-unauthenticated fallback —
 // they only run in the authenticated user-space flow (FilesPage gates on `user`).
 async function withAuthenticatedClient<T>(
-  op: (client: S3Client) => Promise<ServiceResult<T>>,
+  op: (client: S3Client) => Promise<ServiceResult<T>>
 ): Promise<ServiceResult<T>> {
   return withCredentialRetry(getS3Client, op);
 }
@@ -211,7 +195,7 @@ export async function ensurePrefixMarker(params: {
           Key: key,
           Body: PREFIX_MARKER_BODY,
           ContentType: 'text/plain',
-        }),
+        })
       );
       return { success: true, data: { created: true } };
     } catch (err) {
@@ -243,8 +227,7 @@ export async function deleteObject(params: {
     return {
       success: false,
       error: {
-        message:
-          'This file keeps your storage space active and cannot be deleted.',
+        message: 'This file keeps your storage space active and cannot be deleted.',
         code: 'ProtectedObject',
       },
     };
@@ -297,8 +280,7 @@ export async function deleteObjects(params: {
     if (key === markerKey) {
       markerErrors.push({
         key,
-        message:
-          'This file keeps your storage space active and cannot be deleted.',
+        message: 'This file keeps your storage space active and cannot be deleted.',
       });
     } else {
       toDelete.push(key);
@@ -309,9 +291,7 @@ export async function deleteObjects(params: {
     return { success: true, data: { deleted: [], errors: markerErrors } };
   }
 
-  const result = await withAuthenticatedClient((client) =>
-    deleteInBatches(client, bucket, toDelete),
-  );
+  const result = await withAuthenticatedClient((client) => deleteInBatches(client, bucket, toDelete));
   if (!result.success) return result;
 
   return {
@@ -328,11 +308,7 @@ export async function deleteObjects(params: {
 // error is propagated so withAuthenticatedClient refreshes and retries the whole
 // operation; any other whole-batch failure records every key in that batch as an
 // error and continues with the remaining batches (FR-002 partial failure).
-async function deleteInBatches(
-  client: S3Client,
-  bucket: string,
-  keys: string[],
-): Promise<ServiceResult<DeleteResult>> {
+async function deleteInBatches(client: S3Client, bucket: string, keys: string[]): Promise<ServiceResult<DeleteResult>> {
   const deleted: string[] = [];
   const errors: DeleteResult['errors'] = [];
 
@@ -345,7 +321,7 @@ async function deleteInBatches(
             Objects: batch.map((Key) => ({ Key })),
             Quiet: false,
           },
-        }),
+        })
       );
       for (const d of response.Deleted ?? []) {
         if (d.Key) deleted.push(d.Key);
@@ -385,9 +361,7 @@ export async function deleteFolder(params: {
 }): Promise<ServiceResult<DeleteResult>> {
   const { bucket, prefix, username } = params;
 
-  const listResult = await withAuthenticatedClient((client) =>
-    listAllKeysUnderPrefix(client, bucket, prefix),
-  );
+  const listResult = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, prefix));
   if (!listResult.success) return listResult;
 
   if (listResult.data.length === 0) {
@@ -403,7 +377,7 @@ export async function deleteFolder(params: {
 async function listAllKeysUnderPrefix(
   client: S3Client,
   bucket: string,
-  prefix: string,
+  prefix: string
 ): Promise<ServiceResult<string[]>> {
   const keys: string[] = [];
   let continuationToken: string | undefined;
@@ -416,14 +390,12 @@ async function listAllKeysUnderPrefix(
           Prefix: prefix,
           MaxKeys: BULK_KEY_PAGE_SIZE,
           ContinuationToken: continuationToken,
-        }),
+        })
       );
       for (const obj of response.Contents ?? []) {
         if (obj.Key) keys.push(obj.Key);
       }
-      continuationToken = response.IsTruncated
-        ? response.NextContinuationToken
-        : undefined;
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
     } while (continuationToken);
 
     return { success: true, data: keys };
@@ -455,15 +427,11 @@ export async function copyObject(params: {
 }): Promise<ServiceResult<{ destKey: string }>> {
   const { bucket, sourceKey, destKey, username, overwrite = false } = params;
 
-  if (
-    isPrefixMarkerKey(sourceKey, username) ||
-    isPrefixMarkerKey(destKey, username)
-  ) {
+  if (isPrefixMarkerKey(sourceKey, username) || isPrefixMarkerKey(destKey, username)) {
     return {
       success: false,
       error: {
-        message:
-          'This file keeps your storage space active and cannot be moved or renamed.',
+        message: 'This file keeps your storage space active and cannot be moved or renamed.',
         code: 'ProtectedObject',
       },
     };
@@ -487,7 +455,7 @@ export async function copyObject(params: {
           Bucket: bucket,
           Key: destKey,
           CopySource: buildCopySource(bucket, sourceKey),
-        }),
+        })
       );
       return { success: true, data: { destKey } };
     } catch (err) {
@@ -545,8 +513,7 @@ export async function moveFolder(params: {
   overwrite?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<MoveResult>> {
-  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } =
-    params;
+  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } = params;
 
   if (sourcePrefix === destPrefix) {
     return { success: true, data: { moved: [], errors: [] } };
@@ -562,9 +529,7 @@ export async function moveFolder(params: {
     };
   }
 
-  const listed = await withAuthenticatedClient((client) =>
-    listAllKeysUnderPrefix(client, bucket, sourcePrefix),
-  );
+  const listed = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, sourcePrefix));
   if (!listed.success) return listed;
 
   const sourceKeys = listed.data;
@@ -572,19 +537,14 @@ export async function moveFolder(params: {
     return { success: true, data: { moved: [], errors: [] } };
   }
 
-  const destKeyFor = (sourceKey: string) =>
-    destPrefix + sourceKey.slice(sourcePrefix.length);
+  const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
 
   // Pre-flight collision check (FR-005): count destinations that already exist.
   if (!overwrite) {
-    const existing = await withAuthenticatedClient((client) =>
-      listAllKeysUnderPrefix(client, bucket, destPrefix),
-    );
+    const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, destPrefix));
     if (!existing.success) return existing;
     const existingSet = new Set(existing.data);
-    const collisions = sourceKeys
-      .map(destKeyFor)
-      .filter((k) => existingSet.has(k)).length;
+    const collisions = sourceKeys.map(destKeyFor).filter((k) => existingSet.has(k)).length;
     if (collisions > 0) {
       return {
         success: false,
@@ -644,8 +604,7 @@ export async function copyFolder(params: {
   overwrite?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<CopyResult>> {
-  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } =
-    params;
+  const { bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress } = params;
 
   if (sourcePrefix === destPrefix) {
     return { success: true, data: { copied: [], errors: [] } };
@@ -661,9 +620,7 @@ export async function copyFolder(params: {
     };
   }
 
-  const listed = await withAuthenticatedClient((client) =>
-    listAllKeysUnderPrefix(client, bucket, sourcePrefix),
-  );
+  const listed = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, sourcePrefix));
   if (!listed.success) return listed;
 
   const sourceKeys = listed.data;
@@ -671,19 +628,14 @@ export async function copyFolder(params: {
     return { success: true, data: { copied: [], errors: [] } };
   }
 
-  const destKeyFor = (sourceKey: string) =>
-    destPrefix + sourceKey.slice(sourcePrefix.length);
+  const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
 
   // Pre-flight collision check (FR-005): count destinations that already exist.
   if (!overwrite) {
-    const existing = await withAuthenticatedClient((client) =>
-      listAllKeysUnderPrefix(client, bucket, destPrefix),
-    );
+    const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, destPrefix));
     if (!existing.success) return existing;
     const existingSet = new Set(existing.data);
-    const collisions = sourceKeys
-      .map(destKeyFor)
-      .filter((k) => existingSet.has(k)).length;
+    const collisions = sourceKeys.map(destKeyFor).filter((k) => existingSet.has(k)).length;
     if (collisions > 0) {
       return {
         success: false,
@@ -727,17 +679,13 @@ const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 900;
 // Remaining lifetime (seconds) on the client's temporary credentials, or
 // undefined if it can't be determined. A presigned URL can never outlive the
 // credentials that signed it, so we use this to cap the advertised expiry.
-async function remainingCredentialSeconds(
-  client: S3Client,
-): Promise<number | undefined> {
+async function remainingCredentialSeconds(client: S3Client): Promise<number | undefined> {
   try {
     const provider = client.config?.credentials;
     if (typeof provider !== 'function') return undefined;
     const creds = await provider();
     if (!creds?.expiration) return undefined;
-    const seconds = Math.floor(
-      (new Date(creds.expiration).getTime() - Date.now()) / 1000,
-    );
+    const seconds = Math.floor((new Date(creds.expiration).getTime() - Date.now()) / 1000);
     return seconds > 0 ? seconds : 0;
   } catch {
     return undefined;
@@ -769,8 +717,7 @@ export async function getDownloadUrl(params: {
 
   try {
     const remaining = await remainingCredentialSeconds(client);
-    const expiresIn =
-      remaining === undefined ? requested : Math.min(requested, remaining);
+    const expiresIn = remaining === undefined ? requested : Math.min(requested, remaining);
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -791,10 +738,7 @@ export async function getDownloadUrl(params: {
 // SPEC-016 FR-003: does an object already exist at this key? HEAD it; a
 // NotFound/404 is a clean `false` (not an error). Callers use this to drive the
 // warn-and-confirm collision prompt.
-export async function objectExists(params: {
-  bucket: string;
-  key: string;
-}): Promise<ServiceResult<boolean>> {
+export async function objectExists(params: { bucket: string; key: string }): Promise<ServiceResult<boolean>> {
   const { bucket, key } = params;
   return withAuthenticatedClient(async (client) => {
     try {
@@ -819,12 +763,10 @@ export function uploadPercent(loaded: number, total: number): number {
 // error message, or null if the name is valid.
 export function validateFolderName(name: string): string | null {
   if (name.trim().length === 0) return 'Folder name cannot be empty.';
-  if (name !== name.trim())
-    return 'Folder name cannot start or end with spaces.';
+  if (name !== name.trim()) return 'Folder name cannot start or end with spaces.';
   if (name.includes('/')) return "Folder name cannot contain '/'.";
   // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f]/.test(name))
-    return 'Folder name cannot contain control characters.';
+  if (/[\x00-\x1f]/.test(name)) return 'Folder name cannot contain control characters.';
   return null;
 }
 
@@ -847,8 +789,7 @@ export async function uploadFile(params: {
   onProgress?: (loaded: number, total: number) => void;
   signal?: AbortSignal;
 }): Promise<ServiceResult<UploadResult>> {
-  const { bucket, key, body, contentType, overwrite = false, onProgress, signal } =
-    params;
+  const { bucket, key, body, contentType, overwrite = false, onProgress, signal } = params;
 
   if (body.size > MAX_UPLOAD_BYTES) {
     return {
@@ -952,7 +893,7 @@ export async function createFolder(params: {
           Key: folderPrefix,
           Body: '',
           ContentType: 'application/x-directory',
-        }),
+        })
       );
       return { success: true, data: { prefix: folderPrefix } };
     } catch (err) {
@@ -975,9 +916,7 @@ export async function getObjectMetadata(params: {
   const { bucket, key } = params;
   return withAuthenticatedClient(async (client) => {
     try {
-      const response = await client.send(
-        new HeadObjectCommand({ Bucket: bucket, Key: key }),
-      );
+      const response = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
       return {
         success: true,
         data: {

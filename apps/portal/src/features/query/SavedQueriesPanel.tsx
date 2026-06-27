@@ -19,29 +19,14 @@ type Props = {
 // SPEC-043 FR-005/006/007: saved-queries drawer (most-recently-updated first),
 // Open (→ new linked tab) + Delete (→ confirm). Renders in the shared Drawer;
 // the delete confirm is the shared ConfirmDialog and owns Escape while open.
-export function SavedQueriesPanel({
-  open,
-  onClose,
-  queries,
-  isLoading,
-  error,
-  onOpen,
-  onDelete,
-}: Props) {
+export function SavedQueriesPanel({ open, onClose, queries, isLoading, error, onOpen, onDelete }: Props) {
   const [pendingDelete, setPendingDelete] = useState<SavedQuery | null>(null);
 
-  const sorted = [...queries].sort((a, b) =>
-    b.updatedAt.localeCompare(a.updatedAt),
-  );
+  const sorted = [...queries].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   return (
     <>
-      <Drawer
-        open={open}
-        onClose={onClose}
-        title="Saved queries"
-        closeOnEscape={!pendingDelete}
-      >
+      <Drawer open={open} onClose={onClose} title="Saved queries" closeOnEscape={!pendingDelete}>
         {error ? (
           <Banner variant="danger" title="Couldn’t load saved queries.">
             {error}
@@ -53,8 +38,7 @@ export function SavedQueriesPanel({
             <DocumentIcon className="h-8 w-8 text-text-3" />
             <p className="text-sm font-medium text-text">No saved queries yet</p>
             <p className="max-w-[260px] text-sm text-text-3">
-              Save a query from the editor and it’ll appear here so you can open
-              and run it again.
+              Save a query from the editor and it’ll appear here so you can open and run it again.
             </p>
           </div>
         ) : (
@@ -63,9 +47,7 @@ export function SavedQueriesPanel({
             return (
               <div key={q.id} className="rounded-md border border-border p-3">
                 <div className="mb-1.5 flex items-center gap-2">
-                  <span className="truncate font-semibold text-text">
-                    {q.name}
-                  </span>
+                  <span className="truncate font-semibold text-text">{q.name}</span>
                   <span
                     className="ml-auto flex-none text-xs text-text-3"
                     title={new Date(q.updatedAt).toLocaleString()}
@@ -73,10 +55,7 @@ export function SavedQueriesPanel({
                     {formatRelativeTime(q.updatedAt)}
                   </span>
                 </div>
-                <p
-                  className="truncate font-mono text-sm text-text-2"
-                  title={preview}
-                >
+                <p className="truncate font-mono text-sm text-text-2" title={preview}>
                   {preview}
                 </p>
                 <div className="mt-2 flex items-center gap-3">
@@ -118,8 +97,7 @@ export function SavedQueriesPanel({
           onCancel={() => setPendingDelete(null)}
         >
           <p className="mt-3 text-sm text-text-2">
-            This removes the saved query. Any open tab linked to it keeps its SQL
-            but is no longer linked.
+            This removes the saved query. Any open tab linked to it keeps its SQL but is no longer linked.
           </p>
         </ConfirmDialog>
       )}

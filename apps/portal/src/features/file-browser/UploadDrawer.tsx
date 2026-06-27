@@ -22,9 +22,7 @@ export function UploadDrawer({ open, onClose, destinationLabel, children }: Prop
       bodyClassName="gap-4"
       headerAccessory={
         destinationLabel ? (
-          <span className="min-w-0 truncate text-sm text-text-3">
-            to {destinationLabel}
-          </span>
+          <span className="min-w-0 truncate text-sm text-text-3">to {destinationLabel}</span>
         ) : undefined
       }
     >

@@ -35,7 +35,7 @@ export function Toast({ variant, message, onDismiss, action }: Props) {
         'fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg',
         variant === 'success' && 'border-success bg-success-soft text-success',
         variant === 'danger' && 'border-danger bg-danger-soft text-danger',
-        variant === 'info' && 'border-border bg-surface text-text-2',
+        variant === 'info' && 'border-border bg-surface text-text-2'
       )}
     >
       <span className="min-w-0 flex-1">{message}</span>

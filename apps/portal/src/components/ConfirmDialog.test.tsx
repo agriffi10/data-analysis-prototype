@@ -17,11 +17,9 @@ describe('ConfirmDialog', () => {
     render(
       <ConfirmDialog {...base} onConfirm={onConfirm} onCancel={onCancel}>
         <p>the body</p>
-      </ConfirmDialog>,
+      </ConfirmDialog>
     );
-    expect(
-      screen.getByRole('alertdialog', { name: 'Confirm delete' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', { name: 'Confirm delete' })).toBeInTheDocument();
     expect(screen.getByText('the body')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -41,19 +39,13 @@ describe('ConfirmDialog', () => {
   });
 
   it('dismissOnly hides Cancel and focuses the confirm button', () => {
-    render(
-      <ConfirmDialog {...base} dismissOnly confirmLabel="Got it" />,
-    );
-    expect(
-      screen.queryByRole('button', { name: 'Cancel' }),
-    ).not.toBeInTheDocument();
+    render(<ConfirmDialog {...base} dismissOnly confirmLabel="Got it" />);
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Got it' })).toHaveFocus();
   });
 
   it('busy locks both buttons and shows the busy label', () => {
-    render(
-      <ConfirmDialog {...base} busy busyLabel="Deleting…" />,
-    );
+    render(<ConfirmDialog {...base} busy busyLabel="Deleting…" />);
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled();
   });

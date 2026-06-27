@@ -16,8 +16,7 @@ function wrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
 }
 
 function page(over: Partial<FileListPage> = {}): FileListPage {
@@ -125,10 +124,9 @@ describe('useFileBrowser', () => {
       }),
     });
 
-    const { result } = renderHook(
-      () => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'),
-      { wrapper: wrapper() },
-    );
+    const { result } = renderHook(() => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'), {
+      wrapper: wrapper(),
+    });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.files.map((f) => f.key)).toEqual(['alice/report.pdf']);

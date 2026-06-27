@@ -48,11 +48,7 @@ function parentOf(prefix: string, rootPrefix: string): string {
 
 // Clamped breadcrumb from rootPrefix down to the browsed prefix (the username
 // segment is never shown — rootLabel stands in for the root crumb).
-function crumbsFor(
-  browsePrefix: string,
-  rootPrefix: string,
-  rootLabel?: string,
-): Crumb[] {
+function crumbsFor(browsePrefix: string, rootPrefix: string, rootLabel?: string): Crumb[] {
   const rootParts = rootPrefix.split('/').filter(Boolean);
   const label = rootLabel ?? rootParts[rootParts.length - 1] ?? 'Home';
   const crumbs: Crumb[] = [{ label, prefix: rootPrefix }];
@@ -93,30 +89,26 @@ export function DestinationPicker({
   onCancel,
 }: Props) {
   const [browsePrefix, setBrowsePrefix] = useState(rootPrefix);
-  const { folders, isLoading, error, hasMore, loadMore, isLoadingMore } =
-    useFileBrowser(bucket, browsePrefix, markerKey);
+  const { folders, isLoading, error, hasMore, loadMore, isLoadingMore } = useFileBrowser(
+    bucket,
+    browsePrefix,
+    markerKey
+  );
 
   // Folders being operated on can't be navigated into (you can't move/copy a
   // folder inside itself), so hide them from the picker. The protected results
   // folder is also hidden — it is never a valid write destination (SPEC-032).
-  const operatedFolderPrefixes = new Set(
-    items.filter((i) => i.type === 'folder').map((i) => i.prefix),
-  );
+  const operatedFolderPrefixes = new Set(items.filter((i) => i.type === 'folder').map((i) => i.prefix));
   const navigableFolders = folders.filter(
-    (f) =>
-      !operatedFolderPrefixes.has(f.prefix) &&
-      !isProtectedFolder(f.prefix, rootPrefix),
+    (f) => !operatedFolderPrefixes.has(f.prefix) && !isProtectedFolder(f.prefix, rootPrefix)
   );
 
   // The confirm action is invalid anywhere inside an operated folder's own
   // subtree, and (for Move) at the current parent.
-  const intoOwnSubtree = [...operatedFolderPrefixes].some((p) =>
-    browsePrefix.startsWith(p),
-  );
+  const intoOwnSubtree = [...operatedFolderPrefixes].some((p) => browsePrefix.startsWith(p));
   const atCurrentParent = browsePrefix === currentPrefix;
   const currentParentBlocked = atCurrentParent && !allowCurrentParent;
-  const canConfirm =
-    !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled;
+  const canConfirm = !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled;
   const disabledReason = currentParentBlocked
     ? 'These items are already here.'
     : intoOwnSubtree
@@ -144,10 +136,7 @@ export function DestinationPicker({
                     {crumb.label}
                   </span>
                 ) : (
-                  <button
-                    className="hover:text-text hover:underline"
-                    onClick={() => setBrowsePrefix(crumb.prefix)}
-                  >
+                  <button className="hover:text-text hover:underline" onClick={() => setBrowsePrefix(crumb.prefix)}>
                     {crumb.label}
                   </button>
                 )}
@@ -161,11 +150,7 @@ export function DestinationPicker({
       <div className="mt-4">
         <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-surface">
           {isLoading && (
-            <p
-              role="status"
-              aria-label="Loading"
-              className="py-4 text-center text-sm text-text-3"
-            >
+            <p role="status" aria-label="Loading" className="py-4 text-center text-sm text-text-3">
               Loading…
             </p>
           )}
@@ -175,9 +160,7 @@ export function DestinationPicker({
             </p>
           )}
           {!isLoading && error === null && navigableFolders.length === 0 && (
-            <p className="py-4 text-center text-sm text-text-3">
-              No subfolders here.
-            </p>
+            <p className="py-4 text-center text-sm text-text-3">No subfolders here.</p>
           )}
           <ul aria-label="Destination folders">
             {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
@@ -197,11 +180,7 @@ export function DestinationPicker({
                     className="h-4 w-4 flex-shrink-0 text-text-3"
                     aria-hidden="true"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 10l4-4m-4 4l4 4m-4-4h8a4 4 0 014 4v2"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 10l4-4m-4 4l4 4m-4-4h8a4 4 0 014 4v2" />
                   </svg>
                   <span className="flex-1 truncate">..</span>
                 </button>
@@ -241,11 +220,7 @@ export function DestinationPicker({
         </div>
 
         {disabledReason && (
-          <p
-            id="dest-disabled-reason"
-            role="status"
-            className="mt-2 text-xs text-text-3"
-          >
+          <p id="dest-disabled-reason" role="status" className="mt-2 text-xs text-text-3">
             {disabledReason}
           </p>
         )}

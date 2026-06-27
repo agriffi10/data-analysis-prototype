@@ -65,19 +65,13 @@ export function QueryHistoryRow({
         <span
           className={cx(
             'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-            badge.className,
+            badge.className
           )}
         >
-          <span
-            className={cx('h-[7px] w-[7px] rounded-full', badge.dotClassName)}
-            aria-hidden="true"
-          />
+          <span className={cx('h-[7px] w-[7px] rounded-full', badge.dotClassName)} aria-hidden="true" />
           {badge.label}
         </span>
-        <span
-          className="ml-auto text-xs text-text-3"
-          title={new Date(entry.submittedAt).toLocaleString()}
-        >
+        <span className="ml-auto text-xs text-text-3" title={new Date(entry.submittedAt).toLocaleString()}>
           {formatRelativeTime(entry.submittedAt)}
         </span>
       </div>
@@ -89,17 +83,12 @@ export function QueryHistoryRow({
         </span>
       )}
 
-      <p
-        className="truncate font-mono text-sm text-text"
-        title={preview}
-      >
+      <p className="truncate font-mono text-sm text-text" title={preview}>
         {preview}
       </p>
 
       <div className="mt-2 flex items-center gap-3">
-        {stats.length > 0 && (
-          <span className="text-xs text-text-3">{stats.join(' · ')}</span>
-        )}
+        {stats.length > 0 && <span className="text-xs text-text-3">{stats.join(' · ')}</span>}
         <span className="min-w-0 truncate text-xs text-text-3">{entry.database}</span>
         <div className="flex-1" />
         <button

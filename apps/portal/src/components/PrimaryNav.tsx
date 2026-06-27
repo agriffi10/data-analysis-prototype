@@ -14,9 +14,7 @@ const TABS: Tab[] = [
   {
     to: '/files',
     label: 'Files',
-    icon: (
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    ),
+    icon: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
   },
   {
     to: '/query',
@@ -53,9 +51,7 @@ export function PrimaryNav() {
             cx(
               'flex h-full items-center gap-2 border-b-2 px-3 text-base font-medium',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-              isActive
-                ? 'border-accent text-accent-text'
-                : 'border-transparent text-text-2 hover:text-text',
+              isActive ? 'border-accent text-accent-text' : 'border-transparent text-text-2 hover:text-text'
             )
           }
         >

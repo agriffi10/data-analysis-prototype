@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react';
 import { AuthProvider } from './AuthProvider';
 import { useAuth } from './useAuth';
@@ -21,26 +13,13 @@ vi.mock('../../lib/amplify', () => ({ isAmplifyConfigured: true }));
 vi.mock('../../lib/returnPath', () => ({ setReturnPathIfAbsent: vi.fn() }));
 vi.mock('aws-amplify/utils', () => ({ Hub: { listen: vi.fn() } }));
 
-import {
-  getCurrentAuthUser,
-  startSignIn,
-  startSignUp,
-  startSignOut,
-} from './auth.service';
+import { getCurrentAuthUser, startSignIn, startSignUp, startSignOut } from './auth.service';
 import { Hub } from 'aws-amplify/utils';
 
-const mockGetUser = getCurrentAuthUser as unknown as MockedFunction<
-  () => Promise<unknown>
->;
-const mockStartSignIn = startSignIn as unknown as MockedFunction<
-  () => Promise<unknown>
->;
-const mockStartSignUp = startSignUp as unknown as MockedFunction<
-  () => Promise<unknown>
->;
-const mockStartSignOut = startSignOut as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+const mockGetUser = getCurrentAuthUser as unknown as MockedFunction<() => Promise<unknown>>;
+const mockStartSignIn = startSignIn as unknown as MockedFunction<() => Promise<unknown>>;
+const mockStartSignUp = startSignUp as unknown as MockedFunction<() => Promise<unknown>>;
+const mockStartSignOut = startSignOut as unknown as MockedFunction<() => Promise<unknown>>;
 const mockHubListen = Hub.listen as unknown as MockedFunction<
   (channel: string, cb: (data: { payload: { event: string } }) => void) => () => void
 >;
@@ -63,7 +42,7 @@ const renderProvider = () =>
   render(
     <AuthProvider>
       <TestConsumer />
-    </AuthProvider>,
+    </AuthProvider>
   );
 
 // Fire the captured Hub auth handler as Amplify would.
@@ -91,9 +70,7 @@ describe('AuthProvider', () => {
     renderProvider();
     expect(screen.getByTestId('status').textContent).toBe('loading');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('authenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
     expect(screen.getByTestId('username').textContent).toBe('alice');
   });
 
@@ -102,9 +79,7 @@ describe('AuthProvider', () => {
 
     renderProvider();
 
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
     expect(screen.getByTestId('username').textContent).toBe('');
   });
 
@@ -113,9 +88,7 @@ describe('AuthProvider', () => {
     mockStartSignIn.mockResolvedValue({ success: true, data: undefined });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await act(async () => {
       screen.getByText('signin').click();
@@ -128,9 +101,7 @@ describe('AuthProvider', () => {
     mockStartSignUp.mockResolvedValue({ success: true, data: undefined });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await act(async () => {
       screen.getByText('signup').click();
@@ -146,18 +117,12 @@ describe('AuthProvider', () => {
     });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await act(async () => {
       screen.getByText('signup').click();
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('error').textContent).toBe(
-        'Sign-up is not configured.',
-      ),
-    );
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('Sign-up is not configured.'));
   });
 
   it('surfaces an error when sign-in fails, without throwing', async () => {
@@ -168,16 +133,12 @@ describe('AuthProvider', () => {
     });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await act(async () => {
       screen.getByText('signin').click();
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('error').textContent).toBe('popup blocked'),
-    );
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('popup blocked'));
   });
 
   it('signOut() delegates to the sign-out service', async () => {
@@ -185,9 +146,7 @@ describe('AuthProvider', () => {
     mockStartSignOut.mockResolvedValue({ success: true, data: undefined });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('authenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
 
     await act(async () => {
       screen.getByText('signout').click();
@@ -201,15 +160,11 @@ describe('AuthProvider', () => {
       .mockResolvedValueOnce({ success: true, data: { username: 'bob' } });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await fireHub('signedIn');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('authenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
     expect(screen.getByTestId('username').textContent).toBe('bob');
   });
 
@@ -221,15 +176,11 @@ describe('AuthProvider', () => {
       .mockResolvedValueOnce({ success: true, data: { username: 'dave' } });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await fireHub('signInWithRedirect');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('authenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
     expect(screen.getByTestId('username').textContent).toBe('dave');
   });
 
@@ -240,15 +191,11 @@ describe('AuthProvider', () => {
     });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('authenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
 
     await fireHub('signedOut');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
     expect(screen.getByTestId('username').textContent).toBe('');
   });
 
@@ -256,26 +203,18 @@ describe('AuthProvider', () => {
     mockGetUser.mockResolvedValue({ success: false, error: { message: 'none' } });
 
     renderProvider();
-    await waitFor(() =>
-      expect(screen.getByTestId('status').textContent).toBe('unauthenticated'),
-    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
 
     await fireHub('signInWithRedirect_failure');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('error').textContent).toBe(
-        'Sign-in failed or was cancelled.',
-      ),
-    );
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('Sign-in failed or was cancelled.'));
   });
 });
 
 describe('useAuth', () => {
   it('throws a descriptive error when used outside AuthProvider', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => render(<TestConsumer />)).toThrow(
-      'useAuth must be used within an AuthProvider',
-    );
+    expect(() => render(<TestConsumer />)).toThrow('useAuth must be used within an AuthProvider');
     spy.mockRestore();
   });
 });

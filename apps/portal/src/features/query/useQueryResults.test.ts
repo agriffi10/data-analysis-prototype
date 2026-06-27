@@ -15,8 +15,7 @@ function wrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
 }
 
 const cols = [{ name: 'v', type: 'integer' }];
@@ -94,10 +93,10 @@ describe('useQueryResults', () => {
   });
 
   it('resets to page 1 when the execution id changes', async () => {
-    const { result, rerender } = renderHook(
-      ({ id }) => useQueryResults(id, 2),
-      { wrapper: wrapper(), initialProps: { id: 'q-1' as string | null } },
-    );
+    const { result, rerender } = renderHook(({ id }) => useQueryResults(id, 2), {
+      wrapper: wrapper(),
+      initialProps: { id: 'q-1' as string | null },
+    });
     await waitFor(() => expect(result.current.isPending).toBe(false));
     await act(async () => {
       result.current.goNext();

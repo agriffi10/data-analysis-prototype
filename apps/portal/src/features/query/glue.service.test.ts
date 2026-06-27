@@ -1,20 +1,11 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('../../lib/glueClient', () => ({ getGlueClient: vi.fn() }));
 
 import { getGlueClient } from '../../lib/glueClient';
 import { getDatabase, listTables } from './glue.service';
 
-const mockGetClient = getGlueClient as unknown as MockedFunction<
-  () => Promise<unknown>
->;
+const mockGetClient = getGlueClient as unknown as MockedFunction<() => Promise<unknown>>;
 
 type Sent = { input: Record<string, unknown> };
 function clientWithSend(send: (cmd: Sent) => Promise<unknown>) {
@@ -40,7 +31,7 @@ describe('getDatabase', () => {
         throw Object.assign(new Error('missing'), {
           name: 'EntityNotFoundException',
         });
-      }),
+      })
     );
 
     const result = await getDatabase('alice');
@@ -72,9 +63,7 @@ describe('listTables', () => {
         NextToken: 'page2',
       })
       .mockResolvedValueOnce({
-        TableList: [
-          { Name: 'lookup', StorageDescriptor: { Columns: [] } },
-        ],
+        TableList: [{ Name: 'lookup', StorageDescriptor: { Columns: [] } }],
       });
     clientWithSend(send);
 
@@ -105,7 +94,7 @@ describe('listTables', () => {
         throw Object.assign(new Error('no db'), {
           name: 'EntityNotFoundException',
         });
-      }),
+      })
     );
 
     const result = await listTables('alice');
@@ -119,7 +108,7 @@ describe('listTables', () => {
         throw Object.assign(new Error('denied'), {
           name: 'AccessDeniedException',
         });
-      }),
+      })
     );
 
     const result = await listTables('bob');

@@ -10,13 +10,7 @@ import {
 // folder currently shown; whenever it changes the selection clears (navigate-
 // clears), so a selection never carries across folders. A completed delete clears
 // via clear(). The reducer itself lives in selectionContext.ts (pure + testable).
-export function SelectionProvider({
-  prefix,
-  children,
-}: {
-  prefix?: string;
-  children: ReactNode;
-}) {
+export function SelectionProvider({ prefix, children }: { prefix?: string; children: ReactNode }) {
   const [state, dispatch] = useReducer(selectionReducer, initialSelectionState);
 
   useEffect(() => {
@@ -32,12 +26,8 @@ export function SelectionProvider({
       selectAll: (items) => dispatch({ type: 'selectAll', items }),
       clear: () => dispatch({ type: 'clear' }),
     }),
-    [state],
+    [state]
   );
 
-  return (
-    <SelectionContext.Provider value={value}>
-      {children}
-    </SelectionContext.Provider>
-  );
+  return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
 }

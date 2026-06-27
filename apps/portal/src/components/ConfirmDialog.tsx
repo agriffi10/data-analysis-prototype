@@ -56,12 +56,7 @@ export function ConfirmDialog({
   }, [focusTheConfirm]);
 
   return (
-    <Modal
-      role="alertdialog"
-      ariaLabel={ariaLabel}
-      dismissible={!busy}
-      onDismiss={onCancel}
-    >
+    <Modal role="alertdialog" ariaLabel={ariaLabel} dismissible={!busy} onDismiss={onCancel}>
       <div className="px-5 pb-4 pt-5">
         {tone === 'danger' ? (
           <div className="flex items-start gap-3">
@@ -86,30 +81,16 @@ export function ConfirmDialog({
 
         {children}
 
-        {irreversible && (
-          <p className="mt-2 text-sm font-medium text-danger">
-            This can’t be undone.
-          </p>
-        )}
+        {irreversible && <p className="mt-2 text-sm font-medium text-danger">This can’t be undone.</p>}
       </div>
 
       <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
         {!dismissOnly && (
-          <Button
-            ref={cancelRef}
-            variant="ghost"
-            onClick={onCancel}
-            disabled={busy}
-          >
+          <Button ref={cancelRef} variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>
         )}
-        <Button
-          ref={confirmRef}
-          variant={confirmVariant}
-          onClick={onConfirm}
-          disabled={busy}
-        >
+        <Button ref={confirmRef} variant={confirmVariant} onClick={onConfirm} disabled={busy}>
           {busy && busyLabel ? busyLabel : confirmLabel}
         </Button>
       </div>

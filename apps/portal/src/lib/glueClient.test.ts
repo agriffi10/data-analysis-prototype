@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 import { GlueClient } from '@aws-sdk/client-glue';
 
 vi.mock('aws-amplify/auth', () => ({ fetchAuthSession: vi.fn() }));
@@ -58,9 +51,7 @@ describe('getGlueClient', () => {
   });
 
   it('returns an error result (never throws) when fetchAuthSession rejects', async () => {
-    mockFetch.mockRejectedValueOnce(
-      Object.assign(new Error('network down'), { name: 'NetworkError' }),
-    );
+    mockFetch.mockRejectedValueOnce(Object.assign(new Error('network down'), { name: 'NetworkError' }));
 
     const result = await getGlueClient();
 

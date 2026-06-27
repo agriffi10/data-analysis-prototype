@@ -10,14 +10,7 @@ const folder: S3FolderItem = {
 };
 
 function renderPanel(onClose = vi.fn()) {
-  render(
-    <FolderDetailsPanel
-      bucket="my-bucket"
-      folder={folder}
-      rootPrefix="alice/"
-      onClose={onClose}
-    />,
-  );
+  render(<FolderDetailsPanel bucket="my-bucket" folder={folder} rootPrefix="alice/" onClose={onClose} />);
   return onClose;
 }
 
@@ -27,19 +20,13 @@ describe('FolderDetailsPanel', () => {
     // Path is shown relative to the user root (the username prefix is stripped).
     expect(screen.getByText('docs/')).toBeInTheDocument();
     expect(screen.getByText('Full Cloud Path')).toBeInTheDocument();
-    expect(
-      screen.getByText('s3://my-bucket/alice/docs/'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('s3://my-bucket/alice/docs/')).toBeInTheDocument();
   });
 
   it('offers copy buttons for the path and the full cloud path', () => {
     renderPanel();
-    expect(
-      screen.getByRole('button', { name: /copy path/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /copy full cloud path/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy path/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy full cloud path/i })).toBeInTheDocument();
   });
 
   it('closes via the close button', () => {

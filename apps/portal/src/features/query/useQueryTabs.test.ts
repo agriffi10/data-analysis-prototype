@@ -19,25 +19,14 @@ describe('useQueryTabs', () => {
 
     act(() => void result.current.openTab()); // Query 2
     act(() => void result.current.openTab()); // Query 3
-    expect(result.current.tabs.map((t) => t.label)).toEqual([
-      'Query 1',
-      'Query 2',
-      'Query 3',
-    ]);
+    expect(result.current.tabs.map((t) => t.label)).toEqual(['Query 1', 'Query 2', 'Query 3']);
 
     const q2 = result.current.tabs[1].id;
     act(() => result.current.closeTab(q2));
-    expect(result.current.tabs.map((t) => t.label)).toEqual([
-      'Query 1',
-      'Query 3',
-    ]);
+    expect(result.current.tabs.map((t) => t.label)).toEqual(['Query 1', 'Query 3']);
 
     act(() => void result.current.openTab()); // must be Query 4, not a reused 2
-    expect(result.current.tabs.map((t) => t.label)).toEqual([
-      'Query 1',
-      'Query 3',
-      'Query 4',
-    ]);
+    expect(result.current.tabs.map((t) => t.label)).toEqual(['Query 1', 'Query 3', 'Query 4']);
   });
 
   it('blank + tab is empty and becomes active', () => {
@@ -49,12 +38,13 @@ describe('useQueryTabs', () => {
 
   it('opens a named tab verbatim without consuming a Query N number (FR-009)', () => {
     const { result } = renderHook(() => useQueryTabs('alice'));
-    act(() =>
-      void result.current.openTab({
-        label: 'Monthly revenue',
-        sql: 'SELECT * FROM rev;',
-        savedQueryId: 'sq-1',
-      }),
+    act(
+      () =>
+        void result.current.openTab({
+          label: 'Monthly revenue',
+          sql: 'SELECT * FROM rev;',
+          savedQueryId: 'sq-1',
+        })
     );
     const active = result.current.activeTab;
     expect(active.label).toBe('Monthly revenue');
@@ -129,12 +119,13 @@ describe('useQueryTabs', () => {
   it('clearActive resets the tab name and unlinks any saved query', () => {
     const { result } = renderHook(() => useQueryTabs('alice'));
     // Open a saved-query tab: named label + saved-query link.
-    act(() =>
-      void result.current.openTab({
-        label: 'Revenue',
-        sql: 'SELECT 1',
-        savedQueryId: 'sq-1',
-      }),
+    act(
+      () =>
+        void result.current.openTab({
+          label: 'Revenue',
+          sql: 'SELECT 1',
+          savedQueryId: 'sq-1',
+        })
     );
     expect(result.current.activeTab.label).toBe('Revenue');
     expect(result.current.activeTab.savedQueryId).toBe('sq-1');
@@ -154,10 +145,7 @@ describe('useQueryTabs', () => {
 
     // A fresh mount restores the exact set + active tab.
     const second = renderHook(() => useQueryTabs('alice'));
-    expect(second.result.current.tabs.map((t) => t.label)).toEqual([
-      'Query 1',
-      'Saved',
-    ]);
+    expect(second.result.current.tabs.map((t) => t.label)).toEqual(['Query 1', 'Saved']);
     expect(second.result.current.activeTab.label).toBe('Saved');
   });
 });

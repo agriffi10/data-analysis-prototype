@@ -19,9 +19,7 @@ export function ClearQueryDialog({ onConfirm, onCancel }: Props) {
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
-      <p className="mt-3 text-sm text-text-2">
-        This empties the editor and discards the draft saved for this session.
-      </p>
+      <p className="mt-3 text-sm text-text-2">This empties the editor and discards the draft saved for this session.</p>
     </ConfirmDialog>
   );
 }

@@ -235,7 +235,7 @@ describe('listFiles', () => {
           MaxKeys: LISTING_PAGE_SIZE,
           ContinuationToken: undefined,
         },
-      }),
+      })
     );
   });
 
@@ -259,7 +259,7 @@ describe('listFiles', () => {
           ContinuationToken: 'TOKEN-1',
           MaxKeys: LISTING_PAGE_SIZE,
         }),
-      }),
+      })
     );
   });
 
@@ -276,9 +276,7 @@ describe('listFiles', () => {
 
   it('retries once with refreshed credentials on an expired-token error', async () => {
     mockSend
-      .mockRejectedValueOnce(
-        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
-      )
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' }))
       .mockResolvedValueOnce({ Contents: [], CommonPrefixes: [] });
 
     const result = await listFiles('my-bucket', 'alice/');
@@ -355,9 +353,7 @@ describe('ensurePrefixMarker', () => {
   it('returns failure (never throws) when PUT fails', async () => {
     mockSend
       .mockRejectedValueOnce(notFoundError()) // HEAD → 404
-      .mockRejectedValueOnce(
-        Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
-      ); // PUT → fail
+      .mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' })); // PUT → fail
 
     const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
 
@@ -368,9 +364,7 @@ describe('ensurePrefixMarker', () => {
 
   it('retries once with refreshed credentials when HEAD hits an expired token', async () => {
     mockSend
-      .mockRejectedValueOnce(
-        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
-      ) // HEAD → expiry
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' })) // HEAD → expiry
       .mockResolvedValueOnce({}); // HEAD (retry) → exists
 
     const result = await ensurePrefixMarker({ bucket: 'us', username: 'alice' });
@@ -384,9 +378,7 @@ describe('ensurePrefixMarker', () => {
 describe('isPrefixMarkerKey', () => {
   it('matches only the exact root marker key', () => {
     expect(isPrefixMarkerKey('alice/DO_NOT_DELETE.txt', 'alice')).toBe(true);
-    expect(isPrefixMarkerKey('alice/docs/DO_NOT_DELETE.txt', 'alice')).toBe(
-      false,
-    );
+    expect(isPrefixMarkerKey('alice/docs/DO_NOT_DELETE.txt', 'alice')).toBe(false);
     expect(isPrefixMarkerKey('alice/report.pdf', 'alice')).toBe(false);
   });
 });
@@ -432,7 +424,7 @@ describe('deleteObjects', () => {
       Promise.resolve({
         Deleted: (cmd.input.Delete?.Objects ?? []).map((o) => ({ Key: o.Key })),
         Errors: [],
-      }),
+      })
     );
   }
 
@@ -497,9 +489,7 @@ describe('deleteObjects', () => {
       },
     ]);
     // The marker was never part of the DeleteObjects request.
-    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toEqual([
-      { Key: 'alice/a.txt' },
-    ]);
+    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toEqual([{ Key: 'alice/a.txt' }]);
   });
 
   it('makes no S3 call when the only key is the protected marker', async () => {
@@ -519,9 +509,7 @@ describe('deleteObjects', () => {
   it('aggregates per-key S3 errors without throwing (partial failure)', async () => {
     mockSend.mockResolvedValueOnce({
       Deleted: [{ Key: 'alice/a.txt' }],
-      Errors: [
-        { Key: 'alice/locked.txt', Code: 'AccessDenied', Message: 'Access Denied' },
-      ],
+      Errors: [{ Key: 'alice/locked.txt', Code: 'AccessDenied', Message: 'Access Denied' }],
     });
 
     const result = await deleteObjects({
@@ -533,15 +521,11 @@ describe('deleteObjects', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.deleted).toEqual(['alice/a.txt']);
-    expect(result.data.errors).toEqual([
-      { key: 'alice/locked.txt', message: 'Access Denied' },
-    ]);
+    expect(result.data.errors).toEqual([{ key: 'alice/locked.txt', message: 'Access Denied' }]);
   });
 
   it('records a non-expiry whole-batch failure as per-key errors, no retry', async () => {
-    mockSend.mockRejectedValueOnce(
-      Object.assign(new Error('Service Unavailable'), { name: 'ServiceUnavailable' }),
-    );
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Service Unavailable'), { name: 'ServiceUnavailable' }));
 
     const result = await deleteObjects({
       bucket: 'us',
@@ -561,9 +545,7 @@ describe('deleteObjects', () => {
 
   it('retries once with refreshed credentials on an expired-token error', async () => {
     mockSend
-      .mockRejectedValueOnce(
-        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
-      )
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' }))
       .mockResolvedValueOnce({ Deleted: [{ Key: 'alice/a.txt' }], Errors: [] });
 
     const result = await deleteObjects({
@@ -596,11 +578,7 @@ describe('deleteFolder', () => {
       })
       // the DeleteObjects batch
       .mockResolvedValueOnce({
-        Deleted: [
-          { Key: 'alice/photos/' },
-          { Key: 'alice/photos/a.jpg' },
-          { Key: 'alice/photos/b.jpg' },
-        ],
+        Deleted: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }, { Key: 'alice/photos/b.jpg' }],
         Errors: [],
       });
 
@@ -612,15 +590,9 @@ describe('deleteFolder', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.deleted).toEqual([
-      'alice/photos/',
-      'alice/photos/a.jpg',
-      'alice/photos/b.jpg',
-    ]);
+    expect(result.data.deleted).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
 
-    const listCmds = mockSend.mock.calls.filter(
-      (c) => c[0] instanceof ListObjectsV2Command,
-    );
+    const listCmds = mockSend.mock.calls.filter((c) => c[0] instanceof ListObjectsV2Command);
     expect(listCmds).toHaveLength(2);
     expect(listCmds[0][0].input).toMatchObject({
       Bucket: 'us',
@@ -631,9 +603,7 @@ describe('deleteFolder', () => {
     expect(listCmds[0][0].input.Delimiter).toBeUndefined();
     expect(listCmds[1][0].input.ContinuationToken).toBe('TOKEN-2');
 
-    const delCmd = mockSend.mock.calls.find(
-      (c) => c[0] instanceof DeleteObjectsCommand,
-    );
+    const delCmd = mockSend.mock.calls.find((c) => c[0] instanceof DeleteObjectsCommand);
     expect(delCmd?.[0].input.Delete.Objects).toHaveLength(3);
   });
 
@@ -663,16 +633,12 @@ describe('deleteFolder', () => {
     });
 
     expect(result).toEqual({ success: true, data: { deleted: [], errors: [] } });
-    const delCmds = mockSend.mock.calls.filter(
-      (c) => c[0] instanceof DeleteObjectsCommand,
-    );
+    const delCmds = mockSend.mock.calls.filter((c) => c[0] instanceof DeleteObjectsCommand);
     expect(delCmds).toHaveLength(0);
   });
 
   it('surfaces a listing failure without attempting a delete', async () => {
-    mockSend.mockRejectedValueOnce(
-      Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
-    );
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
 
     const result = await deleteFolder({
       bucket: 'us',
@@ -683,9 +649,7 @@ describe('deleteFolder', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('AccessDenied');
-    const delCmds = mockSend.mock.calls.filter(
-      (c) => c[0] instanceof DeleteObjectsCommand,
-    );
+    const delCmds = mockSend.mock.calls.filter((c) => c[0] instanceof DeleteObjectsCommand);
     expect(delCmds).toHaveLength(0);
   });
 });
@@ -787,10 +751,7 @@ describe('copyObject', () => {
 
     const deletes = mockSend.mock.calls
       .map((c) => c[0])
-      .filter(
-        (c) =>
-          c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand,
-      );
+      .filter((c) => c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand);
     expect(deletes).toHaveLength(0);
   });
 
@@ -800,9 +761,7 @@ describe('copyObject', () => {
       .mockResolvedValueOnce({ success: true, data: { send: mockSend } })
       .mockResolvedValueOnce({ success: true, data: { send: refreshedSend } });
     // First client's CopyObject fails with an expiry error so the helper refreshes.
-    mockSend.mockRejectedValueOnce(
-      Object.assign(new Error('expired'), { name: 'ExpiredToken' }),
-    );
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('expired'), { name: 'ExpiredToken' }));
 
     const result = await copyObject({
       bucket: 'us',
@@ -852,9 +811,7 @@ describe('moveObject', () => {
   });
 
   it('leaves the source intact when the copy fails (no delete)', async () => {
-    mockSend.mockRejectedValueOnce(
-      Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
-    ); // CopyObject fails
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' })); // CopyObject fails
 
     const result = await moveObject({
       bucket: 'us',
@@ -867,9 +824,7 @@ describe('moveObject', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('AccessDenied');
-    const deletes = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof DeleteObjectCommand);
+    const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
     expect(deletes).toHaveLength(0);
   });
 
@@ -906,9 +861,7 @@ describe('moveFolder', () => {
       }
       if (cmd instanceof CopyObjectCommand) {
         if (cmd.input.Key === opts.failCopyForDestKey) {
-          return Promise.reject(
-            Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
-          );
+          return Promise.reject(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
         }
         return Promise.resolve({});
       }
@@ -939,16 +892,10 @@ describe('moveFolder', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.moved).toEqual([
-      'alice/photos/',
-      'alice/photos/a.jpg',
-      'alice/photos/b.jpg',
-    ]);
+    expect(result.data.moved).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
     expect(result.data.errors).toEqual([]);
 
-    const copies = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof CopyObjectCommand);
+    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
     expect(copies.map((c) => c.input.Key)).toEqual([
       'alice/archive/photos/',
       'alice/archive/photos/a.jpg',
@@ -956,14 +903,8 @@ describe('moveFolder', () => {
     ]);
     expect(copies[1].input.CopySource).toBe('us/alice/photos/a.jpg');
 
-    const deletes = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof DeleteObjectCommand);
-    expect(deletes.map((c) => c.input.Key)).toEqual([
-      'alice/photos/',
-      'alice/photos/a.jpg',
-      'alice/photos/b.jpg',
-    ]);
+    const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
+    expect(deletes.map((c) => c.input.Key)).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
 
     expect(onProgress).toHaveBeenLastCalledWith(3, 3);
   });
@@ -972,11 +913,7 @@ describe('moveFolder', () => {
     routeSends({
       sourcePages: [
         {
-          Contents: [
-            { Key: 'alice/photos/' },
-            { Key: 'alice/photos/a.jpg' },
-            { Key: 'alice/photos/b.jpg' },
-          ],
+          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }, { Key: 'alice/photos/b.jpg' }],
           IsTruncated: false,
         },
       ],
@@ -993,25 +930,16 @@ describe('moveFolder', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.moved).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([
-      { key: 'alice/photos/a.jpg', message: 'Access Denied' },
-    ]);
+    expect(result.data.errors).toEqual([{ key: 'alice/photos/a.jpg', message: 'Access Denied' }]);
 
     // The failed key's source must not be deleted.
-    const deletes = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof DeleteObjectCommand);
-    expect(deletes.map((c) => c.input.Key)).toEqual([
-      'alice/photos/',
-      'alice/photos/b.jpg',
-    ]);
+    const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
+    expect(deletes.map((c) => c.input.Key)).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
   });
 
   it('refuses up front when destinations already exist (Collision, no copies)', async () => {
     routeSends({
-      sourcePages: [
-        { Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false },
-      ],
+      sourcePages: [{ Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false }],
       destContents: [{ Key: 'alice/archive/photos/x.jpg' }],
     });
 
@@ -1027,9 +955,7 @@ describe('moveFolder', () => {
     expect(result.error.code).toBe('Collision');
     expect(result.error.message).toMatch(/1 item/);
 
-    const copies = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof CopyObjectCommand);
+    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
     expect(copies).toHaveLength(0);
   });
 
@@ -1081,9 +1007,7 @@ describe('copyFolder', () => {
       }
       if (cmd instanceof CopyObjectCommand) {
         if (cmd.input.Key === opts.failCopyForDestKey) {
-          return Promise.reject(
-            Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
-          );
+          return Promise.reject(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
         }
         return Promise.resolve({});
       }
@@ -1114,16 +1038,10 @@ describe('copyFolder', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.copied).toEqual([
-      'alice/photos/',
-      'alice/photos/a.jpg',
-      'alice/photos/b.jpg',
-    ]);
+    expect(result.data.copied).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
     expect(result.data.errors).toEqual([]);
 
-    const copies = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof CopyObjectCommand);
+    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
     expect(copies.map((c) => c.input.Key)).toEqual([
       'alice/archive/photos/',
       'alice/archive/photos/a.jpg',
@@ -1134,10 +1052,7 @@ describe('copyFolder', () => {
     // The defining invariant: copy never deletes anything.
     const deletes = mockSend.mock.calls
       .map((c) => c[0])
-      .filter(
-        (c) =>
-          c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand,
-      );
+      .filter((c) => c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand);
     expect(deletes).toHaveLength(0);
 
     expect(onProgress).toHaveBeenLastCalledWith(3, 3);
@@ -1147,11 +1062,7 @@ describe('copyFolder', () => {
     routeSends({
       sourcePages: [
         {
-          Contents: [
-            { Key: 'alice/photos/' },
-            { Key: 'alice/photos/a.jpg' },
-            { Key: 'alice/photos/b.jpg' },
-          ],
+          Contents: [{ Key: 'alice/photos/' }, { Key: 'alice/photos/a.jpg' }, { Key: 'alice/photos/b.jpg' }],
           IsTruncated: false,
         },
       ],
@@ -1168,24 +1079,17 @@ describe('copyFolder', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.copied).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([
-      { key: 'alice/photos/a.jpg', message: 'Access Denied' },
-    ]);
+    expect(result.data.errors).toEqual([{ key: 'alice/photos/a.jpg', message: 'Access Denied' }]);
 
     const deletes = mockSend.mock.calls
       .map((c) => c[0])
-      .filter(
-        (c) =>
-          c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand,
-      );
+      .filter((c) => c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand);
     expect(deletes).toHaveLength(0);
   });
 
   it('refuses up front when destinations already exist (Collision, no copies)', async () => {
     routeSends({
-      sourcePages: [
-        { Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false },
-      ],
+      sourcePages: [{ Contents: [{ Key: 'alice/photos/x.jpg' }], IsTruncated: false }],
       destContents: [{ Key: 'alice/archive/photos/x.jpg' }],
     });
 
@@ -1201,9 +1105,7 @@ describe('copyFolder', () => {
     expect(result.error.code).toBe('Collision');
     expect(result.error.message).toMatch(/1 item/);
 
-    const copies = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof CopyObjectCommand);
+    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
     expect(copies).toHaveLength(0);
   });
 
@@ -1251,9 +1153,7 @@ describe('copyFolder', () => {
     expect(result.data.errors).toHaveLength(1);
     expect(result.data.errors[0].key).toBe('alice/DO_NOT_DELETE.txt');
 
-    const copies = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof CopyObjectCommand);
+    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
     expect(copies.map((c) => c.input.Key)).toEqual(['backup-of-alice/a.txt']);
   });
 
@@ -1316,9 +1216,7 @@ describe('getDownloadUrl', () => {
     await getDownloadUrl({ bucket: 'us', key: 'alice/docs/2024/q1.csv' });
 
     const [, command] = mockGetSignedUrl.mock.calls[0];
-    expect((command as GetObjectCommand).input.ResponseContentDisposition).toBe(
-      'attachment; filename="q1.csv"',
-    );
+    expect((command as GetObjectCommand).input.ResponseContentDisposition).toBe('attachment; filename="q1.csv"');
   });
 
   it('caps the expiry to the remaining credential lifetime', async () => {
@@ -1369,9 +1267,7 @@ describe('objectExists', () => {
   });
 
   it('surfaces a non-404 error', async () => {
-    mockSend.mockRejectedValueOnce(
-      Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }),
-    );
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }));
     const result = await objectExists({ bucket: 'us', key: 'alice/f.txt' });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1616,9 +1512,7 @@ describe('getObjectMetadata', () => {
 
   it('retries once with refreshed credentials on an expired token', async () => {
     mockSend
-      .mockRejectedValueOnce(
-        Object.assign(new Error('token expired'), { name: 'ExpiredToken' }),
-      )
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), { name: 'ExpiredToken' }))
       .mockResolvedValueOnce({
         ContentLength: 1,
         ContentType: 'text/plain',

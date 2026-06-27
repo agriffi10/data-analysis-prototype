@@ -43,25 +43,17 @@ export type UseActiveDatabaseResult = {
   dismissFellBack: () => void;
 };
 
-export function useActiveDatabase(
-  username: string | null,
-  connections: Connection[],
-): UseActiveDatabaseResult {
+export function useActiveDatabase(username: string | null, connections: Connection[]): UseActiveDatabaseResult {
   const personal = username ?? '';
   // SPEC-052: only USABLE connections are valid targets — a shared DB that's
   // provisioning/failed/leaving (revoked) is still listed (so the rail can show
   // its status) but must not hold the active target. Deriving `available` from
   // usable connections makes a once-active target fall back to personal the moment
   // it stops being usable, not only when it disappears from the cache entirely.
-  const available = useMemo(
-    () => connections.filter(isConnectionUsable).map((c) => c.database),
-    [connections],
-  );
+  const available = useMemo(() => connections.filter(isConnectionUsable).map((c) => c.database), [connections]);
 
   // The user's stored choice (may be stale if a once-selected shared DB is gone).
-  const [stored, setStored] = useState<string>(
-    () => readActiveDatabase(personal) ?? personal,
-  );
+  const [stored, setStored] = useState<string>(() => readActiveDatabase(personal) ?? personal);
   const [dismissed, setDismissed] = useState(false);
 
   const setActiveDatabase = useCallback(
@@ -70,15 +62,14 @@ export function useActiveDatabase(
       writeActiveDatabase(personal, database);
       setDismissed(false);
     },
-    [personal],
+    [personal]
   );
 
   // Reconcile purely during render (no Effect): a stored database that is no
   // longer selectable (e.g. a removed shared DB) resolves to personal, with a
   // non-blocking, dismissible notice. The stale stored value is harmless — it
   // re-resolves to personal next read, and re-applies if that DB reappears.
-  const unavailable =
-    !!personal && available.length > 0 && !available.includes(stored);
+  const unavailable = !!personal && available.length > 0 && !available.includes(stored);
   const activeDatabase = unavailable ? personal : stored;
   const fellBack = unavailable && stored !== personal && !dismissed;
 

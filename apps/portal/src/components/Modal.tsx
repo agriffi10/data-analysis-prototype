@@ -21,14 +21,7 @@ type ModalProps = {
 // surface card + role/aria + backdrop-dismiss + Escape, consolidated from the
 // ~10 dialogs that hand-rolled it. Children supply the body and footer; higher-
 // level dialogs (ConfirmDialog) compose this.
-export function Modal({
-  onDismiss,
-  ariaLabel,
-  role = 'dialog',
-  dismissible = true,
-  className,
-  children,
-}: ModalProps) {
+export function Modal({ onDismiss, ariaLabel, role = 'dialog', dismissible = true, className, children }: ModalProps) {
   useEscapeKey(onDismiss, dismissible);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -58,10 +51,7 @@ export function Modal({
           aria-modal="true"
           aria-label={ariaLabel}
           tabIndex={-1}
-          className={cx(
-            'w-full rounded-lg bg-surface shadow-lg',
-            className ?? 'max-w-md',
-          )}
+          className={cx('w-full rounded-lg bg-surface shadow-lg', className ?? 'max-w-md')}
           onClick={(e) => e.stopPropagation()}
         >
           {children}

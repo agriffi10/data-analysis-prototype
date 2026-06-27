@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProtectedLayout } from './ProtectedLayout';
@@ -19,9 +11,7 @@ import { useAuth } from '../features/auth';
 import { setReturnPath } from '../lib/returnPath';
 
 const mockUseAuth = useAuth as unknown as MockedFunction<() => AuthContextValue>;
-const mockSetReturnPath = setReturnPath as unknown as MockedFunction<
-  (path: string) => void
->;
+const mockSetReturnPath = setReturnPath as unknown as MockedFunction<(path: string) => void>;
 
 // Build a full auth context value for a given status (Header reads the rest).
 const authValue = (status: AuthStatus): AuthContextValue => ({
@@ -44,7 +34,7 @@ const renderAtFiles = () =>
           <Route path="/files" element={<div>PROTECTED CONTENT</div>} />
         </Route>
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 
 beforeEach(() => {

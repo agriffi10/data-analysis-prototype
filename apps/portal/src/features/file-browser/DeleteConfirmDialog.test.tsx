@@ -9,14 +9,7 @@ const folder = (prefix: string): SelectableItem => ({ type: 'folder', prefix });
 function setup(items: SelectableItem[], isDeleting = false) {
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
-  render(
-    <DeleteConfirmDialog
-      items={items}
-      isDeleting={isDeleting}
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-    />,
-  );
+  render(<DeleteConfirmDialog items={items} isDeleting={isDeleting} onConfirm={onConfirm} onCancel={onCancel} />);
   return { onConfirm, onCancel };
 }
 
@@ -41,9 +34,7 @@ describe('DeleteConfirmDialog', () => {
     expect(dialog).toHaveTextContent('a.txt');
     expect(dialog).toHaveTextContent('b.txt');
     expect(dialog).toHaveTextContent('c');
-    expect(dialog).toHaveTextContent(
-      /folders are deleted along with all of their contents/i,
-    );
+    expect(dialog).toHaveTextContent(/folders are deleted along with all of their contents/i);
   });
 
   it('truncates a long list with an "and N more" line', () => {

@@ -8,9 +8,7 @@ vi.mock('./sharedSpaces.service', () => ({
 import { enqueueSharedSpaceRequest } from './sharedSpaces.service';
 import { useManageMembers } from './useManageMembers';
 
-const mockEnqueue = enqueueSharedSpaceRequest as unknown as MockedFunction<
-  (...a: unknown[]) => Promise<unknown>
->;
+const mockEnqueue = enqueueSharedSpaceRequest as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
 
 beforeEach(() => {
   vi.clearAllMocks();

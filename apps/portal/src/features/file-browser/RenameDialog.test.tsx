@@ -12,7 +12,7 @@ function setup(overrides?: { kind?: 'file' | 'folder'; isBusy?: boolean }) {
       isBusy={overrides?.isBusy}
       onRename={onRename}
       onCancel={onCancel}
-    />,
+    />
   );
   return { onRename, onCancel };
 }

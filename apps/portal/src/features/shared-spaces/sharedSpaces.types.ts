@@ -24,12 +24,7 @@ export type SharedConnectionsCache = {
 
 // Shared-space request actions (SPEC-056 contract). SPEC-051 sends only `create`;
 // the rest land in SPEC-053/054.
-export type SharedSpaceAction =
-  | 'create'
-  | 'add_members'
-  | 'remove_members'
-  | 'leave'
-  | 'delete';
+export type SharedSpaceAction = 'create' | 'add_members' | 'remove_members' | 'leave' | 'delete';
 
 // The SQS message body (SPEC-056 FR-004). `actor` is advisory — the Lambda derives
 // the trusted actor from the verified `idToken` (cognito:username), never the body.

@@ -16,14 +16,10 @@ function toServiceError(err: unknown, fallback: string) {
 // app only ever asks for the user's own derived database — IAM/LF (SPEC-032) deny
 // anything else. A missing database is surfaced as a clean `NotFound` (drives the
 // SPEC-035 empty-state / SPEC-033 backfill case), never thrown.
-export async function getDatabase(
-  databaseName: string,
-): Promise<ServiceResult<{ name: string }>> {
+export async function getDatabase(databaseName: string): Promise<ServiceResult<{ name: string }>> {
   return withCredentialRetry(getGlueClient, async (client) => {
     try {
-      const response = await client.send(
-        new GetDatabaseCommand({ Name: databaseName }),
-      );
+      const response = await client.send(new GetDatabaseCommand({ Name: databaseName }));
       return {
         success: true,
         data: { name: response.Database?.Name ?? databaseName },
@@ -48,9 +44,7 @@ export async function getDatabase(
 // GetTables past the page cap. A not-yet-created database (the user hasn't run any
 // DDL) is an empty schema, not an error. AccessDenied and other failures map to a
 // clean ServiceResult error.
-export async function listTables(
-  databaseName: string,
-): Promise<ServiceResult<GlueTableSummary[]>> {
+export async function listTables(databaseName: string): Promise<ServiceResult<GlueTableSummary[]>> {
   return withCredentialRetry(getGlueClient, async (client) => {
     try {
       const tables: GlueTableSummary[] = [];
@@ -60,7 +54,7 @@ export async function listTables(
           new GetTablesCommand({
             DatabaseName: databaseName,
             NextToken: nextToken,
-          }),
+          })
         );
         for (const t of response.TableList ?? []) {
           tables.push({

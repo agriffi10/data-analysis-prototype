@@ -47,16 +47,16 @@ function triggerBrowserDownload(url: string): void {
 
 type Props = {
   bucket: string;
-  prefix?: string;     // initial prefix; browser starts here on mount
+  prefix?: string; // initial prefix; browser starts here on mount
   rootPrefix?: string; // navigation floor; defaults to prefix prop value
-  rootLabel?: string;  // label for the root crumb; hides the raw prefix segment
-                       // (e.g. "My Files" instead of the username) — SPEC-013
-  markerKey?: string;  // exact key hidden from the listing — the prefix marker
-                       // (SPEC-014 FR-002)
-  writable?: boolean;  // show upload + create-folder controls (SPEC-016). Off in
-                       // the dev-unauth path (no scoped write credentials).
-  username?: string;   // authenticated username — required for delete's marker
-                       // guard (SPEC-018). Present only in the authenticated flow.
+  rootLabel?: string; // label for the root crumb; hides the raw prefix segment
+  // (e.g. "My Files" instead of the username) — SPEC-013
+  markerKey?: string; // exact key hidden from the listing — the prefix marker
+  // (SPEC-014 FR-002)
+  writable?: boolean; // show upload + create-folder controls (SPEC-016). Off in
+  // the dev-unauth path (no scoped write credentials).
+  username?: string; // authenticated username — required for delete's marker
+  // guard (SPEC-018). Present only in the authenticated flow.
 };
 
 type BreadcrumbItem = {
@@ -66,11 +66,7 @@ type BreadcrumbItem = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function buildBreadcrumbs(
-  prefix: string | undefined,
-  rootPrefix: string,
-  rootLabel?: string,
-): BreadcrumbItem[] {
+function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string, rootLabel?: string): BreadcrumbItem[] {
   if (!rootPrefix) {
     // No root clamping — standard Home-rooted breadcrumb
     const crumbs: BreadcrumbItem[] = [{ label: 'Home', prefix: undefined }];
@@ -200,9 +196,7 @@ function FolderRow({
         aria-label={`Open folder ${folder.name}`}
       >
         <FolderIcon />
-        <span className="truncate text-base font-medium text-text">
-          {folder.name}
-        </span>
+        <span className="truncate text-base font-medium text-text">{folder.name}</span>
       </button>
       <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-3`}>—</span>
       <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`} />
@@ -262,16 +256,10 @@ function FileRow({
       )}
       <span className="flex min-w-0 flex-1 items-center gap-2.5 px-4">
         <FileIcon />
-        <span className="truncate text-base font-medium text-text">
-          {file.name}
-        </span>
+        <span className="truncate text-base font-medium text-text">{file.name}</span>
       </span>
-      <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-2`}>
-        {formatSize(file.size)}
-      </span>
-      <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`}>
-        {formatDate(file.lastModified)}
-      </span>
+      <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-2`}>{formatSize(file.size)}</span>
+      <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`}>{formatDate(file.lastModified)}</span>
       <span className={`${COL_TYPE} pr-4 text-right`}>
         <Badge>{fileExtension(file.name)}</Badge>
       </span>
@@ -321,8 +309,7 @@ function SelectionToolbar({
 }) {
   const { count, selected, isSelected, selectAll, clear } = useSelection();
 
-  const allSelected =
-    allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
+  const allSelected = allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
   const someSelected = allItems.some((i) => isSelected(itemId(i)));
 
   const active = count > 0;
@@ -336,9 +323,7 @@ function SelectionToolbar({
   return (
     <div
       className={`mb-4 flex h-11 items-center gap-3 rounded-lg border px-4 ${
-        active
-          ? 'border-accent bg-accent-soft'
-          : 'border-border bg-surface'
+        active ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
       }`}
     >
       <input
@@ -352,10 +337,7 @@ function SelectionToolbar({
         aria-label="Select all"
       />
 
-      <span
-        aria-live="polite"
-        className={`text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}
-      >
+      <span aria-live="polite" className={`text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}>
         {active ? `${count} selected` : 'Select all'}
       </span>
 
@@ -445,9 +427,7 @@ function FileBrowserContent({
 
   // Hide app-managed root folders (e.g. user_settings/) from the listing so they
   // never surface to users; everything downstream uses the filtered list.
-  const folders = allFolders.filter(
-    (f) => !isRootFolderNamed(f.prefix, rootPrefix, HIDDEN_BROWSER_FOLDERS),
-  );
+  const folders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, HIDDEN_BROWSER_FOLDERS));
 
   // Create-folder (SPEC-016) scoped to the folder currently being viewed. File
   // uploads are now owned by the SPEC-020 queue, so useFileUpload is used here
@@ -570,10 +550,8 @@ function FileBrowserContent({
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
-  const isEmpty =
-    !isLoading && error === null && files.length === 0 && folders.length === 0;
-  const hasContent =
-    !isLoading && error === null && (files.length > 0 || folders.length > 0);
+  const isEmpty = !isLoading && error === null && files.length === 0 && folders.length === 0;
+  const hasContent = !isLoading && error === null && (files.length > 0 || folders.length > 0);
 
   // Every selectable row in the current view, for the header "select all".
   const allItems: SelectableItem[] = [
@@ -598,10 +576,7 @@ function FileBrowserContent({
                     </span>
                   )}
                   {isLast ? (
-                    <span
-                      aria-current="page"
-                      className="max-w-[200px] truncate font-semibold text-text"
-                    >
+                    <span aria-current="page" className="max-w-[200px] truncate font-semibold text-text">
                       {crumb.label}
                     </span>
                   ) : (
@@ -628,11 +603,7 @@ function FileBrowserContent({
             >
               New folder
             </Button>
-            <Button
-              variant="primary"
-              className="flex-shrink-0"
-              onClick={() => setUploadOpen(true)}
-            >
+            <Button variant="primary" className="flex-shrink-0" onClick={() => setUploadOpen(true)}>
               Upload
             </Button>
           </>
@@ -673,11 +644,7 @@ function FileBrowserContent({
 
           {/* Add-files drawer (SPEC-020) — enqueues onto the upload queue, then
               closes so the non-blocking queue panel takes over. */}
-          <UploadDrawer
-            open={uploadOpen}
-            onClose={() => setUploadOpen(false)}
-            destinationLabel={destinationLabel}
-          >
+          <UploadDrawer open={uploadOpen} onClose={() => setUploadOpen(false)} destinationLabel={destinationLabel}>
             <UploadDropzone
               onFiles={(files) => {
                 enqueue(files);
@@ -690,11 +657,7 @@ function FileBrowserContent({
 
       {/* Download error (SPEC-015) — dismissible, non-blocking */}
       {downloadError && (
-        <Banner
-          variant="danger"
-          onDismiss={() => setDownloadError(null)}
-          className="mb-4"
-        >
+        <Banner variant="danger" onDismiss={() => setDownloadError(null)} className="mb-4">
           {downloadError}
         </Banner>
       )}
@@ -814,29 +777,20 @@ function FileBrowserContent({
           onRequestCopy={() => setCopying([...selection.selected.values()])}
           onRequestRename={handleRequestRename}
           onRequestDownload={handleRequestDownload}
-          isBusy={
-            del.isDeleting || move.isBusy || copy.isBusy || downloadingKey !== null
-          }
+          isBusy={del.isDeleting || move.isBusy || copy.isBusy || downloadingKey !== null}
         />
       )}
 
       {/* Loading */}
       {isLoading && (
-        <div
-          role="status"
-          aria-label="Loading"
-          className="flex items-center justify-center py-16 text-sm text-text-3"
-        >
+        <div role="status" aria-label="Loading" className="flex items-center justify-center py-16 text-sm text-text-3">
           <span>Loading…</span>
         </div>
       )}
 
       {/* Error */}
       {!isLoading && error !== null && (
-        <div
-          role="alert"
-          className="rounded-lg border border-danger-soft bg-danger-soft p-4 text-danger"
-        >
+        <div role="alert" className="rounded-lg border border-danger-soft bg-danger-soft p-4 text-danger">
           <p className="font-medium">Failed to load files</p>
           <p className="mt-1 text-sm">{error}</p>
         </div>
@@ -859,9 +813,7 @@ function FileBrowserContent({
               d="M4 12a4 4 0 014-4h7.172a2 2 0 011.414.586l2.828 2.828A2 2 0 0020.828 12H32a4 4 0 014 4v12a4 4 0 01-4 4H8a4 4 0 01-4-4V12z"
             />
           </svg>
-          <p className="mt-4 text-xl font-semibold text-text">
-            This folder is empty
-          </p>
+          <p className="mt-4 text-xl font-semibold text-text">This folder is empty</p>
           {writable && (
             <p className="mx-auto mt-2 max-w-xs text-sm text-text-2">
               Upload a file or create a folder to get started.
@@ -888,35 +840,31 @@ function FileBrowserContent({
             <span className={`${COL_ACTIONS} pr-4`} />
           </div>
           <ul aria-label="File list">
-          {folders.map((folder) => (
-            <FolderRow
-              key={folder.prefix}
-              folder={folder}
-              onClick={() => setPrefix(folder.prefix)}
-              onDetails={setDetailsFolder}
-              selectable={canModify}
-              isSelected={selection.isSelected(folder.prefix)}
-              onToggleSelect={() =>
-                selection.toggle({ type: 'folder', prefix: folder.prefix })
-              }
-            />
-          ))}
-          {files.map((file) => (
-            <FileRow
-              key={file.key}
-              file={file}
-              // Read-only browse has no selection toolbar, so keep a per-row
-              // Download there; the authenticated flow downloads from the toolbar.
-              onDownload={canModify ? undefined : handleDownload}
-              onDetails={setDetailsFile}
-              isDownloading={downloadingKey === file.key}
-              selectable={canModify}
-              isSelected={selection.isSelected(file.key)}
-              onToggleSelect={() =>
-                selection.toggle({ type: 'file', key: file.key })
-              }
-            />
-          ))}
+            {folders.map((folder) => (
+              <FolderRow
+                key={folder.prefix}
+                folder={folder}
+                onClick={() => setPrefix(folder.prefix)}
+                onDetails={setDetailsFolder}
+                selectable={canModify}
+                isSelected={selection.isSelected(folder.prefix)}
+                onToggleSelect={() => selection.toggle({ type: 'folder', prefix: folder.prefix })}
+              />
+            ))}
+            {files.map((file) => (
+              <FileRow
+                key={file.key}
+                file={file}
+                // Read-only browse has no selection toolbar, so keep a per-row
+                // Download there; the authenticated flow downloads from the toolbar.
+                onDownload={canModify ? undefined : handleDownload}
+                onDetails={setDetailsFile}
+                isDownloading={downloadingKey === file.key}
+                selectable={canModify}
+                isSelected={selection.isSelected(file.key)}
+                onToggleSelect={() => selection.toggle({ type: 'file', key: file.key })}
+              />
+            ))}
           </ul>
         </div>
       )}
@@ -1049,9 +997,7 @@ export function FileBrowser({
   username,
 }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
-  const [prefix, setPrefix] = useState<string | undefined>(
-    prefixProp || undefined,
-  );
+  const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
 
   return (
     <SelectionProvider prefix={prefix}>

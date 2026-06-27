@@ -10,10 +10,7 @@ import { useManageMembers } from './useManageMembers';
 import { ManageMembersDrawer } from './ManageMembersDrawer';
 import { RefreshConnectionsButton } from './RefreshConnectionsButton';
 import { connectionStatusLabel } from './connectionStatus';
-import type {
-  SharedConnectionRole,
-  SharedConnectionStatus,
-} from './sharedSpaces.types';
+import type { SharedConnectionRole, SharedConnectionStatus } from './sharedSpaces.types';
 
 // One renderable shared-connection row, normalized from the cache (via
 // useConnections) and the local optimistic pending list (SPEC-051 create).
@@ -36,11 +33,9 @@ export function ConnectionsPage() {
   const { user } = useAuth();
   const username = user?.username ?? null;
 
-  const { connections, isLoading, error, refresh, isRefreshing } =
-    useConnections(username);
+  const { connections, isLoading, error, refresh, isRefreshing } = useConnections(username);
   const { create, busy, pending } = useCreateSharedConnection(username);
-  const { addMembers, removeMembers, busy: membersBusy } =
-    useManageMembers(username);
+  const { addMembers, removeMembers, busy: membersBusy } = useManageMembers(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [managing, setManaging] = useState<ConnectionRow | null>(null);
@@ -68,9 +63,7 @@ export function ConnectionsPage() {
       .map((p) => ({ name: p.name, role: p.role, status: p.status }));
     return [...fromCache, ...fromPending]
       .filter((r) => !dismissed.has(r.name))
-      .map((r) =>
-        retrying.has(r.name) ? { ...r, status: 'provisioning' as const } : r,
-      )
+      .map((r) => (retrying.has(r.name) ? { ...r, status: 'provisioning' as const } : r))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [connections, pending, dismissed, retrying]);
 
@@ -143,15 +136,11 @@ export function ConnectionsPage() {
           <div>
             <h1 className="text-lg font-semibold text-text">Connections</h1>
             <p className="mt-1 text-sm text-text-2">
-              Shared spaces you own or belong to. Everyone with access sees the
-              same files and tables.
+              Shared spaces you own or belong to. Everyone with access sees the same files and tables.
             </p>
           </div>
           <div className="flex flex-none items-center gap-2">
-            <RefreshConnectionsButton
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-            />
+            <RefreshConnectionsButton refreshing={isRefreshing} onRefresh={handleRefresh} />
             <Button variant="primary" onClick={() => setDialogOpen(true)}>
               New shared connection
             </Button>
@@ -178,11 +167,7 @@ export function ConnectionsPage() {
               <ConnectionRowItem
                 key={row.name}
                 row={row}
-                onManage={
-                  row.role === 'owner' && row.status === 'active'
-                    ? () => setManaging(row)
-                    : undefined
-                }
+                onManage={row.role === 'owner' && row.status === 'active' ? () => setManaging(row) : undefined}
                 onDismiss={() => handleDismiss(row.name)}
                 onRetry={() => void handleRetry(row.name)}
               />
@@ -192,11 +177,7 @@ export function ConnectionsPage() {
       </div>
 
       {dialogOpen && (
-        <CreateSharedConnectionDialog
-          busy={busy}
-          onCreate={handleCreate}
-          onCancel={() => setDialogOpen(false)}
-        />
+        <CreateSharedConnectionDialog busy={busy} onCreate={handleCreate} onCancel={() => setDialogOpen(false)} />
       )}
       {managing && username && (
         <ManageMembersDrawer
@@ -208,9 +189,7 @@ export function ConnectionsPage() {
           unavailable={managing.members === undefined}
           busy={membersBusy}
           onAddMembers={(toAdd) => void handleAddMembers(managing.name, toAdd)}
-          onRemoveMembers={(toRemove) =>
-            void handleRemoveMembers(managing.name, toRemove)
-          }
+          onRemoveMembers={(toRemove) => void handleRemoveMembers(managing.name, toRemove)}
         />
       )}
       {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
@@ -233,9 +212,7 @@ function ConnectionRowItem({
   return (
     <li className="flex flex-col gap-2 px-4 py-3">
       <div className="flex items-center justify-between gap-3">
-        <span className="min-w-0 truncate font-mono text-sm font-medium text-text">
-          {row.name}
-        </span>
+        <span className="min-w-0 truncate font-mono text-sm font-medium text-text">{row.name}</span>
         <div className="flex flex-none items-center gap-2">
           <RolePill role={row.role} />
           <StatusBadge status={row.status} />
@@ -248,9 +225,7 @@ function ConnectionRowItem({
       </div>
       {row.status === 'failed' && (
         <div className="flex items-center justify-between gap-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">
-          <span className="min-w-0 flex-1">
-            {row.reason ?? 'Provisioning failed.'}
-          </span>
+          <span className="min-w-0 flex-1">{row.reason ?? 'Provisioning failed.'}</span>
           <div className="flex flex-none items-center gap-2">
             <button
               type="button"

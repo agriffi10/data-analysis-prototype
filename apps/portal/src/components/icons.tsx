@@ -28,14 +28,7 @@ export function UploadIcon({ className }: IconProps) {
 // drawer). Outlined.
 export function DocumentIcon({ className }: IconProps) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className}
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden="true">
       <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
       <path d="M9 4v5h6" />
     </svg>
@@ -44,10 +37,7 @@ export function DocumentIcon({ className }: IconProps) {
 
 // Folder. Outlined by default (nav); `filled` renders the solid treatment the
 // landing page uses.
-export function FolderIcon({
-  className,
-  filled = false,
-}: IconProps & { filled?: boolean }) {
+export function FolderIcon({ className, filled = false }: IconProps & { filled?: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"

@@ -29,9 +29,6 @@ export function useSchema(databaseName: string | null) {
 
 // FR-006: refresh a database's schema after table DDL runs through runQuery.
 // Exported (not a method) so it can be called with any QueryClient and unit-tested.
-export async function invalidateSchema(
-  client: QueryClient,
-  databaseName: string,
-): Promise<void> {
+export async function invalidateSchema(client: QueryClient, databaseName: string): Promise<void> {
   await client.invalidateQueries({ queryKey: queryKeys.schema(databaseName) });
 }

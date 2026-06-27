@@ -17,15 +17,7 @@ const existing: SavedQuery[] = [
 function setup(over: Partial<Parameters<typeof SaveQueryDialog>[0]> = {}) {
   const onSave = vi.fn();
   const onCancel = vi.fn();
-  render(
-    <SaveQueryDialog
-      initialName=""
-      savedQueries={existing}
-      onSave={onSave}
-      onCancel={onCancel}
-      {...over}
-    />,
-  );
+  render(<SaveQueryDialog initialName="" savedQueries={existing} onSave={onSave} onCancel={onCancel} {...over} />);
   return { onSave, onCancel };
 }
 
@@ -64,9 +56,7 @@ describe('SaveQueryDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     // Overwrite-confirm step, not yet saved.
-    expect(
-      screen.getByRole('alertdialog', { name: /confirm replace saved query/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', { name: /confirm replace saved query/i })).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace' }));

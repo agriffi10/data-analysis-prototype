@@ -22,10 +22,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div>
         {label && (
-          <label
-            htmlFor={inputId}
-            className="mb-1.5 block text-sm font-medium text-text"
-          >
+          <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-text">
             {label}
           </label>
         )}
@@ -34,10 +31,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           id={inputId}
           className={cx(
             BASE,
-            hasError
-              ? 'border-danger focus-visible:ring-danger'
-              : 'border-border focus-visible:ring-accent',
-            className,
+            hasError ? 'border-danger focus-visible:ring-danger' : 'border-border focus-visible:ring-accent',
+            className
           )}
           aria-invalid={hasError || undefined}
           aria-describedby={cx(describedBy, hasError ? errorId : undefined) || undefined}
@@ -50,7 +45,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
       </div>
     );
-  },
+  }
 );
 
 Input.displayName = 'Input';

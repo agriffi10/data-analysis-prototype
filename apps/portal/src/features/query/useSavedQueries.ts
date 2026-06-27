@@ -1,9 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  getSavedQueries,
-  upsertSavedQuery,
-  removeSavedQuery,
-} from './savedQueries.service';
+import { getSavedQueries, upsertSavedQuery, removeSavedQuery } from './savedQueries.service';
 import { queryKeys } from './queryKeys';
 import type { SavedQueriesStore, SavedQuery } from './query.types';
 

@@ -41,8 +41,7 @@ export function QueryStatusBar({
     };
   }, [isInFlight]);
 
-  const elapsedMs =
-    isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
+  const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
 
   return (
@@ -62,13 +61,9 @@ export function QueryStatusBar({
           </span>
           <span className="text-text-2">
             elapsed {formatDurationMs(elapsedMs)}
-            {status?.dataScannedBytes !== undefined &&
-              ` · ${formatBytes(status.dataScannedBytes)} scanned`}
+            {status?.dataScannedBytes !== undefined && ` · ${formatBytes(status.dataScannedBytes)} scanned`}
           </span>
-          <span
-            className="h-1.5 w-40 overflow-hidden rounded-full bg-accent-soft"
-            aria-hidden="true"
-          >
+          <span className="h-1.5 w-40 overflow-hidden rounded-full bg-accent-soft" aria-hidden="true">
             <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" />
           </span>
         </>
@@ -82,8 +77,7 @@ export function QueryStatusBar({
           </span>
           <span className="text-text-2">
             {rowCount ?? 0}
-            {hasMoreRows ? '+' : ''} rows ·{' '}
-            {formatBytes(status?.dataScannedBytes)} scanned ·{' '}
+            {hasMoreRows ? '+' : ''} rows · {formatBytes(status?.dataScannedBytes)} scanned ·{' '}
             {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
           {canSaveResults && (

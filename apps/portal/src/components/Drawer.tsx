@@ -50,10 +50,7 @@ export function Drawer({
         allowOutsideClick: true,
       }}
     >
-      <div
-        className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-sm"
-        onClick={onClose}
-      >
+      <div className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-sm" onClick={onClose}>
         <aside
           ref={panelRef}
           role="dialog"
@@ -67,10 +64,7 @@ export function Drawer({
             <h2 className="text-md font-semibold text-text">{title}</h2>
             {headerAccessory}
             <div className="flex-1" />
-            <IconButton
-              label={closeLabel ?? `Close ${title.toLowerCase()}`}
-              onClick={onClose}
-            >
+            <IconButton label={closeLabel ?? `Close ${title.toLowerCase()}`} onClick={onClose}>
               <svg
                 viewBox="0 0 16 16"
                 fill="none"
@@ -84,14 +78,7 @@ export function Drawer({
             </IconButton>
           </div>
 
-          <div
-            className={cx(
-              'flex flex-1 flex-col overflow-y-auto p-5',
-              bodyClassName,
-            )}
-          >
-            {children}
-          </div>
+          <div className={cx('flex flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>{children}</div>
 
           {footer}
         </aside>

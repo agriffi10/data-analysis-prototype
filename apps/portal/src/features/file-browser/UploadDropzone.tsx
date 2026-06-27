@@ -17,9 +17,7 @@ export function UploadDropzone({ onFiles, disabled }: Props) {
     if (files && files.length > 0) onFiles(Array.from(files));
   }
 
-  const containerState = dragOver
-    ? 'border-accent bg-accent-soft'
-    : 'border-border bg-surface-2';
+  const containerState = dragOver ? 'border-accent bg-accent-soft' : 'border-border bg-surface-2';
   const iconColor = dragOver ? 'text-accent' : 'text-text-3';
 
   return (
@@ -62,9 +60,7 @@ export function UploadDropzone({ onFiles, disabled }: Props) {
           choose files
         </button>
       </p>
-      <p className="mt-2 text-xs text-text-3">
-        Up to 5 GB per file · multipart handled automatically
-      </p>
+      <p className="mt-2 text-xs text-text-3">Up to 5 GB per file · multipart handled automatically</p>
       <input
         ref={inputRef}
         type="file"

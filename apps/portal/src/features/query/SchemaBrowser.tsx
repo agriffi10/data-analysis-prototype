@@ -19,8 +19,7 @@ export type TableActions = {
 
 const railClass =
   'hidden w-[248px] flex-shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex';
-const labelClass =
-  'px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3';
+const labelClass = 'px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3';
 
 function DatabaseIcon() {
   return (
@@ -87,7 +86,7 @@ function DatabaseList({
                   : active
                     ? 'bg-accent-soft text-accent-text'
                     : 'text-text-2 hover:bg-surface-2 hover:text-text',
-                usable && single && 'cursor-default',
+                usable && single && 'cursor-default'
               )}
             >
               <DatabaseIcon />
@@ -120,11 +119,7 @@ function Rail({
   return (
     <aside className={railClass} aria-label="Schema browser">
       <p className={labelClass}>Database</p>
-      <DatabaseList
-        connections={connections}
-        activeDatabase={activeDatabase}
-        onSelectDatabase={onSelectDatabase}
-      />
+      <DatabaseList connections={connections} activeDatabase={activeDatabase} onSelectDatabase={onSelectDatabase} />
       {children}
     </aside>
   );
@@ -171,8 +166,8 @@ export function SchemaBrowser({
     const message = (error as Error)?.message ?? '';
     body = /does not exist/i.test(message) ? (
       <p role="status" className="px-3 text-sm leading-relaxed text-text-3">
-        Setting up your database&hellip; This is automatic right after sign-up. If
-        it persists, contact an administrator.
+        Setting up your database&hellip; This is automatic right after sign-up. If it persists, contact an
+        administrator.
       </p>
     ) : (
       <p role="alert" className="px-3 text-sm leading-relaxed text-danger">
@@ -203,11 +198,7 @@ export function SchemaBrowser({
   }
 
   return (
-    <Rail
-      connections={connections}
-      activeDatabase={database}
-      onSelectDatabase={onSelectDatabase}
-    >
+    <Rail connections={connections} activeDatabase={database} onSelectDatabase={onSelectDatabase}>
       <p className={labelClass}>Tables</p>
       {body}
     </Rail>
@@ -262,10 +253,7 @@ function TableRow({
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
-            className={cx(
-              'ml-auto h-[13px] w-[13px] flex-none text-text-3 transition-transform',
-              open && 'rotate-90',
-            )}
+            className={cx('ml-auto h-[13px] w-[13px] flex-none text-text-3 transition-transform', open && 'rotate-90')}
             aria-hidden="true"
           >
             <path d="m9 6 6 6-6 6" />
@@ -317,9 +305,7 @@ function TableRow({
                 className="flex items-baseline gap-2 rounded-sm px-2 py-[3px] text-left text-sm text-text-2 hover:bg-surface-2 hover:text-text"
               >
                 <span className="min-w-0 truncate">{column.name}</span>
-                <span className="ml-auto flex-none font-mono text-xs text-text-3">
-                  {column.type}
-                </span>
+                <span className="ml-auto flex-none font-mono text-xs text-text-3">{column.type}</span>
               </button>
             ))
           )}

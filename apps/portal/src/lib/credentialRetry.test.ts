@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  isExpiryError,
-  withCredentialRetry,
-} from './credentialRetry';
+import { isExpiryError, withCredentialRetry } from './credentialRetry';
 import type { ServiceResult } from '../types/service.types';
 
 describe('isExpiryError', () => {

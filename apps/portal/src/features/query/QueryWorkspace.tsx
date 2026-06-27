@@ -41,19 +41,11 @@ import { CloseTabDialog } from './CloseTabDialog';
 import { TabLimitDialog } from './TabLimitDialog';
 import { SaveQueryDialog } from './SaveQueryDialog';
 import type { SqlEditorHandle } from './SqlEditor';
-import type {
-  QueryHistoryEntry,
-  QueryStatus,
-  QueryTab,
-  SavedQuery,
-  GlueTableSummary,
-} from './query.types';
+import type { QueryHistoryEntry, QueryStatus, QueryTab, SavedQuery, GlueTableSummary } from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
-const SqlEditor = lazy(() =>
-  import('./SqlEditor').then((m) => ({ default: m.SqlEditor })),
-);
+const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 
 // SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). `submittedSql` is kept so the background finalizer can decide
@@ -109,16 +101,16 @@ export function QueryWorkspace() {
   const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
   // Save-results copy stays within it.
-  const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as
-    | string
-    | undefined;
+  const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined;
 
   // SPEC-047: the workspace targets one active database for all tabs (persisted,
   // default = personal), chosen from the connections the user can query. The
   // shared-spaces arc extends `useConnections` without touching this wiring.
   const { connections } = useConnections(username || null);
-  const { activeDatabase, setActiveDatabase, fellBack, dismissFellBack } =
-    useActiveDatabase(username || null, connections);
+  const { activeDatabase, setActiveDatabase, fellBack, dismissFellBack } = useActiveDatabase(
+    username || null,
+    connections
+  );
   const database = activeDatabase;
 
   const tabs = useQueryTabs(username);
@@ -126,9 +118,7 @@ export function QueryWorkspace() {
 
   // Per-tab run state, keyed by tab id (in-memory for the session).
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
-  const [statuses, setStatuses] = useState<Record<string, QueryStatus | undefined>>(
-    {},
-  );
+  const [statuses, setStatuses] = useState<Record<string, QueryStatus | undefined>>({});
   const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
@@ -142,9 +132,7 @@ export function QueryWorkspace() {
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<GlueTableSummary | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
-  const [toast, setToast] = useState<
-    (ToastState & { action?: { label: string; onClick: () => void } }) | null
-  >(null);
+  const [toast, setToast] = useState<(ToastState & { action?: { label: string; onClick: () => void } }) | null>(null);
   // SPEC-048: Create view.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewInFlight, setCreateViewInFlight] = useState(false);
@@ -173,11 +161,9 @@ export function QueryWorkspace() {
         const sq = t.savedQueryId ? savedById.get(t.savedQueryId) : undefined;
         return sq !== undefined && !sameSql(sq.sql, t.sql);
       })
-      .map((t) => t.id),
+      .map((t) => t.id)
   );
-  const activeLinkedSaved = activeTab.savedQueryId
-    ? savedById.get(activeTab.savedQueryId)
-    : undefined;
+  const activeLinkedSaved = activeTab.savedQueryId ? savedById.get(activeTab.savedQueryId) : undefined;
 
   const openHistory = () => {
     setSavedOpen(false);
@@ -192,8 +178,7 @@ export function QueryWorkspace() {
   const activeRun = runs[activeTabId];
   const activeExecutionId = activeRun?.executionId ?? null;
   const activeStatus = statuses[activeTabId];
-  const activeIsInFlight =
-    !!activeRun && (!activeStatus || !isTerminalState(activeStatus.state));
+  const activeIsInFlight = !!activeRun && (!activeStatus || !isTerminalState(activeStatus.state));
   const succeeded = activeStatus?.state === 'SUCCEEDED';
 
   // Results only fetch once the active query has succeeded; one page (≤20 rows)
@@ -201,12 +186,9 @@ export function QueryWorkspace() {
   const results = useQueryResults(succeeded ? activeExecutionId : null);
 
   // Stable callbacks for the per-tab pollers.
-  const handleStatus = useCallback(
-    (tabId: string, status: QueryStatus | undefined) => {
-      setStatuses((s) => (s[tabId] === status ? s : { ...s, [tabId]: status }));
-    },
-    [],
-  );
+  const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
+    setStatuses((s) => (s[tabId] === status ? s : { ...s, [tabId]: status }));
+  }, []);
   const handleFinalize = useCallback(
     (executionId: string, status: QueryStatus, sql: string) => {
       updateEntry({
@@ -222,7 +204,7 @@ export function QueryWorkspace() {
         void invalidateSchema(queryClient, database);
       }
     },
-    [updateEntry, queryClient, database],
+    [updateEntry, queryClient, database]
   );
 
   // Submit a SQL string into a tab (defaults to the active tab). An explicit
@@ -231,9 +213,7 @@ export function QueryWorkspace() {
   const submit = (sqlText: string, tabId: string = activeTabId) => {
     if (!sqlText.trim() || !database) return;
     const existing = runs[tabId];
-    const inFlight =
-      !!existing &&
-      (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
+    const inFlight = !!existing && (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
     if (inFlight) return;
 
     // SPEC-043 FR-009: a run from a tab linked to a saved query records that
@@ -300,12 +280,7 @@ export function QueryWorkspace() {
   // rows, independent of how many pages the results table loaded. The destination
   // listing is invalidated so the new file appears if the user browses there, and a
   // success toast offers a "View in Files" deep-link (SPEC-044).
-  const doSaveCopy = (args: {
-    sourceKey: string;
-    destPrefix: string;
-    filename: string;
-    overwrite: boolean;
-  }) => {
+  const doSaveCopy = (args: { sourceKey: string; destPrefix: string; filename: string; overwrite: boolean }) => {
     if (!userSpaceBucket) return;
     const destKey = `${args.destPrefix}${args.filename}`;
     setSaveInFlight(true);
@@ -415,13 +390,7 @@ export function QueryWorkspace() {
   // the saved query to write into (an existing id) or null to create a new one;
   // either way the active tab is (re)linked + relabelled and its dirty marker
   // clears (the saved sql now matches the tab sql).
-  const handleSaveConfirm = ({
-    name,
-    targetId,
-  }: {
-    name: string;
-    targetId: string | null;
-  }) => {
+  const handleSaveConfirm = ({ name, targetId }: { name: string; targetId: string | null }) => {
     const now = new Date().toISOString();
     const existing = targetId ? savedById.get(targetId) : undefined;
     const query: SavedQuery = {
@@ -452,9 +421,7 @@ export function QueryWorkspace() {
   // FR-007: delete a saved query (JSON rewrite, never an S3 delete) and unlink any
   // open tab pointing at it (the tab keeps its SQL; a later Save creates new).
   const handleDeleteSaved = (id: string) => {
-    saved
-      .remove(id)
-      .catch((e) => console.warn('[saved-queries] delete failed', e));
+    saved.remove(id).catch((e) => console.warn('[saved-queries] delete failed', e));
     tabs.unlinkSavedQuery(id);
   };
 
@@ -608,9 +575,7 @@ export function QueryWorkspace() {
 
   const errorMessage =
     runErrors[activeTabId] ??
-    (activeStatus?.state === 'FAILED'
-      ? (activeStatus.stateChangeReason ?? 'The query failed.')
-      : null);
+    (activeStatus?.state === 'FAILED' ? (activeStatus.stateChangeReason ?? 'The query failed.') : null);
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !!database && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
@@ -618,8 +583,7 @@ export function QueryWorkspace() {
 
   // SPEC-049: Save results is offered only for a SUCCEEDED, row-returning query
   // (a result object with columns) — not a DDL / no-result statement.
-  const canSaveResults =
-    succeeded && !!activeStatus?.outputLocation && results.columns.length > 0;
+  const canSaveResults = succeeded && !!activeStatus?.outputLocation && results.columns.length > 0;
 
   // SPEC-049: default file name — the saved query's name when the tab is linked,
   // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
@@ -678,92 +642,56 @@ export function QueryWorkspace() {
           aria-labelledby={`query-tab-${activeTabId}`}
           className="flex min-w-0 flex-1 flex-col"
         >
-        {/* SPEC-047 FR-002: a persisted database that's no longer available resets
+          {/* SPEC-047 FR-002: a persisted database that's no longer available resets
             to the personal workspace — surfaced non-blockingly here. */}
-        {fellBack && (
-          <div className="px-5 pt-4">
-            <Banner
-              variant="info"
-              role="status"
-              title="Switched to your workspace"
-              onDismiss={dismissFellBack}
-            >
-              The database you were querying is no longer available, so we switched
-              back to your personal workspace.
-            </Banner>
-          </div>
-        )}
-        <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
-          <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-sm text-text-2">
-            <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
-            querying <code className="font-mono text-text">{database}</code>
-          </span>
-          <div className="flex-1" />
-          <Button
-            variant="ghost"
-            onClick={() => setClearOpen(true)}
-            disabled={!canClear}
-            aria-label="Clear query"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M3 6h18" />
-              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            </svg>
-            Clear
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => setSaveOpen(true)}
-            disabled={!canSave}
-            aria-label="Save query"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-              <path d="M9 4v5h6" />
-              <path d="M8 21v-7h8v7" />
-            </svg>
-            Save
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => setCreateViewOpen(true)}
-            disabled={!canSave}
-            aria-label="Create view"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            Create view
-          </Button>
-          {activeIsInFlight ? (
+          {fellBack && (
+            <div className="px-5 pt-4">
+              <Banner variant="info" role="status" title="Switched to your workspace" onDismiss={dismissFellBack}>
+                The database you were querying is no longer available, so we switched back to your personal workspace.
+              </Banner>
+            </div>
+          )}
+          <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
+            <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-sm text-text-2">
+              <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
+              querying <code className="font-mono text-text">{database}</code>
+            </span>
+            <div className="flex-1" />
+            <Button variant="ghost" onClick={() => setClearOpen(true)} disabled={!canClear} aria-label="Clear query">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              </svg>
+              Clear
+            </Button>
+            <Button variant="ghost" onClick={() => setSaveOpen(true)} disabled={!canSave} aria-label="Save query">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+                <path d="M9 4v5h6" />
+                <path d="M8 21v-7h8v7" />
+              </svg>
+              Save
+            </Button>
             <Button
               variant="ghost"
-              onClick={handleStop}
-              aria-label="Stop the running query"
-              className="text-danger hover:bg-danger-soft hover:text-danger"
+              onClick={() => setCreateViewOpen(true)}
+              disabled={!canSave}
+              aria-label="Create view"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -773,99 +701,101 @@ export function QueryWorkspace() {
                 className="h-4 w-4"
                 aria-hidden="true"
               >
-                <rect x="6" y="6" width="12" height="12" rx="2" />
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
-              Stop
+              Create view
             </Button>
-          ) : (
-            <Button
-              variant="primary"
-              onClick={handleRun}
-              disabled={!canRun}
-              aria-label="Run query"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                stroke="none"
-                className="h-4 w-4"
-                aria-hidden="true"
+            {activeIsInFlight ? (
+              <Button
+                variant="ghost"
+                onClick={handleStop}
+                aria-label="Stop the running query"
+                className="text-danger hover:bg-danger-soft hover:text-danger"
               >
-                <path d="M7 5v14l11-7z" />
-              </svg>
-              Run
-            </Button>
-          )}
-        </div>
-
-        <div className="h-[260px] flex-none border-b border-border">
-          <Suspense
-            fallback={
-              <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
-                Loading editor&hellip;
-              </div>
-            }
-          >
-            <SqlEditor
-              ref={editorRef}
-              value={activeTab.sql}
-              onChange={tabs.setActiveSql}
-              onRun={handleRun}
-            />
-          </Suspense>
-        </div>
-
-        {activeExecutionId !== null && (
-          <QueryStatusBar
-            status={activeStatus}
-            isInFlight={activeIsInFlight}
-            startedAt={activeRun?.startedAt ?? null}
-            rowCount={succeeded ? results.loadedRowCount : undefined}
-            hasMoreRows={results.hasMoreServer}
-            canSaveResults={canSaveResults}
-            onSaveResults={() => setSaveResultsOpen(true)}
-          />
-        )}
-
-        {showError && (
-          <div className="px-5 pt-4">
-            <Banner
-              variant="danger"
-              title="Query failed."
-              onDismiss={() => {
-                setRunErrors((e) => ({ ...e, [activeTabId]: null }));
-                setDismissed((d) => ({ ...d, [activeTabId]: true }));
-              }}
-            >
-              <code className="font-mono text-xs">{errorMessage}</code>
-            </Banner>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+                Stop
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={handleRun} disabled={!canRun} aria-label="Run query">
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className="h-4 w-4" aria-hidden="true">
+                  <path d="M7 5v14l11-7z" />
+                </svg>
+                Run
+              </Button>
+            )}
           </div>
-        )}
 
-        <div className={cx('flex-1 overflow-auto px-5 py-4')}>
-          {succeeded ? (
-            <QueryResultsTable
-              columns={results.columns}
-              rows={results.rows}
-              pageIndex={results.pageIndex}
-              rangeStart={results.rangeStart}
-              rangeEnd={results.rangeEnd}
-              totalRowCount={results.totalRowCount}
-              hasPrev={results.hasPrev}
-              hasNext={results.hasNext}
-              isFetchingNext={results.isFetchingNext}
-              isLoading={results.isPending}
-              onPrev={results.goPrev}
-              onNext={results.goNext}
+          <div className="h-[260px] flex-none border-b border-border">
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
+                  Loading editor&hellip;
+                </div>
+              }
+            >
+              <SqlEditor ref={editorRef} value={activeTab.sql} onChange={tabs.setActiveSql} onRun={handleRun} />
+            </Suspense>
+          </div>
+
+          {activeExecutionId !== null && (
+            <QueryStatusBar
+              status={activeStatus}
+              isInFlight={activeIsInFlight}
+              startedAt={activeRun?.startedAt ?? null}
+              rowCount={succeeded ? results.loadedRowCount : undefined}
+              hasMoreRows={results.hasMoreServer}
+              canSaveResults={canSaveResults}
+              onSaveResults={() => setSaveResultsOpen(true)}
             />
-          ) : (
-            <p className="flex h-full items-center justify-center text-sm text-text-3">
-              {activeIsInFlight
-                ? 'Running your query…'
-                : 'Run a query to see results.'}
-            </p>
           )}
-        </div>
+
+          {showError && (
+            <div className="px-5 pt-4">
+              <Banner
+                variant="danger"
+                title="Query failed."
+                onDismiss={() => {
+                  setRunErrors((e) => ({ ...e, [activeTabId]: null }));
+                  setDismissed((d) => ({ ...d, [activeTabId]: true }));
+                }}
+              >
+                <code className="font-mono text-xs">{errorMessage}</code>
+              </Banner>
+            </div>
+          )}
+
+          <div className={cx('flex-1 overflow-auto px-5 py-4')}>
+            {succeeded ? (
+              <QueryResultsTable
+                columns={results.columns}
+                rows={results.rows}
+                pageIndex={results.pageIndex}
+                rangeStart={results.rangeStart}
+                rangeEnd={results.rangeEnd}
+                totalRowCount={results.totalRowCount}
+                hasPrev={results.hasPrev}
+                hasNext={results.hasNext}
+                isFetchingNext={results.isFetchingNext}
+                isLoading={results.isPending}
+                onPrev={results.goPrev}
+                onNext={results.goNext}
+              />
+            ) : (
+              <p className="flex h-full items-center justify-center text-sm text-text-3">
+                {activeIsInFlight ? 'Running your query…' : 'Run a query to see results.'}
+              </p>
+            )}
+          </div>
         </div>
       </main>
 
@@ -888,12 +818,7 @@ export function QueryWorkspace() {
         onDelete={handleDeleteSaved}
       />
 
-      {clearOpen && (
-        <ClearQueryDialog
-          onConfirm={handleClearConfirm}
-          onCancel={() => setClearOpen(false)}
-        />
-      )}
+      {clearOpen && <ClearQueryDialog onConfirm={handleClearConfirm} onCancel={() => setClearOpen(false)} />}
       {saveOpen && (
         <SaveQueryDialog
           initialName={activeLinkedSaved?.name ?? ''}
@@ -903,13 +828,7 @@ export function QueryWorkspace() {
           onCancel={() => setSaveOpen(false)}
         />
       )}
-      {closing && (
-        <CloseTabDialog
-          label={closing.label}
-          onConfirm={confirmClose}
-          onCancel={() => setClosing(null)}
-        />
-      )}
+      {closing && <CloseTabDialog label={closing.label} onConfirm={confirmClose} onCancel={() => setClosing(null)} />}
       {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
       {createViewOpen && (
         <CreateViewDialog
@@ -960,18 +879,12 @@ export function QueryWorkspace() {
           }}
         >
           <p className="mt-3 text-sm text-text-2">
-            A file named “{overwritePrompt.filename}” already exists in that folder.
-            Saving will replace it.
+            A file named “{overwritePrompt.filename}” already exists in that folder. Saving will replace it.
           </p>
         </ConfirmDialog>
       )}
       {toast && (
-        <Toast
-          variant={toast.variant}
-          message={toast.message}
-          action={toast.action}
-          onDismiss={() => setToast(null)}
-        />
+        <Toast variant={toast.variant} message={toast.message} action={toast.action} onDismiss={() => setToast(null)} />
       )}
     </div>
   );

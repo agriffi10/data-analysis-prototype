@@ -17,13 +17,7 @@ type Props = {
 // leading/trailing whitespace, no control chars). Modal; Escape cancels; the input
 // is prefilled with the current name and the Rename action is disabled until the
 // name is valid and changed.
-export function RenameDialog({
-  kind,
-  currentName,
-  isBusy = false,
-  onRename,
-  onCancel,
-}: Props) {
+export function RenameDialog({ kind, currentName, isBusy = false, onRename, onCancel }: Props) {
   const [name, setName] = useState(currentName);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -41,11 +35,7 @@ export function RenameDialog({
   }
 
   return (
-    <Modal
-      ariaLabel={`Rename ${kind}`}
-      dismissible={!isBusy}
-      onDismiss={onCancel}
-    >
+    <Modal ariaLabel={`Rename ${kind}`} dismissible={!isBusy} onDismiss={onCancel}>
       <div className="px-5 pb-4 pt-5">
         <h2 className="text-md font-semibold text-text">
           Rename {kind} “{currentName}”

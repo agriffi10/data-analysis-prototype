@@ -1,8 +1,5 @@
 import { describe, it, vi, beforeEach } from 'vitest';
-import {
-  expectNoA11yViolations,
-  COMPONENT_AXE_OPTIONS,
-} from '../../test/axe';
+import { expectNoA11yViolations, COMPONENT_AXE_OPTIONS } from '../../test/axe';
 import { CollisionPrompt } from './CollisionPrompt';
 import { DestinationPicker } from './DestinationPicker';
 import { UploadQueuePanel } from './UploadQueuePanel';
@@ -78,14 +75,8 @@ describe('UploadQueuePanel accessibility (every state)', () => {
 describe('CollisionPrompt accessibility', () => {
   it('has no violations', async () => {
     await expectNoA11yViolations(
-      <CollisionPrompt
-        kind="file"
-        name="report.pdf"
-        onOverwrite={noop}
-        onRename={noop}
-        onCancel={noop}
-      />,
-      COMPONENT_AXE_OPTIONS,
+      <CollisionPrompt kind="file" name="report.pdf" onOverwrite={noop} onRename={noop} onCancel={noop} />,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });
@@ -104,7 +95,7 @@ describe('DestinationPicker accessibility', () => {
         onConfirm={noop}
         onCancel={noop}
       />,
-      COMPONENT_AXE_OPTIONS,
+      COMPONENT_AXE_OPTIONS
     );
   });
 });

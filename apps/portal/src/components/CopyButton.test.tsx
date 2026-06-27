@@ -16,9 +16,7 @@ beforeEach(() => {
 describe('CopyButton', () => {
   it('has a stable accessible name woven from the label', () => {
     render(<CopyButton value="s3://b/k" label="full cloud path" />);
-    expect(
-      screen.getByRole('button', { name: /copy full cloud path/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy full cloud path/i })).toBeInTheDocument();
   });
 
   it('writes the value to the clipboard and announces success', async () => {
@@ -27,9 +25,7 @@ describe('CopyButton', () => {
     fireEvent.click(screen.getByRole('button', { name: /copy path/i }));
 
     expect(writeText).toHaveBeenCalledWith('s3://b/k');
-    await waitFor(() =>
-      expect(screen.getByRole('status')).toHaveTextContent(/copied/i),
-    );
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/copied/i));
   });
 
   it('does not throw or announce when the clipboard rejects', async () => {

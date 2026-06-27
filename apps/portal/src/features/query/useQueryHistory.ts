@@ -1,9 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  getQueryHistory,
-  appendQueryHistory,
-  updateQueryHistoryEntry,
-} from './queryHistory.service';
+import { getQueryHistory, appendQueryHistory, updateQueryHistoryEntry } from './queryHistory.service';
 import { queryKeys } from './queryKeys';
 import type { QueryHistory, QueryHistoryEntry } from './query.types';
 
@@ -13,10 +9,7 @@ export type UseQueryHistoryResult = {
   error: string | null;
   // Append at submit time; update once the execution reaches a terminal state.
   appendEntry: (entry: QueryHistoryEntry) => Promise<QueryHistory>;
-  updateEntry: (vars: {
-    queryExecutionId: string;
-    patch: Partial<QueryHistoryEntry>;
-  }) => Promise<QueryHistory>;
+  updateEntry: (vars: { queryExecutionId: string; patch: Partial<QueryHistoryEntry> }) => Promise<QueryHistory>;
   // SPEC-046: manual re-read of the store from S3 (invalidate + refetch the
   // history key). `isRefreshing` is the in-flight state for the drawer's Refresh
   // control (true only for a refetch, not the initial load).
@@ -64,11 +57,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
       queryExecutionId: string;
       patch: Partial<QueryHistoryEntry>;
     }): Promise<QueryHistory> => {
-      const result = await updateQueryHistoryEntry(
-        username as string,
-        vars.queryExecutionId,
-        vars.patch,
-      );
+      const result = await updateQueryHistoryEntry(username as string, vars.queryExecutionId, vars.patch);
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },

@@ -3,11 +3,7 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { listFiles } from './fileBrowser.service';
 import { fileBrowserKeys } from './fileBrowserKeys';
 import { invalidateListing } from '../../lib/queryClient';
-import type {
-  S3FileItem,
-  S3FolderItem,
-  FileListPage,
-} from '../../types/s3.types';
+import type { S3FileItem, S3FolderItem, FileListPage } from '../../types/s3.types';
 
 export type UseFileBrowserResult = {
   files: S3FileItem[];
@@ -27,7 +23,7 @@ export function useFileBrowser(
   prefix?: string,
   // SPEC-014 FR-002: exact key to hide from the listing (the user's root prefix
   // marker). Matched by exact key, so a like-named file in a subfolder is shown.
-  markerKey?: string,
+  markerKey?: string
 ): UseFileBrowserResult {
   const queryClient = useQueryClient();
   const normalizedPrefix = prefix ?? '';
@@ -45,8 +41,7 @@ export function useFileBrowser(
       return result.data;
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: FileListPage) =>
-      lastPage.isTruncated ? lastPage.nextContinuationToken : undefined,
+    getNextPageParam: (lastPage: FileListPage) => (lastPage.isTruncated ? lastPage.nextContinuationToken : undefined),
   });
 
   // Merge folders/files across all loaded pages and re-sort globally so the
@@ -54,9 +49,7 @@ export function useFileBrowser(
   // each alphabetical). The SPEC-014 root marker is filtered by exact key.
   const { folders, files } = useMemo(() => {
     const pages = query.data?.pages ?? [];
-    const mergedFolders = pages
-      .flatMap((p) => p.folders)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const mergedFolders = pages.flatMap((p) => p.folders).sort((a, b) => a.name.localeCompare(b.name));
     const mergedFiles = pages
       .flatMap((p) => p.files)
       .filter((f) => !markerKey || f.key !== markerKey)

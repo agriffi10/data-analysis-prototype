@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockedFunction,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { RootLayout } from './RootLayout';
@@ -42,7 +34,7 @@ describe('RootLayout', () => {
             <Route path="/files" element={<div>CHILD CONTENT</div>} />
           </Route>
         </Routes>
-      </MemoryRouter>,
+      </MemoryRouter>
     );
 
     // "S3 File Portal" comes from the Header's BrandMark.
@@ -58,7 +50,7 @@ describe('RootLayout', () => {
             <Route path="/" element={<div>LANDING CONTENT</div>} />
           </Route>
         </Routes>
-      </MemoryRouter>,
+      </MemoryRouter>
     );
 
     // The stub landing route renders no brand mark, so the only source of

@@ -36,11 +36,7 @@ function toServiceError(err: unknown, fallback: string) {
 
 function isNotFound(err: unknown): boolean {
   const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
-  return (
-    e.name === 'NoSuchKey' ||
-    e.name === 'NotFound' ||
-    e.$metadata?.httpStatusCode === 404
-  );
+  return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // Forgivingly parse the history file body: a malformed or legacy file falls back
@@ -58,14 +54,10 @@ function parseHistory(body: string | undefined): QueryHistory {
 
 // FR-007: read + parse the history file. A missing file is the empty state, not an
 // error (same forgiving handling as the architecture's connections.json).
-export async function getQueryHistory(
-  username: string,
-): Promise<ServiceResult<QueryHistory>> {
+export async function getQueryHistory(username: string): Promise<ServiceResult<QueryHistory>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
-      const response = await client.send(
-        new GetObjectCommand({ Bucket: bucket(), Key: historyKey(username) }),
-      );
+      const response = await client.send(new GetObjectCommand({ Bucket: bucket(), Key: historyKey(username) }));
       const body = await response.Body?.transformToString();
       return { success: true, data: parseHistory(body) };
     } catch (err) {
@@ -78,10 +70,7 @@ export async function getQueryHistory(
 // Overwrite the history file (PutObject — never a delete). Concurrent writes are
 // last-writer-wins on a single user's own file, which is acceptable here (one user,
 // their own history); documented per FR-007.
-async function writeHistory(
-  username: string,
-  history: QueryHistory,
-): Promise<ServiceResult<void>> {
+async function writeHistory(username: string, history: QueryHistory): Promise<ServiceResult<void>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
       await client.send(
@@ -90,7 +79,7 @@ async function writeHistory(
           Key: historyKey(username),
           Body: JSON.stringify(history),
           ContentType: 'application/json',
-        }),
+        })
       );
       return { success: true, data: undefined };
     } catch (err) {
@@ -104,7 +93,7 @@ async function writeHistory(
 // the attempt (updateQueryHistoryEntry fills in the terminal status later).
 export async function appendQueryHistory(
   username: string,
-  entry: QueryHistoryEntry,
+  entry: QueryHistoryEntry
 ): Promise<ServiceResult<QueryHistory>> {
   const current = await getQueryHistory(username);
   if (!current.success) return current;
@@ -122,7 +111,7 @@ export async function appendQueryHistory(
 export async function updateQueryHistoryEntry(
   username: string,
   queryExecutionId: string,
-  patch: Partial<QueryHistoryEntry>,
+  patch: Partial<QueryHistoryEntry>
 ): Promise<ServiceResult<QueryHistory>> {
   const current = await getQueryHistory(username);
   if (!current.success) return current;

@@ -1,11 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateListing } from '../../lib/queryClient';
-import {
-  uploadFile,
-  createFolder,
-  uploadPercent,
-} from './fileBrowser.service';
+import { uploadFile, createFolder, uploadPercent } from './fileBrowser.service';
 
 // What the user is being asked to confirm when a name already exists (FR-003).
 // `retry` re-runs the write with overwrite, or with a new name on rename.
@@ -35,14 +31,10 @@ export type UseFileUploadResult = {
 // runUpload/runCreateFolder are hoisted function declarations (not useCallback)
 // because each references itself in its collision-retry closure; the returned
 // callbacks are only used in event handlers, so their identity churn is harmless.
-export function useFileUpload(
-  bucket: string,
-  prefix: string,
-): UseFileUploadResult {
+export function useFileUpload(bucket: string, prefix: string): UseFileUploadResult {
   const queryClient = useQueryClient();
   const [progress, setProgress] = useState<number | null>(null);
-  const [pendingCollision, setPendingCollision] =
-    useState<PendingCollision | null>(null);
+  const [pendingCollision, setPendingCollision] = useState<PendingCollision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -67,12 +59,7 @@ export function useFileUpload(
       setPendingCollision({
         kind: 'file',
         label: name,
-        retry: (decision) =>
-          runUpload(
-            file,
-            'overwrite' in decision,
-            'rename' in decision ? decision.rename : name,
-          ),
+        retry: (decision) => runUpload(file, 'overwrite' in decision, 'rename' in decision ? decision.rename : name),
       });
     } else {
       setError(result.error.message);
@@ -92,9 +79,7 @@ export function useFileUpload(
         kind: 'folder',
         label: name,
         retry: (decision) =>
-          'overwrite' in decision
-            ? runCreateFolder(name, true)
-            : runCreateFolder(decision.rename, false),
+          'overwrite' in decision ? runCreateFolder(name, true) : runCreateFolder(decision.rename, false),
       });
     } else {
       setError(result.error.message);

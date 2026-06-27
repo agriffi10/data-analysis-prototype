@@ -39,7 +39,7 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof CopyDialog>>) 
       onCopy={onCopy}
       onCancel={onCancel}
       {...props}
-    />,
+    />
   );
   return { onCopy, onCancel };
 }
@@ -75,12 +75,8 @@ describe('CopyDialog — destination picker', () => {
       folders: [folder('alice/athenaresults/', 'athenaresults'), folder('alice/docs2/', 'docs2')],
     });
     renderDialog();
-    expect(
-      screen.queryByRole('button', { name: /open folder athenaresults/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /open folder docs2/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open folder athenaresults/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open folder docs2/i })).toBeInTheDocument();
   });
 
   it('hides folders being copied (no descending into them)', () => {
@@ -92,12 +88,8 @@ describe('CopyDialog — destination picker', () => {
       items: [{ type: 'folder', prefix: 'alice/photos/' }],
       currentPrefix: 'alice/',
     });
-    expect(
-      screen.getByRole('button', { name: /open folder archive/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /open folder photos/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open folder archive/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open folder photos/i })).not.toBeInTheDocument();
   });
 });
 
@@ -111,8 +103,7 @@ describe('CopyDialog — same-folder name prompt', () => {
       sameFolderPrompt: {
         kind: 'file' as const,
         proposedName: overrides?.proposedName ?? 'report (1).pdf',
-        validate: (name: string) =>
-          name.includes('/') ? "no '/'" : name.trim() ? null : 'empty',
+        validate: (name: string) => (name.includes('/') ? "no '/'" : name.trim() ? null : 'empty'),
         onConfirm,
         onCancel,
       },
@@ -152,8 +143,6 @@ describe('CopyDialog — same-folder name prompt', () => {
   it('does not render the folder picker while the same-folder prompt is shown', () => {
     const { sameFolderPrompt } = promptProps();
     renderDialog({ sameFolderPrompt });
-    expect(
-      screen.queryByRole('button', { name: /copy here/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy here/i })).not.toBeInTheDocument();
   });
 });
