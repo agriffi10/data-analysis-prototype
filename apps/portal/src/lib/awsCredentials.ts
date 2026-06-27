@@ -34,3 +34,32 @@ export async function getSessionCredentials(
     };
   }
 }
+
+// Fetch the signed-in user's Cognito ID token (JWT). SPEC-056 trusted-actor
+// binding: shared-space requests carry this token in the message; the provisioner
+// Lambda verifies it server-side and derives the actor from cognito:username, so
+// the caller's identity can't be spoofed. Never throws.
+export async function getIdToken(
+  forceRefresh = false,
+): Promise<ServiceResult<string>> {
+  try {
+    const session = await fetchAuthSession({ forceRefresh });
+    const idToken = session.tokens?.idToken?.toString();
+    if (!idToken) {
+      return {
+        success: false,
+        error: { message: 'No ID token — sign in required' },
+      };
+    }
+    return { success: true, data: idToken };
+  } catch (err) {
+    const e = err as { message?: string; name?: string };
+    return {
+      success: false,
+      error: {
+        message: e.message ?? 'Failed to obtain ID token',
+        code: e.name,
+      },
+    };
+  }
+}

@@ -36,6 +36,7 @@ jobs:
           VITE_S3_USER_SPACE_BUCKET: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
           VITE_ATHENA_WORKGROUP: ${{ vars.VITE_ATHENA_WORKGROUP }}
           VITE_MAX_UPLOAD_BYTES: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
+          VITE_SHARED_SPACE_QUEUE_URL: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
