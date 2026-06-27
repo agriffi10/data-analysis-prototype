@@ -335,7 +335,11 @@ def create_space(name, actor, request_id):
         _ensure_marker(name)
         _ensure_database(name)
         _grant_portal_role(name)
-        _upsert_cache_entry(actor, {"name": name, "role": "owner", "status": "active"})
+        # Seed the owner's member projection (SPEC-053) — just the owner at create.
+        _upsert_cache_entry(
+            actor,
+            {"name": name, "role": "owner", "status": "active", "members": [actor]},
+        )
         _finalize_registry(name, actor, request_id, "active")
     except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
         reason = str(exc)
@@ -349,6 +353,149 @@ def create_space(name, actor, request_id):
             logger.exception("failed to record failure for %s", name)
         raise
     return {"status": "active", "space": name, "owner": actor}
+
+
+# ── add_members / remove_members verbs (SPEC-053) ────────────────────────────
+def _normalize_members(raw, owner):
+    """Trim/lowercase/de-dupe the requested usernames and drop the owner (the owner
+    is implicitly a member and is never added or removed here). Defensive — the
+    browser already cleans the list, but the pipeline is the real authority."""
+    seen = set()
+    out = []
+    for member in raw or []:
+        if not isinstance(member, str):
+            continue
+        name = member.strip().lower()
+        if not name or name == owner or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
+
+
+def _save_registry_members(registry, members, request_id):
+    """Rewrite the registry record with a new members list (preserving owner /
+    createdAt / etc.). Unlike _finalize_registry (create-only, members=[owner]),
+    this is the read-modify-write add/remove path."""
+    record = dict(registry)
+    record["members"] = members
+    record["status"] = "active"
+    record["lastRequestId"] = request_id
+    record["updatedAt"] = _now_iso()
+    _s3c().put_object(
+        Bucket=ADMIN_BUCKET,
+        Key=_registry_key(record["name"]),
+        Body=json.dumps(record).encode(),
+        ContentType="application/json",
+    )
+
+
+def _write_owner_projection(owner, name, members):
+    """Update the OWNER's cache entry with the current member list — the
+    owner-readable projection the Manage drawer renders (SPEC-053); members never
+    see this list. Other fields mirror the owner's active entry."""
+    _upsert_cache_entry(
+        owner,
+        {"name": name, "role": "owner", "status": "active", "members": members},
+    )
+
+
+def _clear_slot(username, name):
+    """Clear the membership slot holding ``name`` for ``username`` (set empty, which
+    _assign_or_find_slot treats as free). Idempotent — a missing slot or a
+    pool-absent user is a no-op."""
+    cognito = _cognitoc()
+    try:
+        user = cognito.admin_get_user(UserPoolId=USER_POOL_ID, Username=username)
+    except cognito.exceptions.UserNotFoundException:
+        return
+    attrs = {a["Name"]: a.get("Value", "") for a in user.get("UserAttributes", [])}
+    for k in range(1, MAX_SHARED_MEMBERSHIPS + 1):
+        if attrs.get(_slot_attr(k)) == name:
+            cognito.admin_update_user_attributes(
+                UserPoolId=USER_POOL_ID,
+                Username=username,
+                UserAttributes=[{"Name": _slot_attr(k), "Value": ""}],
+            )
+            return
+
+
+def _remove_cache_entry(username, name):
+    """Remove the user's cache entry for ``name`` (read-modify-write; never an S3
+    delete). Idempotent — a missing cache or absent entry is a no-op."""
+    s3 = _s3c()
+    try:
+        obj = s3.get_object(Bucket=USER_SPACE_BUCKET, Key=_cache_key(username))
+        cache = json.loads(obj["Body"].read())
+    except s3.exceptions.NoSuchKey:
+        return
+    connections = [c for c in cache.get("connections", []) if c.get("name") != name]
+    s3.put_object(
+        Bucket=USER_SPACE_BUCKET,
+        Key=_cache_key(username),
+        Body=json.dumps({"version": 1, "connections": connections}).encode(),
+        ContentType="application/json",
+    )
+
+
+def add_members(space, members, request_id, registry):
+    """Add each valid username to ``space``: validate against the User Pool (unknown
+    → silently ignored), assign a membership slot (no free slot → skipped at-limit),
+    write the member's cache entry, and append to the registry. Idempotent —
+    already-members are skipped. Returns a summary {added, ignoredUnknown,
+    skippedAtLimit}."""
+    owner = registry["owner"]
+    current = list(registry.get("members", []))
+    current_set = set(current)
+    summary = {"added": [], "ignoredUnknown": [], "skippedAtLimit": []}
+
+    for member in _normalize_members(members, owner):
+        if member in current_set:
+            continue  # already a member (idempotent)
+        try:
+            _assign_or_find_slot(member, space)  # admin_get_user = existence check
+        except _cognitoc().exceptions.UserNotFoundException:
+            summary["ignoredUnknown"].append(member)
+            continue
+        except ProvisioningError:  # only raised for "membership limit reached"
+            summary["skippedAtLimit"].append(member)
+            continue
+        _upsert_cache_entry(
+            member, {"name": space, "role": "member", "status": "active"}
+        )
+        current.append(member)
+        current_set.add(member)
+        summary["added"].append(member)
+
+    _save_registry_members(registry, current, request_id)
+    _write_owner_projection(owner, space, current)
+    logger.info("add_members %s: %s", space, summary)
+    return {"status": "ok", "action": "add_members", "space": space, **summary}
+
+
+def remove_members(space, members, request_id, registry):
+    """Remove each member from ``space``: clear their slot, drop their cache entry,
+    and remove them from the registry. The owner is never removed (normalized out).
+    Idempotent — removing a non-member is a no-op. Shared objects/tables are left
+    intact (membership only). Returns {removed}."""
+    owner = registry["owner"]
+    current = list(registry.get("members", []))
+    current_set = set(current)
+    removed = []
+
+    for member in _normalize_members(members, owner):
+        if member not in current_set:
+            continue  # not a member (idempotent)
+        _clear_slot(member, space)
+        _remove_cache_entry(member, space)
+        current = [m for m in current if m != member]
+        current_set.discard(member)
+        removed.append(member)
+
+    _save_registry_members(registry, current, request_id)
+    _write_owner_projection(owner, space, current)
+    logger.info("remove_members %s: removed %s", space, removed)
+    return {"status": "ok", "action": "remove_members", "space": space, "removed": removed}
 
 
 def _extract_record(event):
@@ -393,6 +540,13 @@ def handler(event, context):
         logger.info("create %s by %s -> %s", space, actor, result["status"])
         return result
 
-    # add_members / remove_members / leave / delete — stubs (SPEC-053/054).
+    if action in ("add_members", "remove_members"):
+        members = (req.get("payload") or {}).get("members", [])
+        request_id = req.get("requestId")
+        if action == "add_members":
+            return add_members(space, members, request_id, registry)
+        return remove_members(space, members, request_id, registry)
+
+    # leave / delete — stubs (SPEC-054).
     logger.info("authorized %s on %s by %s (verb stubbed)", action, space, actor)
     return {"status": "authorized", "action": action, "space": space, "actor": actor}

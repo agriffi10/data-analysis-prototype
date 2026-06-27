@@ -199,6 +199,47 @@ aws cognito-idp admin-get-user --user-pool-id <pool> --username <creator> \
 
 ---
 
+## SPEC-053 — owner member management (add / remove)
+
+The owner opens the **Manage** drawer on the Connections tab and adds/removes members
+by username. The browser enqueues `add_members` / `remove_members`; the provisioner
+authorizes the caller as the owner, validates each username against the User Pool
+(unknowns silently dropped), assigns/clears each member's slot, and updates the
+registry + each member's cache + the **owner's member projection**.
+
+- [x] **App unit/component tests** (`apps/portal/src/features/shared-spaces/`):
+  `parseMemberInput` (split/dedupe/lowercase/drop-malformed); `AddMembersDialog`
+  (sends parsed list, excludes existing, disabled-until-valid); `ManageMembersDrawer`
+  (owner marked + non-removable, remove→confirm→callback, add→callback, unavailable
+  note); `useManageMembers` (one well-formed `add_members`/`remove_members`); Manage
+  action owner-only + opens the drawer + add enqueues one request.
+- [x] **Lambda unit tests** (`lambdas/shared-space-provisioner/`): add assigns
+  slot+registry+member-cache+owner-projection; unknown user silently ignored; at-limit
+  target skipped (others still added); idempotent for an existing member; owner never
+  added; remove clears slot + registry + member cache + owner projection and leaves the
+  Glue DB/marker intact; idempotent for a non-member; owner never removed; handler runs
+  the verb for the owner and **fails with no effect for a non-owner**.
+- [ ] **Live** (deployed): as the owner, Manage → Add `bob` (a real user) → after **bob's**
+  next token refresh (SPEC-052 Refresh) he can query `database/{name}`. Verify:
+
+```bash
+NAME=teamspace1 ; OWNER=alice ; MEMBER=bob ; POOL=<pool>
+aws s3api get-object --bucket dat-prod-athena-admin --key "shared-spaces/$NAME.json" /dev/stdout   # members includes bob
+aws cognito-idp admin-get-user --user-pool-id $POOL --username $MEMBER \
+  --query "UserAttributes[?starts_with(Name,'custom:shared_space')]"                                # a slot == NAME
+aws s3api get-object --bucket dat-prod-user-space --key "$MEMBER/user_settings/shared-connections.json" /dev/stdout  # role:member, active
+aws s3api get-object --bucket dat-prod-user-space --key "$OWNER/user_settings/shared-connections.json" /dev/stdout   # owner entry members:[alice,bob]
+```
+
+- [ ] **Remove** `bob` → his slot is cleared (empty), the registry + his cache drop the
+  entry, the owner projection updates; the shared Glue DB + objects are untouched.
+- [ ] **Unknown user** (`add_members` with a non-existent username) → silently ignored
+  (no slot, no cache, not in members); the execution still SUCCEEDS.
+- [ ] **Non-owner** `add_members`/`remove_members` (crafted request) → Step Function
+  FAILS ("owner-only") with no side effects.
+
+---
+
 ## Notes
 
 - **No provisioning happens yet.** SPEC-050: a SUCCEEDED execution + echo is the pass
