@@ -1,7 +1,7 @@
 # Spec: Notifications Data Layer (Read Service + Hook)
 
 **ID:** SPEC-059
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-058 (notifications write pipeline + queue + contract), SPEC-034 (S3 client + `withCredentialRetry` + per-user `user_settings` JSON precedent), SPEC-015 (TanStack Query foundation)
 

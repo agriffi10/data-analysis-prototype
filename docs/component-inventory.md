@@ -252,3 +252,14 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `useCreateSharedConnection(username)` | `useCreateSharedConnection.ts` | `{create(name), busy, pending}` — enqueue a `create` + hold an optimistic LOCAL provisioning entry (no S3 write; the pipeline writes the cache) (SPEC-051). |
 | `CreateSharedConnectionDialog` | `CreateSharedConnectionDialog.tsx` | Name-prompt modal for a new shared connection; validates `CATALOG_IDENTIFIER_RE`; "permanent + globally unique" copy; busy-locks (SPEC-051). |
 | `SharedConnectionEntry`, `SharedConnectionsCache`, `SharedSpaceRequest`, `SharedSpaceAction`, `SharedConnectionRole/Status` | `sharedSpaces.types.ts` | Per-user cache entry/cache shapes + the SQS request contract types (SPEC-051/056). SPEC-052 reads the cache; `members?` on the entry is the owner-readable projection (SPEC-053). |
+
+## Notifications feature (`apps/portal/src/features/notifications/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `getNotifications(username)` | `notifications.service.ts` | Read-only `GetObject` of `{username}/user_settings/notifications.json`; forgiving parse (missing/corrupt/non-array → empty, drops malformed rows, coerces `read`), returns rows newest-first; `ServiceResult<Notification[]>`, never throws (SPEC-059). |
+| `enqueueNotificationAction(input)` | `notifications.service.ts` | Enqueue one user-action (`markRead`/`markAllRead`) onto the SPEC-058 FIFO queue (`MessageGroupId` = username, body carries the verified ID token, never a body username); `ServiceResult<void>` (enqueued ≠ applied), never throws. The browser's only notifications write (SPEC-059). |
+| `useNotifications(username, options?)` | `useNotifications.ts` | `{notifications, unreadCount, hasUnread, isLoading, isError, refresh, markRead, markAllRead}` — TanStack read + optimistic mark-read mutations (rollback + delayed reconcile) + a 60s self-limiting poll (suspends while unread); `options.onMutationError` for the SPEC-060 toast (SPEC-059). |
+| `prefetchNotifications(queryClient, username)` | `useNotifications.ts` | One-shot graceful prefetch of the inbox read for first-paint indicator accuracy; no-op when signed out, never throws (wired in `ProtectedLayout`, SPEC-059). |
+| `notificationsKeys` | `notificationsKeys.ts` | TanStack query-key factory (`all`, `list(username)`) for the notifications read (SPEC-059). |
+| `Notification`, `NotificationAction`, `EnqueueNotificationInput`, `NotificationsStore` | `notifications.types.ts` | Inbox row + the two browser action names + enqueue input + the on-S3 array shape; match the SPEC-058 wire contract (SPEC-059). |

@@ -64,7 +64,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 056 — Shared-Space Access Model & Request Contract (membership tags + portal slots + LF) | Completed |
 | 057 — Shared Spaces in the File Browser | Completed |
 | 058 — Notifications Foundation Infrastructure (Write Pipeline + IAM) | Completed |
-| 059 — Notifications Data Layer (Read Service + Hook) | Draft |
+| 059 — Notifications Data Layer (Read Service + Hook) | Completed |
 | 060 — Notifications UI (Header Bell Link + Notifications Page) | Draft |
 | 061 — Shared-Workspace Notification Producer | Draft |
 | 062 — Decompose Shared-Space Control Plane into Single-Task Lambdas | Draft |
