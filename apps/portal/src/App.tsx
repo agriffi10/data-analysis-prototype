@@ -6,6 +6,7 @@ import {ProtectedLayout} from './components/ProtectedLayout';
 import {LoadingState} from './components/LoadingState';
 import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
+import NotificationsPage from './routes/NotificationsPage';
 import NotFoundPage from './routes/NotFoundPage';
 
 // The Query route pulls in Monaco + the Athena/Glue SDK clients — lazy-load the
@@ -46,6 +47,13 @@ export default function App() {
                 <ConnectionsPage />
               </Suspense>
             }
+          />
+          {/* Reached via the header bell link, not the primary tab bar (SPEC-060).
+              Eager — the SQS client is already in the main bundle via the header
+              bell's useNotifications, so lazy-loading would save nothing. */}
+          <Route
+            path="/notifications"
+            element={<NotificationsPage />}
           />
         </Route>
         <Route

@@ -1,7 +1,7 @@
 # Spec: Notifications UI (Header Bell Link + Notifications Page)
 
 **ID:** SPEC-060
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-059 (notifications data layer: `useNotifications`), SPEC-008 (auth-gated layout + react-router routes), SPEC-028 (`IconButton`/`Badge`), SPEC-038/042 (`Pager` + client-side pagination pattern), SPEC-044/049 (`Toast`), SPEC-031 (document title management)
 
