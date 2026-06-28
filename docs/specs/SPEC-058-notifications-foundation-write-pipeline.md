@@ -1,7 +1,7 @@
 # Spec: Notifications Foundation Infrastructure (Write Pipeline + IAM)
 
 **ID:** SPEC-058
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-010 (user-space bucket conventions), SPEC-011 (Identity Pool ABAC + portal role + module wiring), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-006 (Cognito User Pool — token issuer for actor binding)
 
