@@ -1,10 +1,17 @@
 import {useAuth} from '../features/auth';
+import {NotificationsBell, useNotifications} from '../features/notifications';
 import {BrandMark} from './BrandMark';
 import {Button} from './Button';
 import {PrimaryNav} from './PrimaryNav';
 
 export function Header() {
   const {status, user, error, signIn, signOut} = useAuth();
+
+  // SPEC-060 FR-001: the bell's unread indicator reads the SPEC-059 hook. Mounted
+  // here in the always-present authenticated shell, this also activates the 60s
+  // background poll + prefetched read so the indicator is correct on first paint
+  // and refreshes without a navigation. Disabled (no read) when signed out.
+  const {hasUnread, unreadCount} = useNotifications(status === 'authenticated' ? (user?.username ?? null) : null);
 
   return (
     <header className="h-14 bg-surface border-b border-border">
@@ -36,6 +43,10 @@ export function Header() {
 
           {status === 'authenticated' && user && (
             <>
+              <NotificationsBell
+                hasUnread={hasUnread}
+                unreadCount={unreadCount}
+              />
               <span className="text-sm text-text-2">{user.username}</span>
               <div
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-xs font-semibold text-white"
