@@ -9,6 +9,7 @@ unless the task genuinely spans both. This index is a **router, not content** �
 |---|---|---|---|
 | React (18/19, function components + Hooks) | `react/react.md` | writing or refactoring any React component, hook, state, or effect | §1–§18 (Purity → Tooling) |
 | Web accessibility (WCAG 2.2) | `accessibility/accessibility.md` | building or auditing any user-facing UI — markup, forms, keyboard/focus, color, ARIA | Task Index → §1–§4 (Perceivable / Operable / Understandable / Robust) |
+| AWS Lambda (Python; event-driven, Step Function / Pipe / Cognito triggers) | `lambdas/lambdas.md` | writing, refactoring, or decomposing any Lambda function or its Step Function orchestration / IAM | §1–§12 (Single responsibility → Code/infra split) |
 
 ## How to use
 

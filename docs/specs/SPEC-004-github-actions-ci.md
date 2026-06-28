@@ -1,7 +1,7 @@
 # Spec: GitHub Actions CI
 
 **ID:** SPEC-004  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-06-09  
 **Depends On:** None
 

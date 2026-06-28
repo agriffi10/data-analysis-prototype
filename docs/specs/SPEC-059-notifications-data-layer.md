@@ -2,27 +2,31 @@
 
 **ID:** SPEC-059
 **Status:** Draft
-**Last Updated:** 2026-06-22
+**Last Updated:** 2026-06-27
 **Depends On:** SPEC-058 (notifications write pipeline + queue + contract), SPEC-034 (S3 client + `withCredentialRetry` + per-user `user_settings` JSON precedent), SPEC-015 (TanStack Query foundation)
 
-> **Second of the notifications arc (058 → 059 → 060).** This spec is the **browser data layer**: a
+> **Second of the notifications arc (058 → 059 → 060 → 061).** This spec is the **browser data layer**: a
 > read-only `notifications.service.ts` that **reads** `{username}/user_settings/notifications.json`, the
-> **enqueue helpers** that `SendMessage` to the SPEC-058 queue for the four user-actions, and a
-> `useNotifications` hook (TanStack Query read + optimistic mutations + unread count). **No UI** (SPEC-060
-> builds the drawer + header button). The browser **never writes** the JSON — mutations are SQS messages
-> the SPEC-058 writer applies; the hook updates the cache **optimistically** because the write is
-> eventually consistent.
+> **enqueue helpers** that `SendMessage` to the SPEC-058 queue for the two user-actions
+> (`markRead`/`markAllRead`), and a `useNotifications` hook (TanStack Query read + a **60-second background
+> poll** that keeps the unread count/indicator fresh + optimistic mark-read mutations). **No UI** (SPEC-060
+> builds the header bell link + notifications page). The browser **never writes** the JSON — mutations are
+> SQS messages the SPEC-058 writer applies; the hook updates the cache **optimistically** because the write
+> is eventually consistent. There is **no delete** — the only mutations are mark-read / mark-all-read.
 
 ## Overview
 
 Expose notifications to the React app as a clean, typed data layer that the UI (SPEC-060) consumes without
 knowing about S3 or SQS. Reads come straight from the user's `notifications.json` via the existing scoped
-S3 client; the array is the full inbox (capped writer-side to `NOTIFICATIONS_MAX`), so pagination and
-filtering happen in the UI over the in-memory list. Mutations (mark read, mark all read, delete, delete
-all) are **not** direct writes — each enqueues a message on the SPEC-058 queue and the hook reflects the
-change optimistically, reconciling on the next read. The hook also derives the **unread count / has-unread**
-flag the header indicator needs, and supports a lightweight **prefetch on app load** so the indicator is
-correct and the first drawer open is instant.
+S3 client; the array is the full inbox (capped writer-side to `NOTIFICATIONS_MAX`), so pagination
+happens in the UI (10/page) over the in-memory list. Mutations (mark read, mark all read)
+are **not** direct writes — each enqueues a message on the SPEC-058 queue and the hook reflects the
+change optimistically, reconciling on the next read. The hook derives the **unread count / has-unread**
+flag the header indicator needs, supports a lightweight **prefetch on app load** so the indicator is
+correct on first paint, and runs a **60-second background poll** so the bell icon picks up newly delivered
+notifications without a manual refresh or navigation. The poll is **self-limiting**: it runs only while there
+are no unread notifications and **suspends once unread is showing** (the indicator already reflects it),
+resuming after the user marks the set read or reloads.
 
 ## Scope
 
@@ -31,15 +35,20 @@ correct and the first drawer open is instant.
 - **`notifications.service.ts`** (returns `ServiceResult<T>`, never throws):
   - `getNotifications(username)` — `GetObject` + parse `notifications.json`; missing (404) or
     corrupt JSON → **empty array** (not an error); validates/normalizes each row to `Notification`.
-  - `enqueueNotificationAction(input)` — `SendMessage` to the SPEC-058 queue for the four **user** actions
-    (`markRead` | `markAllRead` | `delete` | `deleteAll`), attaching the caller's Cognito **ID token** per
+  - `enqueueNotificationAction(input)` — `SendMessage` to the SPEC-058 queue for the two **user** actions
+    (`markRead` | `markAllRead`), attaching the caller's Cognito **ID token** per
     the SPEC-058 contract (FR-005). Returns `ServiceResult<void>` (enqueue success ≠ applied).
 - **`useNotifications(username | null)` hook** — TanStack Query read (keyed per user), exposing the list,
-  `unreadCount`, `hasUnread`, `isLoading`/`isError`, a `refresh()`, and the four mutations
-  (`markRead`/`markAllRead`/`remove`/`removeAll`) that **enqueue + optimistically update the cache**, with
+  `unreadCount`, `hasUnread`, `isLoading`/`isError`, a `refresh()`, and the two mutations
+  (`markRead`/`markAllRead`) that **enqueue + optimistically update the cache**, with
   rollback on enqueue failure and a delayed background refetch to reconcile the eventually-consistent write.
-- **Types** in `notifications.types.ts` — `Notification`, `NotificationAction`, the enqueue input shape;
-  shared with SPEC-060 and matching the SPEC-058 wire contract exactly.
+- **Background poll (self-limiting)** — the read query runs on a **60-second `refetchInterval`** (also
+  `refetchOnWindowFocus`) while the user is authenticated **and has no unread**; it **suspends once
+  `unreadCount > 0`** (the indicator already conveys it) and resumes after the set is marked read or the page
+  reloads, so the bell reflects newly delivered notifications within ~1 minute without needless polling
+  (FR-006).
+- **Types** in `notifications.types.ts` — `Notification`, `NotificationAction` (`'markRead' | 'markAllRead'`),
+  the enqueue input shape; shared with SPEC-060 and matching the SPEC-058 wire contract exactly.
 - **SQS client** in `src/lib/` (instantiated there, never in components/hooks), built from the same scoped
   Identity-Pool credentials as the S3/Athena/Glue clients (`getSessionCredentials`), with the same
   `withCredentialRetry` wrapper on send.
@@ -50,15 +59,18 @@ correct and the first drawer open is instant.
 
 ### Out of Scope
 
-- **All UI** — header bell, unread dot, slide-out drawer, pagination controls, action buttons, toasts —
+- **All UI** — header bell link, unread dot, notifications page, pagination controls, action buttons, toasts —
   **SPEC-060**.
-- **Client-side pagination** — the service returns the whole array; paging 8/page is a SPEC-060 UI concern
+- **Client-side pagination** — the service returns the whole array; paging 10/page is a SPEC-060 UI concern
   (mirrors history's client-side `Pager`).
 - **Writing `notifications.json`** — never from the browser (SPEC-058 writer owns all writes).
-- **Creating notifications** — `create` is a trusted-producer action (SPEC-058 FR-006); the data layer
-  exposes only the four user-actions unless the FR-006 open question reopens it.
-- Realtime/push delivery (WebSocket/poll-for-new) — reads are on-demand + prefetch-on-load only; a polling
-  cadence (if wanted) is a follow-up.
+- **Creating notifications** — `create` is a trusted-producer action (SPEC-058 FR-005/-006; the first
+  producer is the shared-workspace control plane, SPEC-061); the data layer exposes only the two
+  user-actions.
+- **Deleting notifications** — there is no `delete`/`deleteAll`; the inbox only grows (writer-capped) and the
+  user can only mark items read.
+- Realtime/push delivery (WebSocket/server-push) — freshness is the 60-second poll + prefetch-on-load +
+  manual `refresh()`; true push is a follow-up.
 
 ---
 
@@ -93,11 +105,16 @@ Send a user-action message to the SPEC-058 queue, bound to the caller's identity
 
 - [ ] `enqueueNotificationAction({ action, id?, idToken })` sends one `SendMessage` to
   `VITE_NOTIFICATIONS_QUEUE_URL` with a body matching the SPEC-058 contract for
-  `markRead` | `markAllRead` | `delete` | `deleteAll`.
-- [ ] The message **always** carries the current user's Cognito **ID token** (obtained from the auth layer)
-  and **never** a client-asserted `username` — the writer derives the user from the token (SPEC-058 FR-005).
-- [ ] `markRead` and `delete` include the target `id`; `markAllRead`/`deleteAll` omit it. Calling
-  `markRead`/`delete` without an `id` returns a validation error (no send).
+  `markRead` | `markAllRead`.
+- [ ] The queue is **FIFO**, so the send sets **`MessageGroupId` = the current user's username** (so the
+  user's actions serialize behind any system `create`s for them — SPEC-058 FR-001) plus a
+  `MessageDeduplicationId` (e.g. a uuid, or rely on content-based dedup) to collapse accidental double-sends.
+- [ ] The message **always** carries the current user's Cognito **ID token** — obtained via Amplify
+  `fetchAuthSession()` (`tokens.idToken`), aligning with the token the SPEC-058 writer verifies — and
+  **never** a client-asserted `username`; the writer derives the user from the token (SPEC-058 FR-005).
+  (The `MessageGroupId` is only for ordering; the writer still trusts the token, not the group id.)
+- [ ] `markRead` includes the target `id`; `markAllRead` omits it. Calling
+  `markRead` without an `id` returns a validation error (no send).
 - [ ] Returns `ServiceResult<void>`; success means **enqueued**, explicitly **not** "applied" (the doc is
   updated asynchronously by the writer). A `SendMessage` failure returns a typed error.
 
@@ -113,8 +130,8 @@ A single hook the UI consumes for the list and the indicator.
   disabled when `username` is null (unauthenticated).
 - [ ] Exposes `notifications: Notification[]`, `unreadCount: number`, `hasUnread: boolean`
   (`unreadCount > 0`), `isLoading`, `isError`, and `refresh()` (manual re-read; mirrors history's Refresh).
-- [ ] Respects the app `queryClient` defaults (staleTime 30s); the indicator reflects the cached read
-  without forcing a network call on every render.
+- [ ] Respects the app `queryClient` defaults (staleTime 30s); between polls the indicator reflects the
+  cached read without forcing a network call on every render.
 
 ### FR-004: `useNotifications` hook — optimistic mutations
 
@@ -124,33 +141,61 @@ Mutations enqueue and update the cache immediately, reconciling later.
 
 #### Acceptance Criteria:
 
-- [ ] `markRead(id)` / `markAllRead()` / `remove(id)` / `removeAll()` each call
-  `enqueueNotificationAction` and **optimistically** mutate the cached list (set `read`, or drop the
-  item(s)) so the UI + indicator update instantly.
+- [ ] `markRead(id)` / `markAllRead()` each call
+  `enqueueNotificationAction` and **optimistically** mutate the cached list (set `read` on the item / on all)
+  so the UI + indicator update instantly.
 - [ ] On **enqueue failure**, the optimistic change is **rolled back** and the error is surfaced (the UI
   shows a toast in SPEC-060).
-- [ ] After a successful enqueue, the hook schedules a **delayed background refetch** (e.g. invalidate after
-  a short delay) to reconcile the cache with the writer's eventual result; a reconciliation that differs
-  from the optimistic state wins (writer is source of truth).
-- [ ] Concurrent optimistic mutations compose (e.g. mark-all-read then delete-one) without resurrecting
-  removed items on reconcile.
+- [ ] After a successful enqueue, the hook schedules a **delayed background refetch** (invalidate **~2–3s**
+  after enqueue, a tunable constant, to allow for writer latency) to reconcile the cache with the writer's
+  eventual result; a reconciliation that differs from the optimistic state wins (writer is source of truth).
+- [ ] Concurrent optimistic mutations compose (e.g. mark-one-read then mark-all-read) without losing the
+  read state on reconcile.
 
 ### FR-005: Prefetch on app load
 
 #### Description:
 
-Make the indicator correct and the first drawer-open instant.
+Make the indicator correct on first paint and the first page-visit instant.
 
 #### Acceptance Criteria:
 
 - [ ] On authenticated app load, the notifications read is **prefetched** once (e.g.
   `queryClient.prefetchQuery` / an enabled query high in the authenticated shell) so the header indicator
-  is accurate before the user interacts and the first drawer render has data (SPEC-058/-060 "most recent 8
-  on page load" — the read returns the full capped array; the UI shows the first page of 8).
+  is accurate before the user interacts and the first notifications-page render has data (the read returns
+  the full capped array; the UI shows the first page of 10).
 - [ ] Prefetch failure degrades gracefully (no indicator / no crash); it never blocks the shell from
   rendering.
 
-### FR-006: Wiring + dependency
+### FR-006: Background poll (unread indicator freshness)
+
+#### Description:
+
+Keep the bell's unread indicator current as new notifications are delivered, without a navigation or
+manual refresh — but stop polling once the indicator already shows unread, since further polling can't
+change what the UI is telling the user.
+
+#### Acceptance Criteria:
+
+- [ ] While authenticated **and `unreadCount === 0`**, the notifications query runs on a **60-second
+  `refetchInterval`** (configurable constant) so a newly delivered notification flips `hasUnread` within
+  ~1 minute; the poll is disabled when `username` is null (signed out).
+- [ ] **Poll suspends while unread (`hasUnread`):** once a poll (or any read) finds `unreadCount > 0`, the
+  `refetchInterval` **stops** — the bell already reflects "you have unread", so there's nothing new to
+  surface by polling. (Implementation: `refetchInterval` is a function of the cached data that returns
+  `false` when `unreadCount > 0`.)
+- [ ] **Poll resumes** when the unread state clears — i.e. after the user **marks the current set read**
+  (`markRead`/`markAllRead` bring `unreadCount` back to 0) or on a **manual `refresh()` / page reload** — at
+  which point the 60-second cadence restarts (and will suspend again on the next unread).
+- [ ] `refetchOnWindowFocus` still runs (so returning to the tab re-checks once, regardless of poll state);
+  the `refetchInterval` is additionally **paused while the tab is hidden** (`document.visibilityState !==
+  'visible'`) and resumes on focus, so a backgrounded tab does not poll.
+- [ ] A failed poll does not surface an error to the user or clear the existing indicator — it retains the
+  last good state and tries again on the next interval (while still subject to the suspend-when-unread rule).
+- [ ] The poll updates only the cached read (and therefore the count/indicator); it does **not** auto-mark
+  anything read or otherwise mutate the inbox.
+
+### FR-007: Wiring + dependency
 
 #### Acceptance Criteria:
 
@@ -173,12 +218,12 @@ export type Notification = {
   timestamp: string;   // ISO-8601 (writer clock)
 };
 
-// The four browser-originated actions (create is trusted-producer-only — SPEC-058 FR-006).
-export type NotificationAction = 'markRead' | 'markAllRead' | 'delete' | 'deleteAll';
+// The two browser-originated actions (create is trusted-producer-only — SPEC-058 FR-005; no delete).
+export type NotificationAction = 'markRead' | 'markAllRead';
 
 export type EnqueueNotificationInput = {
   action: NotificationAction;
-  id?: string;        // required for markRead | delete
+  id?: string;        // required for markRead
   // idToken is attached by the service from the auth layer, not passed by callers of the hook
 };
 
@@ -204,8 +249,6 @@ function useNotifications(username: string | null): {
   refresh: () => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
-  remove: (id: string) => void;
-  removeAll: () => void;
 };
 
 // Example (SPEC-060 consumes this):
@@ -225,7 +268,7 @@ export const notificationsKeys = {
 Add to `apps/portal/.env.example`:
 
 ```
-VITE_NOTIFICATIONS_QUEUE_URL=https://sqs.<region>.amazonaws.com/<account-id>/<notifications-queue>  # SPEC-058 output; target for user-action SendMessage
+VITE_NOTIFICATIONS_QUEUE_URL=https://sqs.<region>.amazonaws.com/<account-id>/<notifications-queue>.fifo  # SPEC-058 output (FIFO); target for user-action SendMessage (set MessageGroupId = username)
 ```
 
 ## File & Folder Structure
@@ -252,32 +295,11 @@ apps/portal/src/
 - `notifications.types.ts` + `notificationsKeys.ts`; `lib/sqsClient.ts`; `getNotifications` (FR-001) with
   unit tests (404 → empty, corrupt → empty, happy path sorts newest-first, S3 error → error);
   `enqueueNotificationAction` (FR-002) with tests (id-required validation, token attached, send failure).
-  Add `@aws-sdk/client-sqs` + the env var (FR-006).
+  Add `@aws-sdk/client-sqs` + the env var (FR-007).
 
-#### Checkpoint
+### Phase 2: Hook (read + derived state + optimistic mutations + poll + prefetch)
 
-`npm run test -w apps/portal` green for `notifications.service.test.ts`; `getNotifications` returns `[]` for
-a missing/corrupt object and a sorted list for a valid one; `enqueueNotificationAction` builds a
-contract-correct body with the ID token and rejects `markRead`/`delete` with no id.
-
-### Phase 2: Hook (read + derived state + optimistic mutations + prefetch)
-
-- `useNotifications` (FR-003/004/005); tests for `unreadCount`/`hasUnread`, optimistic update + rollback on
-  enqueue failure, delayed reconcile, and prefetch-on-load behavior (mocked query client). Component-inventory
-  rows (FR-006).
-
-#### Checkpoint
-
-`useNotifications.test.ts` green: marking read/deleting updates the list + `unreadCount` instantly, rolls
-back on a simulated send failure, and reconciles to the writer's value on the delayed refetch. No UI yet.
-
-## Open Questions
-
-- [ ] **Reconcile timing:** what delay before the post-enqueue background refetch (writer latency)? Start
-  with a single delayed invalidate (~2–3s) + the manual `refresh()`; tune if the eventual-consistency
-  window feels laggy. (A short poll-until-changed is a possible upgrade — out of scope now.)
-- [ ] **ID token source:** confirm the auth layer exposes the current Cognito **ID token**
-  (`fetchAuthSession` / Amplify) for `enqueueNotificationAction`; if only the access token is readily
-  available, align with SPEC-058 FR-005 on which token the writer verifies.
-- [ ] Should `getNotifications` cap/trim client-side too, or fully trust the writer's `NOTIFICATIONS_MAX`
-  cap? Default: trust the writer; the UI paginates the full array.
+- `useNotifications` (FR-003/004/005/006); tests for `unreadCount`/`hasUnread`, optimistic update + rollback
+  on enqueue failure, delayed reconcile, the 60s `refetchInterval` poll + its **suspend-when-unread /
+  resume-after-read** rule (mocked timers), and prefetch-on-load behavior (mocked query client).
+  Component-inventory rows (FR-007).

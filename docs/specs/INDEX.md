@@ -65,7 +65,19 @@ Add a row when a spec is created; update its status on completion (status only �
 | 057 — Shared Spaces in the File Browser | Completed |
 | 058 — Notifications Foundation Infrastructure (Write Pipeline + IAM) | Draft |
 | 059 — Notifications Data Layer (Read Service + Hook) | Draft |
-| 060 — Notifications UI (Header Button + Slide-out Panel) | Draft |
+| 060 — Notifications UI (Header Bell Link + Notifications Page) | Draft |
+| 061 — Shared-Workspace Notification Producer | Draft |
+| 062 — Decompose Shared-Space Control Plane into Single-Task Lambdas | Draft |
+| 063 — Schema Rail: Collapsible Databases with Tables/Views Groups | Draft |
+| 064 — Resizable Query-Result Columns | Draft |
+| 065 — Schema-Aware Editor Autocomplete (Table & Column Names) | Draft |
+| 066 — Table Builder: Foundation Infrastructure + polars Runtime | Draft |
+| 067 — Table Builder: Request Contract, Enqueue & Validate-Authorize | Draft |
+| 068 — Table Builder: Name Uniqueness + Source Inspection & Format Validation | Draft |
+| 069 — Table Builder: Schema Inference & DDL Generation (polars) | Draft |
+| 070 — Table Builder: Execute DDL, Load Partitions & Terminal States | Draft |
+| 071 — Table Builder: "Create Table from this Folder" (File Browser UI) | Draft |
+| 072 — Table Builder: Notification Producer (per-step failure + success) | Draft |
 
 ## Arcs
 
@@ -141,19 +153,78 @@ Connections) manages spaces; shared connections also appear inline in the Query 
 list; the workspace database is global. Three CONFIRM items in the decision record were resolved (cap = 10; valid
 user = exists in the User Pool; registry reuses the admin bucket).
 
-**Notifications arc (058 → 059 → 060)** — a per-user notifications inbox. A notification is `{id, message, read,
+**Notifications arc (058 → 059 → 060 → 061)** — a per-user notifications inbox. A notification is `{id, message, read,
 timestamp}`; the inbox is one JSON array at `{username}/user_settings/notifications.json` in the existing user-space
-bucket. **Single-writer model:** every mutation — system `create` **and** user actions (`markRead`/`markAllRead`/
-`delete`/`deleteAll`) — is an SQS message drained by an **EventBridge Pipe → Step Function → notifications-writer
-Lambda** that read-modify-writes the doc under one privileged **writer role** (the only writer; caps to the most-recent
-`NOTIFICATIONS_MAX`). The browser **never writes** the file — it only reads it (direct `GetObject`) and enqueues
-user-action messages (`sqs:SendMessage` on the portal role). Anti-spoofing: user-action messages carry the caller's
-Cognito **ID token**; the writer derives the target `username` from the verified claim and ignores any body `username`
-(`create` is trusted-producer-only). This is a **dedicated** pipeline (its own SQS/Pipe/Step Function/Lambda/role),
-mirroring the SPEC-050 pattern but decoupled from shared-spaces. Build order: **058** = write pipeline + writer role +
+bucket. **Single-writer model:** every mutation — system `create` **and** user actions (`markRead`/`markAllRead` — there
+is **no delete**) — is a message on a **FIFO SQS queue that triggers the notifications-writer Lambda directly** (SQS
+event-source mapping, batch size 1 — **no EventBridge Pipe, no Step Function**); the Lambda read-modify-writes the doc
+under one privileged **writer role** (the only writer; caps to the most-recent `NOTIFICATIONS_MAX`). **Per-user
+ordering/serialization** = FIFO `MessageGroupId` = the target username (one message at a time, in order, per user; no
+lost updates). The browser **never writes** the file — it only reads it (direct `GetObject`) and enqueues
+user-action messages (`sqs:SendMessage` on the portal role, with `MessageGroupId` = its own username). Anti-spoofing:
+user-action messages carry the caller's Cognito **ID token**; the writer derives the target `username` from the verified
+claim and ignores any body `username` (`create` is trusted-producer-only). This is a **dedicated** write path (its own
+FIFO queue/Lambda/role), decoupled from shared-spaces. Build order: **058** = write pipeline + writer role +
 deploy/portal IAM + message contract (no UI); **059** = browser data layer (`notifications.service.ts` read +
-`enqueueNotificationAction`, `useNotifications` hook with optimistic mutations + unread count + prefetch-on-load; adds
-`@aws-sdk/client-sqs` + `VITE_NOTIFICATIONS_QUEUE_URL`); **060** = UI (header **bell** left of the username with an
-unread indicator, right slide-out `Drawer`, per-row unread marker like the active query tab, **8/page** Prev/Next
-`Pager`, mark-read/mark-all/delete/delete-all with optimistic update + confirm + toast). Reuses `Drawer`/`Pager`/
-`IconButton`/`Toast`/`ConfirmDialog`; 060 adds no IAM/infra.
+`enqueueNotificationAction`, `useNotifications` hook with optimistic mark-read mutations + unread count +
+prefetch-on-load + a **60-second background poll** for the icon; adds `@aws-sdk/client-sqs` +
+`VITE_NOTIFICATIONS_QUEUE_URL`); **060** = UI (header **bell linking to a `/notifications` route** left of the username
+with an unread indicator, a full **notifications page** with per-row unread marker like the active query tab, **10/page**
+Prev/Next `Pager`, mark-read/mark-all-read with optimistic update + toast — **no drawer, no delete**); **061** = the
+first **producer**: the shared-workspace control plane (each verb Lambda, SPEC-062) emits `create` notifications at the
+terminal outcome of its lifecycle actions (seven events: created / create-failed / added-to-space / add-skipped-at-limit /
+add-unknown-user / member-left / deleted — delete fans out to the deleter + all members), granted `sqs:SendMessage` on the notifications queue. Reuses `Pager`/`IconButton`/
+`Badge`/`Toast`; 060 adds no IAM/infra; 061 adds only the SendMessage grant on the emitting verb-Lambda roles (SPEC-062; the single orchestrator role pre-062) + queue-URL env wiring + the inline emit calls.
+
+**Control-plane refactor (062, standalone)** — the shared-space control plane shipped (050→054) as a **single
+711-line provisioner Lambda** with an `action`-switch (create/add_members/remove_members/leave/delete) + inline JWT
+verify + all helpers, under one broad orchestrator role. SPEC-062 decomposes it to the architecture's original intent
+(§7 "provisioning Lambda(s)"): the **Step Function orchestrates single-task Lambdas** — `entry → validate-authorize →
+Choice(action) → <verb Lambda> → success/failure` (Retry/Catch in the state machine), one Lambda per verb, shared
+code (auth/registry/clients/cache/notify) in a common module/layer, and **per-verb least-privilege roles** replacing
+the monolith role. **Behavior, the request contract (056), the membership-tag model, and registry/cache shapes are
+unchanged** — structure only — plus two clarifications: **create stays creator-only** (no member-add at create; adds go
+through 053 from the Connections tab), and each verb **emits its SPEC-061 notifications inline** via the shared helper.
+The old provisioner function/role/tests are removed at cutover. Follows `docs/best-practices/lambdas/lambdas.md`;
+decision recorded in `docs/shared-spaces-architecture.md`.
+
+**Query-editor UX, round 4 (063→065, user-feedback one-offs)** — three independent presentation/editor refinements
+on the SPEC-034→049 workspace, no data-layer/IAM change: **063** restructures the schema rail into a **tree** — each
+accessible database is a collapsible node with two collapsible sub-groups, **Tables** and **Views** (grouped beneath
+their database); expanding to browse is **decoupled** from selecting the SPEC-047 workspace-global active target
+(per-node `useSchema`, a separate radio-style active control). **064** makes query-result columns **drag-resizable**
+(persist across pages of the current result, reset on a new query; `MIN_COLUMN_WIDTH` floor; no wrap → ellipsis
+truncation incl. the header; horizontal scroll for 20+ columns; keyboard/dbl-click reset). **065** adds **schema-aware
+autocomplete** to the Monaco editor — a single SQL completion provider offering the **active database's** table/view +
+column names (with type detail) alongside built-in keywords, updating on active-DB switch, keyword-only fallback when
+no schema. All three are independent and can ship in any order. *(A fourth feedback item — contiguous result row
+numbers — was already delivered in `QueryResultsTable` (SPEC-038, the `#` column = `rangeStart + rowIndex`), so no spec
+was written.)*
+
+**Create-Table-from-Files / "Table Builder" arc (066 → 067 → 068 → 069 → 070 → 071, + 072 producer)** — a new
+**dedicated** async control plane (its own FIFO **SQS → EventBridge Pipe → Step Function**, **single-task Lambdas**
+with per-verb least-privilege roles) that turns a folder of data files into a Glue/Athena **external table** in the
+database the space maps to (personal = username; shared = space name). Decision record:
+`docs/table-builder-architecture.md` (read first). Reuses the **pattern** of the shared-spaces control plane
+(SPEC-050) and the dedicated-pipeline precedent of notifications (SPEC-058), **not** their resources. The browser
+only gains `sqs:SendMessage`; authorization reuses the **ID-token actor** + shared-spaces **registry** membership
+model (any active member may create — not owner-only). The Step Function orchestrates five verbs:
+**validate-authorize** (token→actor, personal/shared authz, name + in-space location) → **check-table-absent** (Glue
+GetTable) → **inspect-source** (flat vs Hive `key=value/` partitions; single consistent format — **Parquet/CSV/JSON**,
+ORC deferred) → **infer-schema** (**polars LazyFrame** on a sample → dtype→Hive mapping + partition cols → generate
+`CREATE EXTERNAL TABLE IF NOT EXISTS` DDL; polars ships as a **Lambda layer**, attached only to this verb) →
+**execute-ddl** (run the DDL via **Athena**; `MSCK REPAIR TABLE` for partitions; terminal success). Each step records
+a typed terminal reason via the SFN `Catch`. **066** = foundation infra + polars layer (plumbing/stubs); **067** =
+request contract + portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL` + validate-authorize; **068** =
+name-check + source inspection; **069** = polars schema inference + DDL generation; **070** = execute DDL + partitions
++ terminal states (+ execute-ddl LF/Glue/Athena/S3 role); **071** = the file-browser **"Create table from this
+folder"** button + name dialog + enqueue (the only browser surface); **072** = notifications producer (per-step
+failure + on-success, single recipient = the actor; depends on SPEC-058, mirrors SPEC-061). Build order
+066→067→068→069→070→071; **072** after the notifications queue (058) + the verb Lambdas. New Lambda deps: **polars**
+(layer). New IaC: `infra/modules/table-builder/`.
+
+**Build order across the two arcs:** **SPEC-062 lands before SPEC-061** — the notification producer's inline emits
+attach to the decomposed verb Lambdas, so decomposing first avoids adding emit logic to the monolith and then moving
+it. SPEC-061 is written to also work against the pre-062 monolith (same call sites at each terminal branch) if it must
+ship first, but **062 → 061** is the intended sequence. The notifications-infra arc (058 → 059 → 060) is independent of
+the shared-spaces refactor and can proceed in parallel; only **061** depends on both (058's queue + 062's verb Lambdas).

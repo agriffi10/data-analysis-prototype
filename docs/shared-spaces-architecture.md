@@ -37,12 +37,26 @@ request message** onto an **SQS queue**. From there:
 Browser (scoped creds: sqs:SendMessage only)
    │  request: { action, actor, space, payload }
    ▼
-SQS  ──▶  EventBridge Pipe  ──▶  Step Function (privileged orchestrator role)
-                                   │
-                                   ├─ Validate   (authorize actor; check name uniqueness / membership)
-                                   ├─ Create     (S3 prefix, Glue DB, registry entry — as applicable)
-                                   └─ Update permissions (membership tags + LF grants + per-user JSON caches)
+SQS ──▶ EventBridge Pipe ──▶ Step Function  (orchestrates single-task Lambdas)
+                               │
+                               ├─ validate-authorize Lambda   (verify ID token → actor; load registry; authorize)
+                               │
+                               └─ Choice(action) ──▶ one verb Lambda:
+                                     • create-space     (S3 prefix + Glue DB + registry + creator slot + cache)
+                                     • add-members      (Cognito slots + registry + caches)
+                                     • remove-members   (clear slots + registry + caches)
+                                     • leave            (clear caller slot + registry + cache)
+                                     • delete-space     (cascade: files + tables + DB + all slots/caches + registry)
+                                   (Retry/Catch live in the state machine; each verb emits its own notifications)
 ```
+
+> **Orchestration shape (decided — SPEC-062 refactor):** the control plane is **multiple single-task Lambdas
+> orchestrated by the Step Function**, not one monolithic provisioner. The state machine runs a
+> **validate-authorize** Lambda, then a **`Choice`** routes by `action` to exactly **one verb Lambda**; shared
+> code (auth/registry/clients/cache/notify) lives in a common module/layer and each verb has its **own
+> least-privilege role**. The original implementation (SPEC-050→054) shipped as a single 711-line provisioner
+> with an `action`-switch; SPEC-062 decomposes it to this shape (the §7 "provisioning Lambda(s)" intent).
+> Behavior, the request contract, the membership-tag model, and the registry/cache shapes are unchanged.
 
 - The **only** new permission the browser/portal role gets is `sqs:SendMessage` to this one queue. It cannot
   create databases, grant access, or write another user's data — the Step Function does, under its own
@@ -238,3 +252,10 @@ hook (SPEC-052) feeds all three surfaces.
   browser CORS — the designated "admin/audit store." **Caveat:** its lifecycle rule
   (`expire-admin-results`, currently `filter {}` = all objects) must be **scoped to exclude `shared-spaces/`**
   so registry objects never expire (SPEC-050 work). Reversible to a dedicated control bucket if ever desired.
+- [x] **Resolved (2026-06-27, user decision — SPEC-062 refactor):** the control plane is **single-task
+  Lambdas orchestrated by the Step Function** (validate-authorize → `Choice(action)` → one verb Lambda), not a
+  single `action`-switch provisioner; shared code in a common module/layer; **per-verb least-privilege roles**.
+  Realigns the implementation with §7's "provisioning Lambda(s)" intent and the Lambda best-practices guide
+  (`docs/best-practices/lambdas/lambdas.md`). Behavior/contract/tag-model/registry shapes unchanged. Also
+  confirmed: **create is creator-only** — members are added only post-creation via `add-members` (SPEC-053)
+  from the Connections tab; there is no create-time bulk-add.

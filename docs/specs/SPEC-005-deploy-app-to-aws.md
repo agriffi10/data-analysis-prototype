@@ -1,7 +1,7 @@
 # Spec: Deploy App to AWS — GitHub Actions Pipeline
 
 **ID:** SPEC-005  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-06-09  
 **Depends On:** SPEC-003 (OIDC provider, deployment role, static assets S3 bucket, and CloudFront distribution must exist), SPEC-004 (CI must be passing before deploy runs)
 
