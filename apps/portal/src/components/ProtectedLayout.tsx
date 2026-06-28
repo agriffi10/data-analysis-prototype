@@ -1,6 +1,8 @@
-import {type ReactNode} from 'react';
+import {type ReactNode, useEffect} from 'react';
 import {Navigate, Outlet, useLocation} from 'react-router-dom';
+import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
+import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
 import {LoadingState} from './LoadingState';
 
@@ -23,8 +25,18 @@ function AppShell({children}: {children: ReactNode}) {
 const devBypass = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
 export function ProtectedLayout() {
-  const {status} = useAuth();
+  const {status, user} = useAuth();
   const location = useLocation();
+  const queryClient = useQueryClient();
+
+  // SPEC-059 FR-005: prefetch the notifications read once on authenticated app load
+  // so the SPEC-060 header indicator is accurate on first paint and the first
+  // /notifications render has data. Graceful — prefetch never throws and never
+  // blocks the shell from rendering.
+  const username = status === 'authenticated' ? (user?.username ?? null) : null;
+  useEffect(() => {
+    void prefetchNotifications(queryClient, username);
+  }, [queryClient, username]);
 
   if (devBypass)
     return (
