@@ -145,6 +145,7 @@ resource "aws_s3_bucket_policy" "user_space" {
     deploy_role_arn                    = var.deploy_role_arn
     lf_registration_role_arn           = var.lf_registration_role_arn
     shared_space_orchestrator_role_arn = var.shared_space_orchestrator_role_arn
+    notifications_writer_role_arn      = var.notifications_writer_role_arn
     account_id                         = data.aws_caller_identity.current.account_id
   })
 }
