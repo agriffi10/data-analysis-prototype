@@ -39,3 +39,9 @@ variable "shared_space_orchestrator_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "notifications_writer_role_arn" {
+  description = "SPEC-058: ARN of the notifications-writer role (the single writer of every user's notifications.json), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so the privileged writer can read-modify-write {username}/user_settings/notifications.json; without the exclusion the resource-policy Deny would override the writer's identity-policy Allow (architecture.md: resource policies can lock out a role)."
+  type        = string
+  default     = ""
+}

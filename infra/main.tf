@@ -59,6 +59,16 @@ locals {
   # role exists first.
   shared_space_orchestrator_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-shared-space-orchestrator-role"
 
+  # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
+  # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
+  # Passed to module.data so the user-space bucket policy can EXCLUDE it from the
+  # data-access Deny — the single writer read-modify-writes {username}/user_settings/
+  # notifications.json, and without the exclusion the resource-policy Deny would override
+  # the writer's identity-policy Allow. Constructed string (not module.notifications'
+  # output) so it's known at plan time; apply ordering (data before notifications, via
+  # module.notifications depends_on module.data) is preserved.
+  notifications_writer_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-notifications-writer-role"
+
   # LF registration role ARN (SPEC-032), constructed cycle-free like the role ARNs
   # above (analytics creates it as "${project_name}-analytics-lf-registration-role").
   # Passed to the data module so the user-space bucket policy can EXCLUDE it from
@@ -155,6 +165,11 @@ module "data" {
   # Constructed string (locals) — known at plan; the role is created in
   # module.shared_spaces, but a bucket-policy condition only needs the ARN string.
   shared_space_orchestrator_role_arn = local.shared_space_orchestrator_role_arn
+
+  # SPEC-058: also excluded from the Deny so the notifications-writer can read-modify-write
+  # each user's {username}/user_settings/notifications.json. Constructed string (locals) —
+  # known at plan; the role is created in module.notifications.
+  notifications_writer_role_arn = local.notifications_writer_role_arn
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
