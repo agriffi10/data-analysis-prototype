@@ -12,6 +12,17 @@ producer is SPEC-061).
 role scopability), FR-003 (message contract), FR-004 (read-modify-write + cap),
 FR-005 (actor binding), FR-006 (portal-role `sqs:SendMessage`), FR-008 (this test).
 
+> **Status:** ✅ Executed 2026-06-28 against the deployed environment — two `create`
+> messages for one user processed strictly in arrival order (writer logged the inbox
+> growing `… -> 1` then `… -> 2`, proving FIFO per-user serialization + read-modify-write
+> with no lost update); a token-less `markAllRead` was rejected (`AuthorizationError:
+> missing idToken` → invocation fails → retry → DLQ). The object content + live
+> `markRead`/`markAllRead` need a real Cognito ID token (the writer denies my admin user
+> data access on the bucket by design) — covered by the unit tests; re-run as the live
+> regression once a token is available. Two IAM gaps were fixed during bring-up: the
+> writer's bucket-policy-Deny exclusion (SPEC-051 shape) and its prefix-conditioned
+> `s3:ListBucket` (the new-user 404 disambiguation).
+
 ---
 
 ## Message contract (FR-003)
