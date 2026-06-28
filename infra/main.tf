@@ -258,3 +258,35 @@ module "shared_spaces" {
   # role-exists ordering, as analytics does).
   depends_on = [module.base, module.data]
 }
+
+# Notifications write pipeline (SPEC-058): a FIFO SQS queue that triggers a single
+# notifications-writer Lambda directly (SQS event-source mapping — no Pipe, no Step
+# Function). The writer is the only writer of each user's notifications.json in the
+# existing user-space bucket. Standalone-deployable: cross-module ARNs are constructed
+# strings in the module's locals. The deploy-role grants this module needs landed +
+# applied in SPEC-058 PR 1/2, so no in-module time_sleep propagation guard is required.
+module "notifications" {
+  source = "./modules/notifications"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # The writer reads/writes {username}/user_settings/notifications.json in Bucket 1.
+  user_space_bucket_name = local.user_space_bucket_name
+
+  # The portal role this module attaches the sqs:SendMessage inline policy to, by name.
+  portal_role_name = local.portal_role_name
+
+  # Actor binding (FR-005): the writer verifies caller ID tokens against the pool JWKS
+  # for user-originated actions. Module.auth outputs (one-directional dep: auth applies
+  # before data, which this module already depends on).
+  user_pool_id  = module.auth.user_pool_id
+  app_client_id = module.auth.user_pool_client_id
+
+  # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for
+  # this module (SPEC-058 PR 1/2, already applied); data creates the portal role this
+  # module attaches the enqueue policy to. Force both to settle first.
+  depends_on = [module.base, module.data]
+}

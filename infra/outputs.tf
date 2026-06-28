@@ -88,3 +88,19 @@ output "shared_space_state_machine_arn" {
   description = "ARN of the shared-space orchestrator Step Function (SPEC-050). Used by the control-plane smoke test (docs/testing/shared-spaces-e2e.md)."
   value       = module.shared_spaces.state_machine_arn
 }
+
+# ── Notifications write pipeline (SPEC-058) ──────────────────────────────────
+output "notifications_queue_url" {
+  description = "URL of the FIFO notifications request queue (SPEC-058; ends in .fifo). The browser enqueues markRead/markAllRead here once granted sqs:SendMessage (granted in this spec); maps to VITE_NOTIFICATIONS_QUEUE_URL in SPEC-059."
+  value       = module.notifications.notifications_queue_url
+}
+
+output "notifications_queue_arn" {
+  description = "ARN of the FIFO notifications request queue (SPEC-058) — the portal-role + (future trusted-producer, SPEC-061) sqs:SendMessage scope."
+  value       = module.notifications.notifications_queue_arn
+}
+
+output "notifications_writer_role_arn" {
+  description = "ARN of the privileged notifications-writer role (SPEC-058) — the single writer of every user's notifications.json."
+  value       = module.notifications.notifications_writer_role_arn
+}
