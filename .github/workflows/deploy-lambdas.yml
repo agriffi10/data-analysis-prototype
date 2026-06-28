@@ -33,6 +33,7 @@ jobs:
           - name: pre-signup
           - name: post-confirmation
           - name: shared-space-provisioner
+          - name: notifications-writer
 
     steps:
       - name: Checkout
