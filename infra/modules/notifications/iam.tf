@@ -6,6 +6,13 @@
 # Plus the SQS receive actions the event-source mapping needs on the request queue, and
 # logs. Token verification is offline JWKS, so NO Cognito IAM is required.
 #
+# It also needs s3:ListBucket conditioned to the notifications-key prefix: a GetObject on
+# a key that does NOT yet exist (a brand-new user's first notification) returns 403 (not
+# NoSuchKey) unless the caller holds s3:ListBucket on the bucket — so without it the
+# read-modify-write can never bootstrap a new user's inbox. The prefix condition keeps the
+# grant tight (the writer never lists, it just needs ListBucket present for the 404
+# disambiguation), mirroring the portal role's prefix-conditioned user-space ListBucket.
+#
 # Trust + permission policies are .tftpl templates rendered with templatefile()
 # (no inline jsonencode IAM, per architecture.md Lambda code/infra split).
 resource "aws_iam_role" "writer" {
