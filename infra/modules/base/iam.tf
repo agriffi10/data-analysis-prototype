@@ -73,6 +73,33 @@ resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
   policy_arn = aws_iam_policy.deploy_shared_spaces.arn
 }
 
+# SPEC-058 notifications write-pipeline grants — a SEPARATE customer-managed policy,
+# same rationale as deploy_shared_spaces above: the inline deploy-policy aggregate is
+# already near IAM's 10,240-char limit, so new resource-type grants go in their own
+# managed policy (separate 6,144-char budget, off the inline aggregate). Covers the
+# notifications module's resource types: the FIFO request queue + DLQ, the
+# notifications-writer Lambda + its role (incl. scoped iam:PassRole), and the log
+# group — all scoped by {project_name}-*-notifications-* name patterns. The SQS
+# event-source-mapping actions are NOT resource-scopable (they authorize on a
+# yet-unknown mapping UUID ARN), so they are isolated to their own "*" statement per
+# the architecture.md "adding a new resource type" trap list.
+resource "aws_iam_policy" "deploy_notifications" {
+  name        = "${var.project_name}-deploy-notifications"
+  description = "Deploy-role grants for the SPEC-058 notifications write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-notifications.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_notifications" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_notifications.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
