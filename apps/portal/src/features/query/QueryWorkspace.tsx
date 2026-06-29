@@ -19,6 +19,7 @@ import {invalidateListing} from '../../lib/queryClient';
 import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
+import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
 import {useSavedQueries} from './useSavedQueries';
@@ -224,6 +225,12 @@ export function QueryWorkspace() {
   // Results only fetch once the active query has succeeded; one page (≤20 rows)
   // at a time via the SPEC-038 pager.
   const results = useQueryResults(succeeded ? activeExecutionId : null);
+
+  // SPEC-064: result-column widths, keyed by execution id. Lives here (not in
+  // QueryResultsTable, which unmounts when the active tab has no results) so a
+  // user's resizes survive Prev/Next AND query-tab switches; a new query (new
+  // execution id) starts from defaults.
+  const colWidths = useColumnWidths(succeeded ? activeExecutionId : null, results.columns.length);
 
   // Stable callbacks for the per-tab pollers.
   const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
@@ -880,7 +887,9 @@ export function QueryWorkspace() {
                 hasNext={results.hasNext}
                 isFetchingNext={results.isFetchingNext}
                 isLoading={results.isPending}
-                queryExecutionId={succeeded ? activeExecutionId : null}
+                widths={colWidths.widths}
+                onResize={colWidths.setWidth}
+                onResetColumn={colWidths.resetColumn}
                 onPrev={results.goPrev}
                 onNext={results.goNext}
               />
