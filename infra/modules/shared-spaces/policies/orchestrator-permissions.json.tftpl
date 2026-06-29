@@ -91,10 +91,10 @@
       "Resource": "arn:aws:cognito-idp:${aws_region}:${account_id}:userpool/*"
     },
     {
-      "Sid": "InvokeProvisioner",
+      "Sid": "InvokeVerbLambdas",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "${provisioner_function_arn}"
+      "Resource": ${function_arns_json}
     },
     {
       "Sid": "WriteLogs",
@@ -104,7 +104,7 @@
         "logs:PutLogEvents"
       ],
       "Resource": [
-        "${lambda_log_group_arn}:*",
+        "${lambda_log_groups_arn}",
         "${sfn_log_group_arn}:*"
       ]
     },

@@ -52,11 +52,18 @@ SQS ──▶ EventBridge Pipe ──▶ Step Function  (orchestrates single-tas
 
 > **Orchestration shape (decided — SPEC-062 refactor):** the control plane is **multiple single-task Lambdas
 > orchestrated by the Step Function**, not one monolithic provisioner. The state machine runs a
-> **validate-authorize** Lambda, then a **`Choice`** routes by `action` to exactly **one verb Lambda**; shared
-> code (auth/registry/clients/cache/notify) lives in a common module/layer and each verb has its **own
-> least-privilege role**. The original implementation (SPEC-050→054) shipped as a single 711-line provisioner
-> with an `action`-switch; SPEC-062 decomposes it to this shape (the §7 "provisioning Lambda(s)" intent).
-> Behavior, the request contract, the membership-tag model, and the registry/cache shapes are unchanged.
+> **validate-authorize** Lambda, then a **`Choice`** routes by `action` to exactly **one verb Lambda**
+> (`create-space | add-members | remove-members | leave | delete-space`); shared code
+> (config/clients/auth/registry/membership/cache/notify) lives in a **`shared-space-common` Lambda layer**
+> (CI builds + publishes it; functions attach it, so it deploys like code). The original implementation
+> (SPEC-050→054) shipped as a single 711-line provisioner with an `action`-switch; SPEC-062 decomposes it to
+> this shape (the §7 "provisioning Lambda(s)" intent). Behavior, the request contract, the membership-tag
+> model, and the registry/cache shapes are unchanged.
+>
+> **IAM (decided — user, SPEC-062):** the Step Function **and all six Lambdas keep ONE shared `orchestrator`
+> role** rather than a per-verb least-privilege role. The decomposition is structural (code + orchestration);
+> the role's policy is the union of every verb's permissions plus `lambda:InvokeFunction` on the six functions.
+> (This intentionally departs from the original "own least-privilege role per verb" intent — see SPEC-062 FR-005.)
 
 - The **only** new permission the browser/portal role gets is `sqs:SendMessage` to this one queue. It cannot
   create databases, grant access, or write another user's data — the Step Function does, under its own
@@ -190,9 +197,12 @@ Because provisioning is eventual, the UI never blocks on it:
   (SPEC-032) under `shared-spaces/`; its `expire-admin-results` lifecycle rule is scoped to exclude that
   prefix so registry objects don't expire (§4).
 - **SQS** request queue (+ DLQ), **EventBridge Pipe** (SQS source → Step Function target), **Step Function**
-  state machine, and the **provisioning Lambda(s)** it invokes (validate / create / grant / cache-write /
-  cascade-delete). Code under `lambdas/` per the SPEC-012 code/infra split; the state machine + roles in a new
-  `infra/modules/shared-spaces/` bounded-context module.
+  state machine, and the **single-task Lambdas** it invokes — a `validate-authorize` Lambda + five verb
+  Lambdas (`create-space` / `add-members` / `remove-members` / `leave` / `delete-space`), sharing a
+  `shared-space-common` **Lambda layer** (config/clients/auth/registry/membership/cache/notify). Code under
+  `lambdas/` per the SPEC-012 code/infra split; the state machine + the shared orchestrator role in the
+  `infra/modules/shared-spaces/` bounded-context module. (SPEC-062 decomposed the original single 711-line
+  provisioner into these; the six functions share **one** orchestrator role — see §2.)
 - **Cognito** custom attributes `custom:shared_space_1..N` + Identity Pool principal-tag mappings; the Step
   Function's orchestrator role gets `cognito-idp:AdminUpdateUserAttributes`, LF admin + `GrantPermissions`,
   Glue create/delete, S3 on both buckets, and `iam`/`states`/`logs` as needed.

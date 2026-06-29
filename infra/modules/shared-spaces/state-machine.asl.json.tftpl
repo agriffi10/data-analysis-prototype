@@ -1,13 +1,186 @@
 {
-  "Comment": "Shared-space provisioning orchestrator. The provisioner Lambda first VALIDATEs (SPEC-056): verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry. A forged/unauthorized request raises AuthorizationError -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not AuthorizationError, which is deterministic). Per-action create/grant/cache verbs are stubs until SPEC-051-055.",
-  "StartAt": "Dispatch",
+  "Comment": "Shared-space provisioning orchestrator (SPEC-062). The Step Function — not in-Lambda code — routes by action: Validate (verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
+  "StartAt": "Validate",
   "States": {
-    "Dispatch": {
+    "Validate": {
       "Type": "Task",
-      "Comment": "Validate (token + registry authorization) then dispatch to the per-action verb (stubbed until SPEC-051-055).",
+      "Comment": "Verify token + authorize. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated context object the whole state for the Choice + verb (ResultPath can't merge into an array).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${provisioner_function_arn}",
+        "FunctionName": "${validate_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Route"
+    },
+    "Route": {
+      "Type": "Choice",
+      "Comment": "The router — one branch per action (not an in-Lambda action-switch).",
+      "Choices": [
+        {
+          "Variable": "$.action",
+          "StringEquals": "create",
+          "Next": "CreateSpace"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "add_members",
+          "Next": "AddMembers"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "remove_members",
+          "Next": "RemoveMembers"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "leave",
+          "Next": "Leave"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "delete",
+          "Next": "DeleteSpace"
+        }
+      ],
+      "Default": "Failed"
+    },
+    "CreateSpace": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${create_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "AddMembers": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${add_members_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "RemoveMembers": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${remove_members_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "Leave": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${leave_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "DeleteSpace": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${delete_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -37,7 +210,7 @@
     "Failed": {
       "Type": "Fail",
       "Error": "ProvisioningFailed",
-      "Cause": "The shared-space provisioner returned an unrecoverable error."
+      "Cause": "The shared-space control plane returned an unrecoverable error."
     }
   }
 }

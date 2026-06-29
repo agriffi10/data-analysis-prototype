@@ -1,0 +1,98 @@
+"""create-space verb (SPEC-051; SPEC-062 single-task Lambda).
+
+Provisions a new shared space owned by the actor: atomically reserve the globally
+unique name (registry conditional create), assign the creator a membership slot,
+create the shared prefix marker + Glue database, grant the shared portal role on the
+DB, and write the registry + the creator's per-user cache. Every step tolerates
+"already exists" (replay-safe); a mid-way failure records a terminal ``failed``
+status (registry + the creator's cache) with a reason, then re-raises -> Fail.
+
+Create is **creator-only** (SPEC-062 FR-006): it provisions only ``members:[actor]``
+and takes no member list — members are added later via add-members (SPEC-053).
+"""
+
+import logging
+
+import config
+import clients
+import cache
+import membership
+import registry as reg
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+
+def _ensure_marker(name):
+    """Create the space's DO_NOT_DELETE.txt marker (mirrors SPEC-014). Idempotent."""
+    clients.s3().put_object(
+        Bucket=config.SHARED_SPACE_BUCKET,
+        Key=f"{name}/DO_NOT_DELETE.txt",
+        Body=b"This object marks a shared space. Do not delete.\n",
+    )
+
+
+def _ensure_database(name):
+    glue = clients.glue()
+    try:
+        glue.create_database(DatabaseInput={"Name": name})
+    except glue.exceptions.AlreadyExistsException:
+        pass
+
+
+def _grant_portal_role(name):
+    """Grant the shared portal role full DB + table access on ``name`` (idempotent —
+    LF GrantPermissions re-grants safely). DATA_LOCATION_ACCESS on the shared bucket
+    is a one-time Terraform grant (shared-spaces/lakeformation.tf), not per-DB."""
+    lf = clients.lf()
+    lf.grant_permissions(
+        Principal={"DataLakePrincipalIdentifier": config.PORTAL_ROLE_ARN},
+        Resource={"Database": {"Name": name}},
+        Permissions=config.DATABASE_PERMISSIONS,
+    )
+    lf.grant_permissions(
+        Principal={"DataLakePrincipalIdentifier": config.PORTAL_ROLE_ARN},
+        Resource={"Table": {"DatabaseName": name, "TableWildcard": {}}},
+        Permissions=config.TABLE_PERMISSIONS,
+    )
+
+
+def create_space(name, actor, request_id):
+    """Provision a new shared space owned by ``actor``. Idempotent; records a terminal
+    failed status (registry + the owner's cache) on any error before re-raising."""
+    outcome = reg.reserve(name, actor, request_id)  # may raise "name already taken"
+    if outcome == "replay" and (reg.load(name) or {}).get("status") == "active":
+        return {"status": "active", "space": name, "owner": actor, "replay": True}
+    try:
+        membership.assign_or_find_slot(actor, name)  # may raise "membership limit reached"
+        _ensure_marker(name)
+        _ensure_database(name)
+        _grant_portal_role(name)
+        # Seed the owner's member projection (SPEC-053) — just the owner at create.
+        cache.upsert_entry(
+            actor,
+            {"name": name, "role": "owner", "status": "active", "members": [actor]},
+        )
+        reg.finalize(name, actor, request_id, "active")
+    except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
+        reason = str(exc)
+        logger.error("create %s failed for %s: %s", name, actor, reason)
+        try:
+            reg.finalize(name, actor, request_id, "failed", reason)
+            cache.upsert_entry(
+                actor, {"name": name, "role": "owner", "status": "failed", "reason": reason}
+            )
+        except Exception:  # noqa: BLE001 - best-effort failure recording
+            logger.exception("failed to record failure for %s", name)
+        raise
+    return {"status": "active", "space": name, "owner": actor}
+
+
+def handler(event, context):
+    """``event`` is the validated context from the validator (via the Choice state)."""
+    space = event["space"]
+    actor = event["actor"]
+    request_id = event.get("requestId")
+    result = create_space(space, actor, request_id)
+    logger.info("create %s by %s -> %s", space, actor, result["status"])
+    return result
