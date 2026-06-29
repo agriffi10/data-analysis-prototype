@@ -1,8 +1,8 @@
 # Spec: Decompose Shared-Space Control Plane into Single-Task Lambdas
 
 **ID:** SPEC-062
-**Status:** Draft
-**Last Updated:** 2026-06-27
+**Status:** Completed
+**Last Updated:** 2026-06-29
 **Depends On:** SPEC-050 (control-plane infra: SQS + Pipe + Step Function + orchestrator role + deploy IAM), SPEC-056 (request contract + actor binding + validate state), SPEC-051 (create verb), SPEC-053 (add/remove-members verbs), SPEC-054 (leave + delete verbs), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`)
 
 > **Refactor, not a feature.** The shared-space control plane shipped (SPEC-050→054) as a **single
@@ -153,7 +153,16 @@ The orchestration — not the code — decides which verb runs.
 
 ### FR-005: Per-verb least-privilege roles
 
-#### Acceptance Criteria:
+> **DESCOPED at build (user decision, 2026-06-29).** The user chose to **keep the single shared
+> `orchestrator` role** for the Step Function and all six Lambdas rather than split into per-verb roles. The
+> decomposition is structural only (code + Step Function orchestration); the orchestrator role's policy is the
+> **union** of every verb's permissions plus `lambda:InvokeFunction` on the six functions, and its Lambda
+> log-group grant is widened to `…-shared-space-*`. The acceptance criteria below (own role per function,
+> retiring the orchestrator role, scoped `iam:PassRole`, `simulate-custom-policy` per verb) are therefore
+> **not** implemented; per-verb least-privilege roles remain a possible future hardening step. All other FRs
+> (FR-001→004, FR-006→008) are delivered as written.
+
+#### Acceptance Criteria (not implemented — see note above):
 
 - [ ] Each Lambda has its **own execution role** scoped to exactly the actions/resources that task needs
   (validator: read registry + logs, no mutate; create/add/remove/leave/delete scoped to their specific

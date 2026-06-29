@@ -1,48 +1,53 @@
-# ── Provisioner Lambda (SPEC-050 FR-003) ─────────────────────────────────────
-# The single function the Step Function invokes. SPEC-050 ships a dispatch/echo
-# SKELETON — it provisions nothing; per-action logic (create/add/remove/leave/
-# delete, switched on the request `action`) lands in SPEC-051→055.
+# ── Control-plane Lambdas (SPEC-050 skeleton; SPEC-062 decomposition) ─────────
+# The single 711-line provisioner monolith is decomposed into a validate-authorize
+# Lambda + five single-task verb Lambdas (create / add-members / remove-members /
+# leave / delete), orchestrated by the Step Function (stepfunction.tf): validate ->
+# Choice(action) -> verb. All six run under the shared ORCHESTRATOR role (iam.tf) —
+# one role for the Step Function AND every Lambda (user decision; SPEC-062 FR-005
+# note) — so each already holds every privileged permission its verb needs.
 #
-# Code-ownership split (architecture.md, established SPEC-012): Terraform owns the
-# function INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python
-# code (builds lambdas/shared-space-provisioner, uploads it, update-function-code).
-# `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
-#
-# The function runs under the shared ORCHESTRATOR role (iam.tf) — the same role the
-# Step Function uses — so it already holds every privileged permission the action
-# specs will need; no separate exec role.
+# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
+# (lambdas/shared-space-<suffix>/) AND publishes + attaches the shared-code Lambda
+# layer. `ignore_changes` keeps `tofu apply` from reverting CI's code OR layer.
 
-# Placeholder package so the function is valid at create time. The real code is
-# deployed by CI; this stub only ever runs if a deploy has not happened yet.
-data "archive_file" "provisioner_placeholder" {
+# One placeholder package per function so each is valid at create time. CI replaces
+# the code (and attaches the common layer); these stubs only ever run pre-deploy.
+data "archive_file" "placeholder" {
+  for_each = local.shared_space_functions
+
   type        = "zip"
-  output_path = "${path.module}/build/shared-space-provisioner-placeholder.zip"
+  output_path = "${path.module}/build/shared-space-${each.key}-placeholder.zip"
 
   source {
-    content  = "def handler(event, context):\n    raise Exception('shared-space-provisioner Lambda code not yet deployed by CI')\n"
-    filename = "shared_space_provisioner.py"
+    content  = "def handler(event, context):\n    raise Exception('shared-space-${each.key} Lambda code not yet deployed by CI')\n"
+    filename = "${split(".", each.value)[0]}.py"
   }
 }
 
-# Explicit log group so retention is managed (Lambda would otherwise create one with
-# infinite retention on first invoke). 14-day retention (matches SPEC-012/033).
-resource "aws_cloudwatch_log_group" "provisioner" {
-  name              = local.lambda_log_group_name
+# Explicit log group per function so retention is managed (14 days; matches SPEC-012/
+# 033). Lambda would otherwise create one with infinite retention on first invoke.
+resource "aws_cloudwatch_log_group" "functions" {
+  for_each = local.shared_space_functions
+
+  name              = "/aws/lambda/${local.shared_space_function_names[each.key]}"
   retention_in_days = 14
 
   depends_on = [time_sleep.wait_for_deploy_policy]
 }
 
-resource "aws_lambda_function" "provisioner" {
-  function_name = local.provisioner_function_name
+resource "aws_lambda_function" "functions" {
+  for_each = local.shared_space_functions
+
+  function_name = local.shared_space_function_names[each.key]
   role          = aws_iam_role.orchestrator.arn
   runtime       = "python3.12"
-  handler       = "shared_space_provisioner.handler"
+  handler       = each.value
   timeout       = 60
 
-  # SPEC-056 trusted-actor binding: the handler verifies the caller's Cognito ID
-  # token against the pool JWKS and derives the actor from cognito:username, then
-  # authorizes against the registry under shared-spaces/ in the admin bucket.
+  # Full env on every function (each reads only what it needs; unused vars are empty).
+  # SPEC-056 trusted-actor binding: the validate Lambda verifies the caller's Cognito
+  # ID token against the pool JWKS (COGNITO_*); the verbs trust the validated actor.
   environment {
     variables = {
       COGNITO_USER_POOL_ID   = var.user_pool_id
@@ -55,18 +60,18 @@ resource "aws_lambda_function" "provisioner" {
     }
   }
 
-  # Bootstrap with the placeholder; CI replaces the code via update-function-code.
-  filename         = data.archive_file.provisioner_placeholder.output_path
-  source_code_hash = data.archive_file.provisioner_placeholder.output_base64sha256
+  # Bootstrap with the placeholder; CI replaces code + attaches the common layer.
+  filename         = data.archive_file.placeholder[each.key].output_path
+  source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 
   lifecycle {
-    # CI owns the code — never revert it on apply.
-    ignore_changes = [filename, source_code_hash]
+    # CI owns the code AND the layer attachment — never revert them on apply.
+    ignore_changes = [filename, source_code_hash, layers]
   }
 
   depends_on = [
     aws_iam_role_policy.orchestrator,
-    aws_cloudwatch_log_group.provisioner,
+    aws_cloudwatch_log_group.functions,
     time_sleep.wait_for_deploy_policy,
   ]
 }

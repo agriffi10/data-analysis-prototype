@@ -16,7 +16,7 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Deployment environment, used in resource names as {project_name}-{environment} (e.g. dat-prod-shared-space-provisioner)."
+  description = "Deployment environment, used in resource names as {project_name}-{environment} (e.g. dat-prod-shared-space-create)."
   type        = string
 }
 
@@ -65,13 +65,13 @@ variable "portal_role_name" {
 }
 
 variable "user_pool_id" {
-  description = "SPEC-056: Cognito User Pool ID — passed to the provisioner Lambda (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS (trusted-actor binding, FR-005)."
+  description = "SPEC-056: Cognito User Pool ID — passed to the control-plane Lambdas (env COGNITO_USER_POOL_ID) so the validate-authorize Lambda can verify caller ID tokens against the pool JWKS (trusted-actor binding, SPEC-062)."
   type        = string
   default     = ""
 }
 
 variable "app_client_id" {
-  description = "SPEC-056: Cognito SPA app client ID — the ID token audience the provisioner Lambda checks when verifying the caller's token (env COGNITO_APP_CLIENT_ID)."
+  description = "SPEC-056: Cognito SPA app client ID — the ID token audience the validate-authorize Lambda checks when verifying the caller's token (env COGNITO_APP_CLIENT_ID)."
   type        = string
   default     = ""
 }

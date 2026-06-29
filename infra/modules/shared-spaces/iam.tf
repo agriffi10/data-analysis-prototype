@@ -1,12 +1,11 @@
-# ── Control-plane IAM roles (SPEC-050 FR-003) ────────────────────────────────
+# ── Control-plane IAM roles (SPEC-050 FR-003; SPEC-062) ──────────────────────
 # Two roles:
-#   - orchestrator role: the single privileged role BOTH the Step Function and the
-#     provisioner Lambda run under (trust = states + lambda). It carries the full
-#     permission policy the pipeline will need (Glue, Lake Formation, S3 on the
-#     shared bucket + admin registry prefix, Cognito admin, states/logs). SPEC-050
-#     creates the role + policy; the RESOURCES/GRANTS it acts on (membership tags,
-#     LF grants, per-space DBs) arrive in SPEC-056 + the action specs. (FR-003 calls
-#     for one privileged role both run under; a separate SFN exec role is folded in.)
+#   - orchestrator role: the single privileged role the Step Function AND every verb/
+#     validator Lambda run under (trust = states + lambda). SPEC-062 decomposes the
+#     monolith into six Lambdas but keeps ONE shared role (user decision; SPEC-062
+#     FR-005 note) — so the policy carries the union of all verbs' permissions (Glue,
+#     Lake Formation, S3 on the shared bucket + admin registry prefix, user-space
+#     cache, Cognito admin, invoke the verb Lambdas, states/logs).
 #   - pipe role: assumed by the EventBridge Pipe to read the queue and start the SFN.
 #
 # Trust + permission policies are .tftpl templates rendered with templatefile()
@@ -25,14 +24,15 @@ resource "aws_iam_role_policy" "orchestrator" {
   role = aws_iam_role.orchestrator.id
 
   policy = templatefile("${path.module}/policies/orchestrator-permissions.json.tftpl", {
-    aws_region               = var.aws_region
-    account_id               = var.account_id
-    shared_space_bucket_arn  = local.shared_space_bucket_arn
-    admin_bucket_arn         = local.admin_bucket_arn
-    user_space_bucket_arn    = local.user_space_bucket_arn
-    provisioner_function_arn = local.provisioner_function_arn
-    lambda_log_group_arn     = local.lambda_log_group_arn
-    sfn_log_group_arn        = local.sfn_log_group_arn
+    aws_region              = var.aws_region
+    account_id              = var.account_id
+    shared_space_bucket_arn = local.shared_space_bucket_arn
+    admin_bucket_arn        = local.admin_bucket_arn
+    user_space_bucket_arn   = local.user_space_bucket_arn
+    # SPEC-062: invoke every verb/validator Lambda (constructed ARNs, known at plan).
+    function_arns_json    = jsonencode(local.shared_space_function_arns)
+    lambda_log_groups_arn = local.lambda_log_groups_arn
+    sfn_log_group_arn     = local.sfn_log_group_arn
   })
 }
 

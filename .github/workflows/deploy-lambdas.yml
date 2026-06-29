@@ -4,6 +4,12 @@ name: Deploy Lambdas
 # infrastructure + a placeholder; see infra/modules/auth/lambda.tf). For each
 # function under lambdas/, this installs the shared requirements, zips the
 # package, uploads it to the artifacts bucket, and runs update-function-code.
+#
+# Shared-space functions (SPEC-062) get their deps + shared common code from a
+# Lambda LAYER instead of bundling them: the `layer` job builds + publishes the
+# `shared-space-common` layer once, and each shared-space function attaches it via
+# update-function-configuration. Terraform ignores the function `layers` attribute,
+# so CI owns the layer the same way it owns the code.
 
 on:
   push:
@@ -19,7 +25,65 @@ env:
   ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
 
 jobs:
+  # ── Shared-code layer (SPEC-062) ───────────────────────────────────────────
+  # Publishes the `shared-space-common` layer = external deps (PyJWT[crypto]) +
+  # the shared common modules, published once. The shared-space functions attach
+  # the resulting version ARN (below). Repo's first Lambda layer; a later spec
+  # reuses the mechanism for heavier external libraries.
+  layer:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/layer/python"
+          rm -rf build/layer && mkdir -p "$LAYER_DIR"
+          # External deps for the layer (manylinux wheels, compatible with the
+          # python3.12 Lambda runtime — same as the previous per-function bundling).
+          pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
+          # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
+          # Keep this list in sync with lambdas/shared-space-common/.
+          for m in config clients auth registry membership cache notify; do
+            cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
+          done
+          (cd build/layer && zip --quiet --recurse-paths ../shared-space-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-shared-space-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared common code + deps for the shared-space control plane (SPEC-062)." \
+            --zip-file "fileb://build/shared-space-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: layer
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -28,12 +92,19 @@ jobs:
     strategy:
       matrix:
         # One entry per function. `name` is both the lambdas/ subdir and the
-        # function-name suffix ({project}-{env}-{name}).
+        # function-name suffix ({project}-{env}-{name}). `layer: true` functions
+        # (SPEC-062) get deps + shared code from the common layer instead of
+        # bundling the shared requirements, and attach the layer after deploy.
         lambda:
-          - name: pre-signup
-          - name: post-confirmation
-          - name: shared-space-provisioner
-          - name: notifications-writer
+          - { name: pre-signup, layer: false }
+          - { name: post-confirmation, layer: false }
+          - { name: notifications-writer, layer: false }
+          - { name: shared-space-validate, layer: true }
+          - { name: shared-space-create, layer: true }
+          - { name: shared-space-add-members, layer: true }
+          - { name: shared-space-remove-members, layer: true }
+          - { name: shared-space-leave, layer: true }
+          - { name: shared-space-delete, layer: true }
 
     steps:
       - name: Checkout
@@ -49,9 +120,14 @@ jobs:
           set -euo pipefail
           BUILD_DIR="build/${{ matrix.lambda.name }}"
           rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-          # Shared deps for all lambdas (no-op when requirements.txt is empty).
-          pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
+          # Layer functions get deps from the layer; others bundle the shared
+          # requirements as before (no-op when requirements.txt is empty).
+          if [ "${{ matrix.lambda.layer }}" != "true" ]; then
+            pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
+          fi
           cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
+          # Never ship tests.
+          rm -f "$BUILD_DIR"/test_*.py
           (cd "$BUILD_DIR" && zip --quiet --recurse-paths "../${{ matrix.lambda.name }}.zip" .)
 
       - name: Configure AWS credentials
@@ -94,3 +170,11 @@ jobs:
             --s3-key "$KEY" \
             --publish
           aws lambda wait function-updated --function-name "$FUNCTION"
+
+          # Attach the shared-code layer for shared-space functions (SPEC-062).
+          if [ "${{ matrix.lambda.layer }}" = "true" ]; then
+            aws lambda update-function-configuration \
+              --function-name "$FUNCTION" \
+              --layers "${{ needs.layer.outputs.layer_arn }}"
+            aws lambda wait function-updated --function-name "$FUNCTION"
+          fi

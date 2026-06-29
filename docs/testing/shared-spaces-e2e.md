@@ -328,6 +328,27 @@ aws s3 ls "s3://dat-prod-user-space/$ME/athenaresults/" | tail      # NOT here (
 
 ---
 
+## SPEC-062 — decomposition parity (validate → Choice → verb Lambdas)
+
+The monolith is replaced by six Lambdas + a shared layer, behind the same SQS front. **Re-run the
+SPEC-051/053/054 sections above** — every end state (S3 prefix/marker, Glue DB+tables, registry object,
+membership slots, per-user caches) must be identical. Plus the structural checks:
+
+- [ ] **Functions exist + carry the layer:** `aws lambda get-function --function-name
+  dat-prod-shared-space-create` (and `-validate/-add-members/-remove-members/-leave/-delete`) returns the
+  function with a `Layers` entry for `dat-prod-shared-space-common`. The old
+  `dat-prod-shared-space-provisioner` is **gone**.
+- [ ] **Routing:** a `create` execution shows the path `Validate → Route → CreateSpace → Succeeded` in
+  the Step Function execution history; `add_members`/`leave`/`delete` route to their own branch. An
+  unknown action lands on `Failed`.
+- [ ] **Auth still server-side:** a forged/expired `idToken` fails in `Validate` (Catch → `Failed`) with
+  **no** side effects (no registry/slot/cache write); a non-owner `delete`/`add_members` fails in
+  `Validate` (`owner-only`).
+- [ ] **No notifications yet:** verbs do **not** emit (the `notify` seam is a no-op until SPEC-061 wires
+  `NOTIFICATIONS_QUEUE_URL` + the `sqs:SendMessage` grant).
+
+---
+
 ## Notes
 
 - **No provisioning happens yet.** SPEC-050: a SUCCEEDED execution + echo is the pass

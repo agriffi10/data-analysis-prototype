@@ -1,0 +1,70 @@
+"""Token verification + action authorization (SPEC-056; SPEC-062 shared layer).
+
+The security boundary of the control plane. ``verified_username`` derives the
+trusted actor from a verified Cognito ID token (issuer/audience/expiry/signature
+against the pool JWKS) — never from a body-asserted username. ``authorize`` is a
+pure function that gates each action against the registry. Both are owned by the
+validate-authorize Lambda; the verb Lambdas trust its decision and never re-verify.
+"""
+
+import config
+import clients
+
+
+class AuthorizationError(Exception):
+    """Untrusted/unauthorized request — Catch -> Fail, never retried, no side effects."""
+
+
+def verified_username(id_token):
+    """Verify a Cognito ID token and return the trusted ``cognito:username``."""
+    import jwt
+
+    if not id_token:
+        raise AuthorizationError("missing idToken")
+    issuer = f"https://cognito-idp.{config.REGION}.amazonaws.com/{config.USER_POOL_ID}"
+    jwks_url = f"{issuer}/.well-known/jwks.json"
+    try:
+        signing_key = clients.jwks(jwks_url).get_signing_key_from_jwt(id_token)
+        claims = jwt.decode(
+            id_token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=config.APP_CLIENT_ID,
+            issuer=issuer,
+            options={"require": ["exp", "iss", "aud"]},
+        )
+    except Exception as exc:  # noqa: BLE001 - any verify failure = untrusted
+        raise AuthorizationError(f"token verification failed: {exc}") from exc
+
+    if claims.get("token_use") != "id":
+        raise AuthorizationError("not an ID token")
+    username = claims.get("cognito:username")
+    if not username:
+        raise AuthorizationError("token missing cognito:username")
+    return username
+
+
+def authorize(action, space, actor, registry):
+    """Authorize ``actor`` for ``action`` on ``space``. Pure; raises on violation.
+
+    ``registry`` is the loaded registry record (or None for create / a missing
+    space). Mirrors the pre-decomposition semantics exactly (SPEC-051/053/054).
+    """
+    if action not in config.VALID_ACTIONS:
+        raise AuthorizationError(f"unknown action: {action!r}")
+    if action == "create":
+        return
+    if registry is None:
+        raise AuthorizationError(f"space {space!r} does not exist")
+    owner = registry.get("owner")
+    members = registry.get("members", [])
+    if action in config.OWNER_ONLY_ACTIONS:
+        if actor != owner:
+            raise AuthorizationError(f"{action} on {space!r} is owner-only")
+        return
+    if action == "leave":
+        if actor == owner:
+            raise AuthorizationError("owner cannot leave their own space (delete it instead)")
+        if actor not in members:
+            raise AuthorizationError(f"{actor!r} is not a member of {space!r}")
+        return
