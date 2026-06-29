@@ -155,11 +155,59 @@ Verified locally against the rendered **writer** policy (pass the policy **inlin
 
 ---
 
+## Producer flow — shared-workspace control plane (SPEC-061)
+
+The **first trusted `create` producer**. Each shared-space verb Lambda (SPEC-062:
+create / add-members / leave / delete — run under the single orchestrator role) emits a
+`create` notification at its **terminal** outcome via the shared `notify.emit_notification`
+helper, scoped to the notifications queue ARN only (`sqs:SendMessage`). `remove_members`
+emits nothing. The seven events:
+
+| # | Action / outcome | Recipient | Message |
+|---|---|---|---|
+| 1 | `create` → active | creator | `Your shared workspace "{name}" is ready.` |
+| 2 | `create` → failed | creator | `We couldn't create shared workspace "{name}": {reason}.` |
+| 3 | `add_members` → added | the added user | `You've been added to the shared workspace "{name}".` |
+| 4 | `add_members` → at-limit | owner | `Couldn't add "{user}" to "{name}": they've reached their workspace limit.` |
+| 5 | `add_members` → unknown user | owner | `Couldn't add "{user}" to "{name}": no such user.` |
+| 6 | `leave` → member left | owner | `"{user}" left the shared workspace "{name}".` |
+| 7 | `delete` → cascade success | **every member** (incl. deleter), deduped | deleter: `You deleted the shared workspace "{name}".`; others: `The shared workspace "{name}" was deleted.` |
+
+**IAM scopability (FR-001)** — verify against the rendered **orchestrator** policy
+(`simulate-custom-policy`, inline `--policy-input-list`):
+
+| Action / resource | Decision |
+|---|---|
+| `sqs:SendMessage` → the notifications queue ARN | `allowed` |
+| `sqs:SendMessage` → an unrelated queue ARN | `implicitDeny` |
+
+**End-to-end** (against the deployed environment, after `deploy-infra` + `deploy-lambdas`):
+
+```bash
+# Drive a real create through the control plane (browser, or send to the shared-space
+# request queue), then watch the create notification land on the notifications queue and
+# the writer append the recipient's row:
+aws logs tail "/aws/lambda/dat-prod-shared-space-create" --since 5m   # "create salesdata by alice -> active"
+aws logs tail "/aws/lambda/dat-prod-notifications-writer" --since 5m  # "notifications create for alice -> N"
+aws s3api get-object --bucket dat-prod-user-space \
+  --key alice/user_settings/notifications.json /dev/stdout
+# -> [{"id":"…","message":"Your shared workspace \"salesdata\" is ready.","read":false,"timestamp":"…"}]
+```
+
+- [ ] Create (success + name-collision failure), add-members (added / at-limit / unknown),
+  leave, and delete each land the expected row(s); delete fans out to every member with the
+  deleter's distinct message. The recipient(s) then see them in the notifications page (SPEC-060).
+- [ ] Best-effort: a notify failure (e.g. queue throttled) is logged and the workspace
+  action still completes — never rolled back.
+
+---
+
 ## Notes
 
 - **Trusted producers.** `create` is enqueued only by identities explicitly granted
   `sqs:SendMessage` on the queue. SPEC-058 exposes the queue ARN as an output and grants
   the portal role (user actions only); the **first** `create` producer — the
-  shared-workspace control plane (seven lifecycle events) — is wired in **SPEC-061**.
+  shared-workspace control plane (seven lifecycle events) — is wired in **SPEC-061**
+  (see *Producer flow* above).
 - **Offline token verification.** The writer verifies ID tokens against the pool JWKS over
   HTTPS (no Cognito IAM), mirroring the shared-space provisioner.

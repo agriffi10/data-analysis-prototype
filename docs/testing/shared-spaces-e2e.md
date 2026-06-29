@@ -344,8 +344,9 @@ membership slots, per-user caches) must be identical. Plus the structural checks
 - [ ] **Auth still server-side:** a forged/expired `idToken` fails in `Validate` (Catch → `Failed`) with
   **no** side effects (no registry/slot/cache write); a non-owner `delete`/`add_members` fails in
   `Validate` (`owner-only`).
-- [ ] **No notifications yet:** verbs do **not** emit (the `notify` seam is a no-op until SPEC-061 wires
-  `NOTIFICATIONS_QUEUE_URL` + the `sqs:SendMessage` grant).
+- [ ] **Notifications (SPEC-061):** each verb emits a `create` notification at its terminal outcome
+  (create / add-members / leave / delete; `remove-members` emits nothing) — the producer flow + the seven
+  events are covered in `docs/testing/notifications-e2e.md` (*Producer flow — shared-workspace control plane*).
 
 ---
 

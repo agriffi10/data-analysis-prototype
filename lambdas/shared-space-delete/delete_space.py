@@ -17,6 +17,7 @@ import clients
 import cache
 import membership
 import registry as reg
+from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -112,6 +113,19 @@ def delete_space(space, actor, request_id, registry):
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to record delete failure for %s", space)
         raise
+    # SPEC-061 event 7: fan out one notification per member (the list was captured
+    # BEFORE the cascade cleared the registry; owner ∈ members), deduplicated so each
+    # user gets exactly one. The deleter (actor) gets a distinct "you deleted" message;
+    # every other member gets "was deleted". Emitted only here — past the terminal
+    # success; a failed/partial cascade re-raises above and emits nothing. Each emit is
+    # best-effort (FR-002), so one failure never aborts the fan-out to the rest.
+    for recipient in dict.fromkeys(members):
+        message = (
+            f'You deleted the shared workspace "{space}".'
+            if recipient == actor
+            else f'The shared workspace "{space}" was deleted.'
+        )
+        emit_notification(recipient, message, dedup_id=f"{request_id}:delete:{recipient}")
     logger.info("delete %s by %s: cascade complete (%d members revoked)", space, actor, len(members))
     return {"status": "ok", "action": "delete", "space": space, "revokedMembers": members}
 

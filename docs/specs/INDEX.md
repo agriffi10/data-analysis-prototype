@@ -66,7 +66,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 058 — Notifications Foundation Infrastructure (Write Pipeline + IAM) | Completed |
 | 059 — Notifications Data Layer (Read Service + Hook) | Completed |
 | 060 — Notifications UI (Header Bell Link + Notifications Page) | Completed |
-| 061 — Shared-Workspace Notification Producer | Draft |
+| 061 — Shared-Workspace Notification Producer | Completed |
 | 062 — Decompose Shared-Space Control Plane into Single-Task Lambdas | Completed |
 | 063 — Schema Rail: Collapsible Databases with Tables/Views Groups | Draft |
 | 064 — Resizable Query-Result Columns | Draft |

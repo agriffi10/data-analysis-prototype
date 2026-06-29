@@ -97,6 +97,12 @@
       "Resource": ${function_arns_json}
     },
     {
+      "Sid": "EmitNotifications",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${notifications_queue_arn}"
+    },
+    {
       "Sid": "WriteLogs",
       "Effect": "Allow",
       "Action": [
