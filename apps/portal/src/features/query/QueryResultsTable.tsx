@@ -1,5 +1,10 @@
 import {Pager} from '../../components/Pager';
+import {ColumnResizeHandle} from './ColumnResizeHandle';
+import {useColumnWidths} from './useColumnWidths';
 import type {QueryColumn} from './query.types';
+
+// The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
+const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)
 
 type QueryResultsTableProps = {
   columns: QueryColumn[];
@@ -12,17 +17,21 @@ type QueryResultsTableProps = {
   hasNext: boolean;
   isFetchingNext: boolean;
   isLoading: boolean; // first page in flight
+  queryExecutionId: string | null; // SPEC-064: width reset key (FR-002/003)
   onPrev: () => void;
   onNext: () => void;
 };
 
 // SPEC-035 FR-006 / SPEC-038 FR-002: results table reusing the file-table visual
-// language (surface, border, rounded-lg, surface-2 uppercase header, 48px
-// monospace rows, hover). Dynamic columns scroll horizontally without breaking
-// the shell. A successful DDL / zero-row SELECT renders the friendly empty state,
-// not an error. Pagination is a Prev/Next pager that shows exactly one page
-// (≤ page size rows) at a time — navigating REPLACES the visible rows (SPEC-038),
-// unlike the file browser's append-style "Load more" (SPEC-037).
+// language (surface, border, rounded-lg, surface-2 uppercase header, monospace
+// rows, hover). SPEC-064: columns are user-resizable — a <colgroup> of explicit
+// widths drives table-layout:fixed, each data-column header carries a drag/keyboard
+// resize handle, cells/headers truncate with an ellipsis (full text on hover via
+// `title`), and the body scrolls horizontally for wide (20+ column) results.
+// Widths persist across Prev/Next within one execution and reset on a new query
+// (keyed by queryExecutionId). A successful DDL / zero-row SELECT renders the
+// friendly empty state, not an error. Navigating REPLACES the visible rows
+// (SPEC-038), unlike the file browser's append-style "Load more" (SPEC-037).
 export function QueryResultsTable({
   columns,
   rows,
@@ -34,9 +43,12 @@ export function QueryResultsTable({
   hasNext,
   isFetchingNext,
   isLoading,
+  queryExecutionId,
   onPrev,
   onNext
 }: QueryResultsTableProps) {
+  const {widths, setWidth, resetColumn} = useColumnWidths(queryExecutionId, columns.length);
+
   return (
     <div>
       <h2 className="mb-3 text-base font-semibold">Results</h2>
@@ -49,23 +61,45 @@ export function QueryResultsTable({
         <>
           <div className="overflow-hidden rounded-lg border border-border bg-surface">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-max border-collapse text-left">
+              <table className="w-full table-fixed border-collapse text-left">
+                <colgroup>
+                  <col style={{width: ROW_NUMBER_COLUMN_WIDTH}} />
+                  {columns.map((_column, index) => (
+                    <col
+                      key={index}
+                      style={{width: widths[index] ?? undefined}}
+                    />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr className="h-10 border-b border-border bg-surface-2">
                     <th
                       scope="col"
-                      className="w-14 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                      className="px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
                       #
                     </th>
-                    {columns.map((column) => (
+                    {columns.map((column, index) => (
                       <th
-                        key={column.name}
+                        key={index}
                         scope="col"
-                        className="whitespace-nowrap px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
-                        <span className="block">{column.name}</span>
-                        <span className="block font-mono text-[10px] normal-case tracking-normal text-text-3">
+                        className="relative px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                        <span
+                          className="block truncate"
+                          title={column.name}>
+                          {column.name}
+                        </span>
+                        <span
+                          className="block truncate font-mono text-[10px] normal-case tracking-normal text-text-3"
+                          title={column.type}>
                           {column.type}
                         </span>
+                        <ColumnResizeHandle
+                          columnIndex={index}
+                          columnName={column.name}
+                          width={widths[index] ?? 0}
+                          onResize={setWidth}
+                          onReset={resetColumn}
+                        />
                       </th>
                     ))}
                   </tr>
@@ -76,11 +110,12 @@ export function QueryResultsTable({
                       key={rowIndex}
                       className="h-12 border-b border-border-2 font-mono text-sm last:border-0 hover:bg-surface-2">
                       {/* Absolute row number across pages, not the in-page index. */}
-                      <td className="px-3 text-text-3">{rangeStart + rowIndex}</td>
+                      <td className="truncate px-3 text-text-3">{rangeStart + rowIndex}</td>
                       {row.map((cell, cellIndex) => (
                         <td
                           key={cellIndex}
-                          className="whitespace-nowrap px-3">
+                          className="truncate px-3"
+                          title={cell}>
                           {cell}
                         </td>
                       ))}
@@ -91,8 +126,9 @@ export function QueryResultsTable({
             </div>
           </div>
 
-          {/* Prev/Next pager (FR-002). Range indicator shows "Rows X–Y"; the
-              definitive total appears only once the last page is reached. */}
+          {/* Prev/Next pager (FR-002), below the horizontal scroll region so it
+              stays usable with a wide, scrolled result. Range indicator shows
+              "Rows X–Y"; the definitive total appears only at the last page. */}
           <Pager
             className="py-4"
             hasPrev={hasPrev}

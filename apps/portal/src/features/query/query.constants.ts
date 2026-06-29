@@ -59,6 +59,13 @@ export const QUERY_ACTIVE_DB_STORAGE_PREFIX = 's3portal.query.activeDatabase.';
 // "close a tab first" dialog. Closing a tab drops back below the cap.
 export const QUERY_TABS_MAX = 10;
 
+// SPEC-064: result-column sizing. Defaults a column to a comfortable width;
+// MIN is the hard drag floor (small enough that a narrow column ellipsis-
+// truncates its own header). STEP is the keyboard (Arrow) resize increment.
+export const DEFAULT_COLUMN_WIDTH = 180; // px
+export const MIN_COLUMN_WIDTH = 72; // px
+export const COLUMN_RESIZE_STEP_PX = 16; // px per Arrow key press
+
 // SPEC-035/040/041: the boilerplate a brand-new first tab opens with (a `+` blank
 // tab opens empty). Single source of truth, shared by the workspace and the
 // tabs-state factory.

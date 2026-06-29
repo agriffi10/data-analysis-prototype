@@ -880,6 +880,7 @@ export function QueryWorkspace() {
                 hasNext={results.hasNext}
                 isFetchingNext={results.isFetchingNext}
                 isLoading={results.isPending}
+                queryExecutionId={succeeded ? activeExecutionId : null}
                 onPrev={results.goPrev}
                 onNext={results.goNext}
               />

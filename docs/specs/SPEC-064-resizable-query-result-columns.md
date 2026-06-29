@@ -1,7 +1,7 @@
 # Spec: Resizable Query-Result Columns
 
 **ID:** SPEC-064
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-038 (query-results Prev/Next pagination + `useQueryResults`), SPEC-035 (query workspace + `QueryResultsTable`)
 

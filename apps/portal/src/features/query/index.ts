@@ -16,6 +16,8 @@ export {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQuerie
 export {useQueryExecution} from './useQueryExecution';
 export {useQueryResults} from './useQueryResults';
 export type {UseQueryResultsResult} from './useQueryResults';
+export {useColumnWidths} from './useColumnWidths';
+export type {UseColumnWidthsResult} from './useColumnWidths';
 export {useSchema, invalidateSchema} from './useSchema';
 export type {SchemaData} from './useSchema';
 export {useQueryHistory} from './useQueryHistory';
@@ -34,6 +36,9 @@ export {
   QUERY_TABS_MAX,
   QUERY_HISTORY_PAGE_SIZE,
   TABLE_PREVIEW_ROW_LIMIT,
+  DEFAULT_COLUMN_WIDTH,
+  MIN_COLUMN_WIDTH,
+  COLUMN_RESIZE_STEP_PX,
   DEFAULT_SQL
 } from './query.constants';
 export type {

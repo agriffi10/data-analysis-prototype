@@ -1,6 +1,7 @@
 import {describe, it, expect, vi} from 'vitest';
 import {render, screen, fireEvent} from '@testing-library/react';
 import {QueryResultsTable} from './QueryResultsTable';
+import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, COLUMN_RESIZE_STEP_PX} from './query.constants';
 
 const columns = [
   {name: 'region', type: 'string'},
@@ -23,12 +24,18 @@ function renderTable(over: Partial<Parameters<typeof QueryResultsTable>[0]> = {}
     hasNext: false,
     isFetchingNext: false,
     isLoading: false,
+    queryExecutionId: 'exec-1' as string | null,
     onPrev: vi.fn(),
     onNext: vi.fn(),
     ...over
   };
-  render(<QueryResultsTable {...props} />);
-  return props;
+  const utils = render(<QueryResultsTable {...props} />);
+  return {...props, ...utils};
+}
+
+// A single data-column handle is found by its accessible name (FR-006).
+function handleFor(name: string) {
+  return screen.getByRole('separator', {name: `Resize column ${name}`});
 }
 
 describe('QueryResultsTable', () => {
@@ -96,5 +103,105 @@ describe('QueryResultsTable', () => {
 
     const next = screen.getByRole('button', {name: 'Loading…'});
     expect(next).toBeDisabled();
+  });
+
+  // SPEC-064 ---------------------------------------------------------------
+
+  it('renders a resize handle per data column but not for the # row-number column', () => {
+    renderTable();
+
+    expect(handleFor('region')).toBeInTheDocument();
+    expect(handleFor('revenue')).toBeInTheDocument();
+    // Two data columns → two handles, none for `#`.
+    expect(screen.getAllByRole('separator')).toHaveLength(2);
+  });
+
+  it('defaults each data column to DEFAULT_COLUMN_WIDTH (the # column stays fixed)', () => {
+    const {container} = renderTable();
+    const cols = container.querySelectorAll('col');
+    expect(cols).toHaveLength(3); // # + 2 data columns
+    expect((cols[1] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH}px`);
+    expect((cols[2] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH}px`);
+  });
+
+  it('a drag widens the column, and the width persists across a page change', () => {
+    const {container, rerender, ...props} = renderTable();
+
+    const handle = handleFor('region');
+    fireEvent.pointerDown(handle, {clientX: 0});
+    fireEvent.pointerMove(window, {clientX: 100}); // +100px
+    fireEvent.pointerUp(window);
+    expect((container.querySelectorAll('col')[1] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH + 100}px`);
+
+    // Page forward within the SAME execution → width survives (FR-002).
+    rerender(
+      <QueryResultsTable
+        {...props}
+        rows={[['ap-south', '55000']]}
+        pageIndex={1}
+        rangeStart={3}
+        rangeEnd={3}
+      />
+    );
+    expect((container.querySelectorAll('col')[1] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH + 100}px`);
+  });
+
+  it('clamps a drag at MIN_COLUMN_WIDTH', () => {
+    const {container} = renderTable();
+    const handle = handleFor('region');
+    fireEvent.pointerDown(handle, {clientX: 500});
+    fireEvent.pointerMove(window, {clientX: 0}); // far narrower than the floor
+    expect((container.querySelectorAll('col')[1] as HTMLElement).style.width).toBe(`${MIN_COLUMN_WIDTH}px`);
+  });
+
+  it('double-clicking a handle resets that column to the default', () => {
+    const {container} = renderTable();
+    const handle = handleFor('revenue');
+    fireEvent.pointerDown(handle, {clientX: 0});
+    fireEvent.pointerMove(window, {clientX: 120});
+    fireEvent.pointerUp(window);
+    expect((container.querySelectorAll('col')[2] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH + 120}px`);
+
+    fireEvent.doubleClick(handle);
+    expect((container.querySelectorAll('col')[2] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH}px`);
+  });
+
+  it('keyboard Arrow Right widens the focused column by the resize step', () => {
+    const {container} = renderTable();
+    fireEvent.keyDown(handleFor('region'), {key: 'ArrowRight'});
+    expect((container.querySelectorAll('col')[1] as HTMLElement).style.width).toBe(
+      `${DEFAULT_COLUMN_WIDTH + COLUMN_RESIZE_STEP_PX}px`
+    );
+  });
+
+  it('running a new query (new execution id) resets widths to the default', () => {
+    const {container, rerender, ...props} = renderTable();
+    fireEvent.keyDown(handleFor('region'), {key: 'ArrowRight'});
+    expect((container.querySelectorAll('col')[1] as HTMLElement).style.width).toBe(
+      `${DEFAULT_COLUMN_WIDTH + COLUMN_RESIZE_STEP_PX}px`
+    );
+
+    rerender(
+      <QueryResultsTable
+        {...props}
+        queryExecutionId="exec-2"
+      />
+    );
+    expect((container.querySelectorAll('col')[1] as HTMLElement).style.width).toBe(`${DEFAULT_COLUMN_WIDTH}px`);
+  });
+
+  it('truncates cells and headers and exposes the full text via a title tooltip', () => {
+    renderTable({
+      columns: [{name: 'a_very_long_column_name', type: 'varchar'}],
+      rows: [['a value that is far wider than the column can show']]
+    });
+
+    const header = screen.getByText('a_very_long_column_name');
+    expect(header).toHaveClass('truncate');
+    expect(header).toHaveAttribute('title', 'a_very_long_column_name');
+
+    const cell = screen.getByText('a value that is far wider than the column can show');
+    expect(cell).toHaveClass('truncate');
+    expect(cell).toHaveAttribute('title', 'a value that is far wider than the column can show');
   });
 });
