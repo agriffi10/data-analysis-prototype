@@ -7,9 +7,18 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
+import clients  # noqa: E402
+import config  # noqa: E402
 import create_space as c  # noqa: E402
 import registry as reg  # noqa: E402
 from fakes import install, raises  # noqa: E402
+
+
+def _enable_notifications():
+    """Point the emit helper at a queue so notify is no longer a no-op; return the
+    FakeSqs install() already wired onto clients._sqs."""
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    return clients._sqs
 
 
 def test_create_happy_path_provisions_everything():
@@ -76,6 +85,47 @@ def test_handler_uses_validated_context():
     install()
     out = c.handler({"space": "sales", "actor": "alice", "requestId": "req-1"}, None)
     assert out["status"] == "active" and out["owner"] == "alice"
+
+
+# ── SPEC-061: producer events 1 & 2 ──────────────────────────────────────────
+def test_create_success_notifies_creator_ready():
+    install()
+    sqs = _enable_notifications()
+    c.create_space("sales", "alice", "req-1")
+    assert len(sqs.sent) == 1
+    msg = sqs.sent[0]
+    assert msg["MessageGroupId"] == "alice"
+    assert msg["MessageDeduplicationId"] == "req-1:create-active:alice"
+    body = json.loads(msg["MessageBody"])
+    assert body == {
+        "action": "create",
+        "username": "alice",
+        "message": 'Your shared workspace "sales" is ready.',
+    }
+
+
+def test_create_failure_notifies_creator_with_reason():
+    install(
+        cognito_attrs={"custom:shared_space_1": "a", "custom:shared_space_2": "b"},
+        max_memberships=2,
+    )
+    sqs = _enable_notifications()
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, "membership limit")
+    assert len(sqs.sent) == 1
+    body = json.loads(sqs.sent[0]["MessageBody"])
+    assert body["username"] == "alice"
+    assert body["message"].startswith('We couldn\'t create shared workspace "sales":')
+    assert "membership limit reached" in body["message"]
+
+
+def test_create_replay_emits_nothing():
+    s3, *_ = install()
+    sqs = _enable_notifications()
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "alice", "lastRequestId": "req-1", "status": "active"}
+    ).encode()
+    c.create_space("sales", "alice", "req-1")  # replay of an already-active create
+    assert sqs.sent == []
 
 
 if __name__ == "__main__":

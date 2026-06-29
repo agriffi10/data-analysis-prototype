@@ -15,6 +15,7 @@ import cache
 import membership
 import registry as reg
 from auth import AuthorizationError
+from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -32,6 +33,13 @@ def leave_space(space, actor, request_id, registry):
     remaining = [m for m in members if m != actor]
     reg.save_members(registry, remaining, request_id)
     cache.write_owner_projection(owner, space, remaining)
+    # SPEC-061 event 6: notify the owner that a member left (after the registry write;
+    # the leaving user is never the owner — guarded above). No-op leaves emit nothing.
+    emit_notification(
+        owner,
+        f'"{actor}" left the shared workspace "{space}".',
+        dedup_id=f"{request_id}:leave:{actor}",
+    )
     logger.info("leave %s: %s left (%d remaining)", space, actor, len(remaining))
     return {"status": "ok", "action": "leave", "space": space, "left": True}
 

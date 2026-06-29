@@ -18,6 +18,7 @@ import clients
 import cache
 import membership
 import registry as reg
+from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -84,7 +85,20 @@ def create_space(name, actor, request_id):
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to record failure for %s", name)
+        # SPEC-061 event 2: notify the creator the create failed (after the terminal
+        # `failed` status is recorded; best-effort — never changes the Fail outcome).
+        emit_notification(
+            actor,
+            f'We couldn\'t create shared workspace "{name}": {reason}.',
+            dedup_id=f"{request_id}:create-failed:{actor}",
+        )
         raise
+    # SPEC-061 event 1: notify the creator the workspace is ready (terminal `active`).
+    emit_notification(
+        actor,
+        f'Your shared workspace "{name}" is ready.',
+        dedup_id=f"{request_id}:create-active:{actor}",
+    )
     return {"status": "active", "space": name, "owner": actor}
 
 

@@ -33,6 +33,8 @@ resource "aws_iam_role_policy" "orchestrator" {
     function_arns_json    = jsonencode(local.shared_space_function_arns)
     lambda_log_groups_arn = local.lambda_log_groups_arn
     sfn_log_group_arn     = local.sfn_log_group_arn
+    # SPEC-061: trusted notifications producer — sqs:SendMessage scoped to this ARN only.
+    notifications_queue_arn = var.notifications_queue_arn
   })
 }
 

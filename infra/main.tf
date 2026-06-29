@@ -69,6 +69,18 @@ locals {
   # module.notifications depends_on module.data) is preserved.
   notifications_writer_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-notifications-writer-role"
 
+  # Notifications queue ARN/URL (SPEC-058), constructed cycle-free like the role ARNs
+  # above (module.notifications creates it as "${project}-${env}-notifications-requests.fifo").
+  # SPEC-061 feeds these into module.shared_spaces — the FIRST trusted producer: the
+  # ARN scopes the orchestrator role's sqs:SendMessage, the URL is the verb Lambdas'
+  # NOTIFICATIONS_QUEUE_URL. Constructed strings (not module.notifications' outputs) so
+  # they're KNOWN AT PLAN TIME and don't force a shared_spaces→notifications dependency
+  # (architecture.md "unknown ARN" discipline); IAM never validates that the queue
+  # exists, so no apply ordering is needed (same pattern as the portal role's enqueue).
+  notifications_queue_name = "${var.project_name}-${var.environment}-notifications-requests.fifo"
+  notifications_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.notifications_queue_name}"
+  notifications_queue_url  = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.notifications_queue_name}"
+
   # LF registration role ARN (SPEC-032), constructed cycle-free like the role ARNs
   # above (analytics creates it as "${project_name}-analytics-lf-registration-role").
   # Passed to the data module so the user-space bucket policy can EXCLUDE it from
@@ -266,6 +278,13 @@ module "shared_spaces" {
   # applies before data, which this module already depends on).
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
+
+  # SPEC-061: the FIRST trusted notifications producer. The verb Lambdas emit a SPEC-058
+  # `create` notification at each lifecycle terminal outcome — the ARN scopes the
+  # orchestrator role's sqs:SendMessage; the URL is the verbs' NOTIFICATIONS_QUEUE_URL.
+  # Constructed strings (above) so this module still plans standalone.
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
 
   # base grants the deploy role its SQS/Pipes/Step-Functions/Lambda/IAM/logs/S3
   # perms for this module; data creates the portal role this module attaches the

@@ -1,8 +1,8 @@
 # Spec: Shared-Workspace Notification Producer
 
 **ID:** SPEC-061
-**Status:** Draft
-**Last Updated:** 2026-06-27
+**Status:** Completed
+**Last Updated:** 2026-06-29
 **Depends On:** SPEC-058 (notifications queue + `create` contract + writer), SPEC-050 (shared-space control plane: orchestrator role + Step Function), SPEC-051 (create path), SPEC-053 (add/remove members path), SPEC-054 (leave + delete-cascade path), SPEC-062 (control-plane decomposition: the single-task **verb Lambdas** + shared `notify` helper that host the emit calls)
 
 > **Structure note (SPEC-062):** the control plane is **single-task verb Lambdas** orchestrated by the Step

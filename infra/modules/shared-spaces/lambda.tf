@@ -57,6 +57,9 @@ resource "aws_lambda_function" "functions" {
       USER_SPACE_BUCKET      = var.user_space_bucket_name
       PORTAL_ROLE_ARN        = local.portal_role_arn
       MAX_SHARED_MEMBERSHIPS = tostring(var.max_shared_memberships)
+      # SPEC-061: target for `create` notifications emitted at each lifecycle terminal
+      # outcome (notify.emit_notification). Empty until notifications is wired -> no-op.
+      NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
     }
   }
 

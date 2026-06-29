@@ -6,8 +6,23 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
+import clients  # noqa: E402
+import config  # noqa: E402
 import delete_space as d  # noqa: E402
 from fakes import install, raises  # noqa: E402
+
+
+def _enable_notifications():
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    return clients._sqs
+
+
+def _sent(sqs):
+    out = {}
+    for m in sqs.sent:
+        body = json.loads(m["MessageBody"])
+        out[body["username"]] = body["message"]
+    return out
 
 
 def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
@@ -79,6 +94,60 @@ def test_delete_records_failure_and_reraises_without_deleting_registry():
     assert saved["status"] == "failed" and "throttled" in saved["reason"]
     owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
     assert owner_cache["connections"][0]["status"] == "failed"
+
+
+# ── SPEC-061: producer event 7 (fan-out) ─────────────────────────────────────
+def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message():
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
+    sqs = _enable_notifications()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    d.delete_space("sales", "alice", "req-d", reg)
+    sent = _sent(sqs)
+    # One per member, owner ∈ members; the deleter (alice) gets the distinct message.
+    assert set(sent) == {"alice", "bob", "carol"}
+    assert sent["alice"] == 'You deleted the shared workspace "sales".'
+    assert sent["bob"] == 'The shared workspace "sales" was deleted.'
+    assert sent["carol"] == 'The shared workspace "sales" was deleted.'
+    # Deduplicated: exactly one message per member.
+    assert len(sqs.sent) == 3
+    assert {m["MessageDeduplicationId"] for m in sqs.sent} == {
+        "req-d:delete:alice", "req-d:delete:bob", "req-d:delete:carol"
+    }
+
+
+def test_delete_failure_emits_nothing():
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    sqs = _enable_notifications()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    orig = d._drop_database
+    try:
+        def boom(name):
+            raise RuntimeError("glue throttled")
+
+        d._drop_database = boom
+        raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
+    finally:
+        d._drop_database = orig
+    assert sqs.sent == []  # a failed/partial cascade notifies no one
+
+
+def test_delete_swallows_emit_failure_and_still_succeeds():
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    _enable_notifications()
+
+    class Boom:
+        def send_message(self, **kw):
+            raise RuntimeError("sqs down")
+
+    clients._sqs = Boom()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    out = d.delete_space("sales", "alice", "req-d", reg)  # must not raise
+    assert out["status"] == "ok"
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
 
 
 def test_handler_uses_validated_context():

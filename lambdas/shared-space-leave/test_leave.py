@@ -6,9 +6,16 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
+import clients  # noqa: E402
+import config  # noqa: E402
 import leave as l  # noqa: E402
 from auth import AuthorizationError  # noqa: E402
 from fakes import install, raises  # noqa: E402
+
+
+def _enable_notifications():
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    return clients._sqs
 
 
 def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
@@ -61,6 +68,35 @@ def test_leave_defensive_owner_guard():
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     raises(lambda: l.leave_space("sales", "alice", "req-l", reg), AuthorizationError, "owner cannot leave")
+
+
+# ── SPEC-061: producer event 6 ───────────────────────────────────────────────
+def test_leave_notifies_owner():
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    sqs = _enable_notifications()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    l.leave_space("sales", "bob", "req-l", reg)
+    assert len(sqs.sent) == 1
+    msg = sqs.sent[0]
+    assert msg["MessageGroupId"] == "alice"  # the owner is the recipient
+    assert msg["MessageDeduplicationId"] == "req-l:leave:bob"
+    body = json.loads(msg["MessageBody"])
+    assert body == {
+        "action": "create",
+        "username": "alice",
+        "message": '"bob" left the shared workspace "sales".',
+    }
+
+
+def test_leave_noop_for_non_member_emits_nothing():
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice",))
+    sqs = _enable_notifications()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    l.leave_space("sales", "carol", "req-l", reg)
+    assert sqs.sent == []
 
 
 def test_handler_uses_validated_context():
