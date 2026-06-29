@@ -25,7 +25,7 @@ import {useQueryTabs} from './useQueryTabs';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
 import {useActiveDatabase} from './useActiveDatabase';
-import {invalidateSchema} from './useSchema';
+import {invalidateSchema, useSchema} from './useSchema';
 import {isSchemaChangingSql, sameSql, stripTrailingSemicolons} from './query.sql';
 import {SchemaBrowser} from './SchemaBrowser';
 import {DropTableDialog} from './DropTableDialog';
@@ -117,6 +117,9 @@ export function QueryWorkspace() {
     connections
   );
   const database = activeDatabase;
+  // SPEC-065: the active database's schema feeds the editor's autocomplete. Same
+  // query key as the schema rail, so this shares TanStack's cache (no extra fetch).
+  const {data: activeSchema} = useSchema(activeDatabase || null);
   // SPEC-055: the full active connection (not just its DB name) — drives where
   // query results land (personal vs the shared space) and the Save destinations.
   const activeConnection = useMemo(
@@ -844,6 +847,7 @@ export function QueryWorkspace() {
                 value={activeTab.sql}
                 onChange={tabs.setActiveSql}
                 onRun={handleRun}
+                completionTables={activeSchema?.tables}
               />
             </Suspense>
           </div>

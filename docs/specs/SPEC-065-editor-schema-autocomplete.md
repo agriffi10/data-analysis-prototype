@@ -1,7 +1,7 @@
 # Spec: Schema-Aware Editor Autocomplete (Table & Column Names)
 
 **ID:** SPEC-065
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-035 (Monaco `SqlEditor` + query workspace), SPEC-034 (`useSchema` + Glue services), SPEC-047 (workspace-global active database)
 
