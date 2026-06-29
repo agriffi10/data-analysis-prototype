@@ -433,6 +433,23 @@ describe('getTableDdl', () => {
     expect(result.error.message).toBe('boom');
   });
 
+  it('requests at most MaxResults 1000 for the DDL fetch (Athena hard cap)', async () => {
+    const send = athenaFake({
+      statuses: ['SUCCEEDED'],
+      resultRows: [['CREATE EXTERNAL TABLE foo (']]
+    });
+    const result = await getTableDdl({
+      database: 'alice',
+      table: 'foo',
+      username: 'alice'
+    });
+    expect(result.success).toBe(true);
+    // getQueryResults overfetches by one on the first page, so a maxRows of 1000
+    // would request MaxResults 1001 and Athena rejects it. Assert we stay <= 1000.
+    const getResults = send.mock.calls.find((c) => c[0].constructor.name === 'GetQueryResultsCommand');
+    expect(getResults?.[0].input.MaxResults).toBeLessThanOrEqual(1000);
+  });
+
   it('runs SHOW CREATE VIEW for a view (SPEC-048)', async () => {
     const send = athenaFake({
       statuses: ['SUCCEEDED'],
