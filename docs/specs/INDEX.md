@@ -70,7 +70,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 062 — Decompose Shared-Space Control Plane into Single-Task Lambdas | Completed |
 | 063 — Schema Rail: Collapsible Databases with Tables/Views Groups | Completed |
 | 064 — Resizable Query-Result Columns | Completed |
-| 065 — Schema-Aware Editor Autocomplete (Table & Column Names) | Draft |
+| 065 — Schema-Aware Editor Autocomplete (Table & Column Names) | Completed |
 | 066 — Table Builder: Foundation Infrastructure + polars Runtime | Draft |
 | 067 — Table Builder: Request Contract, Enqueue & Validate-Authorize | Draft |
 | 068 — Table Builder: Name Uniqueness + Source Inspection & Format Validation | Draft |
