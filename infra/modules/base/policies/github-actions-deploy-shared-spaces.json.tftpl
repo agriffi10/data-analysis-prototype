@@ -66,7 +66,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "SharedSpaceProvisionerLambdaManage",
+      "Sid": "SharedSpaceLambdasManage",
       "Effect": "Allow",
       "Action": [
         "lambda:CreateFunction",
@@ -87,7 +87,21 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-shared-space-provisioner"
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-shared-space-*"
+    },
+    {
+      "Sid": "SharedSpaceLayerManage",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:PublishLayerVersion",
+        "lambda:DeleteLayerVersion",
+        "lambda:GetLayerVersion",
+        "lambda:ListLayerVersions"
+      ],
+      "Resource": [
+        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-shared-space-*",
+        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-shared-space-*:*"
+      ]
     },
     {
       "Sid": "SharedSpaceRolesManage",
@@ -123,8 +137,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-shared-space-provisioner",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-shared-space-provisioner:*",
+        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-shared-space-*",
+        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-shared-space-*:*",
         "arn:aws:logs:${aws_region}:*:log-group:/aws/vendedlogs/states/${project_name}-*-shared-space-*",
         "arn:aws:logs:${aws_region}:*:log-group:/aws/vendedlogs/states/${project_name}-*-shared-space-*:*"
       ]
