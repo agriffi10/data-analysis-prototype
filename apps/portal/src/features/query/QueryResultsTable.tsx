@@ -1,6 +1,5 @@
 import {Pager} from '../../components/Pager';
 import {ColumnResizeHandle} from './ColumnResizeHandle';
-import {useColumnWidths} from './useColumnWidths';
 import type {QueryColumn} from './query.types';
 
 // The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
@@ -17,7 +16,11 @@ type QueryResultsTableProps = {
   hasNext: boolean;
   isFetchingNext: boolean;
   isLoading: boolean; // first page in flight
-  queryExecutionId: string | null; // SPEC-064: width reset key (FR-002/003)
+  // SPEC-064: controlled column widths (px per data column), owned by the parent's
+  // useColumnWidths so they survive paging AND tab switches; handlers clamp/reset.
+  widths: number[];
+  onResize: (index: number, px: number) => void;
+  onResetColumn: (index: number) => void;
   onPrev: () => void;
   onNext: () => void;
 };
@@ -28,10 +31,11 @@ type QueryResultsTableProps = {
 // widths drives table-layout:fixed, each data-column header carries a drag/keyboard
 // resize handle, cells/headers truncate with an ellipsis (full text on hover via
 // `title`), and the body scrolls horizontally for wide (20+ column) results.
-// Widths persist across Prev/Next within one execution and reset on a new query
-// (keyed by queryExecutionId). A successful DDL / zero-row SELECT renders the
-// friendly empty state, not an error. Navigating REPLACES the visible rows
-// (SPEC-038), unlike the file browser's append-style "Load more" (SPEC-037).
+// Widths are supplied by the parent (useColumnWidths, keyed by execution id) so
+// they persist across Prev/Next and tab switches and reset on a new query. A
+// successful DDL / zero-row SELECT renders the friendly empty state, not an error.
+// Navigating REPLACES the visible rows (SPEC-038), unlike the file browser's
+// append-style "Load more" (SPEC-037).
 export function QueryResultsTable({
   columns,
   rows,
@@ -43,12 +47,12 @@ export function QueryResultsTable({
   hasNext,
   isFetchingNext,
   isLoading,
-  queryExecutionId,
+  widths,
+  onResize,
+  onResetColumn,
   onPrev,
   onNext
 }: QueryResultsTableProps) {
-  const {widths, setWidth, resetColumn} = useColumnWidths(queryExecutionId, columns.length);
-
   return (
     <div>
       <h2 className="mb-3 text-base font-semibold">Results</h2>
@@ -97,8 +101,8 @@ export function QueryResultsTable({
                           columnIndex={index}
                           columnName={column.name}
                           width={widths[index] ?? 0}
-                          onResize={setWidth}
-                          onReset={resetColumn}
+                          onResize={onResize}
+                          onReset={onResetColumn}
                         />
                       </th>
                     ))}

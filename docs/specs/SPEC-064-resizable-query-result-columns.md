@@ -2,7 +2,7 @@
 
 **ID:** SPEC-064
 **Status:** Completed
-**Last Updated:** 2026-06-27
+**Last Updated:** 2026-06-29
 **Depends On:** SPEC-038 (query-results Prev/Next pagination + `useQueryResults`), SPEC-035 (query workspace + `QueryResultsTable`)
 
 > **Design:** Needs a light design pass. The results table keeps its current visual language (surface, border,
@@ -15,8 +15,9 @@
 The query-results table renders whatever columns a user's `SELECT` returns, but every column is currently sized
 automatically and can't be adjusted. Users with wide result sets — some have tables with **20+ columns** — can't
 widen a column to read a long value or narrow noisy ones to fit more on screen. This spec makes result columns
-**user-resizable** by dragging the boundary between header cells. A user's chosen widths **persist as they page
-through the current result** (Prev/Next over the same query), and **reset to defaults when a new query runs**.
+**user-resizable** by dragging the boundary between header cells. A user's chosen widths **persist for the
+current result** — across Prev/Next paging **and** query-tab switches within the session (keyed by execution id,
+so returning to a still-cached result keeps its widths) — and **reset to defaults when a new query runs**.
 Columns have a **minimum width**, **never wrap**, and **truncate overflowing text with an ellipsis** (including the
 header label when a column is narrower than its name); the results body **scrolls horizontally** so wide result
 sets remain fully reachable.
@@ -27,8 +28,10 @@ sets remain fully reachable.
 
 - **Drag-to-resize columns** — each data column's header has a resize handle on its right edge; dragging changes
   that column's width. The leading row-number (`#`) column (SPEC-038) is fixed-width and not resizable.
-- **Width persistence across pages of the same result** — widths the user sets persist across **Prev/Next**
-  navigation within the same query execution; they do **not** reset when changing pages.
+- **Width persistence for the same result** — widths the user sets persist across **Prev/Next** navigation
+  within the same query execution **and** across query-tab switches within the session: the widths are keyed by
+  **execution id** (held above the results table, in the workspace), so switching to another tab and back to a
+  still-cached result keeps its widths. They do **not** reset when changing pages or switching tabs.
 - **Reset on new query** — running a **new query** (new execution id) resets all columns to their default width.
 - **Minimum column width** — a hard floor (`MIN_COLUMN_WIDTH`) below which a column cannot be dragged.
 - **No wrap + ellipsis truncation** — cell and header text never wrap; content that exceeds the column width is
@@ -41,8 +44,10 @@ sets remain fully reachable.
 
 ### Out of Scope
 
-- **Persisting widths across reloads, tab switches, or different queries** — persistence is scoped to the *current
-  result* (the current execution id), in memory; a new query or reload starts from defaults. (May revisit.)
+- **Persisting widths across reloads or different queries** — persistence is scoped to the *current result*
+  (the current execution id) and lives in memory for the workspace's lifetime; a new query, a reload, or leaving
+  the `/query` route starts from defaults. (Cross-tab-switch persistence within the session **is** in scope — see
+  FR-002.)
 - **Column reordering, hiding/showing columns, sorting, or auto-fit-to-content** — only manual width resize.
 - **Resizing the `#` row-number column** — it stays fixed width.
 - **Row height / wrapping toggles** — rows stay single-line with ellipsis (no wrap mode).
@@ -67,18 +72,21 @@ Dragging the boundary on a data-column header changes that column's width.
 - [ ] Resizing one column does not change other columns' widths; the table's total width grows/shrinks accordingly
   (driving horizontal scroll, FR-005).
 
-### FR-002: Widths persist across pages of the same result
+### FR-002: Widths persist for the same result (paging + tab switches)
 
 #### Description:
 
-Width choices survive Prev/Next navigation within the same query execution.
+Width choices survive Prev/Next navigation within the same query execution **and** query-tab switches within the
+session — widths are keyed by execution id and held above the results table.
 
 #### Acceptance Criteria:
 
 - [ ] After the user resizes one or more columns, navigating **Next** then **Prev** (or any page change) within the
   **same** query execution keeps the user-set widths — paging does not reset them.
-- [ ] Width state is keyed to the current query execution id (the same identity that already resets the pager in
-  `useQueryResults`); it lives in memory (no persistence beyond the current result).
+- [ ] Switching to another query tab and back to a still-cached result keeps that result's widths (the width store
+  lives in `QueryWorkspace`, above the results table that unmounts when a tab has no results).
+- [ ] Width state is keyed by query **execution id** (a `Record<executionId, number[]>`); it lives in memory for
+  the workspace's lifetime (no persistence across reload / leaving the route).
 
 ### FR-003: Reset on a new query
 
@@ -127,9 +135,10 @@ Width choices survive Prev/Next navigation within the same query execution.
 
 - [ ] `npm run test` + `npm run lint` pass; tests cover: `useColumnWidths` defaults to `DEFAULT_COLUMN_WIDTH`,
   clamps `setWidth` at `MIN_COLUMN_WIDTH`, resets on execution-id change and on column-count change, and resets a
-  single column via `resetColumn`; the table renders a handle per data column but not for `#`; a simulated
-  resize updates the column's width and persists across a page change; truncated cells/headers expose `title`;
-  keyboard Arrow resize adjusts and clamps width.
+  single column via `resetColumn`; widths persist across a re-render of the same execution (paging) and are
+  restored when navigating back to a prior execution id (tab switch); the table renders a handle per data column
+  but not for `#`, drives the `<colgroup>` from the `widths` prop, and wires each handle's drag / double-click /
+  Arrow key to `onResize` / `onResetColumn`; truncated cells/headers expose `title`.
 
 ---
 
@@ -138,15 +147,17 @@ Width choices survive Prev/Next navigation within the same query execution.
 ```ts
 // apps/portal/src/features/query/useColumnWidths.ts  (NEW)
 
-// In-memory per-column widths for the *current* result. Resets to defaults when
-// resetKey (the query execution id) or the column count changes — done as a
-// render-phase reset tracking the previous key, mirroring useQueryResults's
-// pageIndex reset (no effect, no extra render).
+// In-memory per-column widths keyed by query execution id (Record<execId,number[]>)
+// so widths survive paging AND tab switches. A new execution id starts from
+// defaults (FR-003); an entry whose column count no longer matches re-defaults
+// (defensive) — both via a render-phase seed, mirroring useQueryResults's reset
+// (no effect, no extra render). Called in QueryWorkspace (above the results table,
+// which unmounts when a tab has no results) and its outputs passed down.
 export function useColumnWidths(
-  resetKey: string | null,   // the current query execution id
+  executionId: string | null,   // the current query execution id (the store key)
   columnCount: number,
 ): {
-  widths: number[];                          // px per data column; default DEFAULT_COLUMN_WIDTH
+  widths: number[];                          // px per data column of the CURRENT execution; default DEFAULT_COLUMN_WIDTH
   setWidth: (index: number, px: number) => void;   // clamped to >= MIN_COLUMN_WIDTH
   resetColumn: (index: number) => void;            // back to DEFAULT_COLUMN_WIDTH
 };
@@ -169,12 +180,15 @@ export const COLUMN_RESIZE_STEP_PX = 16;   // px per Arrow key press
 ## API / Interface Contract
 
 ```ts
-// QueryResultsTable gains one prop so it can reset widths on a new query, plus the
-// hook drives a <colgroup> of explicit widths (table-layout: fixed) + per-header
-// resize handles. Existing props unchanged.
+// QueryResultsTable is CONTROLLED: the parent (QueryWorkspace, via useColumnWidths)
+// owns the widths so they outlive the table's mount. The table drives a <colgroup>
+// of explicit widths (table-layout: fixed) + per-header resize handles. Other props
+// unchanged.
 type QueryResultsTableProps = {
   // ...existing (columns, rows, pageIndex, range, totals, pager handlers)...
-  queryExecutionId: string | null;  // NEW: width reset key (FR-002/003)
+  widths: number[];                                // NEW: px per data column
+  onResize: (index: number, px: number) => void;   // NEW: setWidth
+  onResetColumn: (index: number) => void;          // NEW: resetColumn (dbl-click)
 };
 
 // ColumnResizeHandle: a focusable separator handling pointer-drag + keyboard.
@@ -191,11 +205,12 @@ function ColumnResizeHandle(props: {
 
 ```
 apps/portal/src/features/query/
-├── QueryResultsTable.tsx       ← colgroup widths (table-layout fixed) + ellipsis cells + handles + reset key
+├── QueryWorkspace.tsx          ← calls useColumnWidths (above the table) + passes widths/handlers down
+├── QueryResultsTable.tsx       ← controlled: colgroup widths (table-layout fixed) + ellipsis cells + handles
 ├── QueryResultsTable.test.tsx
 ├── ColumnResizeHandle.tsx      ← NEW: drag + keyboard resize separator
 ├── ColumnResizeHandle.test.tsx ← NEW
-├── useColumnWidths.ts          ← NEW: per-result widths, reset on execution-id / column-count change
+├── useColumnWidths.ts          ← NEW: per-execution-id widths store (survives paging + tab switches)
 ├── useColumnWidths.test.ts     ← NEW
 └── query.constants.ts          ← + DEFAULT/MIN column width + resize step
 ```
@@ -204,9 +219,10 @@ apps/portal/src/features/query/
 
 ### Phase 1: Width state + fixed-layout rendering with ellipsis
 
-- Add `useColumnWidths` + constants; switch `QueryResultsTable` to a `<colgroup>` of explicit widths
-  (`table-layout: fixed`) with `#` fixed and data columns from the hook; apply no-wrap + ellipsis truncation and
-  `title` on header + cells; thread `queryExecutionId` for reset (FR-002, FR-003, FR-004, FR-005).
+- Add `useColumnWidths` (a `Record<executionId, number[]>` store) + constants; call it in `QueryWorkspace` and
+  pass `widths` down; switch `QueryResultsTable` to a controlled `<colgroup>` of explicit widths
+  (`table-layout: fixed`) with `#` fixed and data columns from the `widths` prop; apply no-wrap + ellipsis
+  truncation and `title` on header + cells (FR-002, FR-003, FR-004, FR-005).
 
 ### Phase 2: Drag + keyboard resize handle
 
