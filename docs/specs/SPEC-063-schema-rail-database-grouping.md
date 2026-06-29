@@ -1,8 +1,8 @@
 # Spec: Schema Rail — Collapsible Databases with Tables/Views Groups
 
 **ID:** SPEC-063
-**Status:** Draft
-**Last Updated:** 2026-06-27
+**Status:** Completed
+**Last Updated:** 2026-06-29
 **Depends On:** SPEC-047 (workspace database switcher + `useConnections`), SPEC-035 (schema browser), SPEC-048 (views in the schema browser), SPEC-034 (`useSchema` + Glue services), SPEC-044 (per-table actions menu)
 
 > **Design:** Needs a design pass. The schema rail's flat *Database → Tables* layout becomes a **tree**: each
