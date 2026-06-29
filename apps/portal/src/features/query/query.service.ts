@@ -244,10 +244,13 @@ export async function getTableDdl(p: {
     };
   }
 
-  // SHOW CREATE TABLE returns one column; each row is a DDL line.
+  // SHOW CREATE TABLE returns one column; each row is a DDL line. Cap at 999:
+  // getQueryResults overfetches by one on the first page (pageSize + 1), and
+  // Athena's GetQueryResults rejects MaxResults > 1000. 999 nets a full 1000-row
+  // first page — far beyond any real DDL, which is one line per row.
   const results = await getQueryResults({
     queryExecutionId: done.data.queryExecutionId,
-    maxRows: 1000
+    maxRows: 999
   });
   if (!results.success) return results;
   const ddl = results.data.rows.map((r) => r[0] ?? '').join('\n');
