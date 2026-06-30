@@ -324,3 +324,35 @@ module "notifications" {
   # module attaches the enqueue policy to. Force both to settle first.
   depends_on = [module.base, module.data]
 }
+
+# Table-builder control plane (SPEC-066): a DEDICATED FIFO SQS → EventBridge Pipe →
+# Step Function pipeline orchestrating five single-task verb Lambdas
+# (validate-authorize → check-table-absent → inspect-source → infer-schema →
+# execute-ddl) that turn a folder of files into a Glue/Athena external table. Mirrors
+# the shared-spaces control-plane PATTERN with PER-VERB least-privilege roles.
+# Foundation only here (plumbing + Lambda stubs); the request contract + action
+# semantics land in SPEC-067→070. Standalone-deployable: cross-module ARNs are
+# constructed strings passed from root locals. The deploy-role grants this module
+# needs landed + applied in SPEC-066 PR1, so no in-module time_sleep guard is required.
+module "table_builder" {
+  source = "./modules/table-builder"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # Source-data buckets (read by inspect/infer/execute verbs) + the admin bucket
+  # (shared-spaces registry for shared authz, SPEC-067; Athena results, SPEC-070).
+  # Constructed names (not module outputs) so this module plans standalone.
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+  admin_bucket_name        = local.athena_admin_bucket_name
+
+  # The analytics workgroup execute-ddl runs the CREATE in (wired in SPEC-070).
+  athena_workgroup = local.athena_workgroup_name
+
+  # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
+  # applied); data/analytics own the buckets + catalog this module reads. Settle first.
+  depends_on = [module.base, module.data, module.analytics]
+}
