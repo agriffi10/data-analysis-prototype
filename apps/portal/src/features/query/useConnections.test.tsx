@@ -127,4 +127,26 @@ describe('useConnections (SPEC-052 FR-001)', () => {
     await waitFor(() => expect(result.current.connections).toHaveLength(2));
     expect(result.current.connections[1].database).toBe('team');
   });
+
+  it('reconcile re-mints the token and re-reads the cache (auto-resolves a submitted action)', async () => {
+    mockRead.mockResolvedValueOnce({success: true, data: cache([])});
+    const {result} = renderHook(() => useConnections('alice'), {
+      wrapper: wrapper(newClient())
+    });
+    await waitFor(() => expect(result.current.connections).toHaveLength(1));
+
+    // The just-submitted create lands in the cache; reconcile picks it up without a
+    // manual Refresh, and re-mints the token so the actor can use the new space.
+    mockRead.mockResolvedValue({
+      success: true,
+      data: cache([{name: 'team', role: 'owner', status: 'active'}])
+    });
+    await act(async () => {
+      await result.current.reconcile();
+    });
+
+    expect(mockForceRefresh).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(result.current.connections).toHaveLength(2));
+    expect(result.current.connections[1].database).toBe('team');
+  });
 });

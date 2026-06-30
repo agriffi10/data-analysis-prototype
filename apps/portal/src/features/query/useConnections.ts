@@ -1,10 +1,18 @@
-import {useMemo} from 'react';
+import {useMemo, useRef} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {getSessionCredentials} from '../../lib/awsCredentials';
 import {queryKeys} from './queryKeys';
 import type {Connection} from './query.types';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
+
+// After an async action (create/add/leave/delete), the pipeline writes the cache
+// eventually (typically ~7–15s). Rather than make the user click Refresh — which is
+// why a just-created space appeared to "disappear" (the optimistic entry unmounts
+// before a manual refresh) — `reconcile()` opens a short polling window so the cache
+// auto-reconciles to the pipeline's result. Poll every 4s for 30s, then idle.
+const RECONCILE_WINDOW_MS = 30_000;
+const RECONCILE_POLL_MS = 4_000;
 
 export type UseConnectionsResult = {
   connections: Connection[];
@@ -15,6 +23,11 @@ export type UseConnectionsResult = {
   // re-read the cache. `isRefreshing` is the in-flight affordance (refetch only).
   refresh: () => Promise<unknown>;
   isRefreshing: boolean;
+  // Start a bounded auto-poll of the cache after submitting an action, so the
+  // pending → active/removed transition is picked up without a manual Refresh. Also
+  // re-mints the token once (like `refresh`) so the actor can use a space they just
+  // created immediately (their new membership-slot tag is stamped).
+  reconcile: () => Promise<unknown>;
 };
 
 // SPEC-047 FR-001 + SPEC-052 FR-001: the single source of databases the signed-in
@@ -32,6 +45,10 @@ export type UseConnectionsResult = {
 export function useConnections(username: string | null): UseConnectionsResult {
   const queryClient = useQueryClient();
   const key = queryKeys.connections(username ?? '__none__');
+  // End of the active reconcile window (epoch ms). A ref (not state) because the
+  // refetchInterval callback below is re-evaluated by the query after each fetch —
+  // it reads the latest value without needing a re-render.
+  const reconcileUntil = useRef(0);
 
   const query = useQuery({
     queryKey: key,
@@ -40,6 +57,9 @@ export function useConnections(username: string | null): UseConnectionsResult {
     // an empty cache), so a retry buys nothing and only doubles the benign 404 the
     // browser logs when the file doesn't exist yet. Disable the default retry here.
     retry: false,
+    // Auto-poll only while a reconcile window is open (after an action); idle
+    // otherwise so we don't refetch the cache on a timer for no reason.
+    refetchInterval: () => (Date.now() < reconcileUntil.current ? RECONCILE_POLL_MS : false),
     queryFn: async (): Promise<SharedConnectionsCache> => {
       const result = await readSharedConnectionsCache(username as string);
       if (!result.success) throw new Error(result.error.message);
@@ -87,6 +107,14 @@ export function useConnections(username: string | null): UseConnectionsResult {
       await getSessionCredentials(true);
       return queryClient.invalidateQueries({queryKey: key});
     },
-    isRefreshing: query.isRefetching
+    isRefreshing: query.isRefetching,
+    reconcile: async () => {
+      // Open the polling window first so the refetch triggered below schedules the
+      // next poll, then re-mint the token (new membership tags for the actor) and
+      // re-read the cache once immediately.
+      reconcileUntil.current = Date.now() + RECONCILE_WINDOW_MS;
+      await getSessionCredentials(true);
+      return queryClient.invalidateQueries({queryKey: key});
+    }
   };
 }

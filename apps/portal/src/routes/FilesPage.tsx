@@ -153,6 +153,7 @@ export default function FilesPage() {
             writable={target.writable}
             username={devUnauthenticated ? undefined : target.markerOwner}
             destinations={destinations}
+            spaceKind={devUnauthenticated ? undefined : space?.kind}
           />
         ) : (
           <div

@@ -21,6 +21,9 @@ vi.mock('./useFileUpload');
 vi.mock('./useDelete');
 vi.mock('./useMove');
 vi.mock('./useCopy');
+vi.mock('../../lib/awsCredentials', () => ({
+  getSessionCredentials: vi.fn(() => Promise.resolve({success: true, data: {}}))
+}));
 // The upload queue is exercised in UploadQueueProvider.test.tsx; here the hook is
 // stubbed and the in-drawer uploads list is a no-op so these tests stay focused on
 // FileBrowser wiring (and don't need a QueryClient). The provider now lives at the
@@ -252,6 +255,42 @@ describe('error state', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toBeInTheDocument();
     expect(alert).toHaveTextContent('Access Denied');
+  });
+
+  it('offers a "Refresh access" affordance for a just-added shared space (list-denied)', async () => {
+    const refresh = vi.fn();
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      error: 'User ... is not authorized to perform: s3:ListBucket on dat-prod-shared-space',
+      refresh
+    });
+    const {getSessionCredentials} = await import('../../lib/awsCredentials');
+    render(
+      <FileBrowser
+        bucket="dat-prod-shared-space"
+        spaceKind="shared"
+      />
+    );
+    // The raw IAM error is replaced by the "applying access" affordance, not a dead end.
+    expect(screen.getByText(/you were just added to this space/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: /refresh access/i}));
+    expect(getSessionCredentials).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
+  it('shows the raw error (no affordance) for a personal-space failure', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      error: 'User ... is not authorized to perform: s3:ListBucket'
+    });
+    render(
+      <FileBrowser
+        bucket="dat-prod-user-space"
+        spaceKind="personal"
+      />
+    );
+    expect(screen.getByText(/failed to load files/i)).toBeInTheDocument();
+    expect(screen.queryByText(/you were just added/i)).not.toBeInTheDocument();
   });
 });
 
