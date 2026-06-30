@@ -70,8 +70,8 @@ describe('Sidebar (SPEC-057)', () => {
     expect(screen.getByRole('button', {name: /alice/i})).toBeInTheDocument();
   });
 
-  it('links to the Connections tab for managing connections', () => {
+  it('does not render a manage-connections link (managing lives on the Connections tab)', () => {
     renderSidebar([personal]);
-    expect(screen.getByRole('link', {name: /manage connections/i})).toHaveAttribute('href', '/connections');
+    expect(screen.queryByRole('link', {name: /manage connections/i})).not.toBeInTheDocument();
   });
 });

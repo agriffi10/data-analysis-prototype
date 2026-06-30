@@ -36,6 +36,10 @@ export function useConnections(username: string | null): UseConnectionsResult {
   const query = useQuery({
     queryKey: key,
     enabled: username !== null,
+    // A missing cache file is the expected empty state (read returns success with
+    // an empty cache), so a retry buys nothing and only doubles the benign 404 the
+    // browser logs when the file doesn't exist yet. Disable the default retry here.
+    retry: false,
     queryFn: async (): Promise<SharedConnectionsCache> => {
       const result = await readSharedConnectionsCache(username as string);
       if (!result.success) throw new Error(result.error.message);

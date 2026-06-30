@@ -58,11 +58,12 @@ export function ColumnResizeHandle({columnIndex, columnName, width, onResize, on
       onPointerDown={onPointerDown}
       onDoubleClick={() => onReset(columnIndex)}
       onKeyDown={onKeyDown}
-      className="group/handle absolute right-0 top-0 z-10 flex h-full w-2 cursor-col-resize touch-none select-none items-stretch justify-center focus:outline-none">
-      {/* The visible 1px rule; tints to accent when the handle is hovered/focused. */}
+      className="group/handle absolute right-0 top-0 z-10 flex h-full w-3 cursor-col-resize touch-none select-none items-stretch justify-end focus:outline-none">
+      {/* A divider that's visible at rest (so users see the column edge is
+          grabbable) and thickens to the accent color on hover/focus. */}
       <span
         aria-hidden="true"
-        className="h-full w-px bg-transparent transition-colors group-hover/handle:bg-accent group-focus/handle:w-0.5 group-focus/handle:bg-accent"
+        className="h-full w-0.5 rounded-full bg-border transition-all group-hover/handle:w-1 group-hover/handle:bg-accent group-focus/handle:w-1 group-focus/handle:bg-accent"
       />
     </span>
   );

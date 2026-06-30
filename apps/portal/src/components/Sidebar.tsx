@@ -1,4 +1,3 @@
-import {Link} from 'react-router-dom';
 import {cx} from '../lib/cx';
 import {FolderIcon} from './icons';
 import {isConnectionUsable} from '../features/query/query.types';
@@ -68,14 +67,6 @@ export function Sidebar({connections, activeSpaceId, onSelectSpace}: Props) {
           );
         })}
       </ul>
-
-      {/* Managing connections lives on the Connections tab (SPEC-052/053/054);
-          this list is for browsing. (FR-001) */}
-      <Link
-        to="/connections"
-        className="mt-2 rounded-md px-3 py-2 text-sm font-medium text-accent-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-        Manage connections →
-      </Link>
     </aside>
   );
 }
