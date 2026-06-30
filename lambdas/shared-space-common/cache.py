@@ -53,11 +53,22 @@ def remove_entry(username, name):
     )
 
 
-def write_owner_projection(owner, name, members):
+def write_owner_projection(owner, name, members, created_at=None):
     """Update the OWNER's cache entry with the current member list — the
     owner-readable projection the Manage drawer renders (SPEC-053); members never
-    see this list."""
-    upsert_entry(
-        owner,
-        {"name": name, "role": "owner", "status": "active", "members": members},
-    )
+    see this list. ``created_at`` (when known) is carried so the Connections card
+    can render the "created <date>" meta line."""
+    entry = {"name": name, "role": "owner", "status": "active", "members": members}
+    if created_at:
+        entry["createdAt"] = created_at
+    upsert_entry(owner, entry)
+
+
+def write_member_entry(member, name, owner, created_at=None):
+    """Write a MEMBER's cache entry for a space they belong to. Members never get the
+    member list (privacy), but they do get the ``owner`` name and ``createdAt`` so the
+    Connections card can render its "owner: <name>" / "created <date>" meta line."""
+    entry = {"name": name, "role": "member", "status": "active", "owner": owner}
+    if created_at:
+        entry["createdAt"] = created_at
+    upsert_entry(member, entry)

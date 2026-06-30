@@ -32,7 +32,7 @@ def leave_space(space, actor, request_id, registry):
     cache.remove_entry(actor, space)
     remaining = [m for m in members if m != actor]
     reg.save_members(registry, remaining, request_id)
-    cache.write_owner_projection(owner, space, remaining)
+    cache.write_owner_projection(owner, space, remaining, registry.get("createdAt"))
     # SPEC-061 event 6: notify the owner that a member left (after the registry write;
     # the leaving user is never the owner — guarded above). No-op leaves emit nothing.
     emit_notification(

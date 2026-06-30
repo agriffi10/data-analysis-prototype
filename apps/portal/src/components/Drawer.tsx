@@ -8,6 +8,8 @@ type DrawerProps = {
   open: boolean;
   onClose: () => void;
   title: string;
+  titleClassName?: string; // extends the title's classes (e.g. `font-mono` for a name)
+  subtitle?: ReactNode; // small muted line rendered under the title
   ariaLabel?: string; // defaults to `title`
   closeLabel?: string; // close-button label; defaults to `Close {title}`
   // Escape closes the drawer; pass false while a nested dialog owns Escape.
@@ -25,6 +27,8 @@ export function Drawer({
   open,
   onClose,
   title,
+  titleClassName,
+  subtitle,
   ariaLabel,
   closeLabel,
   closeOnEscape = true,
@@ -60,8 +64,11 @@ export function Drawer({
           tabIndex={-1}
           className="flex h-full w-full max-w-[440px] flex-col bg-surface shadow-lg"
           onClick={(e) => e.stopPropagation()}>
-          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-5">
-            <h2 className="text-md font-semibold text-text">{title}</h2>
+          <div className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-5 py-2">
+            <div className="min-w-0">
+              <h2 className={cx('truncate text-md font-semibold text-text', titleClassName)}>{title}</h2>
+              {subtitle && <div className="mt-0.5 text-xs text-text-3">{subtitle}</div>}
+            </div>
             {headerAccessory}
             <div className="flex-1" />
             <IconButton

@@ -15,6 +15,12 @@ export type SharedConnectionEntry = {
   // list into the OWNER's entry (only) so the Manage drawer can render it without
   // reading the admin-bucket registry. Absent on member entries.
   members?: string[];
+  // Card meta line: when the space was created (ISO 8601, immutable) — stamped on
+  // every member's entry. `owner` is the space owner's username, written on member
+  // entries (members never get the full `members` list). Both absent on older cache
+  // entries written before this projection landed.
+  createdAt?: string;
+  owner?: string;
 };
 
 export type SharedConnectionsCache = {

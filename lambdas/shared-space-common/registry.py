@@ -88,7 +88,10 @@ def reserve(name, actor, request_id):
 
 def finalize(name, actor, request_id, status, reason=None):
     """Rewrite the registry record for a create outcome (members=[owner]); used to
-    flag ``active`` on success or ``failed`` with a reason on a create error."""
+    flag ``active`` on success or ``failed`` with a reason on a create error.
+    Preserves the ``createdAt`` stamped by ``reserve`` (this full rewrite would
+    otherwise drop it)."""
+    existing = load(name) or {}
     record = {
         "version": 1,
         "name": name,
@@ -96,6 +99,7 @@ def finalize(name, actor, request_id, status, reason=None):
         "members": [actor],
         "status": status,
         "lastRequestId": request_id,
+        "createdAt": existing.get("createdAt") or now_iso(),
         "updatedAt": now_iso(),
     }
     if reason:

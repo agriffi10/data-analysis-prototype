@@ -23,6 +23,8 @@ type ConnectionRow = {
   status: SharedConnectionStatus;
   reason?: string;
   members?: string[]; // SPEC-053: owner-readable projection (owner rows only)
+  createdAt?: string; // ISO; drives the "created <date>" meta line
+  owner?: string; // owner username (member rows); drives the "owner: <name>" meta line
 };
 
 // SPEC-052 FR-002: the management surface for shared connections. Lists the user's
@@ -63,7 +65,9 @@ export function ConnectionsPage() {
         role: c.role ?? 'member',
         status: c.status ?? 'active',
         reason: c.reason,
-        members: c.members
+        members: c.members,
+        createdAt: c.createdAt,
+        owner: c.owner
       }));
     const cacheNames = new Set(fromCache.map((r) => r.name));
     // Local pending entries not yet reflected in the cache (cache wins on dupes).
@@ -171,9 +175,9 @@ export function ConnectionsPage() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-text">Connections</h1>
+            <h1 className="text-xl font-semibold text-text">Shared connections</h1>
             <p className="mt-1 text-sm text-text-2">
-              Shared spaces you own or belong to. Everyone with access sees the same files and tables.
+              Spaces you own or belong to. Files, tables, and the database are shared by all members.
             </p>
           </div>
           <div className="flex flex-none items-center gap-2">
@@ -208,14 +212,14 @@ export function ConnectionsPage() {
             No shared connections yet — create one or ask an owner to add you.
           </div>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="flex flex-col gap-3">
             {rows.map((row) => (
               <ConnectionRowItem
                 key={row.name}
                 row={row}
-                onManage={row.role === 'owner' && row.status === 'active' ? () => setManaging(row) : undefined}
-                onDelete={row.role === 'owner' && row.status === 'active' ? () => setDeleting(row) : undefined}
-                onLeave={row.role === 'member' && row.status === 'active' ? () => setLeaving(row) : undefined}
+                onManage={() => setManaging(row)}
+                onDelete={() => setDeleting(row)}
+                onLeave={() => setLeaving(row)}
                 onDismiss={() => handleDismiss(row.name)}
                 onRetry={() => void handleRetry(row.name)}
               />
@@ -270,6 +274,37 @@ export function ConnectionsPage() {
   );
 }
 
+// The secondary meta line under a card's name (the design's `.meta`). Owner cards
+// show member count + created date; member cards show the owner. Transient states
+// explain that the change applies on the next refresh. Returns null when there's
+// nothing to show (e.g. an older cache entry missing the projected fields).
+function metaLine(row: ConnectionRow): string | null {
+  if (row.status === 'active') {
+    if (row.role === 'owner') {
+      const parts: string[] = [];
+      if (row.members) {
+        const n = row.members.length;
+        parts.push(`${n} member${n === 1 ? '' : 's'}`);
+      }
+      const created = formatCreated(row.createdAt);
+      if (created) parts.push(`created ${created}`);
+      return parts.length > 0 ? parts.join(' · ') : null;
+    }
+    return row.owner ? `owner: ${row.owner}` : null;
+  }
+  if (row.status === 'provisioning') return 'Creating prefix, database, and your access — applies on next refresh';
+  if (row.status === 'leaving') return 'Leaving — applies on next refresh';
+  if (row.status === 'deleting') return 'Deleting — applies on next refresh';
+  return null; // failed: the reason is shown in its own line
+}
+
+function formatCreated(iso?: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
+}
+
 function ConnectionRowItem({
   row,
   onManage,
@@ -279,115 +314,99 @@ function ConnectionRowItem({
   onRetry
 }: {
   row: ConnectionRow;
-  // Present only for an active connection the user owns (SPEC-053/054).
-  onManage?: () => void;
-  onDelete?: () => void;
-  // Present only for an active connection where the user is a member (SPEC-054).
-  onLeave?: () => void;
+  onManage: () => void;
+  onDelete: () => void;
+  onLeave: () => void;
   onDismiss: () => void;
   onRetry: () => void;
 }) {
+  const isOwner = row.role === 'owner';
+  const meta = metaLine(row);
   return (
-    <li className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="min-w-0 truncate font-mono text-sm font-medium text-text">{row.name}</span>
-        <div className="flex flex-none items-center gap-2">
+    <li className="flex items-center gap-3 rounded-lg border border-border bg-surface px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="truncate font-mono text-base font-semibold text-text">{row.name}</span>
           <RolePill role={row.role} />
           <StatusBadge status={row.status} />
-          {onManage && (
+        </div>
+        {meta && <div className="mt-1 text-xs text-text-3">{meta}</div>}
+        {row.status === 'failed' && (
+          <div className="mt-1 text-xs text-danger">{row.reason ?? 'Provisioning failed.'}</div>
+        )}
+      </div>
+      <div className="flex flex-none items-center gap-2">
+        {row.status === 'failed' ? (
+          <>
             <Button
               variant="ghost"
-              onClick={onManage}>
+              size="sm"
+              onClick={onDismiss}>
+              Dismiss
+            </Button>
+            <Button
+              size="sm"
+              onClick={onRetry}>
+              Retry
+            </Button>
+          </>
+        ) : isOwner ? (
+          <>
+            <Button
+              size="sm"
+              onClick={onManage}
+              disabled={row.status !== 'active'}>
               Manage
             </Button>
-          )}
-          {onDelete && (
+            {row.status === 'active' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger hover:bg-danger-soft hover:text-danger"
+                onClick={onDelete}>
+                Delete
+              </Button>
+            )}
+          </>
+        ) : (
+          row.status === 'active' && (
             <Button
               variant="ghost"
-              onClick={onDelete}>
-              Delete
-            </Button>
-          )}
-          {onLeave && (
-            <Button
-              variant="ghost"
+              size="sm"
+              className="text-danger hover:bg-danger-soft hover:text-danger"
               onClick={onLeave}>
               Leave
             </Button>
-          )}
-        </div>
+          )
+        )}
       </div>
-      {row.status === 'failed' && (
-        <div className="flex items-center justify-between gap-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">
-          <span className="min-w-0 flex-1">{row.reason ?? 'Provisioning failed.'}</span>
-          <div className="flex flex-none items-center gap-2">
-            <button
-              type="button"
-              onClick={onRetry}
-              className="font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-              Retry
-            </button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="font-medium opacity-80 hover:underline hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
     </li>
   );
 }
 
 function RolePill({role}: {role: SharedConnectionRole}) {
   return (
-    <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium capitalize text-text-2">
+    <span className="flex-none rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs font-semibold capitalize text-text-2">
       {role}
     </span>
   );
 }
 
-// Status as text + icon (never color-only, a11y). A spinner for the transient
-// states, a check for active, an alert mark for failed.
+// Status as a colored dot + text label (the design's `.badge`). The label always
+// carries the meaning, so the color/dot is never the only signal (a11y). The dot
+// pulses for the transient states.
 function StatusBadge({status}: {status: SharedConnectionStatus}) {
   const transient = status === 'provisioning' || status === 'leaving' || status === 'deleting';
   const tone =
     status === 'active'
-      ? 'border-success-soft bg-success-soft text-success'
+      ? 'bg-success-soft text-success'
       : status === 'failed'
-        ? 'border-danger-soft bg-danger-soft text-danger'
-        : 'border-border bg-surface text-text-2';
+        ? 'bg-danger-soft text-danger'
+        : 'bg-warning-soft text-warning';
   return (
     <span
-      className={`flex-none inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className={`h-3 w-3 ${transient ? 'animate-spin' : ''}`}>
-        {transient ? (
-          <>
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
-          </>
-        ) : status === 'active' ? (
-          <path d="M20 6 9 17l-5-5" />
-        ) : (
-          <>
-            <circle
-              cx="12"
-              cy="12"
-              r="9"
-            />
-            <path d="M12 8v4M12 16h.01" />
-          </>
-        )}
-      </svg>
+      className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}>
+      <span className={`h-[7px] w-[7px] rounded-full bg-current ${transient ? 'animate-pulse' : ''}`} />
       {connectionStatusLabel(status)}
     </span>
   );

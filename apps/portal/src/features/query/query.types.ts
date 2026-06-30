@@ -67,6 +67,11 @@ export type Connection = {
   // SPEC-053: owner-readable member list (present only on a connection the user
   // owns); drives the Manage-members drawer without an admin-bucket read.
   members?: string[];
+  // Card meta line (SPEC-052 design alignment): creation date (ISO) + owner
+  // username. `owner` is present on member connections; owner connections derive
+  // the count from `members`. Both absent on older cache entries.
+  createdAt?: string;
+  owner?: string;
 };
 
 // SPEC-052: a connection is targetable (queryable/browsable) only when it's the

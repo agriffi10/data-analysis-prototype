@@ -144,18 +144,19 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
     renderPage();
 
     const owned = (await screen.findByText('owned')).closest('li')!;
-    expect(within(owned).getByRole('button', {name: 'Manage'})).toBeInTheDocument();
-    // No Manage for a space the user only belongs to, or one still provisioning.
+    expect(within(owned).getByRole('button', {name: 'Manage'})).toBeEnabled();
+    // No Manage for a space the user only belongs to.
     expect(
       within(screen.getByText('joined').closest('li')!).queryByRole('button', {
         name: 'Manage'
       })
     ).not.toBeInTheDocument();
+    // A still-provisioning owned space shows Manage, but disabled (design parity).
     expect(
-      within(screen.getByText('pending').closest('li')!).queryByRole('button', {
+      within(screen.getByText('pending').closest('li')!).getByRole('button', {
         name: 'Manage'
       })
-    ).not.toBeInTheDocument();
+    ).toBeDisabled();
 
     fireEvent.click(within(owned).getByRole('button', {name: 'Manage'}));
     const drawer = screen.getByRole('dialog', {name: 'Manage members'});

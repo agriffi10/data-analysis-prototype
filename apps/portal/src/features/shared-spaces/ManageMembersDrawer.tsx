@@ -60,22 +60,23 @@ export function ManageMembersDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      title="Manage members"
-      headerAccessory={<span className="truncate font-mono text-sm text-text-3">{space}</span>}
-      // While a nested dialog is open it owns Escape (SPEC-036 pattern).
-      closeOnEscape={!addOpen && !removing}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-text-2">
-          {others.length === 0 ? 'Just you so far.' : `${others.length + 1} members`}
-        </p>
+      title={space}
+      titleClassName="font-mono"
+      subtitle="Members · everyone shares the same files and tables"
+      ariaLabel="Manage members"
+      closeLabel="Close manage members"
+      headerAccessory={
         <Button
           variant="primary"
+          size="sm"
+          className="ml-2 flex-none"
           onClick={() => setAddOpen(true)}
           disabled={busy}>
           Add members
         </Button>
-      </div>
-
+      }
+      // While a nested dialog is open it owns Escape (SPEC-036 pattern).
+      closeOnEscape={!addOpen && !removing}>
       {unavailable && (
         <Banner variant="info">
           Member details aren&apos;t available yet — add or remove a member, then Refresh connections to load the list.
@@ -85,19 +86,25 @@ export function ManageMembersDrawer({
       <ul
         role="list"
         className="divide-y divide-border rounded-lg border border-border">
-        <li className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <span className="min-w-0 truncate font-mono text-sm text-text">{owner}</span>
+        <li className="flex items-center gap-3 px-4 py-2.5">
+          <Avatar name={owner} />
+          <span className="min-w-0 truncate font-medium text-text">{owner}</span>
           <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2">
             Owner
           </span>
+          <div className="flex-1" />
         </li>
         {others.map((member) => (
           <li
             key={member}
-            className="flex items-center justify-between gap-3 px-4 py-2.5">
-            <span className="min-w-0 truncate font-mono text-sm text-text">{member}</span>
+            className="flex items-center gap-3 px-4 py-2.5">
+            <Avatar name={member} />
+            <span className="min-w-0 truncate font-medium text-text">{member}</span>
+            <div className="flex-1" />
             <Button
               variant="ghost"
+              size="sm"
+              className="text-danger hover:bg-danger-soft hover:text-danger"
               onClick={() => setRemoving(member)}
               disabled={busy}>
               Remove
@@ -136,5 +143,17 @@ export function ManageMembersDrawer({
         </ConfirmDialog>
       )}
     </Drawer>
+  );
+}
+
+// Small circular member avatar showing the first two letters of the username (the
+// design's `.mavatar`). Decorative — the username text beside it carries the name.
+function Avatar({name}: {name: string}) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-7 w-7 flex-none place-items-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-xs font-semibold text-white">
+      {name.slice(0, 2).toUpperCase()}
+    </span>
   );
 }
