@@ -61,6 +61,24 @@ def test_reserve_same_request_is_replay():
     assert reg.reserve("sales", "alice", "req-1") == "replay"
 
 
+def test_reserve_owner_can_retry_own_failed():
+    s3, *_ = install()
+    assert reg.reserve("sales", "alice", "req-1") == "created"
+    reg.finalize("sales", "alice", "req-1", "failed", "boom")
+    # The owner retrying after a failed create re-reserves the name (fresh request).
+    assert reg.reserve("sales", "alice", "req-2") == "created"
+    rec = reg.load("sales")
+    assert rec["status"] == "provisioning" and rec["lastRequestId"] == "req-2"
+
+
+def test_reserve_failed_still_blocks_a_different_owner():
+    s3, *_ = install()
+    assert reg.reserve("sales", "alice", "req-1") == "created"
+    reg.finalize("sales", "alice", "req-1", "failed", "boom")
+    # A failed reservation is only retryable by its own owner; others still collide.
+    raises(lambda: reg.reserve("sales", "bob", "req-2"), reg.ProvisioningError, "name already taken")
+
+
 def test_finalize_and_load_roundtrip():
     s3, *_ = install()
     reg.finalize("sales", "alice", "req-1", "active")

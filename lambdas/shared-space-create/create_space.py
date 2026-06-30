@@ -61,7 +61,21 @@ def _grant_portal_role(name):
 def create_space(name, actor, request_id):
     """Provision a new shared space owned by ``actor``. Idempotent; records a terminal
     failed status (registry + the owner's cache) on any error before re-raising."""
-    outcome = reg.reserve(name, actor, request_id)  # may raise "name already taken"
+    try:
+        outcome = reg.reserve(name, actor, request_id)  # may raise "name already taken"
+    except Exception as exc:  # noqa: BLE001 - notify the actor, then fail
+        # Reserve runs OUTSIDE the provisioning try/except below on purpose: a name
+        # collision must NOT rewrite the registry/cache (the name isn't ours to record
+        # `failed` against). But the actor still deserves to hear it failed, so emit the
+        # failure notification here before re-raising (best-effort; never changes Fail).
+        reason = str(exc)
+        logger.error("create %s reserve failed for %s: %s", name, actor, reason)
+        emit_notification(
+            actor,
+            f'We couldn\'t create shared workspace "{name}": {reason}.',
+            dedup_id=f"{request_id}:create-failed:{actor}",
+        )
+        raise
     if outcome == "replay" and (reg.load(name) or {}).get("status") == "active":
         return {"status": "active", "space": name, "owner": actor, "replay": True}
     try:
