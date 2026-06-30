@@ -38,6 +38,9 @@ picture of who can actually use the space, and a clear signal that an invitee st
   control plane flips that member's status to **`active`** in the owner's projection (idempotent).
 - `ManageMembersDrawer` renders a **Pending** / **Active** status chip per member, reusing the
   `StatusBadge` pattern from the Shared connections page (dot + text, never color-only).
+- A **Refresh** control in `ManageMembersDrawer` so the owner can manually re-pull member state (a
+  pending → active flip lands asynchronously, after the member signs in and the ack processes), reusing the
+  `RefreshConnectionsButton` pattern from the Shared connections page.
 - The owner's card meta line may surface a pending count (e.g. "3 members · 1 pending") — optional polish.
 
 ### Out of Scope
@@ -103,6 +106,23 @@ enqueues an `acknowledge_membership` control-plane request; the control plane se
       `StatusBadge`.
 - [ ] The owner row is unaffected (still shows the "Owner" pill).
 
+### FR-006: Manual refresh of member state
+
+#### Description:
+A pending → active flip is asynchronous (it lands only after the member signs in and the ack processes), so
+the owner needs a way to re-pull member state without leaving the drawer. `ManageMembersDrawer` gets a
+**Refresh** control that re-reads the authoritative projection on demand, reusing the
+`RefreshConnectionsButton` pattern (and the same `useConnections` refresh seam) from the Shared connections
+page.
+
+#### Acceptance Criteria:
+- [ ] The drawer shows a Refresh control; activating it re-reads member state from the authoritative
+      projection (forcing a credential refresh + cache re-read, as the Connections page Refresh does).
+- [ ] A member who has acknowledged since the drawer opened flips from **Pending** to **Active** after a
+      Refresh, with no full-page reload.
+- [ ] The control shows a busy/disabled state while refreshing and is keyboard-operable + labelled (a11y).
+- [ ] Refresh never mutates membership — it only re-reads (no add/remove side effects).
+
 ### FR-005: Backward compatibility
 
 #### Description:
@@ -163,7 +183,7 @@ apps/portal/src/features/shared-spaces/
 ├── sharedSpaces.types.ts        # MemberStatus, Member; widen members shape
 ├── sharedSpaces.service.ts      # normalize legacy string[] → Member[] on read
 ├── useAcknowledgeMembership.ts  # enqueue ack (once per session per space)
-└── ManageMembersDrawer.tsx      # render Pending/Active chip per member
+└── ManageMembersDrawer.tsx      # render Pending/Active chip + Refresh control per member
 ```
 
 ## Implementation Phases
@@ -179,7 +199,8 @@ apps/portal/src/features/shared-spaces/
 
 ### Phase 3: Browser ack + UI
 - `useAcknowledgeMembership` enqueue, called once per session per member-role space from `useFileSpace`.
-- `ManageMembersDrawer` Pending/Active chip (reuse `StatusBadge` pattern); optional owner-card pending count.
+- `ManageMembersDrawer` Pending/Active chip (reuse `StatusBadge` pattern) + a Refresh control (reuse
+  `RefreshConnectionsButton` + the `useConnections` refresh seam, FR-006); optional owner-card pending count.
 
 ## Alternatives Considered
 
