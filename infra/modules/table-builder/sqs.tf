@@ -8,6 +8,11 @@
 # CREATE … IF NOT EXISTS), while creates in DIFFERENT databases run in parallel. The
 # Pipe reads a batch of 1 (pipe.tf).
 #
+# content_based_deduplication is on, but the producer ALSO sends an explicit
+# MessageDeduplicationId = requestId (SPEC-067): the explicit id is the real
+# double-submit guard; content dedup just usefully absorbs a byte-identical retry
+# inside the 5-minute window. Per-DB serialization comes from MessageGroupId, above.
+#
 # No time_sleep guard here: the deploy-role grants these resource types need were
 # applied in the SPEC-066 PR1 (modules/base deploy-policy-table-builder) BEFORE this
 # module's resources land (the deploy-perms-before-resources rule), so there is no
