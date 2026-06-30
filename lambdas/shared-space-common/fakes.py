@@ -57,19 +57,33 @@ class _Body:
 class FakeS3:
     def __init__(self):
         self.store = {}
+        self.etags = {}  # (Bucket, Key) -> ETag, for conditional-write (CAS) tests
+        self._seq = 0
         self.exceptions = types.SimpleNamespace(
             NoSuchKey=FakeNoSuchKey, ClientError=FakeClientError
         )
 
+    def _next_etag(self):
+        self._seq += 1
+        return f'"etag-{self._seq}"'
+
     def get_object(self, Bucket, Key):
         if (Bucket, Key) in self.store:
-            return {"Body": _Body(self.store[(Bucket, Key)])}
+            # Lazily stamp an ETag so objects seeded directly via ``store[...] = ...``
+            # (not through put_object) still participate in If-Match writes.
+            if (Bucket, Key) not in self.etags:
+                self.etags[(Bucket, Key)] = self._next_etag()
+            return {"Body": _Body(self.store[(Bucket, Key)]), "ETag": self.etags[(Bucket, Key)]}
         raise FakeNoSuchKey()
 
-    def put_object(self, Bucket, Key, Body, IfNoneMatch=None, **kw):
-        if IfNoneMatch == "*" and (Bucket, Key) in self.store:
+    def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+        exists = (Bucket, Key) in self.store
+        if IfNoneMatch == "*" and exists:
+            raise FakeClientError("PreconditionFailed")
+        if IfMatch is not None and self.etags.get((Bucket, Key)) != IfMatch:
             raise FakeClientError("PreconditionFailed")
         self.store[(Bucket, Key)] = Body if isinstance(Body, (bytes, bytearray)) else Body.encode()
+        self.etags[(Bucket, Key)] = self._next_etag()
         return {}
 
     def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None):
@@ -79,10 +93,12 @@ class FakeS3:
     def delete_objects(self, Bucket, Delete):
         for obj in Delete.get("Objects", []):
             self.store.pop((Bucket, obj["Key"]), None)
+            self.etags.pop((Bucket, obj["Key"]), None)
         return {}
 
     def delete_object(self, Bucket, Key):
         self.store.pop((Bucket, Key), None)
+        self.etags.pop((Bucket, Key), None)
         return {}
 
 

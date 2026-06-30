@@ -150,6 +150,78 @@ def test_cache_upsert_remove_and_owner_projection():
     assert owner[0]["members"] == ["alice", "bob"] and owner[0]["role"] == "owner"
 
 
+def test_cache_cas_retries_and_preserves_concurrent_write():
+    """The fix: two overlapping executions writing the same user's cache must not
+    lose-update. RacyS3 commits a competing entry between our read and our first
+    write (advancing the ETag), so the conditional PutObject fails once; the CAS loop
+    re-reads and reapplies, and BOTH entries survive."""
+    from fakes import FakeS3
+    import clients
+
+    key = "bob/user_settings/shared-connections.json"
+
+    class RacyS3(FakeS3):
+        def __init__(self):
+            super().__init__()
+            self._injected = False
+
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            if not self._injected and Key == key:
+                self._injected = True  # one competing commit, before our first write
+                competing = {"version": 1, "connections": [{"name": "ops", "role": "member", "status": "active"}]}
+                super().put_object(Bucket=Bucket, Key=Key, Body=json.dumps(competing).encode())
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = RacyS3()
+    cache.upsert_entry("bob", {"name": "sales", "role": "member", "status": "active"})
+    conns = json.loads(clients._s3.store[("user-bkt", key)])["connections"]
+    assert {c["name"] for c in conns} == {"sales", "ops"}, conns
+
+
+def test_cache_read_treats_accessdenied_as_absent():
+    """Hardening: when the role lacks s3:ListBucket, a missing object returns 403
+    AccessDenied (not NoSuchKey). _read must treat that as absent and create."""
+    from fakes import FakeS3, FakeClientError
+    import clients
+
+    class NoListBucketS3(FakeS3):
+        def get_object(self, Bucket, Key):
+            if (Bucket, Key) not in self.store:
+                raise FakeClientError("AccessDenied")  # missing key, no ListBucket
+            return super().get_object(Bucket, Key)
+
+    install()
+    clients._s3 = NoListBucketS3()
+    cache.upsert_entry("bob", {"name": "sales", "role": "member", "status": "active"})
+    conns = json.loads(clients._s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])["connections"]
+    assert [c["name"] for c in conns] == ["sales"]
+
+
+def test_cache_read_propagates_unexpected_error():
+    """A non-absence S3 error must propagate (never silently overwrite real data)."""
+    from fakes import FakeS3, FakeClientError
+    import clients
+
+    class BrokenS3(FakeS3):
+        def get_object(self, Bucket, Key):
+            raise FakeClientError("InternalError")
+
+    install()
+    clients._s3 = BrokenS3()
+    raises(
+        lambda: cache.upsert_entry("bob", {"name": "sales", "role": "member", "status": "active"}),
+        FakeClientError,
+    )
+
+
+def test_cache_remove_absent_writes_nothing():
+    """Removing from a non-existent cache stays a true no-op (no empty object written)."""
+    s3, *_ = install()
+    cache.remove_entry("bob", "sales")
+    assert ("user-bkt", "bob/user_settings/shared-connections.json") not in s3.store
+
+
 # ── notify seam (SPEC-061 wiring lands later) ────────────────────────────────
 def test_notify_is_noop_when_queue_unset():
     install()  # NOTIFICATIONS_QUEUE_URL = ""
