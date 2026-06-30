@@ -92,6 +92,11 @@ def create_space(name, actor, request_id):
         reason = str(exc)
         logger.error("create %s failed for %s: %s", name, actor, reason)
         try:
+            # Roll back the membership slot assigned above so a failed create doesn't
+            # leak a slot toward the actor's MAX_SHARED_MEMBERSHIPS cap (the slot was
+            # claimed before the step that failed). Idempotent: clear_slot only clears
+            # the slot holding `name`, and is a no-op if none was assigned yet.
+            membership.clear_slot(actor, name)
             reg.finalize(name, actor, request_id, "failed", reason)
             cache.upsert_entry(
                 actor, {"name": name, "role": "owner", "status": "failed", "reason": reason}
