@@ -171,35 +171,32 @@ export function ConnectionsPage() {
   };
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold text-text">Shared connections</h1>
-            <p className="mt-1 text-sm text-text-2">
-              Spaces you own or belong to. Files, tables, and the database are shared by all members.
-            </p>
-          </div>
-          <div className="flex flex-none items-center gap-2">
-            <RefreshConnectionsButton
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-            />
-            <Button
-              variant="primary"
-              onClick={() => setDialogOpen(true)}>
-              New shared connection
-            </Button>
-          </div>
+    <div className="flex flex-1 flex-col overflow-auto">
+      {/* Full-width page header with a bottom border (design `.page-head`). */}
+      <div className="flex items-center gap-4 border-b border-border px-6 py-5">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold text-text">Shared connections</h1>
+          <p className="mt-0.5 text-sm text-text-2">
+            Spaces you own or belong to. Files, tables, and the database are shared by all members.
+          </p>
         </div>
+        <div className="flex flex-none items-center gap-2">
+          <RefreshConnectionsButton
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+          />
+          <Button
+            variant="primary"
+            onClick={() => setDialogOpen(true)}>
+            New shared connection
+          </Button>
+        </div>
+      </div>
 
-        {error && (
-          <Banner
-            variant="danger"
-            className="mb-4">
-            Couldn&apos;t load your shared connections: {error}
-          </Banner>
-        )}
+      {/* Content is left-aligned (no mx-auto) and capped at the design's 920px so
+          the cards don't stretch across very wide viewports. */}
+      <div className="flex max-w-[920px] flex-col gap-3 px-6 py-6">
+        {error && <Banner variant="danger">Couldn&apos;t load your shared connections: {error}</Banner>}
 
         {isLoading ? (
           <p

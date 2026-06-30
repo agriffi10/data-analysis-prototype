@@ -1,19 +1,25 @@
 import {useState} from 'react';
 import {useFileBrowser} from './useFileBrowser';
 import type {SelectableItem} from './selectionContext';
+import type {FileSpaceTarget} from './useFileSpace';
 import {Button} from '../../components/Button';
 import {PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
 
 type Props = {
-  bucket: string;
+  bucket: string; // the SOURCE space's bucket (also the default destination)
   items: SelectableItem[]; // the items being moved/copied
-  rootPrefix: string; // navigation floor (user's space root)
+  rootPrefix: string; // navigation floor (source space root)
   rootLabel?: string; // label for the root crumb (hides the username segment)
   currentPrefix: string; // the items' current parent
   markerKey?: string;
   isBusy?: boolean;
+  // Connections the user can target (feedback 2026-06-30). When more than one is
+  // given, a connection selector is shown and the destination can be another
+  // connection's bucket. Defaults to source-only (no selector) when omitted.
+  destinations?: FileSpaceTarget[];
   // Whether the items' current parent is a valid destination. Move forbids it
-  // (a no-op); Copy allows it (→ same-folder auto-number, SPEC-039 FR-003).
+  // (a no-op); Copy allows it (→ same-folder auto-number, SPEC-039 FR-003). Only
+  // meaningful when the destination is the source space (same bucket).
   allowCurrentParent?: boolean;
   // SPEC-049: an extra gate the host controls (e.g. an invalid filename) — when
   // true the confirm button is disabled regardless of the destination validity.
@@ -23,7 +29,7 @@ type Props = {
   // Message shown when the confirm action is blocked inside an operated folder's
   // own subtree (the verb differs: "move" vs "copy").
   selfMessage?: string;
-  onConfirm: (destPrefix: string) => void;
+  onConfirm: (destPrefix: string, destBucket: string) => void;
   onCancel: () => void;
 };
 
@@ -80,6 +86,7 @@ export function DestinationPicker({
   currentPrefix,
   markerKey,
   isBusy = false,
+  destinations,
   allowCurrentParent = false,
   confirmDisabled = false,
   confirmLabel,
@@ -88,21 +95,49 @@ export function DestinationPicker({
   onConfirm,
   onCancel
 }: Props) {
-  const [browsePrefix, setBrowsePrefix] = useState(rootPrefix);
-  const {folders, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(bucket, browsePrefix, markerKey);
+  // The list of targetable connections. Falls back to the source space alone so
+  // the picker works unchanged when no `destinations` are supplied.
+  const options: FileSpaceTarget[] =
+    destinations && destinations.length > 0
+      ? destinations
+      : [{id: 'source', bucket, rootPrefix, label: rootLabel ?? rootPrefix, kind: 'personal'}];
+  // Default to the source space (matched by bucket + root), else the first option.
+  const initial = options.find((o) => o.bucket === bucket && o.rootPrefix === rootPrefix) ?? options[0];
+  const [destId, setDestId] = useState(initial.id);
+  const active = options.find((o) => o.id === destId) ?? initial;
+  const showSelector = options.length > 1;
+  // True when the chosen destination is a different connection than the source —
+  // the current-parent and into-itself guards (which key off source-space paths)
+  // don't apply across buckets.
+  const crossBucket = active.bucket !== bucket;
+
+  const [browsePrefix, setBrowsePrefix] = useState(initial.rootPrefix);
+  const {folders, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(
+    active.bucket,
+    browsePrefix,
+    markerKey
+  );
+
+  function selectDestination(id: string) {
+    const next = options.find((o) => o.id === id);
+    if (!next) return;
+    setDestId(id);
+    setBrowsePrefix(next.rootPrefix); // switching connections resets to its root
+  }
 
   // Folders being operated on can't be navigated into (you can't move/copy a
   // folder inside itself), so hide them from the picker. The protected results
   // folder is also hidden — it is never a valid write destination (SPEC-032).
   const operatedFolderPrefixes = new Set(items.filter((i) => i.type === 'folder').map((i) => i.prefix));
   const navigableFolders = folders.filter(
-    (f) => !operatedFolderPrefixes.has(f.prefix) && !isProtectedFolder(f.prefix, rootPrefix)
+    (f) => !operatedFolderPrefixes.has(f.prefix) && !isProtectedFolder(f.prefix, active.rootPrefix)
   );
 
   // The confirm action is invalid anywhere inside an operated folder's own
-  // subtree, and (for Move) at the current parent.
-  const intoOwnSubtree = [...operatedFolderPrefixes].some((p) => browsePrefix.startsWith(p));
-  const atCurrentParent = browsePrefix === currentPrefix;
+  // subtree, and (for Move) at the current parent — but only within the source
+  // space; targeting another connection is always a fresh location.
+  const intoOwnSubtree = !crossBucket && [...operatedFolderPrefixes].some((p) => browsePrefix.startsWith(p));
+  const atCurrentParent = !crossBucket && browsePrefix === currentPrefix;
   const currentParentBlocked = atCurrentParent && !allowCurrentParent;
   const canConfirm = !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled;
   const disabledReason = currentParentBlocked
@@ -111,10 +146,35 @@ export function DestinationPicker({
       ? selfMessage
       : undefined;
 
-  const crumbs = crumbsFor(browsePrefix, rootPrefix, rootLabel);
+  const crumbs = crumbsFor(browsePrefix, active.rootPrefix, active.label);
 
   return (
     <>
+      {showSelector && (
+        <div className="mt-3">
+          <label
+            htmlFor="dest-connection"
+            className="mb-1 block text-sm font-medium text-text-2">
+            Destination connection
+          </label>
+          <select
+            id="dest-connection"
+            className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            value={destId}
+            onChange={(e) => selectDestination(e.target.value)}
+            disabled={isBusy}>
+            {options.map((o) => (
+              <option
+                key={o.id}
+                value={o.id}>
+                {o.label}
+                {o.kind === 'shared' ? ' (shared)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Destination breadcrumb */}
       <nav
         aria-label="destination breadcrumb"
@@ -176,11 +236,11 @@ export function DestinationPicker({
           <ul aria-label="Destination folders">
             {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
                 root. Shown only below the navigation floor. */}
-            {browsePrefix !== rootPrefix && (
+            {browsePrefix !== active.rootPrefix && (
               <li>
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                  onClick={() => setBrowsePrefix(parentOf(browsePrefix, rootPrefix))}
+                  onClick={() => setBrowsePrefix(parentOf(browsePrefix, active.rootPrefix))}
                   aria-label="Go up to parent folder">
                   <svg
                     viewBox="0 0 20 20"
@@ -248,7 +308,7 @@ export function DestinationPicker({
         </Button>
         <Button
           variant="primary"
-          onClick={() => onConfirm(browsePrefix)}
+          onClick={() => onConfirm(browsePrefix, active.bucket)}
           disabled={!canConfirm}
           aria-describedby={disabledReason ? 'dest-disabled-reason' : undefined}>
           {isBusy ? busyLabel : confirmLabel}

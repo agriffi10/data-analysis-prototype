@@ -1,5 +1,5 @@
 export {FileBrowser} from './FileBrowser';
-export {useFileSpace} from './useFileSpace';
+export {useFileSpace, usableSpaceTargets} from './useFileSpace';
 export type {FileSpaceTarget, FileSpaceKind, UseFileSpaceResult} from './useFileSpace';
 export {MetadataPanel} from './MetadataPanel';
 export {useFileBrowser} from './useFileBrowser';
@@ -21,9 +21,9 @@ export {SelectionProvider} from './SelectionProvider';
 export {useSelection, itemId} from './selectionContext';
 export type {SelectableItem, SelectionContextValue} from './selectionContext';
 export {UploadQueueProvider} from './UploadQueueProvider';
-export {UploadQueuePanel} from './UploadQueuePanel';
+export {UploadList} from './UploadList';
 export {useUploadQueue} from './uploadQueueContext';
-export type {UploadQueueContextValue} from './uploadQueueContext';
+export type {UploadQueueContextValue, UploadDestination} from './uploadQueueContext';
 export type {UploadItem, UploadStatus} from './upload.types';
 export {UPLOAD_CONCURRENCY} from './upload.types';
 export {

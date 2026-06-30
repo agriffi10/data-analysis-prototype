@@ -60,7 +60,7 @@ describe('MoveDialog', () => {
     const moveHere = screen.getByRole('button', {name: /move here/i});
     expect(moveHere).toBeEnabled();
     fireEvent.click(moveHere);
-    expect(onMove).toHaveBeenCalledWith('alice/');
+    expect(onMove).toHaveBeenCalledWith('alice/', 'us');
   });
 
   it('disables "Move here" at the items\' current parent', () => {
@@ -103,7 +103,7 @@ describe('MoveDialog', () => {
     const moveHere = screen.getByRole('button', {name: /move here/i});
     expect(moveHere).toBeEnabled();
     fireEvent.click(moveHere);
-    expect(onMove).toHaveBeenCalledWith('alice/');
+    expect(onMove).toHaveBeenCalledWith('alice/', 'us');
   });
 
   it('navigates into a folder and moves there', () => {
@@ -117,6 +117,6 @@ describe('MoveDialog', () => {
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('us', 'alice/archive/', undefined);
 
     fireEvent.click(screen.getByRole('button', {name: /move here/i}));
-    expect(onMove).toHaveBeenCalledWith('alice/archive/');
+    expect(onMove).toHaveBeenCalledWith('alice/archive/', 'us');
   });
 });

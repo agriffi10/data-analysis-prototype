@@ -2,6 +2,7 @@ import {type ReactNode, useEffect} from 'react';
 import {Navigate, Outlet, useLocation} from 'react-router-dom';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
+import {UploadQueueProvider} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
 import {LoadingState} from './LoadingState';
@@ -10,8 +11,17 @@ import {LoadingState} from './LoadingState';
 // browser renders <Sidebar>, the query workspace renders its schema browser —
 // which needs the editor wiring, so it can't live in the shell), so this is just
 // the row container the page fills (SPEC-035 FR-002).
+//
+// The upload queue is mounted here (not inside the file browser) so it is
+// session-scoped: in-flight uploads survive folder navigation, connection
+// switches, route changes, and the file browser remounting on a `?space=` change
+// (feedback 2026-06-30). It only tears down on sign-out, when this shell unmounts.
 function AppShell({children}: {children: ReactNode}) {
-  return <div className="flex flex-1">{children}</div>;
+  return (
+    <UploadQueueProvider>
+      <div className="flex flex-1">{children}</div>
+    </UploadQueueProvider>
+  );
 }
 
 // Auth gate for protected routes (FR-003). Nested inside RootLayout, so the

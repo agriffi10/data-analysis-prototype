@@ -7,7 +7,7 @@ type Props = {
 
 // SPEC-020 FR-003: a multi-file picker + drag-and-drop drop zone. Selecting or
 // dropping any number of files enqueues them all onto the upload queue; per-file
-// progress, status, and cancel live in the non-blocking UploadQueuePanel, not here
+// progress, status, and cancel live in the in-drawer uploads list (UploadList), not here
 // (this is purely the "add files" surface). Upgrades SPEC-016's single-file zone.
 export function UploadDropzone({onFiles, disabled}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);

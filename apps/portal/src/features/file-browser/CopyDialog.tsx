@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {DestinationPicker} from './DestinationPicker';
 import type {SelectableItem} from './selectionContext';
+import type {FileSpaceTarget} from './useFileSpace';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
@@ -22,10 +23,11 @@ type Props = {
   currentPrefix: string; // the items' current parent — valid (→ auto-number)
   markerKey?: string;
   isBusy?: boolean;
+  destinations?: FileSpaceTarget[]; // connections the copy can target (feedback 2026-06-30)
   // When set, the copy is into the items' current parent (FR-003): the picker is
   // replaced by an editable, pre-filled non-colliding name field.
   sameFolderPrompt?: SameFolderPrompt | null;
-  onCopy: (destPrefix: string) => void;
+  onCopy: (destPrefix: string, destBucket: string) => void;
   onCancel: () => void;
 };
 
@@ -92,6 +94,7 @@ export function CopyDialog({
   currentPrefix,
   markerKey,
   isBusy = false,
+  destinations,
   sameFolderPrompt,
   onCopy,
   onCancel
@@ -117,6 +120,7 @@ export function CopyDialog({
           currentPrefix={currentPrefix}
           markerKey={markerKey}
           isBusy={isBusy}
+          destinations={destinations}
           allowCurrentParent
           confirmLabel="Copy here"
           busyLabel="Copying…"

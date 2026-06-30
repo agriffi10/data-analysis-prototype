@@ -58,7 +58,7 @@ describe('DestinationPicker', () => {
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('us', 'alice/archive/', undefined);
 
     fireEvent.click(screen.getByRole('button', {name: /copy here/i}));
-    expect(onConfirm).toHaveBeenCalledWith('alice/archive/');
+    expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us');
   });
 
   it('excludes the protected athenaresults folder from the listing', () => {
@@ -97,5 +97,34 @@ describe('DestinationPicker', () => {
     // Browsing starts at rootPrefix = the folder's own prefix → inside its subtree.
     expect(screen.getByRole('button', {name: /copy here/i})).toBeDisabled();
     expect(screen.getByText(/can't copy a folder into itself/i)).toBeInTheDocument();
+  });
+
+  // ── Cross-connection destinations (feedback 2026-06-30) ────────────────────
+  const destinations = [
+    {id: 'personal', bucket: 'us', rootPrefix: 'alice/', label: 'My Files', kind: 'personal' as const},
+    {id: 'team', bucket: 'shared', rootPrefix: 'team/', label: 'team', kind: 'shared' as const}
+  ];
+
+  it('shows a connection selector only when more than one destination is given', () => {
+    renderPicker(); // no destinations → no selector
+    expect(screen.queryByLabelText(/destination connection/i)).not.toBeInTheDocument();
+
+    renderPicker({destinations});
+    expect(screen.getByLabelText(/destination connection/i)).toBeInTheDocument();
+  });
+
+  it('browses and confirms into another connection (different bucket + root)', () => {
+    const {onConfirm} = renderPicker({destinations, currentPrefix: 'alice/docs/'});
+
+    // Default selection is the source space (us / alice/).
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('us', 'alice/', undefined);
+
+    // Switch to the shared connection: browsing re-targets its bucket + root.
+    fireEvent.change(screen.getByLabelText(/destination connection/i), {target: {value: 'team'}});
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('shared', 'team/', undefined);
+
+    // Confirming reports the shared bucket as the destination bucket.
+    fireEvent.click(screen.getByRole('button', {name: /copy here/i}));
+    expect(onConfirm).toHaveBeenCalledWith('team/', 'shared');
   });
 });

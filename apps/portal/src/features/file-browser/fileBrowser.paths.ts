@@ -1,6 +1,6 @@
 // Shared S3 key/prefix path helpers (react-best-practices abstraction pass).
 // Single source of truth — previously duplicated across useMove, useCopy,
-// FileBrowser, and UploadQueuePanel.
+// FileBrowser, and UploadList.
 
 // Leaf (last segment) of a file key: `a/b/c.txt` → `c.txt`.
 export function leafName(key: string): string {

@@ -38,7 +38,9 @@ export type UseCopyResult = {
   summary: CopySummary | null;
   copyCollision: CopyCollision | null;
   sameFolderPrompt: SameFolderPrompt | null;
-  copyItems: (items: SelectableItem[], destPrefix: string) => void;
+  // `destBucket` defaults to the source bucket; pass a different connection's
+  // bucket to copy across connections (feedback 2026-06-30).
+  copyItems: (items: SelectableItem[], destPrefix: string, destBucket?: string) => void;
   dismissError: () => void;
   dismissSummary: () => void;
   cancelCollision: () => void;
@@ -70,8 +72,8 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   const [copyCollision, setCopyCollision] = useState<CopyCollision | null>(null);
   const [sameFolderPrompt, setSameFolderPrompt] = useState<SameFolderPrompt | null>(null);
 
-  async function invalidateDest(destPrefix: string) {
-    await invalidateListing(queryClient, bucket, destPrefix);
+  async function invalidateDest(destPrefix: string, destBucket: string) {
+    await invalidateListing(queryClient, destBucket, destPrefix);
   }
 
   // ── Same-folder copy (FR-003) ──────────────────────────────────────────────
@@ -137,7 +139,8 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
       return;
     }
 
-    await invalidateDest(destPrefix);
+    // Same-folder copy is always within the source bucket.
+    await invalidateDest(destPrefix, bucket);
     setSummary({copiedCount: outcome.copied, errors: outcome.errors});
     setIsBusy(false);
   }
@@ -174,7 +177,13 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   }
 
   // ── Copy to a different folder ─────────────────────────────────────────────
-  async function runCopy(items: SelectableItem[], destPrefix: string, overwrite: boolean, acc: Acc) {
+  async function runCopy(
+    items: SelectableItem[],
+    destPrefix: string,
+    destBucket: string,
+    overwrite: boolean,
+    acc: Acc
+  ) {
     setIsBusy(true);
     setError(null);
     setSummary(null);
@@ -190,6 +199,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
           sourceKey: item.key,
           destKey: destPrefix + leafName(item.key),
           username: username!,
+          destBucket,
           overwrite
         });
         if (r.success) acc.copied += 1;
@@ -202,6 +212,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
           sourcePrefix: item.prefix,
           destPrefix: `${destPrefix}${leaf}/`,
           username: username!,
+          destBucket,
           overwrite,
           onProgress: (p, t) => setProgress(uploadPercent(p, t))
         });
@@ -224,37 +235,38 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         count: collided.length,
         onOverwriteAll: () => {
           setCopyCollision(null);
-          void runCopy(collided, destPrefix, true, acc);
+          void runCopy(collided, destPrefix, destBucket, true, acc);
         },
         onCancel: () => {
           setCopyCollision(null);
-          void finalizeCopy(acc, destPrefix);
+          void finalizeCopy(acc, destPrefix, destBucket);
         }
       });
       return;
     }
 
-    await finalizeCopy(acc, destPrefix);
+    await finalizeCopy(acc, destPrefix, destBucket);
   }
 
-  async function finalizeCopy(acc: Acc, destPrefix: string) {
+  async function finalizeCopy(acc: Acc, destPrefix: string, destBucket: string) {
     // Copy is additive: only the DESTINATION listing changed (FR-004).
-    await invalidateDest(destPrefix);
+    await invalidateDest(destPrefix, destBucket);
     setSummary({copiedCount: acc.copied, errors: acc.errors});
     setIsBusy(false);
   }
 
-  // Entry point. If the chosen destination is the items' current parent, this is
-  // a same-folder copy (FR-003) — only valid for a single item (the auto-number
-  // prompt is per-item). Otherwise it's an ordinary copy to a different folder.
-  function copyItems(items: SelectableItem[], destPrefix: string) {
+  // Entry point. If the chosen destination is the items' current parent (same
+  // bucket + prefix), this is a same-folder copy (FR-003) — only valid for a
+  // single item (the auto-number prompt is per-item). Otherwise it's an ordinary
+  // copy to a different folder, possibly in another connection's bucket.
+  function copyItems(items: SelectableItem[], destPrefix: string, destBucket: string = bucket) {
     if (!username) {
       setError('You must be signed in to copy files.');
       return;
     }
     if (items.length === 0) return;
 
-    if (destPrefix === sourcePrefix) {
+    if (destBucket === bucket && destPrefix === sourcePrefix) {
       // Same-folder copy (FR-003): place the item beside itself under an
       // editable auto-numbered name. The auto-number prompt is per-item, so this
       // path is single-item by design — same-folder copy is offered for one
@@ -263,7 +275,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
       return;
     }
 
-    void runCopy(items, destPrefix, false, {copied: 0, errors: []});
+    void runCopy(items, destPrefix, destBucket, false, {copied: 0, errors: []});
   }
 
   return {

@@ -12,8 +12,7 @@ import {formatSize} from './fileBrowser.format';
 import {lastSegment, fileExtension} from './fileBrowser.paths';
 import {UploadDropzone} from './UploadDropzone';
 import {UploadDrawer} from './UploadDrawer';
-import {UploadQueueProvider} from './UploadQueueProvider';
-import {UploadQueuePanel} from './UploadQueuePanel';
+import {UploadList} from './UploadList';
 import {useUploadQueue} from './uploadQueueContext';
 import {CreateFolderDialog} from './CreateFolderDialog';
 import {CollisionPrompt} from './CollisionPrompt';
@@ -28,6 +27,7 @@ import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
 import {SelectionProvider} from './SelectionProvider';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
+import type {FileSpaceTarget} from './useFileSpace';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
@@ -59,6 +59,8 @@ type Props = {
   // `{username}/DO_NOT_DELETE.txt` and it gates the modify controls (SPEC-018).
   // The signed-in username for the personal space; the shared-space name for a
   // shared space (SPEC-057). Present only in the authenticated flow.
+  destinations?: FileSpaceTarget[]; // connections move/copy can target (feedback
+  // 2026-06-30): personal + active shared spaces. Omitted in the dev-unauth path.
 };
 
 type BreadcrumbItem = {
@@ -406,6 +408,7 @@ function FileBrowserContent({
   markerKey,
   writable = false,
   username,
+  destinations,
   prefix,
   setPrefix
 }: ContentProps) {
@@ -436,7 +439,7 @@ function FileBrowserContent({
     dismissError
   } = useFileUpload(bucket, currentPrefix);
   // Multi-file upload queue (SPEC-020) — enqueue from the dropzone; progress,
-  // cancel, and per-file collisions live in the non-blocking UploadQueuePanel.
+  // cancel, and per-file collisions now live in the in-drawer UploadList.
   const {enqueue} = useUploadQueue();
   const [creatingFolder, setCreatingFolder] = useState(false);
   // Upload drawer (right slide-over) — the "add files" surface only.
@@ -494,24 +497,25 @@ function FileBrowserContent({
     setConfirmOpen(false);
   }
 
-  function handleConfirmMove(destPrefix: string) {
+  function handleConfirmMove(destPrefix: string, destBucket: string) {
     const items = moving ?? [];
     setMoving(null);
     selection.clear();
-    move.moveItems(items, destPrefix);
+    move.moveItems(items, destPrefix, destBucket);
   }
 
-  function handleConfirmCopy(destPrefix: string) {
+  function handleConfirmCopy(destPrefix: string, destBucket: string) {
     const items = copying ?? [];
-    // A same-folder copy (destination = current parent) opens the editable
-    // auto-number prompt inside the dialog (FR-003), so the dialog must stay open
-    // — only close it for the ordinary different-folder case.
-    const sameFolder = destPrefix === currentPrefix;
+    // A same-folder copy (destination = current parent in the SAME bucket) opens
+    // the editable auto-number prompt inside the dialog (FR-003), so the dialog
+    // must stay open — only close it for the ordinary different-folder / different-
+    // connection case.
+    const sameFolder = destBucket === bucket && destPrefix === currentPrefix;
     if (!sameFolder) {
       setCopying(null);
       selection.clear();
     }
-    copy.copyItems(items, destPrefix);
+    copy.copyItems(items, destPrefix, destBucket);
   }
 
   // Toolbar Rename (single selection): resolve the selected item's display name
@@ -648,18 +652,16 @@ function FileBrowserContent({
             </Banner>
           )}
 
-          {/* Add-files drawer (SPEC-020) — enqueues onto the upload queue, then
-              closes so the non-blocking queue panel takes over. */}
+          {/* Add-files drawer (SPEC-020) — the dropzone enqueues onto the
+              session-scoped upload queue; the in-progress list sits right below it
+              (feedback 2026-06-30) and persists for the session, so the drawer can
+              be closed and reopened without losing or interrupting uploads. */}
           <UploadDrawer
             open={uploadOpen}
             onClose={() => setUploadOpen(false)}
             destinationLabel={destinationLabel}>
-            <UploadDropzone
-              onFiles={(files) => {
-                enqueue(files);
-                setUploadOpen(false);
-              }}
-            />
+            <UploadDropzone onFiles={(files) => enqueue(files, {bucket, prefix: currentPrefix})} />
+            <UploadList />
           </UploadDrawer>
         </>
       )}
@@ -951,6 +953,7 @@ function FileBrowserContent({
           currentPrefix={currentPrefix}
           markerKey={markerKey}
           isBusy={move.isBusy}
+          destinations={destinations}
           onMove={handleConfirmMove}
           onCancel={() => setMoving(null)}
         />
@@ -968,6 +971,7 @@ function FileBrowserContent({
           currentPrefix={currentPrefix}
           markerKey={markerKey}
           isBusy={copy.isBusy}
+          destinations={destinations}
           sameFolderPrompt={
             copy.sameFolderPrompt && {
               ...copy.sameFolderPrompt,
@@ -1001,9 +1005,6 @@ function FileBrowserContent({
           </button>
         </div>
       )}
-
-      {/* Upload queue (SPEC-020) — non-blocking floating panel; self-hides empty */}
-      {writable && <UploadQueuePanel />}
     </div>
   );
 }
@@ -1021,29 +1022,28 @@ export function FileBrowser({
   rootLabel,
   markerKey,
   writable = false,
-  username
+  username,
+  destinations
 }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
 
   return (
     <SelectionProvider prefix={prefix}>
-      {/* Queue persists across prefix navigation (the content never remounts on
-          navigate), so uploads keep running while the user browses (SPEC-020). */}
-      <UploadQueueProvider
+      {/* The upload queue lives at the app shell (ProtectedLayout), not here, so it
+          survives this component remounting on a `?space=`/prefix change and keeps
+          uploads running for the whole session (feedback 2026-06-30). */}
+      <FileBrowserContent
         bucket={bucket}
-        prefix={prefix ?? ''}>
-        <FileBrowserContent
-          bucket={bucket}
-          rootPrefix={rootPrefix}
-          rootLabel={rootLabel}
-          markerKey={markerKey}
-          writable={writable}
-          username={username}
-          prefix={prefix}
-          setPrefix={setPrefix}
-        />
-      </UploadQueueProvider>
+        rootPrefix={rootPrefix}
+        rootLabel={rootLabel}
+        markerKey={markerKey}
+        writable={writable}
+        username={username}
+        destinations={destinations}
+        prefix={prefix}
+        setPrefix={setPrefix}
+      />
     </SelectionProvider>
   );
 }

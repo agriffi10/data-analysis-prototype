@@ -38,7 +38,9 @@ export type UseMoveResult = {
   renameCollision: RenameCollision | null;
   moveCollision: MoveCollision | null;
   renameItem: (item: SelectableItem, newName: string) => void;
-  moveItems: (items: SelectableItem[], destPrefix: string) => void;
+  // `destBucket` defaults to the source bucket; pass a different connection's
+  // bucket to move across connections (feedback 2026-06-30).
+  moveItems: (items: SelectableItem[], destPrefix: string, destBucket?: string) => void;
   dismissError: () => void;
   dismissSummary: () => void;
   cancelCollision: () => void;
@@ -63,6 +65,16 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
   async function invalidate(prefixes: string[]) {
     const unique = [...new Set(prefixes)];
     await Promise.all(unique.map((p) => invalidateListing(queryClient, bucket, p)));
+  }
+
+  // After a move, the source listing (always in `bucket`) and the destination
+  // listing (in `destBucket`, possibly another connection) both changed.
+  async function invalidateMove(destPrefix: string, destBucket: string) {
+    const tasks = [invalidateListing(queryClient, bucket, sourcePrefix)];
+    if (!(destBucket === bucket && destPrefix === sourcePrefix)) {
+      tasks.push(invalidateListing(queryClient, destBucket, destPrefix));
+    }
+    await Promise.all(tasks);
   }
 
   // ── Rename ────────────────────────────────────────────────────────────────
@@ -139,7 +151,13 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
   }
 
   // ── Move ────────────────────────────────────────────────────────────────
-  async function runMove(items: SelectableItem[], destPrefix: string, overwrite: boolean, acc: Acc) {
+  async function runMove(
+    items: SelectableItem[],
+    destPrefix: string,
+    destBucket: string,
+    overwrite: boolean,
+    acc: Acc
+  ) {
     if (!username) {
       setError('You must be signed in to move files.');
       return;
@@ -159,6 +177,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
           sourceKey: item.key,
           destKey: destPrefix + leafName(item.key),
           username,
+          destBucket,
           overwrite
         });
         if (r.success) acc.moved += 1;
@@ -171,6 +190,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
           sourcePrefix: item.prefix,
           destPrefix: `${destPrefix}${leaf}/`,
           username,
+          destBucket,
           overwrite,
           onProgress: (p, t) => setProgress(uploadPercent(p, t))
         });
@@ -193,21 +213,21 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         count: collided.length,
         onOverwriteAll: () => {
           setMoveCollision(null);
-          void runMove(collided, destPrefix, true, acc);
+          void runMove(collided, destPrefix, destBucket, true, acc);
         },
         onCancel: () => {
           setMoveCollision(null);
-          void finalizeMove(acc, destPrefix);
+          void finalizeMove(acc, destPrefix, destBucket);
         }
       });
       return;
     }
 
-    await finalizeMove(acc, destPrefix);
+    await finalizeMove(acc, destPrefix, destBucket);
   }
 
-  async function finalizeMove(acc: Acc, destPrefix: string) {
-    await invalidate([sourcePrefix, destPrefix]);
+  async function finalizeMove(acc: Acc, destPrefix: string, destBucket: string) {
+    await invalidateMove(destPrefix, destBucket);
     setSummary({movedCount: acc.moved, errors: acc.errors});
     setIsBusy(false);
   }
@@ -220,7 +240,8 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
     renameCollision,
     moveCollision,
     renameItem: (item, newName) => void runRename(item, newName, false),
-    moveItems: (items, destPrefix) => void runMove(items, destPrefix, false, {moved: 0, errors: []}),
+    moveItems: (items, destPrefix, destBucket = bucket) =>
+      void runMove(items, destPrefix, destBucket, false, {moved: 0, errors: []}),
     dismissError: () => setError(null),
     dismissSummary: () => setSummary(null),
     cancelCollision: () => {

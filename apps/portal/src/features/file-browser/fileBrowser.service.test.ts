@@ -851,6 +851,47 @@ describe('moveObject', () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
+  it('cross-connection move: copies into destBucket then deletes from the source bucket', async () => {
+    mockSend
+      .mockResolvedValueOnce({}) // CopyObject (into destBucket)
+      .mockResolvedValueOnce({}); // DeleteObject (from source bucket)
+
+    const result = await moveObject({
+      bucket: 'us',
+      sourceKey: 'alice/a.txt',
+      destKey: 'team/a.txt',
+      username: 'alice',
+      destBucket: 'shared',
+      overwrite: true
+    });
+
+    expect(result).toEqual({success: true, data: {destKey: 'team/a.txt'}});
+    // Copy writes to the destination bucket, reading from the source bucket.
+    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(CopyObjectCommand);
+    expect(mockSend.mock.calls[0][0].input).toMatchObject({
+      Bucket: 'shared',
+      Key: 'team/a.txt',
+      CopySource: expect.stringContaining('us/')
+    });
+    // Delete removes the original from the SOURCE bucket.
+    expect(mockSend.mock.calls[1][0]).toBeInstanceOf(DeleteObjectCommand);
+    expect(mockSend.mock.calls[1][0].input).toEqual({Bucket: 'us', Key: 'alice/a.txt'});
+  });
+
+  it('cross-bucket same key is a real move, not a no-op', async () => {
+    mockSend.mockResolvedValueOnce({}).mockResolvedValueOnce({});
+    const result = await moveObject({
+      bucket: 'us',
+      sourceKey: 'alice/a.txt',
+      destKey: 'alice/a.txt',
+      username: 'alice',
+      destBucket: 'shared',
+      overwrite: true
+    });
+    expect(result.success).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(2); // copy + delete actually ran
+  });
+
   it('leaves the source intact when the copy fails (no delete)', async () => {
     mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'})); // CopyObject fails
 

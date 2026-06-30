@@ -1,6 +1,5 @@
 import {render, screen, fireEvent, within, waitFor} from '@testing-library/react';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import type {ReactNode} from 'react';
 import {FileBrowser} from './FileBrowser';
 import {useFileBrowser} from './useFileBrowser';
 import type {UseFileBrowserResult} from './useFileBrowser';
@@ -22,14 +21,12 @@ vi.mock('./useFileUpload');
 vi.mock('./useDelete');
 vi.mock('./useMove');
 vi.mock('./useCopy');
-// The upload queue is exercised in UploadQueueProvider.test.tsx; here the provider
-// is a passthrough, the hook is stubbed, and the floating panel is a no-op so these
-// tests stay focused on FileBrowser wiring (and don't need a QueryClient).
-vi.mock('./UploadQueueProvider', () => ({
-  UploadQueueProvider: ({children}: {children: ReactNode}) => children
-}));
+// The upload queue is exercised in UploadQueueProvider.test.tsx; here the hook is
+// stubbed and the in-drawer uploads list is a no-op so these tests stay focused on
+// FileBrowser wiring (and don't need a QueryClient). The provider now lives at the
+// app shell, so FileBrowser no longer renders it.
 vi.mock('./uploadQueueContext', () => ({useUploadQueue: vi.fn()}));
-vi.mock('./UploadQueuePanel', () => ({UploadQueuePanel: () => null}));
+vi.mock('./UploadList', () => ({UploadList: () => null}));
 // Stub the move dialog's folder picker so these tests don't pull in useFileBrowser
 // twice; MoveDialog itself is covered by MoveDialog.test.tsx.
 vi.mock('./MoveDialog', () => ({
@@ -39,14 +36,14 @@ vi.mock('./MoveDialog', () => ({
     onCancel
   }: {
     items: {type: string}[];
-    onMove: (destPrefix: string) => void;
+    onMove: (destPrefix: string, destBucket: string) => void;
     onCancel: () => void;
   }) => (
     <div
       role="dialog"
       aria-label="Move to folder">
       <span>moving {items.length}</span>
-      <button onClick={() => onMove('alice/dest/')}>move-here-stub</button>
+      <button onClick={() => onMove('alice/dest/', 'my-bucket')}>move-here-stub</button>
       <button onClick={onCancel}>move-cancel-stub</button>
     </div>
   )
@@ -64,15 +61,15 @@ vi.mock('./CopyDialog', () => ({
   }: {
     items: {type: string}[];
     currentPrefix: string;
-    onCopy: (destPrefix: string) => void;
+    onCopy: (destPrefix: string, destBucket: string) => void;
     onCancel: () => void;
   }) => (
     <div
       role="dialog"
       aria-label="Copy to folder">
       <span>copying {items.length}</span>
-      <button onClick={() => onCopy('alice/dest/')}>copy-here-stub</button>
-      <button onClick={() => onCopy(currentPrefix)}>copy-same-folder-stub</button>
+      <button onClick={() => onCopy('alice/dest/', 'my-bucket')}>copy-here-stub</button>
+      <button onClick={() => onCopy(currentPrefix, 'my-bucket')}>copy-same-folder-stub</button>
       <button onClick={onCancel}>copy-cancel-stub</button>
     </div>
   )
@@ -746,7 +743,7 @@ describe('write controls', () => {
     const f2 = new File(['b'], 'b.txt');
     fireEvent.change(input, {target: {files: [f1, f2]}});
 
-    expect(uploadQueueBase.enqueue).toHaveBeenCalledWith([f1, f2]);
+    expect(uploadQueueBase.enqueue).toHaveBeenCalledWith([f1, f2], {bucket: 'my-bucket', prefix: ''});
   });
 });
 
@@ -957,7 +954,11 @@ describe('rename + move', () => {
     expect(dialog).toHaveTextContent(/moving 1/i);
     fireEvent.click(within(dialog).getByRole('button', {name: /move-here-stub/i}));
 
-    expect(moveBase.moveItems).toHaveBeenCalledWith([{type: 'file', key: 'alice/report.pdf'}], 'alice/dest/');
+    expect(moveBase.moveItems).toHaveBeenCalledWith(
+      [{type: 'file', key: 'alice/report.pdf'}],
+      'alice/dest/',
+      'my-bucket'
+    );
   });
 
   it('shows a move result summary with the moved count', () => {
@@ -1029,7 +1030,11 @@ describe('copy', () => {
     const dialog = screen.getByRole('dialog', {name: /copy to folder/i});
     fireEvent.click(within(dialog).getByRole('button', {name: /copy-here-stub/i}));
 
-    expect(copyBase.copyItems).toHaveBeenCalledWith([{type: 'file', key: 'alice/report.pdf'}], 'alice/dest/');
+    expect(copyBase.copyItems).toHaveBeenCalledWith(
+      [{type: 'file', key: 'alice/report.pdf'}],
+      'alice/dest/',
+      'my-bucket'
+    );
   });
 
   it('keeps the copy dialog open for a same-folder copy (auto-number flow)', () => {
@@ -1049,7 +1054,7 @@ describe('copy', () => {
 
     // copyItems is called with the current parent, and the dialog stays open so the
     // same-folder editable-name prompt (rendered by the real CopyDialog) can show.
-    expect(copyBase.copyItems).toHaveBeenCalledWith([{type: 'file', key: 'alice/report.pdf'}], 'alice/');
+    expect(copyBase.copyItems).toHaveBeenCalledWith([{type: 'file', key: 'alice/report.pdf'}], 'alice/', 'my-bucket');
     expect(screen.getByRole('dialog', {name: /copy to folder/i})).toBeInTheDocument();
   });
 

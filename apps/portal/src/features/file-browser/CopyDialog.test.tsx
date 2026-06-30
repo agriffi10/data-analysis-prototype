@@ -57,7 +57,7 @@ describe('CopyDialog — destination picker', () => {
     const copyHere = screen.getByRole('button', {name: /copy here/i});
     expect(copyHere).toBeEnabled();
     fireEvent.click(copyHere);
-    expect(onCopy).toHaveBeenCalledWith('alice/');
+    expect(onCopy).toHaveBeenCalledWith('alice/', 'us');
   });
 
   it('allows the current parent as a destination (same-folder copy is permitted)', () => {
@@ -66,7 +66,7 @@ describe('CopyDialog — destination picker', () => {
     const copyHere = screen.getByRole('button', {name: /copy here/i});
     expect(copyHere).toBeEnabled();
     fireEvent.click(copyHere);
-    expect(onCopy).toHaveBeenCalledWith('alice/');
+    expect(onCopy).toHaveBeenCalledWith('alice/', 'us');
   });
 
   it('does not offer the protected athenaresults folder as a destination', () => {

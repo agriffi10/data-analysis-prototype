@@ -29,6 +29,7 @@ describe('uploadQueueReducer', () => {
     return {
       id: '0-a.txt',
       file: new File(['x'], 'a.txt'),
+      bucket: 'us',
       key: 'alice/a.txt',
       status: 'queued',
       loaded: 0,
@@ -48,8 +49,8 @@ describe('uploadQueueReducer', () => {
     const next = uploadQueueReducer(initialUploadQueueState, {
       type: 'enqueue',
       entries: [
-        {file: f1, key: 'alice/a.txt', status: 'queued'},
-        {file: f2, key: 'alice/b.txt', status: 'queued'}
+        {file: f1, bucket: 'us', key: 'alice/a.txt', status: 'queued'},
+        {file: f2, bucket: 'us', key: 'alice/b.txt', status: 'queued'}
       ]
     });
     expect(next.items.map((i) => i.id)).toEqual(['0-a.txt', '1-b.txt']);
@@ -58,7 +59,7 @@ describe('uploadQueueReducer', () => {
     // A second enqueue keeps ids unique by continuing the counter.
     const after = uploadQueueReducer(next, {
       type: 'enqueue',
-      entries: [{file: f1, key: 'alice/a.txt', status: 'queued'}]
+      entries: [{file: f1, bucket: 'us', key: 'alice/a.txt', status: 'queued'}]
     });
     expect(after.items[2].id).toBe('2-a.txt');
   });
@@ -151,14 +152,18 @@ describe('uploadQueueReducer', () => {
 
 // ─── Provider (concurrency gate + cancel) ───────────────────────────────────
 
-function wrapper(prefix = 'alice/') {
+// The provider is now prop-less (session-scoped); each enqueue carries its own
+// destination, so tests pass DEST explicitly.
+const DEST = {bucket: 'us', prefix: 'alice/'};
+
+function wrapper() {
   const client = new QueryClient();
   return ({children}: {children: ReactNode}) =>
-    createElement(QueryClientProvider, {client}, createElement(UploadQueueProvider, {bucket: 'us', prefix, children}));
+    createElement(QueryClientProvider, {client}, createElement(UploadQueueProvider, {children}));
 }
 
-function render(prefix = 'alice/') {
-  return renderHook(() => useUploadQueue(), {wrapper: wrapper(prefix)});
+function render() {
+  return renderHook(() => useUploadQueue(), {wrapper: wrapper()});
 }
 
 function files(n: number): File[] {
@@ -174,7 +179,7 @@ describe('UploadQueueProvider concurrency gate (FR-001)', () => {
     mockUpload.mockImplementation(() => new Promise((res) => resolvers.push(res)));
 
     const {result} = render();
-    act(() => result.current.enqueue(files(5)));
+    act(() => result.current.enqueue(files(5), DEST));
 
     // Exactly 3 in flight; 2 still queued; only 3 uploadFile calls made.
     await waitFor(() => expect(countBy(result.current.items, 'uploading')).toBe(3));
@@ -203,7 +208,7 @@ describe('UploadQueueProvider concurrency gate (FR-001)', () => {
       error: {message: 'exists', code: 'Collision'}
     });
     const {result} = render();
-    act(() => result.current.enqueue(files(1)));
+    act(() => result.current.enqueue(files(1), DEST));
 
     await waitFor(() => expect(result.current.items[0].status).toBe('collision'));
     expect(mockUpload).toHaveBeenCalledWith(
@@ -222,7 +227,7 @@ describe('UploadQueueProvider concurrency gate (FR-001)', () => {
     Object.defineProperty(big, 'size', {value: MAX_UPLOAD_BYTES + 1});
 
     const {result} = render();
-    act(() => result.current.enqueue([big]));
+    act(() => result.current.enqueue([big], DEST));
 
     await waitFor(() => expect(result.current.items[0].status).toBe('failed'));
     expect(result.current.items[0].error).toMatch(/maximum upload size/i);
@@ -246,7 +251,7 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
     );
 
     const {result} = render();
-    act(() => result.current.enqueue(files(1)));
+    act(() => result.current.enqueue(files(1), DEST));
     await waitFor(() => expect(result.current.items[0].status).toBe('uploading'));
 
     act(() => result.current.cancel(result.current.items[0].id));
@@ -259,7 +264,7 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
     // 3 and 4 files, the 4th stays queued.
     mockUpload.mockImplementation(() => new Promise(() => {}));
     const {result} = render();
-    act(() => result.current.enqueue(files(4)));
+    act(() => result.current.enqueue(files(4), DEST));
 
     await waitFor(() => expect(countBy(result.current.items, 'queued')).toBe(1));
     const queued = result.current.items.find((i) => i.status === 'queued')!;
@@ -272,7 +277,7 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
   it('dismiss removes a terminal item; clearFinished clears them all', async () => {
     mockUpload.mockResolvedValue({success: true, data: {key: 'alice/f0.txt'}});
     const {result} = render();
-    act(() => result.current.enqueue(files(2)));
+    act(() => result.current.enqueue(files(2), DEST));
 
     await waitFor(() => expect(countBy(result.current.items, 'done')).toBe(2));
     act(() => result.current.dismiss(result.current.items[0].id));

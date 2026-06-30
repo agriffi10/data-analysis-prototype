@@ -74,6 +74,23 @@ function connectionToSpaceTarget(
   };
 }
 
+// All usable connections as browser targets (feedback 2026-06-30) — the personal
+// space plus every active shared space. Used to populate the move/copy destination
+// picker so files can be relocated across connections. Unusable shared spaces
+// (provisioning/failed/leaving) are excluded, matching the sidebar.
+export function usableSpaceTargets(
+  connections: Connection[],
+  username: string | null,
+  userSpaceBucket: string | undefined,
+  sharedSpaceBucket: string | undefined
+): FileSpaceTarget[] {
+  if (!username) return [];
+  return connections
+    .filter(isConnectionUsable)
+    .map((c) => connectionToSpaceTarget(c, username, userSpaceBucket, sharedSpaceBucket))
+    .filter((t): t is FileSpaceTarget => t !== null);
+}
+
 // SPEC-057 FR-002/FR-004/FR-005: the file browser's active-space state, derived
 // from `useConnections` (SPEC-052) and synced to the `?space=` route param.
 // Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a

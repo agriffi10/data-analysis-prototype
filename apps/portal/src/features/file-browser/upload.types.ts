@@ -15,6 +15,9 @@ export type UploadStatus =
 export type UploadItem = {
   id: string; // client-generated, index/name based — no Math.random in shared code
   file: File;
+  bucket: string; // destination bucket (captured at enqueue time) — the queue is
+  //                session-scoped and spans connections, so each item carries its
+  //                own bucket rather than inheriting one from a provider prop.
   key: string; // destination key (prefix captured at enqueue time, so navigation
   //              never re-targets an in-flight upload)
   status: UploadStatus;

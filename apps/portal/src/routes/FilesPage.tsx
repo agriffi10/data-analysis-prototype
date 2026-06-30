@@ -1,6 +1,13 @@
 import {useEffect} from 'react';
 import {useSearchParams} from 'react-router-dom';
-import {FileBrowser, ensurePrefixMarker, prefixMarkerKey, useFileSpace} from '../features/file-browser';
+import {
+  FileBrowser,
+  ensurePrefixMarker,
+  prefixMarkerKey,
+  useFileSpace,
+  usableSpaceTargets,
+  type FileSpaceTarget
+} from '../features/file-browser';
 import {Sidebar} from '../components/Sidebar';
 import {Banner} from '../components/Banner';
 import {useAuth} from '../features/auth';
@@ -77,12 +84,16 @@ export default function FilesPage() {
   let sidebarConnections: Connection[];
   let sidebarActiveId: string;
   let onSelectSpace: (id: string) => void;
+  // Connections move/copy can target (feedback 2026-06-30): personal + active
+  // shared spaces. Undefined in dev-unauth (read-only — the dialogs never open).
+  let destinations: FileSpaceTarget[] | undefined;
 
   if (devUnauthenticated) {
     target = {bucket: devBucket, rootPrefix: devPrefix, rootLabel: undefined, markerOwner: undefined, writable: false};
     sidebarConnections = devConnections;
     sidebarActiveId = 'personal';
     onSelectSpace = () => {};
+    destinations = undefined;
   } else {
     target = {
       bucket: space?.bucket,
@@ -99,6 +110,7 @@ export default function FilesPage() {
     sidebarConnections = connections;
     sidebarActiveId = activeSpaceId;
     onSelectSpace = selectSpace;
+    destinations = usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket);
   }
 
   const markerKey = target.markerOwner ? prefixMarkerKey(target.markerOwner) : undefined;
@@ -140,6 +152,7 @@ export default function FilesPage() {
             markerKey={markerKey}
             writable={target.writable}
             username={devUnauthenticated ? undefined : target.markerOwner}
+            destinations={destinations}
           />
         ) : (
           <div
