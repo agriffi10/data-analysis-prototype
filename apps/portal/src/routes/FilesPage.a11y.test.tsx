@@ -46,9 +46,6 @@ vi.mock('../features/file-browser/uploadQueueContext', () => ({
 vi.mock('../features/file-browser/UploadQueueProvider', () => ({
   UploadQueueProvider: ({children}: {children: ReactNode}) => children
 }));
-vi.mock('../features/file-browser/UploadQueuePanel', () => ({
-  UploadQueuePanel: () => null
-}));
 vi.mock('../features/file-browser/fileBrowser.service', () => ({
   ensurePrefixMarker: vi.fn().mockResolvedValue({success: true}),
   getDownloadUrl: vi.fn()

@@ -10,29 +10,30 @@ import {
   initialUploadQueueState,
   keyPrefix,
   type NewUploadEntry,
+  type UploadDestination,
   type UploadQueueContextValue
 } from './uploadQueueContext';
 
-// SPEC-020 FR-001/FR-002: drives the upload queue. The pure reducer
-// (uploadQueueContext) owns the item list; this provider runs the side effects —
-// a concurrency gate that starts queued items via SPEC-016's `uploadFile`, wires
-// progress + cancel, and invalidates the listing as each upload finishes.
+// SPEC-020 FR-001/FR-002 (+ feedback 2026-06-30): drives the upload queue. The
+// pure reducer (uploadQueueContext) owns the item list; this provider runs the
+// side effects — a concurrency gate that starts queued items via SPEC-016's
+// `uploadFile`, wires progress + cancel, and invalidates the listing as each
+// upload finishes.
 //
-// `prefix` is the folder new files are enqueued into; the destination key is
-// captured per item at enqueue time, so navigating to another folder mid-upload
-// never re-targets an in-flight upload (the panel stays non-blocking, FR-003).
-export function UploadQueueProvider({bucket, prefix, children}: {bucket: string; prefix: string; children: ReactNode}) {
+// The provider is mounted once at the authenticated app shell (ProtectedLayout),
+// so the queue is SESSION-scoped: uploads keep running across folder navigation,
+// connection (bucket) switches, route changes, and drawer open/close — they are
+// only aborted when the session ends (the provider unmounts on sign-out). Each
+// item therefore carries its own destination bucket + key, captured at enqueue
+// time, so navigating elsewhere mid-upload never re-targets an in-flight upload.
+export function UploadQueueProvider({children}: {children: ReactNode}) {
   const queryClient = useQueryClient();
   const [state, dispatch] = useReducer(uploadQueueReducer, initialUploadQueueState);
 
-  // Latest prefix for enqueue, and latest items for the cancel callback — read in
-  // callbacks without making those callbacks churn on every change. Synced in
-  // effects (not during render) so a stable callback always sees the last commit.
-  const prefixRef = useRef(prefix);
+  // Latest items for the cancel callback — read in the callback without making it
+  // churn on every change. Synced in an effect (not during render) so the stable
+  // callback always sees the last commit.
   const itemsRef = useRef(state.items);
-  useEffect(() => {
-    prefixRef.current = prefix;
-  }, [prefix]);
   useEffect(() => {
     itemsRef.current = state.items;
   }, [state.items]);
@@ -49,7 +50,7 @@ export function UploadQueueProvider({bucket, prefix, children}: {bucket: string;
       dispatch({type: 'start', id: item.id});
 
       const result = await uploadFile({
-        bucket,
+        bucket: item.bucket,
         key: item.key,
         body: item.file,
         contentType: item.file.type || 'application/octet-stream',
@@ -65,7 +66,7 @@ export function UploadQueueProvider({bucket, prefix, children}: {bucket: string;
         dispatch({type: 'succeed', id: item.id});
         // Invalidate the destination folder so the finished file appears there,
         // whether or not the user is still viewing it (FR-001).
-        await invalidateListing(queryClient, bucket, keyPrefix(item.key));
+        await invalidateListing(queryClient, item.bucket, keyPrefix(item.key));
       } else if (result.error.code === 'Cancelled') {
         dispatch({type: 'cancelled', id: item.id});
       } else if (result.error.code === 'Collision') {
@@ -74,7 +75,7 @@ export function UploadQueueProvider({bucket, prefix, children}: {bucket: string;
         dispatch({type: 'fail', id: item.id, error: result.error.message});
       }
     },
-    [bucket, queryClient]
+    [queryClient]
   );
 
   // Concurrency gate: whenever the queue changes, fill open slots with the next
@@ -94,9 +95,10 @@ export function UploadQueueProvider({bucket, prefix, children}: {bucket: string;
     }
   }, [state.items, launch]);
 
-  // Abort everything in flight if the browser unmounts (the user left the page):
-  // the panel is gone, so let lib-storage abort the multipart uploads rather than
-  // leak orphaned parts.
+  // Abort everything in flight when the provider unmounts. Mounted at the app
+  // shell, that happens only when the session ends (sign-out) — so in-flight
+  // uploads survive navigation and run for the whole session, and lib-storage
+  // aborts the multipart uploads on sign-out rather than leaking orphaned parts.
   useEffect(() => {
     const map = controllers.current;
     return () => {
@@ -104,18 +106,19 @@ export function UploadQueueProvider({bucket, prefix, children}: {bucket: string;
     };
   }, []);
 
-  const enqueue = useCallback((files: File[]) => {
+  const enqueue = useCallback((files: File[], dest: UploadDestination) => {
     const entries: NewUploadEntry[] = files.map((file) => {
-      const key = prefixRef.current + file.name;
+      const key = dest.prefix + file.name;
       if (file.size > MAX_UPLOAD_BYTES) {
         return {
           file,
+          bucket: dest.bucket,
           key,
           status: 'failed',
           error: 'This file exceeds the maximum upload size.'
         };
       }
-      return {file, key, status: 'queued'};
+      return {file, bucket: dest.bucket, key, status: 'queued'};
     });
     if (entries.length > 0) dispatch({type: 'enqueue', entries});
   }, []);

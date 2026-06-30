@@ -1,6 +1,7 @@
 import {DestinationPicker} from './DestinationPicker';
 import {Modal} from '../../components/Modal';
 import type {SelectableItem} from './selectionContext';
+import type {FileSpaceTarget} from './useFileSpace';
 
 type Props = {
   bucket: string;
@@ -10,7 +11,8 @@ type Props = {
   currentPrefix: string; // the items' current parent — not a valid destination
   markerKey?: string;
   isBusy?: boolean;
-  onMove: (destPrefix: string) => void;
+  destinations?: FileSpaceTarget[]; // connections the move can target (feedback 2026-06-30)
+  onMove: (destPrefix: string, destBucket: string) => void;
   onCancel: () => void;
 };
 
@@ -26,6 +28,7 @@ export function MoveDialog({
   currentPrefix,
   markerKey,
   isBusy = false,
+  destinations,
   onMove,
   onCancel
 }: Props) {
@@ -47,6 +50,7 @@ export function MoveDialog({
         currentPrefix={currentPrefix}
         markerKey={markerKey}
         isBusy={isBusy}
+        destinations={destinations}
         confirmLabel="Move here"
         busyLabel="Moving…"
         selfMessage="You can't move a folder into itself."

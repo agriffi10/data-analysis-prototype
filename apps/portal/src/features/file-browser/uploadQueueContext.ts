@@ -7,11 +7,15 @@ import {TERMINAL_STATUSES} from './upload.types';
 // unit-testable and UploadQueueProvider.tsx exports only its component
 // (react-refresh requires component files to export components only).
 
+// Where a batch of files is being uploaded to — captured at enqueue time so the
+// session-scoped queue can target multiple connections (buckets) at once.
+export type UploadDestination = {bucket: string; prefix: string};
+
 export type UploadQueueContextValue = {
   items: UploadItem[];
-  // Enqueue files for upload into the current folder; oversize files are added as
-  // a `failed` item with the limit message rather than entering the active queue.
-  enqueue: (files: File[]) => void;
+  // Enqueue files for upload into the given destination folder; oversize files are
+  // added as a `failed` item with the limit message rather than entering the queue.
+  enqueue: (files: File[], dest: UploadDestination) => void;
   // Cancel an item: aborts an in-flight upload (→ cancelled) or drops a queued /
   // collision item that never wrote anything (FR-002).
   cancel: (id: string) => void;
@@ -53,6 +57,7 @@ export function keyPrefix(key: string): string {
 // Math.random in shared code, per FR-001).
 export type NewUploadEntry = {
   file: File;
+  bucket: string;
   key: string;
   status: Extract<UploadStatus, 'queued' | 'failed'>;
   error?: string;
@@ -90,6 +95,7 @@ export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueA
       const added: UploadItem[] = action.entries.map((e) => ({
         id: `${seq++}-${e.file.name}`,
         file: e.file,
+        bucket: e.bucket,
         key: e.key,
         status: e.status,
         loaded: 0,

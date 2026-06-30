@@ -2,7 +2,7 @@ import {describe, it, vi, beforeEach} from 'vitest';
 import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
 import {CollisionPrompt} from './CollisionPrompt';
 import {DestinationPicker} from './DestinationPicker';
-import {UploadQueuePanel} from './UploadQueuePanel';
+import {UploadList} from './UploadList';
 import {useUploadQueue} from './uploadQueueContext';
 import type {UploadQueueContextValue} from './uploadQueueContext';
 import type {UploadItem} from './upload.types';
@@ -28,6 +28,7 @@ function item(over: Partial<UploadItem> = {}): UploadItem {
   return {
     id: 'id-1',
     file: new File(['x'], 'a.txt'),
+    bucket: 'us',
     key: 'alice/a.txt',
     status: 'uploading',
     loaded: 50,
@@ -60,7 +61,7 @@ beforeEach(() => {
   vi.mocked(useFileBrowser).mockReturnValue(browserBase);
 });
 
-describe('UploadQueuePanel accessibility (every state)', () => {
+describe('UploadList accessibility (every state)', () => {
   it.each([
     ['uploading', item({status: 'uploading', loaded: 50, total: 100})],
     ['done', item({status: 'done', loaded: 100})],
@@ -68,7 +69,7 @@ describe('UploadQueuePanel accessibility (every state)', () => {
     ['collision', item({status: 'collision'})]
   ] as const)('%s state has no violations', async (_label, queueItem) => {
     setQueue([queueItem]);
-    await expectNoA11yViolations(<UploadQueuePanel />, COMPONENT_AXE_OPTIONS);
+    await expectNoA11yViolations(<UploadList />, COMPONENT_AXE_OPTIONS);
   });
 });
 

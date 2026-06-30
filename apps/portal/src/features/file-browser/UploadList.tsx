@@ -4,7 +4,7 @@ import {useUploadQueue} from './uploadQueueContext';
 import {uploadPercent} from './fileBrowser.service';
 import {formatSize} from './fileBrowser.format';
 import {leafName, fileExtension} from './fileBrowser.paths';
-import {TERMINAL_STATUSES, type UploadItem} from './upload.types';
+import {TERMINAL_STATUSES, type UploadItem, type UploadStatus} from './upload.types';
 
 function CloseIcon() {
   return (
@@ -23,50 +23,60 @@ function CloseIcon() {
   );
 }
 
-// Right-aligned status text — design-system §5: ✓ Done (success), 62% (accent),
-// Queued (muted), plus Failed (danger) and Cancelled (muted). Never color-only:
-// each carries text (and Done a check icon), per the accessibility notes.
-function StatusLabel({item}: {item: UploadItem}) {
-  switch (item.status) {
-    case 'uploading':
-      return (
-        <span className="text-sm font-semibold text-accent-text tabular-nums">
-          {uploadPercent(item.loaded, item.total)}%
-        </span>
-      );
-    case 'done':
-      return (
-        <span className="flex items-center gap-1 text-sm font-medium text-success">
-          <svg
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="h-3.5 w-3.5"
-            aria-hidden="true">
-            <path
-              fillRule="evenodd"
-              d="M13.78 4.22a.75.75 0 010 1.06l-6 6a.75.75 0 01-1.06 0l-3-3a.75.75 0 111.06-1.06L7.25 9.69l5.47-5.47a.75.75 0 011.06 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Done
-        </span>
-      );
-    case 'queued':
-      return <span className="text-sm text-text-3">Queued</span>;
-    case 'failed':
-      return <span className="text-sm font-medium text-danger">Failed</span>;
-    case 'cancelled':
-      return <span className="text-sm text-text-3">Cancelled</span>;
-    default:
-      return null;
-  }
+// Status as a colored dot + text chip, matching the shared-connections StatusBadge
+// (feedback 2026-06-30): Uploading (amber, pulsing — in-progress, like
+// "Provisioning…"), Uploaded (green), Failed (red), Queued/Cancelled (neutral).
+// The label always carries the meaning, so color/dot is never the only signal (a11y).
+const CHIP: Record<Exclude<UploadStatus, 'collision'>, {label: string; tone: string; pulse?: boolean}> = {
+  queued: {label: 'Queued', tone: 'bg-surface-2 text-text-2'},
+  uploading: {label: 'Uploading', tone: 'bg-warning-soft text-warning', pulse: true},
+  done: {label: 'Uploaded', tone: 'bg-success-soft text-success'},
+  failed: {label: 'Failed', tone: 'bg-danger-soft text-danger'},
+  cancelled: {label: 'Cancelled', tone: 'bg-surface-2 text-text-2'}
+};
+
+function StatusChip({status}: {status: Exclude<UploadStatus, 'collision'>}) {
+  const {label, tone, pulse} = CHIP[status];
+  return (
+    <span
+      className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}>
+      <span className={`h-[7px] w-[7px] rounded-full bg-current ${pulse ? 'animate-pulse' : ''}`} />
+      {label}
+    </span>
+  );
 }
 
-function QueueCard({item}: {item: UploadItem}) {
+// The destination workspace is the first segment of the key (the username for the
+// personal space, the shared-space name otherwise) — the same value the breadcrumb
+// root and sidebar show. Returns null for a key with no prefix (dev/edge).
+function workspaceFromKey(key: string): string | null {
+  const i = key.indexOf('/');
+  return i > 0 ? key.slice(0, i) : null;
+}
+
+// A small muted tag naming the workspace an upload is going to (feedback
+// 2026-06-30) — useful now that uploads from different connections share one list.
+function WorkspaceTag({name}: {name: string}) {
+  return (
+    <span className="inline-flex min-w-0 max-w-[55%] flex-none items-center gap-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-text-2">
+      <svg
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className="h-3 w-3 shrink-0 text-text-3"
+        aria-hidden="true">
+        <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+      </svg>
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
+function UploadRow({item}: {item: UploadItem}) {
   const {cancel, dismiss, resolveOverwrite, resolveRename} = useUploadQueue();
   const name = leafName(item.key);
+  const workspace = workspaceFromKey(item.key);
 
-  // Collision (SPEC-016 warn-and-confirm): pause the card and reuse CollisionPrompt.
+  // Collision (SPEC-016 warn-and-confirm): pause the row and reuse CollisionPrompt.
   // Cancelling it drops the item from the queue (FR-003).
   if (item.status === 'collision') {
     return (
@@ -115,14 +125,17 @@ function QueueCard({item}: {item: UploadItem}) {
             title={name}>
             {name}
           </p>
-          <StatusLabel item={item} />
+          <StatusChip status={item.status} />
         </div>
 
-        <p
-          className={`mt-0.5 truncate text-sm ${item.status === 'failed' ? 'text-danger' : 'text-text-2'}`}
-          title={item.status === 'failed' ? item.error : undefined}>
-          {subtext}
-        </p>
+        <div className="mt-0.5 flex items-center gap-1.5">
+          {workspace && <WorkspaceTag name={workspace} />}
+          <span
+            className={`min-w-0 truncate text-sm ${item.status === 'failed' ? 'text-danger' : 'text-text-2'}`}
+            title={item.status === 'failed' ? item.error : undefined}>
+            {subtext}
+          </span>
+        </div>
 
         {/* 6px accent progress bar — only while uploading (design-system §5) */}
         {item.status === 'uploading' && (
@@ -153,23 +166,28 @@ function QueueCard({item}: {item: UploadItem}) {
   );
 }
 
-// SPEC-020 FR-003: a non-blocking, floating queue panel (bottom-right). Renders
-// nothing when the queue is empty; while present, the user can keep browsing and
-// navigating — it never traps focus behind a scrim (unlike the modal upload
-// drawer). Uses the design-system §5 queue-card treatment.
-export function UploadQueuePanel() {
+// The in-drawer uploads list (feedback 2026-06-30): sits under the upload field in
+// the Upload drawer, listing the session's uploads newest-first in a scrollable
+// list, each with a progress bar + status chip. Reads the SESSION-scoped queue
+// (UploadQueueProvider at the app shell), so it shows every upload of the session
+// and survives the drawer closing / connection switches. Renders nothing when the
+// queue is empty.
+export function UploadList() {
   const {items, clearFinished} = useUploadQueue();
   if (items.length === 0) return null;
 
   const finishedCount = items.filter((i) => TERMINAL_STATUSES.has(i.status)).length;
   const activeCount = items.length - finishedCount;
+  // Newest-first: the reducer appends, so reverse a shallow copy to show the most
+  // recent upload at the top.
+  const newestFirst = [...items].reverse();
 
   return (
     <section
-      aria-label="Upload queue"
-      className="fixed bottom-4 right-4 z-30 flex max-h-[70vh] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg">
+      aria-label="Uploads"
+      className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-3">Uploads</h2>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">Uploads</h3>
         <span
           className="text-sm text-text-2"
           aria-live="polite">
@@ -181,15 +199,15 @@ export function UploadQueuePanel() {
             type="button"
             className="rounded-md px-2 py-1 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={clearFinished}
-            aria-label="Clear finished uploads from the queue">
+            aria-label="Clear finished uploads from the list">
             Clear finished
           </button>
         )}
       </header>
 
-      <ul className="flex-1 divide-y divide-border-2 overflow-y-auto">
-        {items.map((item) => (
-          <QueueCard
+      <ul className="min-h-0 flex-1 divide-y divide-border-2 overflow-y-auto">
+        {newestFirst.map((item) => (
+          <UploadRow
             key={item.id}
             item={item}
           />

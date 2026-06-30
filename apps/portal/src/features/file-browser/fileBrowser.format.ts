@@ -1,6 +1,6 @@
 // Shared file-browser display formatters (SPEC: react-best-practices abstraction
 // pass). Single source of truth — previously copied byte-for-byte across
-// FileBrowser, MetadataPanel, and UploadQueuePanel.
+// FileBrowser, MetadataPanel, and UploadList.
 
 // Human-readable size, e.g. 1234 → "1.2 KB". Caps at GB. (The query feature has a
 // separate `formatBytes` with different rules — undefined handling, TB, variable

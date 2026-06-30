@@ -6,10 +6,11 @@ import type {Connection} from '../features/query/query.types';
 // Capture the props FileBrowser is rendered with so we can assert the target space.
 const fileBrowserProps = vi.fn();
 vi.mock('../features/file-browser', async () => {
-  // Exercise the real useFileSpace (light deps) while stubbing the heavy browser.
-  const {useFileSpace} = await vi.importActual<typeof import('../features/file-browser/useFileSpace')>(
-    '../features/file-browser/useFileSpace'
-  );
+  // Exercise the real useFileSpace + usableSpaceTargets (light deps) while stubbing
+  // the heavy browser.
+  const {useFileSpace, usableSpaceTargets} = await vi.importActual<
+    typeof import('../features/file-browser/useFileSpace')
+  >('../features/file-browser/useFileSpace');
   return {
     FileBrowser: (props: Record<string, unknown>) => {
       fileBrowserProps(props);
@@ -17,7 +18,8 @@ vi.mock('../features/file-browser', async () => {
     },
     ensurePrefixMarker: vi.fn().mockResolvedValue({success: true}),
     prefixMarkerKey: (u: string) => `${u}/DO_NOT_DELETE.txt`,
-    useFileSpace
+    useFileSpace,
+    usableSpaceTargets
   };
 });
 vi.mock('../features/auth', () => ({

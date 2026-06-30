@@ -473,15 +473,20 @@ export async function copyObject(params: {
 // only after the copy succeeds — a failed copy leaves the source intact. A
 // `sourceKey === destKey` request is a no-op success (rename to the same name).
 export async function moveObject(params: {
-  bucket: string;
+  bucket: string; // source bucket
   sourceKey: string;
   destKey: string;
   username: string;
+  destBucket?: string; // defaults to `bucket` (same-bucket move); set to move to
+  //                      another connection's bucket (feedback 2026-06-30)
   overwrite?: boolean;
 }): Promise<ServiceResult<{destKey: string}>> {
   const {bucket, sourceKey, destKey, username, overwrite} = params;
+  const destBucket = params.destBucket ?? bucket;
 
-  if (sourceKey === destKey) {
+  // Same bucket + same key is a no-op success (rename to the same name). Across
+  // buckets the same key string is a distinct object, so the move still runs.
+  if (bucket === destBucket && sourceKey === destKey) {
     return {success: true, data: {destKey}};
   }
 
@@ -490,10 +495,12 @@ export async function moveObject(params: {
     sourceKey,
     destKey,
     username,
+    destBucket,
     overwrite
   });
   if (!copied.success) return copied;
 
+  // Delete the source only after the copy lands — the source is in `bucket`.
   const deleted = await deleteObject({bucket, key: sourceKey, username});
   if (!deleted.success) return deleted;
 
@@ -515,16 +522,20 @@ export async function moveFolder(params: {
   sourcePrefix: string;
   destPrefix: string;
   username: string;
+  destBucket?: string; // defaults to `bucket`; set to move into another connection
   overwrite?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<MoveResult>> {
   const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
+  const destBucket = params.destBucket ?? bucket;
+  const sameBucket = destBucket === bucket;
 
-  if (sourcePrefix === destPrefix) {
+  // The no-op and into-itself guards only apply within a single bucket — across
+  // buckets the same prefix string is a different location entirely.
+  if (sameBucket && sourcePrefix === destPrefix) {
     return {success: true, data: {moved: [], errors: []}};
   }
-  // Moving a folder inside its own subtree would copy keys into themselves.
-  if (destPrefix.startsWith(sourcePrefix)) {
+  if (sameBucket && destPrefix.startsWith(sourcePrefix)) {
     return {
       success: false,
       error: {
@@ -544,9 +555,10 @@ export async function moveFolder(params: {
 
   const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
 
-  // Pre-flight collision check (FR-005): count destinations that already exist.
+  // Pre-flight collision check (FR-005): count destinations that already exist in
+  // the destination bucket.
   if (!overwrite) {
-    const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, destPrefix));
+    const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, destBucket, destPrefix));
     if (!existing.success) return existing;
     const existingSet = new Set(existing.data);
     const collisions = sourceKeys.map(destKeyFor).filter((k) => existingSet.has(k)).length;
@@ -574,6 +586,7 @@ export async function moveFolder(params: {
       sourceKey,
       destKey: destKeyFor(sourceKey),
       username,
+      destBucket,
       overwrite: true
     });
     if (result.success) {
@@ -606,16 +619,19 @@ export async function copyFolder(params: {
   sourcePrefix: string;
   destPrefix: string;
   username: string;
+  destBucket?: string; // defaults to `bucket`; set to copy into another connection
   overwrite?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<CopyResult>> {
   const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
+  const destBucket = params.destBucket ?? bucket;
+  const sameBucket = destBucket === bucket;
 
-  if (sourcePrefix === destPrefix) {
+  // The no-op and into-itself guards only apply within a single bucket.
+  if (sameBucket && sourcePrefix === destPrefix) {
     return {success: true, data: {copied: [], errors: []}};
   }
-  // Copying a folder inside its own subtree would copy keys into themselves.
-  if (destPrefix.startsWith(sourcePrefix)) {
+  if (sameBucket && destPrefix.startsWith(sourcePrefix)) {
     return {
       success: false,
       error: {
@@ -635,9 +651,10 @@ export async function copyFolder(params: {
 
   const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
 
-  // Pre-flight collision check (FR-005): count destinations that already exist.
+  // Pre-flight collision check (FR-005): count destinations that already exist in
+  // the destination bucket.
   if (!overwrite) {
-    const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, destPrefix));
+    const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, destBucket, destPrefix));
     if (!existing.success) return existing;
     const existingSet = new Set(existing.data);
     const collisions = sourceKeys.map(destKeyFor).filter((k) => existingSet.has(k)).length;
@@ -665,6 +682,7 @@ export async function copyFolder(params: {
       sourceKey,
       destKey: destKeyFor(sourceKey),
       username,
+      destBucket,
       overwrite: true
     });
     if (result.success) {
