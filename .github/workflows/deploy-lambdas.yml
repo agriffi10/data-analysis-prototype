@@ -82,8 +82,74 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── polars layer (SPEC-066) ────────────────────────────────────────────────
+  # Publishes the `table-builder-polars` layer = polars (Rust-native Parquet/CSV/JSON
+  # readers, no pyarrow), attached ONLY to the table-builder infer-schema function
+  # (SPEC-069). Built the same way as the shared-space-common layer (the heavy artifact
+  # can't be vendored into Terraform), pinned via lambdas/table-builder-infer-schema/
+  # requirements.txt, with the unzipped size measured + capped well under Lambda's
+  # 250 MB limit (SPEC-066 FR-003).
+  polars_layer:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build polars layer package
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/polars-layer/python"
+          rm -rf build/polars-layer && mkdir -p "$LAYER_DIR"
+          # Plain pip install on the linux x86_64 / python3.12 runner pulls the
+          # manylinux polars wheel, ABI-compatible with the python3.12 Lambda runtime
+          # (Amazon Linux 2023) — the same proven approach as the shared-space-common
+          # layer job above. (polars ships no pyarrow dep, so the layer stays small.)
+          pip install --quiet \
+            --requirement lambdas/table-builder-infer-schema/requirements.txt \
+            --target "$LAYER_DIR"
+          UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
+          echo "table-builder-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
+          # Lambda's hard limit is 250 MB unzipped (layers + function); fail early with
+          # headroom (240 MB) if a future polars bump blows past it (SPEC-066 FR-003).
+          if [ "$UNZIPPED_KB" -gt 245760 ]; then
+            echo "::error::table-builder-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
+            exit 1
+          fi
+          (cd build/polars-layer && zip --quiet --recurse-paths ../table-builder-polars-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-builder-polars"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "polars (Parquet/CSV/JSON readers) for the table-builder infer-schema verb (SPEC-066/069)." \
+            --zip-file "fileb://build/table-builder-polars-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   deploy:
-    needs: layer
+    needs: [layer, polars_layer]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -93,18 +159,26 @@ jobs:
       matrix:
         # One entry per function. `name` is both the lambdas/ subdir and the
         # function-name suffix ({project}-{env}-{name}). `layer: true` functions
-        # (SPEC-062) get deps + shared code from the common layer instead of
-        # bundling the shared requirements, and attach the layer after deploy.
+        # (SPEC-062) get deps + shared code from the shared-space-common layer instead
+        # of bundling the shared requirements, and attach it after deploy. `polars: true`
+        # functions (SPEC-066) attach the table-builder-polars layer after deploy.
         lambda:
-          - { name: pre-signup, layer: false }
-          - { name: post-confirmation, layer: false }
-          - { name: notifications-writer, layer: false }
-          - { name: shared-space-validate, layer: true }
-          - { name: shared-space-create, layer: true }
-          - { name: shared-space-add-members, layer: true }
-          - { name: shared-space-remove-members, layer: true }
-          - { name: shared-space-leave, layer: true }
-          - { name: shared-space-delete, layer: true }
+          - { name: pre-signup, layer: false, polars: false }
+          - { name: post-confirmation, layer: false, polars: false }
+          - { name: notifications-writer, layer: false, polars: false }
+          - { name: shared-space-validate, layer: true, polars: false }
+          - { name: shared-space-create, layer: true, polars: false }
+          - { name: shared-space-add-members, layer: true, polars: false }
+          - { name: shared-space-remove-members, layer: true, polars: false }
+          - { name: shared-space-leave, layer: true, polars: false }
+          - { name: shared-space-delete, layer: true, polars: false }
+          # Table-builder verb stubs (SPEC-066). infer-schema attaches the polars layer;
+          # the rest carry no layer. Code lands in SPEC-067→070.
+          - { name: table-builder-validate-authorize, layer: false, polars: false }
+          - { name: table-builder-check-table-absent, layer: false, polars: false }
+          - { name: table-builder-inspect-source, layer: false, polars: false }
+          - { name: table-builder-infer-schema, layer: false, polars: true }
+          - { name: table-builder-execute-ddl, layer: false, polars: false }
 
     steps:
       - name: Checkout
@@ -176,5 +250,13 @@ jobs:
             aws lambda update-function-configuration \
               --function-name "$FUNCTION" \
               --layers "${{ needs.layer.outputs.layer_arn }}"
+            aws lambda wait function-updated --function-name "$FUNCTION"
+          fi
+
+          # Attach the polars layer for the table-builder infer-schema function (SPEC-066).
+          if [ "${{ matrix.lambda.polars }}" = "true" ]; then
+            aws lambda update-function-configuration \
+              --function-name "$FUNCTION" \
+              --layers "${{ needs.polars_layer.outputs.layer_arn }}"
             aws lambda wait function-updated --function-name "$FUNCTION"
           fi

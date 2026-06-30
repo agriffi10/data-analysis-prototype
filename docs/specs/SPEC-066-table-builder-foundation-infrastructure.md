@@ -46,9 +46,10 @@ a table.
   single shared "god" role (`lambdas.md` §7). Trust = `lambda.amazonaws.com`; the SFN execution role may invoke
   the five functions.
 - **polars Lambda layer** — a published Lambda layer containing **polars** (Python 3.12, native readers — **no
-  pyarrow**), built reproducibly and owned by Terraform (`aws_lambda_layer_version`); attached to the
-  `infer-schema` function. The layer build is added to the Lambda packaging/deploy flow (a layer build step in
-  `deploy-lambdas.yml` or an equivalent documented build), pinned + minimal (`lambdas.md` §12).
+  pyarrow**), built reproducibly and **published by CI** (`deploy-lambdas.yml` `polars_layer` job; **not** a TF
+  `aws_lambda_layer_version` — the artifact is too large to vendor, so it follows the `shared-space-common`
+  CI-owned-layer pattern); attached to the `infer-schema` function via `update-function-configuration`
+  (TF `ignore_changes=[layers]`), pinned + minimal (`lambdas.md` §12).
 - **CloudWatch log groups** (14-day retention, as SPEC-012/033) for each Lambda and the state machine.
 - **New bounded-context module** `infra/modules/table-builder/`, **standalone-deployable** like
   `module.analytics`/`module.shared-spaces` (cross-module ARNs as `compact()`-safe constructed-string locals —
@@ -106,9 +107,14 @@ a table.
 #### Acceptance Criteria:
 
 - [ ] A Lambda **layer** containing **polars** (Python 3.12, native readers, **no pyarrow**) is built reproducibly
-  and owned by Terraform (`aws_lambda_layer_version`), with a pinned version (`requirements`/lockfile) and minimal
-  contents (`lambdas.md` §12); the layer is **built in CI** (`deploy-lambdas.yml`) on the Lambda Python-3.12
-  runtime image for ABI compatibility (not a hand-vendored artifact).
+  with a pinned version (`requirements`) and minimal contents (`lambdas.md` §12); the layer is **built + published
+  in CI** (`deploy-lambdas.yml`) with linux/cp312 manylinux wheels for ABI compatibility (not a hand-vendored
+  artifact). **Decided (SPEC-066, 2026-06-30):** the layer is **CI-owned, not a Terraform `aws_lambda_layer_version`
+  resource** — mirroring `shared-space-common`. The 100 MB+ polars artifact can't be vendored into the repo for a
+  TF-built zip, and the repo's code/infra split has **CI own code + layers** while TF owns function infra +
+  `ignore_changes=[layers]`. The function attaches the published version via `update-function-configuration`;
+  Terraform constructs only the layer **name** (a module local/output), consistent with architecture.md §4's
+  "consistent with the repo's existing packaging."
 - [ ] The layer is attached **only** to the `infer-schema` function; the other four functions do not carry it
   (lean cold starts).
 - [ ] The packaged layer is within the Lambda **250 MB unzipped** limit together with the function code (verified
@@ -161,7 +167,7 @@ variable "dlq_max_receive_count"   { default = 3 }
 output "table_build_queue_url"  { value = aws_sqs_queue.requests.url }   # → VITE_TABLE_BUILD_QUEUE_URL (SPEC-067); ends in .fifo
 output "table_build_queue_arn"  { value = aws_sqs_queue.requests.arn }   # → portal-role SendMessage (SPEC-067)
 output "state_machine_arn"      { value = aws_sfn_state_machine.table_builder.arn }
-output "polars_layer_arn"       { value = aws_lambda_layer_version.polars.arn }
+output "polars_layer_name"      { value = local.polars_layer_name }   # CI publishes the version ARN (not a TF resource)
 # + the five Lambda function names/ARNs for the deploy matrix
 ```
 
@@ -175,14 +181,15 @@ No new `VITE_*` here — the queue URL is **exported** and consumed (`VITE_TABLE
 infra/modules/table-builder/
 ├── sqs.tf                # FIFO request queue (.fifo) + FIFO DLQ (+ redrive)
 ├── pipe.tf               # EventBridge Pipe (SQS → Step Function) + pipe role
-├── stepfunction.tf       # state-machine skeleton (5 Tasks in sequence + Retry/Catch + terminal states) + SFN role + log group
+├── stepfunction.tf       # linear state-machine (5 Tasks in sequence + Retry/Catch + terminal states) + SFN role + log group
 ├── state-machine.asl.json.tftpl
-├── lambda.tf             # 5 function infra stubs (placeholder + ignore_changes) + log groups + polars layer attach
-├── layer.tf              # aws_lambda_layer_version.polars (built artifact)
-├── iam.tf                # per-verb role wiring
-├── policies/             # .tftpl: one permission policy per verb role + pipe role + sfn execution role
+├── lambda.tf             # 5 function infra stubs (placeholder + ignore_changes=[…,layers]) + log groups
+├── iam.tf                # per-verb roles + sfn role + pipe role wiring
+├── locals.tf             # constructed names + ARNs (incl. polars layer NAME; CI publishes the version)
+├── policies/             # .tftpl: one permission policy per verb role + pipe role + sfn role + trust policies
 ├── variables.tf          # names + cross-module ARNs (constructed-string locals)
-└── outputs.tf            # queue URL/ARN, state-machine ARN, polars layer ARN, function names
+└── outputs.tf            # queue URL/ARN, state-machine ARN, polars layer name, function names
+# NOTE: no layer.tf — the polars layer is CI-built/published (deploy-lambdas.yml), not a TF aws_lambda_layer_version.
 
 lambdas/table-builder-validate-authorize/validate_authorize.py   # stub (SPEC-067)
 lambdas/table-builder-check-table-absent/check_table_absent.py   # stub (SPEC-068)

@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SampleObjectRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}:*"
+    }
+  ]
+}

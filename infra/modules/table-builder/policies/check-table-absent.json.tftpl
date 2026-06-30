@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GlueReadCatalog",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetTable",
+        "glue:GetDatabase"
+      ],
+      "Resource": [
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+        "arn:aws:glue:${aws_region}:${account_id}:database/*",
+        "arn:aws:glue:${aws_region}:${account_id}:table/*/*"
+      ]
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}:*"
+    }
+  ]
+}
