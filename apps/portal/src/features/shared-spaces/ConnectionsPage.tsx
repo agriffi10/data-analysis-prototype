@@ -1,6 +1,7 @@
 import {useMemo, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
+import {PageLayout} from '../../components/PageLayout';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {Toast, type ToastState} from '../query/Toast';
@@ -171,31 +172,26 @@ export function ConnectionsPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-auto">
-      {/* Full-width page header with a bottom border (design `.page-head`). */}
-      <div className="flex items-center gap-4 border-b border-border px-6 py-5">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold text-text">Shared connections</h1>
-          <p className="mt-0.5 text-sm text-text-2">
-            Spaces you own or belong to. Files, tables, and the database are shared by all members.
-          </p>
-        </div>
-        <div className="flex flex-none items-center gap-2">
-          <RefreshConnectionsButton
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-          />
-          <Button
-            variant="primary"
-            onClick={() => setDialogOpen(true)}>
-            New shared connection
-          </Button>
-        </div>
-      </div>
-
+    <>
       {/* Content is left-aligned (no mx-auto) and capped at the design's 920px so
           the cards don't stretch across very wide viewports. */}
-      <div className="flex max-w-[920px] flex-col gap-3 px-6 py-6">
+      <PageLayout
+        title="Shared connections"
+        subtitle="Spaces you own or belong to. Files, tables, and the database are shared by all members."
+        contentClassName="max-w-[920px] gap-3"
+        actions={
+          <>
+            <RefreshConnectionsButton
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+            />
+            <Button
+              variant="primary"
+              onClick={() => setDialogOpen(true)}>
+              New shared connection
+            </Button>
+          </>
+        }>
         {error && <Banner variant="danger">Couldn&apos;t load your shared connections: {error}</Banner>}
 
         {isLoading ? (
@@ -223,7 +219,7 @@ export function ConnectionsPage() {
             ))}
           </ul>
         )}
-      </div>
+      </PageLayout>
 
       {dialogOpen && (
         <CreateSharedConnectionDialog
@@ -267,7 +263,7 @@ export function ConnectionsPage() {
           onDismiss={() => setToast(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 

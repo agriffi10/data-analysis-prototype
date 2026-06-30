@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';
 import {IconButton} from '../../components/IconButton';
+import {PageLayout} from '../../components/PageLayout';
 import {Pager} from '../../components/Pager';
 import {cx} from '../../lib/cx';
 import {usePageTitle} from '../../hooks/usePageTitle';
@@ -11,6 +12,8 @@ import {useNotifications} from './useNotifications';
 import {NotificationRow} from './NotificationRow';
 
 const PAGE_SIZE = 10; // FR-004 (mirrors the history pager constant, sized to 10)
+
+type Filter = 'all' | 'unread';
 
 // SPEC-060 FR-002/004/005/006: the routed notifications page. Owns the SPEC-059
 // `useNotifications` hook and renders the newest-first list with 10/page Prev/Next,
@@ -33,20 +36,30 @@ export function NotificationsPage() {
 
   usePageTitle(unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications');
 
+  // All / Unread segmented filter. The list (and pager) operate on the visible
+  // subset; switching the filter resets to the first page.
+  const [filter, setFilter] = useState<Filter>('all');
+  const visible = filter === 'unread' ? notifications.filter((n) => !n.read) : notifications;
+
   // Client-side Prev/Next pager over the in-memory newest-first list (SPEC-042
   // pattern). Clamp so a shrunk/condensed list never strands on a blank page, and
   // snap to the newest page when new notifications arrive (the list grows).
   const [pageIndex, setPageIndex] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(notifications.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const start = safeIndex * PAGE_SIZE;
-  const pageItems = notifications.slice(start, start + PAGE_SIZE);
+  const pageItems = visible.slice(start, start + PAGE_SIZE);
 
   const [prevLen, setPrevLen] = useState(notifications.length);
   if (notifications.length !== prevLen) {
     setPrevLen(notifications.length);
     if (notifications.length > prevLen) setPageIndex(0);
   }
+
+  const applyFilter = (next: Filter) => {
+    setFilter(next);
+    setPageIndex(0);
+  };
 
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = async () => {
@@ -57,16 +70,16 @@ export function NotificationsPage() {
   };
 
   return (
-    <main
-      id="main"
-      className="flex-1 overflow-auto px-6 py-6">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold text-text">Notifications</h1>
-            <p className="mt-1 text-sm text-text-2">Updates about your shared spaces and activity.</p>
-          </div>
-          <div className="flex flex-none items-center gap-2">
+    <>
+      <PageLayout
+        title="Notifications"
+        contentClassName="max-w-[760px] gap-2"
+        actions={
+          <>
+            <FilterTabs
+              filter={filter}
+              onChange={applyFilter}
+            />
             <IconButton
               label="Refresh notifications"
               size="sm"
@@ -92,16 +105,15 @@ export function NotificationsPage() {
               onClick={() => markAllRead()}>
               Mark all read
             </Button>
-          </div>
-        </div>
-
+          </>
+        }>
         {/* A read/refresh error is shown above the list and never clears it, so a
             failed Refresh is non-destructive (FR-006). */}
         {isError && (
           <Banner
             variant="danger"
             title="Couldn’t load notifications."
-            className="mb-4">
+            className="mb-2">
             <button
               type="button"
               onClick={() => void handleRefresh()}
@@ -117,16 +129,20 @@ export function NotificationsPage() {
             className="px-1 py-10 text-center text-sm text-text-3">
             Loading notifications…
           </p>
-        ) : notifications.length === 0 ? (
+        ) : visible.length === 0 ? (
           isError ? null : (
             <div className="rounded-lg border border-dashed border-border bg-surface-2 px-5 py-12 text-center">
               <p className="text-sm font-medium text-text">You’re all caught up</p>
-              <p className="mt-1 text-sm text-text-3">New notifications about your shared spaces will appear here.</p>
+              <p className="mt-1 text-sm text-text-3">
+                {filter === 'unread'
+                  ? 'No unread notifications.'
+                  : 'New notifications about your shared spaces will appear here.'}
+              </p>
             </div>
           )
         ) : (
           <>
-            <ul className="rounded-lg border border-border bg-surface px-4">
+            <ul className="flex flex-col gap-2">
               {pageItems.map((notification) => (
                 <NotificationRow
                   key={notification.id}
@@ -136,21 +152,21 @@ export function NotificationsPage() {
               ))}
             </ul>
             <Pager
-              className="mt-4"
+              className="mt-2"
               hasPrev={safeIndex > 0}
               hasNext={safeIndex < pageCount - 1}
               onPrev={() => setPageIndex(Math.max(0, safeIndex - 1))}
               onNext={() => setPageIndex(Math.min(pageCount - 1, safeIndex + 1))}
               label={
                 <>
-                  {start + 1}–{start + pageItems.length} of {notifications.length}
+                  {start + 1}–{start + pageItems.length} of {visible.length}
                   <span className="sr-only"> (page {safeIndex + 1})</span>
                 </>
               }
             />
           </>
         )}
-      </div>
+      </PageLayout>
 
       {toast && (
         <Toast
@@ -159,6 +175,35 @@ export function NotificationsPage() {
           onDismiss={() => setToast(null)}
         />
       )}
-    </main>
+    </>
+  );
+}
+
+// All / Unread segmented control (design `.seg`). Two mutually-exclusive toggle
+// buttons in a labeled group; the active one carries `aria-pressed` so the choice
+// is exposed to assistive tech (it's never conveyed by styling alone).
+function FilterTabs({filter, onChange}: {filter: Filter; onChange: (next: Filter) => void}) {
+  return (
+    <div
+      role="group"
+      aria-label="Filter notifications"
+      className="inline-flex gap-0.5 rounded-md border border-border bg-surface-2 p-0.5">
+      {(['all', 'unread'] as const).map((value) => {
+        const active = filter === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(value)}
+            className={cx(
+              'h-7 rounded-sm px-3 text-sm font-medium capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              active ? 'bg-surface font-semibold text-accent-text shadow-sm' : 'text-text-2 hover:text-text'
+            )}>
+            {value}
+          </button>
+        );
+      })}
+    </div>
   );
 }
