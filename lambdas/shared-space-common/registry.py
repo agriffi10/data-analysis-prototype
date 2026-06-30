@@ -119,6 +119,9 @@ def save_members(registry, members, request_id):
     record["members"] = members
     record["status"] = "active"
     record["lastRequestId"] = request_id
+    # Heal a record written before createdAt was stamped (older spaces) so the
+    # Connections card's "created <date>" line isn't permanently blank.
+    record.setdefault("createdAt", now_iso())
     record["updatedAt"] = now_iso()
     clients.s3().put_object(
         Bucket=config.ADMIN_BUCKET,

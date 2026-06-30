@@ -91,11 +91,22 @@ def test_save_members_and_set_status_and_delete():
     s3, *_ = install()
     base = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active", "createdAt": "t0"}
     reg.save_members(base, ["alice", "bob"], "req-2")
-    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == ["alice", "bob"]
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["members"] == ["alice", "bob"]
+    assert rec["createdAt"] == "t0"  # preserved when present
     reg.set_status(base, "deleting", "req-3")
     assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["status"] == "deleting"
     reg.delete("sales")
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
+
+def test_save_members_heals_missing_created_at():
+    s3, *_ = install()
+    # An older record written before createdAt was stamped (e.g. testing_connection).
+    base = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active"}
+    reg.save_members(base, ["alice", "bob"], "req-2")
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["createdAt"]  # healed, no longer blank
 
 
 # ── membership slots (SPEC-056) ──────────────────────────────────────────────

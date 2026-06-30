@@ -76,6 +76,23 @@ def test_create_slot_full_fails_and_records_failure():
     assert glue.created == []
 
 
+def test_create_failure_after_slot_rolls_back_slot():
+    install()
+    import clients
+
+    # The slot is assigned, then a later provisioning step fails: the except path must
+    # clear the slot so a failed create doesn't leak one toward the membership cap.
+    def boom(*a, **k):
+        raise RuntimeError("grant failed")
+
+    clients._lf.grant_permissions = boom
+    raises(lambda: c.create_space("sales", "alice", "req-1"), RuntimeError, "grant failed")
+    # Slot 1 was assigned to "sales", then rolled back to empty.
+    assert clients._cognito.attrs.get("custom:shared_space_1", "") == ""
+    rec = json.loads(clients._s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["status"] == "failed"
+
+
 def test_create_slot_assignment_is_replay_safe():
     install(cognito_attrs={"custom:shared_space_2": "sales"})
     import clients
