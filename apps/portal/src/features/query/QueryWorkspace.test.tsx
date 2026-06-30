@@ -213,7 +213,8 @@ beforeEach(() => {
     isLoading: false,
     error: null,
     refresh: vi.fn(),
-    isRefreshing: false
+    isRefreshing: false,
+    reconcile: vi.fn()
   });
   // Default: no execution in flight, no results.
   mockUseExecution.mockReturnValue({data: undefined} as unknown as ReturnType<typeof useQueryExecution>);
@@ -794,7 +795,8 @@ describe('QueryWorkspace', () => {
       isLoading: false,
       error: null,
       refresh: vi.fn(),
-      isRefreshing: false
+      isRefreshing: false,
+      reconcile: vi.fn()
     });
     mockRunQuery.mockResolvedValue({
       success: true,
@@ -1013,7 +1015,8 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
       isLoading: false,
       error: null,
       refresh: vi.fn(),
-      isRefreshing: false
+      isRefreshing: false,
+      reconcile: vi.fn()
     });
     // Make the shared DB the workspace-global active target.
     sessionStorage.setItem(`${QUERY_ACTIVE_DB_STORAGE_PREFIX}alice`, 'salesdata');

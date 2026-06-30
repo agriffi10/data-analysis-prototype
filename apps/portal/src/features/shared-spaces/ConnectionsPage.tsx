@@ -39,7 +39,7 @@ export function ConnectionsPage() {
   const {user} = useAuth();
   const username = user?.username ?? null;
 
-  const {connections, isLoading, error, refresh, isRefreshing} = useConnections(username);
+  const {connections, isLoading, error, refresh, isRefreshing, reconcile} = useConnections(username);
   const {create, busy, pending} = useCreateSharedConnection(username);
   const {addMembers, removeMembers, busy: membersBusy} = useManageMembers(username);
   const {leave, remove, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
@@ -75,14 +75,18 @@ export function ConnectionsPage() {
     const fromPending: ConnectionRow[] = pending
       .filter((p) => !cacheNames.has(p.name))
       .map((p) => ({name: p.name, role: p.role, status: p.status}));
-    return [...fromCache, ...fromPending]
-      .filter((r) => !dismissed.has(r.name))
-      .map((r) => (retrying.has(r.name) ? {...r, status: 'provisioning' as const} : r))
-      .map((r) => {
-        const t = transitioning.get(r.name);
-        return t ? {...r, status: t} : r;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return (
+      [...fromCache, ...fromPending]
+        .filter((r) => !dismissed.has(r.name))
+        // A retried entry shows provisioning until the cache reconciles it to active
+        // (then the override is inert, so the auto-poll resolves it without a Refresh).
+        .map((r) => (retrying.has(r.name) && r.status !== 'active' ? {...r, status: 'provisioning' as const} : r))
+        .map((r) => {
+          const t = transitioning.get(r.name);
+          return t ? {...r, status: t} : r;
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
   }, [connections, pending, dismissed, retrying, transitioning]);
 
   const handleRefresh = () => {
@@ -100,6 +104,7 @@ export function ConnectionsPage() {
     const result = await create(name);
     if (result.success) {
       setToast({variant: 'success', message: `Creating “${name}”…`});
+      void reconcile(); // auto-poll until the pipeline writes the cache
     } else {
       setToast({variant: 'danger', message: result.error.message});
     }
@@ -111,8 +116,9 @@ export function ConnectionsPage() {
       const n = toAdd.length;
       setToast({
         variant: 'success',
-        message: `Adding ${n} member${n === 1 ? '' : 's'} to “${space}”… Refresh to see updates.`
+        message: `Adding ${n} member${n === 1 ? '' : 's'} to “${space}”…`
       });
+      void reconcile();
     } else {
       setToast({variant: 'danger', message: result.error.message});
     }
@@ -123,8 +129,9 @@ export function ConnectionsPage() {
     if (result.success) {
       setToast({
         variant: 'success',
-        message: `Removing ${toRemove.join(', ')} from “${space}”… Refresh to see updates.`
+        message: `Removing ${toRemove.join(', ')} from “${space}”…`
       });
+      void reconcile();
     } else {
       setToast({variant: 'danger', message: result.error.message});
     }
@@ -135,7 +142,8 @@ export function ConnectionsPage() {
     setLeaving(null);
     if (result.success) {
       setTransitioning((prev) => new Map(prev).set(space, 'leaving'));
-      setToast({variant: 'success', message: `Leaving “${space}”… Refresh to update.`});
+      setToast({variant: 'success', message: `Leaving “${space}”…`});
+      void reconcile();
     } else {
       setToast({variant: 'danger', message: result.error.message});
     }
@@ -146,7 +154,8 @@ export function ConnectionsPage() {
     setDeleting(null);
     if (result.success) {
       setTransitioning((prev) => new Map(prev).set(space, 'deleting'));
-      setToast({variant: 'success', message: `Deleting “${space}”… Refresh to update.`});
+      setToast({variant: 'success', message: `Deleting “${space}”…`});
+      void reconcile();
     } else {
       setToast({variant: 'danger', message: result.error.message});
     }
@@ -161,6 +170,7 @@ export function ConnectionsPage() {
     const result = await create(name);
     if (result.success) {
       setToast({variant: 'success', message: `Retrying “${name}”…`});
+      void reconcile();
     } else {
       setRetrying((prev) => {
         const next = new Set(prev);

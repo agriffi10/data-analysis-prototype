@@ -27,7 +27,8 @@ import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
 import {SelectionProvider} from './SelectionProvider';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
-import type {FileSpaceTarget} from './useFileSpace';
+import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
+import {getSessionCredentials} from '../../lib/awsCredentials';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
@@ -61,6 +62,9 @@ type Props = {
   // shared space (SPEC-057). Present only in the authenticated flow.
   destinations?: FileSpaceTarget[]; // connections move/copy can target (feedback
   // 2026-06-30): personal + active shared spaces. Omitted in the dev-unauth path.
+  spaceKind?: FileSpaceKind; // 'shared' enables the "just added → refresh access"
+  // affordance when a listing is denied because the membership tag hasn't propagated
+  // to this session's token yet (shared-spaces architecture §3).
 };
 
 type BreadcrumbItem = {
@@ -409,6 +413,7 @@ function FileBrowserContent({
   writable = false,
   username,
   destinations,
+  spaceKind,
   prefix,
   setPrefix
 }: ContentProps) {
@@ -417,10 +422,26 @@ function FileBrowserContent({
     folders: allFolders,
     isLoading,
     error,
+    refresh: refreshListing,
     hasMore,
     loadMore,
     isLoadingMore
   } = useFileBrowser(bucket, prefix, markerKey);
+
+  // A shared space the user was just added to can list-deny until their session's
+  // token is re-minted with the new membership-slot tag (architecture §3). Detect
+  // that case so we can offer a one-click "refresh access" instead of a dead error.
+  const isAccessDenied = !!error && /not authorized|access denied|listbucket/i.test(error);
+  const justAddedToShared = spaceKind === 'shared' && isAccessDenied;
+  const [refreshingAccess, setRefreshingAccess] = useState(false);
+  const refreshAccess = async () => {
+    setRefreshingAccess(true);
+    // Re-mint the ID token so the Identity Pool stamps the new shared_space_k tag,
+    // then re-list. A failed re-mint just leaves the error in place.
+    await getSessionCredentials(true);
+    refreshListing();
+    setRefreshingAccess(false);
+  };
 
   // Hide app-managed root folders (e.g. user_settings/) from the listing so they
   // never surface to users; everything downstream uses the filtered list.
@@ -823,8 +844,28 @@ function FileBrowserContent({
         <div
           role="alert"
           className="rounded-lg border border-danger-soft bg-danger-soft p-4 text-danger">
-          <p className="font-medium">Failed to load files</p>
-          <p className="mt-1 text-sm">{error}</p>
+          {justAddedToShared ? (
+            <>
+              <p className="font-medium">Applying your access…</p>
+              <p className="mt-1 text-sm">
+                You were just added to this space. Access applies once your session refreshes — this can take a moment
+                after being added.
+              </p>
+              <Button
+                variant="default"
+                size="sm"
+                className="mt-3"
+                onClick={() => void refreshAccess()}
+                disabled={refreshingAccess}>
+                {refreshingAccess ? 'Refreshing…' : 'Refresh access'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="font-medium">Failed to load files</p>
+              <p className="mt-1 text-sm">{error}</p>
+            </>
+          )}
         </div>
       )}
 
@@ -1023,7 +1064,8 @@ export function FileBrowser({
   markerKey,
   writable = false,
   username,
-  destinations
+  destinations,
+  spaceKind
 }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
@@ -1041,6 +1083,7 @@ export function FileBrowser({
         writable={writable}
         username={username}
         destinations={destinations}
+        spaceKind={spaceKind}
         prefix={prefix}
         setPrefix={setPrefix}
       />
