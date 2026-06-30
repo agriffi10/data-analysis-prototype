@@ -30,11 +30,19 @@ def test_create_happy_path_provisions_everything():
     assert cognito.attrs["custom:shared_space_1"] == "sales"
     rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert rec["status"] == "active" and rec["owner"] == "alice"
+    # finalize() preserves the createdAt stamped by reserve (full rewrite would drop it).
+    assert rec["createdAt"]
     assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
     cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert cache["connections"] == [
-        {"name": "sales", "role": "owner", "status": "active", "members": ["alice"]}
-    ]
+    entry = cache["connections"][0]
+    assert {k: entry[k] for k in ("name", "role", "status", "members")} == {
+        "name": "sales",
+        "role": "owner",
+        "status": "active",
+        "members": ["alice"],
+    }
+    # createdAt is carried from the registry (a real timestamp) — just assert it's there.
+    assert entry["createdAt"]
 
 
 def test_create_name_collision_fails():

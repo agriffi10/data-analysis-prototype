@@ -22,6 +22,7 @@ logger.setLevel(logging.INFO)
 
 def add_members(space, members, request_id, registry):
     owner = registry["owner"]
+    created_at = registry.get("createdAt")
     current = list(registry.get("members", []))
     current_set = set(current)
     summary = {"added": [], "ignoredUnknown": [], "skippedAtLimit": []}
@@ -52,7 +53,7 @@ def add_members(space, members, request_id, registry):
                 (owner, f'Couldn\'t add "{member}" to "{space}": they\'ve reached their workspace limit.', f"add-limit:{member}")
             )
             continue
-        cache.upsert_entry(member, {"name": space, "role": "member", "status": "active"})
+        cache.write_member_entry(member, space, owner, created_at)
         current.append(member)
         current_set.add(member)
         summary["added"].append(member)
@@ -62,7 +63,7 @@ def add_members(space, members, request_id, registry):
         )
 
     reg.save_members(registry, current, request_id)
-    cache.write_owner_projection(owner, space, current)
+    cache.write_owner_projection(owner, space, current, created_at)
     for recipient, message, tag in pending_notifications:
         emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
     logger.info("add_members %s: %s", space, summary)

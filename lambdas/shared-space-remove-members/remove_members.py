@@ -32,7 +32,7 @@ def remove_members(space, members, request_id, registry):
         removed.append(member)
 
     reg.save_members(registry, current, request_id)
-    cache.write_owner_projection(owner, space, current)
+    cache.write_owner_projection(owner, space, current, registry.get("createdAt"))
     logger.info("remove_members %s: removed %s", space, removed)
     return {"status": "ok", "action": "remove_members", "space": space, "removed": removed}
 

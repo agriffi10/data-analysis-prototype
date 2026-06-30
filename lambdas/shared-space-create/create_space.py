@@ -84,10 +84,9 @@ def create_space(name, actor, request_id):
         _ensure_database(name)
         _grant_portal_role(name)
         # Seed the owner's member projection (SPEC-053) — just the owner at create.
-        cache.upsert_entry(
-            actor,
-            {"name": name, "role": "owner", "status": "active", "members": [actor]},
-        )
+        # Carry the registry's createdAt so the Connections card meta line can show it.
+        created_at = (reg.load(name) or {}).get("createdAt")
+        cache.write_owner_projection(actor, name, [actor], created_at)
         reg.finalize(name, actor, request_id, "active")
     except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
         reason = str(exc)

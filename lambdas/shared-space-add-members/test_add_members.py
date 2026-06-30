@@ -52,7 +52,9 @@ def test_add_members_assigns_slot_registry_cache_and_owner_projection():
     assert out["ignoredUnknown"] == [] and out["skippedAtLimit"] == []
     assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
     bob_cache = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
-    assert bob_cache["connections"] == [{"name": "sales", "role": "member", "status": "active"}]
+    assert bob_cache["connections"] == [
+        {"name": "sales", "role": "member", "status": "active", "owner": "alice", "createdAt": "t0"}
+    ]
     reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert set(reg2["members"]) == {"alice", "bob"} and reg2["owner"] == "alice"
     owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
