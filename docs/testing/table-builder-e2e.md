@@ -93,7 +93,7 @@ Recorded from the `polars_layer` job in the **Deploy Lambdas** workflow
 (`table-builder-polars layer unzipped size: <N> MB`). The job fails if the unzipped
 layer exceeds **240 MB** (headroom under Lambda's 250 MB unzipped limit).
 
-- Measured unzipped size: **_(fill in from the first Deploy Lambdas run)_ MB** (polars `1.12.0`).
+- Measured unzipped size: **107 MB** (polars `1.12.0`; published `dat-prod-table-builder-polars:1`, 2026-06-30) — well under the 250 MB Lambda limit and the 240 MB CI cap.
 
 ### Notes
 

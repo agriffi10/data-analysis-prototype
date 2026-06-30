@@ -21,21 +21,34 @@
 Turn the inspected source into a concrete table definition. `infer-schema` takes the `inspect-source` payload
 (format, partition keys, a representative `sampleObjectKey`, and the table `location`), opens the sample object
 with the matching **polars lazy scanner** (`scan_parquet` / `scan_csv` / `scan_ndjson`) — lazy so only the schema
-(and a bounded sample for CSV/JSON type inference) is materialized, not the whole file — and collects the column
-names + polars dtypes. It maps each polars dtype to the corresponding **Glue/Athena Hive type**, lists the Hive
+(and a bounded sample for JSON type inference) is materialized, not the whole file — and collects the column
+names + types. It maps each polars dtype to the corresponding **Glue/Athena Hive type**, lists the Hive
 **partition keys** as `PARTITIONED BY` columns (kept **out** of the main column list, as Athena requires), and
 assembles a `CREATE EXTERNAL TABLE IF NOT EXISTS` statement with the right `STORED AS` / `ROW FORMAT` / SerDe for
 the format and the `LOCATION`. The generated DDL string + the resolved column list are emitted for `execute-ddl`.
 The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested without AWS or a Lambda runtime.
+
+**Two type-inference rules (decided 2026-06-30):**
+1. **Inference tries to parse dates.** For the inferred formats, date/timestamp-looking values are typed as
+   `date`/`timestamp`, **not** `string` — Parquet carries real date/timestamp types natively; JSON inference
+   enables date parsing (string values matching a date/datetime are detected and typed `date`/`timestamp`).
+2. **CSV is NOT type-inferred at all.** A CSV's data columns are **all `string`** (column **names** come from the
+   header row); no per-column type guessing. This uses **OpenCSVSerde** (the all-string CSV serde) and **reverses**
+   the earlier "LazySimpleSerDe to preserve inferred CSV types" sub-decision. (Parquet/JSON still infer + date-parse.)
 
 ## Scope
 
 ### In Scope
 
 - **`infer-schema` Lambda** (on the polars layer) — download/scan the `sampleObjectKey` and build a polars
-  **LazyFrame** for the format; collect the schema (column order + dtypes). For CSV: assume a **header row** +
-  comma delimiter (v1 default, `table-builder-architecture.md` §10), infer dtypes from a bounded sample. For
-  JSON/NDJSON: infer from a bounded sample; nested objects/arrays map to Hive `struct<…>`/`array<…>`.
+  **LazyFrame** for the format; collect the schema (column order + types):
+  - **Parquet:** read the embedded schema (typed natively, incl. real `date`/`timestamp`).
+  - **JSON/NDJSON:** infer from a bounded sample **with date parsing on** (date/datetime-looking strings →
+    `date`/`timestamp`); nested objects/arrays map to Hive `struct<…>`/`array<…>`.
+  - **CSV:** assume a **header row** + comma delimiter (v1 default, `table-builder-architecture.md` §10); take the
+    column **names from the header** and type **every data column `string`** — **no type inference** (decided
+    2026-06-30). (Read just enough to get the header — e.g. `scan_csv(infer_schema_length=0)` / read 1 row — then
+    cast all to `Utf8`.)
 - **polars-dtype → Hive-type mapping** (pure) — a single mapping table: e.g. `Int64→bigint`, `Int32→int`,
   `Float64→double`, `Float32→float`, `Boolean→boolean`, `Utf8/String→string`, `Date→date`,
   `Datetime→timestamp`, `Decimal→decimal(p,s)`, `List(T)→array<hive(T)>`, `Struct→struct<field:hive(T),…>`;
@@ -54,10 +67,11 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
   [PARTITIONED BY (…)] STORED AS PARQUET | ROW FORMAT … (CSV/JSON SerDe) LOCATION '{location}'
   TBLPROPERTIES(<format props> + <projection props>)`; identifiers safely quoted; the DDL is emitted as a string
   (run by SPEC-070).
-- **Format storage clauses** — Parquet → `STORED AS PARQUET`; CSV → `ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'`
-  with `skip.header.line.count=1` (decided: **`LazySimpleSerDe`** so polars-inferred numeric/date types survive
-  into Athena, rather than OpenCSVSerde's all-string columns); JSON/NDJSON → `ROW FORMAT SERDE
-  'org.openx.data.jsonserde.JsonSerDe'`. Recorded as constants/templates so the mapping is one source of truth.
+- **Format storage clauses** — Parquet → `STORED AS PARQUET`; CSV → `ROW FORMAT SERDE
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'` with `skip.header.line.count=1` (the **all-string** CSV serde —
+  matches the "CSV not type-inferred" rule, all columns `string`; reverses the earlier LazySimpleSerDe choice);
+  JSON/NDJSON → `ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'`. Recorded as constants/templates so the
+  mapping is one source of truth.
 - **infer-schema role** — `s3:GetObject` on both data buckets' data prefixes (read the sample) + `logs`; the
   polars layer attached (SPEC-066). No write. `simulate-custom-policy`-verified.
 - **SFN wiring** — `inspect-source → infer-schema → (stub) execute-ddl`; `Retry` transient, shared `Catch` →
@@ -85,8 +99,10 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 #### Acceptance Criteria:
 
 - [ ] For `format='parquet'` the Lambda builds a polars `scan_parquet` LazyFrame and reads the **schema** without
-  materializing the full dataset; for `csv` a `scan_csv` (header=true, comma) with bounded inference; for `json`
-  a `scan_ndjson` with bounded inference — returning an **ordered** list of `(columnName, polarsDtype)`.
+  materializing the full dataset (native types, incl. `date`/`timestamp`); for `json` a `scan_ndjson` with bounded
+  inference **and date parsing on** (date/datetime strings → `date`/`timestamp`); for `csv` it reads only the
+  **header** for column names and types **every column `string`** — **no type inference** — returning an
+  **ordered** list of `(columnName, type)`.
 - [ ] A scan error (corrupt/empty/not-actually-that-format object) is a terminal failure `schema_inference_failed`
   with a readable reason; a transient S3 error is **raised** for the SFN `Retry` (`lambdas.md` §4).
 - [ ] The sample object is read from `/tmp` or streamed; nothing is written outside `/tmp` (`lambdas.md` §12).
@@ -99,7 +115,9 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
   decimal/list/struct, nested recursively); an unmappable dtype raises a typed error carrying the column name +
   dtype → terminal `unmappable_type`.
 - [ ] The mapping is unit-tested directly (no AWS/Lambda runtime) for every supported dtype incl. nested
-  `array<…>` and `struct<…>`.
+  `array<…>` and `struct<…>`, and incl. `Date→date` / `Datetime→timestamp` (the date-parsing rule).
+- [ ] **CSV bypasses `map_dtype`** entirely — its columns are emitted as `string` directly (no inference), so the
+  mapper is only exercised for Parquet/JSON.
 
 ### FR-003: Partition columns + projection
 
@@ -121,10 +139,11 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 
 - [ ] A pure `build_create_table_ddl(database, tableName, columns, partitionKeys, format, location) -> str`
   produces a valid `CREATE EXTERNAL TABLE IF NOT EXISTS` with: backtick-quoted DB/table/column identifiers, the
-  format's `STORED AS`/`ROW FORMAT`/SerDe + properties (CSV `skip.header.line.count=1`; JSON JsonSerDe), the
-  `PARTITIONED BY` clause (with declared types) when applicable, `LOCATION '{location}'`, and — when partitioned —
-  the **partition-projection** `TBLPROPERTIES` (`projection.enabled` + per-key type/range/values) merged with the
-  format properties (`partitionKeys` carry the projection config).
+  format's `STORED AS`/`ROW FORMAT`/SerDe + properties (CSV → **OpenCSVSerde**, all columns `string`,
+  `skip.header.line.count=1`; JSON → JsonSerDe; Parquet → `STORED AS PARQUET`), the `PARTITIONED BY` clause (with
+  declared types) when applicable, `LOCATION '{location}'`, and — when partitioned — the **partition-projection**
+  `TBLPROPERTIES` (`projection.enabled` + per-key type/range/values) merged with the format properties
+  (`partitionKeys` carry the projection config).
 - [ ] `IF NOT EXISTS` is always present (replay-safe alongside SPEC-068's check + SPEC-070's run); the DDL targets
   `{database}.{tableName}` from the validated request.
 - [ ] The function is unit-tested for flat Parquet, **partitioned CSV with integer projection** (header skip +
@@ -146,11 +165,13 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 
 #### Acceptance Criteria:
 
-- [ ] Python unit tests: `map_dtype` for all supported (and a representative unmappable) dtypes incl. nested;
-  `build_create_table_ddl` golden strings for flat-Parquet, **partitioned-CSV with integer projection**, JSON,
-  and a **string `enum`** partition key (asserting the `projection.*` `TBLPROPERTIES`); the handler with a stubbed
-  S3 + a small fixture object yields the expected columns + DDL; scan error → `schema_inference_failed`; transient
-  S3 → raised.
+- [ ] Python unit tests: `map_dtype` for all supported (and a representative unmappable) dtypes incl. nested **and
+  `Date→date`/`Datetime→timestamp`**; `build_create_table_ddl` golden strings for flat-Parquet, **partitioned-CSV
+  (all-string columns + OpenCSVSerde)**, JSON, and a **string `enum`** partition key (asserting the `projection.*`
+  `TBLPROPERTIES`); the handler asserts (a) a **CSV** fixture yields **all-`string`** columns from the header with
+  **no** type inference, (b) a **JSON** fixture with a date/datetime field yields a `date`/`timestamp` column
+  (date parsing), (c) a **Parquet** fixture preserves native types; scan error → `schema_inference_failed`;
+  transient S3 → raised.
 - [ ] `docs/testing/table-builder-e2e.md`: a flat-Parquet and a partitioned-CSV (projection) request flow through
   `inspect → infer` and the generated DDL is captured (and visibly correct, incl. projection properties) before
   the stub `execute-ddl`.
@@ -171,10 +192,14 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
     {"name": "year",  "type": "integer", "range": [2000, 2100], "digits": 4},
     {"name": "month", "type": "integer", "range": [1, 12],      "digits": 2}
   ],
-  "columns": [{"name": "order_id", "type": "bigint"}, {"name": "amount", "type": "double"}, {"name": "ts", "type": "timestamp"}],
-  "ddl": "CREATE EXTERNAL TABLE IF NOT EXISTS `alice`.`sales_2026` (`order_id` bigint, `amount` double, `ts` timestamp) PARTITIONED BY (`year` int, `month` int) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.LazySimpleSerDe' WITH SERDEPROPERTIES ('field.delim'=',') STORED AS TEXTFILE LOCATION 's3://dat-prod-user-space/alice/sales/2026/' TBLPROPERTIES ('skip.header.line.count'='1', 'projection.enabled'='true', 'projection.year.type'='integer', 'projection.year.range'='2000,2100', 'projection.year.digits'='4', 'projection.month.type'='integer', 'projection.month.range'='1,12', 'projection.month.digits'='2')",
+  # CSV → ALL columns string (no type inference); names from the header row.
+  "columns": [{"name": "order_id", "type": "string"}, {"name": "amount", "type": "string"}, {"name": "ts", "type": "string"}],
+  "ddl": "CREATE EXTERNAL TABLE IF NOT EXISTS `alice`.`sales_2026` (`order_id` string, `amount` string, `ts` string) PARTITIONED BY (`year` int, `month` int) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde' WITH SERDEPROPERTIES ('separatorChar'=',', 'quoteChar'='\"', 'escapeChar'='\\\\') STORED AS TEXTFILE LOCATION 's3://dat-prod-user-space/alice/sales/2026/' TBLPROPERTIES ('skip.header.line.count'='1', 'projection.enabled'='true', 'projection.year.type'='integer', 'projection.year.range'='2000,2100', 'projection.year.digits'='4', 'projection.month.type'='integer', 'projection.month.range'='1,12', 'projection.month.digits'='2')",
   "requestId": "f3a1…"
 }
+# For Parquet/JSON the SAME folder would infer typed columns WITH date parsing, e.g.
+#   columns: [{"name":"order_id","type":"bigint"}, {"name":"amount","type":"double"}, {"name":"ts","type":"timestamp"}]
+#   Parquet → STORED AS PARQUET; JSON → ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'.
 
 # terminal reasons: schema_inference_failed | unmappable_type
 ```
