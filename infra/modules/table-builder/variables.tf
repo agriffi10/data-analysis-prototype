@@ -57,3 +57,22 @@ variable "dlq_max_receive_count" {
   type        = number
   default     = 3
 }
+
+# ── SPEC-067: request contract + validate-authorize ──────────────────────────
+
+variable "portal_role_name" {
+  description = "SPEC-067: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
+  type        = string
+}
+
+variable "user_pool_id" {
+  description = "SPEC-067: Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS (offline trusted-actor binding)."
+  type        = string
+  default     = ""
+}
+
+variable "app_client_id" {
+  description = "SPEC-067: Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
+  type        = string
+  default     = ""
+}

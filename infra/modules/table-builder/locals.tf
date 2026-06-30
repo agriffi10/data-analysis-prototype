@@ -32,6 +32,16 @@ locals {
     suffix => "${var.project_name}-${var.environment}-table-builder-${suffix}"
   }
 
+  # Per-verb extra env, merged over the common bucket-name env (lambda.tf). Only
+  # validate-authorize needs the Cognito pool/client (offline token verify, SPEC-067);
+  # later verbs' action env is added by their owning specs.
+  table_builder_verb_env = {
+    "validate-authorize" = {
+      COGNITO_USER_POOL_ID  = var.user_pool_id
+      COGNITO_APP_CLIENT_ID = var.app_client_id
+    }
+  }
+
   # Constructed function ARNs (known at plan time) — fed to the SFN role's
   # InvokeFunction list and the Step Function tasks.
   table_builder_function_arns = [

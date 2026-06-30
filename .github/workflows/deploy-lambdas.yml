@@ -148,8 +148,63 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── table-builder-common layer (SPEC-067) ──────────────────────────────────
+  # Publishes the `table-builder-common` layer = external deps (PyJWT[crypto]) + the
+  # `tbcommon` package (shared auth/registry/clients/config/errors for the verb
+  # Lambdas). The table-builder verbs with real code (validate-authorize now; more in
+  # SPEC-068/070) attach it instead of bundling. A PACKAGE (python/tbcommon/), not flat
+  # modules, so its names don't collide with shared-space-common's under pytest.
+  table_builder_layer:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/tbcommon-layer/python"
+          rm -rf build/tbcommon-layer && mkdir -p "$LAYER_DIR"
+          # External deps (manylinux wheels, python3.12-compatible) — PyJWT[crypto].
+          pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
+          # The shared package — production code only (no __pycache__).
+          cp -r lambdas/table-builder-common/tbcommon "$LAYER_DIR"/tbcommon
+          find "$LAYER_DIR"/tbcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          (cd build/tbcommon-layer && zip --quiet --recurse-paths ../table-builder-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-builder-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared tbcommon package + deps (PyJWT) for the table-builder verb Lambdas (SPEC-067)." \
+            --zip-file "fileb://build/table-builder-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   deploy:
-    needs: [layer, polars_layer]
+    needs: [layer, polars_layer, table_builder_layer]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -163,22 +218,23 @@ jobs:
         # of bundling the shared requirements, and attach it after deploy. `polars: true`
         # functions (SPEC-066) attach the table-builder-polars layer after deploy.
         lambda:
-          - { name: pre-signup, layer: false, polars: false }
-          - { name: post-confirmation, layer: false, polars: false }
-          - { name: notifications-writer, layer: false, polars: false }
-          - { name: shared-space-validate, layer: true, polars: false }
-          - { name: shared-space-create, layer: true, polars: false }
-          - { name: shared-space-add-members, layer: true, polars: false }
-          - { name: shared-space-remove-members, layer: true, polars: false }
-          - { name: shared-space-leave, layer: true, polars: false }
-          - { name: shared-space-delete, layer: true, polars: false }
-          # Table-builder verb stubs (SPEC-066). infer-schema attaches the polars layer;
-          # the rest carry no layer. Code lands in SPEC-067→070.
-          - { name: table-builder-validate-authorize, layer: false, polars: false }
-          - { name: table-builder-check-table-absent, layer: false, polars: false }
-          - { name: table-builder-inspect-source, layer: false, polars: false }
-          - { name: table-builder-infer-schema, layer: false, polars: true }
-          - { name: table-builder-execute-ddl, layer: false, polars: false }
+          - { name: pre-signup, layer: false, polars: false, tbcommon: false }
+          - { name: post-confirmation, layer: false, polars: false, tbcommon: false }
+          - { name: notifications-writer, layer: false, polars: false, tbcommon: false }
+          - { name: shared-space-validate, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-create, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-add-members, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-remove-members, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-leave, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-delete, layer: true, polars: false, tbcommon: false }
+          # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
+          # (validate-authorize is real now, SPEC-067; more verbs in 068/070). infer-schema
+          # attaches the polars layer (SPEC-069). The rest are still stubs (no layer).
+          - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true }
+          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: false }
+          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: false }
+          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: false }
+          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: false }
 
     steps:
       - name: Checkout
@@ -194,9 +250,9 @@ jobs:
           set -euo pipefail
           BUILD_DIR="build/${{ matrix.lambda.name }}"
           rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-          # Layer functions get deps from the layer; others bundle the shared
-          # requirements as before (no-op when requirements.txt is empty).
-          if [ "${{ matrix.lambda.layer }}" != "true" ]; then
+          # Layer functions (shared-space-common OR table-builder-common) get their deps
+          # from the layer; others bundle the shared requirements.
+          if [ "${{ matrix.lambda.layer }}" != "true" ] && [ "${{ matrix.lambda.tbcommon }}" != "true" ]; then
             pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
           fi
           cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
@@ -258,5 +314,13 @@ jobs:
             aws lambda update-function-configuration \
               --function-name "$FUNCTION" \
               --layers "${{ needs.polars_layer.outputs.layer_arn }}"
+            aws lambda wait function-updated --function-name "$FUNCTION"
+          fi
+
+          # Attach the table-builder-common layer for verbs with shared code (SPEC-067).
+          if [ "${{ matrix.lambda.tbcommon }}" = "true" ]; then
+            aws lambda update-function-configuration \
+              --function-name "$FUNCTION" \
+              --layers "${{ needs.table_builder_layer.outputs.layer_arn }}"
             aws lambda wait function-updated --function-name "$FUNCTION"
           fi
