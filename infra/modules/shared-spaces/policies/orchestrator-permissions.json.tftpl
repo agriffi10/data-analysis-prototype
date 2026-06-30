@@ -81,6 +81,12 @@
       "Resource": "${user_space_bucket_arn}/*/user_settings/shared-connections.json"
     },
     {
+      "Sid": "UserSpaceCacheList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${user_space_bucket_arn}"
+    },
+    {
       "Sid": "CognitoMembershipAttributes",
       "Effect": "Allow",
       "Action": [
