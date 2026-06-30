@@ -129,6 +129,52 @@ describe('useNotifications — optimistic mutations', () => {
       vi.useRealTimers();
     }
   });
+
+  it('keeps a mark-read applied even when a reconcile refetch still shows it unread', async () => {
+    vi.useFakeTimers();
+    try {
+      // The writer hasn't caught up yet: every server read still returns it unread.
+      mockGet.mockResolvedValue({success: true, data: [note('05')]});
+      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+
+      act(() => result.current.markRead('05'));
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+
+      // A reconcile refetch lands while the server still reports unread — the overlay
+      // must hold the optimistic read instead of snapping back to unread.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(result.current.unreadCount).toBe(0);
+      expect(result.current.notifications[0].read).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the overlay once the server confirms the read (self-heal)', async () => {
+    vi.useFakeTimers();
+    try {
+      mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
+      mockGet.mockResolvedValue({success: true, data: [note('05', true)]}); // writer caught up
+      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+
+      act(() => result.current.markRead('05'));
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      // Server now reports read=true; overlay pruned, row stays read.
+      expect(result.current.notifications[0].read).toBe(true);
+      expect(result.current.unreadCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('useNotifications — background poll (FR-006)', () => {
@@ -171,6 +217,26 @@ describe('useNotifications — background poll (FR-006)', () => {
         await vi.advanceTimersByTimeAsync(180_000);
       });
       expect(mockGet).toHaveBeenCalledTimes(callsAfterUnread);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pausePoll suspends the 60s poll (the /notifications page)', async () => {
+    vi.useFakeTimers();
+    try {
+      // All read → the interval would normally poll; pausePoll must stop it.
+      mockGet.mockResolvedValue({success: true, data: [note('05', true)]});
+      const {result} = renderHook(() => useNotifications('alice', {pausePoll: true}), {
+        wrapper: wrapper(newClient())
+      });
+      await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
+      expect(mockGet).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(mockGet).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

@@ -41,7 +41,12 @@ def reserve(name, actor, request_id):
     """Atomically create the registry object (status=provisioning) to claim the
     globally-unique name. Returns 'created', or 'replay' if this exact request
     already created it (idempotent re-run). Raises ProvisioningError on a genuine
-    name collision (a different request already owns the name)."""
+    name collision (a different request already owns the name).
+
+    A previous create by the SAME owner that ended ``failed`` left its reservation
+    behind (the name was never rolled back, and the provisioning steps are all
+    idempotent), so the owner is allowed to re-reserve it — otherwise a one-off
+    failure would strand the name behind "name already taken" forever."""
     s3 = clients.s3()
     record = {
         "version": 1,
@@ -68,6 +73,16 @@ def reserve(name, actor, request_id):
         existing = load(name) or {}
         if existing.get("lastRequestId") == request_id and existing.get("owner") == actor:
             return "replay"
+        # The owner retrying their own failed create: overwrite the stale reservation
+        # and proceed (idempotent provisioning reuses anything already created).
+        if existing.get("owner") == actor and existing.get("status") == "failed":
+            s3.put_object(
+                Bucket=config.ADMIN_BUCKET,
+                Key=_key(name),
+                Body=json.dumps(record).encode(),
+                ContentType="application/json",
+            )
+            return "created"
         raise ProvisioningError("name already taken") from exc
 
 

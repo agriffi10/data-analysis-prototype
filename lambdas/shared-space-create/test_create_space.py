@@ -118,6 +118,37 @@ def test_create_failure_notifies_creator_with_reason():
     assert "membership limit reached" in body["message"]
 
 
+def test_create_collision_notifies_creator_and_leaves_record():
+    s3, *_ = install()
+    sqs = _enable_notifications()
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "bob", "lastRequestId": "other", "status": "active"}
+    ).encode()
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, "name already taken")
+    # A reserve collision still notifies the actor (event 2)...
+    assert len(sqs.sent) == 1
+    body = json.loads(sqs.sent[0]["MessageBody"])
+    assert body["username"] == "alice"
+    assert body["message"].startswith('We couldn\'t create shared workspace "sales":')
+    assert "name already taken" in body["message"]
+    # ...but must NOT rewrite the colliding owner's registry record.
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["owner"] == "bob" and rec["status"] == "active"
+
+
+def test_create_owner_retry_after_failure_succeeds():
+    s3, glue, *_ = install()
+    # A prior failed attempt left a failed reservation owned by alice.
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "alice", "lastRequestId": "old", "status": "failed", "reason": "boom"}
+    ).encode()
+    out = c.create_space("sales", "alice", "req-2")
+    assert out["status"] == "active"
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["status"] == "active" and rec["lastRequestId"] == "req-2"
+    assert glue.created == ["sales"]
+
+
 def test_create_replay_emits_nothing():
     s3, *_ = install()
     sqs = _enable_notifications()
