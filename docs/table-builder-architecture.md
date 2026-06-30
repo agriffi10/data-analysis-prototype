@@ -16,8 +16,10 @@ From the **file browser**, while looking at a folder of data files (in their per
 space), a user can press **"Create table from this folder"**, give the table a name, and have a Glue/Athena
 **external table** created over those files in the **database that the space maps to** (personal DB = username;
 shared DB = shared-space name). The folder may contain a set of flat data files **or** Hive-style partitioned
-data (`key=value/…`); the schema is **inferred automatically**. The user is told — via the notifications inbox
-(SPEC-058→060) — when the table is ready or why it couldn't be created.
+data (`key=value/…`); the **data column** schema is **inferred automatically**, while **partition keys are
+declared by the user** in the modal (in granularity order, with a projection type + range — see §4/§5). The
+user is told — via the notifications inbox (SPEC-058→060) — when the table is ready or why it couldn't be
+created.
 
 Creating a Glue table over another concern's database, inferring schema with a heavy library, and running
 catalog DDL are **privileged, multi-step** operations that browser-scoped credentials should not perform
@@ -34,11 +36,11 @@ Browser (scoped creds: sqs:SendMessage only, + the ID token in the body)
    ▼
 SQS (FIFO) ──▶ EventBridge Pipe ──▶ Step Function (Standard; orchestrates single-task Lambdas)
                                       │
-                                      ├─ validate-authorize   (verify ID token → actor; authorize access to the target space/DB; validate name + location)
+                                      ├─ validate-authorize   (verify ID token → actor; authorize access to the target space/DB; validate name, location + declared partition keys)
                                       ├─ check-table-absent    (Glue GetTable in the target DB → fail if it already exists)
-                                      ├─ inspect-source        (list the prefix; flat vs Hive-partitioned; validate one supported, consistent format)
-                                      ├─ infer-schema          (polars LazyFrame on a sample object → columns; + partition keys → CREATE EXTERNAL TABLE DDL)
-                                      └─ execute-ddl           (run the DDL via Athena against the target DB; MSCK REPAIR if partitioned) → success
+                                      ├─ inspect-source        (list the prefix; validate single supported, consistent format; confirm declared key=value/ segments present)
+                                      ├─ infer-schema          (polars LazyFrame on a sample object → data columns; + user-declared partition keys → CREATE EXTERNAL TABLE DDL w/ projection)
+                                      └─ execute-ddl           (run the DDL via Athena against the target DB; projection ⇒ no MSCK) → success
                                    (Retry/Catch live in the state machine; a Catch routes any step's terminal failure to a recorded-failure state)
 ```
 
@@ -82,30 +84,58 @@ DB names, and view names).
 
 ## 4. Source inspection & schema inference (decided)
 
-- **Layout detection.** `inspect-source` lists the request's prefix and classifies it as **flat** (data files
-  directly under the prefix) or **Hive-partitioned** (subdirectories shaped `key=value/`). Mixed/ambiguous
-  layouts are a terminal failure with a clear reason.
+- **Partition keys are user-declared, not auto-detected (decided 2026-06-30).** The folder layout is **Hive
+  `key=value/`**, but the pipeline does **not** infer the partition keys from the path. The user declares them
+  in the modal (SPEC-071), **in granularity order** (`year, month, day`), each with a **projection type +
+  range** (see §5). `inspect-source` therefore no longer derives keys; it validates that the **declared** keys
+  appear as `key=value/` segments in the sample object's path (catching a typo/order error early) and that the
+  folder is flat (no declared keys) vs. partitioned (keys declared) consistently. This reverses the earlier
+  "auto-detect keys from the path" design.
+- **Layout detection.** `inspect-source` lists the request's prefix and confirms it matches the request: a
+  **flat** request (no partition keys) must have data files directly under the prefix; a **partitioned**
+  request must have the declared `key=value/` segments. A mismatch (declared keys absent, or partition dirs
+  present with none declared) is a terminal failure with a clear reason.
 - **Format support (v1): Parquet, CSV, JSON/NDJSON** — the three polars reads natively. A folder must be a
   **single, consistent** supported format (mixed formats = terminal failure). **ORC is out of v1** (not a
   native polars reader). 
 - **Schema via polars LazyFrame.** `infer-schema` opens a **sample object** with the matching polars lazy
   scanner (`scan_parquet` / `scan_csv` / `scan_ndjson`), collects the schema, and maps polars dtypes →
-  Glue/Athena (Hive) column types. **Partition columns** come from the Hive path keys (typed `string` unless
-  trivially inferable) and are emitted as `PARTITIONED BY`, **not** repeated in the table column list.
+  Glue/Athena (Hive) column types **for the data columns only**. **Partition columns** come from the
+  user-declared keys (§5), are emitted as `PARTITIONED BY` with their declared type, and are **not** repeated
+  in the table column list.
 - **polars packaging = Lambda layer (zip).** polars' Rust-native readers cover all three formats **without
   pyarrow**, keeping the layer small enough for the 250 MB unzipped limit and consistent with the repo's
   existing zip + placeholder-zip/`ignore_changes` packaging (no container/ECR path introduced). Only the
   `infer-schema` function attaches the layer; the other verb Lambdas stay lean (faster cold starts).
 
-## 5. Table creation = Athena DDL (decided)
+## 5. Table creation = Athena DDL + partition projection (decided)
 
 `execute-ddl` runs the generated **`CREATE EXTERNAL TABLE IF NOT EXISTS …`** through **Athena
 `StartQueryExecution`** against the **target database** in the shared analytics workgroup (SPEC-032), polling
-to a terminal state — the user's stated "use the create statement to run against the database." For
-**partitioned** tables it then runs **`MSCK REPAIR TABLE`** to load existing partitions. Using Athena DDL
-(rather than the Glue `CreateTable` API) keeps the LF-enforced create path identical to how users already
+to a terminal state — the user's stated "use the create statement to run against the database." Using Athena
+DDL (rather than the Glue `CreateTable` API) keeps the LF-enforced create path identical to how users already
 create tables in-app, and yields a real, queryable table immediately. `IF NOT EXISTS` + the prior
 `check-table-absent` make the step replay-safe.
+
+**Partitions = partition projection, not `MSCK REPAIR` (decided 2026-06-30).** Partitioned tables are made
+queryable via **Athena partition projection** — `infer-schema` emits the `projection.*` + (Hive layout ⇒
+default) `storage.location.template` `TBLPROPERTIES` from the user-declared keys, and Athena resolves
+partition paths at query time. There is **no `MSCK REPAIR TABLE`** step and **no partition enumeration/load**:
+the table is queryable the instant the `CREATE` succeeds, and partitions added later are picked up
+automatically (no re-repair). This removes the former `partition_load_failed` terminal reason.
+
+Per-key projection config is **collected in the modal** (SPEC-071) and carried in the request: each key has a
+**type** and the config that Athena projection requires for it —
+
+- **integer** → `projection.{k}.type=integer`, `projection.{k}.range='{min},{max}'`, optional
+  `projection.{k}.digits` (zero-pad width, e.g. `2` for `month=01`);
+- **date** → `projection.{k}.type=date`, `projection.{k}.range`, `projection.{k}.format` (e.g. `yyyy-MM-dd`),
+  optional `projection.{k}.interval`/`interval.unit`;
+- **string** → `projection.{k}.type=enum`, `projection.{k}.values='a,b,c'` (the modal collects the value list;
+  we do **not** use `injected`, which would force a `WHERE` filter on every query).
+
+Because the layout is Hive `key=value/`, the default projection storage location is correct and
+`storage.location.template` only needs setting if a non-default path shape is ever supported (out of v1).
 
 The `execute-ddl` role is the broad one (Athena run + Glue table ops on the target catalog DB + S3 read of the
 source data and write of Athena results + the LF grant needed to create over the registered location). Both
@@ -154,10 +184,10 @@ UI is folded into the feature spec (SPEC-071), as in the shared-spaces arc. Buil
 |---|---|
 | SPEC-066 | **Foundation infrastructure + polars runtime** — the dedicated FIFO SQS+DLQ → Pipe → Step Function **skeleton**, the five single-task Lambda infra stubs + per-verb least-privilege roles, the **polars Lambda layer**, log groups, the new module, deploy-role IAM, a control-plane smoke test. Plumbing only — no real action logic. |
 | SPEC-067 | **Request contract, browser enqueue & validate-authorize** — the request envelope; portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL`; the **validate-authorize** Lambda (ID-token actor; personal/shared authorization via the shared-spaces registry; catalog-safe name + in-space location checks) + the SFN `validate` state + Catch→recorded-failure. Downstream verbs stubbed. |
-| SPEC-068 | **Name uniqueness + source inspection** — **check-table-absent** (Glue GetTable) + **inspect-source** (flat vs Hive-partition layout; single consistent supported format; emit `{format, partitioned, partitionKeys, sampleObjectKey, location}`), wired as SFN states. |
-| SPEC-069 | **Schema inference & DDL generation (polars)** — the **infer-schema** Lambda (polars LazyFrame on a sample; dtype→Hive mapping; partition columns from the path; generate `CREATE EXTERNAL TABLE IF NOT EXISTS … PARTITIONED BY … STORED AS … LOCATION …`), on the SPEC-066 polars layer. |
-| SPEC-070 | **Execute DDL + partitions + terminal states** — the **execute-ddl** Lambda (run the DDL via Athena on the target DB; `MSCK REPAIR TABLE` if partitioned; record terminal success), SFN success/failure terminal states + Catch across all verbs, execute-ddl role LF/Glue/Athena/S3 grants. End-to-end table creation (sans notifications/UI polish). |
-| SPEC-071 | **File-browser "Create table from this folder"** — the toolbar action on the current folder (personal or shared space), the table-name prompt (catalog-safe; default from folder name), enqueue via the SPEC-067 contract using the active space → bucket/prefix/database (SPEC-057), pending/toast UX. Server-side validation owns eligibility. |
+| SPEC-068 | **Name uniqueness + source inspection** — **check-table-absent** (Glue GetTable) + **inspect-source** (single consistent supported format; confirm the request's **declared** `key=value/` keys are present in the sample path, flat vs partitioned matches the request; emit `{format, partitioned, sampleObjectKey, location}`), wired as SFN states. |
+| SPEC-069 | **Schema inference & DDL generation (polars)** — the **infer-schema** Lambda (polars LazyFrame on a sample → **data** columns; dtype→Hive mapping; **user-declared** partition keys → `PARTITIONED BY` + `projection.*` TBLPROPERTIES; generate `CREATE EXTERNAL TABLE IF NOT EXISTS … STORED AS … LOCATION …`), on the SPEC-066 polars layer. |
+| SPEC-070 | **Execute DDL + terminal states** — the **execute-ddl** Lambda (run the DDL via Athena on the target DB; projection ⇒ **no `MSCK REPAIR`**; record terminal success), SFN success/failure terminal states + Catch across all verbs, execute-ddl role LF/Glue/Athena/S3 grants. End-to-end table creation (sans notifications/UI polish). |
+| SPEC-071 | **File-browser "Create table from this folder"** — the toolbar action on the current folder (personal or shared space), the table-name prompt (catalog-safe; default from folder name) **+ optional partition-keys section** (ordered name + type + range per key), enqueue via the SPEC-067 contract using the active space → bucket/prefix/database (SPEC-057), pending/toast UX. Server-side validation owns eligibility. |
 | SPEC-072 | **Notification producer** — each verb Lambda emits a **failure** notification on its terminal-failure branch; **execute-ddl** emits a **success** notification — to the **actor**, via the SPEC-058 queue (verb-role `sqs:SendMessage` + `NOTIFICATIONS_QUEUE_URL` + shared best-effort `emit_notification`). Mirrors SPEC-061; depends on SPEC-058. |
 
 ## 9. Decisions
@@ -170,8 +200,13 @@ UI is folded into the feature spec (SPEC-071), as in the shared-spaces arc. Buil
 - [x] **Formats = Parquet, CSV, JSON/NDJSON** (v1); ORC deferred (not a native polars reader). (User decision.)
 - [x] **Schema inference = polars LazyFrame**, packaged as a **Lambda layer (zip)** attached only to
   `infer-schema` (polars-native readers, no pyarrow). (User decision.)
-- [x] **Table creation = Athena DDL** (`CREATE EXTERNAL TABLE IF NOT EXISTS`; `MSCK REPAIR TABLE` for
-  partitions), run against the database the space maps to. (User-stated intent.)
+- [x] **Table creation = Athena DDL** (`CREATE EXTERNAL TABLE IF NOT EXISTS`), run against the database the
+  space maps to. (User-stated intent.)
+- [x] **Partition keys are user-declared in the modal, in granularity order** (not auto-detected from the
+  path); layout is Hive `key=value/`. (User decision, 2026-06-30.)
+- [x] **Partitions = partition projection, not `MSCK REPAIR`** — no enumeration/load; the per-key projection
+  **type + range** is collected in the modal (integer/date/`enum`-string). Removes the `partition_load_failed`
+  reason. (User decision, 2026-06-30.)
 - [x] **Authorization reuses the existing model** — ID-token-derived actor; personal = own DB; shared = active
   member (per the shared-spaces registry). Any active member may create a shared table (not owner-only).
 - [x] **Outcomes delivered via notifications** (SPEC-058) — per-step failure + on-success, single recipient =
@@ -181,9 +216,12 @@ UI is folded into the feature spec (SPEC-071), as in the shared-spaces arc. Buil
 
 - **CSV header + options.** v1 assumes a **header row** for CSV and comma delimiter; `inspect-source`/
   `infer-schema` record/assume these. Non-header or alternate-delimiter CSV is a deferred enhancement (could be
-  a future request option). Confirm the default.
-- **Partition value typing.** Hive partition keys are emitted as `string` by default. Inferring numeric/date
-  partition types from the values is a possible follow-up.
+  a future request option). (Confirmed 2026-06-30: keep the header+comma default for v1.)
+- ~~**Partition value typing.**~~ **Resolved (2026-06-30):** partition keys carry a user-declared projection
+  **type** (integer/date/string-enum) + range from the modal — no longer `string`-only. See §5.
 - **execute-ddl LF grant timing.** Granting the execute-ddl role `CREATE_TABLE`/`DATA_LOCATION_ACCESS` may hit
   the same first-apply self-grant-propagation caveat as SPEC-050/056 (architecture.md `time_sleep`); expect one
   re-run.
+- **Projection range correctness.** The user supplies each integer/date key's range in the modal; a value that
+  falls outside the declared range is silently excluded from query results (Athena projection behavior).
+  Surface this in the modal copy (SPEC-071) so users set ranges wide enough.

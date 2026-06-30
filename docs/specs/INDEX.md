@@ -75,7 +75,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 067 — Table Builder: Request Contract, Enqueue & Validate-Authorize | Draft |
 | 068 — Table Builder: Name Uniqueness + Source Inspection & Format Validation | Draft |
 | 069 — Table Builder: Schema Inference & DDL Generation (polars) | Draft |
-| 070 — Table Builder: Execute DDL, Load Partitions & Terminal States | Draft |
+| 070 — Table Builder: Execute DDL & Terminal States | Draft |
 | 071 — Table Builder: "Create Table from this Folder" (File Browser UI) | Draft |
 | 072 — Table Builder: Notification Producer (per-step failure + success) | Draft |
 | 073 — Shared-Space Member Join Status (Pending / Active) | Draft |
@@ -211,17 +211,20 @@ database the space maps to (personal = username; shared = space name). Decision 
 (SPEC-050) and the dedicated-pipeline precedent of notifications (SPEC-058), **not** their resources. The browser
 only gains `sqs:SendMessage`; authorization reuses the **ID-token actor** + shared-spaces **registry** membership
 model (any active member may create — not owner-only). The Step Function orchestrates five verbs:
-**validate-authorize** (token→actor, personal/shared authz, name + in-space location) → **check-table-absent** (Glue
-GetTable) → **inspect-source** (flat vs Hive `key=value/` partitions; single consistent format — **Parquet/CSV/JSON**,
-ORC deferred) → **infer-schema** (**polars LazyFrame** on a sample → dtype→Hive mapping + partition cols → generate
-`CREATE EXTERNAL TABLE IF NOT EXISTS` DDL; polars ships as a **Lambda layer**, attached only to this verb) →
-**execute-ddl** (run the DDL via **Athena**; `MSCK REPAIR TABLE` for partitions; terminal success). Each step records
-a typed terminal reason via the SFN `Catch`. **066** = foundation infra + polars layer (plumbing/stubs); **067** =
-request contract + portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL` + validate-authorize; **068** =
-name-check + source inspection; **069** = polars schema inference + DDL generation; **070** = execute DDL + partitions
-+ terminal states (+ execute-ddl LF/Glue/Athena/S3 role); **071** = the file-browser **"Create table from this
-folder"** button + name dialog + enqueue (the only browser surface); **072** = notifications producer (per-step
-failure + on-success, single recipient = the actor; depends on SPEC-058, mirrors SPEC-061). Build order
+**validate-authorize** (token→actor, personal/shared authz, name + in-space location + **declared partition keys**) →
+**check-table-absent** (Glue GetTable) → **inspect-source** (single consistent format — **Parquet/CSV/JSON**, ORC
+deferred; **confirm the user-declared `key=value/` keys match the layout**, not auto-detect) → **infer-schema**
+(**polars LazyFrame** on a sample → dtype→Hive mapping for data cols + **user-declared partition cols** → generate
+`CREATE EXTERNAL TABLE IF NOT EXISTS` DDL **with partition-projection `TBLPROPERTIES`**; polars ships as a **Lambda
+layer**, attached only to this verb) → **execute-ddl** (run the DDL via **Athena**; **projection ⇒ no `MSCK REPAIR`**;
+terminal success). **Partitions = user-declared keys (granularity order) + partition projection** (decided
+2026-06-30); the modal collects each key's type+range. Each step records a typed terminal reason via the SFN `Catch`.
+**066** = foundation infra + polars layer (plumbing/stubs); **067** = request contract (+ `partitionKeys`) +
+portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL` + validate-authorize; **068** = name-check + source
+inspection; **069** = polars schema inference + DDL generation (+ projection props); **070** = execute DDL + terminal
+states (+ execute-ddl LF/Glue/Athena/S3 role); **071** = the file-browser **"Create table from this folder"** button +
+name dialog **+ partition-keys section** + enqueue (the only browser surface); **072** = notifications producer
+(per-step failure + on-success, single recipient = the actor; depends on SPEC-058, mirrors SPEC-061). Build order
 066→067→068→069→070→071; **072** after the notifications queue (058) + the verb Lambdas. New Lambda deps: **polars**
 (layer). New IaC: `infra/modules/table-builder/`.
 

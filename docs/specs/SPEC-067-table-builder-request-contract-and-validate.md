@@ -22,18 +22,21 @@ serialize). The pipeline's first Lambda, **`validate-authorize`**, verifies the 
 Pool JWKS and derives the **actor** server-side (never trusting a body username), then **authorizes** the
 request: for a **personal** target the DB must be the actor's own username; for a **shared** target the actor
 must be an **active member** per the shared-spaces registry (SPEC-056). It also validates that the table name is
-catalog-safe and that the location resolves **within** the target space's bucket+prefix. A failed check is a
-clean, terminal no-op (recorded-failure state); a pass emits the validated, normalized request for the next
-steps.
+catalog-safe, that the location resolves **within** the target space's bucket+prefix, and that any
+**user-declared `partitionKeys`** are well-formed (catalog-safe names in granularity order, each with a valid
+projection type + range). A failed check is a clean, terminal no-op (recorded-failure state); a pass emits the
+validated, normalized request for the next steps.
 
 ## Scope
 
 ### In Scope
 
 - **Request-message contract** — a single JSON envelope (Data Model) carrying `idToken`, the `space`
-  (`kind`/`bucket`/`prefix`/`database`), and `tableName`. Documented in `docs/testing/table-builder-e2e.md` so the
-  browser (SPEC-071) and the pipeline build to one shape. Sent FIFO with **`MessageGroupId` = `space.database`**
-  + a `MessageDeduplicationId` (collapses a double-submit).
+  (`kind`/`bucket`/`prefix`/`database`), `tableName`, and an optional **`partitionKeys`** array (the
+  user-declared keys in granularity order, each with a projection `type` + range; **empty/absent = flat table**
+  — partition keys are **never** auto-detected from the path, decided 2026-06-30). Documented in
+  `docs/testing/table-builder-e2e.md` so the browser (SPEC-071) and the pipeline build to one shape. Sent FIFO
+  with **`MessageGroupId` = `space.database`** + a `MessageDeduplicationId` (collapses a double-submit).
 - **Browser producer access** — the **portal role** gains `sqs:SendMessage` on the table-build queue ARN **only**
   (a `.tftpl` statement); the queue URL is wired to the app as **`VITE_TABLE_BUILD_QUEUE_URL`** (SPEC-066 export).
   No other table-builder permission for the browser.
@@ -45,8 +48,13 @@ steps.
     registry (`<admin-bucket>/shared-spaces/{name}.json`), `space.bucket` = `dat-prod-shared-space`, and
     `space.prefix` starts with `{name}/`.
   - validate `tableName` against `CATALOG_IDENTIFIER_RE` (SPEC-033/048); normalize/trim the prefix.
-  Emits a small validated payload (`actor`, normalized `space`, `tableName`, `location = s3://{bucket}/{prefix}/`)
-  for the next state.
+  - validate `partitionKeys` (when present): each `name` is `CATALOG_IDENTIFIER_RE`-safe and unique; order is
+    preserved (granularity order is the user's contract); `type ∈ {integer,date,string}` with the
+    type-appropriate projection config well-formed (`integer`/`date` → a two-element `range`; `string` → a
+    non-empty `values` list); names must not collide with each other. A malformed `partitionKeys` is terminal
+    `invalid_partition_keys`.
+  Emits a small validated payload (`actor`, normalized `space`, `tableName`, `partitionKeys`,
+  `location = s3://{bucket}/{prefix}/`) for the next state.
 - **Validator role** — the SPEC-066 `validate-authorize` role's `.tftpl` policy is finalized: `s3:GetObject` on
   `<admin-bucket>/shared-spaces/*` (registry reads for shared authorization) + `logs`; **offline JWKS** ⇒ no
   Cognito IAM. Scoped + `simulate-custom-policy`-verified.
@@ -75,7 +83,8 @@ steps.
 #### Acceptance Criteria:
 
 - [ ] The queue accepts a JSON body matching the **Data Model** envelope: `idToken`, `space` (`kind` ∈
-  `personal|shared`, `bucket`, `prefix`, `database`), `tableName`, and an optional client `requestId`.
+  `personal|shared`, `bucket`, `prefix`, `database`), `tableName`, an optional **`partitionKeys`** array
+  (user-declared; empty/absent = flat), and an optional client `requestId`.
 - [ ] Every message is sent with **`MessageGroupId` = `space.database`** (per-DB serialization, FR rationale in
   `table-builder-architecture.md` §2) and a `MessageDeduplicationId` (e.g. `requestId`) so a double-submit is
   collapsed by FIFO.
@@ -126,9 +135,13 @@ steps.
 
 - [ ] `tableName` must match `CATALOG_IDENTIFIER_RE` (lowercase, leading letter, `[a-z0-9_]`, 3–63 chars; the
   SPEC-033/048 rule); otherwise terminal `invalid_table_name`.
+- [ ] `partitionKeys` (when present) are validated: each `name` is `CATALOG_IDENTIFIER_RE`-safe + unique,
+  `type ∈ {integer,date,string}`, and the projection config is well-formed for the type (`integer`/`date` →
+  two-element `range`; `string` → non-empty `values`); order is preserved as sent. A malformed array is
+  terminal `invalid_partition_keys`.
 - [ ] On success the Lambda returns a minimal, normalized payload the next states consume:
-  `{ actor, space:{kind,bucket,prefix,database}, tableName, location:"s3://{bucket}/{prefix}/" }` — small
-  ids/keys only, not large blobs (`lambdas.md` §10).
+  `{ actor, space:{kind,bucket,prefix,database}, tableName, partitionKeys, location:"s3://{bucket}/{prefix}/" }`
+  — small ids/keys only, not large blobs (`lambdas.md` §10).
 - [ ] The SFN `validate` Task runs `validate-authorize`; a terminal failure routes via `Catch` to the
   recorded-failure state carrying the reason; a pass proceeds to `check-table-absent`.
 
@@ -147,8 +160,10 @@ steps.
 #### Acceptance Criteria:
 
 - [ ] Python unit tests for `validate-authorize` (pure logic, AWS stubbed): valid personal request passes; valid
-  shared-member request passes; **wrong-user personal**, **non-member shared**, **inactive/unknown space**,
-  **out-of-space prefix**, **bad table name**, and **missing/expired token** each produce the correct terminal
+  shared-member request passes; a valid **partitioned** request (well-formed `partitionKeys`) passes and carries
+  them through; **wrong-user personal**, **non-member shared**, **inactive/unknown space**, **out-of-space
+  prefix**, **bad table name**, **malformed `partitionKeys`** (bad name / unknown type / missing range/values /
+  duplicate name → `invalid_partition_keys`), and **missing/expired token** each produce the correct terminal
   reason with **no** side effect; the validated payload shape matches FR-005. Idempotent (re-running validation is
   side-effect-free).
 - [ ] `docs/testing/table-builder-e2e.md`: a real browser-style message (valid token, personal space) passes
@@ -171,6 +186,13 @@ steps.
     "database": "alice"                 // Glue DB the space maps to (= username | shared name)
   },
   "tableName": "sales_2026",            // catalog-safe (CATALOG_IDENTIFIER_RE)
+  "partitionKeys": [                    // OPTIONAL; user-declared in granularity order. Omit/[] = flat table.
+    { "name": "year",  "type": "integer", "range": [2000, 2100], "digits": 4 },
+    { "name": "month", "type": "integer", "range": [1, 12],      "digits": 2 },
+    { "name": "day",   "type": "integer", "range": [1, 31],      "digits": 2 }
+    // date  key: { "name":"dt",     "type":"date",   "range":["2020-01-01","NOW"], "format":"yyyy-MM-dd" }
+    // string key: { "name":"region", "type":"string", "values":["us-east-1","eu-west-1"] }  // → projection enum
+  ],
   "requestId": "f3a1…"                  // client-generated; dedup + correlation (optional)
 }
 ```
@@ -181,9 +203,16 @@ steps.
   "actor": "alice",
   "space": {"kind": "personal", "bucket": "dat-prod-user-space", "prefix": "alice/sales/2026/", "database": "alice"},
   "tableName": "sales_2026",
+  "partitionKeys": [   # [] when flat; carried verbatim to inspect-source / infer-schema
+    {"name": "year",  "type": "integer", "range": [2000, 2100], "digits": 4},
+    {"name": "month", "type": "integer", "range": [1, 12],      "digits": 2},
+    {"name": "day",   "type": "integer", "range": [1, 31],      "digits": 2}
+  ],
   "location": "s3://dat-prod-user-space/alice/sales/2026/",
   "requestId": "f3a1…"
 }
+
+# terminal reasons added here: invalid_partition_keys
 ```
 
 ## Environment Variables

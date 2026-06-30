@@ -5,11 +5,16 @@
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-066 (polars Lambda layer + the infer-schema function/role), SPEC-068 (inspect-source output: format, partition keys, sample object, location), SPEC-067 (validated request)
 
-> **Reference:** `docs/table-builder-architecture.md` §4. Fourth of the arc. Implements **`infer-schema`** — the
-> Lambda that opens a sample data object with a **polars LazyFrame**, derives the column schema, maps polars
-> dtypes to Glue/Athena (Hive) types, folds in the Hive **partition columns**, and **generates the
-> `CREATE EXTERNAL TABLE` DDL**. `execute-ddl` (running it) is **SPEC-070**. Uses the SPEC-066 polars layer;
-> follows `docs/best-practices/lambdas/lambdas.md` (thin handler, pure mapping logic).
+> **Reference:** `docs/table-builder-architecture.md` §4/§5. Fourth of the arc. Implements **`infer-schema`** —
+> the Lambda that opens a sample data object with a **polars LazyFrame**, derives the **data** column schema,
+> maps polars dtypes to Glue/Athena (Hive) types, folds in the **user-declared partition columns** (with their
+> declared types), and **generates the `CREATE EXTERNAL TABLE` DDL incl. partition-projection `TBLPROPERTIES`**.
+> `execute-ddl` (running it) is **SPEC-070**. Uses the SPEC-066 polars layer; follows
+> `docs/best-practices/lambdas/lambdas.md` (thin handler, pure mapping logic).
+>
+> **Partitions = projection, keys user-declared (decided 2026-06-30).** Partition columns + their types come from
+> the request's `partitionKeys` (SPEC-067), **not** the path; the DDL carries `projection.*` properties so the
+> table is queryable with **no `MSCK REPAIR`** (SPEC-070).
 
 ## Overview
 
@@ -35,11 +40,20 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
   `Float64→double`, `Float32→float`, `Boolean→boolean`, `Utf8/String→string`, `Date→date`,
   `Datetime→timestamp`, `Decimal→decimal(p,s)`, `List(T)→array<hive(T)>`, `Struct→struct<field:hive(T),…>`;
   unknown/unsupported dtype ⇒ terminal `unmappable_type` (named column + dtype).
-- **Partition columns** — `partitionKeys` (SPEC-068) become `PARTITIONED BY (k string, …)` (typed `string` in v1)
-  and are **excluded** from the table's regular column list (Athena rejects a column appearing in both).
+- **Partition columns** — the request's **user-declared** `partitionKeys` (SPEC-067, carried by SPEC-068) become
+  `PARTITIONED BY (\`k\` {hiveType}, …)` using each key's **declared type** (`integer→int`, `date→date`,
+  `string→string`) and are **excluded** from the table's regular column list (Athena rejects a column appearing
+  in both). Keys are **not** re-derived from the path.
+- **Partition projection `TBLPROPERTIES`** (pure) — for each partition key emit the Athena projection config from
+  its declared type + range: `projection.enabled=true`; integer → `projection.{k}.type=integer` +
+  `projection.{k}.range='{min},{max}'` (+ `projection.{k}.digits` when given); date →
+  `projection.{k}.type=date` + `range` + `format` (+ `interval`/`interval.unit` when given); string →
+  `projection.{k}.type=enum` + `projection.{k}.values='a,b,…'`. Hive `key=value/` layout ⇒ the default projection
+  storage location is correct (no `storage.location.template` in v1). No `MSCK REPAIR` (SPEC-070).
 - **DDL generation** (pure) — assemble `CREATE EXTERNAL TABLE IF NOT EXISTS \`{database}\`.\`{tableName}\` (cols…)
   [PARTITIONED BY (…)] STORED AS PARQUET | ROW FORMAT … (CSV/JSON SerDe) LOCATION '{location}'
-  TBLPROPERTIES(…)`; identifiers safely quoted; the DDL is emitted as a string (run by SPEC-070).
+  TBLPROPERTIES(<format props> + <projection props>)`; identifiers safely quoted; the DDL is emitted as a string
+  (run by SPEC-070).
 - **Format storage clauses** — Parquet → `STORED AS PARQUET`; CSV → `ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'`
   with `skip.header.line.count=1` (decided: **`LazySimpleSerDe`** so polars-inferred numeric/date types survive
   into Athena, rather than OpenCSVSerde's all-string columns); JSON/NDJSON → `ROW FORMAT SERDE
@@ -51,11 +65,15 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 
 ### Out of Scope
 
-- **Running the DDL** / loading partitions / Athena — **SPEC-070** (this spec emits the DDL string + columns).
+- **Running the DDL** / Athena — **SPEC-070** (this spec emits the DDL string + columns). There is **no**
+  partition-load step (projection replaces `MSCK REPAIR`).
 - **Reconciling schema drift across files** — v1 infers from the **one** sample object (SPEC-068 chose it);
   multi-file reconciliation is a documented future enhancement.
-- **Non-default CSV options** (alt delimiter, no header) and **typed partition values** — deferred
-  (`table-builder-architecture.md` §10); partitions are `string` in v1.
+- **Inferring partition key types** — not done; types are **user-declared** in the request (SPEC-067). This spec
+  maps the declared type → Hive type + projection config.
+- **Non-default CSV options** (alt delimiter, no header) — deferred (`table-builder-architecture.md` §10); v1
+  assumes header + comma.
+- **`storage.location.template` / non-Hive partition paths** — out of v1 (Hive `key=value/` uses the default).
 - **Notifications** — SPEC-072.
 
 ---
@@ -83,13 +101,17 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 - [ ] The mapping is unit-tested directly (no AWS/Lambda runtime) for every supported dtype incl. nested
   `array<…>` and `struct<…>`.
 
-### FR-003: Partition columns
+### FR-003: Partition columns + projection
 
 #### Acceptance Criteria:
 
-- [ ] `partitionKeys` are rendered as `PARTITIONED BY (\`k\` string, …)` in declared order and are **omitted**
-  from the regular column list (no duplication); a flat source (`partitioned=false`, empty keys) produces no
-  `PARTITIONED BY` clause.
+- [ ] The request's **user-declared** `partitionKeys` are rendered as `PARTITIONED BY (\`k\` {hiveType}, …)` in
+  declared order using each key's **declared type** (`integer→int`, `date→date`, `string→string`) and are
+  **omitted** from the regular column list (no duplication); a flat source (empty keys) produces no
+  `PARTITIONED BY` clause and no projection properties.
+- [ ] Each partition key contributes the correct **projection `TBLPROPERTIES`** for its type (integer range/digits;
+  date range/format/interval; string enum values) plus `projection.enabled=true`; the values come from the
+  request, not from listing S3.
 - [ ] If an inferred data column name **collides** with a partition key, the partition key wins and the data
   column is dropped from the body (documented), so the DDL is valid.
 
@@ -100,11 +122,14 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 - [ ] A pure `build_create_table_ddl(database, tableName, columns, partitionKeys, format, location) -> str`
   produces a valid `CREATE EXTERNAL TABLE IF NOT EXISTS` with: backtick-quoted DB/table/column identifiers, the
   format's `STORED AS`/`ROW FORMAT`/SerDe + properties (CSV `skip.header.line.count=1`; JSON JsonSerDe), the
-  `PARTITIONED BY` clause when applicable, and `LOCATION '{location}'`.
+  `PARTITIONED BY` clause (with declared types) when applicable, `LOCATION '{location}'`, and — when partitioned —
+  the **partition-projection** `TBLPROPERTIES` (`projection.enabled` + per-key type/range/values) merged with the
+  format properties (`partitionKeys` carry the projection config).
 - [ ] `IF NOT EXISTS` is always present (replay-safe alongside SPEC-068's check + SPEC-070's run); the DDL targets
   `{database}.{tableName}` from the validated request.
-- [ ] The function is unit-tested for flat Parquet, partitioned CSV (header skip), and JSON, asserting the exact
-  generated DDL (golden strings).
+- [ ] The function is unit-tested for flat Parquet, **partitioned CSV with integer projection** (header skip +
+  `projection.*`), partitioned JSON, and a **string `enum`** partition key, asserting the exact generated DDL
+  (golden strings).
 
 ### FR-005: Output payload + role + SFN wiring
 
@@ -122,11 +147,13 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
 #### Acceptance Criteria:
 
 - [ ] Python unit tests: `map_dtype` for all supported (and a representative unmappable) dtypes incl. nested;
-  `build_create_table_ddl` golden strings for flat-Parquet, partitioned-CSV, JSON; the handler with a stubbed S3 +
-  a small fixture object yields the expected columns + DDL; scan error → `schema_inference_failed`; transient S3
-  → raised.
-- [ ] `docs/testing/table-builder-e2e.md`: a flat-Parquet and a partitioned-CSV request flow through
-  `inspect → infer` and the generated DDL is captured (and visibly correct) before the stub `execute-ddl`.
+  `build_create_table_ddl` golden strings for flat-Parquet, **partitioned-CSV with integer projection**, JSON,
+  and a **string `enum`** partition key (asserting the `projection.*` `TBLPROPERTIES`); the handler with a stubbed
+  S3 + a small fixture object yields the expected columns + DDL; scan error → `schema_inference_failed`; transient
+  S3 → raised.
+- [ ] `docs/testing/table-builder-e2e.md`: a flat-Parquet and a partitioned-CSV (projection) request flow through
+  `inspect → infer` and the generated DDL is captured (and visibly correct, incl. projection properties) before
+  the stub `execute-ddl`.
 
 ---
 
@@ -140,9 +167,12 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
   "tableName": "sales_2026",
   "location": "s3://dat-prod-user-space/alice/sales/2026/",
   "format": "csv",
-  "partitionKeys": ["year", "month"],
+  "partitionKeys": [
+    {"name": "year",  "type": "integer", "range": [2000, 2100], "digits": 4},
+    {"name": "month", "type": "integer", "range": [1, 12],      "digits": 2}
+  ],
   "columns": [{"name": "order_id", "type": "bigint"}, {"name": "amount", "type": "double"}, {"name": "ts", "type": "timestamp"}],
-  "ddl": "CREATE EXTERNAL TABLE IF NOT EXISTS `alice`.`sales_2026` (`order_id` bigint, `amount` double, `ts` timestamp) PARTITIONED BY (`year` string, `month` string) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.LazySimpleSerDe' WITH SERDEPROPERTIES ('field.delim'=',') STORED AS TEXTFILE LOCATION 's3://dat-prod-user-space/alice/sales/2026/' TBLPROPERTIES ('skip.header.line.count'='1')",
+  "ddl": "CREATE EXTERNAL TABLE IF NOT EXISTS `alice`.`sales_2026` (`order_id` bigint, `amount` double, `ts` timestamp) PARTITIONED BY (`year` int, `month` int) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.LazySimpleSerDe' WITH SERDEPROPERTIES ('field.delim'=',') STORED AS TEXTFILE LOCATION 's3://dat-prod-user-space/alice/sales/2026/' TBLPROPERTIES ('skip.header.line.count'='1', 'projection.enabled'='true', 'projection.year.type'='integer', 'projection.year.range'='2000,2100', 'projection.year.digits'='4', 'projection.month.type'='integer', 'projection.month.range'='1,12', 'projection.month.digits'='2')",
   "requestId": "f3a1…"
 }
 
