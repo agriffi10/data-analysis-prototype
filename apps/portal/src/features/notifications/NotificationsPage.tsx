@@ -198,9 +198,7 @@ function FilterTabs({filter, onChange}: {filter: Filter; onChange: (next: Filter
             onClick={() => onChange(value)}
             className={cx(
               'h-7 rounded-sm px-3 text-sm font-medium capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-              active
-                ? 'bg-surface font-semibold text-accent-text shadow-sm'
-                : 'text-text-2 hover:text-text'
+              active ? 'bg-surface font-semibold text-accent-text shadow-sm' : 'text-text-2 hover:text-text'
             )}>
             {value}
           </button>
