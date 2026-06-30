@@ -100,6 +100,36 @@ resource "aws_iam_role_policy_attachment" "deploy_notifications" {
   policy_arn = aws_iam_policy.deploy_notifications.arn
 }
 
+# SPEC-066 table-builder control-plane grants — a SEPARATE customer-managed policy,
+# same rationale as deploy_shared_spaces / deploy_notifications above (off the role's
+# inline-policy aggregate, separate 6,144-char budget). Covers the table-builder
+# module's resource types: the FIFO request queue + DLQ, the EventBridge Pipe, the
+# Standard Step Function (+ its execution role), the five single-task verb Lambdas +
+# their per-verb roles (incl. scoped iam:PassRole), the polars Lambda layer, and the
+# Lambda + Step-Function log groups — all scoped by {project_name}-*-table-builder-*
+# name patterns. The table-builder module creates no S3 buckets (it only consumes the
+# existing user/shared/admin bucket ARNs), so there is no S3-bucket-manage statement
+# here. states:ValidateStateMachineDefinition is not resource-scopable, so it is
+# isolated to its own "*" statement per the architecture.md "new resource type" traps.
+# Granted FIRST (this PR) and applied before the table-builder module's resources land
+# in a later PR (the deploy-perms-before-resources rule), so no self-grant race.
+resource "aws_iam_policy" "deploy_table_builder" {
+  name        = "${var.project_name}-deploy-table-builder"
+  description = "Deploy-role grants for the SPEC-066 table-builder control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + roles, polars layer, log groups), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-table-builder.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_table_builder" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_table_builder.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
