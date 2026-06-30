@@ -119,6 +119,35 @@ describe('NotificationsPage (SPEC-060)', () => {
     expect(screen.getByRole('button', {name: 'Mark all read'})).toBeDisabled();
   });
 
+  it('the Unread filter hides read notifications and re-pages the list', async () => {
+    mockGet.mockResolvedValue({
+      success: true,
+      data: [
+        {id: 'u', message: 'Unread one', read: false, timestamp: '2026-06-28T00:02:00.000Z'},
+        {id: 'r', message: 'Read one', read: true, timestamp: '2026-06-28T00:01:00.000Z'}
+      ]
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Read one')).toBeInTheDocument());
+    expect(screen.getByText(/1–2 of 2/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: /^unread$/i}));
+    expect(screen.queryByText('Read one')).not.toBeInTheDocument();
+    expect(screen.getByText('Unread one')).toBeInTheDocument();
+    expect(screen.getByText(/1–1 of 1/)).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /^unread$/i})).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows "No unread notifications." when the Unread filter has nothing', async () => {
+    mockGet.mockResolvedValue({success: true, data: list(2, {read: true})});
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Message 0')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', {name: /^unread$/i}));
+    expect(screen.getByText('No unread notifications.')).toBeInTheDocument();
+    expect(screen.queryByText('Message 0')).not.toBeInTheDocument();
+  });
+
   it('rolls back and shows a danger toast when an action fails', async () => {
     mockGet.mockResolvedValue({success: true, data: list(1)});
     mockEnqueue.mockResolvedValue({success: false, error: {message: 'queue down'}});
