@@ -29,11 +29,12 @@ Unlike the shared-spaces producer, every event here has a **single recipient —
 - **Failure notifications (per step)** — at each verb Lambda's terminal-failure branch (the reason it sends to the
   recorded-failure state, SPEC-067→070), emit one `create` notification to the **actor** with a human-readable
   message mapping the terminal reason:
-  - `unauthorized` / `forbidden` / `invalid_table_name` (validate-authorize)
+  - `unauthorized` / `forbidden` / `invalid_table_name` / `invalid_partition_keys` (validate-authorize)
   - `table_exists` (check-table-absent)
-  - `ambiguous_layout` / `no_data_files` / `mixed_formats` / `unsupported_format` (inspect-source)
+  - `no_data_files` / `mixed_formats` / `unsupported_format` / `unexpected_partitioning` /
+    `partition_layout_mismatch` (inspect-source)
   - `schema_inference_failed` / `unmappable_type` (infer-schema)
-  - `ddl_execution_failed` / `partition_load_failed` / `ddl_timeout` (execute-ddl)
+  - `ddl_execution_failed` / `ddl_timeout` (execute-ddl)
 - **Success notification** — on `execute-ddl` terminal success (`status:'created'`), emit one notification to the
   actor: `Table "{tableName}" is ready to query in "{database}".`
 - **Verb-role grant** — each emitting verb Lambda's `.tftpl` role policy gains `sqs:SendMessage` on the
@@ -136,14 +137,15 @@ Recipient is always the **actor**. Message per outcome:
 |---|---|---|
 | validate-authorize | `unauthorized`/`forbidden` | `You don't have access to create a table here.` |
 | validate-authorize | `invalid_table_name` | `Couldn't create table "{name}": the name isn't a valid table name.` |
+| validate-authorize | `invalid_partition_keys` | `Couldn't create table "{name}": the partition keys aren't valid (check names, types, and ranges).` |
 | check-table-absent | `table_exists` | `Couldn't create table "{name}": a table with that name already exists in "{database}".` |
 | inspect-source | `no_data_files` | `Couldn't create table "{name}": no supported data files were found in that folder.` |
 | inspect-source | `mixed_formats` | `Couldn't create table "{name}": the folder mixes file formats — use a single format.` |
 | inspect-source | `unsupported_format` | `Couldn't create table "{name}": that file format isn't supported (use Parquet, CSV, or JSON).` |
-| inspect-source | `ambiguous_layout` | `Couldn't create table "{name}": the folder layout isn't a recognized flat or partitioned dataset.` |
+| inspect-source | `unexpected_partitioning` | `Couldn't create table "{name}": the folder is partitioned but no partition keys were provided.` |
+| inspect-source | `partition_layout_mismatch` | `Couldn't create table "{name}": the partition keys don't match the folder layout (check names and order).` |
 | infer-schema | `schema_inference_failed`/`unmappable_type` | `Couldn't create table "{name}": the data schema couldn't be read.` |
 | execute-ddl | `ddl_execution_failed`/`ddl_timeout` | `Couldn't create table "{name}": creating the table failed ({reason}).` |
-| execute-ddl | `partition_load_failed` | `Created table "{name}", but loading its partitions failed — re-run to finish.` |
 | execute-ddl | `created` (success) | `Table "{name}" is ready to query in "{database}".` |
 
 ## API / Interface Contract

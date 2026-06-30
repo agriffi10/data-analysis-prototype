@@ -1,27 +1,32 @@
-# Spec: Table Builder — Execute DDL, Load Partitions & Terminal States
+# Spec: Table Builder — Execute DDL & Terminal States
 
 **ID:** SPEC-070
 **Status:** Draft
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-069 (generated DDL + resolved columns), SPEC-068 (partition keys), SPEC-067 (validated target DB/location), SPEC-066 (control plane + execute-ddl function/role), SPEC-032 (Athena workgroup + Lake Formation hybrid registration), SPEC-033 (per-DB LF grant pattern)
+**Last Updated:** 2026-06-30
+**Depends On:** SPEC-069 (generated DDL + resolved columns + projection properties), SPEC-068 (layout-validated source), SPEC-067 (validated target DB/location), SPEC-066 (control plane + execute-ddl function/role), SPEC-032 (Athena workgroup + Lake Formation hybrid registration), SPEC-033 (per-DB LF grant pattern)
 
 > **Reference:** `docs/table-builder-architecture.md` §5. Fifth of the arc — completes the **end-to-end** create
-> (sans notifications/UI). Implements **`execute-ddl`**: run the generated `CREATE EXTERNAL TABLE` via **Athena**
-> against the target database, then **`MSCK REPAIR TABLE`** for partitioned data, and record terminal success;
-> finalizes the state machine's success/failure terminal states + `Catch` across all verbs and the execute-ddl
-> role's LF/Glue/Athena/S3 grants. Follows `docs/best-practices/lambdas/lambdas.md`.
+> (sans notifications/UI). Implements **`execute-ddl`**: run the generated `CREATE EXTERNAL TABLE` (incl.
+> partition-**projection** `TBLPROPERTIES`) via **Athena** against the target database and record terminal
+> success; finalizes the state machine's success/failure terminal states + `Catch` across all verbs and the
+> execute-ddl role's LF/Glue/Athena/S3 grants. Follows `docs/best-practices/lambdas/lambdas.md`.
+>
+> **No partition load (decided 2026-06-30).** Partitioned tables use **partition projection** (SPEC-069), so there
+> is **no `MSCK REPAIR TABLE`** step and **no `partition_load_failed`** reason — a projected table is queryable
+> the instant the `CREATE` succeeds.
 
 ## Overview
 
 Run the table into existence. `execute-ddl` takes the `infer-schema` payload (the `CREATE EXTERNAL TABLE IF NOT
-EXISTS` DDL + the target database/location), submits it through **Athena `StartQueryExecution`** in the shared
-analytics workgroup (SPEC-032), and polls to a terminal state — the user's stated "use the create statement to
-run against the database." When the source is **Hive-partitioned**, it then runs **`MSCK REPAIR TABLE`** so the
-existing partitions are loaded and the table is immediately queryable. On success the request reaches the state
-machine's **succeed** state; on any Athena failure it routes (via `Catch`) to the **recorded-failure** state with
-the reason. Because the table is created over an LF-registered location in another concern's database, this spec
-also finalizes the execute-ddl role's Lake Formation / Glue / Athena / S3 permissions (the broad role of the
-arc), scoped as tightly as the model allows.
+EXISTS` DDL — which already carries the partition-projection `TBLPROPERTIES` for partitioned sources — + the
+target database/location), submits it through **Athena `StartQueryExecution`** in the shared analytics workgroup
+(SPEC-032), and polls to a terminal state — the user's stated "use the create statement to run against the
+database." Because partitions are exposed via **projection**, the table is immediately queryable on a successful
+`CREATE`; there is **no separate partition-load step**. On success the request reaches the state machine's
+**succeed** state; on any Athena failure it routes (via `Catch`) to the **recorded-failure** state with the
+reason. Because the table is created over an LF-registered location in another concern's database, this spec also
+finalizes the execute-ddl role's Lake Formation / Glue / Athena / S3 permissions (the broad role of the arc),
+scoped as tightly as the model allows.
 
 ## Scope
 
@@ -30,13 +35,11 @@ arc), scoped as tightly as the model allows.
 - **`execute-ddl` Lambda** — `StartQueryExecution(QueryString=ddl, QueryExecutionContext={Database: database},
   WorkGroup=<analytics workgroup>, ResultConfiguration → the space's `athenaresults/{actor}/`)`; poll
   `GetQueryExecution` to terminal (reuse the polling cadence/cap constants pattern from SPEC-034). `SUCCEEDED` ⇒
-  proceed; `FAILED`/`CANCELLED` ⇒ terminal `ddl_execution_failed` (carry Athena's `StateChangeReason`).
-- **Partition load** — when `partitioned=true`, after a successful `CREATE`, run **`MSCK REPAIR TABLE
-  \`{database}\`.\`{tableName}\``** via Athena and poll to terminal; a repair failure is terminal
-  `partition_load_failed` (the table exists but partitions weren't loaded — reason recorded).
+  proceed to the **succeed** state; `FAILED`/`CANCELLED` ⇒ terminal `ddl_execution_failed` (carry Athena's
+  `StateChangeReason`). **No `MSCK REPAIR`** / no partition-load step — projection (SPEC-069) makes a partitioned
+  table queryable immediately.
 - **Idempotency / replay-safety** — `CREATE … IF NOT EXISTS` (SPEC-069) + the SPEC-068 pre-check make a re-run a
-  no-op success; `MSCK REPAIR` is naturally idempotent. A replayed terminal request is a no-op success
-  (`lambdas.md` §3).
+  no-op success. A replayed terminal request is a no-op success (`lambdas.md` §3).
 - **Terminal states across the machine** — finalize the SFN **succeed** state (after execute/repair) and the
   shared **recorded-failure** state that every verb's `Catch` targets, carrying `{ requestId, actor, database,
   tableName, status:'failed', reason }` (and `status:'created'` on success) — the structured outcome SPEC-072
@@ -58,9 +61,10 @@ arc), scoped as tightly as the model allows.
 - **Notifications** of success/failure — **SPEC-072** (this spec records the structured terminal outcome; the
   inbox message is the producer spec).
 - **The browser UI / enqueue** — SPEC-071.
-- **DDL generation / schema inference / inspection** — SPEC-068/069 (consumed here).
-- **`ALTER TABLE ADD PARTITION` projection / partition projection tuning** — v1 uses `MSCK REPAIR TABLE`;
-  partition projection is a future optimization.
+- **DDL generation / schema inference / inspection** — SPEC-068/069 (consumed here). The partition-projection
+  `TBLPROPERTIES` are **generated in SPEC-069**; this spec just runs the DDL that contains them.
+- **`MSCK REPAIR TABLE` / `ALTER TABLE ADD PARTITION`** — **not used** (v1 uses partition projection, SPEC-069);
+  no partition enumeration or load.
 
 ---
 
@@ -80,22 +84,24 @@ arc), scoped as tightly as the model allows.
 - [ ] Polling honors a max duration cap (as SPEC-034's `MAX_POLL_DURATION_MS` pattern); exceeding it is a terminal
   `ddl_timeout` (the query may still finish in Athena — recorded, not silently lost).
 
-### FR-002: Load partitions for partitioned tables
+### FR-002: Partitions via projection (no load step)
 
 #### Acceptance Criteria:
 
-- [ ] When `partitioned=true`, after a successful `CREATE` the Lambda runs `MSCK REPAIR TABLE
-  \`{database}\`.\`{tableName}\`` via Athena and polls to terminal; success ⇒ proceed to the succeed state.
-- [ ] A repair failure ⇒ terminal `partition_load_failed` (reason recorded; the created table is left in place —
-  the next run's `IF NOT EXISTS` + repair can recover).
-- [ ] A **flat** source (`partitioned=false`) skips the repair entirely.
+- [ ] A **partitioned** source (`partitioned=true`) is made queryable by the projection `TBLPROPERTIES` in the
+  `CREATE` DDL (SPEC-069) alone; `execute-ddl` runs **no** `MSCK REPAIR TABLE` and **no** `ALTER TABLE ADD
+  PARTITION`, and performs no partition enumeration.
+- [ ] After a `SUCCEEDED` `CREATE`, a partitioned table proceeds **directly** to the succeed state (same path as a
+  flat table); there is no `partition_load_failed` reason in the arc.
+- [ ] A spot-check query (e.g. `SELECT … WHERE year=… LIMIT 1`, in the e2e doc) returns rows from an existing
+  partition, confirming projection resolves the path without a load step.
 
 ### FR-003: Idempotency / replay-safety
 
 #### Acceptance Criteria:
 
 - [ ] Re-running a request whose table already exists is a **no-op success** (the `IF NOT EXISTS` create succeeds
-  trivially; `MSCK REPAIR` is idempotent) — not a `table_exists` error (that guard is the *pre-create*
+  trivially; projection needs no load step) — not a `table_exists` error (that guard is the *pre-create*
   SPEC-068 check; a replay after creation must not fail).
 - [ ] A replay of an already-terminal request reaches the same terminal state without duplicate side effects
   (`lambdas.md` §3).
@@ -107,10 +113,10 @@ arc), scoped as tightly as the model allows.
 - [ ] The state machine has a **succeed** state reached after execute (+ repair) and a single **recorded-failure**
   state that every verb's `Catch` targets; both carry a structured outcome `{ requestId, actor, database,
   tableName, status, reason? }` (`status` ∈ `created|failed`) — the object SPEC-072 consumes.
-- [ ] All five terminal failure reasons from the arc (`unauthorized`/`forbidden`/`invalid_table_name`,
-  `table_exists`, `ambiguous_layout`/`no_data_files`/`mixed_formats`/`unsupported_format`,
-  `schema_inference_failed`/`unmappable_type`, `ddl_execution_failed`/`partition_load_failed`/`ddl_timeout`) land
-  in the recorded-failure state with their reason.
+- [ ] All terminal failure reasons from the arc (`unauthorized`/`forbidden`/`invalid_table_name`/
+  `invalid_partition_keys`, `table_exists`, `no_data_files`/`mixed_formats`/`unsupported_format`/
+  `unexpected_partitioning`/`partition_layout_mismatch`, `schema_inference_failed`/`unmappable_type`,
+  `ddl_execution_failed`/`ddl_timeout`) land in the recorded-failure state with their reason.
 
 ### FR-005: execute-ddl role + Lake Formation + deploy IAM
 
@@ -130,11 +136,13 @@ arc), scoped as tightly as the model allows.
 #### Acceptance Criteria:
 
 - [ ] Python unit tests (Athena/Glue stubbed): a `SUCCEEDED` create on a flat source reaches `created`; a
-  partitioned source runs `MSCK REPAIR` then `created`; an Athena `FAILED` → `ddl_execution_failed` (reason
-  carried); a repair failure → `partition_load_failed`; a transient Athena error is **raised** (retry), a timeout
-  → `ddl_timeout`; a replay of an existing table → no-op `created`.
-- [ ] `docs/testing/table-builder-e2e.md`: a real end-to-end run (flat-Parquet **and** partitioned-CSV) creates a
-  queryable table in the target DB (visible in the schema rail / `SHOW TABLES`); a deliberately bad DDL records
+  **partitioned** source reaches `created` via the **same single `CREATE`** (no second `MSCK REPAIR`
+  `StartQueryExecution` is issued — assert exactly one query runs); an Athena `FAILED` → `ddl_execution_failed`
+  (reason carried); a transient Athena error is **raised** (retry); a timeout → `ddl_timeout`; a replay of an
+  existing table → no-op `created`.
+- [ ] `docs/testing/table-builder-e2e.md`: a real end-to-end run (flat-Parquet **and** partitioned-CSV via
+  projection) creates a queryable table in the target DB (visible in the schema rail / `SHOW TABLES`), and a
+  partition-filtered `SELECT` returns rows **without** any load step; a deliberately bad DDL records
   `ddl_execution_failed`. `simulate-custom-policy` output for the execute-ddl role is captured.
 
 ---
@@ -158,7 +166,7 @@ construction) — module env vars; no `VITE_*`.
 
 ```
 lambdas/table-builder-execute-ddl/
-├── execute_ddl.py            # run CREATE via Athena + poll; MSCK REPAIR if partitioned; emit terminal outcome
+├── execute_ddl.py            # run CREATE via Athena + poll; emit terminal outcome (projection ⇒ no MSCK REPAIR)
 ├── athena_run.py             # shared start+poll helper (cadence/cap constants, SPEC-034 pattern)
 └── test_execute_ddl.py       # NEW
 
@@ -173,11 +181,11 @@ docs/testing/table-builder-e2e.md   # end-to-end create (flat + partitioned) (FR
 
 ## Implementation Phases
 
-### Phase 1: Execute + repair + terminal outcome
+### Phase 1: Execute + terminal outcome
 
-- `execute_ddl` (Athena start+poll; MSCK REPAIR when partitioned; idempotent replay) + the SFN succeed /
-  recorded-failure states carrying the structured outcome; unit tests (FR-001, FR-002, FR-003, FR-004, FR-006
-  partial).
+- `execute_ddl` (Athena start+poll of the single `CREATE`; **no** MSCK REPAIR — projection handles partitions;
+  idempotent replay) + the SFN succeed / recorded-failure states carrying the structured outcome; unit tests
+  (FR-001, FR-002, FR-003, FR-004, FR-006 partial).
 
 ### Phase 2: Role + Lake Formation + deploy IAM
 

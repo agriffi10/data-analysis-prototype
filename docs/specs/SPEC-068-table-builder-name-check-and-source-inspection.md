@@ -7,22 +7,27 @@
 
 > **Reference:** `docs/table-builder-architecture.md` §4. Third of the arc. Implements the two **gathering /
 > validation** Lambdas that run after `validate-authorize`: **`check-table-absent`** (the requested table must not
-> already exist in the target DB) and **`inspect-source`** (is the folder flat data files or Hive-partitioned;
-> is it a single supported, consistent format). They emit the facts `infer-schema` (SPEC-069) needs. `infer-schema`
-> + `execute-ddl` stay stubs. Lambdas follow `docs/best-practices/lambdas/lambdas.md`.
+> already exist in the target DB) and **`inspect-source`** (is it a single supported, consistent format; do the
+> **user-declared** partition keys match the folder layout). They emit the facts `infer-schema` (SPEC-069) needs.
+> `infer-schema` + `execute-ddl` stay stubs. Lambdas follow `docs/best-practices/lambdas/lambdas.md`.
+>
+> **Partition keys are user-declared (decided 2026-06-30), not auto-detected.** `inspect-source` no longer
+> derives keys from the path; the request carries `partitionKeys` (SPEC-067). This Lambda **confirms** they match
+> the Hive `key=value/` layout rather than discovering them.
 
 ## Overview
 
 Before inferring schema or running DDL, the pipeline must confirm two things from the validated request. First,
 **`check-table-absent`** asks Glue whether `tableName` already exists in the target database — if it does, the
 request fails terminally with a clear reason (no accidental clobber; collisions are surfaced, since table
-versioning isn't a thing here). Second, **`inspect-source`** lists the request's prefix and determines the
-**physical layout** — a set of **flat** data files directly under the prefix, or **Hive-style partitions**
-(subdirectories named `key=value/`) — and validates that the data is a **single, consistent, supported format**
-(Parquet, CSV, or JSON/NDJSON). It returns the format, the partition keys (if any), a representative **sample
-object key**, and the table **location**, which together drive schema inference and DDL generation downstream.
-Anything ambiguous or unsupported (mixed formats, no data files, an unrecognized extension) is a terminal failure
-with a specific, user-readable reason.
+versioning isn't a thing here). Second, **`inspect-source`** lists the request's prefix and validates that the
+data is a **single, consistent, supported format** (Parquet, CSV, or JSON/NDJSON) **and** that the layout matches
+the request's **user-declared `partitionKeys`**: a **flat** request (no keys) must have data files directly under
+the prefix; a **partitioned** request must have the declared keys present as ordered Hive `key=value/` segments
+on the data objects' paths. It returns the format, a `partitioned` flag, a representative **sample object key**,
+and the table **location**, which together with the carried-through `partitionKeys` drive schema inference and
+DDL generation downstream. Anything unsupported or mismatched (mixed formats, no data files, an unrecognized
+extension, declared keys absent from the path) is a terminal failure with a specific, user-readable reason.
 
 ## Scope
 
@@ -32,16 +37,20 @@ with a specific, user-readable reason.
   proceed; **found** ⇒ terminal failure `table_exists`. Idempotency-friendly (this is the duplicate-name guard
   alongside `CREATE … IF NOT EXISTS` in SPEC-070). Its role gets Glue `GetTable`/`GetDatabase` on the catalog +
   `logs` only.
-- **`inspect-source` Lambda** — list `space.prefix` (paginated) in `space.bucket`; classify layout + format:
-  - **Layout:** **flat** (data objects directly under the prefix) vs **Hive-partitioned** (immediate children are
-    `key=value/` directories; capture the ordered **partition keys** from the first data object's path). A prefix
-    that mixes top-level data files **and** `key=value/` dirs, or has inconsistent partition depth, is terminal
-    `ambiguous_layout`.
+- **`inspect-source` Lambda** — list `space.prefix` (paginated) in `space.bucket`; validate layout-vs-request +
+  format:
+  - **Layout (validate against declared keys, do not derive):** if the request's `partitionKeys` is **empty**,
+    require **flat** data — data objects directly under the prefix, no `key=value/` nesting (any nesting ⇒
+    terminal `unexpected_partitioning`). If `partitionKeys` is **non-empty**, require each declared key to appear
+    as a Hive `key=value/` segment **in the declared order** on the data objects' paths; a key absent from the
+    path, out of order, or an extra undeclared `key=value/` segment ⇒ terminal `partition_layout_mismatch`. The
+    `location` stays the request prefix (the partition root).
   - **Format:** infer from object extensions (`.parquet`, `.csv`, `.json`/`.ndjson`/`.jsonl`); the folder must be
     a **single** supported format across its data objects (ignoring the prefix marker `DO_NOT_DELETE.txt` and
     `athenaresults/` and zero-byte/`_`-prefixed/`.`-prefixed files). Mixed formats ⇒ terminal `mixed_formats`;
     none recognized ⇒ terminal `no_data_files`; unsupported only (e.g. `.orc`) ⇒ terminal `unsupported_format`.
-  - Emit `{ format, partitioned, partitionKeys[], sampleObjectKey, location, fileCount }` for `infer-schema`.
+  - Emit `{ ...request (incl. partitionKeys), format, partitioned, sampleObjectKey, location, fileCount }` for
+    `infer-schema` (`partitioned` = `len(partitionKeys) > 0`).
   Its role gets `s3:ListBucket` + `s3:GetObject` (head/list; a small range get is fine) on **both** data buckets,
   scoped to the data prefixes, + `logs`.
 - **Wire both as SFN states** — `validate → check-table-absent → inspect-source → (stub infer-schema)`, each a
@@ -50,12 +59,14 @@ with a specific, user-readable reason.
 
 ### Out of Scope
 
-- **Reading file contents to infer column types** — `inspect-source` only classifies layout/format and picks a
+- **Reading file contents to infer column types** — `inspect-source` only validates layout/format and picks a
   **sample object key**; opening it with polars is **SPEC-069**.
+- **Deriving partition keys from the path** — not done; keys are **user-declared** (SPEC-067). `inspect-source`
+  only **confirms** the declared keys match the Hive `key=value/` layout.
 - **DDL generation / execution** — SPEC-069/070.
 - **Notifications** for these failure reasons — SPEC-072 (recorded in the SFN execution here).
-- **Non-Hive partition schemes** (directory-position partitions without `key=value`) — terminal `ambiguous_layout`
-  in v1 (documented), not silently guessed.
+- **Non-Hive partition schemes** (directory-position partitions without `key=value`) — out of v1; a partitioned
+  request whose paths aren't `key=value/` fails `partition_layout_mismatch`, not silently guessed.
 - **Per-request CSV options** (delimiter/header) — assumed defaults, validated/applied in SPEC-069.
 
 ---
@@ -74,18 +85,20 @@ with a specific, user-readable reason.
 - [ ] The role grants Glue `GetTable`/`GetDatabase` on the catalog ARNs + `logs` only; `simulate-custom-policy`
   confirms no create/delete/table-mutation rights.
 
-### FR-002: inspect-source — layout classification
+### FR-002: inspect-source — layout validation against declared keys
 
 #### Acceptance Criteria:
 
-- [ ] Listing `space.prefix`, the Lambda classifies the folder as **flat** (data objects directly under the
-  prefix, no `key=value/` children) or **Hive-partitioned** (immediate children are `key=value/` directories);
-  for partitioned data it captures the **ordered partition keys** (e.g. `["year","month"]`) from the first data
-  object's path.
-- [ ] A folder mixing top-level data files with `key=value/` dirs, inconsistent partition key sets/depths across
-  objects, or no data under it ⇒ terminal failure with the specific reason (`ambiguous_layout` / `no_data_files`).
+- [ ] Listing `space.prefix`, the Lambda validates the layout **against the request's `partitionKeys`** (it does
+  **not** derive keys): empty `partitionKeys` ⇒ require flat data objects directly under the prefix; non-empty
+  ⇒ require each declared key present as a Hive `key=value/` segment **in the declared order** on the data
+  objects' paths.
+- [ ] A flat request whose data is actually nested under `key=value/` ⇒ terminal `unexpected_partitioning`; a
+  partitioned request with a declared key **missing**, **out of order**, or with an **extra undeclared**
+  `key=value/` segment ⇒ terminal `partition_layout_mismatch`; no data under the prefix ⇒ terminal
+  `no_data_files`.
 - [ ] The marker (`DO_NOT_DELETE.txt`), `athenaresults/`, zero-byte objects, and `_`/`.`-prefixed files are
-  **ignored** when classifying (so a normal space folder isn't misread).
+  **ignored** when validating (so a normal space folder isn't misread).
 
 ### FR-003: inspect-source — format validation
 
@@ -101,10 +114,11 @@ with a specific, user-readable reason.
 
 #### Acceptance Criteria:
 
-- [ ] On success the Lambda emits `{ ...request, format, partitioned, partitionKeys[], sampleObjectKey, location,
-  fileCount }` where `sampleObjectKey` is a representative data object (for partitioned data, one leaf data
-  object) that `infer-schema` will open; `location` is the table `LOCATION` (the request prefix for flat data;
-  the **partition root** prefix for partitioned data) — small payload, ids/keys only (`lambdas.md` §10).
+- [ ] On success the Lambda emits `{ ...request (incl. partitionKeys), format, partitioned, sampleObjectKey,
+  location, fileCount }` where `partitioned = len(partitionKeys) > 0`, `sampleObjectKey` is a representative data
+  object (for partitioned data, one leaf data object) that `infer-schema` will open; `location` is the table
+  `LOCATION` (the request prefix — the partition root for partitioned data) — small payload, ids/keys only
+  (`lambdas.md` §10). The `partitionKeys` are carried through **unchanged** (not re-derived).
 - [ ] The role grants `s3:ListBucket` (prefix-scoped) + `s3:GetObject` on **both** the user-space and shared
   buckets' data prefixes + `logs`; no write/delete; `simulate-custom-policy`-verified.
 
@@ -121,10 +135,12 @@ with a specific, user-readable reason.
 #### Acceptance Criteria:
 
 - [ ] Python unit tests (AWS stubbed) cover: `check-table-absent` passes on not-found, fails `table_exists` on
-  found, **raises** (not terminal) on a transient Glue error; `inspect-source` correctly classifies a **flat**
-  Parquet folder, a **Hive-partitioned** CSV folder (keys captured in order), and returns the right terminal
-  reason for `mixed_formats`, `no_data_files`, `unsupported_format`, and `ambiguous_layout`; the marker/results/
-  hidden files are ignored; the output payload matches FR-004.
+  found, **raises** (not terminal) on a transient Glue error; `inspect-source` accepts a **flat** Parquet folder
+  (empty `partitionKeys`), accepts a **partitioned** CSV folder whose `key=value/` segments match the declared
+  keys in order, and returns the right terminal reason for `mixed_formats`, `no_data_files`, `unsupported_format`,
+  `unexpected_partitioning` (flat request but nested data), and `partition_layout_mismatch` (declared key
+  missing / out of order / extra undeclared segment); the marker/results/hidden files are ignored; the output
+  payload matches FR-004 and carries `partitionKeys` through unchanged.
 - [ ] `docs/testing/table-builder-e2e.md`: a valid flat-Parquet request flows `validate → check → inspect` and
   reaches the stub `infer-schema` with the expected payload; an existing-name and a mixed-format request are each
   recorded-failed at the right step.
@@ -141,15 +157,19 @@ with a specific, user-readable reason.
   "tableName": "sales_2026",
   "location": "s3://dat-prod-user-space/alice/sales/2026/",   # partition root if partitioned
   "format": "parquet",            # 'parquet' | 'csv' | 'json'
-  "partitioned": true,
-  "partitionKeys": ["year", "month"],   # [] when flat
+  "partitioned": true,            # = len(partitionKeys) > 0
+  "partitionKeys": [              # carried through unchanged from the request (NOT re-derived); [] when flat
+    {"name": "year",  "type": "integer", "range": [2000, 2100], "digits": 4},
+    {"name": "month", "type": "integer", "range": [1, 12],      "digits": 2}
+  ],
   "sampleObjectKey": "alice/sales/2026/year=2026/month=01/part-0.parquet",
   "fileCount": 24,
   "requestId": "f3a1…"
 }
 
 # terminal failure reasons (carried to the recorded-failure state):
-#   table_exists | ambiguous_layout | no_data_files | mixed_formats | unsupported_format
+#   table_exists | no_data_files | mixed_formats | unsupported_format
+#   | unexpected_partitioning | partition_layout_mismatch
 ```
 
 ## File & Folder Structure
@@ -184,6 +204,6 @@ docs/testing/table-builder-e2e.md       # check + inspect flow (FR-006)
 
 ### Phase 2: inspect-source
 
-- Paginated listing + ignore-rules; flat/Hive classification + partition-key capture; single-consistent-format
-  validation; output payload + sample selection; role policy; SFN Task; unit tests + e2e doc
-  (FR-002, FR-003, FR-004, FR-005, FR-006).
+- Paginated listing + ignore-rules; layout validation **against the declared `partitionKeys`** (flat vs
+  `key=value/` order match); single-consistent-format validation; output payload (carry keys through) + sample
+  selection; role policy; SFN Task; unit tests + e2e doc (FR-002, FR-003, FR-004, FR-005, FR-006).
