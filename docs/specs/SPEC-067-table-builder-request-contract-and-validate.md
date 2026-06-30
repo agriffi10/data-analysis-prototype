@@ -1,7 +1,7 @@
 # Spec: Table Builder — Request Contract, Browser Enqueue & Validate-Authorize
 
 **ID:** SPEC-067
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-066 (table-builder control plane skeleton + Lambda stubs + roles), SPEC-056 (shared-spaces registry = membership source of truth + ID-token actor binding), SPEC-006 (Cognito User Pool — token issuer), SPEC-034 (analytics clients + Glue per-DB model), SPEC-011 (portal role + module wiring)
 
