@@ -34,7 +34,23 @@ resource "aws_iam_role_policy" "verb" {
     account_id              = var.account_id
     user_space_bucket_arn   = local.user_space_bucket_arn
     shared_space_bucket_arn = local.shared_space_bucket_arn
+    admin_bucket_arn        = local.admin_bucket_arn
     log_group_arn           = local.table_builder_log_group_arns[each.key]
+  })
+}
+
+# ── Portal role — table-build enqueue policy (SPEC-067 FR-002) ────────────────
+# The browser's ONLY table-builder privilege: sqs:SendMessage to the request queue.
+# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like
+# the notifications / shared-spaces modules do (the role is created in module.data;
+# the root module-level depends_on guarantees it exists first). No Lambda invoke, no
+# DLQ, no Step Function — just enqueue. The send helper that uses it lands in SPEC-071.
+resource "aws_iam_role_policy" "portal_table_builder" {
+  name = "table-build-enqueue"
+  role = var.portal_role_name
+
+  policy = templatefile("${path.module}/policies/portal-role-table-builder.json.tftpl", {
+    request_queue_arn = aws_sqs_queue.requests.arn
   })
 }
 

@@ -44,15 +44,19 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # Source-bucket names every reading verb needs (SPEC-068→070 use them); harmless on
-  # the verbs that don't. Per-verb action env (USER_POOL_ID, ATHENA_WORKGROUP, …) is
-  # added by the owning specs.
+  # Source-bucket names every reading verb needs (SPEC-068→070 use them) + the per-verb
+  # action env merged in (locals.tf): validate-authorize gets the Cognito pool/client
+  # for offline token verification (SPEC-067); other verbs' action env lands with their
+  # owning specs.
   environment {
-    variables = {
-      USER_SPACE_BUCKET   = var.user_space_bucket_name
-      SHARED_SPACE_BUCKET = var.shared_space_bucket_name
-      ADMIN_BUCKET        = var.admin_bucket_name
-    }
+    variables = merge(
+      {
+        USER_SPACE_BUCKET   = var.user_space_bucket_name
+        SHARED_SPACE_BUCKET = var.shared_space_bucket_name
+        ADMIN_BUCKET        = var.admin_bucket_name
+      },
+      lookup(local.table_builder_verb_env, each.key, {}),
+    )
   }
 
   # Bootstrap with the placeholder; CI replaces code + (infer-schema) attaches the

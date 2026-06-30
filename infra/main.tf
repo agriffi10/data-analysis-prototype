@@ -352,7 +352,14 @@ module "table_builder" {
   # The analytics workgroup execute-ddl runs the CREATE in (wired in SPEC-070).
   athena_workgroup = local.athena_workgroup_name
 
+  # SPEC-067: the portal role this module attaches the sqs:SendMessage enqueue policy
+  # to (by name), and the Cognito pool/client validate-authorize verifies tokens with.
+  portal_role_name = local.portal_role_name
+  user_pool_id     = module.auth.user_pool_id
+  app_client_id    = module.auth.user_pool_client_id
+
   # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
-  # applied); data/analytics own the buckets + catalog this module reads. Settle first.
+  # applied); data creates the portal role this module attaches the enqueue policy to;
+  # analytics owns the catalog the verbs read. Settle those first.
   depends_on = [module.base, module.data, module.analytics]
 }
