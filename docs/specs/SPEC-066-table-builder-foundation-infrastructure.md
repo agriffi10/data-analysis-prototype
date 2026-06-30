@@ -1,7 +1,7 @@
 # Spec: Table Builder — Foundation Infrastructure + polars Runtime
 
 **ID:** SPEC-066
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-032 (analytics foundation: admin bucket + Athena workgroup + LF bootstrap), SPEC-050 (shared bucket + the control-plane pattern this mirrors), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-011 (deploy role + module wiring)
 
