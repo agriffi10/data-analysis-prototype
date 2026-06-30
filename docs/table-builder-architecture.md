@@ -103,6 +103,11 @@ DB names, and view names).
   Glue/Athena (Hive) column types **for the data columns only**. **Partition columns** come from the
   user-declared keys (§5), are emitted as `PARTITIONED BY` with their declared type, and are **not** repeated
   in the table column list.
+- **Type inference rules (decided 2026-06-30).** (1) Inference **tries to parse dates** — date/timestamp-looking
+  values are typed `date`/`timestamp`, not `string` (Parquet has them natively; JSON inference enables date
+  parsing). (2) **CSV is NOT type-inferred** — a CSV's data columns are **all `string`** (names from the header
+  row), via **OpenCSVSerde**; this reverses the earlier "LazySimpleSerDe to keep inferred CSV types" choice.
+  Parquet/JSON still infer + date-parse. Detail: SPEC-069.
 - **polars packaging = Lambda layer (zip).** polars' Rust-native readers cover all three formats **without
   pyarrow**, keeping the layer small enough for the 250 MB unzipped limit and consistent with the repo's
   existing zip + placeholder-zip/`ignore_changes` packaging (no container/ECR path introduced). Only the
@@ -207,6 +212,9 @@ UI is folded into the feature spec (SPEC-071), as in the shared-spaces arc. Buil
 - [x] **Partitions = partition projection, not `MSCK REPAIR`** — no enumeration/load; the per-key projection
   **type + range** is collected in the modal (integer/date/`enum`-string). Removes the `partition_load_failed`
   reason. (User decision, 2026-06-30.)
+- [x] **Schema inference tries to parse dates** (date/timestamp-looking values → `date`/`timestamp`, not
+  `string`); **CSV is not type-inferred** (all `string`, names from the header, OpenCSVSerde) — reverses the prior
+  LazySimpleSerDe choice; Parquet/JSON keep inference. (User decision, 2026-06-30.)
 - [x] **Authorization reuses the existing model** — ID-token-derived actor; personal = own DB; shared = active
   member (per the shared-spaces registry). Any active member may create a shared table (not owner-only).
 - [x] **Outcomes delivered via notifications** (SPEC-058) — per-step failure + on-success, single recipient =
@@ -217,6 +225,9 @@ UI is folded into the feature spec (SPEC-071), as in the shared-spaces arc. Buil
 - **CSV header + options.** v1 assumes a **header row** for CSV and comma delimiter; `inspect-source`/
   `infer-schema` record/assume these. Non-header or alternate-delimiter CSV is a deferred enhancement (could be
   a future request option). (Confirmed 2026-06-30: keep the header+comma default for v1.)
+- ~~**CSV column typing.**~~ **Resolved (2026-06-30):** CSV columns are **not type-inferred** — all `string`
+  (names from the header), via OpenCSVSerde. Inferring/casting CSV column types is a deferred enhancement; users
+  cast in their queries. (Parquet/JSON keep inference + date parsing.) See §4 / SPEC-069.
 - ~~**Partition value typing.**~~ **Resolved (2026-06-30):** partition keys carry a user-declared projection
   **type** (integer/date/string-enum) + range from the modal — no longer `string`-only. See §5.
 - **execute-ddl LF grant timing.** Granting the execute-ddl role `CREATE_TABLE`/`DATA_LOCATION_ACCESS` may hit
