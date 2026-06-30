@@ -46,9 +46,35 @@ function StatusChip({status}: {status: Exclude<UploadStatus, 'collision'>}) {
   );
 }
 
+// The destination workspace is the first segment of the key (the username for the
+// personal space, the shared-space name otherwise) — the same value the breadcrumb
+// root and sidebar show. Returns null for a key with no prefix (dev/edge).
+function workspaceFromKey(key: string): string | null {
+  const i = key.indexOf('/');
+  return i > 0 ? key.slice(0, i) : null;
+}
+
+// A small muted tag naming the workspace an upload is going to (feedback
+// 2026-06-30) — useful now that uploads from different connections share one list.
+function WorkspaceTag({name}: {name: string}) {
+  return (
+    <span className="inline-flex min-w-0 max-w-[55%] flex-none items-center gap-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-text-2">
+      <svg
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className="h-3 w-3 shrink-0 text-text-3"
+        aria-hidden="true">
+        <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+      </svg>
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
 function UploadRow({item}: {item: UploadItem}) {
   const {cancel, dismiss, resolveOverwrite, resolveRename} = useUploadQueue();
   const name = leafName(item.key);
+  const workspace = workspaceFromKey(item.key);
 
   // Collision (SPEC-016 warn-and-confirm): pause the row and reuse CollisionPrompt.
   // Cancelling it drops the item from the queue (FR-003).
@@ -102,11 +128,14 @@ function UploadRow({item}: {item: UploadItem}) {
           <StatusChip status={item.status} />
         </div>
 
-        <p
-          className={`mt-0.5 truncate text-sm ${item.status === 'failed' ? 'text-danger' : 'text-text-2'}`}
-          title={item.status === 'failed' ? item.error : undefined}>
-          {subtext}
-        </p>
+        <div className="mt-0.5 flex items-center gap-1.5">
+          {workspace && <WorkspaceTag name={workspace} />}
+          <span
+            className={`min-w-0 truncate text-sm ${item.status === 'failed' ? 'text-danger' : 'text-text-2'}`}
+            title={item.status === 'failed' ? item.error : undefined}>
+            {subtext}
+          </span>
+        </div>
 
         {/* 6px accent progress bar — only while uploading (design-system §5) */}
         {item.status === 'uploading' && (

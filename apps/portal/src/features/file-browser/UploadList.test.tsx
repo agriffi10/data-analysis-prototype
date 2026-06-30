@@ -63,6 +63,16 @@ describe('UploadList', () => {
     expect(screen.getByText('Uploaded')).toBeInTheDocument();
   });
 
+  it('labels each upload with its destination workspace (the key root)', () => {
+    setItems([
+      item({id: 'p', key: 'alice/a.txt'}),
+      item({id: 's', key: 'team/sub/b.txt', status: 'done', loaded: 100})
+    ]);
+    render(<UploadList />);
+    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(screen.getByText('team')).toBeInTheDocument();
+  });
+
   it('lists uploads newest-first', () => {
     setItems([
       item({id: 'id-1', key: 'alice/first.txt', status: 'done', loaded: 100}),
