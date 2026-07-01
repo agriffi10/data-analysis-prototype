@@ -12,82 +12,14 @@ progress, so a re-run completes a half-done teardown; the registry never returns
 
 import logging
 
-import config
-import clients
 import cache
 import membership
 import registry as reg
+import teardown
 from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-
-def _delete_shared_prefix(name):
-    """Recursively delete every object under ``{name}/`` in the shared-space bucket
-    (paginated list + batched delete, incl. the marker and every athenaresults/).
-    Idempotent — an empty/absent prefix is a no-op."""
-    s3 = clients.s3()
-    prefix = f"{name}/"
-    token = None
-    while True:
-        kwargs = {"Bucket": config.SHARED_SPACE_BUCKET, "Prefix": prefix}
-        if token:
-            kwargs["ContinuationToken"] = token
-        page = s3.list_objects_v2(**kwargs)
-        objects = [{"Key": o["Key"]} for o in page.get("Contents", [])]
-        if objects:
-            s3.delete_objects(Bucket=config.SHARED_SPACE_BUCKET, Delete={"Objects": objects})
-        if page.get("IsTruncated"):
-            token = page.get("NextContinuationToken")
-        else:
-            break
-
-
-def _revoke_portal_role(name):
-    """Best-effort revoke of the shared portal role's LF grants on ``name`` (DB +
-    table wildcard). Cleanup only — per-user isolation is the IAM membership tag, not
-    this grant — so a failure (e.g. the DB already dropped on a retry) is logged and
-    tolerated, never fatal to the cascade."""
-    lf = clients.lf()
-    for resource, permissions in (
-        ({"Database": {"Name": name}}, config.DATABASE_PERMISSIONS),
-        ({"Table": {"DatabaseName": name, "TableWildcard": {}}}, config.TABLE_PERMISSIONS),
-    ):
-        try:
-            lf.revoke_permissions(
-                Principal={"DataLakePrincipalIdentifier": config.PORTAL_ROLE_ARN},
-                Resource=resource,
-                Permissions=permissions,
-            )
-        except Exception:  # noqa: BLE001 - best-effort cleanup
-            logger.warning("LF revoke on %s (%s) failed; continuing", name, next(iter(resource)))
-
-
-def _drop_database(name):
-    """Drop every table in the Glue database ``name`` (paginated, batched) then the
-    database itself. Idempotent — a missing DB/table is a no-op (already dropped)."""
-    glue = clients.glue()
-    try:
-        tables = []
-        token = None
-        while True:
-            kwargs = {"DatabaseName": name}
-            if token:
-                kwargs["NextToken"] = token
-            page = glue.get_tables(**kwargs)
-            tables.extend(t["Name"] for t in page.get("TableList", []))
-            token = page.get("NextToken")
-            if not token:
-                break
-    except glue.exceptions.EntityNotFoundException:
-        return  # database already gone
-    for i in range(0, len(tables), 100):
-        glue.batch_delete_table(DatabaseName=name, TablesToDelete=tables[i : i + 100])
-    try:
-        glue.delete_database(Name=name)
-    except glue.exceptions.EntityNotFoundException:
-        pass
 
 
 def delete_space(space, actor, request_id, registry):
@@ -95,9 +27,9 @@ def delete_space(space, actor, request_id, registry):
     members = list(registry.get("members", []))
     reg.set_status(registry, "deleting", request_id)
     try:
-        _delete_shared_prefix(space)
-        _revoke_portal_role(space)
-        _drop_database(space)
+        teardown.delete_shared_prefix(space)
+        teardown.revoke_portal_role(space)
+        teardown.drop_database(space)
         for member in members:
             membership.clear_slot(member, space)
             cache.remove_entry(member, space)

@@ -28,6 +28,7 @@ resource "aws_sfn_state_machine" "orchestrator" {
     remove_members_function_arn = aws_lambda_function.functions["remove-members"].arn
     leave_function_arn          = aws_lambda_function.functions["leave"].arn
     delete_function_arn         = aws_lambda_function.functions["delete"].arn
+    forget_function_arn         = aws_lambda_function.functions["forget"].arn
   })
 
   logging_configuration {

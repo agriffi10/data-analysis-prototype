@@ -1,5 +1,5 @@
 {
-  "Comment": "Shared-space provisioning orchestrator (SPEC-062). The Step Function — not in-Lambda code — routes by action: Validate (verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
+  "Comment": "Shared-space provisioning orchestrator (SPEC-062). The Step Function — not in-Lambda code — routes by action: Validate (verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete / forget) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
   "StartAt": "Validate",
   "States": {
     "Validate": {
@@ -60,6 +60,11 @@
           "Variable": "$.action",
           "StringEquals": "delete",
           "Next": "DeleteSpace"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "forget",
+          "Next": "ForgetSpace"
         }
       ],
       "Default": "Failed"
@@ -181,6 +186,34 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${delete_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "ForgetSpace": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${forget_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [

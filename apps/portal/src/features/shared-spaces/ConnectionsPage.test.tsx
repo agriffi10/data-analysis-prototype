@@ -105,12 +105,15 @@ describe('ConnectionsPage (SPEC-052)', () => {
     expect(within(row).getByText('Provisioning…')).toBeInTheDocument();
   });
 
-  it('Dismiss removes a failed entry from the list', async () => {
+  it('Dismiss durably clears a failed entry (enqueues forget) and removes it from the list', async () => {
     mockRead.mockResolvedValue(cache([{name: 'broken', role: 'owner', status: 'failed', reason: 'x'}]));
+    mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
     renderPage();
     const row = (await screen.findByText('broken')).closest('li')!;
     fireEvent.click(within(row).getByRole('button', {name: 'Dismiss'}));
     await waitFor(() => expect(screen.queryByText('broken')).not.toBeInTheDocument());
+    // Durable, not just a local hide: a `forget` request is enqueued for the entry.
+    expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({action: 'forget', space: 'broken'}));
   });
 
   it('create enqueues one request and shows an optimistic pending entry + toast', async () => {

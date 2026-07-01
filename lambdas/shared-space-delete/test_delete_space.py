@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import clients  # noqa: E402
 import config  # noqa: E402
 import delete_space as d  # noqa: E402
+import teardown  # noqa: E402
 from fakes import install, raises  # noqa: E402
 
 
@@ -81,15 +82,15 @@ def test_delete_records_failure_and_reraises_without_deleting_registry():
     s3, glue, lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    orig = d._drop_database
+    orig = teardown.drop_database
     try:
         def boom(name):
             raise RuntimeError("glue throttled")
 
-        d._drop_database = boom
+        teardown.drop_database = boom
         raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
     finally:
-        d._drop_database = orig
+        teardown.drop_database = orig
     saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert saved["status"] == "failed" and "throttled" in saved["reason"]
     owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
@@ -122,15 +123,15 @@ def test_delete_failure_notifies_owner_with_reason():
     _seed_full_space(s3, glue, cognito)
     sqs = _enable_notifications()
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    orig = d._drop_database
+    orig = teardown.drop_database
     try:
         def boom(name):
             raise RuntimeError("glue throttled")
 
-        d._drop_database = boom
+        teardown.drop_database = boom
         raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
     finally:
-        d._drop_database = orig
+        teardown.drop_database = orig
     # A failed cascade notifies ONLY the owner (not the member fan-out, which is past the
     # terminal success) — the owner otherwise hears nothing about the failure.
     assert len(sqs.sent) == 1

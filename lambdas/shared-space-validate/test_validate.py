@@ -193,6 +193,22 @@ def test_validate_non_owner_delete_records_nothing():
         auth.verified_username = orig
 
 
+def test_validate_forget_authorized_with_no_registry_and_records_nothing():
+    s3, *_ = install()  # no registry seeded -> a phantom entry
+    sqs = _enable_notifications()
+    orig = auth.verified_username
+    try:
+        _stub_actor("alice")
+        # forget must be allowed even with no registry record (no "does not exist"),
+        # and the validator writes/notifies nothing (the verb owns the removal).
+        ctx = v.handler(_event("forget", "ghost"), None)
+        assert ctx["action"] == "forget" and ctx["actor"] == "alice" and ctx["registry"] is None
+        assert _PENDING_KEY not in s3.store
+        assert sqs.sent == []
+    finally:
+        auth.verified_username = orig
+
+
 def test_validate_non_create_records_nothing():
     s3, *_ = install()
     _seed_reg(s3, members=["alice"])

@@ -57,7 +57,7 @@ jobs:
           pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
           # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
           # Keep this list in sync with lambdas/shared-space-common/.
-          for m in config clients auth registry membership cache notify; do
+          for m in config clients auth registry membership cache notify teardown; do
             cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
           done
           (cd build/layer && zip --quiet --recurse-paths ../shared-space-common-layer.zip .)
@@ -227,6 +227,7 @@ jobs:
           - { name: shared-space-remove-members, layer: true, polars: false, tbcommon: false }
           - { name: shared-space-leave, layer: true, polars: false, tbcommon: false }
           - { name: shared-space-delete, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-forget, layer: true, polars: false, tbcommon: false }
           # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
           # (validate/check/inspect/infer use the shared tbcommon package — SPEC-067/068/069).
           # infer-schema ALSO attaches the polars layer (both layers, SPEC-069). execute-ddl

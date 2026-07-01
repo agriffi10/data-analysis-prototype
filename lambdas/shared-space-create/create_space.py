@@ -63,13 +63,21 @@ def create_space(name, actor, request_id):
     failed status (registry + the owner's cache) on any error before re-raising."""
     try:
         outcome = reg.reserve(name, actor, request_id)  # may raise "name already taken"
-    except Exception as exc:  # noqa: BLE001 - notify the actor, then fail
+    except Exception as exc:  # noqa: BLE001 - record + notify the actor, then fail
         # Reserve runs OUTSIDE the provisioning try/except below on purpose: a name
-        # collision must NOT rewrite the registry/cache (the name isn't ours to record
-        # `failed` against). But the actor still deserves to hear it failed, so emit the
-        # failure notification here before re-raising (best-effort; never changes Fail).
+        # collision must NOT rewrite the REGISTRY (the name isn't ours — it belongs to
+        # the space's real owner). But the actor's OWN cache is theirs to correct: the
+        # validator optimistically wrote a `provisioning` entry, so mark it `failed`
+        # here (best-effort) — otherwise the actor is left with a stuck `provisioning`
+        # phantom they can't clear. Then notify + re-raise (best-effort; never changes Fail).
         reason = str(exc)
         logger.error("create %s reserve failed for %s: %s", name, actor, reason)
+        try:
+            cache.upsert_entry(
+                actor, {"name": name, "role": "owner", "status": "failed", "reason": reason}
+            )
+        except Exception:  # noqa: BLE001 - best-effort failure recording
+            logger.exception("failed to mark reserve-collision failure in cache for %s", name)
         emit_notification(
             actor,
             f'We couldn\'t create shared workspace "{name}": {reason}.',
