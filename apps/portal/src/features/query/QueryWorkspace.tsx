@@ -670,7 +670,12 @@ export function QueryWorkspace() {
   })();
 
   return (
-    <div className="flex min-w-0 flex-1">
+    // Cap the workspace to the viewport (minus the h-14 header) so the results
+    // pane scrolls internally instead of growing the page (feedback 2026-06-30).
+    // Bounding the height here + `min-h-0` down the flex chain is what lets the
+    // `overflow-auto` results region actually scroll; the schema rail already
+    // scrolls itself (`overflow-y-auto`).
+    <div className="flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 overflow-hidden">
       <SchemaBrowser
         database={database}
         connections={connections}
@@ -694,7 +699,7 @@ export function QueryWorkspace() {
 
       <main
         id="main"
-        className="flex min-w-0 flex-1 flex-col">
+        className="flex min-h-0 min-w-0 flex-1 flex-col">
         <h1 className="sr-only">Query workspace</h1>
         <QueryTabStrip
           tabs={tabs.tabs}
@@ -713,7 +718,7 @@ export function QueryWorkspace() {
           role="tabpanel"
           id="query-tabpanel"
           aria-labelledby={`query-tab-${activeTabId}`}
-          className="flex min-w-0 flex-1 flex-col">
+          className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* SPEC-047 FR-002: a persisted database that's no longer available resets
             to the personal workspace — surfaced non-blockingly here. */}
           {fellBack && (
@@ -835,7 +840,7 @@ export function QueryWorkspace() {
             )}
           </div>
 
-          <div className="h-[260px] flex-none border-b border-border">
+          <div className="h-[200px] flex-none border-b border-border">
             <Suspense
               fallback={
                 <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
@@ -878,7 +883,7 @@ export function QueryWorkspace() {
             </div>
           )}
 
-          <div className={cx('flex-1 overflow-auto px-5 py-4')}>
+          <div className={cx('min-h-0 flex-1 overflow-auto px-5 py-4')}>
             {succeeded ? (
               <QueryResultsTable
                 columns={results.columns}
