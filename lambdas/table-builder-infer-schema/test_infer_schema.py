@@ -1,9 +1,10 @@
 """Handler tests for infer-schema (SPEC-069 FR-001/FR-005/FR-006).
 
-Real polars fixtures (Parquet / CSV / JSON) written to a temp dir; the S3 download is
-stubbed to hand the handler the local fixture path. Asserts the type rules — CSV all
-string (no inference), JSON date/datetime strings → date/timestamp, Parquet native
-types — plus scan-error → terminal and transient-S3 → raised. Runnable under pytest OR
+Real polars fixtures (Parquet / CSV / JSON) written to a temp dir; the source-URI seam
+is stubbed to point polars at the local fixture (polars scans local paths and s3:// the
+same way) and the access probe is stubbed out. Asserts the type rules — CSV all string
+(no inference), JSON date/datetime strings → date/timestamp, Parquet native types — plus
+scan-error → terminal and transient-S3 (head_object) → raised. Runnable under pytest OR
 directly: ``python3 test_infer_schema.py``.
 """
 
@@ -21,12 +22,14 @@ import infer_schema as i  # noqa: E402
 from tbcommon import clients  # noqa: E402
 from tbcommon.errors import TerminalError  # noqa: E402
 
-_REAL_DOWNLOAD = i._download_sample
+_REAL_CHECK = i._check_access
 _TMP = tempfile.mkdtemp()
 
 
 def _use_fixture(path):
-    i._download_sample = lambda bucket, key: path
+    # Point polars at the local fixture and no-op the S3 access probe.
+    i._object_uri = lambda bucket, key: path
+    i._check_access = lambda bucket, key: None
 
 
 def _event(fmt, partition_keys=None, sample="alice/sales/2026/part-0"):
@@ -113,10 +116,10 @@ def test_scan_error_is_terminal_schema_inference_failed():
 
 
 def test_transient_s3_error_propagates():
-    i._download_sample = _REAL_DOWNLOAD  # exercise the real download path
+    i._check_access = _REAL_CHECK  # exercise the real head_object access probe
 
     class _FakeS3:
-        def download_file(self, *a, **k):
+        def head_object(self, *a, **k):
             raise RuntimeError("ThrottlingException")
 
     clients._s3 = _FakeS3()

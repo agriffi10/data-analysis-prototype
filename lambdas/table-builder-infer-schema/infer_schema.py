@@ -1,10 +1,16 @@
 """infer-schema — the table-builder Step Function's fourth task (SPEC-069).
 
-Open the ``inspect-source`` sample object with a polars LazyFrame, derive the DATA
-column schema (order + types), fold in the user-declared partition columns, and
-generate the ``CREATE EXTERNAL TABLE IF NOT EXISTS`` DDL (with partition-projection
-``TBLPROPERTIES``). ``execute-ddl`` (SPEC-070) runs it. Runs on the SPEC-066 polars
-Lambda layer.
+Scan the ``inspect-source`` sample object with a polars LazyFrame read **directly from
+S3** (never downloaded to ``/tmp``, never fully materialized — [[lambda-no-tmp-read-s3-directly]]),
+derive the DATA column schema (order + types), fold in the user-declared partition
+columns, and generate the ``CREATE EXTERNAL TABLE IF NOT EXISTS`` DDL (with
+partition-projection ``TBLPROPERTIES``). ``execute-ddl`` (SPEC-070) runs it. Runs on the
+SPEC-066 polars Lambda layer.
+
+Lazy / bounded reads (stay within Lambda's physical limits regardless of object size):
+  - Parquet — ``scan_parquet(s3://…).collect_schema()`` fetches only the file footer.
+  - CSV     — ``scan_csv(s3://…, infer_schema_length=0)`` reads only the header row.
+  - JSON    — ``scan_ndjson(s3://…, n_rows=N)`` streams at most N rows.
 
 Type rules (decided 2026-06-30):
   - Parquet — native types (incl. real date/timestamp).
@@ -12,12 +18,12 @@ Type rules (decided 2026-06-30):
   - CSV     — NOT type-inferred: names from the header, every column ``string``
               (matches the OpenCSVSerde in the DDL).
 
-Scan errors (corrupt / wrong-format object) are terminal ``schema_inference_failed``;
-transient S3 errors during the download PROPAGATE (raised) for the SFN ``Retry``.
+Errors: a cheap ``head_object`` runs first so transient S3 errors (throttling / 5xx)
+PROPAGATE (raised) for the SFN ``Retry``; a polars scan error on an existing object
+(corrupt / wrong format) is terminal ``schema_inference_failed``.
 """
 
 import logging
-import os
 import re
 
 from tbcommon import clients
@@ -38,11 +44,17 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
-def _download_sample(bucket, key):
-    """Download the sample object into /tmp (nothing written outside /tmp)."""
-    dest = os.path.join("/tmp", "tb_sample_" + key.rsplit("/", 1)[-1])
-    clients.s3().download_file(bucket, key, dest)
-    return dest
+def _object_uri(bucket, key):
+    """The polars source URI — a direct ``s3://`` read (no /tmp; object_store fetches
+    only the byte ranges the scan needs, using the Lambda role's env credentials)."""
+    return f"s3://{bucket}/{key}"
+
+
+def _check_access(bucket, key):
+    """Cheap access probe. Surfaces a transient S3 error (throttling / 5xx) as a
+    retryable boto error BEFORE the polars scan (whose errors are terminal), preserving
+    the SFN Retry semantics we'd otherwise lose reading through polars."""
+    clients.s3().head_object(Bucket=bucket, Key=key)
 
 
 def _hive(dtype, name):
@@ -64,21 +76,23 @@ def _detect_date_type(series):
     return None
 
 
-def _infer_columns(path, fmt):
-    """Ordered [{name, type}] data columns for the sample object of ``fmt``."""
+def _infer_columns(source, fmt):
+    """Ordered [{name, type}] data columns for the sample object at ``source`` (an
+    ``s3://`` URI in prod; a local path in tests — polars scans both)."""
     import polars as pl
 
     if fmt == "parquet":
-        schema = pl.scan_parquet(path).collect_schema()
+        schema = pl.scan_parquet(source).collect_schema()
         return [{"name": n, "type": _hive(d, n)} for n, d in schema.items()]
 
     if fmt == "csv":
         # Header only; NO type inference — every column is string (SPEC-069 rule).
-        schema = pl.scan_csv(path, infer_schema_length=0).collect_schema()
+        schema = pl.scan_csv(source, infer_schema_length=0).collect_schema()
         return [{"name": n, "type": "string"} for n in schema.names()]
 
     if fmt == "json":
-        frame = pl.scan_ndjson(path, infer_schema_length=JSON_SAMPLE_ROWS).head(JSON_SAMPLE_ROWS).collect()
+        # Stream at most N rows (n_rows bounds the read; nothing full-materialized).
+        frame = pl.scan_ndjson(source, infer_schema_length=JSON_SAMPLE_ROWS, n_rows=JSON_SAMPLE_ROWS).collect()
         columns = []
         for name, dtype in frame.schema.items():
             if dtype == pl.String:
@@ -96,10 +110,12 @@ def handler(event, context):
     bucket = event["space"]["bucket"]
     sample_key = event["sampleObjectKey"]
 
-    # Transient S3 errors here propagate (raised) for the SFN Retry.
-    path = _download_sample(bucket, sample_key)
+    # Transient S3 errors here propagate (raised) for the SFN Retry; the scan reads
+    # directly from S3 (no /tmp).
+    _check_access(bucket, sample_key)
+    source = _object_uri(bucket, sample_key)
     try:
-        columns = _infer_columns(path, fmt)
+        columns = _infer_columns(source, fmt)
     except TerminalError:
         raise  # unmappable_type / unknown format — already terminal
     except Exception as exc:  # noqa: BLE001 - any scan/parse failure = terminal

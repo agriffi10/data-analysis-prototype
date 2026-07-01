@@ -203,10 +203,12 @@ The two gathering/validation verbs now do real work (the stubs are gone). They r
 
 ## SPEC-069 — infer-schema (polars) → CREATE TABLE DDL
 
-`infer-schema` opens the `inspect-source` sample object with a polars LazyFrame, derives
-the data columns, folds in the user-declared partition columns, and emits the
-`CREATE EXTERNAL TABLE IF NOT EXISTS` DDL (with partition-projection `TBLPROPERTIES`).
-Runs on **both** the `table-builder-polars` and `table-builder-common` layers.
+`infer-schema` scans the `inspect-source` sample object with a polars LazyFrame read
+**directly from S3** (`scan_*('s3://…')`, object_store — **no `/tmp`**, only the byte
+ranges each reader needs), derives the data columns, folds in the user-declared partition
+columns, and emits the `CREATE EXTERNAL TABLE IF NOT EXISTS` DDL (with partition-projection
+`TBLPROPERTIES`). Runs on **both** the `table-builder-polars` and `table-builder-common`
+layers.
 `execute-ddl` (running it) is SPEC-070.
 
 ### Type rules

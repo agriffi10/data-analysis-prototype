@@ -17,12 +17,15 @@ touch is CI.
   **JSON** JsonSerDe) + `projection.*` `TBLPROPERTIES` (integer range/digits, date
   range/format/interval, string `enum` values). Backtick-quoted identifiers; a data column
   colliding with a partition key is dropped from the body (partition key wins).
-- **`infer_schema.py`** (handler, on the polars + tbcommon layers) — download sample to
-  `/tmp`; **Parquet** = native types via `scan_parquet().collect_schema()`; **CSV** =
-  header-only, every column `string` (no inference); **JSON** = `scan_ndjson` inference +
-  date/datetime-looking **strings** typed `date`/`timestamp` (regex on a bounded sample,
-  since `scan_ndjson` has no date-parse option). Scan error ⇒ terminal
-  `schema_inference_failed`; transient S3 ⇒ raised.
+- **`infer_schema.py`** (handler, on the polars + tbcommon layers) — scans the sample
+  **directly from S3** (`scan_*('s3://…')`, object_store, **no `/tmp`**, nothing
+  full-materialized — [[lambda-no-tmp-read-s3-directly]]): **Parquet** = footer-only via
+  `scan_parquet().collect_schema()`; **CSV** = header-only (`infer_schema_length=0`),
+  every column `string` (no inference); **JSON** = `scan_ndjson(n_rows=1000)` inference +
+  date/datetime-looking **strings** typed `date`/`timestamp` (regex, since `scan_ndjson`
+  has no date-parse option). A cheap `head_object` runs first so transient S3 ⇒ raised
+  (SFN Retry); a polars scan error on an existing object ⇒ terminal
+  `schema_inference_failed`.
 - **CI** — `deploy-lambdas.yml` now attaches **both** layers to infer-schema (the attach
   step builds a layer array in one `update-function-configuration` call; the old
   per-flag calls overwrote each other). `ci.yml` installs polars so the type-mapping +
@@ -35,6 +38,25 @@ touch is CI.
   too) and the layer-attach step supports **multiple** layers.
 - `ci.yml` lambdas job installs `lambdas/table-builder-infer-schema/requirements.txt`
   (polars) so SPEC-069 tests execute in CI.
+
+## Known JSON limitations (for the future user-guide)
+
+Two verified JSON constraints are recorded in `docs/table-builder-architecture.md` §10 for
+the eventual user-guide docs: (1) only **line-delimited JSON (NDJSON/JSONL)** is supported —
+a traditional/array JSON document isn't (`scan_ndjson` rejects it, and it's not Athena-queryable
+anyway); (2) for a folder of **multiple** JSON files the schema is inferred from **one** sample
+file — polars does **not** union columns across NDJSON files (globbing doesn't help), so a field
+present only in other files is silently dropped. Multi-file schema union is a deferred enhancement.
+
+## Post-merge amendment (direct-S3 read)
+
+The initial merge downloaded the sample object to `/tmp` before scanning. Per the
+standing rule [[lambda-no-tmp-read-s3-directly]] (Lambdas must stream from S3, never use
+`/tmp`), `infer-schema` now scans directly from `s3://…` — polars' object_store fetches
+only the byte ranges each reader needs (parquet footer / CSV header / bounded JSON rows)
+using the Lambda role's env credentials. Verified against **real S3**: `scan_parquet`,
+`scan_csv(infer_schema_length=0)`, and `scan_ndjson(n_rows=…)` all read correctly with no
+`storage_options`, no `/tmp`, no `fsspec`.
 
 ## Verification
 
