@@ -1,8 +1,8 @@
 # Spec: Table Builder — "Create Table from this Folder" (File Browser UI)
 
 **ID:** SPEC-071
-**Status:** Draft
-**Last Updated:** 2026-06-27
+**Status:** Completed
+**Last Updated:** 2026-07-01
 **Depends On:** SPEC-067 (request contract + portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL`), SPEC-057 (file-browser space model — `useFileSpace` / `FileSpaceTarget`: bucket/rootPrefix/kind/label), SPEC-066 (queue), SPEC-016/028 (dialog + UI primitives), `lib/sqsClient` + `lib/awsCredentials.getIdToken`
 
 > **Reference:** `docs/table-builder-architecture.md` §1/§4/§5/§6. Sixth of the arc — the **only** browser

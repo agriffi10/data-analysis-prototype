@@ -39,6 +39,7 @@ jobs:
           VITE_MAX_UPLOAD_BYTES: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
           VITE_SHARED_SPACE_QUEUE_URL: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
           VITE_NOTIFICATIONS_QUEUE_URL: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
+          VITE_TABLE_BUILD_QUEUE_URL: ${{ vars.VITE_TABLE_BUILD_QUEUE_URL }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
