@@ -80,6 +80,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 072 — Table Builder: Notification Producer (per-step failure + success) | Draft |
 | 073 — Shared-Space Member Join Status (Pending / Active) | Draft |
 | 074 — Help & Guides Page (Top-Bar Icon + Documentation Page) | Draft |
+| 075 — Shared-Space Member Roster for Members (read-only) | Draft |
+| 076 — Per-Tab Query Database (+ Saved Query Targets Its Database) | Draft |
 
 ## Arcs
 
