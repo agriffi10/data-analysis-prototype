@@ -236,3 +236,18 @@ UI is folded into the feature spec (SPEC-071), as in the shared-spaces arc. Buil
 - **Projection range correctness.** The user supplies each integer/date key's range in the modal; a value that
   falls outside the declared range is silently excluded from query results (Athena projection behavior).
   Surface this in the modal copy (SPEC-071) so users set ranges wide enough.
+- **JSON must be NDJSON (line-delimited), and schema comes from ONE file (v1).** Two known limitations to surface
+  in the eventual user-guide docs (both verified against real S3 with polars, 2026-06-30, SPEC-069):
+  1. **Only line-delimited JSON (NDJSON/JSONL) is supported.** Each record must be a self-contained JSON object on
+     its own line — which is exactly what Athena's `JsonSerDe` requires. A **traditional/pretty-printed JSON array**
+     (`[{…},{…}]`) is **not** supported: `scan_ndjson` errors on it, polars `read_json` doesn't read `s3://`, and
+     Athena couldn't query that shape anyway. The `.json`, `.jsonl`, and `.ndjson` extensions are all accepted, but
+     the **content** must be NDJSON. → user-guide: tell users to export JSON as NDJSON (one object per line).
+  2. **The schema is inferred from a single sample file.** For a folder of **multiple** JSON files, polars infers
+     the schema from the **first file only** and does **not** union columns across files (confirmed: files with
+     `{id,name}` + `{id,extra}` yield `{id,name}` — `extra` is dropped; globbing `*.jsonl` / `**/*.jsonl` behaves
+     the same). So a field present only in *other* files is silently missing from the table (JSON being sparse makes
+     this bite harder than CSV/Parquet). Proper fix = enumerate the files (`tbcommon.s3_listing`) + scan each file's
+     schema + **union the columns ourselves** with a type-reconciliation rule + a file cap — a **deferred
+     enhancement** (SPEC-069 scoped multi-file reconciliation out of v1 for all formats). → user-guide: note that
+     JSON table schemas reflect one sample file; put all expected fields in every file, or expect missing columns.

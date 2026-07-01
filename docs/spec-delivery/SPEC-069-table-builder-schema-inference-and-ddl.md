@@ -39,6 +39,15 @@ touch is CI.
 - `ci.yml` lambdas job installs `lambdas/table-builder-infer-schema/requirements.txt`
   (polars) so SPEC-069 tests execute in CI.
 
+## Known JSON limitations (for the future user-guide)
+
+Two verified JSON constraints are recorded in `docs/table-builder-architecture.md` §10 for
+the eventual user-guide docs: (1) only **line-delimited JSON (NDJSON/JSONL)** is supported —
+a traditional/array JSON document isn't (`scan_ndjson` rejects it, and it's not Athena-queryable
+anyway); (2) for a folder of **multiple** JSON files the schema is inferred from **one** sample
+file — polars does **not** union columns across NDJSON files (globbing doesn't help), so a field
+present only in other files is silently dropped. Multi-file schema union is a deferred enhancement.
+
 ## Post-merge amendment (direct-S3 read)
 
 The initial merge downloaded the sample object to `/tmp` before scanning. Per the
