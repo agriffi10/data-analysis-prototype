@@ -196,27 +196,23 @@ describe('useNotifications — background poll (FR-006)', () => {
     }
   });
 
-  it('suspends polling once unread is showing', async () => {
+  it('keeps polling while unread so a later notification bumps the count', async () => {
     vi.useFakeTimers();
     try {
-      // First read = all read (poll active); next read delivers an unread item.
-      mockGet.mockResolvedValueOnce({success: true, data: [note('05', true)]});
-      mockGet.mockResolvedValue({success: true, data: [note('06'), note('05', true)]});
+      // First read delivers one unread item; a later read adds a second unread one.
+      mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
+      mockGet.mockResolvedValue({success: true, data: [note('06'), note('05')]});
       const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
-      await vi.waitFor(() => expect(result.current.hasUnread).toBe(false));
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      const callsAfterFirst = mockGet.mock.calls.length;
 
-      // One poll delivers the unread item...
+      // The poll does NOT suspend on unread — a later poll picks up the 2nd item and
+      // the count climbs (a presence-only dot would have hidden it).
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      await vi.waitFor(() => expect(result.current.hasUnread).toBe(true));
-      const callsAfterUnread = mockGet.mock.calls.length;
-
-      // ...and the interval then stops — further time does not trigger more reads.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(180_000);
-      });
-      expect(mockGet).toHaveBeenCalledTimes(callsAfterUnread);
+      expect(mockGet.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(2));
     } finally {
       vi.useRealTimers();
     }

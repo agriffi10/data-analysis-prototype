@@ -29,6 +29,21 @@ describe('NotificationsBell (SPEC-060 FR-001)', () => {
     expect(screen.getByRole('link', {name: 'Notifications, none unread'})).toBeInTheDocument();
   });
 
+  it('shows a numeric count badge (so a 2nd notification is visible, not silent)', () => {
+    renderBell({hasUnread: true, unreadCount: 3});
+    expect(screen.getByText('3')).toBeInTheDocument();
+  });
+
+  it('caps the badge at 9+ for large counts', () => {
+    renderBell({hasUnread: true, unreadCount: 12});
+    expect(screen.getByText('9+')).toBeInTheDocument();
+  });
+
+  it('shows no badge when nothing is unread', () => {
+    renderBell({hasUnread: false, unreadCount: 0});
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
   it('marks the link current when on /notifications', () => {
     renderBell({hasUnread: false, unreadCount: 0}, '/notifications');
     expect(screen.getByRole('link')).toHaveAttribute('aria-current', 'page');
