@@ -54,8 +54,8 @@ export function QueryResultsTable({
   onNext
 }: QueryResultsTableProps) {
   return (
-    <div>
-      <h2 className="mb-3 text-base font-semibold">Results</h2>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <h2 className="mb-3 flex-none text-base font-semibold">Results</h2>
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-3">
@@ -63,78 +63,86 @@ export function QueryResultsTable({
         </div>
       ) : (
         <>
-          <div className="overflow-hidden rounded-lg border border-border bg-surface">
-            <div className="overflow-x-auto">
-              <table className="w-full table-fixed border-collapse text-left">
-                <colgroup>
-                  <col style={{width: ROW_NUMBER_COLUMN_WIDTH}} />
-                  {columns.map((_column, index) => (
-                    <col
-                      key={index}
-                      style={{width: widths[index] ?? undefined}}
-                    />
-                  ))}
-                </colgroup>
-                <thead>
-                  <tr className="h-10 border-b border-border bg-surface-2">
+          {/* Single scroll container: the result body scrolls in BOTH axes HERE
+              rather than scrolling the whole page. `border-separate` (not
+              `collapse`) so per-cell borders travel with the sticky header/column
+              instead of detaching. The header row sticks to the top (survives
+              vertical scroll) and the row-number column sticks to the left
+              (survives horizontal scroll); the top-left corner outranks both. */}
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+            <table className="w-full table-fixed border-separate border-spacing-0 text-left">
+              <colgroup>
+                <col style={{width: ROW_NUMBER_COLUMN_WIDTH}} />
+                {columns.map((_column, index) => (
+                  <col
+                    key={index}
+                    style={{width: widths[index] ?? undefined}}
+                  />
+                ))}
+              </colgroup>
+              <thead>
+                <tr className="h-10">
+                  <th
+                    scope="col"
+                    className="sticky left-0 top-0 z-30 border-b border-border bg-surface-2 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                    #
+                  </th>
+                  {columns.map((column, index) => (
                     <th
+                      key={index}
                       scope="col"
-                      className="px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
-                      #
+                      className="sticky top-0 z-20 border-b border-border bg-surface-2 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                      <span
+                        className="block truncate"
+                        title={column.name}>
+                        {column.name}
+                      </span>
+                      <span
+                        className="block truncate font-mono text-[10px] normal-case tracking-normal text-text-3"
+                        title={column.type}>
+                        {column.type}
+                      </span>
+                      <ColumnResizeHandle
+                        columnIndex={index}
+                        columnName={column.name}
+                        width={widths[index] ?? 0}
+                        onResize={onResize}
+                        onReset={onResetColumn}
+                      />
                     </th>
-                    {columns.map((column, index) => (
-                      <th
-                        key={index}
-                        scope="col"
-                        className="relative px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
-                        <span
-                          className="block truncate"
-                          title={column.name}>
-                          {column.name}
-                        </span>
-                        <span
-                          className="block truncate font-mono text-[10px] normal-case tracking-normal text-text-3"
-                          title={column.type}>
-                          {column.type}
-                        </span>
-                        <ColumnResizeHandle
-                          columnIndex={index}
-                          columnName={column.name}
-                          width={widths[index] ?? 0}
-                          onResize={onResize}
-                          onReset={onResetColumn}
-                        />
-                      </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr
+                    key={rowIndex}
+                    className="group h-12 font-mono text-sm hover:bg-surface-2">
+                    {/* Absolute row number across pages, not the in-page index.
+                        Sticky-left so it stays pinned while scrolling the X axis;
+                        its own bg tracks the row hover so it never goes transparent. */}
+                    <td className="sticky left-0 z-10 truncate border-b border-border-2 bg-surface px-3 text-text-3 group-last:border-0 group-hover:bg-surface-2">
+                      {rangeStart + rowIndex}
+                    </td>
+                    {row.map((cell, cellIndex) => (
+                      <td
+                        key={cellIndex}
+                        className="truncate border-b border-border-2 px-3 group-last:border-0"
+                        title={cell}>
+                        {cell}
+                      </td>
                     ))}
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, rowIndex) => (
-                    <tr
-                      key={rowIndex}
-                      className="h-12 border-b border-border-2 font-mono text-sm last:border-0 hover:bg-surface-2">
-                      {/* Absolute row number across pages, not the in-page index. */}
-                      <td className="truncate px-3 text-text-3">{rangeStart + rowIndex}</td>
-                      {row.map((cell, cellIndex) => (
-                        <td
-                          key={cellIndex}
-                          className="truncate px-3"
-                          title={cell}>
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          {/* Prev/Next pager (FR-002), below the horizontal scroll region so it
-              stays usable with a wide, scrolled result. Range indicator shows
-              "Rows X–Y"; the definitive total appears only at the last page. */}
+          {/* Prev/Next pager (FR-002), below the scroll region so it stays usable
+              with a wide/tall, scrolled result. Range indicator shows "Rows X–Y";
+              the definitive total appears only at the last page. */}
           <Pager
-            className="py-4"
+            className="flex-none py-4"
             hasPrev={hasPrev}
             hasNext={hasNext}
             nextBusy={isFetchingNext}

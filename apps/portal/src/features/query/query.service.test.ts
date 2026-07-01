@@ -233,9 +233,11 @@ describe('getQueryResults', () => {
     expect(result).toEqual({
       success: true,
       data: {
+        // Athena's Presto engine names (`integer`, `varchar`) are mapped to the
+        // Glue/Hive DDL names (`int`, `string`) the schema rail shows.
         columns: [
-          {name: 'id', type: 'integer'},
-          {name: 'name', type: 'varchar'}
+          {name: 'id', type: 'int'},
+          {name: 'name', type: 'string'}
         ],
         rows: [
           ['1', 'alice'],

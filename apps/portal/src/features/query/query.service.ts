@@ -8,6 +8,7 @@ import {getAthenaClient} from '../../lib/athenaClient';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './query.constants';
+import {normalizeColumnType} from './query.format';
 import type {Connection, QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
@@ -157,7 +158,7 @@ export async function getQueryResults(p: {
       const meta = response.ResultSet?.ResultSetMetadata;
       const columns: QueryColumn[] = (meta?.ColumnInfo ?? []).map((c) => ({
         name: c.Name ?? '',
-        type: c.Type ?? ''
+        type: normalizeColumnType(c.Type ?? '')
       }));
       let rows: string[][] = (response.ResultSet?.Rows ?? []).map((r) =>
         (r.Data ?? []).map((d) => d.VarCharValue ?? '')

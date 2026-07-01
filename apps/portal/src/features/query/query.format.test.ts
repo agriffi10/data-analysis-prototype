@@ -1,5 +1,24 @@
 import {describe, it, expect} from 'vitest';
-import {formatBytes, formatDurationMs, formatRelativeTime} from './query.format';
+import {formatBytes, formatDurationMs, formatRelativeTime, normalizeColumnType} from './query.format';
+
+describe('normalizeColumnType', () => {
+  it('maps Athena/Presto engine names to their Glue/Hive DDL equivalents', () => {
+    expect(normalizeColumnType('varchar')).toBe('string');
+    expect(normalizeColumnType('integer')).toBe('int');
+    expect(normalizeColumnType('real')).toBe('float');
+    expect(normalizeColumnType('varbinary')).toBe('binary');
+    expect(normalizeColumnType('VARCHAR')).toBe('string'); // case-insensitive
+  });
+
+  it('passes already-matching and complex/parameterized types through unchanged', () => {
+    expect(normalizeColumnType('bigint')).toBe('bigint');
+    expect(normalizeColumnType('boolean')).toBe('boolean');
+    expect(normalizeColumnType('timestamp')).toBe('timestamp');
+    expect(normalizeColumnType('decimal(10,2)')).toBe('decimal(10,2)');
+    expect(normalizeColumnType('array(integer)')).toBe('array(integer)');
+    expect(normalizeColumnType('')).toBe('');
+  });
+});
 
 describe('formatBytes', () => {
   it('formats byte sizes with sensible units + precision', () => {
