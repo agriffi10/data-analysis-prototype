@@ -883,7 +883,7 @@ export function QueryWorkspace() {
             </div>
           )}
 
-          <div className={cx('min-h-0 flex-1 overflow-auto px-5 py-4')}>
+          <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
             {succeeded ? (
               <QueryResultsTable
                 columns={results.columns}

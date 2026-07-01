@@ -45,3 +45,21 @@ export function normalizeCsvName(name: string): string {
   const trimmed = name.trim();
   return /\.csv$/i.test(trimmed) ? trimmed : `${trimmed}.csv`;
 }
+
+// Athena's result metadata reports the Presto/Trino engine type names (`varchar`,
+// `integer`, …), which differ from the Hive/Glue DDL names the schema rail shows
+// for the same column (`string`, `int`). Map the scalar engine names back to their
+// Glue equivalents so a column defined as `string` in the catalog also reads
+// `string` in the results header — not `varchar`. Unrecognized types (including
+// parameterized/complex ones like `decimal(10,2)` or `array(...)`) pass through
+// unchanged.
+const ATHENA_TO_GLUE_TYPE: Record<string, string> = {
+  varchar: 'string',
+  integer: 'int',
+  real: 'float',
+  varbinary: 'binary'
+};
+
+export function normalizeColumnType(type: string): string {
+  return ATHENA_TO_GLUE_TYPE[type.trim().toLowerCase()] ?? type;
+}
