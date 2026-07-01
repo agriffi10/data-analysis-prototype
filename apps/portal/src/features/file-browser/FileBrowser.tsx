@@ -979,6 +979,10 @@ function FileBrowserContent({
           onRename={(newName) => {
             move.renameItem(renaming.item, newName);
             setRenaming(null);
+            // The renamed item's key/prefix changes, so its stale id would linger
+            // in the selection as a ghost selection (the row is gone from the
+            // listing). Clear the selection like move/delete/copy do.
+            selection.clear();
           }}
           onCancel={() => setRenaming(null)}
         />
