@@ -18,9 +18,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import polars as pl  # noqa: E402
 
+import json  # noqa: E402
 import infer_schema as i  # noqa: E402
-from tbcommon import clients  # noqa: E402
+from tbcommon import clients, config  # noqa: E402
 from tbcommon.errors import TerminalError  # noqa: E402
+
+
+class _FakeSqs:
+    def __init__(self):
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def _arm_notifications():
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
+    fake = _FakeSqs()
+    clients._sqs = fake
+    return fake
+
 
 _REAL_CHECK = i._check_access
 _TMP = tempfile.mkdtemp()
@@ -130,6 +148,50 @@ def test_transient_s3_error_propagates():
     except RuntimeError:
         return
     raise AssertionError("expected the transient error to propagate")
+
+
+# ── SPEC-072 notifications ────────────────────────────────────────────────────
+
+def test_notifies_actor_on_schema_inference_failure():
+    path = os.path.join(_TMP, "bad2.parquet")
+    with open(path, "w") as fh:
+        fh.write("not parquet")
+    _use_fixture(path)
+    q = _arm_notifications()
+    try:
+        i.handler(_event("parquet"), None)
+    except TerminalError:
+        pass
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageGroupId"] == "alice"
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:infer"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body["message"] == 'Couldn\'t create table "sales_2026": the data schema couldn\'t be read.'
+
+
+def test_no_notification_on_success():
+    path = os.path.join(_TMP, "ok.parquet")
+    pl.DataFrame({"id": pl.Series([1], dtype=pl.Int64)}).write_parquet(path)
+    _use_fixture(path)
+    q = _arm_notifications()
+    i.handler(_event("parquet"), None)
+    assert q.calls == []
+
+
+def test_no_notification_on_transient_s3():
+    i._check_access = _REAL_CHECK
+
+    class _FakeS3:
+        def head_object(self, *a, **k):
+            raise RuntimeError("ThrottlingException")
+
+    clients._s3 = _FakeS3()
+    q = _arm_notifications()
+    try:
+        i.handler(_event("parquet"), None)
+    except RuntimeError:
+        pass
+    assert q.calls == []
 
 
 if __name__ == "__main__":

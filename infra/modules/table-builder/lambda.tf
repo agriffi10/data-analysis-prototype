@@ -47,13 +47,15 @@ resource "aws_lambda_function" "functions" {
   # Source-bucket names every reading verb needs (SPEC-068→070 use them) + the per-verb
   # action env merged in (locals.tf): validate-authorize gets the Cognito pool/client
   # for offline token verification (SPEC-067); other verbs' action env lands with their
-  # owning specs.
+  # owning specs. NOTIFICATIONS_QUEUE_URL is COMMON — every verb emits an outcome
+  # notification to the actor (SPEC-072), a no-op when unset.
   environment {
     variables = merge(
       {
-        USER_SPACE_BUCKET   = var.user_space_bucket_name
-        SHARED_SPACE_BUCKET = var.shared_space_bucket_name
-        ADMIN_BUCKET        = var.admin_bucket_name
+        USER_SPACE_BUCKET       = var.user_space_bucket_name
+        SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
+        ADMIN_BUCKET            = var.admin_bucket_name
+        NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
       },
       lookup(local.table_builder_verb_env, each.key, {}),
     )

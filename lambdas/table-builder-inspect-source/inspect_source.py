@@ -20,7 +20,7 @@ with a specific reason; transient S3 errors propagate (raised) for the SFN ``Ret
 
 import logging
 
-from tbcommon import s3_listing
+from tbcommon import s3_listing, notify
 from tbcommon.errors import TerminalError
 
 logger = logging.getLogger()
@@ -77,6 +77,17 @@ def _validate_layout(rel_dirs, declared_names):
 
 
 def handler(event, context):
+    # Notify the actor on any terminal failure (SPEC-072, best-effort) before the SFN
+    # Catch records it; transient S3 errors aren't TerminalError, so they propagate for
+    # the Retry without a notification.
+    try:
+        return _inspect(event)
+    except TerminalError as err:
+        notify.emit_failure(event, err, "inspect")
+        raise
+
+
+def _inspect(event):
     bucket = event["space"]["bucket"]
     prefix = event["space"]["prefix"]
     declared_names = [k["name"] for k in (event.get("partitionKeys") or [])]

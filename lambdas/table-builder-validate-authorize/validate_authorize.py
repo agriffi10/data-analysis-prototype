@@ -14,7 +14,7 @@ Emits the small validated, normalized request the next states consume:
 import json
 import logging
 
-from tbcommon import auth, config
+from tbcommon import auth, config, notify
 from tbcommon import registry as reg
 from tbcommon.errors import TerminalError
 
@@ -120,15 +120,31 @@ def handler(event, context):
     req = _parse_request(record)
     space = req.get("space") or {}
 
-    # Trusted-actor binding: derive the actor from the verified token, not the body.
+    # Trusted-actor binding: derive the actor from the verified token, not the body. An
+    # `unauthorized` failure raises BEFORE the actor is known — there's no recipient to
+    # notify (the SFN still records it), so it's deliberately outside the try below.
     actor = auth.verified_username(req.get("idToken"))
 
-    # Authorize the target space (raises forbidden → Catch → Fail, no side effects).
-    prefix = _authorize_space(space, actor)
-
-    table_name = req.get("tableName")
-    _validate_table_name(table_name)
-    partition_keys = _validate_partition_keys(req.get("partitionKeys"))
+    # From here the actor is known, so a forbidden / invalid_table_name /
+    # invalid_partition_keys terminal failure notifies the actor (SPEC-072, best-effort)
+    # before the SFN Catch → Fail records it (no side effects either way).
+    try:
+        prefix = _authorize_space(space, actor)
+        table_name = req.get("tableName")
+        _validate_table_name(table_name)
+        partition_keys = _validate_partition_keys(req.get("partitionKeys"))
+    except TerminalError as err:
+        notify.emit_failure(
+            {
+                "actor": actor,
+                "tableName": req.get("tableName"),
+                "space": {"database": space.get("database")},
+                "requestId": req.get("requestId"),
+            },
+            err,
+            "validate",
+        )
+        raise
 
     bucket = space.get("bucket")
     validated = {

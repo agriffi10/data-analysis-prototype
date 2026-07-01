@@ -6,14 +6,32 @@ raises a transient error (must propagate, NOT be terminalized). Runnable under p
 OR directly: ``python3 test_check_table_absent.py``.
 """
 
+import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
 import check_table_absent as c  # noqa: E402
-from tbcommon import clients  # noqa: E402
+from tbcommon import clients, config  # noqa: E402
 from tbcommon.errors import TerminalError  # noqa: E402
+
+
+class _FakeSqs:
+    def __init__(self):
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def _arm_notifications():
+    """Configure the notifications queue + a fake SQS so emits are observable."""
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
+    fake = _FakeSqs()
+    clients._sqs = fake
+    return fake
 
 
 class _EntityNotFound(Exception):
@@ -87,6 +105,49 @@ def test_targets_the_declared_database_and_table():
     fake = _install("absent")
     c.handler(_event(table="orders", database="salesdata"), None)
     assert fake.calls == [("salesdata", "orders")]
+
+
+# ── SPEC-072 notifications ────────────────────────────────────────────────────
+
+def _actor_event():
+    ev = _event()
+    ev["actor"] = "alice"  # the validated payload carries the actor
+    return ev
+
+
+def test_notifies_actor_on_table_exists():
+    _install("found")
+    q = _arm_notifications()
+    try:
+        c.handler(_actor_event(), None)
+    except TerminalError:
+        pass
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageGroupId"] == "alice"
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:check"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body == {
+        "action": "create",
+        "username": "alice",
+        "message": 'Couldn\'t create table "sales_2026": a table with that name already exists in "alice".',
+    }
+
+
+def test_no_notification_when_absent():
+    _install("absent")
+    q = _arm_notifications()
+    c.handler(_actor_event(), None)
+    assert q.calls == []
+
+
+def test_no_notification_on_transient_glue_error():
+    _install("transient")
+    q = _arm_notifications()
+    try:
+        c.handler(_actor_event(), None)
+    except _Throttling:
+        pass
+    assert q.calls == []
 
 
 if __name__ == "__main__":

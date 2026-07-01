@@ -20,7 +20,8 @@ A throttling / 5xx Athena error is raised as ``TransientError`` for the SFN ``Re
 
 import logging
 
-from tbcommon import config
+from tbcommon import config, notify
+from tbcommon.errors import TerminalError
 
 import athena_run
 
@@ -43,15 +44,23 @@ def handler(event, context):
 
     # Run the single CREATE (idempotent via IF NOT EXISTS; projection ⇒ no MSCK). A
     # failed/timed-out query raises TerminalError (Catch → recorded-failure); a
-    # throttling error raises TransientError (SFN Retry).
-    athena_run.run_ddl(
-        query=event["ddl"],
-        database=database,
-        workgroup=config.ATHENA_WORKGROUP,
-        output_location=_results_location(space, actor),
-    )
+    # throttling error raises TransientError (SFN Retry). Notify the actor on a terminal
+    # DDL failure before re-raising (SPEC-072, best-effort); TransientError isn't caught,
+    # so a retryable error propagates without a (premature) notification.
+    try:
+        athena_run.run_ddl(
+            query=event["ddl"],
+            database=database,
+            workgroup=config.ATHENA_WORKGROUP,
+            output_location=_results_location(space, actor),
+        )
+    except TerminalError as err:
+        notify.emit_failure(event, err, "execute")
+        raise
 
     logger.info("created table %s.%s for %s", database, event["tableName"], actor)
     out = dict(event)
     out["status"] = "created"
+    # Terminal success — tell the actor the table is ready (SPEC-072 FR-004).
+    notify.emit_created(event)
     return out

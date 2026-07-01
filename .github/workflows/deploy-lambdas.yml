@@ -229,14 +229,15 @@ jobs:
           - { name: shared-space-delete, layer: true, polars: false, tbcommon: false }
           - { name: shared-space-forget, layer: true, polars: false, tbcommon: false }
           # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
-          # (validate/check/inspect/infer use the shared tbcommon package — SPEC-067/068/069).
-          # infer-schema ALSO attaches the polars layer (both layers, SPEC-069). execute-ddl
-          # is still a stub (no layer, SPEC-070).
+          # — ALL five verbs use the shared tbcommon package now (config/clients/errors +
+          # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer
+          # (both layers, SPEC-069). execute-ddl imports `from tbcommon import config`
+          # (SPEC-070) + `notify` (SPEC-072), so it needs the layer too.
           - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true }
           - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true }
           - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true }
           - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true }
-          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: false }
+          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true }
 
     steps:
       - name: Checkout

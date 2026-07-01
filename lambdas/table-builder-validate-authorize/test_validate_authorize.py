@@ -14,10 +14,27 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
 import validate_authorize as v  # noqa: E402
+from tbcommon import clients, config  # noqa: E402
 from tbcommon.errors import TerminalError  # noqa: E402
 
 # Capture the REAL verified_username before any test patches the shared module attr.
 _REAL_VERIFIED = v.auth.verified_username
+
+
+class _FakeSqs:
+    def __init__(self):
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def _arm_notifications():
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
+    fake = _FakeSqs()
+    clients._sqs = fake
+    return fake
 
 USER_BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -197,6 +214,59 @@ def test_token_verification_failure_is_unauthorized():
 
     v.auth.verified_username = _raise
     _expect_reason(_event(_personal()), "unauthorized")
+
+
+# ── SPEC-072 notifications ────────────────────────────────────────────────────
+
+def test_notifies_actor_on_forbidden():
+    _setup()
+    q = _arm_notifications()
+    try:
+        v.handler(_event(_personal(database="bob", prefix="bob/x/")), None)
+    except TerminalError:
+        pass
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageGroupId"] == "alice"  # the verified actor
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:validate"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body == {
+        "action": "create",
+        "username": "alice",
+        "message": "You don't have access to create a table here.",
+    }
+
+
+def test_notifies_actor_on_invalid_table_name():
+    _setup()
+    q = _arm_notifications()
+    try:
+        v.handler(_event(_personal(), table_name="Sales-2026"), None)
+    except TerminalError:
+        pass
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body["message"] == 'Couldn\'t create table "Sales-2026": the name isn\'t a valid table name.'
+
+
+def test_no_notification_when_unauthorized_no_actor():
+    _setup()
+    # Token verify fails BEFORE the actor is known — there's no recipient to notify.
+    def _raise(token):
+        raise TerminalError("unauthorized", "expired")
+
+    v.auth.verified_username = _raise
+    q = _arm_notifications()
+    try:
+        v.handler(_event(_personal()), None)
+    except TerminalError:
+        pass
+    assert q.calls == []
+
+
+def test_no_notification_on_success():
+    _setup()
+    q = _arm_notifications()
+    v.handler(_event(_personal()), None)
+    assert q.calls == []
 
 
 if __name__ == "__main__":

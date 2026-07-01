@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
+import json  # noqa: E402
 import athena_run  # noqa: E402
 import execute_ddl as e  # noqa: E402
 from tbcommon import clients, config  # noqa: E402
@@ -18,6 +19,22 @@ from tbcommon.errors import TerminalError, TransientError  # noqa: E402
 
 BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
+
+
+class _FakeSqs:
+    def __init__(self):
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def _arm_notifications():
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
+    fake = _FakeSqs()
+    clients._sqs = fake
+    return fake
 
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
@@ -186,6 +203,47 @@ def test_timeout_is_ddl_timeout():
     # get_query_execution never leaves RUNNING → the wall-clock cap trips ddl_timeout.
     _install(_FakeAthena(["RUNNING"]), max_polls=3)
     _expect_reason(_event(), "ddl_timeout")
+
+
+# ── SPEC-072 notifications ────────────────────────────────────────────────────
+
+def test_notifies_actor_on_success_ready_message():
+    _install(_FakeAthena(["SUCCEEDED"]))
+    q = _arm_notifications()
+    e.handler(_event(), None)
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageGroupId"] == "alice"
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:created"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body == {
+        "action": "create",
+        "username": "alice",
+        "message": 'Table "sales_2026" is ready to query in "alice".',
+    }
+
+
+def test_notifies_actor_on_ddl_failure_with_reason():
+    _install(_FakeAthena([{"State": "FAILED", "StateChangeReason": "SYNTAX_ERROR: line 1"}]))
+    q = _arm_notifications()
+    try:
+        e.handler(_event(), None)
+    except TerminalError:
+        pass
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:execute"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body["message"].startswith('Couldn\'t create table "sales_2026": creating the table failed (')
+    assert "SYNTAX_ERROR" in body["message"]
+
+
+def test_no_notification_on_transient_error():
+    _install(_FakeAthena([], start_error=_FakeClientError("ThrottlingException")))
+    q = _arm_notifications()
+    try:
+        e.handler(_event(), None)
+    except TransientError:
+        pass
+    assert q.calls == []
 
 
 if __name__ == "__main__":

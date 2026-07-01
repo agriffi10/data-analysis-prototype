@@ -11,9 +11,27 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
+import json  # noqa: E402
 import inspect_source as i  # noqa: E402
-from tbcommon import clients, s3_listing  # noqa: E402
+from tbcommon import clients, config, s3_listing  # noqa: E402
 from tbcommon.errors import TerminalError  # noqa: E402
+
+
+class _FakeSqs:
+    def __init__(self):
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def _arm_notifications():
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
+    fake = _FakeSqs()
+    clients._sqs = fake
+    return fake
+
 
 BUCKET = "dat-prod-user-space"
 PREFIX = "alice/sales/2026/"
@@ -144,6 +162,30 @@ def test_declared_keys_out_of_order_is_mismatch():
 def test_extra_undeclared_segment_is_mismatch():
     _stub_objects([PREFIX + "year=2026/month=01/day=05/part-0.csv"])
     _expect_reason(_event(partition_keys=_keys("year", "month")), "partition_layout_mismatch")
+
+
+# ── SPEC-072 notifications ────────────────────────────────────────────────────
+
+def test_notifies_actor_on_a_terminal_reason():
+    _stub_objects([PREFIX + "a.parquet", PREFIX + "b.csv"])  # mixed_formats
+    q = _arm_notifications()
+    try:
+        i.handler(_event(), None)
+    except TerminalError:
+        pass
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageGroupId"] == "alice"
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:inspect"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body["username"] == "alice"
+    assert body["message"] == 'Couldn\'t create table "sales_2026": the folder mixes file formats - use a single format.'
+
+
+def test_no_notification_on_success():
+    _stub_objects([PREFIX + "part-0.parquet"])
+    q = _arm_notifications()
+    i.handler(_event(), None)
+    assert q.calls == []
 
 
 # ── Fake S3 paginator for the ignore-rules test ──────────────────────────────
