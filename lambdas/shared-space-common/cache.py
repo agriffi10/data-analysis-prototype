@@ -137,6 +137,17 @@ def remove_entry(username, name):
     _mutate(username, apply)
 
 
+def write_owner_pending(owner, name):
+    """Seed the creator's cache with a ``provisioning`` owner entry the moment a create
+    is accepted — before any provisioning work — so the space is durably recorded and
+    survives a browser reload even if provisioning later fails (the browser only reads
+    this cache, so an unrecorded create vanishes). Compare-and-swap like every write;
+    superseded by ``write_owner_projection`` (``active``) or a ``failed`` upsert at the
+    end (both replace this entry by name). ``createdAt``/``members`` are intentionally
+    omitted here and supplied by the authoritative ``active`` write."""
+    upsert_entry(owner, {"name": name, "role": "owner", "status": "provisioning"})
+
+
 def write_owner_projection(owner, name, members, created_at=None):
     """Update the OWNER's cache entry with the current member list — the
     owner-readable projection the Manage drawer renders (SPEC-053); members never
