@@ -2,8 +2,17 @@
 
 One task, run once before any verb: parse the SQS record, verify the caller's
 Cognito ID token, derive the trusted ``actor``, load the registry, and authorize the
-action. Read-only — no provisioning side effects. A failed check raises
-AuthorizationError, so the state machine's Catch routes to Fail and no verb runs.
+action. A failed check raises AuthorizationError, so the state machine's Catch routes
+to Fail and no verb runs.
+
+Mostly read-only, with ONE deliberate side effect for ``create``: immediately after
+the token is verified (so the target prefix comes from the trusted ``actor``, never
+the spoofable body actor), it durably records the new space as ``provisioning`` in the
+creator's per-user cache and emits a "creating…" notification. This is the earliest
+safe point, so the space is recorded even if a downstream step (routing / create-space)
+fails — the browser reads only that cache, so an unrecorded create vanishes on reload.
+Both are best-effort: a failure here must never block the create (create-space writes
+the authoritative ``active``/``failed`` entry + notification at the end).
 
 Outputs the small validated context the Choice state routes on and the verb consumes:
 ``{action, actor, space, payload, registry, requestId}`` (the verb trusts this and
@@ -15,10 +24,28 @@ import logging
 
 import config
 import auth
+import cache
 import registry as reg
+from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def _record_pending_create(actor, space, request_id):
+    """Durably record a just-accepted create as ``provisioning`` (+ a "creating…"
+    notification) as the first side effect, right after the token is verified. Fully
+    best-effort — any failure is logged and swallowed so it can never block the create;
+    the authoritative ``active``/``failed`` write happens in create-space at the end."""
+    try:
+        cache.write_owner_pending(actor, space)
+    except Exception:  # noqa: BLE001 - never block the create on a cache write
+        logger.warning("pending cache write failed for %s/%s", actor, space, exc_info=True)
+    emit_notification(
+        actor,
+        f'Creating shared workspace "{space}"…',
+        dedup_id=f"{request_id}:create-pending:{actor}",
+    )
 
 
 def _extract_record(event):
@@ -52,6 +79,11 @@ def handler(event, context):
 
     # Trusted-actor binding: derive the actor from the verified token, not the body.
     actor = auth.verified_username(req.get("idToken"))
+
+    # First side effect for create: record the space as `provisioning` (+ notify) now
+    # that we have the trusted actor, so it survives a reload even if a later step fails.
+    if action == "create":
+        _record_pending_create(actor, space, req.get("requestId"))
 
     # Authorize against the registry (raises -> Catch -> Fail, no verb runs).
     registry_doc = None if action == "create" else reg.load(space)

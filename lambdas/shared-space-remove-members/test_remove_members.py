@@ -6,8 +6,17 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
+import clients  # noqa: E402
+import config  # noqa: E402
 import remove_members as r  # noqa: E402
 from fakes import install  # noqa: E402
+
+
+def _enable_notifications():
+    """Point the emit helper at a queue so notify is no longer a no-op; return the
+    FakeSqs install() already wired onto clients._sqs."""
+    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    return clients._sqs
 
 
 def _active_reg(name="sales", owner="alice", members=None):
@@ -76,6 +85,38 @@ def test_handler_uses_validated_context():
         {"space": "sales", "requestId": "req-3", "registry": reg, "payload": {"members": ["bob"]}}, None
     )
     assert out["removed"] == ["bob"]
+
+
+# ── Notifications: each removed member is told (owner is not) ─────────────────
+def test_remove_members_notifies_each_removed_member():
+    s3, glue, lf, cognito = install()
+    sqs = _enable_notifications()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    reg = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg)
+
+    r.remove_members("sales", ["bob"], "req-3", reg)
+    # Exactly one notification — to the removed member, not the owner.
+    assert len(sqs.sent) == 1
+    msg = sqs.sent[0]
+    assert msg["MessageGroupId"] == "bob"
+    assert msg["MessageDeduplicationId"] == "req-3:remove-member:bob"
+    assert json.loads(msg["MessageBody"]) == {
+        "action": "create",
+        "username": "bob",
+        "message": 'You\'ve been removed from the shared workspace "sales".',
+    }
+
+
+def test_remove_members_noop_notifies_nothing():
+    s3, glue, lf, cognito = install()
+    sqs = _enable_notifications()
+    cognito.users = {"bob": {}}
+    reg = _active_reg(members=["alice"])  # bob isn't a member
+    _seed_reg(s3, reg)
+
+    r.remove_members("sales", ["bob"], "req-3", reg)
+    assert sqs.sent == []
 
 
 if __name__ == "__main__":

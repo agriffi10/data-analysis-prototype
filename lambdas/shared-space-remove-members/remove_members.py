@@ -11,6 +11,7 @@ import logging
 import cache
 import membership
 import registry as reg
+from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -24,7 +25,7 @@ def remove_members(space, members, request_id, registry):
 
     for member in membership.normalize_members(members, owner):
         if member not in current_set:
-            continue  # not a member (idempotent)
+            continue  # not a member (idempotent) — emits nothing
         membership.clear_slot(member, space)
         cache.remove_entry(member, space)
         current = [m for m in current if m != member]
@@ -33,6 +34,15 @@ def remove_members(space, members, request_id, registry):
 
     reg.save_members(registry, current, request_id)
     cache.write_owner_projection(owner, space, current, registry.get("createdAt"))
+    # Notify each removed member AFTER the registry write lands (notify a real outcome,
+    # not a step that may roll back/retry — the add_members pattern). Only real removals
+    # are notified; the owner gets no roster-rewrite notification.
+    for member in removed:
+        emit_notification(
+            member,
+            f'You\'ve been removed from the shared workspace "{space}".',
+            dedup_id=f"{request_id}:remove-member:{member}",
+        )
     logger.info("remove_members %s: removed %s", space, removed)
     return {"status": "ok", "action": "remove_members", "space": space, "removed": removed}
 

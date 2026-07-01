@@ -91,18 +91,28 @@ def create_space(name, actor, request_id):
     except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
         reason = str(exc)
         logger.error("create %s failed for %s: %s", name, actor, reason)
+        # Record the failure in three INDEPENDENT best-effort steps: a failure in one
+        # (e.g. slot rollback) must not skip the others — the cache `failed` write in
+        # particular is what the browser reads, so a create that failed must always be
+        # recorded there rather than silently vanishing.
         try:
             # Roll back the membership slot assigned above so a failed create doesn't
             # leak a slot toward the actor's MAX_SHARED_MEMBERSHIPS cap (the slot was
             # claimed before the step that failed). Idempotent: clear_slot only clears
             # the slot holding `name`, and is a no-op if none was assigned yet.
             membership.clear_slot(actor, name)
+        except Exception:  # noqa: BLE001 - best-effort failure recording
+            logger.exception("failed to roll back membership slot for %s", name)
+        try:
             reg.finalize(name, actor, request_id, "failed", reason)
+        except Exception:  # noqa: BLE001 - best-effort failure recording
+            logger.exception("failed to record registry failure for %s", name)
+        try:
             cache.upsert_entry(
                 actor, {"name": name, "role": "owner", "status": "failed", "reason": reason}
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
-            logger.exception("failed to record failure for %s", name)
+            logger.exception("failed to record cache failure for %s", name)
         # SPEC-061 event 2: notify the creator the create failed (after the terminal
         # `failed` status is recorded; best-effort — never changes the Fail outcome).
         emit_notification(
