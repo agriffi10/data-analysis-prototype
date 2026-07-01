@@ -7,6 +7,7 @@ pays for it. Tests patch the cached globals directly (e.g. ``clients._s3 = Fake(
 
 _s3 = None
 _sqs = None
+_glue = None
 _jwks = None
 
 
@@ -17,6 +18,16 @@ def s3():
 
         _s3 = boto3.client("s3")
     return _s3
+
+
+def glue():
+    """Cached Glue Data Catalog client (check-table-absent, SPEC-068)."""
+    global _glue
+    if _glue is None:
+        import boto3
+
+        _glue = boto3.client("glue")
+    return _glue
 
 
 def sqs():

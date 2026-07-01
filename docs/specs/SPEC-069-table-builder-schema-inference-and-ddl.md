@@ -1,7 +1,7 @@
 # Spec: Table Builder — Schema Inference & DDL Generation (polars)
 
 **ID:** SPEC-069
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-066 (polars Lambda layer + the infer-schema function/role), SPEC-068 (inspect-source output: format, partition keys, sample object, location), SPEC-067 (validated request)
 

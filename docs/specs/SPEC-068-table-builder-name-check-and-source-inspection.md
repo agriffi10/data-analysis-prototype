@@ -1,7 +1,7 @@
 # Spec: Table Builder — Name Uniqueness + Source Inspection & Format Validation
 
 **ID:** SPEC-068
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-27
 **Depends On:** SPEC-066 (control plane + Lambda stubs/roles), SPEC-067 (validated request payload + the validate→check handoff shape), SPEC-034 (Glue services / catalog model)
 

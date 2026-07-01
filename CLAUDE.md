@@ -58,7 +58,7 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 ## Specs
 
 Index + status: `@docs/specs/INDEX.md`. Each spec file's header carries its own `Status`.
-**Current work:** SPEC-001→067 are complete (status is authoritative in `docs/specs/INDEX.md`). Shared-connections + notifications arcs fully shipped; **062 decomposed the shared-space control plane** into single-task Lambdas + a `shared-space-common` layer. **Table-builder arc IN PROGRESS (066→072):** 066 (control-plane infra + stubs + polars layer) + 067 (request contract + `validate-authorize` + `table-builder-common` layer) done + live-verified; **next is SPEC-068** (`check-table-absent` + `inspect-source`).
+**Current work:** SPEC-001→069 are complete (status is authoritative in `docs/specs/INDEX.md`). Shared-connections + notifications arcs fully shipped; **062 decomposed the shared-space control plane** into single-task Lambdas + a `shared-space-common` layer. **Table-builder arc IN PROGRESS (066→072):** 066 (infra + stubs + polars layer) + 067 (request contract + `validate-authorize`) + 068 (`check-table-absent` + `inspect-source` + `tbcommon.s3_listing`) + 069 (`infer-schema`: polars scan → dtype→Hive mapping → `CREATE EXTERNAL TABLE` DDL w/ projection) done; **next is SPEC-070** (`execute-ddl` + terminal states).
 
 ---
 

@@ -228,12 +228,13 @@ jobs:
           - { name: shared-space-leave, layer: true, polars: false, tbcommon: false }
           - { name: shared-space-delete, layer: true, polars: false, tbcommon: false }
           # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
-          # (validate-authorize is real now, SPEC-067; more verbs in 068/070). infer-schema
-          # attaches the polars layer (SPEC-069). The rest are still stubs (no layer).
+          # (validate/check/inspect/infer use the shared tbcommon package — SPEC-067/068/069).
+          # infer-schema ALSO attaches the polars layer (both layers, SPEC-069). execute-ddl
+          # is still a stub (no layer, SPEC-070).
           - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true }
-          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: false }
-          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: false }
-          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: false }
+          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true }
+          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true }
+          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true }
           - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: false }
 
     steps:
@@ -301,26 +302,16 @@ jobs:
             --publish
           aws lambda wait function-updated --function-name "$FUNCTION"
 
-          # Attach the shared-code layer for shared-space functions (SPEC-062).
-          if [ "${{ matrix.lambda.layer }}" = "true" ]; then
+          # Attach the function's layers. update-function-configuration --layers REPLACES
+          # the whole list, so a function needing more than one layer (infer-schema =
+          # polars + table-builder-common, SPEC-069) must pass them together in one call.
+          LAYERS=()
+          [ "${{ matrix.lambda.layer }}" = "true" ]    && LAYERS+=("${{ needs.layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.polars }}" = "true" ]   && LAYERS+=("${{ needs.polars_layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.tbcommon }}" = "true" ] && LAYERS+=("${{ needs.table_builder_layer.outputs.layer_arn }}")
+          if [ "${#LAYERS[@]}" -gt 0 ]; then
             aws lambda update-function-configuration \
               --function-name "$FUNCTION" \
-              --layers "${{ needs.layer.outputs.layer_arn }}"
-            aws lambda wait function-updated --function-name "$FUNCTION"
-          fi
-
-          # Attach the polars layer for the table-builder infer-schema function (SPEC-066).
-          if [ "${{ matrix.lambda.polars }}" = "true" ]; then
-            aws lambda update-function-configuration \
-              --function-name "$FUNCTION" \
-              --layers "${{ needs.polars_layer.outputs.layer_arn }}"
-            aws lambda wait function-updated --function-name "$FUNCTION"
-          fi
-
-          # Attach the table-builder-common layer for verbs with shared code (SPEC-067).
-          if [ "${{ matrix.lambda.tbcommon }}" = "true" ]; then
-            aws lambda update-function-configuration \
-              --function-name "$FUNCTION" \
-              --layers "${{ needs.table_builder_layer.outputs.layer_arn }}"
+              --layers "${LAYERS[@]}"
             aws lambda wait function-updated --function-name "$FUNCTION"
           fi
