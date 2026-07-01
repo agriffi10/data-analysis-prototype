@@ -9,6 +9,76 @@
         "logs:PutLogEvents"
       ],
       "Resource": "${log_group_arn}:*"
+    },
+    {
+      "Sid": "AthenaRunDdl",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:StopQueryExecution",
+        "athena:GetWorkGroup"
+      ],
+      "Resource": "${athena_workgroup_arn}"
+    },
+    {
+      "Sid": "GlueTableCreate",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetTable",
+        "glue:CreateTable",
+        "glue:BatchCreatePartition",
+        "glue:GetPartitions"
+      ],
+      "Resource": [
+        "${glue_catalog_arn}",
+        "${glue_database_any}",
+        "${glue_table_any}"
+      ]
+    },
+    {
+      "Sid": "LakeFormationDataAccess",
+      "Effect": "Allow",
+      "Action": "lakeformation:GetDataAccess",
+      "Resource": "*"
+    },
+    {
+      "Sid": "SourceDataRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}",
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "AthenaResultsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*"
+      ]
+    },
+    {
+      "Sid": "NoDataObjectDelete",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*",
+        "${admin_bucket_arn}/*"
+      ]
     }
   ]
 }

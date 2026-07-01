@@ -235,3 +235,78 @@ layers.
 > **CI runs the polars tests.** The `lambdas` CI job installs polars (from
 > `lambdas/table-builder-infer-schema/requirements.txt`) so the type-mapping + handler
 > tests execute for real, not just the pure DDL golden strings.
+
+## SPEC-070 — execute-ddl + terminal states (end-to-end create)
+
+`execute-ddl` runs the `infer-schema` `CREATE EXTERNAL TABLE IF NOT EXISTS` DDL via
+**Athena** (`StartQueryExecution`, context DB = `space.database`, the analytics workgroup,
+results → `s3://{space.bucket}/{space.database}/athenaresults/{actor}/`), polls
+`GetQueryExecution` to terminal, and returns `status:"created"`. Projection (SPEC-069) makes
+a partitioned table queryable immediately — **no `MSCK REPAIR`**, one query for both flat and
+partitioned sources.
+
+**Terminal states.** The pipeline now ends
+`… → ExecuteDdl → RecordSuccess → Succeeded`; every verb's `Catch` routes to a single
+recorded-failure path (`ParseError → RecordFailure → Failed`) that shapes the structured
+outcome SPEC-072 will notify from:
+
+```jsonc
+// RecordSuccess output (execution result on SUCCEEDED):
+{ "requestId": "…", "actor": "alice", "database": "alice", "tableName": "sales_2026", "status": "created" }
+// RecordFailure output (recorded in history before the Fail state):
+{ "requestId": "…", "actor": "alice", "database": "alice", "tableName": "sales_2026",
+  "status": "failed", "reason": "ddl_execution_failed: SYNTAX_ERROR …" }
+```
+
+A validate-authorize failure runs before the request identity exists, so its `Catch` routes
+via `ValidateFailureSeed` (null identity) into the same `RecordFailure` state.
+
+### execute-ddl role — LF admin + IAM (FR-005)
+
+`execute-ddl` is made a **Lake Formation admin** (via `analytics` `data_lake_settings.admins`,
+root-wired constructed ARN) so it can `CREATE` tables in the dynamic per-user / per-shared-space
+target databases (they can't be statically enumerated). Its IAM role policy
+(`policies/execute-ddl.json.tftpl`) is scoped to: Athena on the workgroup; Glue
+`CreateTable`/`GetTable`/`GetDatabase`/`BatchCreatePartition`/`GetPartitions` on the account
+catalog; `lakeformation:GetDataAccess`; S3 read on both data buckets; `PutObject` to
+`*/athenaresults/*`; an explicit **deny** on `s3:DeleteObject`. The deploy role already carries
+`PutDataLakeSettings` + scoped `iam:PassRole` on `*-table-builder-*` roles, so no deploy-role IAM
+change was needed.
+
+> **First-apply ordering (LF admin).** On a **from-scratch** apply, `module.analytics` writes
+> `data_lake_settings` before `module.table_builder` creates the execute-ddl role (table_builder
+> depends_on analytics), so LF may reject the not-yet-existing admin principal — **re-run the
+> apply** once the role exists. On the live env the role already exists (SPEC-066), so this apply
+> is clean.
+
+Capture `simulate-custom-policy` for the execute-ddl role and confirm it **can**
+`StartQueryExecution` + `glue:CreateTable` on a target-DB ARN and `PutObject` to an
+`athenaresults/` key, and **cannot** `s3:DeleteObject` on a data key or touch the admin registry:
+
+```bash
+ROLE=dat-prod-table-builder-execute-ddl-role
+POLICY=$(aws iam get-role-policy --role-name "$ROLE" --policy-name permissions --query PolicyDocument --output json)
+aws iam simulate-custom-policy --policy-input-list "$POLICY" \
+  --action-names glue:CreateTable athena:StartQueryExecution s3:PutObject s3:DeleteObject \
+  --resource-arns arn:aws:glue:us-east-1:ACCT:table/alice/sales_2026 \
+                  arn:aws:s3:::dat-prod-user-space/alice/athenaresults/x.txt \
+                  arn:aws:s3:::dat-prod-user-space/alice/sales/part-0.parquet
+```
+
+### Checks (live, post-deploy)
+
+1. **Flat-Parquet, personal space** — enqueue a request over a folder of Parquet files with a
+   real ID token; the execution reaches `Succeeded` with the `status:"created"` outcome. Confirm
+   the table appears (`SHOW TABLES IN alice` / schema rail) and a `SELECT … LIMIT 1` returns rows.
+2. **Partitioned-CSV via projection** — enqueue over a Hive `key=value/` folder with declared
+   partition keys; the table is created by the **same single `CREATE`** (confirm the execution
+   ran exactly one Athena query — no `MSCK REPAIR`), and a partition-filtered
+   `SELECT … WHERE year=… LIMIT 1` returns rows **without** any load step.
+3. **Bad DDL** — force a failure (e.g. a table over a bad location) and confirm the execution ends
+   `Failed` with the `RecordFailure` output carrying `reason: "ddl_execution_failed: …"`.
+4. **Replay** — re-enqueue an already-created request; the `IF NOT EXISTS` create is a no-op
+   `created` (not `table_exists`).
+5. **Unit tests** — `python3 lambdas/table-builder-execute-ddl/test_execute_ddl.py` (11 cases):
+   flat + partitioned success (assert exactly one query, no MSCK), personal/shared results
+   routing, `ddl_execution_failed` (FAILED/CANCELLED/bad-start, reason carried), transient
+   start/poll → `TransientError` (SFN Retry), `ddl_timeout`, replay no-op.

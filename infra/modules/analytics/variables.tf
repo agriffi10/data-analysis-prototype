@@ -79,3 +79,9 @@ variable "shared_space_orchestrator_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "table_builder_execute_ddl_role_arn" {
+  description = "SPEC-070: ARN of the table-builder execute-ddl role, added as a Lake Formation admin so it can CREATE tables in the dynamic per-user + per-shared-space target databases (they can't be enumerated in static Terraform). Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  type        = string
+  default     = ""
+}

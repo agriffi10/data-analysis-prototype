@@ -36,6 +36,11 @@ resource "aws_iam_role_policy" "verb" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     admin_bucket_arn        = local.admin_bucket_arn
     log_group_arn           = local.table_builder_log_group_arns[each.key]
+    # execute-ddl (SPEC-070) — Athena run + Glue table ops on the account catalog.
+    athena_workgroup_arn = local.athena_workgroup_arn
+    glue_catalog_arn     = local.glue_catalog_arn
+    glue_database_any    = local.glue_database_any
+    glue_table_any       = local.glue_table_any
   })
 }
 

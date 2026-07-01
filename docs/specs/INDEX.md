@@ -75,7 +75,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 067 — Table Builder: Request Contract, Enqueue & Validate-Authorize | Completed |
 | 068 — Table Builder: Name Uniqueness + Source Inspection & Format Validation | Completed |
 | 069 — Table Builder: Schema Inference & DDL Generation (polars) | Completed |
-| 070 — Table Builder: Execute DDL & Terminal States | Draft |
+| 070 — Table Builder: Execute DDL & Terminal States | Completed |
 | 071 — Table Builder: "Create Table from this Folder" (File Browser UI) | Draft |
 | 072 — Table Builder: Notification Producer (per-step failure + success) | Draft |
 | 073 — Shared-Space Member Join Status (Pending / Active) | Draft |

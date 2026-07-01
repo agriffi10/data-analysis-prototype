@@ -34,11 +34,15 @@ locals {
 
   # Per-verb extra env, merged over the common bucket-name env (lambda.tf). Only
   # validate-authorize needs the Cognito pool/client (offline token verify, SPEC-067);
-  # later verbs' action env is added by their owning specs.
+  # execute-ddl needs the analytics workgroup to run the CREATE (SPEC-070); later
+  # verbs' action env is added by their owning specs.
   table_builder_verb_env = {
     "validate-authorize" = {
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
+    }
+    "execute-ddl" = {
+      ATHENA_WORKGROUP = var.athena_workgroup
     }
   }
 
@@ -78,4 +82,14 @@ locals {
   user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
+
+  # execute-ddl role ARNs (SPEC-070). The Athena workgroup + the catalog it creates
+  # tables in are scoped in execute-ddl.json.tftpl. Target databases are DYNAMIC (one
+  # per user + per shared space), so Glue/table are scoped to the account catalog's
+  # database/* + table/*/* — LF (execute-ddl is an LF admin, wired in the analytics
+  # data_lake_settings) is what actually gates which DB a table lands in.
+  athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
+  glue_catalog_arn     = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
+  glue_database_any    = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
+  glue_table_any       = "arn:aws:glue:${var.aws_region}:${var.account_id}:table/*/*"
 }

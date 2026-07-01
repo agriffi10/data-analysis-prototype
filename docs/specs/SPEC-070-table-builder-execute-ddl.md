@@ -1,7 +1,7 @@
 # Spec: Table Builder — Execute DDL & Terminal States
 
 **ID:** SPEC-070
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-06-30
 **Depends On:** SPEC-069 (generated DDL + resolved columns + projection properties), SPEC-068 (layout-validated source), SPEC-067 (validated target DB/location), SPEC-066 (control plane + execute-ddl function/role), SPEC-032 (Athena workgroup + Lake Formation hybrid registration), SPEC-033 (per-DB LF grant pattern)
 

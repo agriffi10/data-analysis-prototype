@@ -1,15 +1,57 @@
-"""table-builder execute-ddl — SPEC-066 stub.
+"""execute-ddl — the table-builder Step Function's fifth and final task (SPEC-070).
 
-The real logic (run the generated CREATE EXTERNAL TABLE via Athena against the target
-database — projection makes partitioned tables queryable with NO MSCK REPAIR — poll to
-a terminal state, and record the structured success/recorded-failure outcome) lands in
-SPEC-070. For the SPEC-066 control-plane smoke test this echoes its input; it is the
-last step, so its output is the execution result.
+Run the ``infer-schema`` ``CREATE EXTERNAL TABLE IF NOT EXISTS`` DDL (which already
+carries the partition-**projection** ``TBLPROPERTIES`` for partitioned sources,
+SPEC-069) through **Athena** against the target database, poll to a terminal state,
+and return the structured success outcome the SFN ``RecordSuccess`` state shapes.
+
+Because partitions are exposed via **projection**, a partitioned table is queryable
+the instant the ``CREATE`` succeeds — there is **NO ``MSCK REPAIR TABLE``** and no
+partition-load step (the arc has no ``partition_load_failed`` reason). ``IF NOT
+EXISTS`` + the SPEC-068 pre-check make a replay a **no-op success**.
+
+Terminal reasons (recorded by the SFN ``Catch`` → recorded-failure state):
+  - ``ddl_execution_failed`` — Athena reached ``FAILED``/``CANCELLED`` or the statement
+    couldn't start (carries Athena's ``StateChangeReason``).
+  - ``ddl_timeout`` — the poll cap was exceeded (the query may still finish in Athena;
+    recorded, not silently lost).
+A throttling / 5xx Athena error is raised as ``TransientError`` for the SFN ``Retry``.
 """
 
-import json
+import logging
+
+from tbcommon import config
+
+import athena_run
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+
+def _results_location(space, actor):
+    """The actor's Athena results prefix within the target space (SPEC-070 FR-001 /
+    architecture §5): ``s3://{bucket}/{database}/athenaresults/{actor}/``. Personal ⇒
+    the user's own prefix; shared ⇒ under the space's DB root, consistent with the
+    SPEC-055 shared-results routing (``{database}/athenaresults/{username}/``)."""
+    return f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"
 
 
 def handler(event, context):
-    print(f"table-builder-execute-ddl stub invoked: {json.dumps(event)[:512]}")
-    return event
+    space = event["space"]
+    actor = event["actor"]
+    database = space["database"]
+
+    # Run the single CREATE (idempotent via IF NOT EXISTS; projection ⇒ no MSCK). A
+    # failed/timed-out query raises TerminalError (Catch → recorded-failure); a
+    # throttling error raises TransientError (SFN Retry).
+    athena_run.run_ddl(
+        query=event["ddl"],
+        database=database,
+        workgroup=config.ATHENA_WORKGROUP,
+        output_location=_results_location(space, actor),
+    )
+
+    logger.info("created table %s.%s for %s", database, event["tableName"], actor)
+    out = dict(event)
+    out["status"] = "created"
+    return out
