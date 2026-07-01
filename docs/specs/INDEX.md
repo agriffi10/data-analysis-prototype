@@ -77,7 +77,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 069 — Table Builder: Schema Inference & DDL Generation (polars) | Completed |
 | 070 — Table Builder: Execute DDL & Terminal States | Completed |
 | 071 — Table Builder: "Create Table from this Folder" (File Browser UI) | Completed |
-| 072 — Table Builder: Notification Producer (per-step failure + success) | Draft |
+| 072 — Table Builder: Notification Producer (per-step failure + success) | Completed |
 | 073 — Shared-Space Member Join Status (Pending / Active) | Draft |
 | 074 — Help & Guides Page (Top-Bar Icon + Documentation Page) | Draft |
 | 075 — Shared-Space Member Roster for Members (read-only) | Draft |

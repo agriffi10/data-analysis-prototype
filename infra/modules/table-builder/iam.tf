@@ -41,6 +41,8 @@ resource "aws_iam_role_policy" "verb" {
     glue_catalog_arn     = local.glue_catalog_arn
     glue_database_any    = local.glue_database_any
     glue_table_any       = local.glue_table_any
+    # SPEC-072 — every verb emits an outcome notification (SendMessage, this queue only).
+    notifications_queue_arn = var.notifications_queue_arn
   })
 }
 

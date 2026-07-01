@@ -1,8 +1,8 @@
 # Spec: Table Builder — Notification Producer (per-step failure + success)
 
 **ID:** SPEC-072
-**Status:** Draft
-**Last Updated:** 2026-06-27
+**Status:** Completed
+**Last Updated:** 2026-07-01
 **Depends On:** SPEC-058 (notifications queue + `create` contract + writer), SPEC-070 (terminal success/recorded-failure states + structured outcome), SPEC-067/068/069 (the verb Lambdas + their terminal reasons), SPEC-066 (verb roles + module)
 
 > **Reference:** `docs/table-builder-architecture.md` §6; pattern mirrors SPEC-061 (shared-workspace producer).

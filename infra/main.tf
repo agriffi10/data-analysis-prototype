@@ -377,6 +377,12 @@ module "table_builder" {
   user_pool_id     = module.auth.user_pool_id
   app_client_id    = module.auth.user_pool_client_id
 
+  # SPEC-072: the SPEC-058 notifications queue every verb emits its outcome to (the ARN
+  # scopes each verb role's sqs:SendMessage; the URL is their NOTIFICATIONS_QUEUE_URL).
+  # Constructed-string locals (known at plan, cycle-free — same as shared_spaces above).
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
   # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
   # applied); data creates the portal role this module attaches the enqueue policy to;
   # analytics owns the catalog the verbs read. Settle those first.

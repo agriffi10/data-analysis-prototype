@@ -76,3 +76,17 @@ variable "app_client_id" {
   type        = string
   default     = ""
 }
+
+# ── SPEC-072: outcome notifications (trusted producer of the SPEC-058 inbox) ──
+
+variable "notifications_queue_arn" {
+  description = "SPEC-072: ARN of the SPEC-058 notifications FIFO queue. Scopes each verb role's sqs:SendMessage grant (the ONLY notifications-pipeline action they get). Constructed-string local from root; default \"\" keeps the module standalone-plannable."
+  type        = string
+  default     = ""
+}
+
+variable "notifications_queue_url" {
+  description = "SPEC-072: URL of the SPEC-058 notifications FIFO queue — every verb Lambda's NOTIFICATIONS_QUEUE_URL env (best-effort emit target; unset ⇒ emit is a logged no-op)."
+  type        = string
+  default     = ""
+}

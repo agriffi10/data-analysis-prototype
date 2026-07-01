@@ -310,3 +310,46 @@ aws iam simulate-custom-policy --policy-input-list "$POLICY" \
    flat + partitioned success (assert exactly one query, no MSCK), personal/shared results
    routing, `ddl_execution_failed` (FAILED/CANCELLED/bad-start, reason carried), transient
    start/poll → `TransientError` (SFN Retry), `ddl_timeout`, replay no-op.
+
+## SPEC-072 — outcome notifications (producer)
+
+Every verb Lambda is now a **trusted producer** of the SPEC-058 notifications inbox: at its
+terminal-failure branch it emits ONE `create` notification to the **actor** (a reason-specific
+message), and `execute-ddl` emits a **success** notification on `status:created`. Best-effort —
+a missed notification never changes the pipeline outcome (still recorded in the SFN execution).
+No fan-out: every event has a single recipient, the actor. Wiring: each verb role gains
+`sqs:SendMessage` on the **notifications queue ARN only**; each verb's `NOTIFICATIONS_QUEUE_URL`
+env is the SPEC-058 queue; the shared best-effort helper is `tbcommon.notify.emit_notification`
+(+ `emit_failure`/`emit_created`); the message text lives in `tbcommon.messages`.
+
+> Depends on SPEC-058 (queue + writer). If unset, emit is a logged no-op — the pipeline still
+> records its SFN outcome. **execute-ddl now attaches the `table-builder-common` layer** (it
+> imports `tbcommon.config` since SPEC-070 + `tbcommon.notify` here) — the CI matrix flag was
+> flipped `tbcommon: true`.
+
+### IAM check (FR-001)
+
+```bash
+ROLE=dat-prod-table-builder-execute-ddl-role
+POLICY=$(aws iam get-role-policy --role-name "$ROLE" --policy-name permissions --query PolicyDocument --output json)
+NOTIF_ARN=arn:aws:sqs:us-east-1:ACCT:dat-prod-notifications-requests.fifo
+aws iam simulate-custom-policy --policy-input-list "$POLICY" \
+  --action-names sqs:SendMessage \
+  --resource-arns "$NOTIF_ARN" arn:aws:sqs:us-east-1:ACCT:some-other-queue
+# Expect: allowed on the notifications queue, implicitDeny on the unrelated queue.
+```
+
+### Checks (live, post-deploy)
+
+1. **Success notification** — run a create that **succeeds** (the flat-Parquet check above); the
+   actor's `/notifications` page (SPEC-060) shows *"Table "…" is ready to query in "…"."*.
+2. **Failure notification** — run a create that **fails** (e.g. a `tableName` that already exists,
+   or a mixed-format folder); the actor sees the matching message (*"…: a table with that name
+   already exists…"* / *"…: the folder mixes file formats…"*). The SFN execution still ends
+   `Failed` with its `RecordFailure` outcome regardless of the notification.
+3. **No premature notification** — a transient/retryable step (e.g. a throttled Athena poll) does
+   **not** emit; only the terminal branch does.
+4. **Unit tests** — each verb suite asserts the actor recipient + mapped message + FIFO dedup
+   (`{requestId}:{step}`) and **silence** on transient/non-terminal paths and (validate-authorize)
+   on `unauthorized` (no actor). Plus `python3 lambdas/table-builder-common/test_notify.py` +
+   `test_messages.py` (helper + message-map).

@@ -26,7 +26,7 @@ PROPAGATE (raised) for the SFN ``Retry``; a polars scan error on an existing obj
 import logging
 import re
 
-from tbcommon import clients
+from tbcommon import clients, notify
 from tbcommon.errors import TerminalError
 
 from ddl import build_create_table_ddl
@@ -106,6 +106,16 @@ def _infer_columns(source, fmt):
 
 
 def handler(event, context):
+    # Notify the actor on a terminal schema failure (SPEC-072, best-effort); a
+    # transient S3 error (not a TerminalError) propagates for the SFN Retry unnotified.
+    try:
+        return _infer(event)
+    except TerminalError as err:
+        notify.emit_failure(event, err, "infer")
+        raise
+
+
+def _infer(event):
     fmt = event["format"]
     bucket = event["space"]["bucket"]
     sample_key = event["sampleObjectKey"]

@@ -13,7 +13,7 @@ existing table is terminal.
 
 import logging
 
-from tbcommon import clients
+from tbcommon import clients, notify
 from tbcommon.errors import TerminalError
 
 logger = logging.getLogger()
@@ -33,5 +33,8 @@ def handler(event, context):
         return event
 
     # A GetTable that returns ⇒ the table already exists; any other error (throttling,
-    # 5xx) propagates uncaught for the SFN Retry.
-    raise TerminalError("table_exists", f"table {table!r} already exists in database {database!r}")
+    # 5xx) propagates uncaught for the SFN Retry. Notify the actor of the terminal
+    # failure before raising (SPEC-072, best-effort).
+    err = TerminalError("table_exists", f"table {table!r} already exists in database {database!r}")
+    notify.emit_failure(event, err, "check")
+    raise err
