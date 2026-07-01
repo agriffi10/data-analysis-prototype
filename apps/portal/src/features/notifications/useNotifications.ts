@@ -1,14 +1,14 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {useMutation, useQuery, useQueryClient, type QueryClient, type Query} from '@tanstack/react-query';
+import {useMutation, useQuery, useQueryClient, type QueryClient} from '@tanstack/react-query';
 import {getNotifications, enqueueNotificationAction} from './notifications.service';
 import {notificationsKeys} from './notificationsKeys';
 import type {Notification} from './notifications.types';
 
 // FR-006: background poll cadence for the unread indicator — newly delivered
-// notifications flip `hasUnread` within ~1 minute. Self-limiting: the interval is a
-// function of the cached data and returns `false` once there's anything unread (the
-// bell already conveys it), resuming after the set is marked read / a manual
-// refresh / reload.
+// notifications surface within ~1 minute. The poll runs continuously (not suspended
+// once something is unread) so the bell's numeric count stays live: a 2nd/3rd
+// notification arriving while you already have an unread one still bumps the count
+// instead of being silent. Paused only on the /notifications page (`pausePoll`).
 const POLL_INTERVAL_MS = 60_000;
 
 // FR-004: after a successful enqueue, refetch a few times to pick up the writer's
@@ -67,11 +67,11 @@ export function useNotifications(
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    // FR-006: poll while there's nothing unread; suspend once unread is showing
-    // (returning false stops the interval), and resume when the set is marked read.
-    // `pausePoll` (the /notifications page) suspends it outright.
-    refetchInterval: (q: Query<Notification[]>) =>
-      pausePoll || countUnread(q.state.data) > 0 ? false : POLL_INTERVAL_MS,
+    // FR-006: poll continuously so the bell's count reflects new arrivals even while
+    // something is already unread (a presence-only signal would hide the 2nd one).
+    // `pausePoll` (the /notifications page) suspends it so it doesn't fight in-page
+    // mark-read actions.
+    refetchInterval: () => (pausePoll ? false : POLL_INTERVAL_MS),
     // FR-006: returning to the tab re-checks once regardless of poll state. The
     // interval itself is paused while the tab is hidden (refetchIntervalInBackground
     // defaults to false), so a backgrounded tab does not poll.
