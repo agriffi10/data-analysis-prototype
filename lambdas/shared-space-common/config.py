@@ -13,7 +13,7 @@ import os
 # ── Request contract / authorization (SPEC-056) ──────────────────────────────
 SCHEMA_VERSION = 1
 OWNER_ONLY_ACTIONS = frozenset({"add_members", "remove_members", "delete"})
-VALID_ACTIONS = frozenset({"create", "add_members", "remove_members", "leave", "delete"})
+VALID_ACTIONS = frozenset({"create", "add_members", "remove_members", "leave", "delete", "forget"})
 
 # ── Environment (set by Terraform; AWS_REGION is provided by the runtime) ─────
 USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")

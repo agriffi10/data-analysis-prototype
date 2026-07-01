@@ -42,7 +42,7 @@ export function ConnectionsPage() {
   const {connections, isLoading, error, refresh, isRefreshing, reconcile} = useConnections(username);
   const {create, busy, pending} = useCreateSharedConnection(username);
   const {addMembers, removeMembers, busy: membersBusy} = useManageMembers(username);
-  const {leave, remove, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
+  const {leave, remove, forget, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [managing, setManaging] = useState<ConnectionRow | null>(null);
@@ -161,8 +161,22 @@ export function ConnectionsPage() {
     }
   };
 
-  const handleDismiss = (name: string) => {
+  const handleDismiss = async (name: string) => {
+    // Durably clear the entry: `forget` removes it from the cache the pipeline writes
+    // (a plain local hide reappears on reload). Optimistically hide + reconcile; on a
+    // failed enqueue, un-hide and surface the error.
     setDismissed((prev) => new Set(prev).add(name));
+    const result = await forget(name);
+    if (result.success) {
+      void reconcile();
+    } else {
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+      setToast({variant: 'danger', message: result.error.message});
+    }
   };
 
   const handleRetry = async (name: string) => {
@@ -223,7 +237,7 @@ export function ConnectionsPage() {
                 onManage={() => setManaging(row)}
                 onDelete={() => setDeleting(row)}
                 onLeave={() => setLeaving(row)}
-                onDismiss={() => handleDismiss(row.name)}
+                onDismiss={() => void handleDismiss(row.name)}
                 onRetry={() => void handleRetry(row.name)}
               />
             ))}

@@ -13,11 +13,11 @@ locals {
   pipe_name              = "${var.project_name}-${var.environment}-shared-space-pipe"
 
   # SPEC-062: the single provisioner monolith is decomposed into a validate-authorize
-  # Lambda + five single-task verb Lambdas. Keyed by the function suffix (= the
+  # Lambda + the single-task verb Lambdas. Keyed by the function suffix (= the
   # lambdas/ subdir suffix + the deploy-lambdas.yml matrix name); value = the Python
   # handler. The Step Function orchestrates them (validate -> Choice(action) -> verb);
   # all run under the single shared orchestrator role (no per-verb roles — user
-  # decision, see SPEC-062 FR-005 note).
+  # decision, see SPEC-062 FR-005 note). `forget` = durable "clear from my list".
   shared_space_functions = {
     "validate"       = "validate.handler"
     "create"         = "create_space.handler"
@@ -25,6 +25,7 @@ locals {
     "remove-members" = "remove_members.handler"
     "leave"          = "leave.handler"
     "delete"         = "delete_space.handler"
+    "forget"         = "forget_space.handler"
   }
 
   shared_space_function_names = {

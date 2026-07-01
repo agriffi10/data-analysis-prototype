@@ -54,6 +54,11 @@ def authorize(action, space, actor, registry):
         raise AuthorizationError(f"unknown action: {action!r}")
     if action == "create":
         return
+    if action == "forget":
+        # Self-scoped clear: allowed even when the space has no registry record (a
+        # collision phantom / orphaned projection). The forget verb enforces the safety
+        # matrix (refuse an active space the actor belongs to; cache-only vs teardown).
+        return
     if registry is None:
         raise AuthorizationError(f"space {space!r} does not exist")
     owner = registry.get("owner")

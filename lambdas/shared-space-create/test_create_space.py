@@ -161,6 +161,21 @@ def test_create_collision_notifies_creator_and_leaves_record():
     assert rec["owner"] == "bob" and rec["status"] == "active"
 
 
+def test_create_collision_marks_actor_cache_failed():
+    s3, *_ = install()
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "bob", "lastRequestId": "other", "status": "active"}
+    ).encode()
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, "name already taken")
+    # The actor's OWN cache entry is marked failed (so the phantom `provisioning` the
+    # validator wrote becomes a dismissible `failed`) — without touching bob's record.
+    entry = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])["connections"][0]
+    assert entry["name"] == "sales" and entry["status"] == "failed"
+    assert "name already taken" in entry["reason"]
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["owner"] == "bob" and rec["status"] == "active"
+
+
 def test_create_owner_retry_after_failure_succeeds():
     s3, glue, *_ = install()
     # A prior failed attempt left a failed reservation owned by alice.
