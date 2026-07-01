@@ -73,8 +73,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 065 — Schema-Aware Editor Autocomplete (Table & Column Names) | Completed |
 | 066 — Table Builder: Foundation Infrastructure + polars Runtime | Completed |
 | 067 — Table Builder: Request Contract, Enqueue & Validate-Authorize | Completed |
-| 068 — Table Builder: Name Uniqueness + Source Inspection & Format Validation | Draft |
-| 069 — Table Builder: Schema Inference & DDL Generation (polars) | Draft |
+| 068 — Table Builder: Name Uniqueness + Source Inspection & Format Validation | Completed |
+| 069 — Table Builder: Schema Inference & DDL Generation (polars) | Completed |
 | 070 — Table Builder: Execute DDL & Terminal States | Draft |
 | 071 — Table Builder: "Create Table from this Folder" (File Browser UI) | Draft |
 | 072 — Table Builder: Notification Producer (per-step failure + success) | Draft |

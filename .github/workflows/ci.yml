@@ -51,7 +51,11 @@ jobs:
           python-version: '3.12'
 
       - name: Install lint + test tools
-        run: pip install -r lambdas/requirements.txt "ruff>=0.6" "pytest>=8"
+        # polars (from the infer-schema layer requirements) so the table-builder
+        # type-mapping + infer-schema handler tests run for real in CI (SPEC-069).
+        run: |
+          pip install -r lambdas/requirements.txt "ruff>=0.6" "pytest>=8"
+          pip install -r lambdas/table-builder-infer-schema/requirements.txt
 
       - name: Lint (ruff)
         run: ruff check lambdas/
