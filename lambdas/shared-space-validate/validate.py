@@ -5,14 +5,15 @@ Cognito ID token, derive the trusted ``actor``, load the registry, and authorize
 action. A failed check raises AuthorizationError, so the state machine's Catch routes
 to Fail and no verb runs.
 
-Mostly read-only, with ONE deliberate side effect for ``create``: immediately after
-the token is verified (so the target prefix comes from the trusted ``actor``, never
-the spoofable body actor), it durably records the new space as ``provisioning`` in the
-creator's per-user cache and emits a "creating…" notification. This is the earliest
-safe point, so the space is recorded even if a downstream step (routing / create-space)
-fails — the browser reads only that cache, so an unrecorded create vanishes on reload.
-Both are best-effort: a failure here must never block the create (create-space writes
-the authoritative ``active``/``failed`` entry + notification at the end).
+Mostly read-only, with ONE deliberate side effect for ``create``/``delete``: once the
+token is verified (so the actor is the trusted claim, never the spoofable body actor)
+AND the action is authorized, it durably records the in-flight state in the actor's
+per-user cache (``provisioning`` for create, ``deleting`` for delete) and emits a start
+notification. This is the earliest safe point, so the space shows a durable state even
+if a downstream step (routing / the verb) fails — the browser reads only that cache, so
+without it the row reconciles back to ``active`` (delete) or vanishes on reload (create).
+Both are best-effort: a failure here must never block the action (the verb writes the
+authoritative terminal state + notification at the end).
 
 Outputs the small validated context the Choice state routes on and the verb consumes:
 ``{action, actor, space, payload, registry, requestId}`` (the verb trusts this and
@@ -32,20 +33,28 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def _record_pending_create(actor, space, request_id):
-    """Durably record a just-accepted create as ``provisioning`` (+ a "creating…"
-    notification) as the first side effect, right after the token is verified. Fully
-    best-effort — any failure is logged and swallowed so it can never block the create;
-    the authoritative ``active``/``failed`` write happens in create-space at the end."""
+# The in-flight state + start-notification each accepted-and-authorized create/delete
+# records in the actor's cache before the verb runs. (add/remove/leave write their own
+# terminal state directly in the verb, so they have no separate "intent" row.)
+_INTENT = {
+    "create": (cache.write_owner_pending, 'Creating shared workspace "{space}"…', "create-pending"),
+    "delete": (cache.write_owner_deleting, 'Deleting shared workspace "{space}"…', "delete-pending"),
+}
+
+
+def _record_intent(action, actor, space, request_id):
+    """Durably record a just-accepted, authorized create/delete in the actor's cache
+    (``provisioning``/``deleting``) + a start notification, as the first side effect once
+    the token is verified and the action authorized — so the space shows a durable state
+    instead of the browser's optimistic row reconciling back to ``active``. Fully
+    best-effort: a cache-write failure is logged and swallowed (never blocks the action);
+    the verb writes the authoritative terminal state (+ notification) at the end."""
+    write, template, tag = _INTENT[action]
     try:
-        cache.write_owner_pending(actor, space)
-    except Exception:  # noqa: BLE001 - never block the create on a cache write
-        logger.warning("pending cache write failed for %s/%s", actor, space, exc_info=True)
-    emit_notification(
-        actor,
-        f'Creating shared workspace "{space}"…',
-        dedup_id=f"{request_id}:create-pending:{actor}",
-    )
+        write(actor, space)
+    except Exception:  # noqa: BLE001 - never block the action on a cache write
+        logger.warning("intent cache write failed for %s %s/%s", action, actor, space, exc_info=True)
+    emit_notification(actor, template.format(space=space), dedup_id=f"{request_id}:{tag}:{actor}")
 
 
 def _extract_record(event):
@@ -80,14 +89,16 @@ def handler(event, context):
     # Trusted-actor binding: derive the actor from the verified token, not the body.
     actor = auth.verified_username(req.get("idToken"))
 
-    # First side effect for create: record the space as `provisioning` (+ notify) now
-    # that we have the trusted actor, so it survives a reload even if a later step fails.
-    if action == "create":
-        _record_pending_create(actor, space, req.get("requestId"))
-
     # Authorize against the registry (raises -> Catch -> Fail, no verb runs).
     registry_doc = None if action == "create" else reg.load(space)
     auth.authorize(action, space, actor, registry_doc)
+
+    # First side effect for create/delete: record the in-flight state (+ notify) in the
+    # actor's cache now that the action is authorized, so the space shows a durable
+    # provisioning/deleting state even if a later step fails (the browser reads only that
+    # cache). Done AFTER authorize so an unauthorized request mutates nothing.
+    if action in _INTENT:
+        _record_intent(action, actor, space, req.get("requestId"))
 
     validated = {
         "action": action,

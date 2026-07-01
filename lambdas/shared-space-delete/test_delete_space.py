@@ -117,7 +117,7 @@ def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message()
     }
 
 
-def test_delete_failure_emits_nothing():
+def test_delete_failure_notifies_owner_with_reason():
     s3, glue, lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     sqs = _enable_notifications()
@@ -131,7 +131,16 @@ def test_delete_failure_emits_nothing():
         raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
     finally:
         d._drop_database = orig
-    assert sqs.sent == []  # a failed/partial cascade notifies no one
+    # A failed cascade notifies ONLY the owner (not the member fan-out, which is past the
+    # terminal success) — the owner otherwise hears nothing about the failure.
+    assert len(sqs.sent) == 1
+    msg = sqs.sent[0]
+    assert msg["MessageGroupId"] == "alice"
+    assert msg["MessageDeduplicationId"] == "req-d:delete-failed:alice"
+    body = json.loads(msg["MessageBody"])
+    assert body["username"] == "alice"
+    assert body["message"].startswith('We couldn\'t delete the shared workspace "sales":')
+    assert "throttled" in body["message"]
 
 
 def test_delete_swallows_emit_failure_and_still_succeeds():

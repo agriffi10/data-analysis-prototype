@@ -148,6 +148,14 @@ def write_owner_pending(owner, name):
     upsert_entry(owner, {"name": name, "role": "owner", "status": "provisioning"})
 
 
+def write_owner_deleting(owner, name):
+    """Mark the owner's cache entry ``deleting`` the moment a delete is accepted (after
+    verification), so the card shows a durable "Deleting…" state instead of reconciling
+    back to ``active`` mid-cascade. Compare-and-swap like every write; superseded by the
+    entry's removal on success or a ``failed`` upsert on error."""
+    upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting"})
+
+
 def write_owner_projection(owner, name, members, created_at=None):
     """Update the OWNER's cache entry with the current member list — the
     owner-readable projection the Manage drawer renders (SPEC-053); members never
