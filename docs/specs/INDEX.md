@@ -81,7 +81,12 @@ Add a row when a spec is created; update its status on completion (status only �
 | 073 — Shared-Space Member Join Status (Pending / Active) | Draft |
 | 074 — Help & Guides Page (Top-Bar Icon + Documentation Page) | Draft |
 | 075 — Shared-Space Member Roster for Members (read-only) | Draft |
-| 076 — Per-Tab Query Database (+ Saved Query Targets Its Database) | Draft |
+| 076 — Per-Tab Query Database (+ Saved Query Targets Its Database) | Superseded (by SPEC-077) |
+| 077 — Cross-Database Querying (drop the active-database session) | Draft |
+| 078 — Multiple SQL Statements in One Editor | Draft (needs design pass) |
+| 079 — Resizable Editor / Results Split | Draft |
+| 080 — Total Row Count in Query Stats | Draft |
+| 081 — Double-Click a File to Download | Draft |
 
 ## Arcs
 
@@ -235,3 +240,21 @@ attach to the decomposed verb Lambdas, so decomposing first avoids adding emit l
 it. SPEC-061 is written to also work against the pre-062 monolith (same call sites at each terminal branch) if it must
 ship first, but **062 → 061** is the intended sequence. The notifications-infra arc (058 → 059 → 060) is independent of
 the shared-spaces refactor and can proceed in parallel; only **061** depends on both (058's queue + 062's verb Lambdas).
+
+**Query-editor UX, round 5 (077→080) + file-browser one-off (081)** — a user-feedback batch (2026-07-01), no
+data-layer/IAM change: **077** removes database **selection** entirely — no "current database" anywhere; the schema
+rail becomes **browse-only** across every accessible database and runs carry **no** `QueryExecutionContext.Database`, so
+**every base-table reference must be fully-qualified `database.table`** (`FROM`/`JOIN`/subqueries/CTE bodies; unqualified
+names fail — the accepted trade-off). This enables **cross-database queries/joins** across the databases the shared role
+already has Glue/LF/S3 grants on (personal `username` tag + shared membership tags, SPEC-056); **077 supersedes SPEC-076**
+(per-tab database — **will not be built**) and SPEC-047's workspace-global active DB. **078** runs
+**multiple SQL statements** from one editor — split on `;` (string/comment-aware), execute **sequentially, stop-on-
+failure**, one history entry per statement; **078 is Draft-but-not-build-ready** (the run/display model — run-all vs.
+run-selection vs. run-current, and single vs. many result sets — needs a design pass first; the user wants all three
+supported). **079** adds a **draggable editor/results splitter** (min-height clamps, keyboard + double-click reset,
+session-persisted height; mirrors SPEC-064's resize affordances). **080** shows the **exact total row count** in the
+status bar by **background-walking all `GetQueryResults` pages** after success (free calls, no extra scan; ceiling cap;
+per-execution reset) instead of today's loaded-count "N+". **081** (file browser) makes **double-clicking a file row
+download it** via the existing presigned-URL flow (both authenticated + read-only browse; explicit Download controls
+stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
+081 is independent. None add IAM/infra.
