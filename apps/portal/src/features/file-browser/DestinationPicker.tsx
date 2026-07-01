@@ -112,7 +112,7 @@ export function DestinationPicker({
   const crossBucket = active.bucket !== bucket;
 
   const [browsePrefix, setBrowsePrefix] = useState(initial.rootPrefix);
-  const {folders, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(
+  const {folders, files, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(
     active.bucket,
     browsePrefix,
     markerKey
@@ -230,8 +230,8 @@ export function DestinationPicker({
               {error}
             </p>
           )}
-          {!isLoading && error === null && navigableFolders.length === 0 && (
-            <p className="py-4 text-center text-sm text-text-3">No subfolders here.</p>
+          {!isLoading && error === null && navigableFolders.length === 0 && files.length === 0 && (
+            <p className="py-4 text-center text-sm text-text-3">This folder is empty.</p>
           )}
           <ul aria-label="Destination folders">
             {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
@@ -274,6 +274,25 @@ export function DestinationPicker({
                   </svg>
                   <span className="flex-1 truncate">{folder.name}</span>
                 </button>
+              </li>
+            ))}
+            {/* Files in the browsed folder are shown as non-interactive, muted rows
+                so the destination's existing contents are visible — you pick a
+                folder, not a file, so these are unselectable (feedback 2026-06-30). */}
+            {files.map((file) => (
+              <li key={file.key}>
+                <div
+                  aria-disabled="true"
+                  className="flex h-10 w-full items-center gap-2 px-3 text-left text-sm text-text-3">
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4 shrink-0 text-text-3"
+                    aria-hidden="true">
+                    <path d="M4 4a2 2 0 012-2h5.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
+                  </svg>
+                  <span className="flex-1 truncate">{file.name}</span>
+                </div>
               </li>
             ))}
           </ul>

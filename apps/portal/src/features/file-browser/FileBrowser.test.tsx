@@ -963,6 +963,12 @@ describe('rename + move', () => {
     fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
 
     expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'file', key: 'alice/report.pdf'}, 'renamed');
+
+    // The renamed item's key changes, so its stale selection would linger as a
+    // ghost. Selection is cleared on rename → Rename is single-item and now
+    // disabled (nothing selected), and the checkbox is unchecked.
+    expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
+    expect(screen.getByRole('checkbox', {name: /select report\.pdf/i})).not.toBeChecked();
   });
 
   it('does not render per-row Rename buttons (actions live in the toolbar)', () => {

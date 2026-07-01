@@ -20,6 +20,13 @@ const base: UseFileBrowserResult = {
 };
 
 const folder = (prefix: string, name: string) => ({type: 'folder' as const, prefix, name});
+const file = (key: string, name: string) => ({
+  type: 'file' as const,
+  key,
+  name,
+  size: 0,
+  lastModified: new Date(0)
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -97,6 +104,35 @@ describe('DestinationPicker', () => {
     // Browsing starts at rootPrefix = the folder's own prefix → inside its subtree.
     expect(screen.getByRole('button', {name: /copy here/i})).toBeDisabled();
     expect(screen.getByText(/can't copy a folder into itself/i)).toBeInTheDocument();
+  });
+
+  it('shows existing files as non-interactive, unselectable rows (feedback 2026-06-30)', () => {
+    mockUseFileBrowser.mockReturnValue({
+      ...base,
+      folders: [folder('alice/archive/', 'archive')],
+      files: [file('alice/report.csv', 'report.csv')]
+    });
+    renderPicker();
+
+    // The file is visible so the destination's contents aren't a mystery…
+    const fileRow = screen.getByText('report.csv');
+    expect(fileRow).toBeInTheDocument();
+    // …but it's not a button (you pick a folder, not a file).
+    expect(screen.queryByRole('button', {name: /report\.csv/i})).not.toBeInTheDocument();
+    // The folder is still navigable.
+    expect(screen.getByRole('button', {name: /open folder archive/i})).toBeInTheDocument();
+  });
+
+  it('shows the empty message when there are no folders and no files', () => {
+    renderPicker(); // base = empty folders + files
+    expect(screen.getByText(/this folder is empty/i)).toBeInTheDocument();
+  });
+
+  it('hides the empty message when only files are present', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [file('alice/a.txt', 'a.txt')]});
+    renderPicker();
+    expect(screen.queryByText(/this folder is empty/i)).not.toBeInTheDocument();
+    expect(screen.getByText('a.txt')).toBeInTheDocument();
   });
 
   // ── Cross-connection destinations (feedback 2026-06-30) ────────────────────
