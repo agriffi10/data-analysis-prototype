@@ -26,6 +26,7 @@ import {RenameDialog} from './RenameDialog';
 import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
 import {SelectionProvider} from './SelectionProvider';
+import {CreateTableButton} from '../table-builder';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {getSessionCredentials} from '../../lib/awsCredentials';
@@ -621,6 +622,17 @@ function FileBrowserContent({
 
         {writable && (
           <>
+            {/* SPEC-071: turn the current folder into a Glue/Athena table. Needs the
+                space's database (= the marker owner: username | shared name), so it's
+                gated on `username` like the other space-scoped actions. */}
+            {username && (
+              <CreateTableButton
+                spaceKind={spaceKind ?? 'personal'}
+                bucket={bucket}
+                database={username}
+                prefix={currentPrefix}
+              />
+            )}
             <Button
               variant="default"
               className="shrink-0"
