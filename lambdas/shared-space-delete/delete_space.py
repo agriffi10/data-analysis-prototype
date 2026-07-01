@@ -107,11 +107,22 @@ def delete_space(space, actor, request_id, registry):
         logger.error("delete %s failed: %s", space, reason)
         try:
             reg.set_status(registry, "failed", request_id, reason)
+        except Exception:  # noqa: BLE001 - best-effort failure recording
+            logger.exception("failed to record registry delete failure for %s", space)
+        try:
             cache.upsert_entry(
                 owner, {"name": space, "role": "owner", "status": "failed", "reason": reason}
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
-            logger.exception("failed to record delete failure for %s", space)
+            logger.exception("failed to record cache delete failure for %s", space)
+        # Notify the owner the delete failed (parity with create-failed) — the delete
+        # card's Retry affordance reads the failed cache entry, and the owner otherwise
+        # hears nothing because the success fan-out below is never reached.
+        emit_notification(
+            owner,
+            f'We couldn\'t delete the shared workspace "{space}": {reason}.',
+            dedup_id=f"{request_id}:delete-failed:{owner}",
+        )
         raise
     # SPEC-061 event 7: fan out one notification per member (the list was captured
     # BEFORE the cascade cleared the registry; owner ∈ members), deduplicated so each

@@ -155,6 +155,44 @@ def test_validate_create_records_pending_and_notifies():
         auth.verified_username = orig
 
 
+def test_validate_delete_records_deleting_and_notifies():
+    s3, *_ = install()
+    _seed_reg(s3, name="sales", owner="alice", members=("alice", "bob"))
+    sqs = _enable_notifications()
+    orig = auth.verified_username
+    try:
+        _stub_actor("alice")  # the owner (delete is owner-only)
+        ctx = v.handler(_event("delete", "sales"), None)
+        assert ctx["action"] == "delete" and ctx["actor"] == "alice"
+        # The owner's card shows a durable `deleting` state instead of flipping to active.
+        entry = json.loads(s3.store[_PENDING_KEY])["connections"][0]
+        assert entry == {"name": "sales", "role": "owner", "status": "deleting"}
+        assert len(sqs.sent) == 1
+        msg = sqs.sent[0]
+        assert msg["MessageDeduplicationId"] == "r1:delete-pending:alice"
+        assert json.loads(msg["MessageBody"]) == {
+            "action": "create",
+            "username": "alice",
+            "message": 'Deleting shared workspace "sales"…',
+        }
+    finally:
+        auth.verified_username = orig
+
+
+def test_validate_non_owner_delete_records_nothing():
+    s3, *_ = install()
+    _seed_reg(s3, name="sales", owner="alice", members=["alice"])
+    sqs = _enable_notifications()
+    orig = auth.verified_username
+    try:
+        _stub_actor("mallory")  # not the owner — authorize raises before any side effect
+        raises(lambda: v.handler(_event("delete", "sales"), None), auth.AuthorizationError, "owner-only")
+        assert ("user-bkt", "mallory/user_settings/shared-connections.json") not in s3.store
+        assert sqs.sent == []
+    finally:
+        auth.verified_username = orig
+
+
 def test_validate_non_create_records_nothing():
     s3, *_ = install()
     _seed_reg(s3, members=["alice"])
