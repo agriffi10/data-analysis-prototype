@@ -15,12 +15,23 @@ const CHECKSUM_OPTS = {
   responseChecksumValidation: 'WHEN_REQUIRED'
 } as const;
 
+// Every authenticated S3 read hits a STABLE URL (SigV4 auth is in headers, not the
+// query string), and S3 returns no `Cache-Control`. The browser therefore applies
+// heuristic HTTP caching and can serve a stale body for the SAME key indefinitely —
+// the ETag never changes across fetches, so a re-read of a mutated object (the
+// shared-connections cache, notifications inbox, query history/saved queries, and
+// `ListObjectsV2` listings) silently returns the old contents. `cache: 'no-store'`
+// on the fetch handler forces every request to the network, so re-reads reflect the
+// current object. These are all live-data reads (no static-asset caching to lose).
+const REQUEST_HANDLER = {cache: 'no-store'} as const;
+
 // Dev-only anonymous/static client (SPEC-002): omitting credentials uses unsigned
 // requests for public buckets. This path stays in place for the test bucket until
 // SPEC-013 switches the browser onto the authenticated user-space bucket.
 export const s3Client = new S3Client({
   region: import.meta.env.VITE_AWS_REGION,
   ...CHECKSUM_OPTS,
+  requestHandler: REQUEST_HANDLER,
   ...(accessKeyId
     ? {
         credentials: {
@@ -53,7 +64,8 @@ export async function getS3Client(forceRefresh = false): Promise<ServiceResult<S
       data: new S3Client({
         region: import.meta.env.VITE_AWS_REGION,
         credentials: session.credentials,
-        ...CHECKSUM_OPTS
+        ...CHECKSUM_OPTS,
+        requestHandler: REQUEST_HANDLER
       })
     };
   } catch (err) {
