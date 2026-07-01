@@ -1,10 +1,10 @@
 {
-  "Comment": "Table-builder control plane (SPEC-066 skeleton). A LINEAR pipeline — validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl → Succeed — orchestrated by the Step Function, not in-Lambda code. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Only transient Lambda SERVICE errors are retried; a shared Catch routes any terminal failure to Fail (the structured recorded-failure outcome is finalized in SPEC-070). Task bodies are stubs here (SPEC-067→070 fill them).",
+  "Comment": "Table-builder control plane (SPEC-070). A LINEAR pipeline — validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl → RecordSuccess → Succeeded — orchestrated by the Step Function, not in-Lambda code. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Only transient SERVICE errors are retried (Lambda service faults on every verb; execute-ddl also retries the polls' TransientError). Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the status:'created' twin. A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
       "Type": "Task",
-      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps.",
+      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",
@@ -27,7 +27,7 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "Next": "ValidateFailureSeed"
         }
       ],
       "Next": "CheckTableAbsent"
@@ -56,7 +56,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "ParseError"
         }
       ],
       "Next": "InspectSource"
@@ -85,7 +86,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "ParseError"
         }
       ],
       "Next": "InferSchema"
@@ -114,13 +116,15 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "ParseError"
         }
       ],
       "Next": "ExecuteDdl"
     },
     "ExecuteDdl": {
       "Type": "Task",
+      "Comment": "Run the single CREATE via Athena (projection ⇒ no MSCK REPAIR). A transient Athena/S3 error is raised as TransientError and retried here (NOT terminal); a FAILED/CANCELLED query or timeout raises TerminalError → Catch → recorded failure.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${execute_ddl_function_arn}",
@@ -133,7 +137,8 @@
             "Lambda.ServiceException",
             "Lambda.TooManyRequestsException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "TransientError"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
@@ -143,10 +148,57 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "ParseError"
         }
       ],
+      "Next": "RecordSuccess"
+    },
+    "RecordSuccess": {
+      "Type": "Pass",
+      "Comment": "Shape the terminal SUCCESS outcome SPEC-072 notifies from. The threaded object always carries these fields after execute-ddl.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "database.$": "$.space.database",
+        "tableName.$": "$.tableName",
+        "status": "created"
+      },
       "Next": "Succeeded"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared ParseError/RecordFailure path is uniform for every verb.",
+      "Parameters": {
+        "requestId": null,
+        "actor": null,
+        "space": { "database": null },
+        "tableName": null,
+        "error.$": "$"
+      },
+      "Next": "ParseError"
+    },
+    "ParseError": {
+      "Type": "Pass",
+      "Comment": "Decode the Lambda error Cause (a JSON string) so RecordFailure can read the errorMessage — the 'reason: detail' string TerminalError raised (e.g. 'ddl_execution_failed: SYNTAX_ERROR …').",
+      "Parameters": {
+        "cause.$": "States.StringToJson($.error.Cause)"
+      },
+      "ResultPath": "$.parsed",
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } (identity is null for a pre-identity validate failure) then fails the execution.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "database.$": "$.space.database",
+        "tableName.$": "$.tableName",
+        "status": "failed",
+        "reason.$": "$.parsed.cause.errorMessage"
+      },
+      "Next": "Failed"
     },
     "Succeeded": {
       "Type": "Succeed"
@@ -154,7 +206,7 @@
     "Failed": {
       "Type": "Fail",
       "Error": "TableBuildFailed",
-      "Cause": "The table-builder control plane returned an unrecoverable error. (SPEC-070 finalizes the structured recorded-failure outcome.)"
+      "Cause": "The table-builder control plane recorded an unrecoverable error (see the RecordFailure state output for the structured { status:'failed', reason } outcome)."
     }
   }
 }

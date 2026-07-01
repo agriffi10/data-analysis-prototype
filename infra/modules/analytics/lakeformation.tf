@@ -22,7 +22,12 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   # compact() also drops any empty ARN so the module still plans standalone.
   #   - shared-space orchestrator (SPEC-056) — grants on shared DBs + the shared
   #     location; constructed string, ordered after module.shared_spaces so it exists.
-  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn])
+  #   - table-builder execute-ddl (SPEC-070) — CREATEs tables in the dynamic per-user +
+  #     per-shared-space target DBs (can't be statically enumerated → catalog-wide
+  #     creator via LF admin). Constructed string; the role is created by
+  #     module.table_builder (which depends_on this module), so a from-scratch first
+  #     apply may need a re-run once the role exists (SPEC-070 FR-005).
+  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn, var.table_builder_execute_ddl_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.

@@ -16,6 +16,9 @@ USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
 SHARED_SPACE_BUCKET = os.environ.get("SHARED_SPACE_BUCKET", "")
 REGION = os.environ.get("AWS_REGION", "")
 
+# SPEC-070: the shared analytics workgroup execute-ddl runs the CREATE DDL in.
+ATHENA_WORKGROUP = os.environ.get("ATHENA_WORKGROUP", "")
+
 # SPEC-072 seam: target for outcome notifications. Unset until SPEC-072 wires the
 # env var + the sqs:SendMessage grant, in which case emit is a logged no-op.
 NOTIFICATIONS_QUEUE_URL = os.environ.get("NOTIFICATIONS_QUEUE_URL", "")

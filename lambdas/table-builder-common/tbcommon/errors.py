@@ -13,3 +13,11 @@ class TerminalError(Exception):
         self.reason = reason
         self.detail = detail
         super().__init__(f"{reason}: {detail}" if detail else reason)
+
+
+class TransientError(Exception):
+    """A retryable, non-deterministic failure (Athena/S3 throttling, a 5xx). Raising
+    it (rather than a ``TerminalError``) surfaces the exception TYPE name
+    ``TransientError`` to the Step Function, whose ``Retry`` on that name re-runs the
+    whole verb — the opposite of ``TerminalError``, which the ``Catch`` records as a
+    final outcome. Used by ``execute-ddl``'s Athena start+poll (SPEC-070)."""
