@@ -132,8 +132,16 @@ export function QueryTabStrip({
                 nested <button>, which would trip axe's nested-interactive rule
                 inside the role="tab". Keyboard/AT users close via the Delete key
                 on the focused tab (onTabKeyDown), so the same action stays fully
-                operable without this control (WCAG 2.1.1). */}
-              {!solo && (
+                operable without this control (WCAG 2.1.1).
+                The last remaining tab hides its ✕ but keeps an equally-sized
+                inert placeholder, so a solo tab keeps the same internal spacing
+                (label never sits lopsided against the pr-1 edge). */}
+              {solo ? (
+                <span
+                  aria-hidden="true"
+                  className="h-6 w-6 flex-none"
+                />
+              ) : (
                 <span
                   role="presentation"
                   title={`Close ${tab.label}`}
