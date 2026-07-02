@@ -87,6 +87,9 @@ Add a row when a spec is created; update its status on completion (status only �
 | 079 — Resizable Editor / Results Split | Draft |
 | 080 — Total Row Count in Query Stats | Draft |
 | 081 — Double-Click a File to Download | Draft |
+| 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Draft |
+| 083 — Lambda Hardening (config init-validation + event-shape validation + type hints) | Draft |
+| 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Draft |
 
 ## Arcs
 
@@ -258,3 +261,11 @@ per-execution reset) instead of today's loaded-count "N+". **081** (file browser
 download it** via the existing presigned-URL flow (both authenticated + read-only browse; explicit Download controls
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
+
+**Best-practice audit follow-ups (082→084)** — filed 2026-07-02 from a read-only audit of the Lambdas + SPA against
+`docs/best-practices/`; all code-only, no IAM/infra. **082** fixes a lost-update race in the shared-space **registry**
+writers (`finalize`/`save_members`/`set_status`/`reserve` retry) by giving them the same optimistic ETag CAS the
+`cache.py` sibling already uses. **083** bundles three cross-cutting Lambda hardening items (config validate-at-init;
+table-builder handlers validating event shape into typed terminals + actor notify instead of bare `KeyError`; type hints
+on public signatures). **084** makes the query editor's Monaco completion-provider registration/disposal remount-safe
+(tab switches / StrictMode) so autocomplete can't silently die. All three are independent of each other.
