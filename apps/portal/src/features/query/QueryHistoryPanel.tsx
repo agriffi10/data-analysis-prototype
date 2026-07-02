@@ -18,19 +18,20 @@ type QueryHistoryPanelProps = {
   rerunDisabled: boolean;
 };
 
-// SPEC-036: per-user query history (newest-first), read-only — view / Open /
-// Re-run, no delete. Renders in the shared Drawer; paginated 7/page (SPEC-042)
-// via the shared Pager.
+/**
+ * Per-user query history drawer (newest-first), read-only — view / Open /
+ * Re-run, no delete. Paginated via the shared Pager.
+ */
 export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, rerunDisabled}: QueryHistoryPanelProps) {
   // Always subscribe to the live history key (not gated on `open`) so an entry
   // appended/updated while the panel is open shows immediately, and the panel and
   // the workspace's mutations share one cache entry. Drawer visibility is `open`.
   const {history, isLoading, error, refresh, isRefreshing} = useQueryHistory(username || null);
 
-  // SPEC-042: client-side Prev/Next pager over the in-memory newest-first list.
+  // Client-side Prev/Next pager over the in-memory newest-first list.
   const [pageIndex, setPageIndex] = useState(0);
   const pageCount = Math.max(1, Math.ceil(history.length / QUERY_HISTORY_PAGE_SIZE));
-  // Clamp if the list shrank so the pager never lands on a blank page (FR-003).
+  // Clamp if the list shrank so the pager never lands on a blank page.
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const start = safeIndex * QUERY_HISTORY_PAGE_SIZE;
   const pageEntries = history.slice(start, start + QUERY_HISTORY_PAGE_SIZE);
@@ -50,8 +51,8 @@ export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, r
     if (history.length > prevLen) setPageIndex(0);
   }
 
-  // SPEC-046: manual re-read of the store from S3. On success, snap back to the
-  // newest page (matches the open/append behavior). A failed refetch surfaces via
+  // Manual re-read of the store from S3. On success, snap back to the newest
+  // page (matches the open/append behavior). A failed refetch surfaces via
   // `error` below and keeps the previously-loaded entries (non-destructive).
   const handleRefresh = async () => {
     await refresh();
@@ -103,8 +104,8 @@ export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, r
       title="Query history"
       headerAccessory={refreshButton}
       footer={footer}>
-      {/* A read/refresh error is shown above the list and never clears it, so a
-          failed Refresh is non-destructive (FR-003). */}
+      {/* A read/refresh error is shown above the list and never clears it, so
+          a failed Refresh is non-destructive. */}
       {error && (
         <Banner
           variant="danger"

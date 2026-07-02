@@ -4,9 +4,12 @@ import type {QueryTab, QueryTabsState} from './query.types';
 import {readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState} from './queryTabs';
 
 export type OpenTabOpts = {
-  label?: string; // verbatim label (saved query / table action); omit for a blank "Query N"
-  sql?: string; // pre-filled editor text; omit for an empty tab
-  savedQueryId?: string; // links the tab to a saved query (SPEC-043); inert here
+  /** Verbatim label (saved query / table action); omit for a blank "Query N". */
+  label?: string;
+  /** Pre-filled editor text; omit for an empty tab. */
+  sql?: string;
+  /** Links the tab to a saved query; inert here. */
+  savedQueryId?: string;
 };
 
 export type UseQueryTabsResult = {
@@ -16,22 +19,21 @@ export type UseQueryTabsResult = {
   setActiveSql: (sql: string) => void;
   setActiveTab: (id: string) => void;
   setActiveSavedQueryId: (id: string | undefined) => void;
-  // SPEC-043: patch the active tab's label/savedQueryId together (used when a
-  // save links + relabels the active tab in one step).
+  /** Patches the active tab's label/savedQueryId together (a save links + relabels in one step). */
   setActiveTabMeta: (meta: {label?: string; savedQueryId?: string}) => void;
-  // SPEC-043 FR-007: clear the link on every tab pointing at a deleted saved
-  // query (the tabs keep their label/SQL; a later Save creates a new record).
+  /** Clears the link on every tab pointing at a deleted saved query (tabs keep their label/SQL). */
   unlinkSavedQuery: (savedQueryId: string) => void;
-  // Opens a tab and returns its id, or null when already at QUERY_TABS_MAX
-  // (the caller surfaces the FR-008 "close a tab first" dialog).
+  /** Opens a tab and returns its id, or null when already at QUERY_TABS_MAX (caller shows the tab-limit dialog). */
   openTab: (opts?: OpenTabOpts) => string | null;
   closeTab: (id: string) => void;
   clearActive: () => void;
 };
 
-// SPEC-041: owns the QueryTabsState + sessionStorage persistence. The seed order
-// is: restore persisted tabs → else migrate a SPEC-040 draft → else a fresh
-// single "Query 1". State is read once at mount and persisted on every change.
+/**
+ * Owns the QueryTabsState + sessionStorage persistence. Seed order: restore
+ * persisted tabs → else migrate a legacy single draft → else a fresh single
+ * "Query 1". State is read once at mount and persisted on every change.
+ */
 export function useQueryTabs(username: string): UseQueryTabsResult {
   const [state, setState] = useState<QueryTabsState>(
     () => readTabsState(username) ?? migrateDraftToTabs(username) ?? initialTabsState()
@@ -116,9 +118,9 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
       return {...s, tabs, activeTabId};
     });
 
-  // SPEC-040 Clear, scoped to the active tab: empty its SQL and reset the tab back
-  // to a fresh blank "Query N" — drop any saved-query link and relabel (consuming a
-  // query number, like a brand-new tab). Other tabs are untouched.
+  // Clear, scoped to the active tab: empty its SQL and reset the tab back to
+  // a fresh blank "Query N" — drop any saved-query link and relabel
+  // (consuming a query number, like a brand-new tab). Other tabs untouched.
   const clearActive = () =>
     setState((s) => ({
       ...s,

@@ -26,20 +26,20 @@ import type {
 import {MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE, PART_CONCURRENCY} from './fileBrowser.types';
 import {LISTING_PAGE_SIZE, PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
 
-// Credential-expiry detection + one-shot refresh-and-retry now live in the shared
-// src/lib/credentialRetry helper (SPEC-034 FR-001), reused by the S3/Athena/Glue
-// services. SPEC-013 FR-003 behavior is unchanged.
-
-// Dev-only escape hatch (SPEC-013): browse a public/static test bucket without
-// auth for local work without AWS. Honoured ONLY in a dev build, so the
-// SPEC-001/002 anonymous/static-credential path is unreachable in production.
+// Dev-only escape hatch: browse a public/static test bucket without auth for
+// local work without AWS. Honoured ONLY in a dev build, so the unauthenticated
+// path is unreachable in production.
 const devUnauthenticated = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
 
-// MaxKeys for the recursive collect-all-keys pass (delete/move, SPEC-018/019).
-// 1000 is the S3 hard cap per page; a small page size here would only mean more
-// round-trips. The user-facing listing page size is LISTING_PAGE_SIZE (SPEC-037).
+// MaxKeys for the recursive collect-all-keys pass (delete/move). 1000 is the S3
+// hard cap per page; a smaller page here would only mean more round-trips. The
+// user-facing listing page size is LISTING_PAGE_SIZE.
 const BULK_KEY_PAGE_SIZE = 1000;
 
+/**
+ * Lists one page of folders + files under a prefix ('/'-delimited), refreshing
+ * credentials and retrying once if they expired mid-session.
+ */
 export async function listFiles(
   bucket: string,
   prefix?: string,
@@ -130,9 +130,9 @@ function folderName(folderPrefix: string, parentPrefix?: string): string {
 }
 
 // Runs an authenticated S3 operation, transparently refreshing credentials and
-// retrying once if they expired mid-session (SPEC-013 FR-003 pattern). Unlike
-// listFiles, the marker/delete operations have no dev-unauthenticated fallback —
-// they only run in the authenticated user-space flow (FilesPage gates on `user`).
+// retrying once if they expired mid-session. Unlike listFiles there is no
+// dev-unauthenticated fallback — these operations only run in the authenticated
+// user-space flow.
 async function withAuthenticatedClient<T>(
   op: (client: S3Client) => Promise<ServiceResult<T>>
 ): Promise<ServiceResult<T>> {
@@ -153,12 +153,15 @@ function isNotFound(err: unknown): boolean {
   return e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
-// SPEC-014 FR-001: idempotently guarantee the user's prefix marker exists. Best
-// effort and non-blocking — callers log a warning on failure and carry on (it
-// retries next session). The in-memory guard below ensures at most one HEAD per
-// session regardless of how many times this is called (navigation, StrictMode).
+// Once-per-session guard: at most one HEAD per bucket/marker no matter how many
+// times ensurePrefixMarker runs (navigation, StrictMode).
 const ensuredMarkers = new Set<string>();
 
+/**
+ * Idempotently guarantees the user's prefix-marker object exists. Best effort
+ * and non-blocking — callers log a warning on failure and carry on (a fresh
+ * session retries).
+ */
 export async function ensurePrefixMarker(params: {
   bucket: string;
   username: string;
@@ -177,7 +180,7 @@ export async function ensurePrefixMarker(params: {
 
   return withAuthenticatedClient<{created: boolean}>(async (client) => {
     try {
-      // HEAD first — never overwrite an existing marker (FR-001).
+      // HEAD first — never overwrite an existing marker.
       await client.send(new HeadObjectCommand({Bucket: bucket, Key: key}));
       return {success: true, data: {created: false}};
     } catch (err) {
@@ -204,18 +207,20 @@ export async function ensurePrefixMarker(params: {
   });
 }
 
-// SPEC-014 FR-002/FR-003: is this exact key the user's root prefix marker? Used
-// both to hide it from listings and to block deletion. Matches only the root
-// marker — a user's own `DO_NOT_DELETE.txt` inside a subfolder has a different
-// key and is unaffected.
+/**
+ * Is this exact key the user's root prefix marker? Used both to hide it from
+ * listings and to block deletion. Matches only the root marker — a like-named
+ * file inside a subfolder has a different key and is unaffected.
+ */
 export function isPrefixMarkerKey(key: string, username: string): boolean {
   return key === prefixMarkerKey(username);
 }
 
-// SPEC-014 FR-003: delete an object, refusing to delete the prefix marker. This
-// is UI-layer defense in depth only — the authoritative protection is the IAM
-// deny on `*/DO_NOT_DELETE.txt` in SPEC-013 FR-001's role policy. (Single-object
-// delete; recursive/multi-select delete is SPEC-018 and can reuse this guard.)
+/**
+ * Deletes a single object, refusing to delete the prefix marker. The refusal is
+ * UI-layer defense in depth only — the authoritative protection is the role
+ * policy's IAM deny on every prefix's `DO_NOT_DELETE.txt`.
+ */
 export async function deleteObject(params: {
   bucket: string;
   key: string;
@@ -243,7 +248,7 @@ export async function deleteObject(params: {
   });
 }
 
-// S3's DeleteObjects hard limit: at most 1000 keys per request (SPEC-018 FR-002).
+// S3's DeleteObjects hard limit: at most 1000 keys per request.
 const DELETE_BATCH_SIZE = 1000;
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -254,17 +259,17 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-// SPEC-018 FR-002: delete one or many objects in a single logical operation.
-// Keys are chunked into ≤1000-key DeleteObjects requests; results aggregate
-// across batches. The call never throws on partial failure — per-key errors S3
-// returns (and the marker-guard refusal) are collected into `errors`, while the
-// keys that succeeded are reported in `deleted`. Credential expiry mid-operation
-// is retried once with refreshed credentials (the operation is idempotent —
-// re-deleting an already-gone key is a success in S3).
-//
-// `username` is needed for the marker guard: the user's root marker
-// (`{username}/DO_NOT_DELETE.txt`) is refused before the request and never sent
-// to S3 (SPEC-014 FR-003 / SPEC-013 FR-001 defense in depth).
+/**
+ * Deletes one or many objects as a single logical operation. Keys are chunked
+ * into ≤1000-key DeleteObjects requests; results aggregate across batches.
+ * Never throws on partial failure — per-key errors (including the marker-guard
+ * refusal) collect into `errors` while succeeded keys land in `deleted`.
+ * Credential expiry mid-operation is retried once (safe: re-deleting an
+ * already-gone key is a success in S3).
+ *
+ * @param params.username - identifies the root prefix marker, which is refused
+ *   before the request and never sent to S3.
+ */
 export async function deleteObjects(params: {
   bucket: string;
   keys: string[];
@@ -273,7 +278,7 @@ export async function deleteObjects(params: {
   const {bucket, keys, username} = params;
   const markerKey = prefixMarkerKey(username);
 
-  // Partition out the protected marker before touching S3 (FR-002).
+  // Partition out the protected marker before touching S3.
   const markerErrors: DeleteResult['errors'] = [];
   const toDelete: string[] = [];
   for (const key of keys) {
@@ -304,10 +309,10 @@ export async function deleteObjects(params: {
 }
 
 // Sends the keys as chunked DeleteObjects requests, aggregating S3's per-key
-// Deleted/Errors across batches. A whole-batch throw that is a credential-expiry
-// error is propagated so withAuthenticatedClient refreshes and retries the whole
-// operation; any other whole-batch failure records every key in that batch as an
-// error and continues with the remaining batches (FR-002 partial failure).
+// Deleted/Errors across batches. A whole-batch credential-expiry throw is
+// propagated so withAuthenticatedClient refreshes and retries the whole
+// operation; any other whole-batch failure records every key in that batch as
+// an error and continues with the remaining batches.
 async function deleteInBatches(client: S3Client, bucket: string, keys: string[]): Promise<ServiceResult<DeleteResult>> {
   const deleted: string[] = [];
   const errors: DeleteResult['errors'] = [];
@@ -348,12 +353,12 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
   return {success: true, data: {deleted, errors}};
 }
 
-// SPEC-018 FR-003: delete a folder and everything beneath it. Lists every key
-// under `prefix` recursively (no delimiter, paginating ListObjectsV2 past the
-// 1000-key page cap), then batch-deletes via deleteObjects. The folder's own
-// zero-byte marker key (`{prefix}`) is itself returned by the recursive listing,
-// so an "empty" folder still disappears. A per-key failure never aborts the rest;
-// the result reports total deleted and any failures.
+/**
+ * Deletes a folder and everything beneath it: lists every key under `prefix`
+ * recursively, then batch-deletes via deleteObjects. The folder's own zero-byte
+ * marker key is itself returned by the recursive listing, so an "empty" folder
+ * still disappears. A per-key failure never aborts the rest.
+ */
 export async function deleteFolder(params: {
   bucket: string;
   prefix: string;
@@ -404,7 +409,7 @@ async function listAllKeysUnderPrefix(
   }
 }
 
-// ── Move / rename (SPEC-019) ─────────────────────────────────────────────────
+// ── Move / rename ────────────────────────────────────────────────────────────
 
 // Build the CopyObject `CopySource` value: `{bucket}/{key}`, with each path
 // segment URL-encoded but the separators preserved. CopyObject is not auto-encoded
@@ -414,19 +419,20 @@ function buildCopySource(bucket: string, key: string): string {
   return `${bucket}/${encodedKey}`;
 }
 
-// SPEC-019 FR-001: copy a single object. By default the copy stays within `bucket`
-// (same-bucket); SPEC-055 adds an optional `destBucket` so a query result can be
-// saved across buckets (e.g. a shared-space result into the user's own space). Like
-// uploadFile (SPEC-016), unless `overwrite` is true the DESTINATION is HEAD-checked
-// first and the copy is refused with a `Collision` error rather than clobbering
-// (versioning is off). The root marker may be neither source nor destination. Never
-// throws.
+/**
+ * Copies a single object. Unless `overwrite` is true the DESTINATION is
+ * HEAD-checked first and the copy refused with a `Collision` error rather than
+ * clobbering (versioning is off). The root marker may be neither source nor
+ * destination. Never throws.
+ */
 export async function copyObject(params: {
-  bucket: string; // source bucket
+  /** Source bucket. */
+  bucket: string;
   sourceKey: string;
   destKey: string;
   username: string;
-  destBucket?: string; // defaults to `bucket` (same-bucket copy)
+  /** Defaults to `bucket` (same-bucket copy); set to copy across buckets. */
+  destBucket?: string;
   overwrite?: boolean;
 }): Promise<ServiceResult<{destKey: string}>> {
   const {bucket, sourceKey, destKey, username, overwrite = false} = params;
@@ -469,16 +475,19 @@ export async function copyObject(params: {
   });
 }
 
-// SPEC-019 FR-001: move (= copy then delete the source). The source is deleted
-// only after the copy succeeds — a failed copy leaves the source intact. A
-// `sourceKey === destKey` request is a no-op success (rename to the same name).
+/**
+ * Moves an object (S3 has no move: copy, then delete the source). The source is
+ * deleted only after the copy succeeds — a failed copy leaves it intact. A
+ * same-bucket `sourceKey === destKey` request is a no-op success.
+ */
 export async function moveObject(params: {
-  bucket: string; // source bucket
+  /** Source bucket. */
+  bucket: string;
   sourceKey: string;
   destKey: string;
   username: string;
-  destBucket?: string; // defaults to `bucket` (same-bucket move); set to move to
-  //                      another connection's bucket (feedback 2026-06-30)
+  /** Defaults to `bucket` (same-bucket move); set to move to another connection's bucket. */
+  destBucket?: string;
   overwrite?: boolean;
 }): Promise<ServiceResult<{destKey: string}>> {
   const {bucket, sourceKey, destKey, username, overwrite} = params;
@@ -507,23 +516,25 @@ export async function moveObject(params: {
   return {success: true, data: {destKey}};
 }
 
-// SPEC-019 FR-004: move a folder and everything beneath it. Lists every key under
-// `sourcePrefix` recursively, computes each destination by replacing the
-// `sourcePrefix` portion with `destPrefix`, then moves each (copy-then-delete) so
-// no source survives a successful move. Non-atomic: a key whose copy fails is left
-// in place and recorded; the rest continue (FR-004). `onProgress` reports
-// processed/total for large folders.
-//
-// Collision (FR-005): unless `overwrite` is true, the destinations are checked
-// once up front (any existing destination object → a single `Collision` error
-// naming the count) so the UI can confirm Overwrite-all or cancel.
+/**
+ * Moves a folder and everything beneath it: lists every key under
+ * `sourcePrefix` recursively, rewrites each destination, then moves each
+ * (copy-then-delete). Non-atomic — a key whose copy fails is left in place and
+ * recorded while the rest continue.
+ *
+ * Unless `overwrite` is true, destinations are checked once up front; any
+ * existing destination object yields a single `Collision` error naming the
+ * count, so the UI can confirm Overwrite-all or cancel.
+ */
 export async function moveFolder(params: {
   bucket: string;
   sourcePrefix: string;
   destPrefix: string;
   username: string;
-  destBucket?: string; // defaults to `bucket`; set to move into another connection
+  /** Defaults to `bucket`; set to move into another connection's bucket. */
+  destBucket?: string;
   overwrite?: boolean;
+  /** Reports processed/total for large folders. */
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<MoveResult>> {
   const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
@@ -555,8 +566,8 @@ export async function moveFolder(params: {
 
   const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
 
-  // Pre-flight collision check (FR-005): count destinations that already exist in
-  // the destination bucket.
+  // Pre-flight collision check: count destinations that already exist in the
+  // destination bucket.
   if (!overwrite) {
     const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, destBucket, destPrefix));
     if (!existing.success) return existing;
@@ -600,27 +611,27 @@ export async function moveFolder(params: {
   return {success: true, data: {moved, errors}};
 }
 
-// ── Copy (SPEC-039) ──────────────────────────────────────────────────────────
+// ── Copy ─────────────────────────────────────────────────────────────────────
 
-// SPEC-039 FR-002: copy a folder and everything beneath it — the copy-only
-// counterpart of moveFolder. Lists every key under `sourcePrefix` recursively,
-// computes each destination by replacing the `sourcePrefix` portion with
-// `destPrefix`, then copies each via copyObject. Unlike moveFolder, NO source is
-// ever deleted (copy is strictly additive). Non-atomic and best-effort: a key
-// whose copy fails is recorded and the rest continue. There is NO rollback — a
-// partial copy leaves a partial duplicate under the destination, which the user
-// can delete. `onProgress` reports processed/total for large folders.
-//
-// Collision (FR-005): unless `overwrite` is true, the destinations are checked
-// once up front (any existing destination object → a single `Collision` error
-// naming the count) so the UI can confirm Overwrite-all or cancel.
+/**
+ * Copies a folder and everything beneath it — the copy-only counterpart of
+ * moveFolder. Strictly additive: no source is ever deleted. Non-atomic and
+ * best-effort — a key whose copy fails is recorded and the rest continue, with
+ * NO rollback (a partial copy leaves a partial duplicate the user can delete).
+ *
+ * Unless `overwrite` is true, destinations are checked once up front; any
+ * existing destination object yields a single `Collision` error naming the
+ * count, so the UI can confirm Overwrite-all or cancel.
+ */
 export async function copyFolder(params: {
   bucket: string;
   sourcePrefix: string;
   destPrefix: string;
   username: string;
-  destBucket?: string; // defaults to `bucket`; set to copy into another connection
+  /** Defaults to `bucket`; set to copy into another connection's bucket. */
+  destBucket?: string;
   overwrite?: boolean;
+  /** Reports processed/total for large folders. */
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<CopyResult>> {
   const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
@@ -651,8 +662,8 @@ export async function copyFolder(params: {
 
   const destKeyFor = (sourceKey: string) => destPrefix + sourceKey.slice(sourcePrefix.length);
 
-  // Pre-flight collision check (FR-005): count destinations that already exist in
-  // the destination bucket.
+  // Pre-flight collision check: count destinations that already exist in the
+  // destination bucket.
   if (!overwrite) {
     const existing = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, destBucket, destPrefix));
     if (!existing.success) return existing;
@@ -696,7 +707,7 @@ export async function copyFolder(params: {
   return {success: true, data: {copied, errors}};
 }
 
-// SPEC-015 FR-003. Default presigned-download lifetime: 15 minutes.
+// Default presigned-download lifetime: 15 minutes.
 const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 900;
 
 // Remaining lifetime (seconds) on the client's temporary credentials, or
@@ -715,22 +726,26 @@ async function remainingCredentialSeconds(client: S3Client): Promise<number | un
   }
 }
 
-// SPEC-015 FR-003: generate a short-lived presigned GetObject URL so the browser
-// can download a file directly from S3 (no backend). `ResponseContentDisposition`
-// forces a save dialog with the real filename. The expiry defaults to 15 min and
-// is capped to the remaining credential lifetime (the URL dies with the creds).
+/**
+ * Generates a short-lived presigned GetObject URL so the browser can download a
+ * file directly from S3 (no backend). `ResponseContentDisposition` forces a
+ * save dialog with the real filename. The expiry defaults to 15 min and is
+ * capped to the remaining credential lifetime (the URL dies with the creds).
+ */
 export async function getDownloadUrl(params: {
   bucket: string;
   key: string;
-  fileName?: string; // defaults to the last path segment of the key
-  expiresInSeconds?: number; // default 900, capped to credential TTL
+  /** Defaults to the last path segment of the key. */
+  fileName?: string;
+  /** Default 900; capped to the credential TTL. */
+  expiresInSeconds?: number;
 }): Promise<ServiceResult<DownloadUrl>> {
   const {bucket, key} = params;
   const downloadName = params.fileName ?? fileName(key);
   const requested = params.expiresInSeconds ?? DEFAULT_DOWNLOAD_EXPIRY_SECONDS;
 
   // Acquire credentials; on none (signed out / expired) retry once with a forced
-  // refresh before surfacing the error (FR-003).
+  // refresh before surfacing the error.
   let clientResult = await getS3Client();
   if (!clientResult.success) {
     clientResult = await getS3Client(true);
@@ -756,11 +771,12 @@ export async function getDownloadUrl(params: {
   }
 }
 
-// ── Upload + create folder (SPEC-016) ────────────────────────────────────────
+// ── Upload + create folder ───────────────────────────────────────────────────
 
-// SPEC-016 FR-003: does an object already exist at this key? HEAD it; a
-// NotFound/404 is a clean `false` (not an error). Callers use this to drive the
-// warn-and-confirm collision prompt.
+/**
+ * Does an object already exist at this key? HEADs it; NotFound/404 is a clean
+ * `false`, not an error. Drives the warn-and-confirm collision prompt.
+ */
 export async function objectExists(params: {bucket: string; key: string}): Promise<ServiceResult<boolean>> {
   const {bucket, key} = params;
   return withAuthenticatedClient(async (client) => {
@@ -774,16 +790,17 @@ export async function objectExists(params: {bucket: string; key: string}): Promi
   });
 }
 
-// SPEC-016 FR-002: map upload progress to a whole-number percentage. Guards the
-// zero-byte case (total 0 → 100, never NaN/Infinity) and clamps to 0..100.
+/**
+ * Maps upload progress to a whole-number percentage, guarding the zero-byte
+ * case (total 0 → 100, never NaN/Infinity) and clamping to 0..100.
+ */
 export function uploadPercent(loaded: number, total: number): number {
   if (!Number.isFinite(total) || total <= 0) return 100;
   const pct = Math.round((loaded / total) * 100);
   return Math.max(0, Math.min(100, pct));
 }
 
-// SPEC-016 FR-004: validate a new folder name before any request. Returns an
-// error message, or null if the name is valid.
+/** Validates a new folder name before any request. Returns an error message, or null if valid. */
 export function validateFolderName(name: string): string | null {
   if (name.trim().length === 0) return 'Folder name cannot be empty.';
   if (name !== name.trim()) return 'Folder name cannot start or end with spaces.';
@@ -793,16 +810,17 @@ export function validateFolderName(name: string): string | null {
   return null;
 }
 
-// SPEC-016 FR-001/FR-002/FR-003: upload a single file with the managed
-// lib-storage Upload — single request at/below the 5 MiB part size, automatic
-// multipart above it, with progress events. Never throws (returns ServiceResult).
-//
-// Collisions (FR-003): unless `overwrite` is true, HEAD-check first and refuse
-// with a `Collision` error rather than clobbering (versioning is off). The caller
-// resolves the collision (Overwrite → retry with overwrite:true; Rename → new key).
-//
-// Cancel: an optional AbortSignal aborts the upload (the SDK aborts the multipart
-// upload, so no orphaned parts); the cancel *UI* is SPEC-020.
+/**
+ * Uploads a single file with the managed lib-storage Upload — single request
+ * at/below the 5 MiB part size, automatic multipart above it, with progress
+ * events. Never throws.
+ *
+ * Unless `overwrite` is true the key is HEAD-checked first and the upload
+ * refused with a `Collision` error rather than clobbering (versioning is off);
+ * the caller resolves it (Overwrite → retry with overwrite:true; Rename → new
+ * key). An optional AbortSignal cancels — the SDK aborts the multipart upload,
+ * so no orphaned parts.
+ */
 export async function uploadFile(params: {
   bucket: string;
   key: string;
@@ -828,7 +846,7 @@ export async function uploadFile(params: {
     return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};
   }
 
-  // Collision guard (FR-003) unless the caller has chosen to overwrite.
+  // Collision guard unless the caller has chosen to overwrite.
   if (!overwrite) {
     const exists = await objectExists({bucket, key});
     if (!exists.success) return exists;
@@ -840,8 +858,8 @@ export async function uploadFile(params: {
     }
   }
 
-  // Acquire credentials; one forced-refresh retry if missing (FR-001). The Upload
-  // is a multi-call operation, so mid-flight expiry is surfaced, not retried.
+  // Acquire credentials; one forced-refresh retry if missing. The Upload is a
+  // multi-call operation, so mid-flight expiry is surfaced, not retried.
   let clientResult = await getS3Client();
   if (!clientResult.success) {
     clientResult = await getS3Client(true);
@@ -876,9 +894,11 @@ export async function uploadFile(params: {
   }
 }
 
-// SPEC-016 FR-004: create an empty folder as a zero-byte `{prefix}{name}/` marker
-// object. Validates the name client-side and applies the same collision guard as
-// upload (FR-003).
+/**
+ * Creates an empty folder as a zero-byte `{prefix}{name}/` marker object.
+ * Validates the name client-side and applies the same collision guard as
+ * upload.
+ */
 export async function createFolder(params: {
   bucket: string;
   prefix: string;
@@ -925,13 +945,14 @@ export async function createFolder(params: {
   });
 }
 
-// ── Object metadata (SPEC-017) ───────────────────────────────────────────────
+// ── Object metadata ──────────────────────────────────────────────────────────
 
-// SPEC-017 FR-001: fetch a single object's metadata via HeadObject (no body
-// transfer). Maps the SDK response onto ObjectMetadata, defaulting StorageClass
-// to "STANDARD" when S3 omits it. A NotFound/404 is surfaced as a clear
-// ServiceResult error (the file was deleted out from under the listing), not a
-// throw; credential expiry is retried once by withAuthenticatedClient.
+/**
+ * Fetches a single object's metadata via HeadObject (no body transfer),
+ * defaulting StorageClass to "STANDARD" when S3 omits it. NotFound (the file
+ * was deleted out from under the listing) surfaces as a clear error, not a
+ * throw.
+ */
 export async function getObjectMetadata(params: {bucket: string; key: string}): Promise<ServiceResult<ObjectMetadata>> {
   const {bucket, key} = params;
   return withAuthenticatedClient(async (client) => {
@@ -961,7 +982,7 @@ export async function getObjectMetadata(params: {bucket: string; key: string}): 
   });
 }
 
-// Test-only: reset the once-per-session marker guard between cases.
+/** Test-only: resets the once-per-session marker guard between cases. */
 export function __resetPrefixMarkerCache(): void {
   ensuredMarkers.clear();
 }

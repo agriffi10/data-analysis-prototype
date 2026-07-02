@@ -26,6 +26,7 @@
 - **§16 Architecture & mental model** — declarative > imperative; react vs react-dom; Elements; FP principles.
 - **§17 Build workflow** — Thinking in React 5-step process.
 - **§18 Tooling** — StrictMode + eslint-plugin-react-hooks; never suppress the linter.
+- **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference.
 
 ---
 
@@ -178,3 +179,38 @@ Effects are an escape hatch for syncing with external systems. If no external sy
 - ✅ Enable **StrictMode** (`<React.StrictMode>`) in dev — double-invokes renders and remounts Effects once to surface impurities and missing cleanup. No production effect.
 - ✅ Use **`eslint-plugin-react-hooks`** — enforces Hook call rules (§5) and `exhaustive-deps` (§12).
 - 🔴 **Never suppress the dependency linter** (`// eslint-disable-next-line react-hooks/exhaustive-deps`). It "lies" to React about what the Effect depends on and causes stale-value bugs. The linter only flags *wrong* deps, not the *best* fix — change the code instead (§12, §13). Treat lint errors as compile errors.
+
+## §19 JSDoc component documentation
+Document components with a JSDoc block so usage, prop meaning, and examples surface on hover in the editor. **This repo is TS-strict (§18/CLAUDE.md), so TypeScript owns the *types*** — use JSDoc for the *prose* (what the component does, what each prop means, examples), and let the `interface`/prop types carry the shapes. Don't restate TS types in `@param {string}` tags — duplicated types drift.
+
+- ✅ Put a JSDoc block above every exported component: a one-line summary, then prop descriptions and at least one `@example`. This is what shows in the VSCode hover tooltip.
+- ✅ **Types come from TS, docs from JSDoc.** Define props as a TS `interface`/`type` (repo convention: `ComponentNameProps` in `component.types.ts` or co-located); annotate meaning with `@property`/inline JSDoc on the interface members, not with typed `@param` tags that repeat the type.
+- ✅ Use **`@example`** (optionally with `<caption>`) to show real usage — the highest-value part for consumers; multiple examples are fine.
+- 🔴 Don't hand-write `@param {object} props` / `@returns {JSX.Element}` type tags in `.tsx` — TS already infers them, and the tags fight the compiler. ✅ Keep `@example` and descriptions; drop the type tags.
+
+Preferred form in this repo (TS carries types; JSDoc carries docs + example):
+
+```tsx
+interface ShopLabelProps {
+  /** The name of the shop */
+  shopName: string;
+  /** Optional class name */
+  className?: string;
+}
+
+/**
+ * Displays a shop name.
+ *
+ * @example
+ * <ShopLabel shopName="My Shop" className="highlight" />
+ */
+export const ShopLabel = ({ shopName, className = '' }: ShopLabelProps) => {
+  return <p className={className}>{shopName}</p>;
+};
+```
+
+- ✅ **Extend native element props** by intersecting your props with the right React attribute type, so consumers get `onClick`, `aria-*`, etc. with correct types: `React.HTMLAttributes<HTMLParagraphElement> & ShopLabelProps`. For inputs use `React.InputHTMLAttributes<HTMLInputElement>` (gives a correctly-typed `onChange`); spread `...props` onto the element.
+- ✅ **Element-type reference** (for prop/return types): `JSX.Element` = a single element (typical component return; prefer over `React.JSX.Element`). `ReactNode` = the wider union (elements, arrays, strings, booleans) — use for a `children`/`fallback` prop that accepts anything renderable. `React.FC` / `React.ComponentType` = the *component itself*, for an `as`/render-component prop (`as={Badge}`), not an already-rendered element.
+- If a **plain-JS** (`.jsx`) file ever needs typing without TS, the article's typed JSDoc (`@typedef`/`@param {ShopLabelProps}` / `React.HTMLAttributes<*>` intersection) is the fallback — but in this repo prefer converting to `.tsx` over annotating JS with JSDoc types.
+
+Source: [Writing JSDoc for React Components — Thomas Schoffelen](https://schof.co/writing-jsdoc-for-react-components/).

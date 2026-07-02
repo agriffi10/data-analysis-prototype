@@ -6,18 +6,23 @@ import {ConfirmDialog} from '../../components/ConfirmDialog';
 import type {SavedQuery} from './query.types';
 
 type Props = {
-  initialName: string; // '' for a new save; the saved query's name on re-save
-  savedQueries: SavedQuery[]; // to detect name collisions
-  linkedId?: string; // active tab's savedQueryId (its own name isn't a collision)
-  // targetId: the saved query id to write into — null = create a new one.
+  /** '' for a new save; the saved query's name on re-save. */
+  initialName: string;
+  /** Used to detect name collisions. */
+  savedQueries: SavedQuery[];
+  /** Active tab's savedQueryId (its own name isn't a collision). */
+  linkedId?: string;
+  /** `targetId` is the saved query id to write into — null = create a new one. */
   onSave: (result: {name: string; targetId: string | null}) => void;
   onCancel: () => void;
 };
 
-// SPEC-043 FR-001/002/003: name-prompt modal with an inline overwrite-confirm
-// step. New save → empty; re-save → pre-filled. Saving under a name owned by a
-// *different* saved query asks to replace it; re-saving under the tab's own name
-// is the normal in-place update. Composes the shared Modal + ConfirmDialog.
+/**
+ * Name-prompt modal with an inline overwrite-confirm step. New save → empty;
+ * re-save → pre-filled. Saving under a name owned by a *different* saved query
+ * asks to replace it; re-saving under the tab's own name is the normal
+ * in-place update.
+ */
 export function SaveQueryDialog({initialName, savedQueries, linkedId, onSave, onCancel}: Props) {
   const [name, setName] = useState(initialName);
   const [collision, setCollision] = useState<SavedQuery | null>(null);
@@ -34,7 +39,7 @@ export function SaveQueryDialog({initialName, savedQueries, linkedId, onSave, on
   const attemptSave = () => {
     if (!canSave) return;
     const existing = savedQueries.find((q) => q.name.toLowerCase() === trimmed.toLowerCase());
-    // A name owned by a *different* saved query → confirm overwrite (FR-003).
+    // A name owned by a *different* saved query → confirm overwrite.
     if (existing && existing.id !== linkedId) {
       setCollision(existing);
       return;

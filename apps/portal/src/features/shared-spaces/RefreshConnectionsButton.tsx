@@ -1,11 +1,12 @@
 import {IconButton} from '../../components/IconButton';
 import {cx} from '../../lib/cx';
 
-// SPEC-052 FR-003: Refresh-connections control (mirrors the SPEC-046 history
-// refresh button). The work — force a credential/token refresh so newly-granted
-// `shared_space_k` tags are stamped, then re-read the per-user cache — lives in
-// `useConnections().refresh`; this is just the affordance. Disabled + spinning
-// while in flight; a failed refresh is non-destructive (the list stays put).
+/**
+ * Refresh-connections control. The actual work — force a credential/token refresh
+ * so newly-granted membership tags are stamped, then re-read the per-user cache —
+ * lives in `useConnections().refresh`; this is just the affordance. Disabled and
+ * spinning while in flight; a failed refresh is non-destructive.
+ */
 export function RefreshConnectionsButton({refreshing, onRefresh}: {refreshing: boolean; onRefresh: () => void}) {
   return (
     <IconButton

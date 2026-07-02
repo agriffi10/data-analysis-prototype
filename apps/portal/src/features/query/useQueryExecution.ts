@@ -5,14 +5,15 @@ import {queryKeys} from './queryKeys';
 import {POLL_INTERVAL_MS, MAX_POLL_DURATION_MS} from './query.constants';
 import type {QueryStatus} from './query.types';
 
-// SPEC-034 FR-003: poll a running query to a terminal state. Disabled while the id
-// is null (no query in flight). While the execution is non-terminal the query
-// refetches every POLL_INTERVAL_MS; polling stops as soon as a terminal state is
-// observed, or after MAX_POLL_DURATION_MS as a guard against a stuck execution
-// (the query keeps running server-side — only the UI polling stops).
+/**
+ * Polls a running query to a terminal state. Disabled while the id is null.
+ * Refetches every POLL_INTERVAL_MS until a terminal state is observed, or
+ * until MAX_POLL_DURATION_MS as a guard against a stuck execution (the query
+ * keeps running server-side — only the UI polling stops).
+ */
 export function useQueryExecution(queryExecutionId: string | null) {
-  // When polling for the current id started, used by the max-duration guard.
-  // Set in an effect (not during render) and reset to 0 when there is no query.
+  // When polling for the current id started (max-duration guard). Set in an
+  // effect, not during render; 0 = no query in flight.
   const startedAtRef = useRef(0);
   useEffect(() => {
     startedAtRef.current = queryExecutionId !== null ? Date.now() : 0;

@@ -37,7 +37,7 @@ function renderTable(over: Partial<Parameters<typeof QueryResultsTable>[0]> = {}
   return {...props, ...utils};
 }
 
-// A single data-column handle is found by its accessible name (FR-006).
+// A single data-column handle is found by its accessible name.
 function handleFor(name: string) {
   return screen.getByRole('separator', {name: `Resize column ${name}`});
 }
@@ -49,7 +49,6 @@ describe('QueryResultsTable', () => {
     expect(screen.getByText('region')).toBeInTheDocument();
     expect(screen.getByText('double')).toBeInTheDocument();
     expect(screen.getByText('us-east')).toBeInTheDocument();
-    // Range indicator + known total.
     expect(screen.getByText(/Rows 1–2 of 2/)).toBeInTheDocument();
   });
 
@@ -108,8 +107,6 @@ describe('QueryResultsTable', () => {
     const next = screen.getByRole('button', {name: 'Loading…'});
     expect(next).toBeDisabled();
   });
-
-  // SPEC-064 ---------------------------------------------------------------
 
   it('renders a resize handle per data column but not for the # row-number column', () => {
     renderTable();

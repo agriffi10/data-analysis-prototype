@@ -7,32 +7,52 @@ type ConfirmDialogProps = {
   ariaLabel: string;
   confirmLabel: string;
   cancelLabel?: string;
-  // Confirm button style. Default 'primary'.
+  /** Confirm button style. Default 'primary'. */
   confirmVariant?: 'primary' | 'danger';
-  // Show the warning-circle icon beside the title (destructive actions).
+  /** Show the warning-circle icon beside the title (destructive actions). */
   tone?: 'danger';
-  // Append the standard "This can't be undone." line under the body.
+  /** Append the standard "This can't be undone." line under the body. */
   irreversible?: boolean;
-  // In-flight: locks both buttons + dismissal; confirm shows `busyLabel`.
+  /** In-flight: locks both buttons + dismissal; confirm shows `busyLabel`. */
   busy?: boolean;
   busyLabel?: string;
-  // Independently disable the confirm button (e.g. a type-the-name guard) while
-  // keeping Cancel + dismissal live. `busy` still disables both.
+  /**
+   * Independently disable the confirm button (e.g. a type-the-name guard) while
+   * keeping Cancel + dismissal live. `busy` still disables both.
+   */
   confirmDisabled?: boolean;
-  // Informational single-button mode (no Cancel) — e.g. a limit notice.
+  /** Informational single-button mode (no Cancel) — e.g. a limit notice. */
   dismissOnly?: boolean;
-  // Focus the confirm button on open instead of Cancel (default: Cancel, or
-  // confirm when `dismissOnly`).
+  /**
+   * Focus the confirm button on open instead of Cancel (default: Cancel, or
+   * confirm when `dismissOnly`).
+   */
   focusConfirm?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
 };
 
-// SPEC-026 warn-and-confirm dialog (react-best-practices abstraction pass).
-// Consolidates ClearQuery / CloseTab / DropTable / TabLimit / delete-confirm /
-// overwrite-confirm, which were near-identical. Composes `Modal`. Focus defaults
-// to Cancel so a stray Enter never triggers a destructive action.
+/**
+ * Warn-and-confirm dialog composed on `Modal` (`role="alertdialog"`). Renders a
+ * title, optional body, and Cancel/confirm buttons. Initial focus defaults to
+ * Cancel so a stray Enter never triggers a destructive action.
+ *
+ * @example
+ * <ConfirmDialog
+ *   title="Delete report.csv?"
+ *   ariaLabel="Confirm delete"
+ *   confirmLabel="Delete"
+ *   confirmVariant="danger"
+ *   tone="danger"
+ *   irreversible
+ *   busy={deleting}
+ *   busyLabel="Deleting…"
+ *   onConfirm={handleDelete}
+ *   onCancel={() => setConfirming(false)}>
+ *   <p>The file will be removed from your space.</p>
+ * </ConfirmDialog>
+ */
 export function ConfirmDialog({
   title,
   ariaLabel,

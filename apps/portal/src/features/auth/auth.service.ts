@@ -25,11 +25,9 @@ export async function getCurrentAuthUser(): Promise<ServiceResult<AuthUser>> {
   try {
     const {username} = await getCurrentUser();
 
-    // Email comes from the ID token's claims (we request the `email` OAuth scope),
-    // NOT from fetchUserAttributes()/GetUser: the Hosted UI access token lacks the
-    // `aws.cognito.signin.user.admin` scope that GetUser requires, so calling it
-    // 400s with "Access Token does not have required scopes". Reading the claim
-    // avoids that failed request entirely. Email stays best-effort.
+    // Email comes from the ID token's claims, NOT fetchUserAttributes()/GetUser:
+    // the Hosted UI access token lacks the `aws.cognito.signin.user.admin` scope
+    // GetUser requires, so calling it 400s. Email stays best-effort.
     let email: string | undefined;
     try {
       const session = await fetchAuthSession();
@@ -56,15 +54,12 @@ export async function startSignIn(): Promise<ServiceResult<void>> {
 }
 
 /**
- * Begins Hosted UI account creation. Delegates to the same Amplify-managed
+ * Begins Hosted UI account creation via the same Amplify-managed
  * `signInWithRedirect` flow as sign-in (the Hosted UI login page links to
- * "Sign up"). A previous version hand-built the Cognito `/signup` URL to deep-link
- * the signup form, but because Amplify never initiated that flow it had no stored
- * PKCE verifier/state, so the authorization code returned by Cognito was never
- * exchanged — the user landed signed-out and had to sign in again. Routing through
- * Amplify lets it own the round-trip end-to-end, so account creation completes
- * signed-in. Cognito's classic Hosted UI exposes no authorize-endpoint param to
- * open the signup form directly, so we accept the login screen as the entry point.
+ * "Sign up"). Amplify must initiate the redirect itself — otherwise it holds no
+ * PKCE verifier/state and the returning authorization code is never exchanged,
+ * landing the user signed-out. Cognito exposes no authorize-endpoint param to
+ * open the signup form directly, so the login screen is the entry point.
  */
 export async function startSignUp(): Promise<ServiceResult<void>> {
   return startSignIn();

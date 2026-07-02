@@ -4,10 +4,13 @@ export type BannerVariant = 'success' | 'warning' | 'danger' | 'info';
 
 type BannerProps = {
   variant: BannerVariant;
-  title?: string; // bold first line (optional)
-  children: React.ReactNode; // body content
-  onDismiss?: () => void; // if provided, renders a Dismiss button
-  role?: 'alert' | 'status'; // defaults to 'alert'
+  /** Bold first line above the body. */
+  title?: string;
+  children: React.ReactNode;
+  /** When provided, renders a Dismiss button that calls it. */
+  onDismiss?: () => void;
+  /** ARIA live-region role; defaults to 'alert'. */
+  role?: 'alert' | 'status';
   className?: string;
 };
 
@@ -18,8 +21,16 @@ const VARIANTS: Record<BannerVariant, string> = {
   info: 'bg-accent-soft border-accent-soft text-accent-text'
 };
 
-// Dismissible status banner (SPEC-028) — inline success / warning / danger /
-// info feedback. Used for delete/move results and download/write errors.
+/**
+ * Inline status banner for success / warning / danger / info feedback
+ * (e.g. delete/move results, download errors). Announced via a live region
+ * (`role="alert"` by default; pass `role="status"` for non-urgent messages).
+ *
+ * @example
+ * <Banner variant="danger" title="Delete failed" onDismiss={() => setError(null)}>
+ *   Some items could not be removed.
+ * </Banner>
+ */
 export function Banner({variant, title, children, onDismiss, role = 'alert', className}: BannerProps) {
   return (
     <div

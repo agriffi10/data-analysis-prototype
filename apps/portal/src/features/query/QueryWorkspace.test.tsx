@@ -19,8 +19,8 @@ vi.mock('./SqlEditor', () => ({
     />
   )
 }));
-// Expose the SPEC-044 table-action callbacks as buttons so they can be driven
-// from tests (the real menu/popover is covered in SchemaBrowser.test.tsx).
+// Expose the table-action callbacks as buttons so they can be driven from tests
+// (the real menu/popover is covered in SchemaBrowser.test.tsx).
 const inSpace = {
   name: 'sales_2026',
   location: 's3://b/alice/sales/',
@@ -72,7 +72,7 @@ vi.mock('./query.service', async (importOriginal) => ({
   getTableDdl: vi.fn(),
   runStatementToCompletion: vi.fn()
 }));
-// SPEC-049 Save-results uses the file-browser copy + listing invalidation.
+// Save-results uses the file-browser copy + listing invalidation.
 vi.mock('../file-browser/fileBrowser.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../file-browser/fileBrowser.service')>()),
   copyObject: vi.fn()
@@ -98,8 +98,8 @@ vi.mock('./SaveResultsDialog', () => ({
       aria-label="Save results to my files">
       <span>default:{defaultName}</span>
       <span>spaces:{spaces.map((s) => s.id).join(',')}</span>
-      {/* One save button per destination space (SPEC-055), saving into that
-          space's bucket; the first space is personal. */}
+      {/* One save button per destination space, saving into that space's
+          bucket; the first space is personal. */}
       {spaces.map((s) => (
         <button
           key={s.id}
@@ -107,7 +107,7 @@ vi.mock('./SaveResultsDialog', () => ({
           save-to-{s.id}
         </button>
       ))}
-      {/* Back-compat alias for the original SPEC-049 personal-save tests. */}
+      {/* Alias used by the personal-save tests. */}
       <button onClick={() => onSave({destBucket: spaces[0].bucket, destPrefix: 'alice/reports/', filename: 'out.csv'})}>
         save-here-stub
       </button>
@@ -143,7 +143,7 @@ const mockCopyObject = vi.mocked(copyObject);
 
 // SaveResultsDialog/handler read VITE_S3_USER_SPACE_BUCKET at module load.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
-// SPEC-055: shared-space routing/save reads the shared bucket.
+// Shared-space routing/save reads the shared bucket.
 vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 
 const personalConnection = {
@@ -207,7 +207,6 @@ const rowsResult = {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
-  // Default: only the personal connection (matches production today).
   mockUseConnections.mockReturnValue({
     connections: [personalConnection],
     isLoading: false,
@@ -216,7 +215,6 @@ beforeEach(() => {
     isRefreshing: false,
     reconcile: vi.fn()
   });
-  // Default: no execution in flight, no results.
   mockUseExecution.mockReturnValue({data: undefined} as unknown as ReturnType<typeof useQueryExecution>);
   mockUseResults.mockReturnValue({
     ...rowsResult,
@@ -303,7 +301,7 @@ describe('QueryWorkspace', () => {
     expect(screen.getByText('us-east')).toBeInTheDocument();
   });
 
-  // --- SPEC-041 persistence + migration ---
+  // --- persistence + migration ---
 
   it('restores tabs from persisted state on mount, showing the active tab text', async () => {
     seedTabs({
@@ -326,11 +324,10 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
 
     expect(await screen.findByTestId('sql-editor')).toHaveValue('SELECT migrated;');
-    // The old draft key is consumed by the migration.
     expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
   });
 
-  // --- SPEC-041 tabs behavior ---
+  // --- tabs behavior ---
 
   it('opens a new blank Query 2 tab and isolates text per tab', async () => {
     renderWorkspace();
@@ -339,14 +336,12 @@ describe('QueryWorkspace', () => {
     fireEvent.change(editor, {target: {value: 'SELECT a;'}});
     fireEvent.click(screen.getByRole('button', {name: 'New query tab'}));
 
-    // New tab is blank and active.
     expect(screen.getByRole('tab', {name: /Query 2/})).toBeInTheDocument();
     expect(screen.getByTestId('sql-editor')).toHaveValue('');
     fireEvent.change(screen.getByTestId('sql-editor'), {
       target: {value: 'SELECT b;'}
     });
 
-    // Switch back to Query 1 — its text is intact, untouched by Query 2.
     fireEvent.click(screen.getByRole('tab', {name: /Query 1/}));
     expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT a;');
     fireEvent.click(screen.getByRole('tab', {name: /Query 2/}));
@@ -366,7 +361,6 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    // Empty Query 2 closes with no dialog.
     fireEvent.click(screen.getByTitle('Close Query 2'));
     expect(screen.queryByRole('tab', {name: /Query 2/})).not.toBeInTheDocument();
 
@@ -399,17 +393,16 @@ describe('QueryWorkspace', () => {
     await screen.findByTestId('sql-editor');
 
     const newTabBtn = screen.getByRole('button', {name: 'New query tab'});
-    // 1 tab already; open 9 more to reach the cap of 10.
+    // One tab exists already; open 9 more to reach the cap of 10.
     for (let i = 0; i < 9; i++) fireEvent.click(newTabBtn);
     expect(screen.getAllByRole('tab')).toHaveLength(10);
 
-    // 11th attempt raises the dialog and creates nothing.
     fireEvent.click(newTabBtn);
     expect(screen.getByRole('alertdialog', {name: /query tab limit reached/i})).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(10);
   });
 
-  // --- SPEC-040 Clear, now scoped to the active tab ---
+  // --- Clear (scoped to the active tab) ---
 
   it('Clear confirms, empties the active tab, and disables Run', async () => {
     seedTabs({
@@ -467,7 +460,7 @@ describe('QueryWorkspace', () => {
     expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
   });
 
-  // --- concurrent background polling (FR-004) ---
+  // --- concurrent background polling ---
 
   it('finalizes a backgrounded running tab while another tab is active', async () => {
     mockRunQuery.mockResolvedValue({
@@ -482,11 +475,9 @@ describe('QueryWorkspace', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    // Run in Query 1 and wait for it to register (results appear).
     fireEvent.click(screen.getByRole('button', {name: /Run/}));
     expect(await screen.findByText('region')).toBeInTheDocument();
 
-    // Leave it for a fresh Query 2.
     fireEvent.click(screen.getByRole('button', {name: 'New query tab'}));
 
     // Query 2 is active with no run of its own…
@@ -494,12 +485,11 @@ describe('QueryWorkspace', () => {
     // …yet Query 1's execution finalized in the background.
     expect(updateEntry).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-1'}));
 
-    // Returning to Query 1 shows its already-ready results.
     fireEvent.click(screen.getByRole('tab', {name: /Query 1/}));
     expect(screen.getByText('region')).toBeInTheDocument();
   });
 
-  // --- SPEC-043 saved queries ---
+  // --- saved queries ---
 
   function savedState(queries: SavedQuery[]) {
     return {queries, isLoading: false, error: null, upsert, remove};
@@ -518,7 +508,6 @@ describe('QueryWorkspace', () => {
     fireEvent.click(within(dialog).getByRole('button', {name: 'Save'}));
 
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({name: 'My report'}));
-    // Active tab is relabelled to the saved query's name.
     expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
   });
 
@@ -633,12 +622,11 @@ describe('QueryWorkspace', () => {
     await screen.findByTestId('sql-editor');
 
     expect(screen.getByRole('button', {name: 'Saved queries'})).toBeInTheDocument();
-    // Only one History control now (on the strip), and Save is in the toolbar.
     expect(screen.getAllByRole('button', {name: /History/})).toHaveLength(1);
     expect(screen.getByRole('button', {name: 'Save query'})).toBeInTheDocument();
   });
 
-  // --- SPEC-044 table actions ---
+  // --- table actions ---
 
   it('View source files navigates to /files?prefix= for an in-space table', async () => {
     renderWorkspace();
@@ -770,7 +758,7 @@ describe('QueryWorkspace', () => {
     });
   });
 
-  // --- SPEC-047 workspace database switcher ---
+  // --- workspace database switcher ---
 
   it('shows the active database in the read-only toolbar chip', async () => {
     renderWorkspace();
@@ -806,7 +794,6 @@ describe('QueryWorkspace', () => {
     const editor = await screen.findByTestId('sql-editor');
     fireEvent.change(editor, {target: {value: 'SELECT * FROM t;'}});
 
-    // Switch the workspace database via the (mocked) schema rail, then Run.
     fireEvent.click(screen.getByRole('button', {name: 'select:project_alpha'}));
     fireEvent.click(screen.getByRole('button', {name: /Run/}));
 
@@ -818,7 +805,7 @@ describe('QueryWorkspace', () => {
     expect(sessionStorage.getItem('s3portal.query.activeDatabase.alice')).toBe('project_alpha');
   });
 
-  // --- SPEC-048 Create view + view-aware schema actions ---
+  // --- Create view + view-aware schema actions ---
 
   it('Create view is disabled when the active tab SQL is empty', async () => {
     renderWorkspace();
@@ -856,7 +843,6 @@ describe('QueryWorkspace', () => {
         username: 'alice'
       })
     );
-    // The run is recorded once in history; the editor keeps the user's SELECT.
     expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-view'}));
     expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT region FROM sales;');
   });
@@ -915,7 +901,7 @@ describe('QueryWorkspace', () => {
     expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP VIEW alice.revenue_view'}));
   });
 
-  // --- SPEC-049 Save results to my files ---
+  // --- Save results to my files ---
 
   async function renderSucceededWithRows() {
     mockRunQuery.mockResolvedValue({
@@ -944,7 +930,7 @@ describe('QueryWorkspace', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
     fireEvent.click(screen.getByRole('button', {name: 'save-here-stub'}));
 
-    // Source bucket + key derived from the result's outputLocation (SPEC-055);
+    // Source bucket + key are derived from the result's outputLocation;
     // dest = the chosen space's bucket + folder + filename.
     expect(mockCopyObject).toHaveBeenCalledWith({
       bucket: 'b',
@@ -1075,7 +1061,6 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
     fireEvent.click(screen.getByRole('button', {name: 'save-to-personal'}));
 
-    // Source bucket = the shared result's bucket; dest bucket = the user space.
     expect(mockCopyObject).toHaveBeenCalledWith({
       bucket: 'shared-bucket',
       destBucket: 'user-bucket',
@@ -1105,7 +1090,7 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
       overwrite: false
     });
     expect(await screen.findByText(/Saved to salesdata\/reports\/out\.csv/)).toBeInTheDocument();
-    // The Files browser can't render shared spaces until SPEC-057 → no deep-link.
+    // The Files browser cannot render shared spaces, so no deep-link is offered.
     expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
   });
 });

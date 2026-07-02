@@ -1,9 +1,9 @@
-"""Cognito ID-token verification → trusted actor (SPEC-067).
+"""Cognito ID-token verification — the control plane's security boundary.
 
-The security boundary of the control plane. ``verified_username`` derives the actor
-from a verified Cognito ID token (issuer/audience/expiry/signature against the pool
-JWKS, OFFLINE — no Cognito API) — never from a body-asserted username. Any failure is
-a terminal ``unauthorized`` (Catch → Fail, never retried, no side effects).
+verified_username derives the actor from a verified Cognito ID token
+(issuer/audience/expiry/signature checked offline against the pool JWKS) — never from
+a body-asserted username. Any failure is a terminal unauthorized: never retried, no
+side effects.
 """
 
 from . import config, clients

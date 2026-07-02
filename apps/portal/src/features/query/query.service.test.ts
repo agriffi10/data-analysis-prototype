@@ -347,8 +347,8 @@ describe('isTerminalState', () => {
   });
 });
 
-// SPEC-044: a stateful Athena fake dispatching by command class name. `statuses`
-// is consumed one GetQueryExecution call at a time (terminal-first needs one).
+// A stateful Athena fake dispatching by command class name. `statuses` is
+// consumed one GetQueryExecution call at a time (terminal-first needs one).
 function athenaFake(opts: {
   startId?: string;
   statuses: string[];
@@ -418,7 +418,6 @@ describe('getTableDdl', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data).toBe('CREATE EXTERNAL TABLE foo (\n  id bigint\n)');
-    // It issued SHOW CREATE TABLE for the table.
     const start = send.mock.calls.find((c) => c[0].constructor.name === 'StartQueryExecutionCommand');
     expect(start?.[0].input.QueryString).toBe('SHOW CREATE TABLE alice.foo');
   });

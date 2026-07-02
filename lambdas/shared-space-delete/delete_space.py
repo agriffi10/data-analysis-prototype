@@ -1,13 +1,12 @@
-"""delete-space verb (SPEC-054 cascade; SPEC-062 single-task Lambda).
+"""delete-space verb: owner cascade-delete (irreversible).
 
-Owner cascade-delete (irreversible). Flags the registry ``deleting`` first, then tears
-down in a safe order: remove all shared objects, revoke the LF grant, drop all tables +
-the Glue DB, clear every member's slot + cache entry, and finally delete the registry
-object (LAST -> name freed). Every step is idempotent and tolerant of partial prior
-progress, so a re-run completes a half-done teardown; the registry never returns to
-``active`` mid-cascade. On a hard error it records a terminal ``failed`` status (registry
-+ the owner's cache, with a reason) for the screen's Retry affordance, then re-raises
--> Fail.
+Flags the registry ``deleting`` first, then tears down in a safe order: remove all
+shared objects, revoke the LF grant, drop all tables + the Glue DB, clear every
+member's slot + cache entry, and finally delete the registry object (LAST -> name
+freed). Every step is idempotent and tolerant of partial prior progress, so a re-run
+completes a half-done teardown; the registry never returns to ``active`` mid-cascade.
+On a hard error it records a terminal ``failed`` status (registry + the owner's cache,
+with a reason) for the screen's Retry affordance, then re-raises -> Fail.
 """
 
 import logging
@@ -23,6 +22,7 @@ logger.setLevel(logging.INFO)
 
 
 def delete_space(space, actor, request_id, registry):
+    """Cascade-delete ``space``; records a terminal failed status before re-raising."""
     owner = registry["owner"]
     members = list(registry.get("members", []))
     reg.set_status(registry, "deleting", request_id)
@@ -47,21 +47,19 @@ def delete_space(space, actor, request_id, registry):
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to record cache delete failure for %s", space)
-        # Notify the owner the delete failed (parity with create-failed) — the delete
-        # card's Retry affordance reads the failed cache entry, and the owner otherwise
-        # hears nothing because the success fan-out below is never reached.
+        # Notify the owner of the failure — the delete card's Retry affordance reads the
+        # failed cache entry, and the success fan-out below is never reached.
         emit_notification(
             owner,
             f'We couldn\'t delete the shared workspace "{space}": {reason}.',
             dedup_id=f"{request_id}:delete-failed:{owner}",
         )
         raise
-    # SPEC-061 event 7: fan out one notification per member (the list was captured
-    # BEFORE the cascade cleared the registry; owner ∈ members), deduplicated so each
-    # user gets exactly one. The deleter (actor) gets a distinct "you deleted" message;
-    # every other member gets "was deleted". Emitted only here — past the terminal
-    # success; a failed/partial cascade re-raises above and emits nothing. Each emit is
-    # best-effort (FR-002), so one failure never aborts the fan-out to the rest.
+    # Fan out one notification per member, using the list captured BEFORE the cascade
+    # cleared the registry (owner ∈ members), deduplicated so each user gets exactly
+    # one; the deleter gets a distinct message. Emitted only past the terminal success —
+    # a failed cascade re-raises above and emits nothing. Each emit is best-effort, so
+    # one failure never aborts the fan-out to the rest.
     for recipient in dict.fromkeys(members):
         message = (
             f'You deleted the shared workspace "{space}".'

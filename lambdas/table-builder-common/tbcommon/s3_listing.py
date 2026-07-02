@@ -1,13 +1,8 @@
-"""Paginated S3 listing + the shared "ignore" rules for the table-builder (SPEC-068).
+"""Paginated S3 listing plus the shared ignore rules for table-builder sources.
 
-``inspect-source`` (and, later, any verb that walks a space folder) needs the SAME
-view of "what counts as a data object" so it doesn't misread a normal space folder:
-the prefix marker (``DO_NOT_DELETE.txt``), the ``athenaresults/`` sub-tree, zero-byte
-objects (folder placeholders), and hidden/partial files (basename starting ``_`` or
-``.``) are NOT data. This module is the single source of that rule + a paginated
-lister that applies it.
-
-Published in the ``table-builder-common`` Lambda LAYER (deploy-lambdas.yml).
+The single source of "what counts as a data object": the prefix marker
+(DO_NOT_DELETE.txt), the athenaresults/ sub-tree, zero-byte objects (folder
+placeholders), and hidden/partial files (basename starting "_" or ".") are not data.
 """
 
 from . import clients
@@ -45,8 +40,8 @@ def is_ignored(key, size, prefix):
 def list_data_objects(bucket, prefix):
     """Yield ``(key, size)`` for every non-ignored data object under ``prefix``.
 
-    Paginated (handles > 1000 objects). Transient S3 errors PROPAGATE (raise) so the
-    Step Function's ``Retry`` can handle them — they are never swallowed (lambdas.md §4).
+    Paginated (handles > 1000 objects). Transient S3 errors propagate so the Step
+    Function's Retry can handle them — they are never swallowed.
     """
     paginator = clients.s3().get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):

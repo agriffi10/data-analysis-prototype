@@ -2,15 +2,12 @@ import {useCallback, useState} from 'react';
 import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
 import type {ServiceResult} from '../../types/service.types';
 
-// SPEC-053: owner member management. Enqueues `add_members` / `remove_members`
-// requests onto the shared-space pipeline (the browser never touches
-// Cognito/Glue/LF/S3 directly). The pipeline authorizes the caller as the owner,
-// validates each username against the User Pool, and updates slots/registry/cache;
-// the result lands in the owner's cache projection, visible after a
-// Refresh-connections (SPEC-052). This hook only enqueues + tracks the in-flight
-// state — it holds no optimistic member list (member-list-only feedback, per the
-// SPEC-053 design decision; ignored/at-limit counts arrive via the notifications
-// arc later).
+/**
+ * Owner member management: enqueues `add_members` / `remove_members` onto the
+ * shared-space pipeline, which authorizes the caller as owner, validates usernames,
+ * and updates the owner's cache projection (visible after a Refresh-connections).
+ * Only enqueues + tracks in-flight state — holds no optimistic member list.
+ */
 export function useManageMembers(username: string | null) {
   const [busy, setBusy] = useState(false);
 

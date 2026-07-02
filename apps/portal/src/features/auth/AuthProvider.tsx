@@ -6,6 +6,10 @@ import {isAmplifyConfigured} from '../../lib/amplify';
 import {setReturnPathIfAbsent} from '../../lib/returnPath';
 import type {AuthStatus, AuthUser} from './auth.types';
 
+/**
+ * Provides auth state (status/user/error) and the sign-in/up/out actions via
+ * AuthContext, deriving state from the Amplify session and Hub auth events.
+ */
 export function AuthProvider({children}: {children: ReactNode}) {
   // Initial state is derived from config (a module constant) rather than set in
   // an effect: when Cognito isn't configured we start unauthenticated with a
@@ -41,12 +45,10 @@ export function AuthProvider({children}: {children: ReactNode}) {
 
     const unsubscribe = Hub.listen('auth', ({payload}) => {
       switch (payload.event) {
-        // `signedIn` covers SRP/programmatic sign-in. `signInWithRedirect` is the
-        // event Amplify v6 emits once the Hosted-UI OAuth redirect completes and
-        // the authorization code has been exchanged for tokens — without handling
-        // it, the first return from Cognito never updates auth state (the mount
-        // refresh runs before the exchange finishes), so the user appears signed
-        // out until a second sign-in. Both re-derive the session.
+        // `signedIn` covers SRP/programmatic sign-in. `signInWithRedirect` fires
+        // once Amplify v6 finishes the Hosted-UI OAuth code exchange — the mount
+        // refresh runs before the exchange completes, so without handling it the
+        // user appears signed out until a second sign-in.
         case 'signedIn':
         case 'signInWithRedirect':
           setError(null);
@@ -70,7 +72,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
   const signIn = useCallback(async () => {
     setError(null);
     // Default the post-auth landing to /files without clobbering a specific
-    // protected path the auth gate may have captured (returnPath, SPEC-013/029).
+    // protected path the auth gate may have captured.
     setReturnPathIfAbsent('/files');
     const result = await startSignIn();
     if (!result.success) setError(result.error.message);

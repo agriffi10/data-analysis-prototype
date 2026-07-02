@@ -4,15 +4,20 @@ import {COLUMN_RESIZE_STEP_PX} from './query.constants';
 type ColumnResizeHandleProps = {
   columnIndex: number;
   columnName: string;
-  width: number; // current width of the column this handle resizes
-  onResize: (index: number, px: number) => void; // setWidth (clamps at MIN)
-  onReset: (index: number) => void; // resetColumn (double-click)
+  /** Current width of the column this handle resizes. */
+  width: number;
+  /** Sets the column width in px (caller clamps to the minimum). */
+  onResize: (index: number, px: number) => void;
+  /** Resets the column to the default width (double-click). */
+  onReset: (index: number) => void;
 };
 
-// SPEC-064 FR-001/FR-006: a focusable separator on a data-column header's right
-// edge. Pointer drag resizes live (clamp lives in setWidth); double-click resets
-// to the default; Arrow Left/Right nudge by COLUMN_RESIZE_STEP_PX. role="separator"
-// + aria-orientation="vertical" + a column-naming aria-label keep it accessible.
+/**
+ * Focusable separator on a data-column header's right edge. Pointer drag
+ * resizes live (clamping lives in the caller); double-click resets to the
+ * default; Arrow Left/Right nudge by COLUMN_RESIZE_STEP_PX. role="separator" +
+ * aria-orientation="vertical" + a column-naming aria-label keep it accessible.
+ */
 export function ColumnResizeHandle({columnIndex, columnName, width, onResize, onReset}: ColumnResizeHandleProps) {
   // The drag's window listeners are self-contained in the closure below so the
   // move handler always sees the gesture origin (not a stale prop between

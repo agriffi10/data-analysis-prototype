@@ -86,10 +86,6 @@ describe('startSignIn', () => {
 });
 
 describe('startSignUp', () => {
-  // Account creation now routes through the same Amplify-managed Hosted UI
-  // redirect as sign-in, so Amplify owns the OAuth round-trip and the returning
-  // code is exchanged (the user lands signed-in). The classic Hosted UI has no
-  // signup deep-link, so there's no hand-built URL to assert anymore.
   it('delegates to the Amplify Hosted UI redirect', async () => {
     mockSignInWithRedirect.mockResolvedValueOnce(undefined);
 

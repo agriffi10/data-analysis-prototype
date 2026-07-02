@@ -1,4 +1,4 @@
-"""Per-user membership slots in Cognito custom attributes (SPEC-056; SPEC-062 layer).
+"""Per-user membership slots stored in Cognito custom attributes.
 
 Each user holds up to ``MAX_SHARED_MEMBERSHIPS`` ``custom:shared_space_k`` attribute
 slots; the slot's value is the space name it grants (the IAM membership tag the
@@ -13,9 +13,11 @@ from registry import ProvisioningError
 
 
 def normalize_members(raw, owner):
-    """Trim/lowercase/de-dupe the requested usernames and drop the owner (the owner is
-    implicitly a member and is never added or removed). Defensive — the browser already
-    cleans the list, but the pipeline is the real authority. Shared by add/remove."""
+    """Trim/lowercase/de-dupe the requested usernames and drop the owner.
+
+    The owner is implicitly a member and is never added or removed. Defensive — the
+    browser already cleans the list, but the pipeline is the real authority.
+    """
     seen = set()
     out = []
     for member in raw or []:
@@ -34,10 +36,14 @@ def _slot_attr(k):
 
 
 def assign_or_find_slot(username, name):
-    """Return the slot index holding ``name`` for ``username`` (idempotent re-run),
-    else assign ``name`` to the next free slot and return it. Raises
-    ProvisioningError if the user already holds MAX_SHARED_MEMBERSHIPS spaces.
-    Raises the Cognito UserNotFoundException if the user does not exist."""
+    """Return the slot index holding ``name`` for ``username``, assigning one if needed.
+
+    Idempotent on re-run (an existing assignment is returned as-is).
+
+    Raises:
+        ProvisioningError: the user already holds MAX_SHARED_MEMBERSHIPS spaces.
+        cognito.exceptions.UserNotFoundException: the user does not exist.
+    """
     cognito = clients.cognito()
     user = cognito.admin_get_user(UserPoolId=config.USER_POOL_ID, Username=username)
     attrs = {a["Name"]: a.get("Value", "") for a in user.get("UserAttributes", [])}
@@ -59,9 +65,11 @@ def assign_or_find_slot(username, name):
 
 
 def clear_slot(username, name):
-    """Clear the membership slot holding ``name`` for ``username`` (set empty, which
-    assign_or_find_slot treats as free). Idempotent — a missing slot or a
-    pool-absent user is a no-op."""
+    """Clear the membership slot holding ``name`` for ``username``.
+
+    Sets the slot empty, which assign_or_find_slot treats as free. Idempotent — a
+    missing slot or a pool-absent user is a no-op.
+    """
     cognito = clients.cognito()
     try:
         user = cognito.admin_get_user(UserPoolId=config.USER_POOL_ID, Username=username)

@@ -1,10 +1,8 @@
-// Shared file-browser display formatters (SPEC: react-best-practices abstraction
-// pass). Single source of truth — previously copied byte-for-byte across
-// FileBrowser, MetadataPanel, and UploadList.
-
-// Human-readable size, e.g. 1234 → "1.2 KB". Caps at GB. (The query feature has a
-// separate `formatBytes` with different rules — undefined handling, TB, variable
-// precision — deliberately not merged.)
+/**
+ * Human-readable size, e.g. 1234 → "1.2 KB". Caps at GB. (The query feature has
+ * a separate `formatBytes` with different rules — undefined handling, TB,
+ * variable precision — deliberately not merged.)
+ */
 export function formatSize(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
   if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;

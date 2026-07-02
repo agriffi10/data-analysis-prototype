@@ -1,8 +1,8 @@
-"""Unit tests for the best-effort notification emit helper (SPEC-072).
+"""Unit tests for the best-effort notification emit helper.
 
-``clients.sqs()`` is stubbed with a fake whose ``send_message`` records kwargs (or
-raises, to prove best-effort). ``config.NOTIFICATIONS_QUEUE_URL`` is patched per test.
-Runnable under pytest OR directly: ``python3 test_notify.py``.
+clients.sqs() is stubbed with a fake whose send_message records kwargs (or raises,
+to prove best-effort); config.NOTIFICATIONS_QUEUE_URL is patched per test. Runnable
+under pytest or directly: python3 test_notify.py.
 """
 
 import json
@@ -42,9 +42,6 @@ def _event(**over):
     return e
 
 
-# ── emit_notification (low-level) ─────────────────────────────────────────────
-
-
 def test_builds_the_create_envelope_fifo_grouped_by_recipient():
     fake = _install()
     notify.emit_notification("alice", "hi", dedup_id="r1:check")
@@ -72,9 +69,6 @@ def test_best_effort_swallows_send_errors():
     _install(raises=True)
     # Must NOT raise (the pipeline outcome is already recorded).
     notify.emit_notification("alice", "hi", dedup_id="r1:x")
-
-
-# ── emit_failure / emit_created (message-building) ────────────────────────────
 
 
 def test_emit_failure_maps_the_reason_and_dedups_by_step():

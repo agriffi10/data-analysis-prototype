@@ -2,12 +2,6 @@ import {type ReactNode} from 'react';
 import {NavLink} from 'react-router-dom';
 import {cx} from '../lib/cx';
 
-// Primary tab navigation (Files | Query) in the authenticated topbar
-// (SPEC-035 FR-001, design-system §6). Underline tabs — distinct from the
-// sidebar's filled accent-soft item so the two nav levels read differently.
-// Route-driven via NavLink, so deep-links + back/forward set the active tab.
-// Rendered only in the authenticated shell (the Header gates on auth status).
-
 type Tab = {to: string; label: string; icon: ReactNode};
 
 const TABS: Tab[] = [
@@ -53,6 +47,16 @@ const TABS: Tab[] = [
   }
 ];
 
+/**
+ * Primary tab navigation (Files | Query | Connections) in the authenticated
+ * topbar. Underline tabs — deliberately distinct from the sidebar's filled
+ * item so the two nav levels read differently. Route-driven via NavLink, so
+ * deep links and back/forward set the active tab. The Header gates rendering
+ * on auth status.
+ *
+ * @example
+ * <PrimaryNav />
+ */
 export function PrimaryNav() {
   return (
     <nav

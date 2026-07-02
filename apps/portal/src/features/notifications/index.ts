@@ -1,4 +1,3 @@
-// Notifications feature (SPEC-059 data layer + SPEC-060 UI).
 export {getNotifications, enqueueNotificationAction} from './notifications.service';
 export {useNotifications, prefetchNotifications} from './useNotifications';
 export {NotificationsBell} from './NotificationsBell';

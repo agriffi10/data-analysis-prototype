@@ -9,12 +9,11 @@ type Props = {
   onCancel: () => void;
 };
 
-// SPEC-054 FR-002: an owner's IRREVERSIBLE confirm to delete a shared space. The
-// cascade tears down everything (all files, all tables, the database, every
-// member's access), so — matching the file-delete / drop-table precedent
-// (SPEC-018/044) — the destructive button stays disabled until the owner types the
-// exact space name. Composes the shared danger ConfirmDialog (alertdialog role +
-// "This can't be undone." line) with a type-the-name guard.
+/**
+ * Owner's irreversible confirm to delete a shared space. The cascade tears down
+ * everything (files, tables, database, every member's access), so the destructive
+ * button stays disabled until the owner types the exact space name.
+ */
 export function DeleteSharedSpaceDialog({space, busy = false, onConfirm, onCancel}: Props) {
   const [confirmText, setConfirmText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);

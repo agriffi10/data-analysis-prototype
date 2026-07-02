@@ -1,10 +1,7 @@
-"""Unit tests for the notifications writer (SPEC-058).
+"""Unit tests for the notifications writer.
 
-Runs under pytest *or* as a plain script (`python3 test_notifications_writer.py`);
-the JS CI does not run Python. The S3 client and token verification are faked — these
-cover the action-switch read-modify-write (create/markRead/markAllRead), the cap, the
-missing/corrupt-doc handling, actor binding (user actions derive username from the
-verified token; create uses the body), and schema rejection.
+Runs under pytest or as a plain script (`python3 test_notifications_writer.py`); the
+JS CI does not run Python. The S3 client and token verification are faked.
 """
 
 import json
@@ -76,7 +73,6 @@ def _msg(body):
     return {"Records": [{"body": json.dumps(body)}]}
 
 
-# ── create ────────────────────────────────────────────────────────────────────
 def test_create_into_empty_inbox():
     s3 = _setup()
     w.handler(_msg({"action": "create", "username": "alice", "message": "hi"}), None)
@@ -138,7 +134,6 @@ def test_cap_keeps_newest():
     assert all(n["message"] != "1" for n in inbox)
 
 
-# ── markRead / markAllRead (user actions, token-bound) ────────────────────────
 def test_mark_read_flips_matching_id():
     inbox = [
         {"id": "a", "message": "a", "read": False, "timestamp": "2026-01-02T00:00:00.000Z"},
@@ -185,7 +180,6 @@ def test_user_action_without_token_rejected():
     )
 
 
-# ── schema rejection ──────────────────────────────────────────────────────────
 def test_unknown_action_rejected():
     _setup()
     _raises(

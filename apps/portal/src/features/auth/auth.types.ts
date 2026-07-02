@@ -1,15 +1,19 @@
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
 export type AuthUser = {
-  username: string; // Cognito username — future S3 prefix + session tag
-  email?: string; // from the id token, if present
+  /** Cognito username — also the user's S3 prefix and principal tag. */
+  username: string;
+  /** From the ID token claim, when present. */
+  email?: string;
 };
 
 export type AuthContextValue = {
   status: AuthStatus;
   user: AuthUser | null;
-  error: string | null; // last auth error, surfaced non-blockingly
+  /** Last auth error, surfaced non-blockingly. */
+  error: string | null;
   signIn: () => Promise<void>;
-  signUp: () => Promise<void>; // Hosted UI redirect (Amplify-managed), same flow as signIn
+  /** Hosted UI redirect (Amplify-managed), same flow as signIn. */
+  signUp: () => Promise<void>;
   signOut: () => Promise<void>;
 };

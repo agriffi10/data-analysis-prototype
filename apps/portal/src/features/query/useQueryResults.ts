@@ -6,23 +6,25 @@ import {QUERY_RESULTS_PAGE_SIZE} from './query.constants';
 import type {QueryColumn, QueryResultPage} from './query.types';
 
 export type UseQueryResultsResult = {
-  // Current page only — never more than one page (≤ pageSize rows) is exposed,
-  // so only one page is ever mounted in the DOM (SPEC-038 FR-002).
   columns: QueryColumn[];
+  /** Current page only — never more than one page is exposed, so only one page is ever mounted in the DOM. */
   rows: string[][];
-  pageIndex: number; // 0-based
-  // 1-based inclusive row range of the current page; 0/0 when empty.
+  /** 0-based. */
+  pageIndex: number;
+  /** 1-based inclusive start of the current page's row range; 0 when empty. */
   rangeStart: number;
+  /** 1-based inclusive end of the current page's row range; 0 when empty. */
   rangeEnd: number;
-  // Total across all loaded pages (drives the status bar count); the definitive
-  // total is only known once the last page is loaded (Athena gives no up-front
-  // count), exposed as totalRowCount — null until then (FR-002).
+  /** Total across all loaded pages (drives the status bar count). */
   loadedRowCount: number;
+  /** Definitive total, known only once the last page is loaded (Athena gives no up-front count); null until then. */
   totalRowCount: number | null;
   hasPrev: boolean;
   hasNext: boolean;
-  hasMoreServer: boolean; // last loaded page has a NextToken (status bar "+")
-  isPending: boolean; // first page loading
+  /** Last loaded page has a NextToken (status bar "+"). */
+  hasMoreServer: boolean;
+  /** First page loading. */
+  isPending: boolean;
   isFetchingNext: boolean;
   isError: boolean;
   error: string | null;
@@ -30,12 +32,14 @@ export type UseQueryResultsResult = {
   goNext: () => void;
 };
 
-// SPEC-038: Prev/Next pager over a succeeded query's results. Built on
-// useInfiniteQuery (keyed by executionId; each page = QUERY_RESULTS_PAGE_SIZE data
-// rows threading the Athena NextToken), so fetched pages stay cached and paging
-// back is instant. A local pageIndex selects which cached page is shown — Next
-// fetches forward only when the next page isn't already cached; Prev is always
-// served from cache (FR-002/FR-003). Disabled while the id is null.
+/**
+ * Prev/Next pager over a succeeded query's results. Built on useInfiniteQuery
+ * (keyed by executionId; each page threads the Athena NextToken), so fetched
+ * pages stay cached and paging back is instant. A local pageIndex selects
+ * which cached page is shown — Next fetches forward only when the next page
+ * isn't already cached; Prev is always served from cache. Disabled while the
+ * id is null.
+ */
 export function useQueryResults(queryExecutionId: string | null, maxRows?: number): UseQueryResultsResult {
   const pageSize = maxRows ?? QUERY_RESULTS_PAGE_SIZE;
   const [pageIndex, setPageIndex] = useState(0);

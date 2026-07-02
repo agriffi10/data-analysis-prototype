@@ -1,9 +1,9 @@
 """Shared resource-teardown helpers for the shared-space control plane.
 
-The idempotent S3 + Glue teardown steps used by BOTH the delete-space cascade
-(SPEC-054) and the forget verb's cleanup of an owner's failed create. Every helper
-tolerates partial prior progress / already-absent resources, so a re-run completes a
-half-done teardown. Kept in the shared layer so the two verbs share one implementation.
+The idempotent S3 + Glue teardown steps used by BOTH the delete-space cascade and the
+forget verb's cleanup of an owner's failed create. Every helper tolerates partial
+prior progress / already-absent resources, so a re-run completes a half-done teardown.
+Kept in the shared layer so the two verbs share one implementation.
 """
 
 import logging
@@ -15,9 +15,11 @@ logger = logging.getLogger()
 
 
 def delete_shared_prefix(name):
-    """Recursively delete every object under ``{name}/`` in the shared-space bucket
-    (paginated list + batched delete, incl. the marker and every athenaresults/).
-    Idempotent — an empty/absent prefix is a no-op."""
+    """Recursively delete every object under ``{name}/`` in the shared-space bucket.
+
+    Paginated list + batched delete, including the marker and every athenaresults/.
+    Idempotent — an empty/absent prefix is a no-op.
+    """
     s3 = clients.s3()
     prefix = f"{name}/"
     token = None
@@ -36,10 +38,12 @@ def delete_shared_prefix(name):
 
 
 def revoke_portal_role(name):
-    """Best-effort revoke of the shared portal role's LF grants on ``name`` (DB +
-    table wildcard). Cleanup only — per-user isolation is the IAM membership tag, not
-    this grant — so a failure (e.g. the DB already dropped on a retry) is logged and
-    tolerated, never fatal to the cascade."""
+    """Best-effort revoke of the portal role's LF grants on ``name`` (DB + table wildcard).
+
+    Cleanup only — per-user isolation is the IAM membership tag, not this grant — so a
+    failure (e.g. the DB already dropped on a retry) is logged and tolerated, never
+    fatal to the cascade.
+    """
     lf = clients.lf()
     for resource, permissions in (
         ({"Database": {"Name": name}}, config.DATABASE_PERMISSIONS),
@@ -56,8 +60,10 @@ def revoke_portal_role(name):
 
 
 def drop_database(name):
-    """Drop every table in the Glue database ``name`` (paginated, batched) then the
-    database itself. Idempotent — a missing DB/table is a no-op (already dropped)."""
+    """Drop every table in Glue database ``name`` (paginated, batched), then the DB itself.
+
+    Idempotent — a missing DB/table is a no-op (already dropped).
+    """
     glue = clients.glue()
     try:
         tables = []

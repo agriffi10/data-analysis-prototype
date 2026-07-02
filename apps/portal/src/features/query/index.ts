@@ -1,5 +1,3 @@
-// SPEC-034 query-engine data layer — barrel for the SPEC-035 workspace UI and
-// SPEC-036 history panel.
 export {
   runQuery,
   getQueryStatus,

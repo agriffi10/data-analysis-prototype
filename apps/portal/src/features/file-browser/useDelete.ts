@@ -4,8 +4,10 @@ import {invalidateListing} from '../../lib/queryClient';
 import {deleteObjects, deleteFolder} from './fileBrowser.service';
 import type {SelectableItem} from './selectionContext';
 
-// The outcome surfaced to the UI after a (possibly mixed file + folder) delete:
-// how many objects S3 removed, and any per-item failures to report (FR-004).
+/**
+ * The outcome surfaced to the UI after a (possibly mixed file + folder) delete:
+ * how many objects S3 removed, and any per-item failures to report.
+ */
 export type DeleteSummary = {
   deletedCount: number;
   errors: {key: string; message: string}[];
@@ -13,19 +15,22 @@ export type DeleteSummary = {
 
 export type UseDeleteResult = {
   isDeleting: boolean;
-  summary: DeleteSummary | null; // last completed delete (success or partial)
-  error: string | null; // systemic failure (e.g. not signed in)
+  /** Last completed delete (success or partial). */
+  summary: DeleteSummary | null;
+  /** Systemic failure (e.g. not signed in). */
+  error: string | null;
   runDelete: (items: SelectableItem[]) => Promise<DeleteSummary | null>;
   dismissSummary: () => void;
   dismissError: () => void;
 };
 
-// SPEC-018 Phase 2: orchestrates deleting a selection of files and folders. Loose
-// files go in one batched deleteObjects call; each folder is deleted recursively
-// via deleteFolder. Results aggregate across all operations — a failure on one
-// folder never aborts the rest (FR-003/FR-004). On completion the current prefix
-// listing is invalidated so successfully removed items disappear; the caller
-// clears the selection. Never throws.
+/**
+ * Orchestrates deleting a selection of files and folders. Loose files go in one
+ * batched deleteObjects call; each folder is deleted recursively. Results
+ * aggregate across all operations — a failure on one folder never aborts the
+ * rest. On completion the current prefix listing is invalidated so removed
+ * items disappear; the caller clears the selection. Never throws.
+ */
 export function useDelete(bucket: string, prefix: string, username?: string): UseDeleteResult {
   const queryClient = useQueryClient();
   const [isDeleting, setIsDeleting] = useState(false);

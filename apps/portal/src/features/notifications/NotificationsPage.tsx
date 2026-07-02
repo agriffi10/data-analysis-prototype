@@ -11,16 +11,16 @@ import {Toast, type ToastState} from '../query/Toast';
 import {useNotifications} from './useNotifications';
 import {NotificationRow} from './NotificationRow';
 
-const PAGE_SIZE = 10; // FR-004 (mirrors the history pager constant, sized to 10)
+const PAGE_SIZE = 10;
 
 type Filter = 'all' | 'unread';
 
-// SPEC-060 FR-002/004/005/006: the routed notifications page. Owns the SPEC-059
-// `useNotifications` hook and renders the newest-first list with 10/page Prev/Next,
-// per-row Mark-read + a Mark-all-read bulk control, a Refresh, and the
-// empty/loading/error states. Actions are optimistic (the hook updates the cache +
-// header indicator instantly); a failed enqueue rolls back and raises a danger
-// Toast. There is no delete anywhere on the page.
+/**
+ * Routed notifications page: newest-first list with 10/page Prev/Next, per-row
+ * Mark-read, Mark-all-read, Refresh, and empty/loading/error states. Actions are
+ * optimistic via `useNotifications`; a failed enqueue rolls back and raises a
+ * danger Toast. There is no delete anywhere on the page.
+ */
 export function NotificationsPage() {
   const {user} = useAuth();
   const username = user?.username ?? null;
@@ -36,14 +36,12 @@ export function NotificationsPage() {
 
   usePageTitle(unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications');
 
-  // All / Unread segmented filter. The list (and pager) operate on the visible
-  // subset; switching the filter resets to the first page.
+  // The list and pager operate on the filtered subset; switching filters resets to page 1.
   const [filter, setFilter] = useState<Filter>('all');
   const visible = filter === 'unread' ? notifications.filter((n) => !n.read) : notifications;
 
-  // Client-side Prev/Next pager over the in-memory newest-first list (SPEC-042
-  // pattern). Clamp so a shrunk/condensed list never strands on a blank page, and
-  // snap to the newest page when new notifications arrive (the list grows).
+  // Client-side pager over the in-memory list. Clamp so a shrunk list never strands
+  // on a blank page; snap to the newest page when new notifications arrive.
   const [pageIndex, setPageIndex] = useState(0);
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -108,7 +106,7 @@ export function NotificationsPage() {
           </>
         }>
         {/* A read/refresh error is shown above the list and never clears it, so a
-            failed Refresh is non-destructive (FR-006). */}
+            failed Refresh is non-destructive. */}
         {isError && (
           <Banner
             variant="danger"
@@ -179,9 +177,8 @@ export function NotificationsPage() {
   );
 }
 
-// All / Unread segmented control (design `.seg`). Two mutually-exclusive toggle
-// buttons in a labeled group; the active one carries `aria-pressed` so the choice
-// is exposed to assistive tech (it's never conveyed by styling alone).
+// All / Unread segmented control: two toggle buttons in a labeled group; the active
+// one carries `aria-pressed` so the choice is never conveyed by styling alone.
 function FilterTabs({filter, onChange}: {filter: Filter; onChange: (next: Filter) => void}) {
   return (
     <div

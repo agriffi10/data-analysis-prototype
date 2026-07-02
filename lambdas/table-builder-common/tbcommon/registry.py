@@ -1,9 +1,9 @@
-"""Shared-spaces registry read (SPEC-056 source of truth; consumed here read-only).
+"""Read-only access to the shared-spaces registry.
 
-The registry is one S3 control object per space at ``shared-spaces/{name}.json`` in
-the analytics admin bucket (owned by the shared-spaces control plane). The
-table-builder validator only READS it, to authorize that the actor is an active
-member of a shared space before allowing a table there.
+The registry is one S3 control object per space at shared-spaces/{name}.json in the
+analytics admin bucket, owned by the shared-spaces control plane. The table-builder
+validator only reads it, to authorize that the actor is an active member of a shared
+space before allowing a table there.
 """
 
 import json

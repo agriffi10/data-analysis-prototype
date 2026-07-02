@@ -4,30 +4,25 @@ import {getNotifications, enqueueNotificationAction} from './notifications.servi
 import {notificationsKeys} from './notificationsKeys';
 import type {Notification} from './notifications.types';
 
-// FR-006: background poll cadence for the unread indicator — newly delivered
-// notifications surface within ~1 minute. The poll runs continuously (not suspended
-// once something is unread) so the bell's numeric count stays live: a 2nd/3rd
-// notification arriving while you already have an unread one still bumps the count
-// instead of being silent. Paused only on the /notifications page (`pausePoll`).
+// Background poll cadence for the unread indicator. Runs continuously (not just
+// until something is unread) so the bell count stays live as further notifications
+// arrive; paused only via `pausePoll`.
 const POLL_INTERVAL_MS = 60_000;
 
-// FR-004: after a successful enqueue, refetch a few times to pick up the writer's
-// eventual write (it applies the SQS action asynchronously). Staggered to cover the
-// writer's cold-start latency (a cold invocation fetches the Cognito JWKS and can run
-// several seconds); the pending-read overlay holds the optimistic state until one of
-// these refetches confirms it, so a reconcile that races ahead of the writer can't
-// revert the UI back to unread.
+// After a successful enqueue, refetch a few times to pick up the writer's eventual
+// (async) write. Staggered to cover writer cold-start latency; the pending-read
+// overlay holds optimistic state until a refetch confirms it, so a reconcile that
+// races ahead of the writer can't revert the UI back to unread.
 const RECONCILE_DELAYS_MS = [2_500, 9_000, 18_000];
 
 export type UseNotificationsOptions = {
-  // FR-004: surfaced on enqueue failure (after the optimistic change is rolled
-  // back) so the SPEC-060 UI can show a toast. Optional — fire-and-forget callers
-  // can ignore it.
+  /** Called on enqueue failure, after the optimistic change is rolled back (e.g. to show a toast). */
   onMutationError?: (message: string) => void;
-  // Suspend the 60s background poll for this hook instance. The /notifications page
-  // passes this so viewing the list doesn't re-pull the inbox and fight the user's
-  // in-page mark-read actions (the writer is the async source of truth and may lag).
-  // Reconcile refetches after an action still run regardless.
+  /**
+   * Suspend the 60s background poll (the /notifications page sets this so a poll
+   * doesn't fight in-page mark-read actions — the writer is the async source of
+   * truth and may lag). Post-action reconcile refetches still run.
+   */
   pausePoll?: boolean;
 };
 
@@ -46,10 +41,14 @@ function countUnread(list: Notification[] | undefined): number {
   return (list ?? []).reduce((n, item) => (item.read ? n : n + 1), 0);
 }
 
-// SPEC-059: the single hook the SPEC-060 UI consumes for the notifications list and
-// the unread indicator. Reads via TanStack Query (keyed per user); mutations enqueue
-// onto the SPEC-058 queue and update the cache optimistically (the browser never
-// writes the inbox), reconciling on a delayed refetch. Disabled when signed out.
+/**
+ * Notifications list + unread indicator for one user.
+ *
+ * Reads via TanStack Query (keyed per user, 60s poll). Mutations only enqueue onto
+ * the notifications queue — the browser never writes the inbox — so mark-read state
+ * is held as an optimistic overlay on top of server truth and cleared per-entry once
+ * a delayed reconcile refetch confirms the writer applied it. Disabled when signed out.
+ */
 export function useNotifications(
   username: string | null,
   options: UseNotificationsOptions = {}
@@ -67,27 +66,20 @@ export function useNotifications(
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    // FR-006: poll continuously so the bell's count reflects new arrivals even while
-    // something is already unread (a presence-only signal would hide the 2nd one).
-    // `pausePoll` (the /notifications page) suspends it so it doesn't fight in-page
-    // mark-read actions.
     refetchInterval: () => (pausePoll ? false : POLL_INTERVAL_MS),
-    // FR-006: returning to the tab re-checks once regardless of poll state. The
-    // interval itself is paused while the tab is hidden (refetchIntervalInBackground
-    // defaults to false), so a backgrounded tab does not poll.
+    // Returning to the tab re-checks once regardless of poll state; the interval
+    // itself is paused while the tab is hidden (refetchIntervalInBackground is false).
     refetchOnWindowFocus: true
   });
 
-  // FR-004: the browser never writes the inbox — the writer applies mark-read/all
-  // asynchronously and can lag (cold start). Rather than mutate the read cache (which
-  // a refetch racing ahead of the writer would then revert), we hold the optimistic
-  // reads as an OVERLAY on top of server truth and clear each one only once the server
-  // confirms it. This is what makes a mark-read stick instead of snapping back.
+  // The writer applies mark-read/all asynchronously and can lag. Rather than mutate
+  // the read cache (which a refetch racing ahead of the writer would revert), hold
+  // optimistic reads as an overlay on server truth and clear each only once the
+  // server confirms it — that's what makes a mark-read stick instead of snapping back.
   const [pendingRead, setPendingRead] = useState<Set<string>>(() => new Set());
   const [pendingAll, setPendingAll] = useState(false);
 
-  // Track scheduled reconcile timers so they're cleared on unmount (no stray
-  // invalidate / test-timer leak).
+  // Reconcile timers are cleared on unmount so no stray invalidate fires.
   const reconcileTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     const timers = reconcileTimers.current;
@@ -103,11 +95,10 @@ export function useNotifications(
     }
   };
 
-  // Clear overlay entries the writer has now confirmed (server reports read, or the
-  // row aged out of the capped inbox) so the overlay self-heals and never grows
-  // unbounded. Done during render — React's "adjust state when a value changes"
-  // pattern (guarded so it only sets on an actual change, and thus converges) —
-  // rather than in an effect, which would trigger a cascading re-render.
+  // Clear overlay entries the writer has confirmed (server reports read, or the row
+  // aged out of the capped inbox) so the overlay never grows unbounded. Done during
+  // render — the "adjust state when a value changes" pattern, guarded to only set on
+  // an actual change — rather than in an effect, which would cascade a re-render.
   if (query.data) {
     if (pendingRead.size > 0) {
       const stillPending = [...pendingRead].filter((id) => {
@@ -154,7 +145,7 @@ export function useNotifications(
     onSuccess: scheduleReconcile
   });
 
-  // Server truth with the optimistic read overlay applied (FR-004).
+  // Server truth with the optimistic read overlay applied.
   const notifications = useMemo<Notification[]>(() => {
     const list = query.data ?? [];
     if (!pendingAll && pendingRead.size === 0) return list;
@@ -181,11 +172,11 @@ export function useNotifications(
   };
 }
 
-// FR-005: prefetch the notifications read once on authenticated app load so the
-// header indicator is accurate before the user interacts and the first
-// notifications-page render has data. Graceful: prefetchQuery swallows the fetch
-// error, so a failed prefetch never crashes or blocks the shell. No-op when signed
-// out.
+/**
+ * Prefetch the notifications inbox once on authenticated app load so the header
+ * indicator is accurate before first interaction. prefetchQuery swallows fetch
+ * errors, so a failed prefetch never blocks the shell; no-op when signed out.
+ */
 export async function prefetchNotifications(queryClient: QueryClient, username: string | null): Promise<void> {
   if (!username) return;
   await queryClient.prefetchQuery({

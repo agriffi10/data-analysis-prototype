@@ -1,26 +1,17 @@
-"""infer-schema — the table-builder Step Function's fourth task (SPEC-069).
+"""infer-schema — the table-builder Step Function's fourth task.
 
-Scan the ``inspect-source`` sample object with a polars LazyFrame read **directly from
-S3** (never downloaded to ``/tmp``, never fully materialized — [[lambda-no-tmp-read-s3-directly]]),
-derive the DATA column schema (order + types), fold in the user-declared partition
-columns, and generate the ``CREATE EXTERNAL TABLE IF NOT EXISTS`` DDL (with
-partition-projection ``TBLPROPERTIES``). ``execute-ddl`` (SPEC-070) runs it. Runs on the
-SPEC-066 polars Lambda layer.
+Scans the inspect-source sample object with a polars LazyFrame directly from S3
+(never downloaded to /tmp, never fully materialized), derives the data column schema
+(order + types), folds in the user-declared partition columns, and generates the
+CREATE EXTERNAL TABLE IF NOT EXISTS DDL that execute-ddl runs. Reads are bounded
+regardless of object size: Parquet fetches only the file footer, CSV only the header
+row, JSON streams at most JSON_SAMPLE_ROWS rows.
 
-Lazy / bounded reads (stay within Lambda's physical limits regardless of object size):
-  - Parquet — ``scan_parquet(s3://…).collect_schema()`` fetches only the file footer.
-  - CSV     — ``scan_csv(s3://…, infer_schema_length=0)`` reads only the header row.
-  - JSON    — ``scan_ndjson(s3://…, n_rows=N)`` streams at most N rows.
-
-Type rules (decided 2026-06-30):
-  - Parquet — native types (incl. real date/timestamp).
-  - JSON    — inferred, with date/datetime-looking STRINGS typed date/timestamp.
-  - CSV     — NOT type-inferred: names from the header, every column ``string``
-              (matches the OpenCSVSerde in the DDL).
-
-Errors: a cheap ``head_object`` runs first so transient S3 errors (throttling / 5xx)
-PROPAGATE (raised) for the SFN ``Retry``; a polars scan error on an existing object
-(corrupt / wrong format) is terminal ``schema_inference_failed``.
+Type rules: Parquet keeps native types; JSON infers, typing date/datetime-looking
+strings as date/timestamp; CSV is not type-inferred — every column string, matching
+the OpenCSVSerde in the DDL. A cheap head_object runs first so transient S3 errors
+propagate for the SFN Retry; a polars scan error on an existing object (corrupt /
+wrong format) is terminal schema_inference_failed.
 """
 
 import logging
@@ -45,15 +36,18 @@ _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z
 
 
 def _object_uri(bucket, key):
-    """The polars source URI — a direct ``s3://`` read (no /tmp; object_store fetches
-    only the byte ranges the scan needs, using the Lambda role's env credentials)."""
+    """Return the polars source URI — a direct s3:// read (no /tmp; object_store
+    fetches only the byte ranges the scan needs, with the role's env credentials)."""
     return f"s3://{bucket}/{key}"
 
 
 def _check_access(bucket, key):
-    """Cheap access probe. Surfaces a transient S3 error (throttling / 5xx) as a
-    retryable boto error BEFORE the polars scan (whose errors are terminal), preserving
-    the SFN Retry semantics we'd otherwise lose reading through polars."""
+    """Cheap access probe run before the polars scan.
+
+    Surfaces a transient S3 error (throttling / 5xx) as a retryable boto error before
+    the scan, whose errors are terminal — preserving the SFN Retry semantics we would
+    otherwise lose reading through polars.
+    """
     clients.s3().head_object(Bucket=bucket, Key=key)
 
 
@@ -77,8 +71,8 @@ def _detect_date_type(series):
 
 
 def _infer_columns(source, fmt):
-    """Ordered [{name, type}] data columns for the sample object at ``source`` (an
-    ``s3://`` URI in prod; a local path in tests — polars scans both)."""
+    """Return ordered [{name, type}] data columns for the sample object at ``source``
+    (an s3:// URI in prod; a local path in tests — polars scans both)."""
     import polars as pl
 
     if fmt == "parquet":
@@ -86,7 +80,7 @@ def _infer_columns(source, fmt):
         return [{"name": n, "type": _hive(d, n)} for n, d in schema.items()]
 
     if fmt == "csv":
-        # Header only; NO type inference — every column is string (SPEC-069 rule).
+        # Header only; no type inference — every column is string.
         schema = pl.scan_csv(source, infer_schema_length=0).collect_schema()
         return [{"name": n, "type": "string"} for n in schema.names()]
 
@@ -106,8 +100,8 @@ def _infer_columns(source, fmt):
 
 
 def handler(event, context):
-    # Notify the actor on a terminal schema failure (SPEC-072, best-effort); a
-    # transient S3 error (not a TerminalError) propagates for the SFN Retry unnotified.
+    # Notify the actor on a terminal schema failure (best-effort); a transient S3
+    # error (not a TerminalError) propagates for the SFN Retry unnotified.
     try:
         return _infer(event)
     except TerminalError as err:
@@ -120,8 +114,6 @@ def _infer(event):
     bucket = event["space"]["bucket"]
     sample_key = event["sampleObjectKey"]
 
-    # Transient S3 errors here propagate (raised) for the SFN Retry; the scan reads
-    # directly from S3 (no /tmp).
     _check_access(bucket, sample_key)
     source = _object_uri(bucket, sample_key)
     try:

@@ -6,19 +6,25 @@ type PagerProps = {
   hasNext: boolean;
   onPrev: () => void;
   onNext: () => void;
-  // The range/page indicator content (incl. any sr-only text), e.g. "1–7 of 23".
+  /** The range/page indicator content (incl. any sr-only text), e.g. "1–7 of 23". */
   label: ReactNode;
-  // When the next page is loading, disable Next and show "Loading…".
+  /** When the next page is loading, disable Next and show "Loading…". */
   nextBusy?: boolean;
-  className?: string; // container layout (padding/border) — varies per host
+  /** Container layout (padding/border) — varies per host. */
+  className?: string;
 };
 
 const pagerButton =
   'h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
-// SPEC-038 Prev/Next pager (react-best-practices abstraction pass). Shared by the
-// query-results table and the history drawer: Prev — range indicator — Next, with
-// the consistent ghost-button styling and disabled states.
+/**
+ * Prev/Next pager: Prev — range indicator — Next, with consistent
+ * ghost-button styling and disabled states. The indicator is an
+ * `aria-live="polite"` region so page changes are announced.
+ *
+ * @example
+ * <Pager hasPrev={page > 0} hasNext={hasMore} onPrev={prev} onNext={next} label="1–7 of 23" />
+ */
 export function Pager({hasPrev, hasNext, onPrev, onNext, label, nextBusy = false, className}: PagerProps) {
   return (
     <div className={cx('flex items-center justify-between gap-3', className)}>

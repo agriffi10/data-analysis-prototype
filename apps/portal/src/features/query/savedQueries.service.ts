@@ -4,11 +4,10 @@ import {withCredentialRetry} from '../../lib/credentialRetry';
 import type {ServiceResult} from '../../types/service.types';
 import type {SavedQueriesStore, SavedQuery} from './query.types';
 
-// SPEC-043 FR-004: per-user saved queries stored as JSON, mirroring the SPEC-034
-// history store. Lives in the protected `user_settings/` folder whose policy
-// ALLOWS PutObject (overwrite) but DENIES delete — so create/update/remove only
-// ever overwrite the whole file, never an S3 object delete. The folder is hidden
-// from the file browser.
+// Per-user saved queries stored as JSON in the protected `user_settings/`
+// folder, whose policy ALLOWS PutObject (overwrite) but DENIES delete — so
+// create/update/remove only ever overwrite the whole file, never an S3 object
+// delete. The folder is hidden from the file browser.
 
 const emptyStore = (): SavedQueriesStore => ({version: 1, queries: []});
 
@@ -46,7 +45,7 @@ function parseStore(body: string | undefined): SavedQueriesStore {
   }
 }
 
-// FR-004: read + parse the store. A missing file is the empty state, not an error.
+/** Reads + parses the store. A missing file is the empty state, not an error. */
 export async function getSavedQueries(username: string): Promise<ServiceResult<SavedQueriesStore>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
@@ -61,7 +60,7 @@ export async function getSavedQueries(username: string): Promise<ServiceResult<S
 }
 
 // Overwrite the store file (PutObject — never a delete). Last-writer-wins on a
-// single user's own file, acceptable as for history (FR-004).
+// single user's own file is acceptable.
 async function writeStore(username: string, store: SavedQueriesStore): Promise<ServiceResult<void>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
@@ -80,8 +79,10 @@ async function writeStore(username: string, store: SavedQueriesStore): Promise<S
   });
 }
 
-// FR-004: create or replace a saved query by id, then write back. A matching id
-// is updated in place (keeping list position); a new id is prepended.
+/**
+ * Creates or replaces a saved query by id, then writes back. A matching id is
+ * updated in place (keeping list position); a new id is prepended.
+ */
 export async function upsertSavedQuery(username: string, query: SavedQuery): Promise<ServiceResult<SavedQueriesStore>> {
   const current = await getSavedQueries(username);
   if (!current.success) return current;
@@ -98,8 +99,10 @@ export async function upsertSavedQuery(username: string, query: SavedQuery): Pro
   return {success: true, data: next};
 }
 
-// FR-004 / FR-007: remove a saved query by id by rewriting the JSON without it
-// (never an S3 delete). An unknown id is a no-op success.
+/**
+ * Removes a saved query by id by rewriting the JSON without it (never an S3
+ * delete). An unknown id is a no-op success.
+ */
 export async function removeSavedQuery(username: string, id: string): Promise<ServiceResult<SavedQueriesStore>> {
   const current = await getSavedQueries(username);
   if (!current.success) return current;

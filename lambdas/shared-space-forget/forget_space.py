@@ -1,21 +1,17 @@
-"""forget verb — durable "clear this entry from my list" (no full delete cascade).
+"""forget verb: durable "clear this entry from my list" (no full delete cascade).
 
-Self-service removal of a FAILED / phantom connection card. The browser's Dismiss
-enqueues it. The browser can't tell a phantom ``role:owner`` (a collision wrote it)
-from a real owner, so the verb decides from the registry (loaded by the validator):
+Self-service removal of a failed/phantom connection card, enqueued by the browser's
+Dismiss. The browser can't tell a phantom ``role:owner`` (written by a collision) from
+a real owner, so the verb decides from the registry loaded by the validator:
 
-- **Active space the actor still belongs to** -> REFUSE (owners Delete, members Leave;
-  clearing a healthy membership would recreate the "vanish" bug).
-- **The actor's OWN non-active space** (owner == actor, status != active) -> tear down
-  the space (S3 prefix + Glue DB + LF revoke), clear the actor's slot, remove the
-  actor's cache entry, delete the registry record (frees the name). Single-member —
-  create is creator-only, so a failed create never has other members.
-- **Everything else** (no registry record, or owned by someone else — the collision
-  phantom / an orphaned member projection) -> CACHE-ONLY: remove the actor's cache
-  entry + clear the actor's slot. Touches only the caller's own projection.
+- Active space the actor still belongs to -> refuse (owners Delete, members Leave).
+- The actor's OWN non-active space -> tear it down (S3 prefix + Glue DB + LF revoke),
+  clear the actor's slot + cache entry, delete the registry record (frees the name).
+  A failed create is single-member (create is creator-only), so no one else to clear.
+- Everything else (no registry record, or owned by someone else) -> cache-only:
+  remove the actor's cache entry + slot, touching only the caller's own projection.
 
-No notification — a self-service action with immediate UI feedback, unlike the async
-create/delete outcomes.
+No notification — a self-service action with immediate UI feedback.
 """
 
 import logging
@@ -31,14 +27,13 @@ logger.setLevel(logging.INFO)
 
 
 def forget_space(space, actor, request_id, registry):
-    """``registry`` is the loaded record, or None for a phantom/absent space."""
+    """Clear ``space`` from the actor's list; ``registry`` is None for a phantom space."""
     if registry is not None:
         owner = registry.get("owner")
         members = registry.get("members", [])
         status = registry.get("status")
         if status == "active" and actor in members:
-            # A healthy space the actor belongs to — clearing its cache entry would
-            # recreate the vanish bug. Owners delete it; members leave it.
+            # Clearing a healthy membership's cache entry would recreate the vanish bug.
             raise AuthorizationError(
                 f"cannot forget active space {space!r} — use Delete (owner) or Leave (member)"
             )

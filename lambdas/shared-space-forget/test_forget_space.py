@@ -21,7 +21,7 @@ def _cache(s3, user):
     return json.loads(s3.store[("user-bkt", f"{user}/user_settings/shared-connections.json")])["connections"]
 
 
-# ── Cache-only: collision phantom (no registry record for the actor to own) ──────
+# Cache-only: collision phantom (no registry record for the actor to own).
 def test_forget_phantom_removes_only_actor_entry_and_slot():
     s3, glue, lf, cognito = install()
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
@@ -50,7 +50,7 @@ def test_forget_other_owner_entry_is_cache_only_and_leaves_their_space_intact():
     assert "sales" in glue.databases
 
 
-# ── Teardown: the actor's OWN failed create ──────────────────────────────────────
+# Teardown: the actor's own failed create.
 def test_forget_own_failed_space_tears_down_resources_and_frees_name():
     s3, glue, lf, cognito = install()
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
@@ -83,7 +83,7 @@ def test_forget_own_failed_space_with_no_resources_is_a_clean_teardown():
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
 
 
-# ── Refuse: a healthy active space the actor belongs to ──────────────────────────
+# Refuse: a healthy active space the actor belongs to.
 def test_forget_refuses_active_space_owner():
     s3, glue, lf, cognito = install()
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active"}

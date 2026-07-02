@@ -63,7 +63,6 @@ describe('SchemaBrowser', () => {
         actions={makeActions()}
       />
     );
-    // Expanded by default → its objects show.
     expect(screen.getByRole('button', {name: /Collapse My workspace/})).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
   });
@@ -98,7 +97,7 @@ describe('SchemaBrowser', () => {
     expect(actions.onViewData).toHaveBeenCalledWith(expect.objectContaining({name: 'sales_2026'}));
   });
 
-  // --- the active-target radiogroup (SPEC-063 FR-003) ---
+  // --- the active-target radiogroup ---
 
   it('keys the active node schema query off the active database', () => {
     render(
@@ -161,7 +160,6 @@ describe('SchemaBrowser', () => {
     fireEvent.click(screen.getByRole('button', {name: /Expand Project Alpha/}));
     expect(mockUseSchema).toHaveBeenCalledWith('project_alpha');
     expect(onSelectDatabase).not.toHaveBeenCalled();
-    // The active radio is still My workspace.
     expect(screen.getByRole('radio', {name: /Use My workspace/})).toHaveAttribute('aria-checked', 'true');
   });
 
@@ -192,7 +190,7 @@ describe('SchemaBrowser', () => {
     expect(screen.queryByRole('radio', {name: /Project Beta/})).not.toBeInTheDocument();
   });
 
-  // --- accessibility (FR-006) ---
+  // --- accessibility ---
 
   it('has no axe violations', async () => {
     await expectNoA11yViolations(

@@ -6,24 +6,24 @@ import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableBuildRequest} from './tableBuild.types';
 
-// SPEC-071: the browser's ONE table-builder AWS call. It enqueues a create-table
-// request onto the SPEC-066 FIFO queue and never creates the table itself — the
-// async control plane (validate → check → inspect → infer → execute) does that and
-// notifies the actor of the outcome (SPEC-072). Success here means ENQUEUED, not
-// created. Returns ServiceResult and never throws (CLAUDE.md service rule).
-
 function toServiceError(err: unknown, fallback: string) {
   const e = err as {message?: string; name?: string};
   return {success: false as const, error: {message: e.message ?? fallback, code: e.name}};
 }
 
-// FR-003: build the SPEC-067 envelope, attach the caller's verified ID token (the
-// server derives the actor from it — a body username is never trusted), and send
-// FIFO with MessageGroupId = the target database (per-DB serialization closes the
-// duplicate-name race, architecture §2) and a fresh requestId as the dedup id.
+/**
+ * Enqueue a create-table request onto the table-builder FIFO queue — the browser's
+ * only table-builder AWS call. The async control plane creates the table and
+ * notifies the actor of the outcome, so success means enqueued, not created.
+ *
+ * The body carries the caller's ID token (the server derives the actor from the
+ * verified claim — a body username is never trusted). MessageGroupId = the target
+ * database (per-DB serialization closes the duplicate-name race); a fresh requestId
+ * is the dedup id.
+ */
 export async function enqueueTableBuild(req: TableBuildRequest): Promise<ServiceResult<void>> {
-  // Read at call time (not module load) so tests can stub the env (the SPEC-040
-  // lesson: a module-level import.meta.env const is read before vi.stubEnv runs).
+  // Read at call time (not module load) so tests can stub the env — a module-level
+  // import.meta.env const is read before vi.stubEnv runs.
   const queueUrl = import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined;
   if (!queueUrl) {
     return {success: false, error: {message: 'Table creation is not configured'}};
@@ -58,11 +58,12 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
   });
 }
 
-// FR-002: derive a suggested, catalog-safe table name from the current folder name.
-// Lowercase, non-conforming chars → `_`, a leading letter ensured, trimmed to the
-// max length. This is UX only — the field stays editable and the name is re-checked
-// against CATALOG_IDENTIFIER_RE (and authoritatively server-side, SPEC-067), so a
-// too-short/edge suggestion just leaves Confirm disabled until the user fixes it.
+/**
+ * Derive a suggested, catalog-safe table name from a folder name: lowercase,
+ * non-conforming chars → `_`, leading letter ensured, trimmed to the max length.
+ * UX only — the field stays editable and the name is re-checked client- and
+ * server-side, so an edge-case suggestion just leaves Confirm disabled.
+ */
 export function suggestTableName(folderName: string): string {
   let s = folderName.toLowerCase().replace(/[^a-z0-9_]+/g, '_');
   s = s.replace(/^_+/, ''); // drop leading junk so a real letter can lead
@@ -72,7 +73,7 @@ export function suggestTableName(folderName: string): string {
   return s;
 }
 
-// Shared with the dialog + tests: the single client-side name check (UX only).
+/** The single client-side table-name check (UX only — the server re-validates). */
 export function isValidTableName(name: string): boolean {
   return CATALOG_IDENTIFIER_RE.test(name);
 }

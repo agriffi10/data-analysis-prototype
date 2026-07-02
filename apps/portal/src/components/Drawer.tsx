@@ -8,21 +8,36 @@ type DrawerProps = {
   open: boolean;
   onClose: () => void;
   title: string;
-  titleClassName?: string; // extends the title's classes (e.g. `font-mono` for a name)
-  subtitle?: ReactNode; // small muted line rendered under the title
-  ariaLabel?: string; // defaults to `title`
-  closeLabel?: string; // close-button label; defaults to `Close {title}`
-  // Escape closes the drawer; pass false while a nested dialog owns Escape.
+  /** Extends the title's classes (e.g. `font-mono` for a name). */
+  titleClassName?: string;
+  /** Small muted line rendered under the title. */
+  subtitle?: ReactNode;
+  /** Defaults to `title`. */
+  ariaLabel?: string;
+  /** Close-button label; defaults to `Close {title}`. */
+  closeLabel?: string;
+  /** Escape closes the drawer; pass false while a nested dialog owns Escape. */
   closeOnEscape?: boolean;
-  headerAccessory?: ReactNode; // rendered after the title (e.g. a destination hint)
-  bodyClassName?: string; // body flex-gap override; defaults to `gap-3`
+  /** Rendered after the title (e.g. a destination hint). */
+  headerAccessory?: ReactNode;
+  /** Body flex-gap override; defaults to `gap-3`. */
+  bodyClassName?: string;
   children: ReactNode;
-  footer?: ReactNode; // pinned below the scrollable body (e.g. a pager)
+  /** Pinned below the scrollable body (e.g. a pager). */
+  footer?: ReactNode;
 };
 
-// SPEC-036 right slide-over drawer (react-best-practices abstraction pass): scrim
-// + 440px panel + header with close button + scrollable body, consolidated from
-// QueryHistoryPanel and SavedQueriesPanel.
+/**
+ * Right slide-over drawer: scrim + 440px panel + header with close button +
+ * scrollable body. Traps focus while open and restores it to the trigger on
+ * close; Escape and backdrop click both dismiss (Escape is opt-out via
+ * `closeOnEscape` when a nested dialog owns it).
+ *
+ * @example
+ * <Drawer open={open} onClose={() => setOpen(false)} title="History" footer={<Pager {...pager} />}>
+ *   <HistoryList items={items} />
+ * </Drawer>
+ */
 export function Drawer({
   open,
   onClose,
@@ -43,9 +58,8 @@ export function Drawer({
   if (!open) return null;
 
   return (
-    // Trap focus within the drawer while open; restore it to the trigger on
-    // close. Escape is owned by useEscapeKey above and the scrim owns
-    // backdrop-dismiss, so focus-trap's own escape/outside-click are disabled.
+    // Escape is owned by useEscapeKey above and the scrim owns backdrop-dismiss,
+    // so focus-trap's own escape/outside-click handling is disabled.
     <FocusTrap
       focusTrapOptions={{
         initialFocus: false,

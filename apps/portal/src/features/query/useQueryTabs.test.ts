@@ -71,7 +71,6 @@ describe('useQueryTabs', () => {
 
   it('refuses to open past QUERY_TABS_MAX, returning null', () => {
     const {result} = renderHook(() => useQueryTabs('alice'));
-    // Start at 1 tab; open up to the cap.
     for (let i = result.current.tabs.length; i < QUERY_TABS_MAX; i++) {
       act(() => void result.current.openTab());
     }

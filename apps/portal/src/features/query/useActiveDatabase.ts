@@ -3,11 +3,9 @@ import {QUERY_ACTIVE_DB_STORAGE_PREFIX} from './query.constants';
 import {isConnectionUsable} from './query.types';
 import type {Connection} from './query.types';
 
-// SPEC-047: the workspace-global active database — one target for all query tabs,
-// persisted per-user in sessionStorage (mirroring the SPEC-041 tabs store), default
-// + fallback = the personal database (username). All access goes through these
-// helpers so a disabled/quota-exceeded sessionStorage degrades to "not persisted"
-// rather than crashing the workspace, and an empty username is a no-op.
+// sessionStorage access goes through these helpers so a disabled/quota-exceeded
+// sessionStorage degrades to "not persisted" rather than crashing the workspace,
+// and an empty username is a no-op.
 
 function activeDbKey(username: string): string | null {
   if (!username) return null;
@@ -37,19 +35,23 @@ function writeActiveDatabase(username: string, database: string): void {
 export type UseActiveDatabaseResult = {
   activeDatabase: string;
   setActiveDatabase: (database: string) => void;
-  // True when a previously-persisted database is no longer available (e.g. a
-  // removed shared DB) and we reset to personal — drives a non-blocking notice.
+  /** True when a persisted database is no longer available and we reset to personal — drives a non-blocking notice. */
   fellBack: boolean;
   dismissFellBack: () => void;
 };
 
+/**
+ * The workspace-global active database — one target for all query tabs,
+ * persisted per-user in sessionStorage. Default + fallback = the personal
+ * database (username).
+ */
 export function useActiveDatabase(username: string | null, connections: Connection[]): UseActiveDatabaseResult {
   const personal = username ?? '';
-  // SPEC-052: only USABLE connections are valid targets — a shared DB that's
-  // provisioning/failed/leaving (revoked) is still listed (so the rail can show
-  // its status) but must not hold the active target. Deriving `available` from
-  // usable connections makes a once-active target fall back to personal the moment
-  // it stops being usable, not only when it disappears from the cache entirely.
+  // Only USABLE connections are valid targets — a shared DB that's
+  // provisioning/failed/leaving is still listed (so the rail can show its
+  // status) but must not hold the active target. Deriving `available` from
+  // usable connections makes a once-active target fall back to personal the
+  // moment it stops being usable, not only when it disappears entirely.
   const available = useMemo(() => connections.filter(isConnectionUsable).map((c) => c.database), [connections]);
 
   // The user's stored choice (may be stale if a once-selected shared DB is gone).

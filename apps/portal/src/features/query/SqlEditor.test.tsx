@@ -2,9 +2,9 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render} from '@testing-library/react';
 import type {GlueTableSummary} from './query.types';
 
-// SPEC-065: exercise the editor's completion-provider wiring without the real
-// Monaco runtime (no worker, no DOM editor). The mocks below stand in for the
-// three modules SqlEditor imports; the Editor mock invokes onMount synchronously
+// Exercise the editor's completion-provider wiring without the real Monaco
+// runtime (no worker, no DOM editor). The mocks below stand in for the three
+// modules SqlEditor imports; the Editor mock invokes onMount synchronously
 // with a fake editor + the mocked monaco namespace.
 
 const h = vi.hoisted(() => {

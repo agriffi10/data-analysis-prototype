@@ -10,15 +10,17 @@ import NotificationsPage from './routes/NotificationsPage';
 import NotFoundPage from './routes/NotFoundPage';
 
 // The Query route pulls in Monaco + the Athena/Glue SDK clients — lazy-load the
-// whole route so none of it lands in the main bundle (SPEC-035 FR-003).
+// whole route so none of it lands in the main bundle.
 const QueryPage = lazy(() => import('./routes/QueryPage'));
-// The Connections route pulls in the SQS client — lazy-load it off the main bundle
-// too (SPEC-051). Most sessions never open it.
+// The Connections route pulls in the SQS client — lazy-load it too; most
+// sessions never open it.
 const ConnectionsPage = lazy(() => import('./routes/ConnectionsPage'));
 
-// Route definitions. RootLayout wraps every page with the shared Header;
-// ProtectedLayout is a nested sub-layout that gates protected routes on auth
-// state (FR-003).
+/**
+ * Route definitions. RootLayout wraps every page with the shared Header;
+ * ProtectedLayout is a nested sub-layout that gates protected routes on auth
+ * state.
+ */
 export default function App() {
   return (
     <Routes>
@@ -48,9 +50,9 @@ export default function App() {
               </Suspense>
             }
           />
-          {/* Reached via the header bell link, not the primary tab bar (SPEC-060).
-              Eager — the SQS client is already in the main bundle via the header
-              bell's useNotifications, so lazy-loading would save nothing. */}
+          {/* Reached via the header bell link, not the primary tab bar. Eager —
+              the SQS client is already in the main bundle via the header bell's
+              useNotifications, so lazy-loading would save nothing. */}
           <Route
             path="/notifications"
             element={<NotificationsPage />}

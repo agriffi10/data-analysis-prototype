@@ -1,23 +1,14 @@
-"""validate-authorize — the Step Function's first task (SPEC-056; SPEC-062).
+"""validate-authorize — the Step Function's first task, run once before any verb.
 
-One task, run once before any verb: parse the SQS record, verify the caller's
-Cognito ID token, derive the trusted ``actor``, load the registry, and authorize the
-action. A failed check raises AuthorizationError, so the state machine's Catch routes
-to Fail and no verb runs.
-
-Mostly read-only, with ONE deliberate side effect for ``create``/``delete``: once the
-token is verified (so the actor is the trusted claim, never the spoofable body actor)
-AND the action is authorized, it durably records the in-flight state in the actor's
-per-user cache (``provisioning`` for create, ``deleting`` for delete) and emits a start
-notification. This is the earliest safe point, so the space shows a durable state even
-if a downstream step (routing / the verb) fails — the browser reads only that cache, so
-without it the row reconciles back to ``active`` (delete) or vanishes on reload (create).
-Both are best-effort: a failure here must never block the action (the verb writes the
-authoritative terminal state + notification at the end).
-
-Outputs the small validated context the Choice state routes on and the verb consumes:
-``{action, actor, space, payload, registry, requestId}`` (the verb trusts this and
-never re-verifies the token or re-authorizes).
+Parses the SQS record, verifies the caller's Cognito ID token, derives the trusted
+``actor`` (never the spoofable body actor), loads the registry, and authorizes the
+action; a failed check raises AuthorizationError so the Catch routes to Fail and no
+verb runs. For an authorized ``create``/``delete`` it also durably records the
+in-flight state (``provisioning``/``deleting``) in the actor's per-user cache and
+emits a start notification — the browser reads only that cache, so without it the row
+reconciles back to ``active`` or vanishes on reload. Outputs the validated context
+``{action, actor, space, payload, registry, requestId}`` that the Choice state routes
+on; verbs trust it and never re-verify the token or re-authorize.
 """
 
 import json
@@ -33,9 +24,8 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-# The in-flight state + start-notification each accepted-and-authorized create/delete
-# records in the actor's cache before the verb runs. (add/remove/leave write their own
-# terminal state directly in the verb, so they have no separate "intent" row.)
+# Only create/delete record an in-flight intent before the verb runs; the other verbs
+# write their terminal cache state directly, so they have no separate intent row.
 _INTENT = {
     "create": (cache.write_owner_pending, 'Creating shared workspace "{space}"…', "create-pending"),
     "delete": (cache.write_owner_deleting, 'Deleting shared workspace "{space}"…', "delete-pending"),
@@ -43,12 +33,11 @@ _INTENT = {
 
 
 def _record_intent(action, actor, space, request_id):
-    """Durably record a just-accepted, authorized create/delete in the actor's cache
-    (``provisioning``/``deleting``) + a start notification, as the first side effect once
-    the token is verified and the action authorized — so the space shows a durable state
-    instead of the browser's optimistic row reconciling back to ``active``. Fully
-    best-effort: a cache-write failure is logged and swallowed (never blocks the action);
-    the verb writes the authoritative terminal state (+ notification) at the end."""
+    """Record an authorized create/delete as in-flight in the actor's cache and notify.
+
+    Best-effort: a cache-write failure is logged and swallowed (it must never block the
+    action); the verb writes the authoritative terminal state at the end.
+    """
     write, template, tag = _INTENT[action]
     try:
         write(actor, space)
@@ -81,6 +70,7 @@ def _parse_request(record):
 
 
 def handler(event, context):
+    """Validate and authorize the queued request; return the context the verbs consume."""
     record = _extract_record(event)
     req = _parse_request(record)
     action = req.get("action")
@@ -93,10 +83,7 @@ def handler(event, context):
     registry_doc = None if action == "create" else reg.load(space)
     auth.authorize(action, space, actor, registry_doc)
 
-    # First side effect for create/delete: record the in-flight state (+ notify) in the
-    # actor's cache now that the action is authorized, so the space shows a durable
-    # provisioning/deleting state even if a later step fails (the browser reads only that
-    # cache). Done AFTER authorize so an unauthorized request mutates nothing.
+    # Recorded only AFTER authorize, so an unauthorized request mutates nothing.
     if action in _INTENT:
         _record_intent(action, actor, space, req.get("requestId"))
 

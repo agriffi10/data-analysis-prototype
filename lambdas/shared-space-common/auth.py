@@ -1,10 +1,10 @@
-"""Token verification + action authorization (SPEC-056; SPEC-062 shared layer).
+"""Token verification and action authorization for the shared-space control plane.
 
-The security boundary of the control plane. ``verified_username`` derives the
-trusted actor from a verified Cognito ID token (issuer/audience/expiry/signature
-against the pool JWKS) — never from a body-asserted username. ``authorize`` is a
-pure function that gates each action against the registry. Both are owned by the
-validate-authorize Lambda; the verb Lambdas trust its decision and never re-verify.
+The security boundary: ``verified_username`` derives the trusted actor from a verified
+Cognito ID token (issuer/audience/expiry/signature against the pool JWKS) — never from
+a body-asserted username. ``authorize`` is a pure function gating each action against
+the registry. Both run in the validate-authorize Lambda; the verb Lambdas trust its
+decision and never re-verify.
 """
 
 import config
@@ -12,7 +12,7 @@ import clients
 
 
 class AuthorizationError(Exception):
-    """Untrusted/unauthorized request — Catch -> Fail, never retried, no side effects."""
+    """An untrusted or unauthorized request; terminal (never retried), no side effects."""
 
 
 def verified_username(id_token):
@@ -47,8 +47,7 @@ def verified_username(id_token):
 def authorize(action, space, actor, registry):
     """Authorize ``actor`` for ``action`` on ``space``. Pure; raises on violation.
 
-    ``registry`` is the loaded registry record (or None for create / a missing
-    space). Mirrors the pre-decomposition semantics exactly (SPEC-051/053/054).
+    ``registry`` is the loaded registry record, or None for create or a missing space.
     """
     if action not in config.VALID_ACTIONS:
         raise AuthorizationError(f"unknown action: {action!r}")
@@ -56,8 +55,8 @@ def authorize(action, space, actor, registry):
         return
     if action == "forget":
         # Self-scoped clear: allowed even when the space has no registry record (a
-        # collision phantom / orphaned projection). The forget verb enforces the safety
-        # matrix (refuse an active space the actor belongs to; cache-only vs teardown).
+        # collision phantom or orphaned projection). The forget verb itself enforces
+        # the safety matrix, refusing an active space the actor belongs to.
         return
     if registry is None:
         raise AuthorizationError(f"space {space!r} does not exist")

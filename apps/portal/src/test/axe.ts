@@ -4,11 +4,9 @@ import {render} from '@testing-library/react';
 import {configureAxe} from 'vitest-axe';
 import {expect} from 'vitest';
 
-// ─── Centralised axe configuration (SPEC-045 FR-002) ──────────────────────────
-//
-// One place defines which rules run and which are disabled (with a written
-// reason). Every a11y check renders through `expectNoA11yViolations` so the
-// config lives here and nowhere else.
+// Centralised axe configuration: one place defines which rules run and which
+// are disabled (with a written reason). Every a11y check renders through
+// `expectNoA11yViolations` so the config lives here and nowhere else.
 
 /** WCAG A/AA rule tags the suite asserts against (machine-detectable subset). */
 export const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] as const;
@@ -18,8 +16,7 @@ const runAxe = configureAxe({
   rules: {
     // jsdom has no layout engine or computed styles, so axe cannot evaluate
     // contrast — it would error, not pass. Contrast is governed by the design
-    // tokens (verified by hand in PR #89) and stays a manual/visual concern.
-    // Disabled here deliberately, never faked. (Out of Scope, SPEC-045.)
+    // tokens and stays a manual/visual concern. Disabled deliberately, never faked.
     'color-contrast': {enabled: false}
   }
 });
@@ -27,7 +24,7 @@ const runAxe = configureAxe({
 /**
  * Route-level override: page renders own their document structure, so opt in to
  * the best-practice landmark / heading-order / region rules that only have
- * meaning for a full page (FR-003). Pass this as the second arg for route specs.
+ * meaning for a full page. Pass this as the second arg for route specs.
  */
 export const ROUTE_AXE_OPTIONS: RunOptions = {
   runOnly: {type: 'tag', values: [...WCAG_TAGS, 'best-practice']},
@@ -39,9 +36,8 @@ export const ROUTE_AXE_OPTIONS: RunOptions = {
 
 /**
  * Component-level override: a primitive rendered in isolation legitimately is
- * not inside a landmark, so the `region` rule is disabled for these checks
- * (FR-002/FR-004). This is intentional — the landmark guarantee is enforced by
- * the route-level specs, not by isolated component renders.
+ * not inside a landmark, so the `region` rule is disabled for these checks —
+ * the landmark guarantee is enforced by the route-level specs instead.
  */
 export const COMPONENT_AXE_OPTIONS: RunOptions = {
   rules: {

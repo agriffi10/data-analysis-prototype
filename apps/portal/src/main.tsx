@@ -8,10 +8,10 @@ import App from './App.tsx';
 import {AuthProvider} from './features/auth';
 import {queryClient} from './lib/queryClient';
 
-// AuthProvider wraps the router so route guards (SPEC-008 ProtectedLayout) can
-// call useAuth; BrowserRouter nests inside it. QueryClientProvider (SPEC-015)
-// sits inside AuthProvider and outside BrowserRouter so server-state caching is
-// available to every route but independent of navigation.
+// AuthProvider wraps the router so route guards (ProtectedLayout) can call
+// useAuth. QueryClientProvider sits inside AuthProvider and outside
+// BrowserRouter so server-state caching is available to every route but
+// independent of navigation.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>

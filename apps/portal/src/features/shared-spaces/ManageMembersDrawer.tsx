@@ -8,24 +8,23 @@ import {AddMembersDialog} from './AddMembersDialog';
 type Props = {
   open: boolean;
   onClose: () => void;
-  // The space being managed and its current membership (the owner-readable
-  // projection from the cache, SPEC-053). `members` includes the owner.
   space: string;
   owner: string;
+  /** Current membership (the owner-readable cache projection); includes the owner. */
   members: string[];
-  // True if the member projection isn't available yet (e.g. an older cache entry
-  // written before SPEC-053) — show a friendly note instead of an empty list.
+  /** True if the member projection isn't available yet (older cache entry) — shows a note instead of an empty list. */
   unavailable?: boolean;
   busy?: boolean;
   onAddMembers: (members: string[]) => void;
   onRemoveMembers: (members: string[]) => void;
 };
 
-// SPEC-053 FR-001: owner-only Manage-members drawer (SPEC-036 `Drawer`). Lists the
-// current members (owner marked, never removable) with Add + per-member Remove.
-// All changes are pipeline requests (the parent enqueues via `useManageMembers`)
-// that apply after a Refresh-connections (SPEC-052) — the inline note sets that
-// expectation since the effect is asynchronous.
+/**
+ * Owner-only Manage-members drawer: lists current members (owner marked, never
+ * removable) with Add + per-member Remove. All changes are async pipeline requests
+ * (the parent enqueues via `useManageMembers`) that apply after a
+ * Refresh-connections — the inline note sets that expectation.
+ */
 export function ManageMembersDrawer({
   open,
   onClose,
@@ -40,8 +39,7 @@ export function ManageMembersDrawer({
   const [addOpen, setAddOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
 
-  // Owner first, then the rest A–Z; the owner is implicitly a member and can't be
-  // removed here (ownership changes via delete, SPEC-054).
+  // Owner first, then the rest A–Z; the owner can't be removed here.
   const others = members.filter((m) => m !== owner).sort((a, b) => a.localeCompare(b));
 
   const handleAdd = (toAdd: string[]) => {
@@ -75,7 +73,7 @@ export function ManageMembersDrawer({
           Add members
         </Button>
       }
-      // While a nested dialog is open it owns Escape (SPEC-036 pattern).
+      // While a nested dialog is open it owns Escape.
       closeOnEscape={!addOpen && !removing}>
       {unavailable && (
         <Banner variant="info">
@@ -146,8 +144,8 @@ export function ManageMembersDrawer({
   );
 }
 
-// Small circular member avatar showing the first two letters of the username (the
-// design's `.mavatar`). Decorative — the username text beside it carries the name.
+// Circular avatar showing the first two letters of the username. Decorative — the
+// username text beside it carries the name.
 function Avatar({name}: {name: string}) {
   return (
     <span

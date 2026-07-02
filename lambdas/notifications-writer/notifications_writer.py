@@ -1,24 +1,19 @@
 """Notifications writer — the single writer of each user's notifications inbox.
 
 The notifications FIFO queue triggers this Lambda directly (SQS event-source mapping,
-batch size 1 — SPEC-058). Each invocation carries exactly one SQS record whose body is
-an `action`-discriminated envelope (`create` | `markRead` | `markAllRead`). The handler
-read-modify-writes the target user's inbox document at
-``{username}/user_settings/notifications.json`` in the user-space bucket and is the ONLY
-writer of that object, so two producers never race on it (per-user serialization comes
-from FIFO: MessageGroupId = username + batch size 1).
+batch size 1), so each invocation carries exactly one action-discriminated envelope
+(``create`` | ``markRead`` | ``markAllRead``). The handler read-modify-writes
+``{username}/user_settings/notifications.json`` in the user-space bucket and is the
+ONLY writer of that object; per-user serialization comes from FIFO
+MessageGroupId=username plus batch size 1. There is no delete — notifications are only
+ever marked read.
 
-There is NO delete/deleteAll — notifications are never removed, only marked read.
-
-Actor binding (SPEC-058 FR-005): for user-originated actions (markRead/markAllRead) the
-message carries the caller's Cognito ID token; we verify it against the pool JWKS and
-derive the target ``username`` from the verified ``cognito:username`` claim — any body
-``username`` is ignored for those actions. ``create`` is a trusted-producer action
-(only identities granted sqs:SendMessage can enqueue it; the portal role is not) and
-uses the body ``username``.
-
-A schema-invalid or unauthorized message raises, so the SQS event-source mapping retries
-it and, after the queue's maxReceiveCount, routes it to the DLQ — never a partial write.
+Actor binding: markRead/markAllRead carry the caller's Cognito ID token, and the
+target username is the verified ``cognito:username`` claim (any body ``username`` is
+ignored). ``create`` is trusted-producer-only (gated by sqs:SendMessage; the portal
+role has none) and uses the body ``username``. A schema-invalid or unauthorized
+message raises, so the record retries and then lands in the DLQ — never a partial
+write.
 """
 
 import json
@@ -77,8 +72,8 @@ def _get_jwk_client():
 def verified_username(id_token):
     """Verify a Cognito ID token and return the trusted ``cognito:username`` claim.
 
-    Mirrors the shared-space provisioner's offline-JWKS verification (issuer, audience,
-    expiry, signature) — the unspoofable server-side username decision (CLAUDE.md Auth).
+    Offline JWKS verification of issuer, audience, expiry, and signature — the
+    server-side, unspoofable username decision.
     """
     import jwt
 
@@ -112,14 +107,16 @@ def _now_iso():
     return f"{base}.{int((now % 1) * 1000):03d}Z"
 
 
-# ── Storage I/O ───────────────────────────────────────────────────────────────
 def _inbox_key(username):
     return f"{username}/user_settings/notifications.json"
 
 
 def load_inbox(username):
-    """Return the user's notifications list. A missing or corrupt object is treated as
-    an empty array — never an error that would block a ``create`` (FR-004)."""
+    """Return the user's notifications list.
+
+    A missing or corrupt object is treated as an empty array — never an error that
+    would block a ``create``.
+    """
     s3 = _s3c()
     try:
         obj = s3.get_object(Bucket=USER_SPACE_BUCKET, Key=_inbox_key(username))
@@ -134,8 +131,10 @@ def load_inbox(username):
 
 
 def save_inbox(username, notifications):
-    """Cap to the most-recent NOTIFICATIONS_MAX by timestamp (newest kept) and write the
-    whole document in one PutObject. Never an S3 delete (FR-002/FR-004)."""
+    """Cap to the most-recent NOTIFICATIONS_MAX by timestamp and write the whole document.
+
+    One PutObject; never an S3 delete.
+    """
     capped = sorted(notifications, key=lambda n: n.get("timestamp", ""), reverse=True)[
         :NOTIFICATIONS_MAX
     ]
@@ -148,7 +147,6 @@ def save_inbox(username, notifications):
     return capped
 
 
-# ── Actions (pure transforms over the inbox list) ─────────────────────────────
 def apply_create(notifications, message):
     """Prepend a new notification with a server-assigned id/timestamp and read=false."""
     notification = {
@@ -175,7 +173,6 @@ def apply_mark_all_read(notifications):
     return notifications
 
 
-# ── Parse + dispatch ──────────────────────────────────────────────────────────
 def _parse_record(record):
     body = record.get("body") if isinstance(record, dict) else None
     if not body:
@@ -193,9 +190,11 @@ def _parse_record(record):
 
 
 def _resolve_username(req):
-    """Derive the target username. User-originated actions REQUIRE a verified token and
-    ignore any body username; ``create`` is a trusted producer and uses the body
-    username (FR-005)."""
+    """Derive the target username.
+
+    User-originated actions REQUIRE a verified token and ignore any body username;
+    ``create`` is a trusted producer and uses the body username.
+    """
     action = req["action"]
     if action in USER_ACTIONS:
         return verified_username(req.get("idToken"))
@@ -206,8 +205,11 @@ def _resolve_username(req):
 
 
 def process(req):
-    """Validate the action's required fields, resolve the trusted target user, and apply
-    the read-modify-write. Returns a small structured result for logging."""
+    """Validate the request, resolve the trusted target user, apply the read-modify-write.
+
+    Returns:
+        A small structured result for logging.
+    """
     action = req["action"]
     username = _resolve_username(req)
 
@@ -230,8 +232,10 @@ def process(req):
 
 def handler(event, context):
     """SQS event-source-mapping entry point (batch size 1 → one record per invocation).
-    A raised exception fails the invocation so the record retries then lands in the DLQ;
-    no partial write occurs."""
+
+    A raised exception fails the invocation so the record retries then lands in the
+    DLQ; no partial write occurs.
+    """
     records = event.get("Records", []) if isinstance(event, dict) else []
     if not records:
         raise ValidationError("no SQS records in event")

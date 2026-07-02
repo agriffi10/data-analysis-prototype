@@ -13,12 +13,14 @@ type Props = {
   isLoading: boolean;
   error: string | null;
   onOpen: (query: SavedQuery) => void;
-  onDelete: (id: string) => void; // parent removes + unlinks any open tab
+  /** Parent removes the query and unlinks any open tab. */
+  onDelete: (id: string) => void;
 };
 
-// SPEC-043 FR-005/006/007: saved-queries drawer (most-recently-updated first),
-// Open (→ new linked tab) + Delete (→ confirm). Renders in the shared Drawer;
-// the delete confirm is the shared ConfirmDialog and owns Escape while open.
+/**
+ * Saved-queries drawer (most-recently-updated first) with Open (→ new linked
+ * tab) and Delete (→ confirm). The delete confirm owns Escape while open.
+ */
 export function SavedQueriesPanel({open, onClose, queries, isLoading, error, onOpen, onDelete}: Props) {
   const [pendingDelete, setPendingDelete] = useState<SavedQuery | null>(null);
 

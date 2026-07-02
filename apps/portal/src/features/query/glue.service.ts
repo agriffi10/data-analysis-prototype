@@ -12,10 +12,10 @@ function toServiceError(err: unknown, fallback: string) {
   };
 }
 
-// FR-006: confirm the signed-in user's own database exists (named = username). The
-// app only ever asks for the user's own derived database — IAM/LF (SPEC-032) deny
-// anything else. A missing database is surfaced as a clean `NotFound` (drives the
-// SPEC-035 empty-state / SPEC-033 backfill case), never thrown.
+/**
+ * Confirms a database the user can access exists. A missing database is
+ * surfaced as a clean `NotFound` error (drives the empty-state), never thrown.
+ */
 export async function getDatabase(databaseName: string): Promise<ServiceResult<{name: string}>> {
   return withCredentialRetry(getGlueClient, async (client) => {
     try {
@@ -40,10 +40,11 @@ export async function getDatabase(databaseName: string): Promise<ServiceResult<{
   });
 }
 
-// FR-006: list the database's tables + columns for the schema browser, paginating
-// GetTables past the page cap. A not-yet-created database (the user hasn't run any
-// DDL) is an empty schema, not an error. AccessDenied and other failures map to a
-// clean ServiceResult error.
+/**
+ * Lists a database's tables + columns for the schema browser, paginating
+ * GetTables past the page cap. A not-yet-created database is an empty schema,
+ * not an error.
+ */
 export async function listTables(databaseName: string): Promise<ServiceResult<GlueTableSummary[]>> {
   return withCredentialRetry(getGlueClient, async (client) => {
     try {

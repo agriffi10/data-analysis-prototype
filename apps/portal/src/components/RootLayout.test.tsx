@@ -7,8 +7,8 @@ import {RootLayout} from './RootLayout';
 import type {AuthContextValue} from '../features/auth';
 
 vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
-// SPEC-060: the Header now mounts useNotifications for the bell indicator — stub
-// the read so RootLayout tests make no S3/SQS call and stay focused on layout.
+// The Header mounts useNotifications for the bell indicator — stub the read so
+// RootLayout tests make no S3/SQS call and stay focused on layout.
 vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})

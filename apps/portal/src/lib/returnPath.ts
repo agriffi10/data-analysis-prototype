@@ -1,11 +1,12 @@
 // Persists the protected URL a signed-out user tried to reach, so they can be
 // returned to it after the Hosted UI login round-trip. sessionStorage is used
 // because the OAuth redirect is a full-page navigation — in-memory router state
-// would not survive it (FR-004). All access is guarded: if sessionStorage is
-// unavailable (e.g. private browsing), callers fall back to the default route.
+// would not survive it. All access is guarded: if sessionStorage is unavailable
+// (e.g. private browsing), callers fall back to the default route.
 
 const RETURN_PATH_KEY = 'portal.returnPath';
 
+/** Stores the path to return to after the auth round-trip. */
 export function setReturnPath(path: string): void {
   try {
     sessionStorage.setItem(RETURN_PATH_KEY, path);

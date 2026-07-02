@@ -5,16 +5,16 @@ import type {ServiceResult} from '../../types/service.types';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
 import {QUERY_HISTORY_MAX} from './query.constants';
 
-// SPEC-034 FR-007: a private, per-user query history stored as JSON alongside the
-// user's results. This is the backend-free way to give each user a private history
-// (the shared workgroup's ListQueryExecutions leaks all users and isn't granted),
-// and it preserves SQL + stats indefinitely beyond Athena's ~45-day retention.
+// A private, per-user query history stored as JSON alongside the user's
+// results. This is the backend-free way to give each user a private history
+// (the shared workgroup's ListQueryExecutions leaks all users and isn't
+// granted), and it preserves SQL + stats beyond Athena's ~45-day retention.
 //
-// The file lives in the protected `user_settings/` folder. Its IAM policy ALLOWS
-// PutObject (overwrite) but DENIES delete — get/append/update only ever overwrite,
-// never delete, so the file is writable yet tamper-resistant. The folder is hidden
-// from the file browser. It is read-only to the user (SPEC-036): there is no
-// delete/clear in v1.
+// The file lives in the protected `user_settings/` folder. Its IAM policy
+// ALLOWS PutObject (overwrite) but DENIES delete — get/append/update only
+// ever overwrite, never delete, so the file is writable yet tamper-resistant.
+// The folder is hidden from the file browser. History is read-only to the
+// user: there is no delete/clear.
 
 const emptyHistory = (): QueryHistory => ({version: 1, entries: []});
 
@@ -52,8 +52,7 @@ function parseHistory(body: string | undefined): QueryHistory {
   }
 }
 
-// FR-007: read + parse the history file. A missing file is the empty state, not an
-// error (same forgiving handling as the architecture's connections.json).
+/** Reads + parses the history file. A missing file is the empty state, not an error. */
 export async function getQueryHistory(username: string): Promise<ServiceResult<QueryHistory>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
@@ -67,9 +66,8 @@ export async function getQueryHistory(username: string): Promise<ServiceResult<Q
   });
 }
 
-// Overwrite the history file (PutObject — never a delete). Concurrent writes are
-// last-writer-wins on a single user's own file, which is acceptable here (one user,
-// their own history); documented per FR-007.
+// Overwrite the history file (PutObject — never a delete). Concurrent writes
+// are last-writer-wins on a single user's own file, which is acceptable here.
 async function writeHistory(username: string, history: QueryHistory): Promise<ServiceResult<void>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
@@ -88,9 +86,12 @@ async function writeHistory(username: string, history: QueryHistory): Promise<Se
   });
 }
 
-// FR-007: prepend a new entry (newest-first), cap at QUERY_HISTORY_MAX dropping the
-// oldest, and write back. Called at submit time so an interrupted tab still records
-// the attempt (updateQueryHistoryEntry fills in the terminal status later).
+/**
+ * Prepends a new entry (newest-first), caps at QUERY_HISTORY_MAX dropping the
+ * oldest, and writes back. Called at submit time so an interrupted tab still
+ * records the attempt (updateQueryHistoryEntry fills in the terminal status
+ * later).
+ */
 export async function appendQueryHistory(
   username: string,
   entry: QueryHistoryEntry
@@ -106,8 +107,10 @@ export async function appendQueryHistory(
   return {success: true, data: next};
 }
 
-// FR-007: update an existing entry in place (e.g. record terminal status + stats
-// once polling completes) and write back. An unknown id is a no-op success.
+/**
+ * Updates an existing entry in place (e.g. records terminal status + stats
+ * once polling completes) and writes back. An unknown id is a no-op success.
+ */
 export async function updateQueryHistoryEntry(
   username: string,
   queryExecutionId: string,

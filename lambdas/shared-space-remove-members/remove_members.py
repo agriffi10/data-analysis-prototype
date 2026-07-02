@@ -1,9 +1,8 @@
-"""remove-members verb (SPEC-053; SPEC-062 single-task Lambda).
+"""remove-members verb: remove each member from the space.
 
-Remove each member from the space: clear their slot, drop their cache entry, and
-remove them from the registry. The owner is never removed (normalized out).
-Idempotent — removing a non-member is a no-op. Shared objects/tables are left intact
-(membership only). Returns {removed}.
+Clears their slot, drops their cache entry, and removes them from the registry. The
+owner is never removed (normalized out). Idempotent — removing a non-member is a
+no-op. Shared objects/tables are left intact (membership only). Returns {removed}.
 """
 
 import logging
@@ -18,6 +17,7 @@ logger.setLevel(logging.INFO)
 
 
 def remove_members(space, members, request_id, registry):
+    """Remove ``members`` from ``space``; return the list actually removed."""
     owner = registry["owner"]
     current = list(registry.get("members", []))
     current_set = set(current)
@@ -34,9 +34,8 @@ def remove_members(space, members, request_id, registry):
 
     reg.save_members(registry, current, request_id)
     cache.write_owner_projection(owner, space, current, registry.get("createdAt"))
-    # Notify each removed member AFTER the registry write lands (notify a real outcome,
-    # not a step that may roll back/retry — the add_members pattern). Only real removals
-    # are notified; the owner gets no roster-rewrite notification.
+    # Notify each removed member only AFTER the registry write lands — a real outcome,
+    # not a step that may roll back or retry. The owner gets no roster notification.
     for member in removed:
         emit_notification(
             member,

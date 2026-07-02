@@ -87,7 +87,7 @@ describe('QueryHistoryPanel', () => {
     expect(onReopen).toHaveBeenCalledWith(sample);
   });
 
-  // --- SPEC-042 pagination (7 per page, newest-first) ---
+  // --- pagination (7 per page, newest-first) ---
 
   function makeEntries(n: number): QueryHistoryEntry[] {
     return Array.from({length: n}, (_, i) => ({
@@ -204,7 +204,7 @@ describe('QueryHistoryPanel', () => {
     expect(screen.queryByText(/of 23/)).not.toBeInTheDocument();
   });
 
-  // --- SPEC-046 Refresh control ---
+  // --- Refresh control ---
 
   it('clicking Refresh re-reads the history store', () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
@@ -238,7 +238,7 @@ describe('QueryHistoryPanel', () => {
 
   it('a refresh error shows the banner without dropping the existing list', () => {
     // The query reports an error but keeps the last-loaded entries (TanStack
-    // retains data on a failed refetch) — both must render (FR-003).
+    // retains data on a failed refetch) — both must render.
     mockUseHistory.mockReturnValue(historyState([sample], {error: 'access denied'}));
     render(<QueryHistoryPanel {...baseProps} />);
     expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();

@@ -1,14 +1,13 @@
-"""create-space verb (SPEC-051; SPEC-062 single-task Lambda).
+"""create-space verb: provision a new shared space owned by the actor.
 
-Provisions a new shared space owned by the actor: atomically reserve the globally
-unique name (registry conditional create), assign the creator a membership slot,
-create the shared prefix marker + Glue database, grant the shared portal role on the
-DB, and write the registry + the creator's per-user cache. Every step tolerates
-"already exists" (replay-safe); a mid-way failure records a terminal ``failed``
-status (registry + the creator's cache) with a reason, then re-raises -> Fail.
-
-Create is **creator-only** (SPEC-062 FR-006): it provisions only ``members:[actor]``
-and takes no member list — members are added later via add-members (SPEC-053).
+Atomically reserves the globally unique name (registry conditional create), assigns
+the creator a membership slot, creates the shared prefix marker + Glue database,
+grants the shared portal role on the DB, and writes the registry + the creator's
+per-user cache. Every step tolerates "already exists" (replay-safe); a mid-way
+failure records a terminal ``failed`` status (registry + the creator's cache) with a
+reason, then re-raises -> Fail. Create is creator-only: it provisions only
+``members:[actor]`` and takes no member list — members are added later via
+add-members.
 """
 
 import logging
@@ -25,7 +24,7 @@ logger.setLevel(logging.INFO)
 
 
 def _ensure_marker(name):
-    """Create the space's DO_NOT_DELETE.txt marker (mirrors SPEC-014). Idempotent."""
+    """Create the space's DO_NOT_DELETE.txt marker. Idempotent."""
     clients.s3().put_object(
         Bucket=config.SHARED_SPACE_BUCKET,
         Key=f"{name}/DO_NOT_DELETE.txt",
@@ -42,9 +41,12 @@ def _ensure_database(name):
 
 
 def _grant_portal_role(name):
-    """Grant the shared portal role full DB + table access on ``name`` (idempotent —
-    LF GrantPermissions re-grants safely). DATA_LOCATION_ACCESS on the shared bucket
-    is a one-time Terraform grant (shared-spaces/lakeformation.tf), not per-DB."""
+    """Grant the shared portal role full DB + table access on ``name``.
+
+    Idempotent — LF GrantPermissions re-grants safely. DATA_LOCATION_ACCESS on the
+    shared bucket is a one-time Terraform grant (shared-spaces/lakeformation.tf),
+    not per-DB.
+    """
     lf = clients.lf()
     lf.grant_permissions(
         Principal={"DataLakePrincipalIdentifier": config.PORTAL_ROLE_ARN},
@@ -59,17 +61,19 @@ def _grant_portal_role(name):
 
 
 def create_space(name, actor, request_id):
-    """Provision a new shared space owned by ``actor``. Idempotent; records a terminal
-    failed status (registry + the owner's cache) on any error before re-raising."""
+    """Provision a new shared space owned by ``actor``.
+
+    Idempotent; records a terminal failed status (registry + the owner's cache) on any
+    error before re-raising.
+    """
     try:
         outcome = reg.reserve(name, actor, request_id)  # may raise "name already taken"
     except Exception as exc:  # noqa: BLE001 - record + notify the actor, then fail
-        # Reserve runs OUTSIDE the provisioning try/except below on purpose: a name
-        # collision must NOT rewrite the REGISTRY (the name isn't ours — it belongs to
-        # the space's real owner). But the actor's OWN cache is theirs to correct: the
-        # validator optimistically wrote a `provisioning` entry, so mark it `failed`
-        # here (best-effort) — otherwise the actor is left with a stuck `provisioning`
-        # phantom they can't clear. Then notify + re-raise (best-effort; never changes Fail).
+        # Reserve is handled outside the provisioning try/except on purpose: a name
+        # collision must NOT rewrite the registry — the name belongs to the space's real
+        # owner. The actor's OWN cache is theirs to correct: the validator wrote a
+        # `provisioning` entry, so mark it `failed` (best-effort) or the actor is left
+        # with a stuck phantom they can't clear. Then notify and re-raise.
         reason = str(exc)
         logger.error("create %s reserve failed for %s: %s", name, actor, reason)
         try:
@@ -91,8 +95,8 @@ def create_space(name, actor, request_id):
         _ensure_marker(name)
         _ensure_database(name)
         _grant_portal_role(name)
-        # Seed the owner's member projection (SPEC-053) — just the owner at create.
-        # Carry the registry's createdAt so the Connections card meta line can show it.
+        # Seed the owner's member projection with just the owner; carry the registry's
+        # createdAt so the Connections card meta line can show it.
         created_at = (reg.load(name) or {}).get("createdAt")
         cache.write_owner_projection(actor, name, [actor], created_at)
         reg.finalize(name, actor, request_id, "active")
@@ -100,14 +104,12 @@ def create_space(name, actor, request_id):
         reason = str(exc)
         logger.error("create %s failed for %s: %s", name, actor, reason)
         # Record the failure in three INDEPENDENT best-effort steps: a failure in one
-        # (e.g. slot rollback) must not skip the others — the cache `failed` write in
-        # particular is what the browser reads, so a create that failed must always be
-        # recorded there rather than silently vanishing.
+        # (e.g. slot rollback) must not skip the others — the cache `failed` write is
+        # what the browser reads, so a failed create must never silently vanish.
         try:
-            # Roll back the membership slot assigned above so a failed create doesn't
-            # leak a slot toward the actor's MAX_SHARED_MEMBERSHIPS cap (the slot was
-            # claimed before the step that failed). Idempotent: clear_slot only clears
-            # the slot holding `name`, and is a no-op if none was assigned yet.
+            # Roll back the slot assigned above so a failed create doesn't leak one
+            # toward the actor's membership cap. Idempotent: clear_slot only clears the
+            # slot holding `name`, and is a no-op if none was assigned yet.
             membership.clear_slot(actor, name)
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to roll back membership slot for %s", name)
@@ -121,15 +123,14 @@ def create_space(name, actor, request_id):
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to record cache failure for %s", name)
-        # SPEC-061 event 2: notify the creator the create failed (after the terminal
-        # `failed` status is recorded; best-effort — never changes the Fail outcome).
+        # Emitted after the terminal `failed` status is recorded; best-effort — never
+        # changes the Fail outcome.
         emit_notification(
             actor,
             f'We couldn\'t create shared workspace "{name}": {reason}.',
             dedup_id=f"{request_id}:create-failed:{actor}",
         )
         raise
-    # SPEC-061 event 1: notify the creator the workspace is ready (terminal `active`).
     emit_notification(
         actor,
         f'Your shared workspace "{name}" is ready.',

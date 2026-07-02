@@ -1,28 +1,32 @@
 import type * as monaco from 'monaco-editor';
 import type {GlueTableSummary} from './query.types';
 
-// SPEC-065: schema-aware editor autocomplete. This module is intentionally
-// Monaco-runtime-free at the value level (only a type-only `monaco` import) so the
-// builder + provider factory are unit-testable without the editor worker.
+// Schema-aware editor autocomplete. Intentionally Monaco-runtime-free at the
+// value level (only a type-only `monaco` import) so the builder + provider
+// factory are unit-testable without the editor worker.
 
-// A framework-agnostic completion descriptor the SqlEditor maps onto Monaco's
-// languages.CompletionItem (label/kind/detail/insertText).
 export type SqlCompletionKind = 'table' | 'view' | 'column';
 
+/** Framework-agnostic completion descriptor the SqlEditor maps onto Monaco's CompletionItem. */
 export type SqlCompletion = {
-  label: string; // identifier shown + filtered on
-  insertText: string; // = label (bare identifier)
+  /** Identifier shown + filtered on. */
+  label: string;
+  /** Equals label (bare identifier). */
+  insertText: string;
   kind: SqlCompletionKind;
-  detail: string; // 'table' | 'view' | `${type} · ${tableName}` for columns
+  /** 'table' | 'view' | `${type} · ${tableName}` for columns. */
+  detail: string;
 };
 
-// SPEC-048 convention: a Glue `VIRTUAL_VIEW` is a view; everything else is a table.
+// A Glue `VIRTUAL_VIEW` is a view; everything else is a table.
 const VIEW_TABLE_TYPE = 'VIRTUAL_VIEW';
 
-// Build schema completion descriptors from the active database's tables/views.
-// FR-001/003/005: one item per table + view (kinded/labelled), one item per
-// de-duplicated column name (with its type + table as detail). Returns [] when
-// `tables` is undefined/empty; a zero-column table contributes only its own item.
+/**
+ * Builds schema completion descriptors from the active database's
+ * tables/views: one item per table + view, one item per de-duplicated column
+ * name (with its type + table as detail). Returns [] when `tables` is
+ * undefined/empty.
+ */
 export function buildSqlCompletions(tables: GlueTableSummary[] | undefined): SqlCompletion[] {
   if (!tables || tables.length === 0) return [];
 
@@ -68,11 +72,13 @@ function toMonacoKind(m: typeof monaco, kind: SqlCompletionKind): monaco.languag
   }
 }
 
-// Factory for the SQL completion provider. Reads `schemaRef.current` on every
-// invocation (FR-002: latest active-database schema, never a stale closure) and
-// returns schema items only — Monaco's built-in SQL keyword provider still
-// contributes keywords (FR-003: we augment, not replace). Pure w.r.t. Monaco
-// values (kinds come from `m`), so it is unit-testable with a fake monaco.
+/**
+ * Factory for the SQL completion provider. Reads `schemaRef.current` on every
+ * invocation (latest active-database schema, never a stale closure) and
+ * returns schema items only — Monaco's built-in SQL keyword provider still
+ * contributes keywords (augment, not replace). Pure w.r.t. Monaco values
+ * (kinds come from `m`), so it is unit-testable with a fake monaco.
+ */
 export function createSqlCompletionProvider(
   m: typeof monaco,
   schemaRef: {current: GlueTableSummary[] | undefined}

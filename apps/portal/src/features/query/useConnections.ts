@@ -6,11 +6,11 @@ import {queryKeys} from './queryKeys';
 import type {Connection} from './query.types';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 
-// After an async action (create/add/leave/delete), the pipeline writes the cache
-// eventually (typically ~7–15s). Rather than make the user click Refresh — which is
-// why a just-created space appeared to "disappear" (the optimistic entry unmounts
-// before a manual refresh) — `reconcile()` opens a short polling window so the cache
-// auto-reconciles to the pipeline's result. Poll every 4s for 30s, then idle.
+// After an async action (create/add/leave/delete), the pipeline writes the
+// cache eventually (typically ~7–15s). Without polling, an optimistic entry
+// unmounts before the cache catches up (a just-created space appears to
+// "disappear"), so `reconcile()` opens a short polling window: poll every 4s
+// for 30s, then idle.
 const RECONCILE_WINDOW_MS = 30_000;
 const RECONCILE_POLL_MS = 4_000;
 
@@ -18,30 +18,34 @@ export type UseConnectionsResult = {
   connections: Connection[];
   isLoading: boolean;
   error: string | null;
-  // SPEC-052 FR-003: Refresh-connections — force a credential/token refresh (so a
-  // newly-granted `shared_space_k` principal tag is stamped on the next vend), then
-  // re-read the cache. `isRefreshing` is the in-flight affordance (refetch only).
+  /**
+   * Forces a credential/token refresh (so a newly-granted membership
+   * principal tag is stamped on the next vend), then re-reads the cache.
+   */
   refresh: () => Promise<unknown>;
+  /** In-flight affordance for `refresh` (refetch only). */
   isRefreshing: boolean;
-  // Start a bounded auto-poll of the cache after submitting an action, so the
-  // pending → active/removed transition is picked up without a manual Refresh. Also
-  // re-mints the token once (like `refresh`) so the actor can use a space they just
-  // created immediately (their new membership-slot tag is stamped).
+  /**
+   * Starts a bounded auto-poll of the cache after submitting an action, so
+   * the pending → active/removed transition is picked up without a manual
+   * Refresh. Also re-mints the token once (like `refresh`) so the actor can
+   * use a space they just created immediately.
+   */
   reconcile: () => Promise<unknown>;
 };
 
-// SPEC-047 FR-001 + SPEC-052 FR-001: the single source of databases the signed-in
-// user can target. Returns the personal database PLUS one entry per shared
-// connection read from the per-user cache the provisioning pipeline writes
-// ({username}/user_settings/shared-connections.json, SPEC-056). Consumers — the
-// Query schema rail (SPEC-047), the Files space list (SPEC-057), and the
-// Connections tab (SPEC-052) — all read this one hook; none have a parallel source.
-//
-// Ordering: personal first, then shared A–Z. provisioning/failed/leaving entries
-// are included (so the UI can show their status) but flagged not-usable via
-// `isConnectionUsable`; a missing/corrupt cache yields personal-only (never an
-// error). A null/empty username yields an empty list (the workspace falls back to
-// its existing not-signed-in handling — no crash).
+/**
+ * The single source of databases the signed-in user can target: the personal
+ * database PLUS one entry per shared connection read from the per-user cache
+ * the provisioning pipeline writes. All consumers (Query schema rail, Files
+ * space list, Connections tab) read this one hook — none have a parallel
+ * source.
+ *
+ * Ordering: personal first, then shared A–Z. provisioning/failed/leaving
+ * entries are included (so the UI can show their status) but flagged
+ * not-usable via `isConnectionUsable`; a missing/corrupt cache yields
+ * personal-only (never an error). A null/empty username yields an empty list.
+ */
 export function useConnections(username: string | null): UseConnectionsResult {
   const queryClient = useQueryClient();
   const key = queryKeys.connections(username ?? '__none__');
@@ -100,10 +104,9 @@ export function useConnections(username: string | null): UseConnectionsResult {
     isLoading: query.isPending && username !== null,
     error: query.isError ? (query.error as Error).message : null,
     refresh: async () => {
-      // Force a fresh credential vend so newly-granted membership tags apply on
-      // demand (architecture §3/§6), then re-read the cache. A failed refresh keeps
-      // the prior list intact (invalidate is non-destructive). Credential refresh
-      // failures shouldn't block the cache re-read — surface them via the query.
+      // Force a fresh credential vend so newly-granted membership tags apply
+      // on demand, then re-read the cache. A failed refresh keeps the prior
+      // list intact (invalidate is non-destructive).
       await getSessionCredentials(true);
       return queryClient.invalidateQueries({queryKey: key});
     },

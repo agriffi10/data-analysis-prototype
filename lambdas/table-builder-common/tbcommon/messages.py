@@ -1,16 +1,15 @@
-"""User-facing notification text for table-builder outcomes (SPEC-072 Data Model).
+"""User-facing notification text for table-builder outcomes.
 
-One place maps each stable terminal ``reason`` code (SPEC-067-070) to friendly text
-addressed to the actor, so every verb + its tests agree on the wording. Kept ASCII
-(no smart quotes) to match the Python codebase.
+One place maps each stable terminal reason code to friendly text addressed to the
+actor, so every verb + its tests agree on the wording. Kept ASCII (no smart quotes).
 """
 
 # Reasons that mean "not allowed" — no table name is surfaced (the request may not
 # even have got far enough to trust one).
 _ACCESS_DENIED = frozenset({"unauthorized", "forbidden"})
 
-# reason -> the clause after ``Couldn't create table "{name}": ``. ``{database}`` /
-# ``{detail}`` are filled per-call where relevant.
+# reason -> the clause after 'Couldn't create table "{name}": '. {database} and
+# {detail} are filled per-call where relevant.
 _BODIES = {
     "invalid_table_name": "the name isn't a valid table name.",
     "invalid_partition_keys": "the partition keys aren't valid (check names, types, and ranges).",
@@ -28,8 +27,11 @@ _BODIES = {
 
 
 def failure_message(reason, table_name="", database="", detail=""):
-    """Map a terminal ``reason`` (+ context) to the message the actor sees. An unknown
-    reason falls back to a generic couldn't-create line rather than leaking the code."""
+    """Map a terminal reason (+ context) to the message the actor sees.
+
+    An unknown reason falls back to a generic couldn't-create line rather than
+    leaking the code.
+    """
     if reason in _ACCESS_DENIED:
         return "You don't have access to create a table here."
     name = table_name or "your table"
@@ -41,5 +43,5 @@ def failure_message(reason, table_name="", database="", detail=""):
 
 
 def success_message(table_name, database):
-    """The ready-to-query message emitted on execute-ddl success (SPEC-070)."""
+    """Return the ready-to-query message emitted on execute-ddl success."""
     return f'Table "{table_name}" is ready to query in "{database}".'

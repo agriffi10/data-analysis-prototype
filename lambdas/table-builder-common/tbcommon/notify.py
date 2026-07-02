@@ -1,16 +1,12 @@
-"""Best-effort outcome notifications for the table-builder pipeline (SPEC-072).
+"""Best-effort outcome notifications for the table-builder pipeline.
 
-Each verb Lambda emits ONE SPEC-058 ``create`` notification to the FIFO
-notifications queue at its terminal branch — a failure message when it raises a
-``TerminalError``, and a success message when ``execute-ddl`` creates the table.
-The recipient is always the **actor** (no fan-out — unlike shared-spaces, SPEC-061).
-
-``emit_notification`` is a **best-effort** seam: a missed notification must never
-change or fail the surrounding pipeline outcome (that outcome is already recorded in
-the Step Function execution). It catches + logs all errors, never raises, and is a
-no-op (one log line) when ``NOTIFICATIONS_QUEUE_URL`` is unset — so the module stays
-independently deployable (``lambdas.md`` §6). Mirrors the shared-space-common helper
-(SPEC-061); a thin per-arc copy keeps the two control planes decoupled.
+Each verb Lambda emits one "create" notification to the FIFO notifications queue at
+its terminal branch: a failure message when it raises TerminalError, a success
+message when execute-ddl creates the table. The recipient is always the actor (no
+fan-out). A missed notification must never change or fail the pipeline outcome
+(already recorded in the Step Function execution): emit_notification catches and
+logs all errors, never raises, and is a no-op when NOTIFICATIONS_QUEUE_URL is unset.
+A thin per-arc copy of the shared-space helper keeps the two control planes decoupled.
 """
 
 import json
@@ -23,16 +19,17 @@ logger = logging.getLogger()
 
 
 def _dedup(request_id, step):
-    """FIFO MessageDeduplicationId = ``{requestId}:{step}`` (SPEC-072 Data Model); None
-    when the requestId is missing so the queue's content-dedup (if any) still applies."""
+    """FIFO dedup id "{requestId}:{step}"; None without a requestId (content dedup)."""
     return f"{request_id}:{step}" if request_id else None
 
 
 def emit_failure(event, err, step):
-    """Emit the actor-addressed failure notification for a verb's ``TerminalError`` at
-    its terminal branch (best-effort). Reads the actor/table/database/requestId from the
-    validated event (SPEC-067 shape). ``unauthorized`` before the actor is bound has no
-    recipient (``actor`` empty) — a no-op, not a lost message."""
+    """Emit the actor-addressed failure notification for a verb's TerminalError.
+
+    Best-effort. Reads the actor/table/database/requestId from the validated event.
+    An unauthorized failure raised before the actor is bound has no recipient, so
+    the emit is a no-op, not a lost message.
+    """
     space = event.get("space") or {}
     emit_notification(
         event.get("actor", ""),
@@ -42,8 +39,7 @@ def emit_failure(event, err, step):
 
 
 def emit_created(event):
-    """Emit the actor-addressed success notification on execute-ddl's terminal
-    ``created`` outcome (best-effort)."""
+    """Emit the actor-addressed success notification for a created table (best-effort)."""
     space = event.get("space") or {}
     emit_notification(
         event.get("actor", ""),
@@ -53,9 +49,11 @@ def emit_created(event):
 
 
 def emit_notification(username, message, dedup_id=None):
-    """SendMessage a SPEC-058 ``create`` envelope to the FIFO notifications queue with
-    ``MessageGroupId=username``. No-op (single log line) when NOTIFICATIONS_QUEUE_URL
-    is unset. Catches and logs all errors; never raises."""
+    """Send a "create" envelope to the FIFO notifications queue, grouped by username.
+
+    No-op (one log line) when NOTIFICATIONS_QUEUE_URL is unset or there is no
+    recipient. Catches and logs all errors; never raises.
+    """
     if not config.NOTIFICATIONS_QUEUE_URL:
         logger.info("notifications queue unset; skipping notify for %s", username)
         return

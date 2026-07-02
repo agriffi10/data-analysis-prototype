@@ -1,4 +1,4 @@
-"""Unit tests for the add-members verb (SPEC-053; SPEC-062)."""
+"""Unit tests for the add-members verb."""
 
 import json
 import os
@@ -107,7 +107,6 @@ def test_add_members_never_adds_the_owner():
     assert out["added"] == [] and out["ignoredUnknown"] == []
 
 
-# ── SPEC-061: producer events 3, 4, 5 ────────────────────────────────────────
 def test_add_member_notifies_added_user():
     s3, glue, lf, cognito = install()
     cognito.users = {"bob": {}}

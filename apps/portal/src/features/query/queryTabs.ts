@@ -1,11 +1,10 @@
 import {QUERY_TABS_STORAGE_PREFIX, QUERY_DRAFT_STORAGE_PREFIX, DEFAULT_SQL} from './query.constants';
 import type {QueryTab, QueryTabsState} from './query.types';
 
-// SPEC-041: per-user, current-session persistence of the multi-tab editor state.
-// Supersedes SPEC-040's single draft (queryDraft.ts). As in SPEC-040 all access
-// goes through this wrapper so a disabled/quota-exceeded sessionStorage degrades
-// to "not persisted" rather than crashing the editor, and an empty username
-// (unauthenticated dev paths) is a no-op.
+// Per-user, current-session persistence of the multi-tab editor state. All
+// access goes through this wrapper so a disabled/quota-exceeded sessionStorage
+// degrades to "not persisted" rather than crashing the editor, and an empty
+// username (unauthenticated dev paths) is a no-op.
 
 function tabsKey(username: string): string | null {
   if (!username) return null;
@@ -25,8 +24,10 @@ function newId(): string {
   }
 }
 
-// A brand-new session: one tab "Query 1" (seeded with the boilerplate), with the
-// counter pointing at the next blank tab's number.
+/**
+ * A brand-new session: one tab "Query 1" (seeded with the boilerplate), with
+ * the counter pointing at the next blank tab's number.
+ */
 export function initialTabsState(): QueryTabsState {
   const id = newId();
   return {
@@ -37,8 +38,8 @@ export function initialTabsState(): QueryTabsState {
   };
 }
 
-// Structural validation — a corrupt/old/foreign blob must never crash the editor
-// (FR-006). Returns the parsed state only when it is internally consistent.
+// Structural validation — a corrupt/old/foreign blob must never crash the
+// editor. Passes only when the state is internally consistent.
 function isValidTabsState(value: unknown): value is QueryTabsState {
   if (typeof value !== 'object' || value === null) return false;
   const s = value as Record<string, unknown>;
@@ -61,8 +62,7 @@ function isValidTabsState(value: unknown): value is QueryTabsState {
   return tabs.some((t) => t.id === s.activeTabId);
 }
 
-// Returns the persisted tabs state, or null if none exists / it is invalid /
-// storage is unavailable.
+/** Returns the persisted tabs state, or null if none exists / it is invalid / storage is unavailable. */
 export function readTabsState(username: string): QueryTabsState | null {
   const key = tabsKey(username);
   if (!key) return null;
@@ -76,7 +76,7 @@ export function readTabsState(username: string): QueryTabsState | null {
   }
 }
 
-// Persists the tabs state under the per-user key. No-op on failure / empty user.
+/** Persists the tabs state under the per-user key. No-op on failure / empty user. */
 export function writeTabsState(username: string, state: QueryTabsState): void {
   const key = tabsKey(username);
   if (!key) return;
@@ -87,9 +87,12 @@ export function writeTabsState(username: string, state: QueryTabsState): void {
   }
 }
 
-// SPEC-040 → 041 one-time migration: if a SPEC-040 single draft exists and no
-// tabs state does yet, seed tab 1's SQL from it and remove the old draft key.
-// Returns the seeded state, or null when there is nothing to migrate.
+/**
+ * One-time migration from the legacy single editor draft: if a draft exists
+ * and no tabs state does yet, seed tab 1's SQL from it and remove the old
+ * draft key. Returns the seeded state, or null when there is nothing to
+ * migrate.
+ */
 export function migrateDraftToTabs(username: string): QueryTabsState | null {
   if (!username) return null;
   if (readTabsState(username)) return null; // tabs already own this user

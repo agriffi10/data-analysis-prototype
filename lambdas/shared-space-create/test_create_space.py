@@ -1,5 +1,8 @@
-"""Unit tests for the create-space verb (SPEC-051; SPEC-062). Plain-script or pytest;
-the common layer is added to sys.path so the verb's imports resolve locally."""
+"""Unit tests for the create-space verb.
+
+Runnable as a plain script or under pytest; the common layer is added to sys.path so
+the verb's imports resolve locally.
+"""
 
 import json
 import os
@@ -112,7 +115,6 @@ def test_handler_uses_validated_context():
     assert out["status"] == "active" and out["owner"] == "alice"
 
 
-# ── SPEC-061: producer events 1 & 2 ──────────────────────────────────────────
 def test_create_success_notifies_creator_ready():
     install()
     sqs = _enable_notifications()
@@ -150,7 +152,7 @@ def test_create_collision_notifies_creator_and_leaves_record():
         {"name": "sales", "owner": "bob", "lastRequestId": "other", "status": "active"}
     ).encode()
     raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, "name already taken")
-    # A reserve collision still notifies the actor (event 2)...
+    # A reserve collision still notifies the actor...
     assert len(sqs.sent) == 1
     body = json.loads(sqs.sent[0]["MessageBody"])
     assert body["username"] == "alice"

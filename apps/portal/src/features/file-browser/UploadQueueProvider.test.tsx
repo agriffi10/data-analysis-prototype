@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// ─── Reducer (pure, FR-001) ─────────────────────────────────────────────────
+// ─── Reducer (pure) ─────────────────────────────────────────────────────────
 
 describe('uploadQueueReducer', () => {
   function item(over: Partial<UploadItem> = {}): UploadItem {
@@ -152,7 +152,7 @@ describe('uploadQueueReducer', () => {
 
 // ─── Provider (concurrency gate + cancel) ───────────────────────────────────
 
-// The provider is now prop-less (session-scoped); each enqueue carries its own
+// The provider is prop-less (session-scoped); each enqueue carries its own
 // destination, so tests pass DEST explicitly.
 const DEST = {bucket: 'us', prefix: 'alice/'};
 
@@ -181,12 +181,10 @@ describe('UploadQueueProvider concurrency gate (FR-001)', () => {
     const {result} = render();
     act(() => result.current.enqueue(files(5), DEST));
 
-    // Exactly 3 in flight; 2 still queued; only 3 uploadFile calls made.
     await waitFor(() => expect(countBy(result.current.items, 'uploading')).toBe(3));
     expect(countBy(result.current.items, 'queued')).toBe(2);
     expect(mockUpload).toHaveBeenCalledTimes(3);
 
-    // Finish one → a 4th starts; still 3 in flight, 1 done.
     act(() => resolvers[0]({success: true, data: {key: 'alice/f0.txt'}}));
     await waitFor(() => expect(countBy(result.current.items, 'done')).toBe(1));
     expect(countBy(result.current.items, 'uploading')).toBe(3);

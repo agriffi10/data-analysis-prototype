@@ -5,12 +5,12 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import {createSqlCompletionProvider} from './sqlCompletions';
 import type {GlueTableSummary} from './query.types';
 
-// Self-host Monaco (SPEC-035 FR-003): no CDN/runtime external. Vite builds the
-// editor worker (?worker), and we point @monaco-editor/react's loader at the
-// bundled monaco-editor instead of its default CDN. SQL needs only the core
-// editor worker (no language-service worker). This whole module is lazy-loaded by
-// QueryWorkspace, so monaco lands in its own async chunk — never in the Files or
-// landing bundles.
+// Self-host Monaco: no CDN/runtime external. Vite builds the editor worker
+// (?worker), and we point @monaco-editor/react's loader at the bundled
+// monaco-editor instead of its default CDN. SQL needs only the core editor
+// worker (no language-service worker). This whole module is lazy-loaded by
+// QueryWorkspace, so monaco lands in its own async chunk — never in the Files
+// or landing bundles.
 self.MonacoEnvironment = {
   getWorker() {
     return new editorWorker();
@@ -18,8 +18,8 @@ self.MonacoEnvironment = {
 };
 loader.config({monaco});
 
-// Token theme mapped onto the design tokens (design-system §6): keywords accent,
-// strings success, numbers warning, comments muted italic, functions violet.
+// Token theme mapped onto the design tokens: keywords accent, strings success,
+// numbers warning, comments muted italic, functions violet.
 const THEME = 'file-portal-sql';
 function defineTheme(m: typeof monaco) {
   m.editor.defineTheme(THEME, {
@@ -43,11 +43,11 @@ function defineTheme(m: typeof monaco) {
   });
 }
 
-// SPEC-065: schema-aware completions. The provider is registered exactly once for
-// the `sql` language (module-guarded), not per editor mount — re-mounting or
+// Schema-aware completions. The provider is registered exactly once for the
+// `sql` language (module-guarded), not per editor mount — re-mounting or
 // switching tabs must not stack duplicate providers. It reads the active
-// database's schema through this module-level ref, so it always sees the latest
-// tables without rebinding (FR-002). Disposed when the editor unmounts (FR-001).
+// database's schema through this module-level ref, so it always sees the
+// latest tables without rebinding. Disposed when the editor unmounts.
 const completionSchemaRef: {current: GlueTableSummary[] | undefined} = {current: undefined};
 let completionDisposable: monaco.IDisposable | null = null;
 
@@ -60,27 +60,30 @@ function registerSqlCompletionsOnce(m: typeof monaco) {
 }
 
 export type SqlEditorHandle = {
-  // Insert text at the current cursor/selection (schema-browser click-to-insert,
-  // FR-007). Refocuses the editor afterward.
+  /** Inserts text at the current cursor/selection (schema-browser click-to-insert); refocuses the editor. */
   insertAtCursor: (text: string) => void;
-  // Focus the editor (used after re-opening a history entry, SPEC-036 FR-003).
+  /** Focuses the editor (used after re-opening a history entry). */
   focus: () => void;
 };
 
 type SqlEditorProps = {
   value: string;
   onChange: (value: string) => void;
-  // ⌘/Ctrl+Enter in the editor triggers Run (FR-004); optional so the shell can
-  // mount the editor before the run handler is wired.
+  /** ⌘/Ctrl+Enter in the editor triggers Run; optional so the shell can mount the editor before the run handler is wired. */
   onRun?: () => void;
-  // SPEC-065: the active database's tables/views (from useSchema) that feed the
-  // schema-aware completion provider. Undefined while no schema is loaded —
-  // completions then fall back to Monaco's built-in keywords only (FR-005).
+  /**
+   * The active database's tables/views feeding the schema-aware completion
+   * provider. Undefined while no schema is loaded — completions then fall
+   * back to Monaco's built-in keywords only.
+   */
   completionTables?: GlueTableSummary[];
 };
 
-// Monaco SQL editor. Forwards a ref exposing insertAtCursor; React.lazy forwards
-// the ref through to this inner forwardRef component once the chunk loads.
+/**
+ * Monaco SQL editor. Forwards a ref exposing insertAtCursor/focus; React.lazy
+ * forwards the ref through to this inner forwardRef component once the chunk
+ * loads.
+ */
 export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
   {value, onChange, onRun, completionTables},
   ref
@@ -89,11 +92,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   // Keep the latest onRun without rebinding the Monaco command each render.
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
-  // Feed the latest active-database schema to the (singleton) completion provider
-  // each render, mirroring the onRunRef pattern (FR-002).
+  // Feed the latest active-database schema to the (singleton) completion
+  // provider each render, mirroring the onRunRef pattern.
   completionSchemaRef.current = completionTables;
 
-  // Dispose the singleton completion provider when the editor tears down (FR-001).
+  // Dispose the singleton completion provider when the editor tears down.
   useEffect(() => {
     return () => {
       completionDisposable?.dispose();

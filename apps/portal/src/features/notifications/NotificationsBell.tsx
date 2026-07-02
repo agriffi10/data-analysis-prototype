@@ -7,12 +7,12 @@ type NotificationsBellProps = {
   unreadCount: number;
 };
 
-// SPEC-060 FR-001: the header notifications control — a react-router link to the
-// `/notifications` page (NOT a drawer toggle), sitting left of the username. Shows a
-// numeric unread-count badge (capped at "9+") so a 2nd/3rd notification is visible,
-// not silent under a presence-only dot; the count is also carried in the accessible
-// name so the indicator is never color-only (FR-006). NavLink supplies the
-// active/current state on `/notifications`.
+/**
+ * Header notifications control — a link to `/notifications` (not a drawer toggle).
+ *
+ * Shows a numeric unread badge (capped at "9+") so additional arrivals stay visible;
+ * the count is also carried in the accessible name so the indicator is never color-only.
+ */
 export function NotificationsBell({hasUnread, unreadCount}: NotificationsBellProps) {
   const label = hasUnread ? `Notifications, ${unreadCount} unread` : 'Notifications, none unread';
   const badge = unreadCount > 9 ? '9+' : String(unreadCount);

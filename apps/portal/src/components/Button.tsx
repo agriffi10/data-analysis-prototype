@@ -25,9 +25,15 @@ const SIZES: Record<ButtonSize, string> = {
   lg: 'h-[46px] px-6 text-md'
 };
 
-// Design-system button (SPEC-028). Accepts a variant + size and forwards all
-// native <button> attributes and a ref. `className` is appended last so callers
-// can extend or override the generated classes.
+/**
+ * Design-system button. Forwards all native `<button>` attributes and a ref;
+ * defaults `type` to "button" so it never submits a form by accident.
+ * `className` is appended last so callers can extend or override the
+ * generated classes.
+ *
+ * @example
+ * <Button variant="danger" size="sm" onClick={handleDelete}>Delete</Button>
+ */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({variant = 'default', size = 'md', className, type, ...rest}, ref) => (
     <button

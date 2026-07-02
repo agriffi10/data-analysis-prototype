@@ -10,9 +10,9 @@ import {Toast, type ToastState} from '../features/query/Toast';
 
 const noop = () => {};
 
-// Component-level checks (SPEC-045 FR-004): primitives rendered in the states the
-// route tests don't reach. Rendered outside a landmark, so `region` is disabled
-// via COMPONENT_AXE_OPTIONS (intentional — landmarks are a route-level concern).
+// Component-level axe checks: primitives rendered in the states the route tests
+// don't reach. Rendered outside a landmark, so `region` is disabled via
+// COMPONENT_AXE_OPTIONS (intentional — landmarks are a route-level concern).
 
 describe('Modal / ConfirmDialog / Drawer accessibility (open)', () => {
   it('Modal has an accessible name and no violations', async () => {

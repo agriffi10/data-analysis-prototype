@@ -1,8 +1,6 @@
 import type {ServiceResult} from '../types/service.types';
 
-// SDK error names that mean the temporary credentials have expired mid-session
-// (SPEC-011/013). On these, an authenticated operation is retried once after a
-// forced credential refresh before the error is surfaced.
+/** SDK error names that mean the temporary credentials expired mid-session. */
 export const EXPIRY_ERROR_CODES = new Set([
   'ExpiredToken',
   'ExpiredTokenException',
@@ -10,17 +8,26 @@ export const EXPIRY_ERROR_CODES = new Set([
   'InvalidToken'
 ]);
 
+/** Whether a ServiceResult error code is a credential-expiry error. */
 export function isExpiryError(code?: string): boolean {
   return code !== undefined && EXPIRY_ERROR_CODES.has(code);
 }
 
-// Run a service operation with an authenticated client, transparently refreshing
-// the credentials and retrying ONCE if they expired mid-session (the SPEC-011/013
-// pattern, extracted here in SPEC-034 FR-001 so the S3, Athena, and Glue clients
-// share one implementation). `getClient(forceRefresh?)` returns a
-// `ServiceResult<Client>`; `op(client)` performs the call and must surface a
-// credential-expiry failure via its error `code` so this helper knows to refresh
-// and retry. Never throws — propagates the ServiceResult error shape.
+/**
+ * Runs a service operation with an authenticated client, transparently
+ * refreshing the credentials and retrying ONCE if they expired mid-session.
+ * Shared by the S3, Athena, Glue, and SQS call sites.
+ *
+ * `op(client)` must surface a credential-expiry failure via its error `code`
+ * so this helper knows to refresh and retry. Never throws — propagates the
+ * ServiceResult error shape.
+ *
+ * @param getClient - Client factory; called with `true` to force a refresh.
+ * @param op - The authenticated call to run (and possibly re-run).
+ *
+ * @example
+ * const result = await withCredentialRetry(getS3Client, (s3) => listObjects(s3, prefix));
+ */
 export async function withCredentialRetry<C, T>(
   getClient: (forceRefresh?: boolean) => Promise<ServiceResult<C>>,
   op: (client: C) => Promise<ServiceResult<T>>

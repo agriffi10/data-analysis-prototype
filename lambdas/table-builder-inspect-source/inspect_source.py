@@ -1,21 +1,13 @@
-"""inspect-source — the table-builder Step Function's third task (SPEC-068).
+"""inspect-source — the table-builder Step Function's third task.
 
-List the request's prefix and confirm the folder is a table-able source BEFORE any
-schema inference:
-
-  1. **Layout** — validate the objects' paths against the request's USER-DECLARED
-     ``partitionKeys`` (SPEC-067; keys are declared, never derived here). Empty keys ⇒
-     require FLAT data (no ``key=value/`` nesting). Non-empty ⇒ require each declared
-     key present as a Hive ``key=value/`` segment, in declared order, with no extra
-     undeclared segment.
-  2. **Format** — the data objects must be a SINGLE supported format (Parquet / CSV /
-     JSON-NDJSON), classified by extension, ignoring the marker / results / hidden files.
-
-On success it emits the facts ``infer-schema`` (SPEC-069) needs — ``format``,
-``partitioned``, a representative ``sampleObjectKey``, the table ``location`` (the
-prefix / partition root), ``fileCount`` — carrying the validated request (incl.
-``partitionKeys``) through UNCHANGED. Any layout/format problem is a terminal failure
-with a specific reason; transient S3 errors propagate (raised) for the SFN ``Retry``.
+Lists the request's prefix and confirms the folder is a table-able source before any
+schema inference. Layout: paths are checked against the user-declared partitionKeys
+(never derived here) — empty keys require flat data; non-empty keys must appear as
+Hive key=value/ segments, in declared order, with no extra segment. Format: the data
+objects must be a single supported format (Parquet / CSV / NDJSON-JSON), classified
+by extension. On success emits format, partitioned, sampleObjectKey, location, and
+fileCount, carrying the validated request through unchanged. Layout/format problems
+are terminal with a specific reason; transient S3 errors propagate for the SFN Retry.
 """
 
 import logging
@@ -77,9 +69,9 @@ def _validate_layout(rel_dirs, declared_names):
 
 
 def handler(event, context):
-    # Notify the actor on any terminal failure (SPEC-072, best-effort) before the SFN
-    # Catch records it; transient S3 errors aren't TerminalError, so they propagate for
-    # the Retry without a notification.
+    # Notify the actor on any terminal failure (best-effort) before the SFN Catch
+    # records it; transient S3 errors aren't TerminalError, so they propagate for the
+    # Retry without a notification.
     try:
         return _inspect(event)
     except TerminalError as err:
@@ -102,7 +94,6 @@ def _inspect(event):
         if fmt is None:
             unsupported = unsupported or key
             continue
-        # Validate this object's partition layout against the declared keys.
         rel = key[len(prefix):] if key.startswith(prefix) else key
         rel_dirs = rel.split("/")[:-1]
         _validate_layout(rel_dirs, declared_names)
@@ -111,7 +102,6 @@ def _inspect(event):
         sample_by_format.setdefault(fmt, key)
         file_count += 1
 
-    # ── Format decision (specific terminal reasons) ──────────────────────────
     if file_count == 0:
         if unsupported is not None:
             raise TerminalError("unsupported_format", f"only unsupported files present (e.g. {unsupported})")
@@ -127,8 +117,8 @@ def _inspect(event):
     out["partitioned"] = bool(declared_names)
     out["sampleObjectKey"] = sample_by_format[fmt]
     out["fileCount"] = file_count
-    # location is the table LOCATION (the prefix / partition root) — carried from
-    # validate-authorize; recompute defensively if absent.
+    # The table LOCATION is the prefix (the partition root); recomputed defensively
+    # when absent from the event.
     out["location"] = event.get("location") or f"s3://{bucket}/{prefix}"
     logger.info("inspected %s: %s, %d files, partitioned=%s", prefix, fmt, file_count, bool(declared_names))
     return out
