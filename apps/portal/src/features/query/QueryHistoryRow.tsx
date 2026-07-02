@@ -5,7 +5,7 @@ import type {QueryHistoryEntry, QueryState} from './query.types';
 
 // Status → badge presentation. A prior-session entry left non-terminal (tab
 // closed mid-run) has a non-terminal/absent status — shown as a neutral
-// "Unknown", never a false "Running" (SPEC-036 FR-005).
+// "Unknown", never a false "Running".
 function badgeFor(status?: QueryState): {
   label: string;
   className: string;
@@ -39,8 +39,10 @@ function badgeFor(status?: QueryState): {
   }
 }
 
-// SPEC-036 FR-001: one history entry — status badge, relative time (absolute on
-// hover), single-line SQL preview, scanned/duration stats, Open + Re-run actions.
+/**
+ * One history entry — status badge, relative time (absolute on hover),
+ * single-line SQL preview, scanned/duration stats, Open + Re-run actions.
+ */
 export function QueryHistoryRow({
   entry,
   onReopen,

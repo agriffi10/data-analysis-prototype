@@ -1,14 +1,16 @@
-// SPEC-063 Data Model: the single source of truth for splitting a database's Glue
-// objects into Tables vs Views for the schema rail's two collapsible groups. A view
-// is a Glue `VIRTUAL_VIEW` (SPEC-048); everything else is a table. Order is preserved.
-
 import type {GlueTableSummary} from './query.types';
 
 export type PartitionedSchema = {
-  tables: GlueTableSummary[]; // tableType !== 'VIRTUAL_VIEW'
-  views: GlueTableSummary[]; // tableType === 'VIRTUAL_VIEW'
+  /** Everything that is not a Glue `VIRTUAL_VIEW`. */
+  tables: GlueTableSummary[];
+  /** Glue objects with `tableType === 'VIRTUAL_VIEW'`. */
+  views: GlueTableSummary[];
 };
 
+/**
+ * Splits a database's Glue objects into tables vs views for the schema rail's
+ * two collapsible groups. Input order is preserved within each group.
+ */
 export function partitionSchema(tables: GlueTableSummary[]): PartitionedSchema {
   const result: PartitionedSchema = {tables: [], views: []};
   for (const t of tables) {

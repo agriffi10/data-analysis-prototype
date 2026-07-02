@@ -12,11 +12,9 @@ import type {
   SharedSpaceRequest
 } from './sharedSpaces.types';
 
-// The browser's ONLY shared-space write: enqueue a request onto the FIFO control
-// queue (SPEC-051/056). A constant MessageGroupId serializes ALL requests so two
-// users can't create the same name concurrently (SPEC-050); the requestId is the
-// dedup id so an accidental resend is collapsed. The trusted actor is derived
-// server-side from the verified idToken — the body `actor` is advisory.
+// A constant MessageGroupId serializes ALL shared-space requests so two users can't
+// create the same name concurrently; the requestId doubles as the dedup id so an
+// accidental resend is collapsed.
 const MESSAGE_GROUP_ID = 'shared-space';
 
 export type EnqueueInput = {
@@ -26,11 +24,14 @@ export type EnqueueInput = {
   payload?: Record<string, unknown>;
 };
 
-// Send one shared-space request. Returns the generated requestId on success.
-// Never throws — returns the ServiceResult error shape.
+/**
+ * Enqueue one shared-space request onto the FIFO control queue — the browser's only
+ * shared-space write. Returns the generated requestId on success. The trusted actor
+ * is derived server-side from the verified idToken; the body `actor` is advisory.
+ */
 export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{requestId: string}>> {
-  // Read at call time (not module load) so tests can stub the env (the SPEC-040
-  // lesson: a module-level import.meta.env const is read before vi.stubEnv runs).
+  // Read at call time (not module load) so tests can stub the env — a module-level
+  // import.meta.env const is read before vi.stubEnv runs.
   const queueUrl = import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined;
   if (!queueUrl) {
     return {
@@ -77,11 +78,8 @@ export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<Se
   });
 }
 
-// SPEC-052: the per-user cache the provisioning pipeline writes to
-// {username}/user_settings/shared-connections.json (SPEC-056). The browser only
-// READS it (the pipeline is the sole writer); `useConnections` merges it with the
-// personal database. Same protected `user_settings/` folder + read pattern as
-// query history / saved queries.
+// The per-user cache lives at {username}/user_settings/shared-connections.json.
+// The provisioning pipeline is the sole writer; the browser only reads it.
 const VALID_STATUS = new Set(['provisioning', 'active', 'failed', 'leaving', 'deleting']);
 const VALID_ROLE = new Set(['owner', 'member']);
 
@@ -103,8 +101,7 @@ function isNotFound(err: unknown): boolean {
   return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
-// Keep only well-formed entries — a corrupt/partial entry is dropped, not fatal
-// (same spirit as the missing-file case: degrade to what we can trust).
+// A corrupt/partial entry is dropped, not fatal — degrade to what we can trust.
 function isValidEntry(e: unknown): e is SharedConnectionEntry {
   const o = e as Partial<SharedConnectionEntry> | null;
   return (
@@ -118,8 +115,7 @@ function isValidEntry(e: unknown): e is SharedConnectionEntry {
   );
 }
 
-// Forgivingly parse the cache body: a malformed/legacy file yields the empty cache
-// (personal-only), never an error.
+// Forgiving parse: a malformed/legacy file yields the empty cache, never an error.
 function parseCache(body: string | undefined): SharedConnectionsCache {
   if (!body) return emptyCache();
   try {
@@ -133,8 +129,10 @@ function parseCache(body: string | undefined): SharedConnectionsCache {
   }
 }
 
-// Read + parse the per-user shared-connections cache. A missing/corrupt file is the
-// empty state (personal-only), not an error. Never throws.
+/**
+ * Read and parse the per-user shared-connections cache. A missing/corrupt file is
+ * the empty state (personal-only), not an error.
+ */
 export async function readSharedConnectionsCache(username: string): Promise<ServiceResult<SharedConnectionsCache>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {

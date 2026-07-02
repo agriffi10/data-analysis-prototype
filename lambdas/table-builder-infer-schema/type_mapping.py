@@ -1,14 +1,10 @@
-"""polars dtype → Glue/Athena (Hive) type mapping (SPEC-069, pure).
+"""Pure polars dtype → Glue/Athena (Hive) type mapping.
 
 The single source of truth for turning an inferred polars dtype into the Hive type
-string that goes in the ``CREATE EXTERNAL TABLE`` column list. Pure and unit-tested
-without AWS or a Lambda runtime. Nested types recurse (``List``→``array<…>``,
-``Struct``→``struct<…>``). An unmappable dtype raises ``UnmappableTypeError`` carrying
-the dtype; the handler adds the column name and turns it into terminal
-``unmappable_type`` (FR-002).
-
-Only exercised for Parquet / JSON — CSV columns are emitted as ``string`` directly
-(no inference, SPEC-069 rule) and never reach this module.
+string in the CREATE EXTERNAL TABLE column list. Nested types recurse (List→array,
+Struct→struct). An unmappable dtype raises UnmappableTypeError carrying the dtype;
+the handler adds the column name and turns it into terminal unmappable_type. Only
+exercised for Parquet / JSON — CSV columns are emitted as string directly.
 """
 
 import polars as pl
@@ -42,7 +38,7 @@ _SIMPLE = [
 
 
 def map_dtype(dtype):
-    """Map a polars dtype to its Hive type string. Raises ``UnmappableTypeError``."""
+    """Map a polars dtype to its Hive type string; raises UnmappableTypeError."""
     # Parametric types first (they carry precision/scale/inner/fields).
     if isinstance(dtype, pl.Datetime):
         return "timestamp"

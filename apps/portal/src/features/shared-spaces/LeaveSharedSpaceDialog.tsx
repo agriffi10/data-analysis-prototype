@@ -7,11 +7,12 @@ type Props = {
   onCancel: () => void;
 };
 
-// SPEC-054 FR-001: a member's confirm to leave a shared space. Leaving only
-// revokes the member's own access (slot + cache + registry membership) — no shared
-// data is deleted (everyone else keeps access), so a plain danger confirm fits
-// (contrast the owner's irreversible cascade in DeleteSharedSpaceDialog). Owners
-// are never shown this — they delete instead (the action is owner-gated upstream).
+/**
+ * Member's confirm to leave a shared space. Leaving only revokes the member's own
+ * access — no shared data is deleted — so a plain danger confirm fits (contrast the
+ * owner's type-the-name cascade in DeleteSharedSpaceDialog). Owners never see this;
+ * the action is owner-gated upstream.
+ */
 export function LeaveSharedSpaceDialog({space, busy = false, onConfirm, onCancel}: Props) {
   return (
     <ConfirmDialog

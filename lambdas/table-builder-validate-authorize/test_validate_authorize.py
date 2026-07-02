@@ -1,10 +1,9 @@
-"""Unit tests for the table-builder validate-authorize Lambda (SPEC-067).
+"""Unit tests for the table-builder validate-authorize Lambda.
 
-Pure logic, AWS stubbed: ``auth.verified_username`` is stubbed for the authorization /
-validation cases (token verification itself is the proven shared-space code), and the
-registry read is stubbed for the shared-space cases. Asserts the validated payload
-shape and every terminal ``reason`` (with no side effects). Runnable under pytest OR
-directly: ``python3 test_validate_authorize.py``.
+Pure logic, AWS stubbed: auth.verified_username is stubbed for the authorization and
+validation cases, the registry read for the shared-space cases. Asserts the validated
+payload shape and every terminal reason. Runnable under pytest or directly:
+python3 test_validate_authorize.py.
 """
 
 import json
@@ -72,8 +71,6 @@ def _expect_reason(event, reason):
     raise AssertionError(f"expected TerminalError({reason!r}), but handler succeeded")
 
 
-# ── Happy paths ──────────────────────────────────────────────────────────────
-
 def test_valid_personal_request_passes():
     _setup()
     out = v.handler(_event(_personal()), None)
@@ -112,8 +109,6 @@ def test_prefix_is_normalized_with_trailing_slash():
     assert out["location"] == "s3://dat-prod-user-space/alice/sales/2026/"
 
 
-# ── Authorization failures (forbidden) ───────────────────────────────────────
-
 def test_wrong_user_personal_is_forbidden():
     _setup()
     _expect_reason(_event(_personal(database="bob", prefix="bob/x/")), "forbidden")
@@ -151,8 +146,6 @@ def test_unknown_space_kind_is_forbidden():
     _setup()
     _expect_reason(_event({"kind": "team", "bucket": USER_BUCKET, "prefix": "alice/", "database": "alice"}), "forbidden")
 
-
-# ── Name + partition-key validation ──────────────────────────────────────────
 
 def test_bad_table_name_is_invalid_table_name():
     _setup()
@@ -197,8 +190,6 @@ def test_partition_key_duplicate_name_is_invalid():
     _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
 
 
-# ── Token failures (unauthorized) ────────────────────────────────────────────
-
 def test_missing_token_is_unauthorized():
     _setup()
     # Use the REAL verified_username — an empty token short-circuits before any JWKS call.
@@ -215,8 +206,6 @@ def test_token_verification_failure_is_unauthorized():
     v.auth.verified_username = _raise
     _expect_reason(_event(_personal()), "unauthorized")
 
-
-# ── SPEC-072 notifications ────────────────────────────────────────────────────
 
 def test_notifies_actor_on_forbidden():
     _setup()

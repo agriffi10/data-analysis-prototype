@@ -1,9 +1,7 @@
-"""In-memory AWS test doubles + an install() helper, shared by the common-module and
-verb test suites (SPEC-062). NOT packaged into the Lambda layer — the layer build
-copies only the production modules by name (deploy-lambdas.yml), so this file and the
-``test_*.py`` files never ship.
+"""In-memory AWS test doubles plus an install() helper for the common and verb suites.
 
-Runs under pytest *or* as a plain script (the JS CI does not run Python). Token
+Not packaged into the Lambda layer — the layer build copies only the production
+modules by name, so this file and the ``test_*.py`` files never ship. Token
 verification (PyJWT/JWKS) is faked by patching ``auth.verified_username``; the AWS
 clients are faked here and installed onto ``clients._<name>``.
 """
@@ -15,6 +13,7 @@ import config
 
 
 def raises(fn, exc_type, match=None):
+    """Assert that ``fn()`` raises ``exc_type`` (optionally with ``match`` in the message)."""
     try:
         fn()
     except exc_type as exc:
@@ -146,10 +145,13 @@ class FakeLF:
 
 
 class FakeCognito:
-    """Two modes. Single-user (create tests): pass ``attrs`` — every Username maps to
-    that one attribute bag, exposed as ``.attrs``. Multi-user (add/remove tests): set
-    ``.users = {username: {attr: val}}`` — any Username not listed is unknown and
-    raises UserNotFoundException."""
+    """Fake Cognito with two modes.
+
+    Single-user (create tests): pass ``attrs`` — every Username maps to that one
+    attribute bag, exposed as ``.attrs``. Multi-user (add/remove tests): set
+    ``.users = {username: {attr: val}}`` — any Username not listed raises
+    UserNotFoundException.
+    """
 
     def __init__(self, attrs=None):
         self._default = dict(attrs or {})
@@ -191,8 +193,10 @@ class FakeSqs:
 
 
 def install(cognito_attrs=None, max_memberships=10):
-    """Install fresh fakes + canonical config onto the cached client/config globals.
-    Returns (s3, glue, lf, cognito) for assertions."""
+    """Install fresh fakes and canonical config onto the cached client/config globals.
+
+    Returns ``(s3, glue, lf, cognito)`` for assertions.
+    """
     clients._s3 = FakeS3()
     clients._glue = FakeGlue()
     clients._lf = FakeLF()
@@ -204,5 +208,5 @@ def install(cognito_attrs=None, max_memberships=10):
     config.USER_SPACE_BUCKET = "user-bkt"
     config.PORTAL_ROLE_ARN = "arn:aws:iam::1:role/portal"
     config.USER_POOL_ID = "pool"
-    config.NOTIFICATIONS_QUEUE_URL = ""  # notify is a no-op in SPEC-062
+    config.NOTIFICATIONS_QUEUE_URL = ""  # unset -> notify is a no-op
     return clients._s3, clients._glue, clients._lf, clients._cognito

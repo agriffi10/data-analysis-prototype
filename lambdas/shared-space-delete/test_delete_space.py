@@ -1,4 +1,4 @@
-"""Unit tests for the delete-space verb (SPEC-054 cascade; SPEC-062)."""
+"""Unit tests for the delete-space verb (owner cascade-delete)."""
 
 import json
 import os
@@ -97,7 +97,6 @@ def test_delete_records_failure_and_reraises_without_deleting_registry():
     assert owner_cache["connections"][0]["status"] == "failed"
 
 
-# ── SPEC-061: producer event 7 (fan-out) ─────────────────────────────────────
 def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message():
     s3, glue, lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))

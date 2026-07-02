@@ -1,9 +1,4 @@
-"""Unit tests for the validate-authorize Lambda (SPEC-056; SPEC-062).
-
-Token verification is stubbed (auth.verified_username); the validator's job is to
-parse the record, derive the actor, load the registry, authorize, and emit the
-validated context — a failed check raises before any verb context is produced.
-"""
+"""Unit tests for the validate-authorize Lambda (token verification is stubbed)."""
 
 import json
 import os
@@ -128,7 +123,7 @@ def test_validate_missing_space_for_non_create_rejected():
         auth.verified_username = orig
 
 
-# ── Durable pending record + "creating…" notification (create only) ──────────
+# Intent recording: the durable pending cache entry + start notification (create/delete).
 def test_validate_create_records_pending_and_notifies():
     s3, *_ = install()
     sqs = _enable_notifications()

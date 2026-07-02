@@ -89,7 +89,6 @@ describe('DatabaseNode', () => {
     renderNode();
     fireEvent.click(screen.getByRole('button', {name: /Tables \(1\)/}));
     expect(screen.queryByRole('button', {name: 'sales_2026'})).not.toBeInTheDocument();
-    // Views group is unaffected.
     expect(screen.getByRole('button', {name: 'revenue_view'})).toBeInTheDocument();
   });
 

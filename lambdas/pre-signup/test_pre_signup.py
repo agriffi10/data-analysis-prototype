@@ -1,7 +1,7 @@
-"""Unit tests for the pre-signup trigger (SPEC-012 username rule + SPEC-030 email
-blocklist). Written to run under pytest *or* as a plain script (`python3
-test_pre_signup.py`) since the JS CI does not run a Python interpreter — these
-are for local verification.
+"""Unit tests for the pre-signup trigger.
+
+Runs under pytest or as a plain script (`python3 test_pre_signup.py`); the JS CI does
+not run a Python interpreter.
 """
 
 from contextlib import contextmanager
@@ -44,7 +44,7 @@ def test_too_short_username_rejected():
 
 
 def test_uppercase_username_rejected():
-    # SPEC-033: lowercase only (Glue/Athena identifiers fold case).
+    # Lowercase only: Glue/Athena identifiers fold case.
     with _raises("Username must be"):
         handler(_event(username="Alice"), None)
 
@@ -56,7 +56,7 @@ def test_leading_digit_username_rejected():
 
 
 def test_email_style_username_rejected():
-    # The old rule allowed `@ . -`; SPEC-033 removed them.
+    # `@ . -` are not catalog-safe and are rejected.
     with _raises("Username must be"):
         handler(_event(username="alice@corp"), None)
     with _raises("Username must be"):

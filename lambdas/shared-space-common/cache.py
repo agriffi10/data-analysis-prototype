@@ -1,25 +1,16 @@
-"""Per-user shared-connections cache (SPEC-051/053; SPEC-062 shared layer).
+"""Per-user shared-connections cache in the user-space bucket.
 
-The cache at ``{username}/user_settings/shared-connections.json`` in the user-space
-bucket is the UI projection of a user's spaces (the registry is the source of truth;
-this is what the browser reads). The privileged orchestrator role may write any
-user's prefix. Every write is a read-modify-write (never an S3 delete).
+The cache at ``{username}/user_settings/shared-connections.json`` is the UI projection
+of a user's spaces (the registry is the source of truth; the browser only reads this).
+The privileged orchestrator role may write any user's prefix. Every write is a
+read-modify-write, never an S3 delete.
 
-**Concurrency (the fix):** the cache is one S3 key per user, but multiple control-plane
-executions overlap (the Pipe starts the Standard state machine FIRE_AND_FORGET, so
-"serial intake" is not serial execution). Two operations touching the same user's
-cache at once — e.g. being added to one space while creating/being-added to another —
-would lose-update under a plain read-then-write. So every mutation is an **optimistic
-compare-and-swap**: read the object + its ETag, modify, then ``PutObject`` conditioned
-on that ETag (``If-Match``) or on absence (``If-None-Match: *``); a ``412
-PreconditionFailed`` means a concurrent writer won — re-read and retry.
-
-**Absence handling (the hardening):** a missing object reads as ``NoSuchKey`` when the
-role holds ``s3:ListBucket`` on the bucket, but as ``403 AccessDenied`` when it does
-not (S3 hides existence). Both are treated as "absent → empty cache". This is safe
-*because* the create path is conditional: if a present-but-unreadable object were ever
-misread as absent, the ``If-None-Match: *`` create would fail with ``412`` and we'd
-raise rather than overwrite real data.
+Concurrent control-plane executions can touch the same user's cache (the Pipe starts
+the Standard state machine fire-and-forget, so serial intake is not serial execution),
+and a plain read-then-write would lose updates. Every mutation is therefore an
+optimistic compare-and-swap: read the object and its ETag, modify, then ``PutObject``
+conditioned on that ETag (``If-Match``) or on absence (``If-None-Match: *``); a 412
+means a concurrent writer won, so re-read and retry.
 """
 
 import json
@@ -30,8 +21,8 @@ import clients
 
 logger = logging.getLogger()
 
-# Bounded CAS retries. Contention is rare (a single user in a few concurrent ops), so
-# a small cap is plenty; exhausting it raises rather than silently dropping a write.
+# Contention is rare (one user in a few concurrent ops), so a small cap is plenty;
+# exhausting it raises rather than silently dropping a write.
 _MAX_CAS_ATTEMPTS = 6
 
 
@@ -44,22 +35,28 @@ def _error_code(exc):
 
 
 def _is_precondition(exc):
-    """A conditional PutObject failed (If-Match/If-None-Match) — a concurrent writer."""
+    """True when a conditional PutObject failed, i.e. a concurrent writer won."""
     return _error_code(exc) in ("PreconditionFailed", "412")
 
 
 def _is_absent(exc):
-    """A GetObject error that means "the object isn't there". ``NoSuchKey``/404 is the
-    normal missing-object signal; ``403 AccessDenied`` is what S3 returns for a missing
-    key when the caller lacks ``s3:ListBucket`` (see the module docstring — safe here
-    because the create path is conditional)."""
+    """True when a GetObject error means the object isn't there.
+
+    ``NoSuchKey``/404 is the normal missing-object signal; S3 returns ``403
+    AccessDenied`` for a missing key when the caller lacks ``s3:ListBucket``. Treating
+    403 as absent is safe only because the create path is conditional: a
+    present-but-unreadable object misread as absent would make the ``If-None-Match: *``
+    create fail with 412 rather than overwrite real data.
+    """
     return _error_code(exc) in ("NoSuchKey", "NotFound", "404", "AccessDenied", "403")
 
 
 def _read(username):
-    """Return ``(connections, etag)`` for the user's cache. A missing object yields
-    ``([], None)`` (etag None marks "create-if-absent" on the write back). Any S3 error
-    other than absence propagates."""
+    """Return ``(connections, etag)`` for the user's cache.
+
+    A missing object yields ``([], None)``; etag None marks create-if-absent on the
+    write back. Any S3 error other than absence propagates.
+    """
     s3 = clients.s3()
     try:
         obj = s3.get_object(Bucket=config.USER_SPACE_BUCKET, Key=_key(username))
@@ -79,9 +76,11 @@ def _read(username):
 
 
 def _write(username, connections, etag):
-    """Write the user's cache conditionally: ``If-Match`` the read ETag (update) or
-    ``If-None-Match: *`` when absent (create). Raises the S3 ClientError on a
-    precondition failure so the CAS loop can retry."""
+    """Write the user's cache conditionally.
+
+    ``If-Match`` the read ETag (update) or ``If-None-Match: *`` when absent (create).
+    Raises the S3 ClientError on a precondition failure so the CAS loop can retry.
+    """
     kwargs = {
         "Bucket": config.USER_SPACE_BUCKET,
         "Key": _key(username),
@@ -96,10 +95,12 @@ def _write(username, connections, etag):
 
 
 def _mutate(username, fn):
-    """Compare-and-swap the user's cache: read (+ETag), apply ``fn(connections) ->
-    connections``, write conditionally; retry on a concurrent-writer precondition
-    failure. A no-op change (``fn`` returns the list unchanged) skips the write so
-    removing an absent entry stays a true no-op."""
+    """Compare-and-swap the user's cache through ``fn(connections) -> connections``.
+
+    Read (+ETag), apply ``fn``, write conditionally; retry on a concurrent-writer
+    precondition failure. A no-op change skips the write so removing an absent entry
+    stays a true no-op.
+    """
     s3 = clients.s3()
     for attempt in range(_MAX_CAS_ATTEMPTS):
         connections, etag = _read(username)
@@ -128,8 +129,10 @@ def upsert_entry(username, entry):
 
 
 def remove_entry(username, name):
-    """Remove the user's cache entry for ``name`` (compare-and-swap; never an S3
-    delete). Idempotent — a missing cache or absent entry is a no-op (no write)."""
+    """Remove the user's cache entry for ``name`` (compare-and-swap; never an S3 delete).
+
+    Idempotent — a missing cache or absent entry is a no-op (no write).
+    """
 
     def apply(connections):
         return [c for c in connections if c.get("name") != name]
@@ -138,29 +141,34 @@ def remove_entry(username, name):
 
 
 def write_owner_pending(owner, name):
-    """Seed the creator's cache with a ``provisioning`` owner entry the moment a create
-    is accepted — before any provisioning work — so the space is durably recorded and
-    survives a browser reload even if provisioning later fails (the browser only reads
-    this cache, so an unrecorded create vanishes). Compare-and-swap like every write;
-    superseded by ``write_owner_projection`` (``active``) or a ``failed`` upsert at the
-    end (both replace this entry by name). ``createdAt``/``members`` are intentionally
-    omitted here and supplied by the authoritative ``active`` write."""
+    """Seed the creator's cache with a ``provisioning`` owner entry on create-accept.
+
+    Written before any provisioning work so the space survives a browser reload even
+    if provisioning later fails (an unrecorded create vanishes from the UI).
+    Superseded by ``write_owner_projection`` (``active``) or a ``failed`` upsert, both
+    of which replace this entry by name; ``createdAt``/``members`` are intentionally
+    omitted and supplied by the authoritative ``active`` write.
+    """
     upsert_entry(owner, {"name": name, "role": "owner", "status": "provisioning"})
 
 
 def write_owner_deleting(owner, name):
-    """Mark the owner's cache entry ``deleting`` the moment a delete is accepted (after
-    verification), so the card shows a durable "Deleting…" state instead of reconciling
-    back to ``active`` mid-cascade. Compare-and-swap like every write; superseded by the
-    entry's removal on success or a ``failed`` upsert on error."""
+    """Mark the owner's cache entry ``deleting`` once a delete is accepted.
+
+    Written after verification so the card shows a durable "Deleting…" state instead
+    of reconciling back to ``active`` mid-cascade. Superseded by the entry's removal
+    on success or a ``failed`` upsert on error.
+    """
     upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting"})
 
 
 def write_owner_projection(owner, name, members, created_at=None):
-    """Update the OWNER's cache entry with the current member list — the
-    owner-readable projection the Manage drawer renders (SPEC-053); members never
-    see this list. ``created_at`` (when known) is carried so the Connections card
-    can render the "created <date>" meta line."""
+    """Update the owner's cache entry with the current member list.
+
+    This is the owner-readable projection the Manage drawer renders; members never see
+    this list. ``created_at`` (when known) is carried so the Connections card can
+    render its "created <date>" meta line.
+    """
     entry = {"name": name, "role": "owner", "status": "active", "members": members}
     if created_at:
         entry["createdAt"] = created_at
@@ -168,9 +176,11 @@ def write_owner_projection(owner, name, members, created_at=None):
 
 
 def write_member_entry(member, name, owner, created_at=None):
-    """Write a MEMBER's cache entry for a space they belong to. Members never get the
-    member list (privacy), but they do get the ``owner`` name and ``createdAt`` so the
-    Connections card can render its "owner: <name>" / "created <date>" meta line."""
+    """Write a member's cache entry for a space they belong to.
+
+    Members never get the member list (privacy), but do get the ``owner`` name and
+    ``createdAt`` for the Connections card's "owner: <name>" / "created <date>" line.
+    """
     entry = {"name": name, "role": "member", "status": "active", "owner": owner}
     if created_at:
         entry["createdAt"] = created_at

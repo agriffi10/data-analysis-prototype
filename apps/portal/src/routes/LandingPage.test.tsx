@@ -2,9 +2,9 @@ import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {render, screen, fireEvent} from '@testing-library/react';
 import {MemoryRouter, Routes, Route} from 'react-router-dom';
 
-// Authenticated landing page (SPEC-029 + tester feedback): a signed-in visitor
-// who opens "/" stays on the marketing page but sees "Go to Dashboard" entry
-// points instead of sign-in/sign-up, unless a pending return path redirects them.
+// A signed-in visitor who opens "/" stays on the marketing page but sees
+// "Go to Dashboard" entry points instead of sign-in/sign-up, unless a pending
+// return path redirects them.
 const {takeReturnPath} = vi.hoisted(() => ({takeReturnPath: vi.fn()}));
 
 vi.mock('../features/auth', () => ({

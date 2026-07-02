@@ -7,30 +7,40 @@ type ModalProps = {
   onDismiss: () => void;
   ariaLabel: string;
   role?: 'dialog' | 'alertdialog';
-  // When false (e.g. an action is in flight), backdrop-click and Escape don't
-  // dismiss. The dialog's own buttons remain the way out.
+  /**
+   * When false (e.g. an action is in flight), backdrop-click and Escape don't
+   * dismiss. The dialog's own buttons remain the way out.
+   */
   dismissible?: boolean;
-  // Panel width/shape classes. Omit for the standard `max-w-md` card; pass your
-  // own (e.g. `max-w-lg` + padding) to replace it — no tailwind-merge, so don't
-  // expect a passed `max-w-*` to layer on top of a default.
+  /**
+   * Panel width/shape classes. Omit for the standard `max-w-md` card; pass your
+   * own (e.g. `max-w-lg` + padding) to replace it — no tailwind-merge, so don't
+   * expect a passed `max-w-*` to layer on top of a default.
+   */
   className?: string;
   children: ReactNode;
 };
 
-// SPEC-026 centered modal shell (react-best-practices abstraction pass): scrim +
-// surface card + role/aria + backdrop-dismiss + Escape, consolidated from the
-// ~10 dialogs that hand-rolled it. Children supply the body and footer; higher-
-// level dialogs (ConfirmDialog) compose this.
+/**
+ * Centered modal shell: scrim + surface card + dialog role/aria +
+ * backdrop-dismiss + Escape. Traps focus while open and restores it to the
+ * trigger on close. Children supply the body and footer; higher-level dialogs
+ * (e.g. ConfirmDialog) compose this.
+ *
+ * @example
+ * <Modal ariaLabel="Rename file" onDismiss={() => setOpen(false)}>
+ *   <form className="p-5">…</form>
+ * </Modal>
+ */
 export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true, className, children}: ModalProps) {
   useEscapeKey(onDismiss, dismissible);
   const panelRef = useRef<HTMLDivElement>(null);
 
   return (
-    // Trap focus within the panel while open; restore it to the trigger on
-    // close. `initialFocus: false` defers to each consumer's own focus effect
-    // (ConfirmDialog → a button, Rename/SaveQuery → an input). Escape is owned
-    // by useEscapeKey above, and the full-screen scrim owns backdrop-dismiss, so
-    // we disable focus-trap's escape/outside-click handling.
+    // `initialFocus: false` defers to each consumer's own focus effect
+    // (ConfirmDialog → a button, rename/save dialogs → an input). Escape is
+    // owned by useEscapeKey above and the scrim owns backdrop-dismiss, so
+    // focus-trap's own escape/outside-click handling is disabled.
     <FocusTrap
       focusTrapOptions={{
         initialFocus: false,

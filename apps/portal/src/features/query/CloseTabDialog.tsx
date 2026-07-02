@@ -1,13 +1,13 @@
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 
 type Props = {
-  label: string; // the tab being closed, e.g. "Query 2"
+  /** The tab being closed, e.g. "Query 2". */
+  label: string;
   onConfirm: () => void;
   onCancel: () => void;
 };
 
-// SPEC-041 FR-005: warn-and-confirm before closing a tab that holds non-empty
-// SQL. Thin wrapper over the shared ConfirmDialog.
+/** Warn-and-confirm before closing a tab that holds non-empty SQL. */
 export function CloseTabDialog({label, onConfirm, onCancel}: Props) {
   return (
     <ConfirmDialog

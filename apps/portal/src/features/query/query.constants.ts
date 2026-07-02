@@ -1,74 +1,88 @@
-// SPEC-034 named constants for the query data layer.
+// Named constants for the query data layer.
 
-// FR-003: Athena execution polling cadence. Poll every 1.5s while a query is
-// non-terminal — responsive without hammering GetQueryExecution (most queries
-// finish in seconds).
+/**
+ * Athena execution polling cadence while a query is non-terminal — responsive
+ * without hammering GetQueryExecution (most queries finish in seconds).
+ */
 export const POLL_INTERVAL_MS = 1_500;
 
-// FR-003: stop polling after this long even if the query has not reached a
-// terminal state, so a stuck/forgotten execution can't poll forever. The query
-// itself keeps running in Athena (the workgroup's bytes-scanned cutoff, SPEC-032,
-// is the real cost guard); the UI can re-attach to the execution id later.
+/**
+ * Stop polling after this long even if the query has not reached a terminal
+ * state, so a stuck/forgotten execution can't poll forever. The query keeps
+ * running in Athena (the workgroup's bytes-scanned cutoff is the real cost
+ * guard); the UI can re-attach to the execution id later.
+ */
 export const MAX_POLL_DURATION_MS = 5 * 60_000;
 
-// FR-004: default GetQueryResults page size — the service-level fallback when a
-// caller omits maxRows. The results UI passes QUERY_RESULTS_PAGE_SIZE instead.
+/**
+ * Default GetQueryResults page size — the service-level fallback when a
+ * caller omits maxRows. The results UI passes QUERY_RESULTS_PAGE_SIZE instead.
+ */
 export const DEFAULT_MAX_ROWS = 100;
 
-// SPEC-038 FR-001: the query-results pager shows this many data rows per page.
-// Single source of truth for the results page size — drives GetQueryResults
-// MaxResults (the first page requests +1 to absorb the Athena SELECT header row,
-// see getQueryResults) and the Prev/Next pager. Deliberately small so only one
-// page (≤20 rows) is ever mounted in the DOM.
+/**
+ * Data rows per query-results page. Drives GetQueryResults MaxResults (the
+ * first page requests +1 to absorb the Athena SELECT header row, see
+ * getQueryResults) and the Prev/Next pager. Deliberately small so only one
+ * page is ever mounted in the DOM.
+ */
 export const QUERY_RESULTS_PAGE_SIZE = 20;
 
-// FR-007: cap the per-user query-history JSON, dropping the oldest beyond this.
+/** Cap on the per-user query-history JSON; the oldest entries beyond this are dropped. */
 export const QUERY_HISTORY_MAX = 100;
 
-// SPEC-042: the history drawer shows this many entries per page (newest-first),
-// with a Prev/Next pager. Client-side only — the full capped-100 list is already
-// in memory (useQueryHistory), so paging is a slice, not a fetch.
+/**
+ * History-drawer entries per page (newest-first). Client-side only — the full
+ * capped list is already in memory, so paging is a slice, not a fetch.
+ */
 export const QUERY_HISTORY_PAGE_SIZE = 7;
 
-// SPEC-044 FR-004: the "View data" table preview opens SELECT * … LIMIT this.
+/** The "View data" table preview opens SELECT * … LIMIT this. */
 export const TABLE_PREVIEW_ROW_LIMIT = 10;
 
-// SPEC-033/048: catalog-safe identifier rule — lowercase, leading letter, then
-// [a-z0-9_], 3–63 chars total. The same rule the pre-signup Lambda enforces for
-// usernames (= S3 prefix = Glue DB name); shared here so view-name validation
-// (SPEC-048) uses one source of truth, never a hand-duplicated regex.
+/**
+ * Catalog-safe identifier rule — lowercase, leading letter, then [a-z0-9_],
+ * 3–63 chars total. The same rule the pre-signup Lambda enforces for usernames
+ * (= S3 prefix = Glue DB name); shared so view-name validation uses one source
+ * of truth, never a hand-duplicated regex.
+ */
 export const CATALOG_IDENTIFIER_RE = /^[a-z][a-z0-9_]{2,62}$/;
 
-// SPEC-040: sessionStorage key prefix for the per-user editor draft. The full
-// key is `${QUERY_DRAFT_STORAGE_PREFIX}${username}`. Superseded by SPEC-041's
-// tabs store — retained only for the one-time migration (read once, then removed).
+/**
+ * sessionStorage key prefix for the legacy per-user editor draft (full key:
+ * prefix + username). Retained only for the one-time migration into the tabs
+ * store (read once, then removed).
+ */
 export const QUERY_DRAFT_STORAGE_PREFIX = 's3portal.query.draft.';
 
-// SPEC-041: sessionStorage key prefix for the per-user query-tabs state. Full
-// key: `${QUERY_TABS_STORAGE_PREFIX}${username}`. Supersedes SPEC-040's single
-// draft (migrated once into tab 1's sql, then the old key is removed).
+/** sessionStorage key prefix for the per-user query-tabs state (full key: prefix + username). */
 export const QUERY_TABS_STORAGE_PREFIX = 's3portal.query.tabs.';
 
-// SPEC-047: sessionStorage key prefix for the workspace-global active database.
-// Full key: `${QUERY_ACTIVE_DB_STORAGE_PREFIX}${username}` → a database name.
-// Default + fallback = the personal database (username). NOT a per-tab field.
+/**
+ * sessionStorage key prefix for the workspace-global active database (full
+ * key: prefix + username → a database name). Default + fallback = the
+ * personal database (username). NOT a per-tab field.
+ */
 export const QUERY_ACTIVE_DB_STORAGE_PREFIX = 's3portal.query.activeDatabase.';
 
-// SPEC-041: soft cap on open query tabs. Enforced by a dialog (FR-008): the `+`
-// stays enabled, but openTab refuses past this count and the caller shows the
-// "close a tab first" dialog. Closing a tab drops back below the cap.
+/**
+ * Soft cap on open query tabs, enforced by a dialog: the `+` stays enabled,
+ * but openTab refuses past this count and the caller shows the "close a tab
+ * first" dialog.
+ */
 export const QUERY_TABS_MAX = 10;
 
-// SPEC-064: result-column sizing. Defaults a column to a comfortable width;
-// MIN is the hard drag floor (small enough that a narrow column ellipsis-
-// truncates its own header). STEP is the keyboard (Arrow) resize increment.
+// Result-column sizing: MIN is the hard drag floor (small enough that a narrow
+// column ellipsis-truncates its own header); STEP is the keyboard (Arrow)
+// resize increment.
 export const DEFAULT_COLUMN_WIDTH = 180; // px
 export const MIN_COLUMN_WIDTH = 72; // px
 export const COLUMN_RESIZE_STEP_PX = 16; // px per Arrow key press
 
-// SPEC-035/040/041: the boilerplate a brand-new first tab opens with (a `+` blank
-// tab opens empty). Single source of truth, shared by the workspace and the
-// tabs-state factory.
+/**
+ * The boilerplate a brand-new first tab opens with (a `+` blank tab opens
+ * empty). Shared by the workspace and the tabs-state factory.
+ */
 export const DEFAULT_SQL = `-- Write SQL against your database, then Run (⌘⏎).
 SELECT 1;
 `;

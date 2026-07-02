@@ -2,37 +2,46 @@ import {createContext, useContext} from 'react';
 import type {UploadItem, UploadStatus} from './upload.types';
 import {TERMINAL_STATUSES} from './upload.types';
 
-// SPEC-020: the upload-queue store. Like selectionContext (SPEC-018), the pure
-// reducer + context + hook live in this non-component module so the reducer is
-// unit-testable and UploadQueueProvider.tsx exports only its component
-// (react-refresh requires component files to export components only).
+// The upload-queue store. Like selectionContext, the pure reducer + context +
+// hook live in this non-component module so the reducer is unit-testable and
+// UploadQueueProvider.tsx exports only its component (react-refresh requires
+// component files to export components only).
 
-// Where a batch of files is being uploaded to — captured at enqueue time so the
-// session-scoped queue can target multiple connections (buckets) at once.
+/**
+ * Where a batch of files is being uploaded to — captured at enqueue time so the
+ * session-scoped queue can target multiple connections (buckets) at once.
+ */
 export type UploadDestination = {bucket: string; prefix: string};
 
 export type UploadQueueContextValue = {
   items: UploadItem[];
-  // Enqueue files for upload into the given destination folder; oversize files are
-  // added as a `failed` item with the limit message rather than entering the queue.
+  /**
+   * Enqueue files for upload into the given destination folder; oversize files
+   * are added as a `failed` item with the limit message rather than entering
+   * the queue.
+   */
   enqueue: (files: File[], dest: UploadDestination) => void;
-  // Cancel an item: aborts an in-flight upload (→ cancelled) or drops a queued /
-  // collision item that never wrote anything (FR-002).
+  /**
+   * Cancel an item: aborts an in-flight upload (→ cancelled) or drops a
+   * queued / collision item that never wrote anything.
+   */
   cancel: (id: string) => void;
-  // Remove a terminal item from the queue.
+  /** Remove a terminal item from the queue. */
   dismiss: (id: string) => void;
-  // Collision resolution (SPEC-016 warn-and-confirm): re-queue with overwrite, or
-  // re-queue under a new leaf name.
+  /** Resolve a collision by re-queuing with overwrite. */
   resolveOverwrite: (id: string) => void;
+  /** Resolve a collision by re-queuing under a new leaf name. */
   resolveRename: (id: string, newName: string) => void;
-  // Remove every terminal (done / failed / cancelled) item at once.
+  /** Remove every terminal (done / failed / cancelled) item at once. */
   clearFinished: () => void;
 };
 
 export const UploadQueueContext = createContext<UploadQueueContextValue | null>(null);
 
-// Consume the upload queue. Throws outside a provider so a missing provider is a
-// loud development error, not a silent no-op (matches useSelection).
+/**
+ * Consumes the upload queue. Throws outside a provider so a missing provider is
+ * a loud development error, not a silent no-op.
+ */
 export function useUploadQueue(): UploadQueueContextValue {
   const ctx = useContext(UploadQueueContext);
   if (ctx === null) {
@@ -41,20 +50,24 @@ export function useUploadQueue(): UploadQueueContextValue {
   return ctx;
 }
 
-// The leaf-stripped prefix of a destination key: `alice/docs/a.txt` → `alice/docs/`,
-// `a.txt` → ``. Used to target listing invalidation and to rebuild the key on
-// rename without threading the prefix through the queue.
+/**
+ * The leaf-stripped prefix of a destination key: `alice/docs/a.txt` →
+ * `alice/docs/`, `a.txt` → ``. Used to target listing invalidation and to
+ * rebuild the key on rename without threading the prefix through the queue.
+ */
 export function keyPrefix(key: string): string {
   const i = key.lastIndexOf('/');
   return i === -1 ? '' : key.slice(0, i + 1);
 }
 
-// ── Reducer (FR-001) ──────────────────────────────────────────────────────────
+// ── Reducer ───────────────────────────────────────────────────────────────────
 
-// A file the provider has prepared for enqueue: the destination key is computed
-// (prefix + name) and oversize files arrive pre-marked `failed`. The reducer
-// assigns the stable id from its monotonic `seq` counter (deterministic — no
-// Math.random in shared code, per FR-001).
+/**
+ * A file the provider has prepared for enqueue: the destination key is computed
+ * (prefix + name) and oversize files arrive pre-marked `failed`. The reducer
+ * assigns the stable id from its monotonic `seq` counter (deterministic — no
+ * Math.random in shared code).
+ */
 export type NewUploadEntry = {
   file: File;
   bucket: string;
@@ -65,7 +78,8 @@ export type NewUploadEntry = {
 
 export type UploadQueueState = {
   items: UploadItem[];
-  seq: number; // monotonic id source
+  /** Monotonic id source. */
+  seq: number;
 };
 
 export type UploadQueueAction =
@@ -88,6 +102,7 @@ function patch(items: UploadItem[], id: string, fn: (item: UploadItem) => Upload
   return items.map((item) => (item.id === id ? fn(item) : item));
 }
 
+/** Pure upload-queue reducer: enqueue, status transitions, retry, and removal. */
 export function uploadQueueReducer(state: UploadQueueState, action: UploadQueueAction): UploadQueueState {
   switch (action.type) {
     case 'enqueue': {

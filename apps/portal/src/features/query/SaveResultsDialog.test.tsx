@@ -67,7 +67,6 @@ describe('normalizeCsvName (SPEC-049)', () => {
 describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
   it('saves the .csv-normalized name into the chosen destination (root)', () => {
     const {onSave} = renderDialog();
-    // Default destination is the root; confirm there.
     fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'user-bucket',
@@ -87,8 +86,6 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     });
   });
 
-  // SPEC-055: with shared spaces available, a selector chooses the destination
-  // space; switching to a shared space saves into that space's bucket + root.
   it('offers a space selector and saves into the chosen shared space', () => {
     const {onSave} = renderDialog({spaces: [personalSpace, sharedSpace]});
     fireEvent.change(screen.getByLabelText('Save to'), {target: {value: 'salesdata'}});

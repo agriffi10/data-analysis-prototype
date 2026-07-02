@@ -3,16 +3,21 @@ import {useCopyToClipboard} from '../lib/useCopyToClipboard';
 import {CopyIcon, CheckIcon} from './icons';
 
 type Props = {
-  // The exact text written to the clipboard.
+  /** The exact text written to the clipboard. */
   value: string;
-  // What the value is, woven into the accessible label, e.g. "path" → "Copy path".
+  /** What the value is, woven into the accessible label, e.g. "path" → "Copy path". */
   label: string;
   className?: string;
 };
 
-// Icon-only copy-to-clipboard button. Swaps to a check on success and announces
-// the result through a polite live region (the icon itself is decorative). The
-// static aria-label keeps the control's name stable for assistive tech.
+/**
+ * Icon-only copy-to-clipboard button. Swaps to a check on success and announces
+ * the result through a polite live region (the icon itself is decorative). The
+ * static aria-label keeps the control's name stable for assistive tech.
+ *
+ * @example
+ * <CopyButton value="s3://bucket/report.csv" label="path" />
+ */
 export function CopyButton({value, label, className}: Props) {
   const {copied, copy} = useCopyToClipboard();
 

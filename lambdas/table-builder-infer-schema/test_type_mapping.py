@@ -1,8 +1,8 @@
-"""Unit tests for the pure polars→Hive dtype mapping (SPEC-069 FR-002).
+"""Unit tests for the pure polars→Hive dtype mapping.
 
-No AWS / Lambda runtime — just polars dtype objects → Hive strings, incl. nested and
-the date-parsing rule (Date→date / Datetime→timestamp). Runnable under pytest OR
-directly: ``python3 test_type_mapping.py``.
+No AWS / Lambda runtime — just polars dtype objects → Hive strings, including nested
+types and the date rule (Date→date / Datetime→timestamp). Runnable under pytest or
+directly: python3 test_type_mapping.py.
 """
 
 import os

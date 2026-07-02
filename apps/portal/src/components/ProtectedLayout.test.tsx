@@ -7,8 +7,8 @@ import type {AuthContextValue, AuthStatus} from '../features/auth';
 
 vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
 vi.mock('../lib/returnPath', () => ({setReturnPath: vi.fn()}));
-// SPEC-059: the prefetch fires from an effect on authenticated mount — stub it so
-// the layout test stays focused on the auth gate (and makes no S3 call).
+// The notifications prefetch fires from an effect on authenticated mount — stub
+// it so the layout test stays focused on the auth gate (and makes no S3 call).
 vi.mock('../features/notifications', () => ({prefetchNotifications: vi.fn().mockResolvedValue(undefined)}));
 
 import {useAuth} from '../features/auth';

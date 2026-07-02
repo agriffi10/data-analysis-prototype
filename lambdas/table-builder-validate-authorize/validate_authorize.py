@@ -1,14 +1,13 @@
-"""validate-authorize — the table-builder Step Function's first task (SPEC-067).
+"""validate-authorize — the table-builder Step Function's first task.
 
-One task, run once before any other verb: parse the SQS record, verify the caller's
-Cognito ID token → trusted ``actor``, authorize that the actor may create a table in
-the target space/DB, and validate the table name, partition keys, and in-space
-location. Read-only — no provisioning side effects. A failed check raises a
-``TerminalError`` (with a stable ``reason``), so the state machine's Catch routes to
-the recorded-failure/Fail state and no downstream verb runs.
+Parses the SQS record, verifies the caller's Cognito ID token into the trusted
+actor, authorizes the target space/DB, and validates the table name, partition keys,
+and in-space location. Read-only — no provisioning side effects. A failed check
+raises TerminalError with a stable reason, so the state machine's Catch records the
+failure and no downstream verb runs.
 
-Emits the small validated, normalized request the next states consume:
-``{actor, space, tableName, partitionKeys, location, requestId}``.
+Emits the validated, normalized request the next states consume:
+{actor, space, tableName, partitionKeys, location, requestId}.
 """
 
 import json
@@ -57,7 +56,7 @@ def _validate_table_name(name):
 
 
 def _validate_partition_keys(keys):
-    """Validate the user-declared partition keys (SPEC-067). [] / None = flat."""
+    """Validate the user-declared partition keys; [] or None means a flat table."""
     if not keys:
         return []
     if not isinstance(keys, list):
@@ -120,14 +119,13 @@ def handler(event, context):
     req = _parse_request(record)
     space = req.get("space") or {}
 
-    # Trusted-actor binding: derive the actor from the verified token, not the body. An
-    # `unauthorized` failure raises BEFORE the actor is known — there's no recipient to
-    # notify (the SFN still records it), so it's deliberately outside the try below.
+    # The actor comes from the verified token, never the body. An unauthorized failure
+    # raises before the actor is known — there is no recipient to notify (the SFN still
+    # records it), so this is deliberately outside the try below.
     actor = auth.verified_username(req.get("idToken"))
 
-    # From here the actor is known, so a forbidden / invalid_table_name /
-    # invalid_partition_keys terminal failure notifies the actor (SPEC-072, best-effort)
-    # before the SFN Catch → Fail records it (no side effects either way).
+    # From here the actor is known, so a terminal validation failure notifies the actor
+    # (best-effort) before the SFN Catch records it.
     try:
         prefix = _authorize_space(space, actor)
         table_name = req.get("tableName")

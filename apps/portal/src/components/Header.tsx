@@ -4,13 +4,20 @@ import {BrandMark} from './BrandMark';
 import {Button} from './Button';
 import {PrimaryNav} from './PrimaryNav';
 
+/**
+ * Persistent auth-aware top bar: brand mark, primary tabs (authenticated only),
+ * notifications bell, and sign-in/out controls.
+ *
+ * @example
+ * <Header />
+ */
 export function Header() {
   const {status, user, error, signIn, signOut} = useAuth();
 
-  // SPEC-060 FR-001: the bell's unread indicator reads the SPEC-059 hook. Mounted
-  // here in the always-present authenticated shell, this also activates the 60s
-  // background poll + prefetched read so the indicator is correct on first paint
-  // and refreshes without a navigation. Disabled (no read) when signed out.
+  // Mounting the notifications hook in the always-present shell activates the
+  // 60s background poll + prefetched read, so the bell's unread indicator is
+  // correct on first paint and refreshes without a navigation. Disabled (no
+  // read) when signed out.
   const {hasUnread, unreadCount} = useNotifications(status === 'authenticated' ? (user?.username ?? null) : null);
 
   return (
@@ -18,12 +25,10 @@ export function Header() {
       <div className="flex h-full items-center gap-4 px-4">
         <BrandMark />
 
-        {/* Primary tabs (Files | Query) — authenticated shell only (FR-001). */}
         {status === 'authenticated' && <PrimaryNav />}
 
         <div className="flex-1" />
 
-        {/* User zone */}
         <div className="flex items-center gap-3">
           {status === 'loading' && (
             <span

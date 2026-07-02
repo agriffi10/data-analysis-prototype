@@ -17,24 +17,27 @@ import {connectionStatusLabel} from './connectionStatus';
 import type {SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
 
 // One renderable shared-connection row, normalized from the cache (via
-// useConnections) and the local optimistic pending list (SPEC-051 create).
+// useConnections) and the local optimistic pending list.
 type ConnectionRow = {
   name: string;
   role: SharedConnectionRole;
   status: SharedConnectionStatus;
   reason?: string;
-  members?: string[]; // SPEC-053: owner-readable projection (owner rows only)
-  createdAt?: string; // ISO; drives the "created <date>" meta line
-  owner?: string; // owner username (member rows); drives the "owner: <name>" meta line
+  /** Owner-readable projection (owner rows only). */
+  members?: string[];
+  /** ISO; drives the "created <date>" meta line. */
+  createdAt?: string;
+  /** Owner username (member rows); drives the "owner: <name>" meta line. */
+  owner?: string;
 };
 
-// SPEC-052 FR-002: the management surface for shared connections. Lists the user's
-// spaces (name + role + status) with a Refresh control and the Create CTA. The
-// list comes from the ONE `useConnections` hook (the same source the Query schema
-// rail and Files list read), merged with the local optimistic pending entries so a
-// just-created connection shows "provisioning…" before the pipeline writes the
-// cache. Owners get a Manage-members drawer (SPEC-053); leave/delete land in
-// SPEC-054.
+/**
+ * Management surface for shared connections: lists the user's spaces (name + role +
+ * status) with Refresh and Create. The list comes from the one `useConnections` hook
+ * (the same source the Query schema rail and Files list read), merged with local
+ * optimistic pending entries so a just-created connection shows provisioning before
+ * the pipeline writes the cache.
+ */
 export function ConnectionsPage() {
   const {user} = useAuth();
   const username = user?.username ?? null;
@@ -49,12 +52,12 @@ export function ConnectionsPage() {
   const [leaving, setLeaving] = useState<ConnectionRow | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRow | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  // SPEC-054: connections the user has just left/deleted, shown optimistically as
+  // Connections the user has just left/deleted, shown optimistically as
   // leaving/deleting until a Refresh reconciles them away (mirrors `retrying`).
   const [transitioning, setTransitioning] = useState<Map<string, 'leaving' | 'deleting'>>(new Map());
-  // Failed entries the user has hidden (FR-005 Dismiss) and ones being retried
-  // (shown optimistically as provisioning). Both are local-only; a Refresh
-  // reconciles against the authoritative cache.
+  // Failed entries the user has dismissed, and ones being retried (shown
+  // optimistically as provisioning). Both are local-only; a Refresh reconciles
+  // against the authoritative cache.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [retrying, setRetrying] = useState<Set<string>>(new Set());
 
@@ -197,8 +200,8 @@ export function ConnectionsPage() {
 
   return (
     <>
-      {/* Content is left-aligned (no mx-auto) and capped at the design's 920px so
-          the cards don't stretch across very wide viewports. */}
+      {/* Content is left-aligned (no mx-auto) and capped at 920px so the cards
+          don't stretch across very wide viewports. */}
       <PageLayout
         title="Shared connections"
         subtitle="Spaces you own or belong to. Files, tables, and the database are shared by all members."
@@ -291,10 +294,9 @@ export function ConnectionsPage() {
   );
 }
 
-// The secondary meta line under a card's name (the design's `.meta`). Owner cards
-// show member count + created date; member cards show the owner. Transient states
-// explain that the change applies on the next refresh. Returns null when there's
-// nothing to show (e.g. an older cache entry missing the projected fields).
+// Secondary meta line under a card's name. Owner cards show member count + created
+// date; member cards show the owner; transient states explain that the change
+// applies on the next refresh. Null when there's nothing to show.
 function metaLine(row: ConnectionRow): string | null {
   if (row.status === 'active') {
     if (row.role === 'owner') {
@@ -409,9 +411,8 @@ function RolePill({role}: {role: SharedConnectionRole}) {
   );
 }
 
-// Status as a colored dot + text label (the design's `.badge`). The label always
-// carries the meaning, so the color/dot is never the only signal (a11y). The dot
-// pulses for the transient states.
+// Status as a colored dot + text label; the label always carries the meaning, so
+// the color/dot is never the only signal. The dot pulses for transient states.
 function StatusBadge({status}: {status: SharedConnectionStatus}) {
   const transient = status === 'provisioning' || status === 'leaving' || status === 'deleting';
   const tone =

@@ -4,7 +4,7 @@ import {isSchemaChangingSql, sameSql} from './query.sql';
 describe('sameSql', () => {
   it('ignores trailing/leading whitespace and CRLF line endings', () => {
     // The editor commonly appends a trailing newline — a saved-query tab must not
-    // read as "dirty" because of it (SPEC-043 FR-008).
+    // read as "dirty" because of it.
     expect(sameSql('SELECT 1;', 'SELECT 1;\n')).toBe(true);
     expect(sameSql('SELECT 1;', '  SELECT 1;  ')).toBe(true);
     expect(sameSql('SELECT 1;\nSELECT 2;', 'SELECT 1;\r\nSELECT 2;')).toBe(true);

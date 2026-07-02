@@ -5,8 +5,7 @@ type Props = {
   onCancel: () => void;
 };
 
-// SPEC-040 FR-003: warn-and-confirm before Clear wipes the editor. Thin wrapper
-// over the shared ConfirmDialog (no undo → focus defaults to Cancel).
+/** Warn-and-confirm before Clear wipes the editor (no undo, so focus defaults to Cancel). */
 export function ClearQueryDialog({onConfirm, onCancel}: Props) {
   return (
     <ConfirmDialog

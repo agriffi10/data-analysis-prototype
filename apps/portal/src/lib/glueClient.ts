@@ -2,13 +2,14 @@ import {GlueClient} from '@aws-sdk/client-glue';
 import {getSessionCredentials} from './awsCredentials';
 import type {ServiceResult} from '../types/service.types';
 
-// Authenticated Glue client (SPEC-034 FR-001). Same scoped Identity Pool
-// credentials as getAthenaClient/getS3Client; the portal role's analytics policy
-// (SPEC-032 FR-006) scopes Glue to the user's own database
-// (`database/${aws:PrincipalTag/username}` + its tables), so the app only ever
-// requests the user's own derived database — anything else is denied by IAM.
-// On a credential-expiry error, callers retry via withCredentialRetry(getGlueClient,
-// ...). Never throws — returns the ServiceResult error shape.
+/**
+ * Builds a GlueClient from the signed-in user's Identity Pool credentials.
+ *
+ * IAM scopes Glue to the user's own database via the `username` principal tag —
+ * anything else is denied server-side. Pass `forceRefresh` on credential expiry
+ * (callers wrap calls in `withCredentialRetry(getGlueClient, …)`). Never throws
+ * — returns a ServiceResult.
+ */
 export async function getGlueClient(forceRefresh = false): Promise<ServiceResult<GlueClient>> {
   const creds = await getSessionCredentials(forceRefresh);
   if (!creds.success) return creds;

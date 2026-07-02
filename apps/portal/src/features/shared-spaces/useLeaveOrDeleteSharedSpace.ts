@@ -2,15 +2,14 @@ import {useCallback, useState} from 'react';
 import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
 import type {ServiceResult} from '../../types/service.types';
 
-// SPEC-054 + `forget`: the terminal lifecycle actions. A member `leave` revokes only
-// the caller's own access; an owner `delete` cascades the whole space away; `forget`
-// durably clears a failed/phantom entry from the caller's own list (cache-only, or a
-// teardown of the caller's own failed create — never a healthy active space). All are
-// pipeline requests (the browser never touches Cognito/Glue/LF/S3 directly) that the
-// provisioner authorizes server-side (`leave`: member-not-owner; `delete`: owner-only;
-// `forget`: self-scoped) and apply after a Refresh-connections (SPEC-052). This hook
-// only enqueues + tracks the in-flight state; the optimistic pending status lives in
-// the Connections screen (mirrors useManageMembers / useCreateSharedConnection).
+/**
+ * Terminal shared-space lifecycle actions. `leave` revokes only the caller's own
+ * access; `delete` (owner-only) cascades the whole space away; `forget` durably
+ * clears a failed/phantom entry from the caller's own list — never a healthy active
+ * space. All are pipeline requests authorized server-side; results apply after a
+ * Refresh-connections. This hook only enqueues + tracks in-flight state; optimistic
+ * pending status lives in the Connections screen.
+ */
 export function useLeaveOrDeleteSharedSpace(username: string | null) {
   const [busy, setBusy] = useState(false);
 

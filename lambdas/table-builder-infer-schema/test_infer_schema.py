@@ -1,11 +1,10 @@
-"""Handler tests for infer-schema (SPEC-069 FR-001/FR-005/FR-006).
+"""Handler tests for infer-schema.
 
-Real polars fixtures (Parquet / CSV / JSON) written to a temp dir; the source-URI seam
-is stubbed to point polars at the local fixture (polars scans local paths and s3:// the
-same way) and the access probe is stubbed out. Asserts the type rules — CSV all string
-(no inference), JSON date/datetime strings → date/timestamp, Parquet native types — plus
-scan-error → terminal and transient-S3 (head_object) → raised. Runnable under pytest OR
-directly: ``python3 test_infer_schema.py``.
+Real polars fixtures (Parquet / CSV / JSON) written to a temp dir; the source-URI
+seam points polars at the local fixture (polars scans local paths and s3:// the same
+way) and the access probe is stubbed out. Asserts the type rules plus scan-error →
+terminal and transient-S3 → raised. Runnable under pytest or directly:
+python3 test_infer_schema.py.
 """
 
 import datetime as dt
@@ -149,8 +148,6 @@ def test_transient_s3_error_propagates():
         return
     raise AssertionError("expected the transient error to propagate")
 
-
-# ── SPEC-072 notifications ────────────────────────────────────────────────────
 
 def test_notifies_actor_on_schema_inference_failure():
     path = os.path.join(_TMP, "bad2.parquet")

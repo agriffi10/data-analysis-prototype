@@ -5,15 +5,17 @@ import {Modal} from '../../components/Modal';
 import {CATALOG_IDENTIFIER_RE} from './query.constants';
 
 type Props = {
-  // In-flight while the CREATE VIEW runs in the background — locks Create + dismiss.
+  /** In-flight while the CREATE VIEW runs in the background — locks Create + dismiss. */
   busy?: boolean;
   onCreate: (name: string) => void;
   onCancel: () => void;
 };
 
-// SPEC-048 FR-001/002: name-prompt modal for "Create view". The name is validated
-// against the shared catalog-safe identifier rule (SPEC-033) — Create stays
-// disabled, with an inline error, until it passes. Composes the shared Modal.
+/**
+ * Name-prompt modal for "Create view". The name is validated against the
+ * shared catalog-safe identifier rule — Create stays disabled, with an inline
+ * error, until it passes.
+ */
 export function CreateViewDialog({busy = false, onCreate, onCancel}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);

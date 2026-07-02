@@ -4,11 +4,12 @@ import type {ServiceResult} from '../types/service.types';
 // The Cognito Identity Pool credentials Amplify holds for the signed-in user.
 type SessionCredentials = NonNullable<Awaited<ReturnType<typeof fetchAuthSession>>['credentials']>;
 
-// Fetch the signed-in user's scoped Identity Pool credentials (SPEC-011). Shared
-// by the Athena and Glue client builders (SPEC-034 FR-001); `getS3Client` mirrors
-// this inline because it additionally constructs a dev-only static client and sets
-// checksum options. `forceRefresh` drives the credential-expiry retry path.
-// Never throws — returns the ServiceResult error shape instead.
+/**
+ * Fetches the signed-in user's scoped Identity Pool credentials.
+ *
+ * Shared by the Athena/Glue/SQS client builders. `forceRefresh` drives the
+ * credential-expiry retry path. Never throws — returns a ServiceResult.
+ */
 export async function getSessionCredentials(forceRefresh = false): Promise<ServiceResult<SessionCredentials>> {
   try {
     const session = await fetchAuthSession({forceRefresh});
@@ -31,10 +32,13 @@ export async function getSessionCredentials(forceRefresh = false): Promise<Servi
   }
 }
 
-// Fetch the signed-in user's Cognito ID token (JWT). SPEC-056 trusted-actor
-// binding: shared-space requests carry this token in the message; the provisioner
-// Lambda verifies it server-side and derives the actor from cognito:username, so
-// the caller's identity can't be spoofed. Never throws.
+/**
+ * Fetches the signed-in user's Cognito ID token (JWT).
+ *
+ * Control-plane requests carry this token so the backend can verify it and
+ * derive the actor from the `cognito:username` claim — the caller's identity
+ * is never client-asserted. Never throws — returns a ServiceResult.
+ */
 export async function getIdToken(forceRefresh = false): Promise<ServiceResult<string>> {
   try {
     const session = await fetchAuthSession({forceRefresh});

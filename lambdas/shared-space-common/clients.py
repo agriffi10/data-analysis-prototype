@@ -1,8 +1,8 @@
-"""Lazy, cached AWS + JWKS client factories (SPEC-062 shared layer).
+"""Lazy, cached AWS and JWKS client factories.
 
-SDK clients are created once per warm container and reused across invocations
-(§5 cold-start). Heavy deps (boto3, PyJWT) are imported lazily inside the factory
-so a function that doesn't need a client never pays for it.
+SDK clients are created once per warm container and reused across invocations. Heavy
+deps (boto3, PyJWT) are imported lazily inside the factory so a function that doesn't
+need a client never pays for it.
 
 Tests patch the cached globals directly (e.g. ``clients._s3 = FakeS3()``); each
 factory returns the global if already set, so no real AWS client is constructed.
@@ -62,7 +62,7 @@ def sqs():
 
 
 def jwks(url):
-    """Cached PyJWKClient for the User Pool JWKS endpoint (SPEC-056 token verify)."""
+    """Cached PyJWKClient for the User Pool JWKS endpoint."""
     global _jwks
     if _jwks is None:
         from jwt import PyJWKClient

@@ -63,8 +63,8 @@ vi.mock('@aws-sdk/lib-storage', () => ({
   }
 }));
 
-// The service now obtains an authenticated client via getS3Client() (SPEC-013).
-// Mock that + the client's send. vi.hoisted lets the mock factory reference these.
+// The service obtains an authenticated client via getS3Client(). Mock that +
+// the client's send; vi.hoisted lets the mock factory reference these.
 const {mockSend, mockGetS3Client, mockStaticSend} = vi.hoisted(() => ({
   mockSend: vi.fn(),
   mockGetS3Client: vi.fn(),
@@ -78,7 +78,6 @@ vi.mock('../../lib/s3Client', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: an authenticated client whose send is mockSend.
   mockGetS3Client.mockResolvedValue({success: true, data: {send: mockSend}});
   // Reset the once-per-session marker guard so each case starts clean.
   __resetPrefixMarkerCache();
@@ -384,8 +383,8 @@ describe('isPrefixMarkerKey', () => {
 });
 
 describe('deleteObject', () => {
-  // FR-003: UI-layer defense in depth only — the authoritative protection is the
-  // IAM deny on */DO_NOT_DELETE.txt in SPEC-013 FR-001's role policy.
+  // UI-layer defense in depth only — the authoritative protection is the IAM
+  // deny on */DO_NOT_DELETE.txt in the role policy.
   it('rejects deletion of the prefix marker without calling S3', async () => {
     const result = await deleteObject({
       bucket: 'us',

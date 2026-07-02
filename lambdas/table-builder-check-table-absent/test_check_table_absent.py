@@ -1,9 +1,9 @@
-"""Unit tests for the table-builder check-table-absent Lambda (SPEC-068).
+"""Unit tests for the table-builder check-table-absent Lambda.
 
-Glue is stubbed via ``clients.glue()``: a fake catalog client whose ``get_table``
-either returns (table exists), raises ``EntityNotFoundException`` (absent → pass), or
-raises a transient error (must propagate, NOT be terminalized). Runnable under pytest
-OR directly: ``python3 test_check_table_absent.py``.
+Glue is stubbed via clients.glue(): a fake catalog client whose get_table either
+returns (table exists), raises EntityNotFoundException (absent → pass), or raises a
+transient error (must propagate, not be terminalized). Runnable under pytest or
+directly: python3 test_check_table_absent.py.
 """
 
 import json
@@ -106,8 +106,6 @@ def test_targets_the_declared_database_and_table():
     c.handler(_event(table="orders", database="salesdata"), None)
     assert fake.calls == [("salesdata", "orders")]
 
-
-# ── SPEC-072 notifications ────────────────────────────────────────────────────
 
 def _actor_event():
     ev = _event()

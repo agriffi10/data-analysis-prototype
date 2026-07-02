@@ -8,15 +8,16 @@ type QueryStatusBarProps = {
   startedAt: number | null;
   rowCount?: number;
   hasMoreRows?: boolean;
-  // SPEC-049: shown only when the succeeded query produced a savable result object
-  // (a row-returning query, not a pure DDL statement).
+  /** Shown only when the succeeded query produced a savable result (row-returning, not pure DDL). */
   canSaveResults?: boolean;
   onSaveResults: () => void;
 };
 
-// SPEC-035 FR-005: slim execution-status bar below the editor. An accessible live
-// region; state is never color-only (icon/spinner + text). FAILED's reason is
-// shown by the workspace's danger Banner — here it's just a terminal indicator.
+/**
+ * Slim execution-status bar below the editor. An accessible live region;
+ * state is never color-only (icon/spinner + text). FAILED's reason is shown
+ * by the workspace's danger Banner — here it's just a terminal indicator.
+ */
 export function QueryStatusBar({
   status,
   isInFlight,

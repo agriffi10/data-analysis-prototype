@@ -1,16 +1,10 @@
-"""CREATE EXTERNAL TABLE DDL generation for the table builder (SPEC-069, pure).
+"""Pure CREATE EXTERNAL TABLE DDL generation for the table builder.
 
-Assembles the ``CREATE EXTERNAL TABLE IF NOT EXISTS`` statement from the resolved data
-columns + the user-declared partition keys, with the right per-format storage clause /
-SerDe and — when partitioned — the Athena partition-projection ``TBLPROPERTIES`` (so the
-table is queryable with NO ``MSCK REPAIR``, SPEC-070). Pure and unit-tested against
-golden strings; no AWS, no polars.
-
-Format rules (decided 2026-06-30):
-  - Parquet → ``STORED AS PARQUET``.
-  - CSV     → OpenCSVSerde (the all-string serde) + ``skip.header.line.count=1``; every
-              column is ``string`` (CSV is not type-inferred).
-  - JSON    → OpenX JsonSerDe.
+Assembles the CREATE EXTERNAL TABLE IF NOT EXISTS statement from the resolved data
+columns + user-declared partition keys, with the per-format storage clause and — when
+partitioned — the Athena partition-projection TBLPROPERTIES, so the table is
+queryable with no MSCK REPAIR. Format rules: Parquet → STORED AS PARQUET; CSV →
+OpenCSVSerde (all-string) + skip.header.line.count=1; JSON → OpenX JsonSerDe.
 """
 
 # Hive type for each declared partition-key projection type.
@@ -82,12 +76,12 @@ def _tblproperties(fmt, partition_keys):
 
 
 def build_create_table_ddl(database, table_name, columns, partition_keys, fmt, location):
-    """Build a valid ``CREATE EXTERNAL TABLE IF NOT EXISTS`` statement (string).
+    """Build a valid CREATE EXTERNAL TABLE IF NOT EXISTS statement (string).
 
-    ``columns`` = ordered ``[{name, type}]`` (Hive types) for the data body;
-    ``partition_keys`` = the user-declared keys ([] = flat). A data column that collides
-    with a partition-key name is dropped from the body (the partition key wins) so the
-    DDL stays valid (FR-003).
+    ``columns`` is the ordered [{name, type}] (Hive types) data body;
+    ``partition_keys`` are the user-declared keys ([] = flat). A data column that
+    collides with a partition-key name is dropped from the body (the partition key
+    wins) so the DDL stays valid.
     """
     part_names = {k["name"] for k in partition_keys}
     body = ", ".join(

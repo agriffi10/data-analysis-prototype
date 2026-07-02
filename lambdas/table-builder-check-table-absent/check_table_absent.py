@@ -1,14 +1,11 @@
-"""check-table-absent — the table-builder Step Function's second task (SPEC-068).
+"""check-table-absent — the table-builder Step Function's second task.
 
-Guard against clobbering an existing table (Glue has no versioning here): ask the
-Glue Data Catalog whether ``tableName`` already exists in the target database. Not
-found ⇒ pass the request through unchanged; found ⇒ terminal failure ``table_exists``.
-Read-only (``GetTable`` only). Together with SPEC-070's ``CREATE … IF NOT EXISTS`` this
-is the duplicate-name guard.
-
-Transient Glue errors (throttling / 5xx) are RAISED — not converted to a terminal
-reason — so the SFN ``Retry`` can retry them (lambdas.md §4). Only a genuinely
-existing table is terminal.
+Guards against clobbering an existing table: asks the Glue Data Catalog whether
+tableName already exists in the target database. Not found ⇒ pass the request
+through unchanged; found ⇒ terminal failure table_exists. Read-only (GetTable only);
+together with execute-ddl's CREATE ... IF NOT EXISTS this is the duplicate-name
+guard. Transient Glue errors (throttling / 5xx) are raised — not terminal — so the
+SFN Retry can retry them.
 """
 
 import logging
@@ -32,9 +29,8 @@ def handler(event, context):
         logger.info("table %s absent in %s — proceeding", table, database)
         return event
 
-    # A GetTable that returns ⇒ the table already exists; any other error (throttling,
-    # 5xx) propagates uncaught for the SFN Retry. Notify the actor of the terminal
-    # failure before raising (SPEC-072, best-effort).
+    # A GetTable that returns ⇒ the table already exists; any other error propagates
+    # uncaught for the SFN Retry. Notify the actor (best-effort) before raising.
     err = TerminalError("table_exists", f"table {table!r} already exists in database {database!r}")
     notify.emit_failure(event, err, "check")
     raise err

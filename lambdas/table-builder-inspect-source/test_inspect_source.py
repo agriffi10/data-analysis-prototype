@@ -1,9 +1,9 @@
-"""Unit tests for the table-builder inspect-source Lambda (SPEC-068).
+"""Unit tests for the table-builder inspect-source Lambda.
 
-The classification logic is tested by stubbing ``s3_listing.list_data_objects`` with a
-canned object list (no S3). The shared ignore-rules + paginated lister are tested
-directly against a fake S3 paginator. Runnable under pytest OR directly:
-``python3 test_inspect_source.py``.
+The classification logic is tested by stubbing s3_listing.list_data_objects with a
+canned object list (no S3). The shared ignore rules + paginated lister are tested
+directly against a fake S3 paginator. Runnable under pytest or directly:
+python3 test_inspect_source.py.
 """
 
 import os
@@ -71,8 +71,6 @@ def _expect_reason(event, reason):
     raise AssertionError(f"expected TerminalError({reason!r}), but handler succeeded")
 
 
-# ── Happy paths ──────────────────────────────────────────────────────────────
-
 def test_flat_parquet_folder_passes():
     _stub_objects([PREFIX + "part-0.parquet", PREFIX + "part-1.parquet"])
     out = i.handler(_event(), None)
@@ -106,8 +104,6 @@ def test_json_variants_are_one_format():
     assert out["fileCount"] == 3
 
 
-# ── Ignore rules ─────────────────────────────────────────────────────────────
-
 def test_marker_results_and_hidden_files_are_ignored_by_helper():
     # Exercise the real ignore rules through a fake paginator (below), not the stub.
     pages = [{"Contents": [
@@ -125,8 +121,6 @@ def test_marker_results_and_hidden_files_are_ignored_by_helper():
     assert got == [(PREFIX + "real.parquet", 100)]
 
 
-# ── Format failures ──────────────────────────────────────────────────────────
-
 def test_mixed_formats_is_terminal():
     _stub_objects([PREFIX + "a.parquet", PREFIX + "b.csv"])
     _expect_reason(_event(), "mixed_formats")
@@ -141,8 +135,6 @@ def test_only_unsupported_is_terminal_unsupported_format():
     _stub_objects([PREFIX + "a.orc", PREFIX + "b.avro"])
     _expect_reason(_event(), "unsupported_format")
 
-
-# ── Layout failures ──────────────────────────────────────────────────────────
 
 def test_flat_request_but_nested_data_is_unexpected_partitioning():
     _stub_objects([PREFIX + "year=2026/part-0.parquet"])
@@ -163,8 +155,6 @@ def test_extra_undeclared_segment_is_mismatch():
     _stub_objects([PREFIX + "year=2026/month=01/day=05/part-0.csv"])
     _expect_reason(_event(partition_keys=_keys("year", "month")), "partition_layout_mismatch")
 
-
-# ── SPEC-072 notifications ────────────────────────────────────────────────────
 
 def test_notifies_actor_on_a_terminal_reason():
     _stub_objects([PREFIX + "a.parquet", PREFIX + "b.csv"])  # mixed_formats
@@ -188,8 +178,7 @@ def test_no_notification_on_success():
     assert q.calls == []
 
 
-# ── Fake S3 paginator for the ignore-rules test ──────────────────────────────
-
+# Fake S3 paginator backing the ignore-rules test above.
 class _FakePaginator:
     def __init__(self, pages):
         self._pages = pages

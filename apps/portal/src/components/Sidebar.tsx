@@ -5,20 +5,26 @@ import type {Connection} from '../features/query/query.types';
 import {connectionStatusLabel} from '../features/shared-spaces/connectionStatus';
 
 type Props = {
-  // The spaces the signed-in user can browse — personal first, then shared A–Z
-  // (SPEC-052's `useConnections`). Empty in the dev-unauth path.
+  /**
+   * The spaces the signed-in user can browse — personal first, then shared A–Z
+   * (from `useConnections`). Empty in the dev-unauth path.
+   */
   connections: Connection[];
-  activeSpaceId: string; // 'personal' | the active shared-space name
+  /** 'personal' | the active shared-space name. */
+  activeSpaceId: string;
   onSelectSpace: (id: string) => void;
 };
 
-// Left navigation sidebar for the authenticated app shell (design-system §5 /
-// mockup.html). 248px surface panel with a right hairline border. SPEC-057: it
-// lists the user's **spaces** — their personal space (labelled with the username)
-// plus each active shared connection — in one list; selecting one points the file
-// browser at that space. provisioning/failed shared connections are shown disabled
-// with their status (not selectable). Hidden below md so the browser fills narrow
-// viewports.
+/**
+ * Left navigation sidebar for the authenticated app shell — a 248px panel
+ * listing the user's spaces: their personal space (labelled with the username)
+ * plus each shared connection. Selecting one points the file browser at that
+ * space; provisioning/failed connections are shown disabled with their status.
+ * Hidden below the md breakpoint so the browser fills narrow viewports.
+ *
+ * @example
+ * <Sidebar connections={connections} activeSpaceId={spaceId} onSelectSpace={setSpaceId} />
+ */
 export function Sidebar({connections, activeSpaceId, onSelectSpace}: Props) {
   return (
     <aside
@@ -31,8 +37,8 @@ export function Sidebar({connections, activeSpaceId, onSelectSpace}: Props) {
         aria-label="Spaces">
         {connections.map((conn) => {
           const active = conn.id === activeSpaceId;
-          // SPEC-057 FR-001: provisioning/failed/leaving shared connections appear
-          // but are not selectable — disabled, with their status shown.
+          // Provisioning/failed/leaving shared connections appear but are not
+          // selectable — disabled, with their status shown.
           const usable = isConnectionUsable(conn);
           return (
             <li key={conn.id}>

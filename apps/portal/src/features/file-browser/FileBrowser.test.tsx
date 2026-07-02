@@ -26,8 +26,8 @@ vi.mock('../../lib/awsCredentials', () => ({
 }));
 // The upload queue is exercised in UploadQueueProvider.test.tsx; here the hook is
 // stubbed and the in-drawer uploads list is a no-op so these tests stay focused on
-// FileBrowser wiring (and don't need a QueryClient). The provider now lives at the
-// app shell, so FileBrowser no longer renders it.
+// FileBrowser wiring (and don't need a QueryClient). The provider lives at the app
+// shell, so FileBrowser does not render it.
 vi.mock('./uploadQueueContext', () => ({useUploadQueue: vi.fn()}));
 vi.mock('./UploadList', () => ({UploadList: () => null}));
 // Stub the move dialog's folder picker so these tests don't pull in useFileBrowser
@@ -434,7 +434,6 @@ describe('root prefix clamping', () => {
     );
     const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
     expect(within(nav).getByText('My Files')).toBeInTheDocument();
-    // The raw username segment is never rendered.
     expect(within(nav).queryByText('alice')).not.toBeInTheDocument();
   });
 
@@ -494,11 +493,9 @@ describe('root prefix clamping', () => {
       />
     );
 
-    // Drill into docs/
     fireEvent.click(screen.getByRole('button', {name: /open folder docs/i}));
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/docs/', undefined);
 
-    // Navigate back to root via the leftmost breadcrumb crumb
     const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
     fireEvent.click(within(nav).getByRole('button', {name: 'project-alpha'}));
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/', undefined);
@@ -528,7 +525,6 @@ describe('breadcrumb', () => {
     const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
     expect(nav).toHaveTextContent('Home');
     expect(within(nav).getByText('reports')).toHaveAttribute('aria-current', 'page');
-    // Home is now a clickable button
     expect(within(nav).getByRole('button', {name: 'Home'})).toBeInTheDocument();
   });
 
@@ -539,11 +535,9 @@ describe('breadcrumb', () => {
     }));
     render(<FileBrowser bucket="my-bucket" />);
 
-    // drill in
     fireEvent.click(screen.getByRole('button', {name: /open folder archive/i}));
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'archive/', undefined);
 
-    // navigate back via breadcrumb
     const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
     fireEvent.click(within(nav).getByRole('button', {name: 'Home'}));
     expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', undefined, undefined);
@@ -561,9 +555,7 @@ describe('breadcrumb', () => {
     }));
     render(<FileBrowser bucket="my-bucket" />);
 
-    // first level
     fireEvent.click(screen.getByRole('button', {name: /open folder docs/i}));
-    // second level
     fireEvent.click(screen.getByRole('button', {name: /open folder 2024/i}));
 
     const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
@@ -620,7 +612,7 @@ describe('load more', () => {
   });
 });
 
-// ─── Download (SPEC-015 FR-003) ────────────────────────────────────────────────
+// ─── Download ─────────────────────────────────────────────────────────────────
 
 describe('download', () => {
   const fileItem = {
@@ -681,7 +673,7 @@ describe('download', () => {
   });
 });
 
-// ─── Details / metadata panel (SPEC-017) ───────────────────────────────────────
+// ─── Details / metadata panel ───────────────────────────────────────────────────
 
 describe('details panel', () => {
   const fileItem = {
@@ -743,7 +735,7 @@ describe('details panel', () => {
   });
 });
 
-// ─── Write controls gating (SPEC-016) ──────────────────────────────────────────
+// ─── Write controls gating ──────────────────────────────────────────────────────
 
 describe('write controls', () => {
   it('are hidden when not writable (read-only / dev-unauth)', () => {
@@ -762,7 +754,7 @@ describe('write controls', () => {
     expect(screen.getByRole('button', {name: /new folder/i})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: /^upload$/i})).toBeInTheDocument();
 
-    // The dropzone now lives in a drawer that is closed until Upload is clicked.
+    // The dropzone lives in a drawer that is closed until Upload is clicked.
     expect(screen.queryByText(/choose files/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: /^upload$/i}));
     expect(screen.getByText(/choose files/i)).toBeInTheDocument();
@@ -786,7 +778,7 @@ describe('write controls', () => {
   });
 });
 
-// ─── Selection + delete (SPEC-018) ──────────────────────────────────────────────
+// ─── Selection + delete ─────────────────────────────────────────────────────────
 
 describe('selection + delete', () => {
   const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
@@ -922,7 +914,7 @@ describe('selection + delete', () => {
   });
 });
 
-// ─── Rename + move (SPEC-019) ───────────────────────────────────────────────────
+// ─── Rename + move ──────────────────────────────────────────────────────────────
 
 describe('rename + move', () => {
   const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
@@ -941,14 +933,11 @@ describe('rename + move', () => {
     });
     render(<FileBrowser {...authProps} />);
 
-    // Nothing selected → disabled.
     expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
 
-    // One file → enabled.
     fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
     expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeEnabled();
 
-    // Add a second selection → rename is single-item, so disabled again.
     fireEvent.click(screen.getByRole('checkbox', {name: /select folder photos/i}));
     expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
   });
@@ -964,9 +953,8 @@ describe('rename + move', () => {
 
     expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'file', key: 'alice/report.pdf'}, 'renamed');
 
-    // The renamed item's key changes, so its stale selection would linger as a
-    // ghost. Selection is cleared on rename → Rename is single-item and now
-    // disabled (nothing selected), and the checkbox is unchecked.
+    // The renamed item's key changes, so a stale selection would linger as a ghost;
+    // rename clears the selection, leaving Rename disabled and the box unchecked.
     expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
     expect(screen.getByRole('checkbox', {name: /select report\.pdf/i})).not.toBeChecked();
   });
@@ -1033,7 +1021,7 @@ describe('rename + move', () => {
   });
 });
 
-// ─── Copy (SPEC-039) ────────────────────────────────────────────────────────────
+// ─── Copy ───────────────────────────────────────────────────────────────────────
 
 describe('copy', () => {
   const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
@@ -1155,7 +1143,6 @@ describe('toolbar download', () => {
     expect(screen.getByRole('button', {name: 'Download selected items'})).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
     expect(screen.getByRole('button', {name: 'Download selected items'})).toBeEnabled();
-    // Add a folder → no longer a single file → disabled.
     fireEvent.click(screen.getByRole('checkbox', {name: /select folder photos/i}));
     expect(screen.getByRole('button', {name: 'Download selected items'})).toBeDisabled();
   });

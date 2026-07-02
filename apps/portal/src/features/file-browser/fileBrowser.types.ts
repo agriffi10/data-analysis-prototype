@@ -1,60 +1,57 @@
-// Feature-scoped types for the file browser (SPEC-015).
+// Feature-scoped types for the file browser.
 
 export type DownloadUrl = {
-  url: string; // presigned GetObject URL
-  expiresAt: string; // ISO timestamp the URL stops working
+  /** Presigned GetObject URL. */
+  url: string;
+  /** ISO timestamp the URL stops working. */
+  expiresAt: string;
 };
-
-// ── Upload (SPEC-016) ────────────────────────────────────────────────────────
 
 export type UploadResult = {key: string};
 export type CreateFolderResult = {prefix: string};
 
-// ── Delete (SPEC-018) ────────────────────────────────────────────────────────
-
-// The outcome of a (possibly batched/recursive) delete. `deleted` lists the keys
-// S3 confirmed removed; `errors` collects per-key failures — including the marker
-// guard refusal — so a partial failure is reported, never thrown (FR-002/FR-004).
+/**
+ * Outcome of a (possibly batched/recursive) delete. Partial failure is
+ * reported, never thrown: `errors` includes the marker-guard refusal.
+ */
 export type DeleteResult = {
+  /** Keys S3 confirmed removed. */
   deleted: string[];
   errors: {key: string; message: string}[];
 };
 
-// ── Move / rename (SPEC-019) ─────────────────────────────────────────────────
-
-// The outcome of a (possibly recursive) move. `moved` lists the source keys whose
-// object was copied to the destination and then deleted; `errors` collects per-key
-// failures. Move is non-atomic: a key whose copy failed is left in place and
-// reported here, never thrown (FR-004).
+/**
+ * Outcome of a (possibly recursive) move. Move is non-atomic: a key whose copy
+ * failed is left in place and reported in `errors`, never thrown.
+ */
 export type MoveResult = {
+  /** Source keys copied to the destination and then deleted. */
   moved: string[];
   errors: {key: string; message: string}[];
 };
 
-// ── Copy (SPEC-039) ──────────────────────────────────────────────────────────
-
-// The outcome of a (possibly recursive) copy. `copied` lists the source keys
-// whose object was duplicated to the destination; `errors` collects per-key
-// failures. Copy is additive (no source delete) and best-effort: a key whose
-// copy failed is recorded here, never thrown. There is no rollback — a partial
-// folder copy leaves a partial duplicate the user can delete (FR-002).
+/**
+ * Outcome of a (possibly recursive) copy. Copy is additive (no source delete)
+ * and best-effort: a failed key is recorded, never thrown, with no rollback — a
+ * partial folder copy leaves a partial duplicate the user can delete.
+ */
 export type CopyResult = {
+  /** Source keys duplicated to the destination. */
   copied: string[];
   errors: {key: string; message: string}[];
 };
 
-// ── Object metadata (SPEC-017) ───────────────────────────────────────────────
-
-// The fields a single HeadObject call exposes for the read-only metadata panel.
-// `storageClass` defaults to "STANDARD" when S3 omits it; `userMetadata` holds
-// the object's x-amz-meta-* pairs (empty when none were set).
+/** The fields a single HeadObject call exposes for the read-only metadata panel. */
 export type ObjectMetadata = {
   key: string;
   contentType: string;
-  size: number; // bytes (ContentLength)
+  /** Bytes (ContentLength). */
+  size: number;
   lastModified: Date;
   etag: string;
+  /** "STANDARD" when S3 omits it. */
   storageClass: string;
+  /** The object's x-amz-meta-* pairs (empty when none were set). */
   userMetadata: Record<string, string>;
 };
 
@@ -64,7 +61,7 @@ export type ObjectMetadata = {
 export const MULTIPART_PART_SIZE = 5 * 1024 * 1024; // 5 MiB
 export const PART_CONCURRENCY = 4;
 
-// Overall per-file ceiling (FR-001), default 5 GiB, overridable via env.
+// Overall per-file ceiling, default 5 GiB, overridable via env.
 const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 const envMax = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES);
 export const MAX_UPLOAD_BYTES = Number.isFinite(envMax) && envMax > 0 ? envMax : DEFAULT_MAX_UPLOAD_BYTES;

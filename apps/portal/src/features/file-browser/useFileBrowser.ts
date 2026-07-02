@@ -11,20 +11,21 @@ export type UseFileBrowserResult = {
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
-  // Pagination (SPEC-015 FR-002): hasMore drives the "Load more" control,
-  // loadMore fetches the next page, isLoadingMore disables the control mid-fetch.
+  /** Whether further pages exist — drives the "Load more" control. */
   hasMore: boolean;
+  /** Fetches the next listing page. */
   loadMore: () => void;
+  /** Disables the "Load more" control mid-fetch. */
   isLoadingMore: boolean;
 };
 
-export function useFileBrowser(
-  bucket: string,
-  prefix?: string,
-  // SPEC-014 FR-002: exact key to hide from the listing (the user's root prefix
-  // marker). Matched by exact key, so a like-named file in a subfolder is shown.
-  markerKey?: string
-): UseFileBrowserResult {
+/**
+ * Paginated folder listing backed by TanStack Query.
+ *
+ * @param markerKey - exact key to hide from the listing (the user's root prefix
+ *   marker). Matched by exact key, so a like-named file in a subfolder shows.
+ */
+export function useFileBrowser(bucket: string, prefix?: string, markerKey?: string): UseFileBrowserResult {
   const queryClient = useQueryClient();
   const normalizedPrefix = prefix ?? '';
 

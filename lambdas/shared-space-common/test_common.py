@@ -1,9 +1,8 @@
-"""Unit tests for the shared-space common layer (SPEC-062): auth.authorize,
-registry I/O, membership slots, per-user cache, and the notify no-op seam.
+"""Unit tests for the shared-space common layer.
 
-Runs under pytest *or* as a plain script (`python3 test_common.py`); the JS CI does
-not run Python. Clients are faked (fakes.install); token verification is not
-exercised here (it's stubbed in the validator's tests).
+Runs under pytest or as a plain script (`python3 test_common.py`); the JS CI does not
+run Python. Clients are faked (fakes.install); token verification is not exercised
+here (it's stubbed in the validator's tests).
 """
 
 import json
@@ -19,7 +18,6 @@ from fakes import install, raises, FakeUserNotFound
 REG = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
 
 
-# ── auth.authorize (SPEC-056) ────────────────────────────────────────────────
 def test_create_allowed_for_any_actor():
     assert auth.authorize("create", "sales", "zoe", None) is None
 
@@ -45,7 +43,6 @@ def test_unknown_action_rejected():
     raises(lambda: auth.authorize("nuke", "sales", "alice", REG), auth.AuthorizationError, "unknown action")
 
 
-# ── registry I/O (SPEC-051/056) ──────────────────────────────────────────────
 def test_reserve_creates_then_collides():
     s3, *_ = install()
     assert reg.reserve("sales", "alice", "req-1") == "created"
@@ -102,14 +99,13 @@ def test_save_members_and_set_status_and_delete():
 
 def test_save_members_heals_missing_created_at():
     s3, *_ = install()
-    # An older record written before createdAt was stamped (e.g. testing_connection).
+    # A record written before createdAt was stamped.
     base = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active"}
     reg.save_members(base, ["alice", "bob"], "req-2")
     rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert rec["createdAt"]  # healed, no longer blank
 
 
-# ── membership slots (SPEC-056) ──────────────────────────────────────────────
 def test_assign_slot_then_replay_safe():
     _, _, _, cognito = install()
     cognito.users = {"bob": {}}
@@ -142,7 +138,6 @@ def test_clear_slot_idempotent():
     membership.clear_slot("ghost", "sales")  # absent user -> no-op
 
 
-# ── per-user cache (SPEC-051/053) ────────────────────────────────────────────
 def test_cache_upsert_remove_and_owner_projection():
     s3, *_ = install()
     cache.upsert_entry("bob", {"name": "sales", "role": "member", "status": "active"})
@@ -233,7 +228,6 @@ def test_cache_remove_absent_writes_nothing():
     assert ("user-bkt", "bob/user_settings/shared-connections.json") not in s3.store
 
 
-# ── notify seam (SPEC-061 wiring lands later) ────────────────────────────────
 def test_notify_is_noop_when_queue_unset():
     install()  # NOTIFICATIONS_QUEUE_URL = ""
     from fakes import FakeSqs

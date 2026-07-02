@@ -37,10 +37,8 @@ describe('Modal', () => {
         <button>inside</button>
       </Modal>
     );
-    // Click on the panel (its content) does not dismiss.
     fireEvent.click(screen.getByRole('button', {name: 'inside'}));
     expect(onDismiss).not.toHaveBeenCalled();
-    // Escape dismisses.
     fireEvent.keyDown(document, {key: 'Escape'});
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });

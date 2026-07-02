@@ -1,13 +1,15 @@
 import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 import type {PartitionKey} from './tableBuild.types';
 
-// SPEC-071 FR-002: the editable draft behind one partition-key row. Config fields
-// are kept as strings (raw input) and only parsed into the typed `PartitionKey`
-// wire shape once the row validates. `id` is a stable local key for React lists +
-// focus management on add/remove.
 export type PartitionType = 'integer' | 'date' | 'string';
 
+/**
+ * The editable draft behind one partition-key row. Config fields are kept as raw
+ * input strings and only parsed into the typed `PartitionKey` wire shape once the
+ * row validates.
+ */
 export type DraftPartitionKey = {
+  /** Stable local key for React lists + focus management on add/remove. */
   id: string;
   name: string;
   type: PartitionType;
@@ -19,8 +21,8 @@ export type DraftPartitionKey = {
   start: string;
   end: string;
   format: string;
-  // string
-  values: string; // comma-separated enum list
+  /** Comma-separated enum list (string type). */
+  values: string;
 };
 
 export type PartitionKeyErrors = {
@@ -39,8 +41,10 @@ const INT_RE = /^-?\d+$/;
 
 let seq = 0;
 
-// A blank row. Default type = String (the simplest projection to configure) and a
-// sensible default date format so the date path isn't empty-by-default.
+/**
+ * A blank draft row. Default type = string (the simplest projection to configure)
+ * with a sensible default date format so the date path isn't empty-by-default.
+ */
 export function emptyDraftKey(): DraftPartitionKey {
   seq += 1;
   return {
@@ -57,7 +61,7 @@ export function emptyDraftKey(): DraftPartitionKey {
   };
 }
 
-// Split a comma-separated enum list into trimmed, non-empty values.
+/** Split a comma-separated enum list into trimmed, non-empty values. */
 export function parseValues(raw: string): string[] {
   return raw
     .split(',')
@@ -65,8 +69,10 @@ export function parseValues(raw: string): string[] {
     .filter((v) => v.length > 0);
 }
 
-// Validate one draft against the whole set (for the uniqueness check). Returns only
-// the fields that are in error, so an empty object means the row is valid.
+/**
+ * Validate one draft against the whole set (for the uniqueness check). Returns only
+ * the fields in error, so an empty object means the row is valid.
+ */
 export function validateDraftKey(draft: DraftPartitionKey, all: DraftPartitionKey[]): PartitionKeyErrors {
   const errors: PartitionKeyErrors = {};
   const name = draft.name.trim();
@@ -98,8 +104,7 @@ export function validateDraftKey(draft: DraftPartitionKey, all: DraftPartitionKe
   return errors;
 }
 
-// Build the typed wire key from a (validated) draft. Returns null if the draft is
-// invalid, so callers can treat null as "not ready".
+/** Build the typed wire key from a draft; null if the draft is invalid ("not ready"). */
 export function buildPartitionKey(draft: DraftPartitionKey, all: DraftPartitionKey[]): PartitionKey | null {
   if (Object.keys(validateDraftKey(draft, all)).length > 0) return null;
   const name = draft.name.trim();
@@ -121,12 +126,14 @@ export function buildPartitionKey(draft: DraftPartitionKey, all: DraftPartitionK
 export type PartitionKeysResult = {
   valid: boolean;
   keys: PartitionKey[];
-  errors: PartitionKeyErrors[]; // one per draft, index-aligned
+  /** One per draft, index-aligned. */
+  errors: PartitionKeyErrors[];
 };
 
-// Reduce the whole draft list to the result the dialog needs: overall validity, the
-// built wire keys (empty list = flat/unpartitioned table), and per-row errors for
-// inline display. An empty draft list is valid (a flat table sends no keys).
+/**
+ * Reduce the whole draft list to overall validity, the built wire keys, and
+ * index-aligned per-row errors. An empty draft list is valid (a flat table sends no keys).
+ */
 export function buildPartitionKeys(drafts: DraftPartitionKey[]): PartitionKeysResult {
   const errors = drafts.map((d) => validateDraftKey(d, drafts));
   const valid = errors.every((e) => Object.keys(e).length === 0);

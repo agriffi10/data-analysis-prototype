@@ -38,7 +38,7 @@ function strip(activeTabId = 't1') {
 
 describe('QueryTabStrip accessibility (SPEC-045 FR-004)', () => {
   it('multi-tab strip has no violations', async () => {
-    // The closable tab's ✕ is now a decorative, non-focusable pointer affordance
+    // The closable tab's ✕ is a decorative, non-focusable pointer affordance
     // (not a nested <button>), so axe's `nested-interactive` rule runs clean here
     // — keyboard close stays available via the Delete key on the focused tab.
     await expectNoA11yViolations(strip(), COMPONENT_AXE_OPTIONS);

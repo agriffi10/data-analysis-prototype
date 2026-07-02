@@ -1,8 +1,8 @@
-"""Lazy, cached AWS + JWKS client factories (SPEC-067 table-builder layer).
+"""Lazy, cached AWS + JWKS client factories.
 
-Clients are created once per warm container and reused (cold-start hygiene). Heavy
-deps (boto3, PyJWT) are imported lazily so a verb that doesn't need a client never
-pays for it. Tests patch the cached globals directly (e.g. ``clients._s3 = Fake()``).
+Clients are created once per warm container and reused. Heavy deps (boto3, PyJWT)
+are imported lazily so a verb that doesn't need a client never pays for it. Tests
+patch the cached globals directly (e.g. clients._s3 = Fake()).
 """
 
 _s3 = None
@@ -22,7 +22,6 @@ def s3():
 
 
 def glue():
-    """Cached Glue Data Catalog client (check-table-absent, SPEC-068)."""
     global _glue
     if _glue is None:
         import boto3
@@ -32,7 +31,6 @@ def glue():
 
 
 def athena():
-    """Cached Athena client (execute-ddl runs the CREATE DDL, SPEC-070)."""
     global _athena
     if _athena is None:
         import boto3
@@ -51,7 +49,7 @@ def sqs():
 
 
 def jwks(url):
-    """Cached PyJWKClient for the User Pool JWKS endpoint (token verification)."""
+    """Return the cached PyJWKClient for the User Pool JWKS endpoint."""
     global _jwks
     if _jwks is None:
         from jwt import PyJWKClient

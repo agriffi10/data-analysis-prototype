@@ -6,7 +6,7 @@ import {Button} from '../components/Button';
 import {UploadIcon, FolderIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
 
-// ─── Inline icons (from docs/design/landing.html) ─────────────────────────────
+// ─── Inline icons ──────────────────────────────────────────────────────────────
 
 function ShieldIcon() {
   return (
@@ -187,8 +187,7 @@ const FEATURES = [
 
 // ─── Landing page ─────────────────────────────────────────────────────────────
 
-// Public marketing landing page (`/`), SPEC-029. Renders its own self-contained
-// nav (the app Header is suppressed on '/' by RootLayout) and makes no S3 calls.
+/** Public marketing landing page (`/`) — self-contained nav (the app Header is suppressed on '/'), no S3 calls. */
 export default function LandingPage() {
   const {status, signIn, signUp} = useAuth();
   const navigate = useNavigate();
@@ -196,11 +195,9 @@ export default function LandingPage() {
 
   const isAuthed = status === 'authenticated';
 
-  // A visitor who just completed an auth round-trip is sent on to the route they
-  // originally requested (captured by the auth gate) or the /files default both
-  // signIn and signUp seed. A visitor who is simply already signed in and opened
-  // the landing page has no pending return path — they stay here and see a
-  // "Go to Dashboard" entry point instead of the sign-in/sign-up buttons.
+  // A visitor who just completed an auth round-trip is sent on to their pending
+  // return path. An already-signed-in visitor has none — they stay here and see
+  // "Go to Dashboard" instead of the sign-in/sign-up buttons.
   if (isAuthed) {
     const target = takeReturnPath();
     if (target)

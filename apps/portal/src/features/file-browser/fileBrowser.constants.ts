@@ -1,8 +1,8 @@
-// Prefix-marker constants (SPEC-014). The marker is a zero-content-significance
-// object written at the root of each user's prefix so the prefix physically
-// exists in S3 (S3 has no real folders — a prefix exists only while an object
-// lives under it). It is hidden from the listing (FR-002) and protected from
-// deletion at the service layer (FR-003).
+// Prefix-marker constants. The marker is a zero-content-significance object
+// written at the root of each user's prefix so the prefix physically exists in
+// S3 (S3 has no real folders — a prefix exists only while an object lives under
+// it). It is hidden from the listing and protected from deletion at the service
+// layer.
 
 export const PREFIX_MARKER_FILENAME = 'DO_NOT_DELETE.txt';
 
@@ -11,15 +11,16 @@ export const PREFIX_MARKER_BODY =
   'your folder to disappear from administrative tooling. It is hidden from ' +
   'your file browser and can be ignored.';
 
-// Single source of truth for the marker's S3 key. The marker always lives at the
-// root of the user's own prefix: `{username}/DO_NOT_DELETE.txt`.
+/**
+ * Single source of truth for the marker's S3 key. The marker always lives at
+ * the root of the user's own prefix: `{username}/DO_NOT_DELETE.txt`.
+ */
 export function prefixMarkerKey(username: string): string {
   return `${username}/${PREFIX_MARKER_FILENAME}`;
 }
 
-// Listing page size (SPEC-037). The file browser fetches this many entries per
-// ListObjectsV2 page (MaxKeys) and the user pulls the rest on demand via the
-// SPEC-015 "Load more" control. 25 is a UI/UX page size — intentionally small so
-// each request and render stays bounded — NOT an S3 limit (S3's hard cap is 1000).
-// Single source of truth for the listing page size.
+// Single source of truth for the listing page size: entries per ListObjectsV2
+// page (MaxKeys); the user pulls the rest via "Load more". 25 is a UI/UX page
+// size — intentionally small so each request and render stays bounded — NOT an
+// S3 limit (S3's hard cap is 1000).
 export const LISTING_PAGE_SIZE = 25;

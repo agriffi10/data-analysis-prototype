@@ -1,30 +1,31 @@
 import {createContext, useContext} from 'react';
 
-// SPEC-018 FR-001: multi-select state for bulk actions (delete). A selected item
-// is either a file (identified by its S3 key) or a folder (identified by its S3
-// prefix) — delete treats the two differently (folders are recursive), so the
-// distinction is kept in the selection itself.
+/**
+ * A multi-select entry: a file (identified by its S3 key) or a folder
+ * (identified by its S3 prefix). Bulk actions treat the two differently
+ * (folders are recursive), so the distinction lives in the selection itself.
+ */
 export type SelectableItem = {type: 'file'; key: string} | {type: 'folder'; prefix: string};
 
-// The stable id under which an item is tracked: its key (file) or prefix (folder).
+/** The stable id under which an item is tracked: its key (file) or prefix (folder). */
 export function itemId(item: SelectableItem): string {
   return item.type === 'file' ? item.key : item.prefix;
 }
 
 export type SelectionContextValue = {
-  // Selected items keyed by id (SelectableItem.key | .prefix).
+  /** Selected items keyed by id (SelectableItem.key | .prefix). */
   selected: Map<string, SelectableItem>;
   count: number;
   isSelected: (id: string) => boolean;
   toggle: (item: SelectableItem) => void;
-  // Replace the selection with exactly these items (header "select all").
+  /** Replace the selection with exactly these items (header "select all"). */
   selectAll: (items: SelectableItem[]) => void;
   clear: () => void;
 };
 
 export const SelectionContext = createContext<SelectionContextValue | null>(null);
 
-// ── Reducer (FR-001) ──────────────────────────────────────────────────────────
+// ── Reducer ───────────────────────────────────────────────────────────────────
 // Kept here (a non-component module) rather than in SelectionProvider.tsx so the
 // pure reducer is unit-testable and the provider file exports only its component
 // (react-refresh requires component files to export components only). Items are
@@ -41,6 +42,7 @@ export type SelectionAction =
 
 export const initialSelectionState: SelectionState = {items: new Map()};
 
+/** Pure selection reducer: toggle / selectAll / clear over the id-keyed Map. */
 export function selectionReducer(state: SelectionState, action: SelectionAction): SelectionState {
   switch (action.type) {
     case 'toggle': {
@@ -71,8 +73,10 @@ export function selectionReducer(state: SelectionState, action: SelectionAction)
   }
 }
 
-// Consume the selection store. Throws if used outside a SelectionProvider so a
-// missing provider is a loud development error, not a silent no-op.
+/**
+ * Consumes the selection store. Throws outside a SelectionProvider so a missing
+ * provider is a loud development error, not a silent no-op.
+ */
 export function useSelection(): SelectionContextValue {
   const ctx = useContext(SelectionContext);
   if (ctx === null) {

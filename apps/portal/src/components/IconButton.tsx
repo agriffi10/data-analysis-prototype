@@ -3,7 +3,8 @@ import {cx} from '../lib/cx';
 
 type IconButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   size?: 'sm' | 'md';
-  label: string; // required — applied as aria-label (the icon child is decorative)
+  /** Applied as aria-label — the accessible name (the icon child is decorative). */
+  label: string;
 };
 
 const BASE =
@@ -11,8 +12,16 @@ const BASE =
 
 const SIZES = {sm: 'h-7 w-7', md: 'h-8 w-8'} as const;
 
-// Ghost icon-only button (SPEC-028) — close buttons, row actions. `label`
-// becomes the accessible name.
+/**
+ * Ghost icon-only button — close buttons, row actions. Pass the icon as the
+ * child; the required `label` supplies the accessible name. Forwards all
+ * native `<button>` attributes and a ref.
+ *
+ * @example
+ * <IconButton label="Close panel" onClick={onClose}>
+ *   <CloseIcon className="h-4 w-4" />
+ * </IconButton>
+ */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
   ({size = 'md', label, className, type, ...rest}, ref) => (
     <button

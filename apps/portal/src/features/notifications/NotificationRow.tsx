@@ -7,12 +7,13 @@ type NotificationRowProps = {
   onMarkRead: (id: string) => void;
 };
 
-// SPEC-060 FR-003/005: one notification row, rendered as a self-contained card
-// (design `.nrow`). Unread rows get a subtle accent wash, a bold message, an
-// accent marker dot, and a Mark-read control; read rows are de-emphasized with no
-// marker or control (a width-matched slot keeps the message aligned). The unread
-// state is also conveyed in a visually-hidden label, so it's never color-only
-// (FR-006). There is no delete (notifications are only ever marked read).
+/**
+ * One notification row, rendered as a self-contained card.
+ *
+ * Unread rows get an accent wash, marker dot, and a Mark-read control; the unread
+ * state is also conveyed in a visually-hidden label so it's never color-only.
+ * There is no delete — notifications are only ever marked read.
+ */
 export function NotificationRow({notification, onMarkRead}: NotificationRowProps) {
   const {id, message, read, timestamp} = notification;
 

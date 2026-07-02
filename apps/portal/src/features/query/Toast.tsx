@@ -8,17 +8,17 @@ export type ToastState = {
 
 type Props = ToastState & {
   onDismiss: () => void;
-  // SPEC-049: optional inline action (e.g. "View in Files"). Auto-dismiss is
-  // suppressed while an action is offered so it stays reachable.
+  /** Optional inline action (e.g. "View in Files"); suppresses auto-dismiss so it stays reachable. */
   action?: {label: string; onClick: () => void};
 };
 
 const AUTO_DISMISS_MS = 4000;
 
-// SPEC-044 FR-006: minimal transient toast for Drop-table (and DDL-fetch)
-// feedback — the app's first toast primitive. Fixed bottom-right, accessible
-// live region, manually dismissible. Success/error auto-dismiss; `info` (used as
-// a "working…" notice) stays until the caller clears it. Never blocks interaction.
+/**
+ * Minimal transient toast: fixed bottom-right, accessible live region,
+ * manually dismissible. Success/danger auto-dismiss; `info` (a "working…"
+ * notice) stays until the caller clears it. Never blocks interaction.
+ */
 export function Toast({variant, message, onDismiss, action}: Props) {
   useEffect(() => {
     if (variant === 'info') return; // caller clears the working notice

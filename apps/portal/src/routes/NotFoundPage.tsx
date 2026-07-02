@@ -1,7 +1,7 @@
 import {Link} from 'react-router-dom';
 import {usePageTitle} from '../hooks/usePageTitle';
 
-// Minimal not-found page for unknown routes (FR-001).
+/** Minimal not-found page for unknown routes. */
 export default function NotFoundPage() {
   usePageTitle('Not Found');
 

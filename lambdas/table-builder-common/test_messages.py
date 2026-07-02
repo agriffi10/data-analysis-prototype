@@ -1,7 +1,6 @@
-"""Unit tests for the table-builder notification message map (SPEC-072 Data Model).
+"""Unit tests for the table-builder notification message map.
 
-Pure functions — no AWS. Runnable under pytest OR directly:
-``python3 test_messages.py``.
+Pure functions — no AWS. Runnable under pytest or directly: python3 test_messages.py.
 """
 
 import os

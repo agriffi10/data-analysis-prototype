@@ -5,18 +5,18 @@ import {Modal} from '../../components/Modal';
 import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 
 type Props = {
-  // In-flight while the create request is being enqueued — locks Create + dismiss.
+  /** In-flight while the create request is being enqueued — locks Create + dismiss. */
   busy?: boolean;
   onCreate: (name: string) => void;
   onCancel: () => void;
 };
 
-// SPEC-051 FR-001: name-prompt modal for a new shared connection. The name is
-// validated against the shared catalog-safe identifier rule (SPEC-033) — it becomes
-// the S3 prefix AND the Glue database, exactly like a username — so Create stays
-// disabled (with an inline error) until it passes. The copy states the name is
-// permanent (no rename) and globally unique, so a later collision reads as expected
-// UX, not a surprise. Composes the shared Modal/Input/Button primitives.
+/**
+ * Name-prompt modal for a new shared connection. The name becomes the S3 prefix AND
+ * the Glue database, so it's validated against the catalog-safe identifier rule and
+ * Create stays disabled (with an inline error) until it passes. The copy states the
+ * name is permanent and globally unique so a later collision reads as expected UX.
+ */
 export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);

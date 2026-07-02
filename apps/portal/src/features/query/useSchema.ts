@@ -8,10 +8,11 @@ export type SchemaData = {
   tables: GlueTableSummary[];
 };
 
-// SPEC-034 FR-006: expose the signed-in user's database + its tables for the
-// schema browser (SPEC-035). Disabled while the database name is null. Keyed by
-// database so a DDL `CREATE TABLE`/`DROP TABLE` run through runQuery can refresh
-// it via invalidateSchema.
+/**
+ * Loads a database + its tables for the schema browser. Disabled while the
+ * database name is null. Keyed by database so DDL runs can refresh it via
+ * {@link invalidateSchema}.
+ */
 export function useSchema(databaseName: string | null) {
   return useQuery({
     queryKey: queryKeys.schema(databaseName ?? '__none__'),
@@ -27,8 +28,7 @@ export function useSchema(databaseName: string | null) {
   });
 }
 
-// FR-006: refresh a database's schema after table DDL runs through runQuery.
-// Exported (not a method) so it can be called with any QueryClient and unit-tested.
+/** Refreshes a database's cached schema after schema-changing DDL runs. */
 export async function invalidateSchema(client: QueryClient, databaseName: string): Promise<void> {
   await client.invalidateQueries({queryKey: queryKeys.schema(databaseName)});
 }

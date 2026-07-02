@@ -1,12 +1,11 @@
-"""leave verb (SPEC-054; SPEC-062 single-task Lambda).
+"""leave verb: a member revokes only their own access.
 
-A member revokes only their own access: clear their membership slot + per-user cache
-entry and drop them from the registry. Shared objects/tables/DB and every OTHER member
-are untouched (it's shared, not owned). Idempotent — if the actor isn't a member (e.g.
-a retry after the registry write) it's a clean no-op success. The registry write is
-LAST, so a mid-way failure leaves the actor still listed and a retry re-runs the
-(idempotent) slot/cache clears. The validator already blocks the owner; the guard here
-is defence in depth.
+Clears the actor's membership slot + per-user cache entry and drops them from the
+registry. Shared objects/tables/DB and every OTHER member are untouched. Idempotent —
+if the actor isn't a member (e.g. a retry after the registry write) it's a clean no-op
+success. The registry write is LAST, so a mid-way failure leaves the actor still
+listed and a retry re-runs the (idempotent) slot/cache clears. The validator already
+blocks the owner; the guard here is defence in depth.
 """
 
 import logging
@@ -22,6 +21,7 @@ logger.setLevel(logging.INFO)
 
 
 def leave_space(space, actor, request_id, registry):
+    """Remove ``actor`` from ``space``; a clean no-op success if they aren't a member."""
     owner = registry["owner"]
     members = list(registry.get("members", []))
     if actor == owner:
@@ -33,8 +33,7 @@ def leave_space(space, actor, request_id, registry):
     remaining = [m for m in members if m != actor]
     reg.save_members(registry, remaining, request_id)
     cache.write_owner_projection(owner, space, remaining, registry.get("createdAt"))
-    # SPEC-061 event 6: notify the owner that a member left (after the registry write;
-    # the leaving user is never the owner — guarded above). No-op leaves emit nothing.
+    # Notify the owner only after the registry write lands; no-op leaves emit nothing.
     emit_notification(
         owner,
         f'"{actor}" left the shared workspace "{space}".',

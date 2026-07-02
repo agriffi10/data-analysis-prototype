@@ -2,6 +2,7 @@ import {useContext} from 'react';
 import {AuthContext} from './authContext';
 import type {AuthContextValue} from './auth.types';
 
+/** Reads the auth context; throws when used outside an AuthProvider. */
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (context === undefined) {

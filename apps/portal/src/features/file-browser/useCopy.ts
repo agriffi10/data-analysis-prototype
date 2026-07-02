@@ -5,14 +5,16 @@ import {copyObject, copyFolder, objectExists, uploadPercent, validateFolderName}
 import {leafName, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
 
-// Aggregated outcome of a (possibly multi-item, recursive) copy: how many objects
-// S3 duplicated, and any per-item/per-key failures (SPEC-039 FR-004).
+/**
+ * Aggregated outcome of a (possibly multi-item, recursive) copy: how many
+ * objects S3 duplicated, and any per-item/per-key failures.
+ */
 export type CopySummary = {
   copiedCount: number;
   errors: {item: string; message: string}[];
 };
 
-// A copy into a different folder hit existing destination objects (FR-005). One
+// A copy into a different folder hit existing destination objects. One
 // confirmation covers the whole batch: Overwrite all (re-run just the collided
 // items) or cancel.
 type CopyCollision = {
@@ -21,25 +23,27 @@ type CopyCollision = {
   onCancel: () => void;
 };
 
-// A same-folder copy (FR-003): the source name necessarily collides, so the app
-// proposes an auto-numbered name the user can edit before the copy runs.
+// A same-folder copy: the source name necessarily collides, so the app proposes
+// an auto-numbered name the user can edit before the copy runs.
 type SameFolderPrompt = {
   kind: 'file' | 'folder';
-  proposedName: string; // the editable, pre-filled non-colliding name
-  validate: (name: string) => string | null; // create-folder/rename rules
+  /** The editable, pre-filled non-colliding name. */
+  proposedName: string;
+  /** Create-folder/rename rules. */
+  validate: (name: string) => string | null;
   onConfirm: (name: string) => void;
   onCancel: () => void;
 };
 
 export type UseCopyResult = {
   isBusy: boolean;
-  progress: number | null; // 0..100 while a folder operation runs, else null
+  /** 0..100 while a folder operation runs, else null. */
+  progress: number | null;
   error: string | null;
   summary: CopySummary | null;
   copyCollision: CopyCollision | null;
   sameFolderPrompt: SameFolderPrompt | null;
-  // `destBucket` defaults to the source bucket; pass a different connection's
-  // bucket to copy across connections (feedback 2026-06-30).
+  /** `destBucket` defaults to the source bucket; pass a different connection's bucket to copy across connections. */
   copyItems: (items: SelectableItem[], destPrefix: string, destBucket?: string) => void;
   dismissError: () => void;
   dismissSummary: () => void;
@@ -47,8 +51,8 @@ export type UseCopyResult = {
 };
 
 // Insert a ` (N)` suffix into a file name before its extension, or onto a folder
-// leaf (FR-003): `report.pdf` → `report (1).pdf`; `docs` → `docs (1)`. A leading
-// dot (dotfile, no real extension) is treated as having no extension.
+// leaf: `report.pdf` → `report (1).pdf`; `docs` → `docs (1)`. A leading dot
+// (dotfile, no real extension) is treated as having no extension.
 function numberedName(name: string, n: number, isFile: boolean): string {
   if (!isFile) return `${name} (${n})`;
   const dot = name.lastIndexOf('.');
@@ -58,11 +62,13 @@ function numberedName(name: string, n: number, isFile: boolean): string {
 
 type Acc = {copied: number; errors: CopySummary['errors']};
 
-// SPEC-039 Phase 2: orchestrates copy (single + multi-select) on top of the
-// copyObject/copyFolder service primitives. Mirrors useMove, but copy is additive
-// (no source delete) so ONLY the destination prefix is invalidated — the source
-// listing is unchanged. Adds the same-folder auto-number flow (FR-003) when the
-// chosen destination is the items' current parent. Never throws.
+/**
+ * Orchestrates copy (single + multi-select) on top of the copyObject/copyFolder
+ * service primitives. Mirrors useMove, but copy is additive (no source delete)
+ * so ONLY the destination prefix is invalidated — the source listing is
+ * unchanged. Adds the same-folder auto-number flow when the chosen destination
+ * is the items' current parent. Never throws.
+ */
 export function useCopy(bucket: string, sourcePrefix: string, username?: string): UseCopyResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
@@ -76,7 +82,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     await invalidateListing(queryClient, destBucket, destPrefix);
   }
 
-  // ── Same-folder copy (FR-003) ──────────────────────────────────────────────
+  // ── Same-folder copy ───────────────────────────────────────────────────────
   // Find the first ` (N)` name that doesn't already exist at the destination,
   // HEAD-checking each candidate. `baseName` is the source's leaf; `destPrefix`
   // is the folder it will sit in. For a folder, the dest key is `{name}/`.
@@ -146,7 +152,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   }
 
   // Opens the editable same-folder prompt with a freshly-computed non-colliding
-  // name (FR-003). Single item only (the destination is its own parent).
+  // name. Single item only (the destination is its own parent).
   async function startSameFolderCopy(item: SelectableItem, destPrefix: string) {
     setIsBusy(true);
     setError(null);
@@ -249,16 +255,16 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   }
 
   async function finalizeCopy(acc: Acc, destPrefix: string, destBucket: string) {
-    // Copy is additive: only the DESTINATION listing changed (FR-004).
+    // Copy is additive: only the DESTINATION listing changed.
     await invalidateDest(destPrefix, destBucket);
     setSummary({copiedCount: acc.copied, errors: acc.errors});
     setIsBusy(false);
   }
 
   // Entry point. If the chosen destination is the items' current parent (same
-  // bucket + prefix), this is a same-folder copy (FR-003) — only valid for a
-  // single item (the auto-number prompt is per-item). Otherwise it's an ordinary
-  // copy to a different folder, possibly in another connection's bucket.
+  // bucket + prefix), this is a same-folder copy — only valid for a single item
+  // (the auto-number prompt is per-item). Otherwise it's an ordinary copy to a
+  // different folder, possibly in another connection's bucket.
   function copyItems(items: SelectableItem[], destPrefix: string, destBucket: string = bucket) {
     if (!username) {
       setError('You must be signed in to copy files.');
@@ -267,10 +273,9 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     if (items.length === 0) return;
 
     if (destBucket === bucket && destPrefix === sourcePrefix) {
-      // Same-folder copy (FR-003): place the item beside itself under an
-      // editable auto-numbered name. The auto-number prompt is per-item, so this
-      // path is single-item by design — same-folder copy is offered for one
-      // selected item; copying many items in place is not a v1 flow.
+      // Same-folder copy: place the item beside itself under an editable
+      // auto-numbered name. The prompt is per-item, so this path is single-item
+      // by design — copying many items in place is not a supported flow.
       void startSameFolderCopy(items[0], destPrefix);
       return;
     }

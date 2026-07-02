@@ -1,4 +1,4 @@
-"""Unit tests for the remove-members verb (SPEC-053; SPEC-062)."""
+"""Unit tests for the remove-members verb."""
 
 import json
 import os
@@ -87,7 +87,6 @@ def test_handler_uses_validated_context():
     assert out["removed"] == ["bob"]
 
 
-# ── Notifications: each removed member is told (owner is not) ─────────────────
 def test_remove_members_notifies_each_removed_member():
     s3, glue, lf, cognito = install()
     sqs = _enable_notifications()

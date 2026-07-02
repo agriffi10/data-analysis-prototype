@@ -7,20 +7,22 @@ export type UseQueryHistoryResult = {
   history: QueryHistoryEntry[];
   isLoading: boolean;
   error: string | null;
-  // Append at submit time; update once the execution reaches a terminal state.
+  /** Append at submit time. */
   appendEntry: (entry: QueryHistoryEntry) => Promise<QueryHistory>;
+  /** Patch an entry once the execution reaches a terminal state. */
   updateEntry: (vars: {queryExecutionId: string; patch: Partial<QueryHistoryEntry>}) => Promise<QueryHistory>;
-  // SPEC-046: manual re-read of the store from S3 (invalidate + refetch the
-  // history key). `isRefreshing` is the in-flight state for the drawer's Refresh
-  // control (true only for a refetch, not the initial load).
+  /** Manual re-read of the store from S3 (invalidate + refetch). */
   refresh: () => Promise<unknown>;
+  /** True only for a refetch, not the initial load — drives the Refresh control. */
   isRefreshing: boolean;
 };
 
-// SPEC-034 FR-007: per-user query history list + append/update mutations. Disabled
-// while username is null. Mutations write the JSON file then seed the cache with
-// the returned history so the list reflects the change immediately. History is
-// read-only to the user (SPEC-036) — there is no delete/clear.
+/**
+ * Per-user query history list + append/update mutations. Disabled while
+ * username is null. Mutations seed the cache with the returned history so the
+ * list reflects the change immediately. History is read-only to the user —
+ * there is no delete/clear.
+ */
 export function useQueryHistory(username: string | null): UseQueryHistoryResult {
   const queryClient = useQueryClient();
   const key = queryKeys.history(username ?? '__none__');

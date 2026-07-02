@@ -5,9 +5,10 @@ type Props = {
   onDismiss: () => void;
 };
 
-// SPEC-041 FR-008: purely informational alert shown when a tab-open is attempted
-// at QUERY_TABS_MAX. Single dismiss button; the attempted action is not
-// completed. Thin wrapper over the shared ConfirmDialog (dismiss-only mode).
+/**
+ * Informational alert shown when a tab-open is attempted at QUERY_TABS_MAX.
+ * Dismiss-only; the attempted action is not completed.
+ */
 export function TabLimitDialog({onDismiss}: Props) {
   return (
     <ConfirmDialog

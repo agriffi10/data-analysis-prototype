@@ -1,11 +1,15 @@
-// Shared inline icons (react-best-practices abstraction pass). The same SVG paths
-// were repeated across nav, the landing page, and the query feature. No icon
-// library (SPEC-024) — these are thin wrappers around the path so callers only
-// pass `className` for sizing/color.
+// Shared inline icons. No icon library by design — thin wrappers around the SVG
+// path so callers only pass `className` for sizing/color. All are aria-hidden
+// (decorative); the host control supplies the accessible name.
 
 type IconProps = {className?: string};
 
-// Upload arrow (BrandMark, landing-page feature icon).
+/**
+ * Upload arrow (BrandMark, landing-page feature icon).
+ *
+ * @example
+ * <UploadIcon className="h-4 w-4 text-white" />
+ */
 export function UploadIcon({className}: IconProps) {
   return (
     <svg
@@ -23,8 +27,12 @@ export function UploadIcon({className}: IconProps) {
   );
 }
 
-// Document / saved-query bookmark (query tab strip, history row, saved-queries
-// drawer). Outlined.
+/**
+ * Document / saved-query bookmark (query tab strip, history row, saved-queries drawer).
+ *
+ * @example
+ * <DocumentIcon className="h-4 w-4" />
+ */
 export function DocumentIcon({className}: IconProps) {
   return (
     <svg
@@ -40,8 +48,13 @@ export function DocumentIcon({className}: IconProps) {
   );
 }
 
-// Folder. Outlined by default (nav); `filled` renders the solid treatment the
-// landing page uses.
+/**
+ * Folder. Outlined by default (nav); `filled` renders the solid treatment the
+ * landing page uses.
+ *
+ * @example
+ * <FolderIcon className="h-[18px] w-[18px]" filled />
+ */
 export function FolderIcon({className, filled = false}: IconProps & {filled?: boolean}) {
   return (
     <svg
@@ -56,7 +69,12 @@ export function FolderIcon({className, filled = false}: IconProps & {filled?: bo
   );
 }
 
-// Overlapping sheets (copy-to-clipboard button). Outlined.
+/**
+ * Overlapping sheets (copy-to-clipboard button).
+ *
+ * @example
+ * <CopyIcon className="h-4 w-4" />
+ */
 export function CopyIcon({className}: IconProps) {
   return (
     <svg
@@ -80,7 +98,12 @@ export function CopyIcon({className}: IconProps) {
   );
 }
 
-// Bell (notifications). Outlined (SPEC-060 header bell link).
+/**
+ * Bell (notifications header link).
+ *
+ * @example
+ * <BellIcon className="h-5 w-5" />
+ */
 export function BellIcon({className}: IconProps) {
   return (
     <svg
@@ -98,7 +121,12 @@ export function BellIcon({className}: IconProps) {
   );
 }
 
-// Checkmark (copy-confirmation state). Outlined.
+/**
+ * Checkmark (copy-confirmation state).
+ *
+ * @example
+ * <CheckIcon className="h-4 w-4 text-success" />
+ */
 export function CheckIcon({className}: IconProps) {
   return (
     <svg

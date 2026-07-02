@@ -1,4 +1,4 @@
-"""Unit tests for the leave verb (SPEC-054; SPEC-062)."""
+"""Unit tests for the leave verb."""
 
 import json
 import os
@@ -70,7 +70,6 @@ def test_leave_defensive_owner_guard():
     raises(lambda: l.leave_space("sales", "alice", "req-l", reg), AuthorizationError, "owner cannot leave")
 
 
-# ── SPEC-061: producer event 6 ───────────────────────────────────────────────
 def test_leave_notifies_owner():
     s3, glue, lf, cognito = install()
     _seed_full_space(s3, glue, cognito)

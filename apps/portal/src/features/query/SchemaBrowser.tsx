@@ -4,14 +4,13 @@ import {isConnectionUsable} from './query.types';
 import type {Connection, GlueTableSummary} from './query.types';
 import {connectionStatusLabel} from '../shared-spaces/connectionStatus';
 
-// SPEC-044: per-table actions, wired in QueryWorkspace.
+/** Per-table actions, wired in QueryWorkspace. */
 export type TableActions = {
   onViewSourceFiles: (table: GlueTableSummary) => void;
   onViewDdl: (table: GlueTableSummary) => void;
   onViewData: (table: GlueTableSummary) => void;
   onDropTable: (table: GlueTableSummary) => void;
-  // True when the table's S3 location is within the user's own space (FR-002);
-  // View source files is disabled otherwise.
+  /** True when the table's S3 location is within the user's own space; View source files is disabled otherwise. */
   canViewSourceFiles: (table: GlueTableSummary) => boolean;
 };
 
@@ -40,8 +39,8 @@ function DatabaseIcon() {
   );
 }
 
-// SPEC-063 FR-001: a provisioning/failed/leaving shared connection is shown but
-// not expandable and not selectable — a static row with its status label.
+// A provisioning/failed/leaving shared connection is shown but not expandable
+// and not selectable — a static row with its status label.
 function UnusableNode({connection}: {connection: Connection}) {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-2 text-base font-semibold text-text-3">
@@ -57,13 +56,14 @@ function UnusableNode({connection}: {connection: Connection}) {
   );
 }
 
-// SPEC-035 FR-007 / SPEC-063: the schema rail. The Database section is a tree —
-// each accessible database (SPEC-047 `connections`) is a collapsible node that, when
-// expanded, loads and groups its own Tables and Views (DatabaseNode). Expanding to
-// browse is decoupled from choosing the active query target: the per-node radio
-// (a `radiogroup` across the nodes) sets the workspace-global active database
-// (SPEC-047) without toggling expansion. Loading / empty / "setting up" / error
-// states render per node.
+/**
+ * The schema rail. Each accessible database is a collapsible node that, when
+ * expanded, loads and groups its own Tables and Views (DatabaseNode).
+ * Expanding to browse is decoupled from choosing the active query target: the
+ * per-node radio (a `radiogroup` across the nodes) sets the workspace-global
+ * active database without toggling expansion. Loading / empty / "setting up"
+ * / error states render per node.
+ */
 export function SchemaBrowser({
   database,
   connections = [],
@@ -71,9 +71,12 @@ export function SchemaBrowser({
   onInsert,
   actions
 }: {
-  database: string; // the active database (drives the active highlight + run target)
-  connections?: Connection[]; // SPEC-047: accessible databases (default: single personal)
-  onSelectDatabase?: (database: string) => void; // SPEC-047: switch the active database
+  /** The active database (drives the active highlight + run target). */
+  database: string;
+  /** Accessible databases (default: single personal). */
+  connections?: Connection[];
+  /** Switches the active database. */
+  onSelectDatabase?: (database: string) => void;
   onInsert: (name: string) => void;
   actions: TableActions;
 }) {
@@ -83,8 +86,8 @@ export function SchemaBrowser({
     connections.length > 0 ? connections : [{id: 'personal', label: database || '—', database, kind: 'personal'}];
   const single = items.length <= 1;
 
-  // FR-006: roving-focus arrow-key navigation across the active-target radios
-  // (APG radiogroup). Selection stays explicit (Enter/Space), so arrows move focus
+  // Roving-focus arrow-key navigation across the active-target radios (APG
+  // radiogroup). Selection stays explicit (Enter/Space), so arrows move focus
   // without changing the active database.
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(e.key)) return;

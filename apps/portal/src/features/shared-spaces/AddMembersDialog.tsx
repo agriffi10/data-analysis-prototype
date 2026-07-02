@@ -4,18 +4,22 @@ import {Modal} from '../../components/Modal';
 import {parseMemberInput} from './memberInput';
 
 type Props = {
-  // In-flight while the add request is being enqueued — locks Add + dismiss.
+  /** In-flight while the add request is being enqueued — locks Add + dismiss. */
   busy?: boolean;
-  // Usernames already in the space (incl. the owner) — excluded from the result
-  // so re-adding an existing member is a client-side no-op.
+  /**
+   * Usernames already in the space (incl. the owner) — excluded from the result so
+   * re-adding an existing member is a client-side no-op.
+   */
   existing: string[];
   onAdd: (members: string[]) => void;
   onCancel: () => void;
 };
 
-// SPEC-053 FR-002: add one or many members. A single textarea takes a single
-// username or a bulk paste; we show how many valid, new usernames will be sent so
-// the owner sees malformed/duplicate tokens silently drop before submitting.
+/**
+ * Add one or many members via a single textarea (single username or bulk paste).
+ * Shows how many valid, new usernames will be sent so the owner sees
+ * malformed/duplicate tokens drop before submitting.
+ */
 export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Props) {
   const [raw, setRaw] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);

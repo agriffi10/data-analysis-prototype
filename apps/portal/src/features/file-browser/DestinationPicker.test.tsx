@@ -135,7 +135,7 @@ describe('DestinationPicker', () => {
     expect(screen.getByText('a.txt')).toBeInTheDocument();
   });
 
-  // ── Cross-connection destinations (feedback 2026-06-30) ────────────────────
+  // ── Cross-connection destinations ───────────────────────────────────────────
   const destinations = [
     {id: 'personal', bucket: 'us', rootPrefix: 'alice/', label: 'My Files', kind: 'personal' as const},
     {id: 'team', bucket: 'shared', rootPrefix: 'team/', label: 'team', kind: 'shared' as const}

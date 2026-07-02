@@ -1,6 +1,14 @@
 import {cx} from '../lib/cx';
 
-// Neutral type pill (SPEC-028) — file/folder type labels in the file table.
+/**
+ * Neutral pill label, e.g. file/folder type badges in the file table.
+ *
+ * Forwards all native `<span>` attributes; `className` is appended so callers
+ * can extend the styling.
+ *
+ * @example
+ * <Badge>CSV</Badge>
+ */
 export function Badge({className, ...rest}: React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span

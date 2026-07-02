@@ -4,34 +4,38 @@ import {Modal} from '../../components/Modal';
 import {DestinationPicker, validateFolderName} from '../file-browser';
 import {normalizeCsvName} from './query.format';
 
-// SPEC-055 FR-003: one place a result can be saved — the user's own space or a
-// shared space they belong to. Each carries its own bucket + navigation root; the
-// protected `athenaresults/` folder is excluded by the picker.
+/**
+ * One place a result can be saved — the user's own space or a shared space
+ * they belong to. Each carries its own bucket + navigation root.
+ */
 export type DestinationSpace = {
   id: string;
   label: string;
   bucket: string;
-  rootPrefix: string; // navigation floor (ends with "/"), e.g. "alice/" or "salesdata/"
-  rootLabel: string; // crumb label for the root (hides the username/space segment)
+  /** Navigation floor (ends with "/"), e.g. "alice/" or "salesdata/". */
+  rootPrefix: string;
+  /** Crumb label for the root (hides the username/space segment). */
+  rootLabel: string;
 };
 
 type Props = {
-  // The destination spaces the user can save into (personal first, then shared).
+  /** The destination spaces the user can save into (personal first, then shared). */
   spaces: DestinationSpace[];
-  defaultName: string; // suggested base name (without extension)
+  /** Suggested base name (without extension). */
+  defaultName: string;
   isBusy?: boolean;
-  // destBucket is the chosen space's bucket; destPrefix is a full in-space key
-  // prefix (ends with "/"); filename is the final ".csv"-normalized leaf.
+  /** `destPrefix` is a full in-space key prefix (ends with "/"); `filename` is the ".csv"-normalized leaf. */
   onSave: (args: {destBucket: string; destPrefix: string; filename: string}) => void;
   onCancel: () => void;
 };
 
-// SPEC-049 FR-002 + SPEC-055 FR-003: destination-folder picker (reused SPEC-039
-// `DestinationPicker`) + a validated file-name field. When the user belongs to
-// shared spaces, a space selector chooses which space to browse (personal or a
-// shared one); the picker remounts per space (keyed) so its breadcrumb/browse
-// state resets cleanly. Save is disabled until a destination is chosen and the
-// name is valid.
+/**
+ * Destination-folder picker + a validated file-name field for saving results
+ * as CSV. When the user belongs to shared spaces, a space selector chooses
+ * which space to browse; the picker remounts per space (keyed) so its
+ * breadcrumb/browse state resets cleanly. Save is disabled until a
+ * destination is chosen and the name is valid.
+ */
 export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, onCancel}: Props) {
   const [name, setName] = useState(defaultName);
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');

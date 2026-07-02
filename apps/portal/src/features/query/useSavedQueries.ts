@@ -11,9 +11,11 @@ export type UseSavedQueriesResult = {
   remove: (id: string) => Promise<SavedQueriesStore>;
 };
 
-// SPEC-043 FR-004: per-user saved-queries list + upsert/remove mutations. Disabled
-// while username is null. Mutations write the JSON file then seed the cache with
-// the returned store so the drawer reflects the change immediately.
+/**
+ * Per-user saved-queries list + upsert/remove mutations. Disabled while
+ * username is null. Mutations seed the cache with the returned store so the
+ * UI reflects the change immediately.
+ */
 export function useSavedQueries(username: string | null): UseSavedQueriesResult {
   const queryClient = useQueryClient();
   const key = queryKeys.savedQueries(username ?? '__none__');

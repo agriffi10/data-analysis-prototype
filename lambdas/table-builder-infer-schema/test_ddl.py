@@ -1,8 +1,8 @@
-"""Golden-string tests for the pure DDL generator (SPEC-069 FR-004).
+"""Golden-string tests for the pure DDL generator.
 
-No AWS / polars — assert the EXACT generated ``CREATE EXTERNAL TABLE`` for flat
+No AWS / polars — asserts the exact generated CREATE EXTERNAL TABLE for flat
 Parquet, partitioned CSV (integer projection + OpenCSVSerde all-string), partitioned
-JSON, and a string ``enum`` partition key. Runnable under pytest OR directly.
+JSON, and a string enum partition key. Runnable under pytest or directly.
 """
 
 import os

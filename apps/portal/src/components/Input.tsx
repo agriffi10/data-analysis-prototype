@@ -2,15 +2,24 @@ import {forwardRef, useId} from 'react';
 import {cx} from '../lib/cx';
 
 type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
-  error?: string | null; // when set: shows the message + invalid ring
-  label?: string; // when set: renders a <label> above the input
+  /** When set: shows the message below the input + the invalid ring. */
+  error?: string | null;
+  /** When set: renders a `<label>` above the input. */
+  label?: string;
 };
 
 const BASE =
   'w-full rounded-md border bg-surface px-3 h-9 text-base text-text placeholder:text-text-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:border-accent disabled:opacity-45 transition-colors';
 
-// Single-line text input (SPEC-028) with built-in error state and optional
-// label. Forwards a ref and all native <input> attributes.
+/**
+ * Single-line text input with built-in error state and optional label. The
+ * error message is announced (`role="alert"`) and wired to the input via
+ * aria-invalid/aria-describedby. Forwards a ref and all native `<input>`
+ * attributes.
+ *
+ * @example
+ * <Input label="Folder name" value={name} onChange={(e) => setName(e.target.value)} error={nameError} />
+ */
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({error, label, id, className, 'aria-describedby': describedBy, ...rest}, ref) => {
     const hasError = error != null && error !== '';
