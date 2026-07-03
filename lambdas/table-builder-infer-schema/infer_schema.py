@@ -44,9 +44,10 @@ def _object_uri(bucket, key):
 def _check_access(bucket, key):
     """Cheap access probe run before the polars scan.
 
-    Surfaces a transient S3 error (throttling / 5xx) as a retryable boto error before
-    the scan, whose errors are terminal — preserving the SFN Retry semantics we would
-    otherwise lose reading through polars.
+    Surfaces an S3 error (missing/denied/throttled object) as a plain boto error before
+    the scan — distinct from the scan's own errors, which are terminalized as
+    schema_inference_failed. An error here escapes to the handler wrapper, which
+    notifies the actor (@notifies_on_failure) so the failure isn't silent.
     """
     clients.s3().head_object(Bucket=bucket, Key=key)
 
@@ -99,9 +100,11 @@ def _infer_columns(source, fmt):
     raise TerminalError("schema_inference_failed", f"unknown format {fmt!r}")
 
 
+@notify.notifies_on_failure("infer")
 def handler(event, context):
-    # Notify the actor on a terminal schema failure (best-effort); a transient S3
-    # error (not a TerminalError) propagates for the SFN Retry unnotified.
+    # Notify the actor on a terminal schema failure (best-effort). Any other error that
+    # escapes _infer (e.g. an S3 access probe failure) is an unexpected terminal failure
+    # that @notifies_on_failure surfaces to the actor before the SFN Catch records it.
     try:
         return _infer(event)
     except TerminalError as err:

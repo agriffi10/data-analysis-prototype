@@ -103,6 +103,86 @@ def test_emit_failure_without_actor_is_a_noop():
     assert fake.calls == []
 
 
+# ── notifies_on_failure wrapper ──────────────────────────────────────────────
+from tbcommon.errors import TransientError  # noqa: E402
+
+
+def test_wrapper_passes_result_through_on_success():
+    fake = _install()
+
+    @notify.notifies_on_failure("check")
+    def h(event, context):
+        return {"ok": True}
+
+    assert h(_event(), None) == {"ok": True}
+    assert fake.calls == []  # success never notifies
+
+
+def test_wrapper_does_not_double_notify_terminal_error():
+    fake = _install()
+
+    @notify.notifies_on_failure("check")
+    def h(event, context):
+        raise TerminalError("table_exists", "already there")
+
+    try:
+        h(_event(), None)
+    except TerminalError:
+        pass
+    # The handler owns the TerminalError notification; the wrapper must stay quiet.
+    assert fake.calls == []
+
+
+def test_wrapper_does_not_notify_transient_error():
+    fake = _install()
+
+    @notify.notifies_on_failure("execute")
+    def h(event, context):
+        raise TransientError("throttled")
+
+    try:
+        h(_event(), None)
+    except TransientError:
+        pass
+    # Retryable — the SFN Retry re-runs it; notifying now would be premature.
+    assert fake.calls == []
+
+
+def test_wrapper_notifies_and_reraises_on_unexpected_error():
+    fake = _install()
+
+    @notify.notifies_on_failure("check")
+    def h(event, context):
+        raise RuntimeError("AccessDenied")
+
+    try:
+        h(_event(), None)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("the original exception must propagate")
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["MessageDeduplicationId"] == "r1:check"
+    body = json.loads(fake.calls[0]["MessageBody"])
+    assert body["message"] == 'Couldn\'t create table "orders": something went wrong. Please try again.'
+
+
+def test_wrapper_tolerates_non_dict_event():
+    # validate-authorize's raw input is the SQS array; an unexpected failure there has
+    # no bound actor, so the emit is a no-op (not a crash).
+    fake = _install()
+
+    @notify.notifies_on_failure("validate")
+    def h(event, context):
+        raise RuntimeError("boom")
+
+    try:
+        h([{"body": "..."}], None)
+    except RuntimeError:
+        pass
+    assert fake.calls == []
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

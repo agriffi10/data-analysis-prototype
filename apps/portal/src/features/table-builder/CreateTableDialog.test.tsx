@@ -49,6 +49,16 @@ describe('CreateTableDialog — name', () => {
     fireEvent.keyDown(nameInput(), {key: 'Enter'});
     expect(onSubmit).toHaveBeenCalledWith({tableName: 'sales_2026', partitionKeys: []});
   });
+
+  it('shows the current folder path when provided', () => {
+    renderDialog({folderPath: 'alice/sales/2026/'});
+    expect(screen.getByText('alice/sales/2026/')).toBeInTheDocument();
+  });
+
+  it('labels the space root when the folder path is empty', () => {
+    renderDialog({folderPath: ''});
+    expect(screen.getByText('/ (space root)')).toBeInTheDocument();
+  });
 });
 
 describe('CreateTableDialog — partition keys', () => {

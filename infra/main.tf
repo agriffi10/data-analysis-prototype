@@ -59,19 +59,17 @@ locals {
   # role exists first.
   shared_space_orchestrator_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-shared-space-orchestrator-role"
 
-  # Table-builder execute-ddl role ARN (SPEC-070), constructed cycle-free like the
-  # other role ARNs (module.table_builder creates it as
-  # "${project}-${env}-table-builder-execute-ddl-role"). Added to the analytics Lake
-  # Formation admins list as a CONSTRUCTED STRING so execute-ddl can CREATE tables in
-  # the DYNAMIC (per-user + per-shared-space) target databases — the model's fit for a
-  # catalog-wide creator, since target DBs can't be enumerated in static Terraform
-  # (user decision, SPEC-070). Known at plan time → doesn't break the compact() admins
-  # list. NB: module.table_builder depends_on module.analytics (the reverse of the
-  # orchestrator's ordering), so on a FROM-SCRATCH first apply the role may not yet
-  # exist when data_lake_settings is written — LF rejects an unknown admin principal,
-  # so re-run the apply once the role exists (SPEC-070 FR-005; the live env already
-  # has the role from SPEC-066, so this apply is clean).
-  table_builder_execute_ddl_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-builder-execute-ddl-role"
+  # Table-builder SHARED execution role ARN (SPEC-070; consolidated from the per-verb
+  # roles by user decision), constructed cycle-free like the other role ARNs
+  # (module.table_builder creates it as "${project}-${env}-table-builder-execution-role").
+  # Added to the analytics Lake Formation admins list as a CONSTRUCTED STRING so the
+  # verbs' GetTable (check-table-absent) + CREATE (execute-ddl) resolve in the DYNAMIC
+  # (per-user + per-shared-space) target databases — the model's fit for a catalog-wide
+  # creator, since target DBs can't be enumerated in static Terraform. Known at plan
+  # time → doesn't break the compact() admins list. module.analytics depends_on
+  # module.table_builder, so the role is created BEFORE data_lake_settings references
+  # it (LF rejects an unknown admin principal) — no from-scratch re-run needed.
+  table_builder_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-builder-execution-role"
 
   # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
@@ -254,16 +252,19 @@ module "analytics" {
   # the role exists before this sets data_lake_settings.
   shared_space_orchestrator_role_arn = local.shared_space_orchestrator_role_arn
 
-  # SPEC-070: add the table-builder execute-ddl role as a Lake Formation admin so it
-  # can CREATE tables in the dynamic per-user + per-shared-space target databases.
-  # Constructed string (locals above) — known at plan time so it's compact()-safe.
-  table_builder_execute_ddl_role_arn = local.table_builder_execute_ddl_role_arn
+  # SPEC-070: add the table-builder shared execution role as a Lake Formation admin so
+  # its verbs can Describe (check-table-absent) + CREATE (execute-ddl) tables in the
+  # dynamic per-user + per-shared-space target databases. Constructed string (locals
+  # above) — known at plan time so it's compact()-safe.
+  table_builder_execution_role_arn = local.table_builder_execution_role_arn
 
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF
-  # and attaches the analytics policy to; shared_spaces creates the orchestrator role
-  # added to the LF admins list. Force all to settle first.
-  depends_on = [module.base, module.data, module.shared_spaces]
+  # and attaches the analytics policy to; shared_spaces + table_builder create the
+  # orchestrator/execution roles added to the LF admins list (they must exist before
+  # data_lake_settings references them — LF rejects an unknown admin principal). Force
+  # all to settle first.
+  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder]
 }
 
 # Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control
@@ -384,7 +385,12 @@ module "table_builder" {
   notifications_queue_url = local.notifications_queue_url
 
   # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
-  # applied); data creates the portal role this module attaches the enqueue policy to;
-  # analytics owns the catalog the verbs read. Settle those first.
-  depends_on = [module.base, module.data, module.analytics]
+  # applied); data creates the portal role this module attaches the enqueue policy to.
+  # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which
+  # depends_on it) so the shared execution role EXISTS before analytics adds it to the
+  # Lake Formation admins list — LF rejects an unknown admin principal, so the role
+  # must be created first (same reason module.shared_spaces precedes analytics). The
+  # verbs read the analytics-owned catalog only at RUNTIME, by which point the full
+  # apply has created it.
+  depends_on = [module.base, module.data]
 }

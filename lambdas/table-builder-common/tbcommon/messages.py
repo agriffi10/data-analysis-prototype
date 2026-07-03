@@ -23,6 +23,9 @@ _BODIES = {
     "unmappable_type": "the data schema couldn't be read.",
     "ddl_execution_failed": "creating the table failed{detail}.",
     "ddl_timeout": "creating the table failed{detail}.",
+    # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
+    # notify.notifies_on_failure so an unexpected failure still reaches the actor.
+    "unexpected_error": "something went wrong. Please try again.",
 }
 
 

@@ -37,6 +37,7 @@ def _results_location(space, actor):
     return f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"
 
 
+@notify.notifies_on_failure("execute")
 def handler(event, context):
     space = event["space"]
     actor = event["actor"]

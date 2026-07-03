@@ -138,14 +138,26 @@ def test_no_notification_when_absent():
     assert q.calls == []
 
 
-def test_no_notification_on_transient_glue_error():
+def test_notifies_actor_on_unexpected_glue_error():
+    # An unexpected error that escapes the handler (not a TerminalError) — e.g. an
+    # AccessDenied or a throttle boto's own retries couldn't clear — is a terminal
+    # failure the SFN records; the @notifies_on_failure wrapper tells the actor rather
+    # than failing silently. The original exception still propagates unchanged.
     _install("transient")
     q = _arm_notifications()
     try:
         c.handler(_actor_event(), None)
     except _Throttling:
         pass
-    assert q.calls == []
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageGroupId"] == "alice"
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:check"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body == {
+        "action": "create",
+        "username": "alice",
+        "message": 'Couldn\'t create table "sales_2026": something went wrong. Please try again.',
+    }
 
 
 if __name__ == "__main__":

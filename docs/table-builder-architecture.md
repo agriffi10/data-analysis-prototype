@@ -51,8 +51,20 @@ orchestrator would re-broaden that role and mix concerns (against `lambdas.md` �
 **dedicated-notifications** precedent (SPEC-058). It reuses the **pattern**, not the resources.
 
 **Decision — single-task Lambdas orchestrated by the Step Function** (`lambdas.md` §1/§10): each step above is
-its **own** Lambda with its **own least-privilege role** and shared helpers (auth/clients/notify) in a common
-module/layer — never one `action`-switch monolith. The `Choice`/sequence lives in the state machine.
+its **own** Lambda with shared helpers (auth/clients/notify) in a common module/layer — never one
+`action`-switch monolith. The `Choice`/sequence lives in the state machine.
+
+> **Post-072 amendment (execution role + notifications).** The SPEC-066 **per-verb** least-privilege roles were
+> **consolidated into one shared execution role** for all five verbs (user decision, mirroring the shared-spaces
+> single-orchestrator model): the union policy lives in `infra/modules/table-builder/policies/execution.json.tftpl`,
+> and that **one** role is the table-builder **Lake Formation admin** (analytics `data_lake_settings`) — not just
+> execute-ddl. This was required to fix a real bug: `check-table-absent`'s `glue.get_table` on a real user's
+> LF-gated database returned `AccessDenied` (not `EntityNotFound`) because its role had no LF grant, silently
+> failing every create. `module.analytics` `depends_on module.table_builder` so the role exists before it is
+> named an admin (LF rejects unknown principals). Separately, any verb error that is **neither** a handled
+> `TerminalError` **nor** a retryable `TransientError` now emits a best-effort failure notification to the actor
+> via `tbcommon.notify.notifies_on_failure` — closing the silent-failure gap that let the `AccessDenied` above (and
+> other unexpected errors) fail with no inbox message.
 
 **Why SQS → Pipe → Step Function:** keeps the privileged surface off the user's credentials (the browser only
 gets `sqs:SendMessage`), gives durable retry/replay + DLQ for a multi-step AWS provisioning flow, and makes the
