@@ -1,4 +1,5 @@
 import {useAuth} from '../features/auth';
+import {HelpLink} from '../features/help';
 import {NotificationsBell, useNotifications} from '../features/notifications';
 import {BrandMark} from './BrandMark';
 import {Button} from './Button';
@@ -48,6 +49,7 @@ export function Header() {
 
           {status === 'authenticated' && user && (
             <>
+              <HelpLink />
               <NotificationsBell
                 hasUnread={hasUnread}
                 unreadCount={unreadCount}

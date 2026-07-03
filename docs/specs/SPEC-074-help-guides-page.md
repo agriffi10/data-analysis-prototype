@@ -1,8 +1,15 @@
 # Spec: Help & Guides Page (Top-Bar Icon + Documentation Page)
 
 **ID:** SPEC-074
-**Status:** Draft
-**Last Updated:** 2026-06-30
+**Status:** Completed
+**Last Updated:** 2026-07-03
+
+> **Implementation note (2026-07-03).** FR-005's exclusion examples were authored 2026-06-30 when Table Builder
+> (SPEC-066→072) and shared-space join status (SPEC-073) were still Draft. Both **shipped before this spec was
+> implemented**, so under FR-005's governing principle — *document what's shipped and wired end-to-end* — they
+> are now **in scope and documented**: a "Create a table from a folder" guide under **Files**, and pending/active
+> join status folded into the **Shared connections** section. The examples in Out of Scope / FR-005 below are
+> retained for historical context but are superseded. See the delivery doc.
 **Depends On:** SPEC-008 (auth-gated layout + react-router routes), SPEC-023 (app shell: `Header`, `PageLayout`), SPEC-028 (shared UI primitives), SPEC-052/057 (`Sidebar` left-rail pattern), SPEC-060 (`NotificationsBell` header-icon pattern to mirror), SPEC-031 (document title), SPEC-045 (axe a11y baseline)
 
 > **Standalone UI/content spec.** Adds an in-app **Help & guides** surface: a new **help icon in the top
