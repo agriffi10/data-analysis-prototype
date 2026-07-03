@@ -54,6 +54,31 @@ export type QueryHistory = {
   entries: QueryHistoryEntry[];
 };
 
+/** One statement parsed out of an editor buffer (SPEC-078 FR-001). */
+export type ParsedStatement = {
+  /** 0-based position in the batch. */
+  index: number;
+  /** The individual statement text (trimmed). */
+  sql: string;
+  /** Source offsets of the trimmed statement in the buffer (FR-006 cursor mapping). */
+  range: {start: number; end: number};
+};
+
+/** The three run scopes (SPEC-078 FR-005). */
+export type RunScope = 'statement' | 'script-single' | 'script-tabs';
+
+/** One result set produced by a batch statement — drives a result tab (SPEC-078 FR-007). */
+export type ResultTab = {
+  /** Which ParsedStatement produced it. */
+  statementIndex: number;
+  /** Its Athena execution. */
+  executionId: string;
+  /** Tab label (1-based index + short statement hint). */
+  label: string;
+  /** The execution's result object, captured at finalize so Save-results works per tab. */
+  outputLocation?: string;
+};
+
 export type ConnectionKind = 'personal' | 'shared';
 
 /**

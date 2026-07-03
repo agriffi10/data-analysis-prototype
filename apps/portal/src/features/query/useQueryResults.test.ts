@@ -107,4 +107,24 @@ describe('useQueryResults', () => {
 
     await waitFor(() => expect(result.current.pageIndex).toBe(0));
   });
+
+  it('remembers each execution’s page when switching back (SPEC-078 result tabs)', async () => {
+    const {result, rerender} = renderHook(({id}) => useQueryResults(id, 2), {
+      wrapper: wrapper(),
+      initialProps: {id: 'q-1' as string | null}
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    await act(async () => {
+      result.current.goNext();
+    });
+    await waitFor(() => expect(result.current.pageIndex).toBe(1));
+
+    // Another result tab starts on ITS page 1…
+    rerender({id: 'q-2'});
+    await waitFor(() => expect(result.current.pageIndex).toBe(0));
+
+    // …and switching back restores q-1's page position.
+    rerender({id: 'q-1'});
+    await waitFor(() => expect(result.current.pageIndex).toBe(1));
+  });
 });

@@ -107,10 +107,26 @@ export const HELP_SECTIONS: HelpSection[] = [
         subtitle: 'Run SQL against your tables.',
         steps: [
           'Open the <b>Query</b> tab and type SQL in the editor.',
-          'Click <b>Run</b>, or press <kbd>Ctrl/Cmd + Enter</kbd>.',
+          'Click <b>Run Statement</b>, or press <kbd>Ctrl/Cmd + Enter</kbd> — it runs your selection if you have one, otherwise the statement under the cursor.',
           'The status bar shows progress, the exact total row count, data scanned, and how long it took.',
-          'To stop a long-running query, click <b>Stop</b>.'
+          'To stop a running query or script, click <b>Stop</b>.'
         ]
+      },
+      {
+        id: 'run-script',
+        title: 'Run several statements at once',
+        subtitle: 'Write a script of ;-separated statements and run it top to bottom.',
+        steps: [
+          'Write multiple statements in one editor, separated by semicolons (e.g. a <b>CREATE TABLE</b> followed by a <b>SELECT</b>).',
+          'Click <b>Run Script (single result)</b> (<kbd>Ctrl/Cmd + Shift + Enter</kbd>) to run every statement in order and show the last result set.',
+          'Or click <b>Run Script (tab per statement)</b> (<kbd>Ctrl/Cmd + Alt + Enter</kbd>) to keep every statement’s result in its own tab above the results table.',
+          'Statements run one at a time, in order. The status bar shows which statement is running (e.g. “Statement 2 of 4”), and each statement gets its own history entry.',
+          'If a statement fails, the script stops there — the error names the failing statement, and the remaining statements are not run.'
+        ],
+        callout: {
+          kind: 'warning',
+          text: 'There are no transactions: statements that already succeeded keep their effects (a created or dropped table stays) even if a later statement fails.'
+        }
       },
       {
         id: 'browse-databases',
@@ -156,6 +172,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'After a query succeeds, results appear in a table below the editor.',
           "Drag a column's edge to resize it — widths are remembered as you switch tabs.",
           'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
+          'Ran a script with <b>Run Script (tab per statement)</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs; each keeps its own page position and column widths.',
           'Need more room? The <b>Editor / Even / Results</b> control in the toolbar snaps the split between the editor and the results — grow whichever you’re working in. Your choice is remembered for the session.'
         ]
       },

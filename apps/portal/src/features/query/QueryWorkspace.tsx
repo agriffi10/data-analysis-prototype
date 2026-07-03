@@ -20,7 +20,17 @@ import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
 import {invalidateSchema, useAllSchemas} from './useSchema';
-import {deriveViewTargetDatabase, schemaChangingDatabase, sameSql, stripTrailingSemicolons} from './query.sql';
+import {
+  deriveViewTargetDatabase,
+  isResultProducingSql,
+  resolveRunStatements,
+  sameSql,
+  schemaChangingDatabase,
+  splitSqlStatements,
+  statementHint,
+  stripTrailingSemicolons
+} from './query.sql';
+import {ResultTabs} from './ResultTabs';
 import {SchemaBrowser} from './SchemaBrowser';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
@@ -38,19 +48,48 @@ import {TabLimitDialog} from './TabLimitDialog';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from './query.types';
-import type {QueryHistoryEntry, QueryStatus, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
+import type {
+  ParsedStatement,
+  QueryHistoryEntry,
+  QueryStatus,
+  QueryTab,
+  ResultTab,
+  RunScope,
+  SavedQuery,
+  GlueTableSummary
+} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
 
 // SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
-// fresh Run). `submittedSql` is kept so the background finalizer can decide
-// whether a succeeded DDL should refresh the schema.
+// fresh Run). SPEC-078 extends it to a sequential batch: the statements in
+// scope, the in-flight statement's execution, and the result tabs accumulated
+// as result-producing statements succeed. `submittedSql` is the CURRENT
+// statement's text, kept so the background finalizer can decide whether a
+// succeeded DDL should refresh the schema.
 type TabRun = {
+  scope: RunScope;
+  /** The statements in scope, execution order (length >= 1). */
+  statements: ParsedStatement[];
+  /** 0-based index of the statement `executionId` belongs to. */
+  currentIndex: number;
   executionId: string;
+  /** Batch start — the elapsed timer spans the whole batch. */
   startedAt: number;
   submittedSql: string;
+  /** One entry per result-producing statement that has SUCCEEDED, in order. */
+  resultTabs: ResultTab[];
+  activeResultTabIndex: number;
+  /** The batch reached a terminal state (success, failure, or Stop). */
+  done: boolean;
+  /** Stop was pressed — the finalizer must not start the next statement. */
+  halted?: boolean;
+  /** Set when a statement failed (or failed to start); drives the banner. */
+  failure?: {statementIndex: number; reason: string};
+  /** Saved-query link captured at submit, recorded on every statement's history entry. */
+  savedQuery?: {id: string; name: string};
 };
 
 // SPEC-041 FR-004: a headless poller, one per tab holding an execution. Each runs
@@ -68,7 +107,7 @@ function TabExecutionPoller({
   executionId: string;
   submittedSql: string;
   onStatus: (tabId: string, status: QueryStatus | undefined) => void;
-  onFinalize: (executionId: string, status: QueryStatus, sql: string) => void;
+  onFinalize: (tabId: string, executionId: string, status: QueryStatus, sql: string) => void;
 }) {
   const execution = useQueryExecution(executionId);
   const status = execution.data;
@@ -82,8 +121,8 @@ function TabExecutionPoller({
     if (!status || !isTerminalState(status.state)) return;
     if (finalizedRef.current === executionId) return;
     finalizedRef.current = executionId;
-    onFinalize(executionId, status, submittedSql);
-  }, [status, executionId, submittedSql, onFinalize]);
+    onFinalize(tabId, executionId, status, submittedSql);
+  }, [tabId, status, executionId, submittedSql, onFinalize]);
 
   return null;
 }
@@ -169,8 +208,17 @@ export function QueryWorkspace() {
   }, []);
   const layout = useEditorLayout(username || null, layoutColumnHeight);
 
-  // Per-tab run state, keyed by tab id (in-memory for the session).
+  // Per-tab run state, keyed by tab id (in-memory for the session). The ref is
+  // the synchronous source of truth (every write goes through updateRuns, from
+  // event handlers/effects only — never render): the batch finalizer and the
+  // Stop handler read/write it without waiting for a commit, so a Stop is
+  // visible to an in-flight advancement immediately. State mirrors it for render.
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
+  const runsRef = useRef(runs);
+  const updateRuns = useCallback((updater: (prev: Record<string, TabRun>) => Record<string, TabRun>) => {
+    runsRef.current = updater(runsRef.current);
+    setRuns(runsRef.current);
+  }, []);
   const [statuses, setStatuses] = useState<Record<string, QueryStatus | undefined>>({});
   const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
@@ -244,35 +292,53 @@ export function QueryWorkspace() {
     setSavedOpen(true);
   };
 
-  // Active-tab derived run state.
+  // Active-tab derived run state. SPEC-078: in-flight means the BATCH hasn't
+  // reached a terminal state (the finalizer sets `done`), not just the current
+  // statement's execution.
   const activeRun = runs[activeTabId];
   const activeExecutionId = activeRun?.executionId ?? null;
   const activeStatus = statuses[activeTabId];
-  const activeIsInFlight = !!activeRun && (!activeStatus || !isTerminalState(activeStatus.state));
-  const succeeded = activeStatus?.state === 'SUCCEEDED';
+  const activeIsInFlight = !!activeRun && !activeRun.done;
+  const activeBatchDone = !!activeRun?.done;
 
-  // Results only fetch once the active query has succeeded; one page (≤20 rows)
-  // at a time via the SPEC-038 pager.
-  const results = useQueryResults(succeeded ? activeExecutionId : null);
+  // SPEC-078 FR-007: which execution the results region displays once the batch
+  // settles — the active result tab in the tab-per-statement scope, else the
+  // LAST result-producing statement. A sole succeeded statement that produced
+  // no rows (DDL) falls back to its own execution so today's single-statement
+  // behavior (empty grid) is preserved exactly.
+  const displayedResultTab = (() => {
+    if (!activeRun || !activeRun.done) return null;
+    if (activeRun.scope === 'script-tabs') return activeRun.resultTabs[activeRun.activeResultTabIndex] ?? null;
+    return activeRun.resultTabs.length > 0 ? activeRun.resultTabs[activeRun.resultTabs.length - 1] : null;
+  })();
+  const soleStatementSucceeded =
+    activeBatchDone && activeRun.statements.length === 1 && activeStatus?.state === 'SUCCEEDED';
+  const displayExecutionId = displayedResultTab?.executionId ?? (soleStatementSucceeded ? activeRun.executionId : null);
+  const displayOutputLocation = displayedResultTab?.outputLocation ?? activeStatus?.outputLocation;
+  const showResultTabs = activeRun?.scope === 'script-tabs' && activeBatchDone && activeRun.resultTabs.length > 0;
+
+  // Results only fetch once the batch has settled on a displayable execution;
+  // one page (≤20 rows) at a time via the SPEC-038 pager.
+  const results = useQueryResults(displayExecutionId);
 
   // SPEC-080: exact total row count via a background page-walk. Gated on a result
   // set actually existing (columns present) so DDL/no-result statements show no
   // row-count stat; scoped to the execution id so a new run / tab switch recomputes.
-  const hasResultSet = succeeded && results.columns.length > 0;
-  const rowCount = useResultRowCount(hasResultSet ? activeExecutionId : null);
+  const hasResultSet = displayExecutionId !== null && results.columns.length > 0;
+  const rowCount = useResultRowCount(hasResultSet ? displayExecutionId : null);
 
   // SPEC-064: result-column widths, keyed by execution id. Lives here (not in
   // QueryResultsTable, which unmounts when the active tab has no results) so a
-  // user's resizes survive Prev/Next AND query-tab switches; a new query (new
-  // execution id) starts from defaults.
-  const colWidths = useColumnWidths(succeeded ? activeExecutionId : null, results.columns.length);
+  // user's resizes survive Prev/Next AND query/result-tab switches; a new query
+  // (new execution id) starts from defaults.
+  const colWidths = useColumnWidths(displayExecutionId, results.columns.length);
 
   // Stable callbacks for the per-tab pollers.
   const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
     setStatuses((s) => (s[tabId] === status ? s : {...s, [tabId]: status}));
   }, []);
   const handleFinalize = useCallback(
-    (executionId: string, status: QueryStatus, sql: string) => {
+    (tabId: string, executionId: string, status: QueryStatus, sql: string) => {
       updateEntry({
         queryExecutionId: executionId,
         patch: {
@@ -286,22 +352,126 @@ export function QueryWorkspace() {
       // database's schema (there's no active database to assume).
       const ddlDb = status.state === 'SUCCEEDED' ? schemaChangingDatabase(sql) : null;
       if (ddlDb) void invalidateSchema(queryClient, ddlDb);
+
+      // ── SPEC-078: batch bookkeeping + advancement ─────────────────────────
+      const run = runsRef.current[tabId];
+      // Stale finalize (tab closed, or a new run replaced this one) — history
+      // above is still recorded; there is no batch to advance.
+      if (!run || run.done || run.executionId !== executionId) return;
+
+      // FR-007: a result-producing statement that succeeded earns a result tab
+      // (accumulated in every scope; display differs by scope).
+      const resultTab: ResultTab | null =
+        status.state === 'SUCCEEDED' && isResultProducingSql(sql)
+          ? {
+              statementIndex: run.currentIndex,
+              executionId,
+              label: `${run.currentIndex + 1} · ${statementHint(sql)}`,
+              outputLocation: status.outputLocation
+            }
+          : null;
+      const withResult = (cur: TabRun): TabRun => {
+        // Idempotent: at most one result tab per execution, so a re-applied
+        // updater can never duplicate a tab.
+        const resultTabs =
+          resultTab && !cur.resultTabs.some((t) => t.executionId === resultTab.executionId)
+            ? [...cur.resultTabs, resultTab]
+            : cur.resultTabs;
+        return {...cur, resultTabs, activeResultTabIndex: Math.max(0, resultTabs.length - 1)};
+      };
+      // Guarded batch update: only applies while this execution is still the
+      // tab's current one (the tab may close or start a new run meanwhile).
+      const patchRun = (patch: (cur: TabRun) => TabRun) => {
+        updateRuns((r) => {
+          const cur = r[tabId];
+          if (!cur || cur.executionId !== executionId) return r;
+          return {...r, [tabId]: patch(withResult(cur))};
+        });
+      };
+
+      // FR-002: stop at the first non-SUCCEEDED terminal state, and never
+      // advance past a Stop even when the statement outran the cancel.
+      const hasNext = run.currentIndex < run.statements.length - 1;
+      if (status.state !== 'SUCCEEDED' || !hasNext || run.halted) {
+        patchRun((cur) => ({
+          ...cur,
+          done: true,
+          ...(status.state === 'FAILED' && {
+            failure: {
+              statementIndex: cur.currentIndex,
+              reason: status.stateChangeReason ?? 'The query failed.'
+            }
+          })
+        }));
+        return;
+      }
+
+      // Start the next statement through the same machinery: the tab's poller
+      // picks up the new execution id and finalizes it in turn.
+      const next = run.statements[run.currentIndex + 1];
+      void (async () => {
+        const started = await runQuery({sql: next.sql, username});
+        if (!started.success) {
+          patchRun((cur) => ({
+            ...cur,
+            done: true,
+            failure: {statementIndex: next.index, reason: started.error.message}
+          }));
+          return;
+        }
+        const nextId = started.data.queryExecutionId;
+        // Stop, tab close, or a replacing run landed while the next statement
+        // was starting — cancel it and settle the batch instead of installing
+        // it (otherwise it would run with no poller attached and its history
+        // entry would never finalize).
+        const latest = runsRef.current[tabId];
+        if (!latest || latest.halted || latest.executionId !== executionId) {
+          void stopQuery(nextId);
+          patchRun((cur) => ({...cur, done: true}));
+          return;
+        }
+        // Reset the prior statement's terminal status so the UI shows the new
+        // one as running immediately.
+        setStatuses((s) => ({...s, [tabId]: undefined}));
+        // Same history race guard as the first statement: the entry must land
+        // before the poller's finalizer can read-modify-write it (FR-003).
+        await appendEntry({
+          queryExecutionId: nextId,
+          sql: next.sql,
+          database: username,
+          submittedAt: new Date().toISOString(),
+          ...(run.savedQuery && {
+            savedQueryId: run.savedQuery.id,
+            savedQueryName: run.savedQuery.name
+          })
+        }).catch((e) => console.warn('[query-history] append failed', e));
+        patchRun((cur) => ({
+          ...cur,
+          executionId: nextId,
+          currentIndex: cur.currentIndex + 1,
+          submittedSql: next.sql
+        }));
+      })();
     },
-    [updateEntry, queryClient]
+    [updateEntry, queryClient, username, appendEntry, updateRuns]
   );
 
-  // Submit a SQL string into a tab (defaults to the active tab). An explicit
-  // tabId lets a just-opened tab (View data, SPEC-044) auto-run into itself
-  // before the activeTabId state change has committed.
-  const submit = (sqlText: string, tabId: string = activeTabId) => {
-    if (!sqlText.trim()) return;
+  // Submit a batch of statements into a tab (defaults to the active tab),
+  // starting the FIRST statement; the finalizer advances through the rest
+  // sequentially (SPEC-078 FR-002). An explicit tabId lets a just-opened tab
+  // (View data, SPEC-044) auto-run into itself before the activeTabId state
+  // change has committed. A new run replaces the tab's prior run wholesale, so
+  // the previous batch's result tabs are cleared (FR-007).
+  const submitBatch = (statements: ParsedStatement[], scope: RunScope, tabId: string = activeTabId) => {
+    if (statements.length === 0) return;
     // De-dupe guard. The ref reflects a submit already in flight for this tab even
     // before its `runs` entry commits, so a rapid double-trigger (e.g. View data
     // opens a tab and calls submit in the same tick) starts at most one execution.
     if (submittingTabsRef.current.has(tabId)) return;
-    const existing = runs[tabId];
-    const inFlight = !!existing && (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
-    if (inFlight) return;
+    // Read the ref, not the render snapshot — it reflects a run installed in
+    // this same tick (the submittingTabsRef guard is released before re-render).
+    const existing = runsRef.current[tabId];
+    if (existing && !existing.done) return;
     submittingTabsRef.current.add(tabId);
 
     // SPEC-043 FR-009: a run from a tab linked to a saved query records that
@@ -313,11 +483,12 @@ export function QueryWorkspace() {
     setDismissed((d) => ({...d, [tabId]: false}));
     void (async () => {
       try {
+        const first = statements[0];
         // SPEC-077: no execution database context — the query fully-qualifies its
         // own tables. Results land in the personal prefix (runQuery's default); a
         // shared destination is chosen explicitly at Save time (SPEC-049/055).
         const result = await runQuery({
-          sql: sqlText,
+          sql: first.sql,
           username
         });
         if (!result.success) {
@@ -334,7 +505,7 @@ export function QueryWorkspace() {
         // stale. Awaiting the append closes that race for fast queries.
         await appendEntry({
           queryExecutionId: id,
-          sql: sqlText,
+          sql: first.sql,
           // SPEC-077 FR-006: informational only (there's no active database). The
           // personal database is the fixed default context recorded for display.
           database: username,
@@ -344,9 +515,20 @@ export function QueryWorkspace() {
             savedQueryName: linkedSaved.name
           })
         }).catch((e) => console.warn('[query-history] append failed', e));
-        setRuns((r) => ({
+        updateRuns((r) => ({
           ...r,
-          [tabId]: {executionId: id, startedAt: Date.now(), submittedSql: sqlText}
+          [tabId]: {
+            scope,
+            statements,
+            currentIndex: 0,
+            executionId: id,
+            startedAt: Date.now(),
+            submittedSql: first.sql,
+            resultTabs: [],
+            activeResultTabIndex: 0,
+            done: false,
+            ...(linkedSaved && {savedQuery: {id: linkedSaved.id, name: linkedSaved.name}})
+          }
         }));
       } finally {
         // Hand off to the state-based guard: once `runs[tabId]` commits (success) or
@@ -356,11 +538,33 @@ export function QueryWorkspace() {
     })();
   };
 
-  const handleRun = () => submit(activeTab.sql);
+  // FR-005/006: Run Statement — the selection, else the statement under the
+  // cursor, else the sole statement. When the editor handle isn't available
+  // (still lazy-loading), the cursor defaults to the buffer end (last statement).
+  const handleRunStatement = () => {
+    const buffer = activeTab.sql;
+    const statements = splitSqlStatements(buffer);
+    const selection = editorRef.current?.getSelectionRange() ?? null;
+    const cursor = editorRef.current?.getCursorOffset() ?? buffer.length;
+    submitBatch(resolveRunStatements(buffer, statements, selection, cursor), 'statement');
+  };
 
+  // FR-005: Run Script — every statement in the buffer, sequentially.
+  const handleRunScript = (scope: 'script-single' | 'script-tabs') =>
+    submitBatch(splitSqlStatements(activeTab.sql), scope);
+
+  // FR-002: Stop cancels the in-flight statement AND halts the remainder. The
+  // halted flag is set first so the finalizer never starts the next statement,
+  // even when the current one outruns the cancel and SUCCEEDs.
   const handleStop = () => {
-    if (!activeExecutionId) return;
-    void stopQuery(activeExecutionId); // poller observes CANCELLED
+    const run = runsRef.current[activeTabId];
+    if (!run || run.done) return;
+    updateRuns((r) => {
+      const cur = r[activeTabId];
+      if (!cur || cur.done) return r;
+      return {...r, [activeTabId]: {...cur, halted: true}};
+    });
+    void stopQuery(run.executionId); // poller observes CANCELLED
   };
 
   // SPEC-036 / SPEC-041 FR-003: re-open loads the entry's SQL into the active
@@ -374,7 +578,7 @@ export function QueryWorkspace() {
     if (activeIsInFlight) return;
     tabs.setActiveSql(entry.sql);
     setHistoryOpen(false);
-    submit(entry.sql);
+    submitBatch(splitSqlStatements(entry.sql), 'script-single');
   };
 
   // SPEC-049: copy the query's complete Athena result object into the user's space.
@@ -444,7 +648,9 @@ export function QueryWorkspace() {
   };
 
   const handleSaveResults = (args: {destBucket: string; destPrefix: string; filename: string}) => {
-    const outputLocation = activeStatus?.outputLocation;
+    // SPEC-078: save the DISPLAYED result (the active result tab's execution),
+    // not necessarily the batch's last statement.
+    const outputLocation = displayOutputLocation;
     if (!outputLocation) return;
     const parsed = parseS3Url(outputLocation);
     if (!parsed) {
@@ -472,7 +678,7 @@ export function QueryWorkspace() {
       delete next[id];
       return next;
     };
-    setRuns(without);
+    updateRuns(without);
     setStatuses(without);
     setRunErrors(without);
     setDismissed(without);
@@ -600,7 +806,7 @@ export function QueryWorkspace() {
         return;
       }
       editorRef.current?.focus();
-      submit(sql, id); // auto-run into the just-opened tab
+      submitBatch(splitSqlStatements(sql), 'script-single', id); // auto-run into the just-opened tab
     },
     // Confirm, then drop in the background (handled on confirm) — carries the node's db.
     onDropTable: (database: string, table: GlueTableSummary) => setDropping({database, table})
@@ -696,17 +902,36 @@ export function QueryWorkspace() {
     })();
   };
 
+  // SPEC-078 FR-004: a batch failure names the failing statement's position and
+  // makes clear the remaining statements did not run.
+  const batchFailureMessage = (() => {
+    const run = activeRun;
+    if (!run?.failure) return null;
+    const total = run.statements.length;
+    if (total === 1) return run.failure.reason;
+    const at = run.failure.statementIndex + 1;
+    const skipped = total - at;
+    const skippedNote =
+      skipped === 0
+        ? ''
+        : skipped === 1
+          ? ` Statement ${total} did not run.`
+          : ` Statements ${at + 1}–${total} did not run.`;
+    return `Statement ${at} of ${total} failed: ${run.failure.reason}.${skippedNote}`;
+  })();
   const errorMessage =
     runErrors[activeTabId] ??
+    batchFailureMessage ??
     (activeStatus?.state === 'FAILED' ? (activeStatus.stateChangeReason ?? 'The query failed.') : null);
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
   const canSave = !!activeTab.sql.trim(); // FR-001: disabled only when empty
 
-  // SPEC-049: Save results is offered only for a SUCCEEDED, row-returning query
-  // (a result object with columns) — not a DDL / no-result statement.
-  const canSaveResults = succeeded && !!activeStatus?.outputLocation && results.columns.length > 0;
+  // SPEC-049: Save results is offered only for a SUCCEEDED, row-returning result
+  // (a result object with columns) — not a DDL / no-result statement. SPEC-078:
+  // it saves the displayed result tab's execution.
+  const canSaveResults = displayExecutionId !== null && !!displayOutputLocation && results.columns.length > 0;
 
   // SPEC-049: default file name — the saved query's name when the tab is linked,
   // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
@@ -866,21 +1091,76 @@ export function QueryWorkspace() {
                 Stop
               </Button>
             ) : (
-              <Button
-                variant="primary"
-                onClick={handleRun}
-                disabled={!canRun}
-                aria-label="Run query">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  stroke="none"
-                  className="h-4 w-4"
-                  aria-hidden="true">
-                  <path d="M7 5v14l11-7z" />
-                </svg>
-                Run
-              </Button>
+              // SPEC-078 FR-005: three distinct run scopes. Run Statement stays
+              // the primary action on ⌘⏎; the two whole-script scopes differ
+              // only in how results are shown (single view vs tab per statement).
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleRunScript('script-single')}
+                  disabled={!canRun}
+                  title="Run every statement; show the last result (⌘⇧⏎)"
+                  aria-label="Run script, single result">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M5 4l8 8-8 8" />
+                    <path d="M14 20h6" />
+                  </svg>
+                  Run Script (single result)
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleRunScript('script-tabs')}
+                  disabled={!canRun}
+                  title="Run every statement; one result tab per statement (⌘⌥⏎)"
+                  aria-label="Run script, tab per statement">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M4 4l6 8-6 8" />
+                    <rect
+                      x="13"
+                      y="5"
+                      width="7"
+                      height="5"
+                      rx="1"
+                    />
+                    <rect
+                      x="13"
+                      y="14"
+                      width="7"
+                      height="5"
+                      rx="1"
+                    />
+                  </svg>
+                  Run Script (tab per statement)
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleRunStatement}
+                  disabled={!canRun}
+                  title="Run the selection or the statement under the cursor (⌘⏎)"
+                  aria-label="Run statement">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    stroke="none"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M7 5v14l11-7z" />
+                  </svg>
+                  Run Statement
+                </Button>
+              </>
             )}
           </div>
 
@@ -903,7 +1183,9 @@ export function QueryWorkspace() {
                   ref={editorRef}
                   value={activeTab.sql}
                   onChange={tabs.setActiveSql}
-                  onRun={handleRun}
+                  onRun={handleRunStatement}
+                  onRunScriptSingle={() => handleRunScript('script-single')}
+                  onRunScriptTabs={() => handleRunScript('script-tabs')}
                   completionSchemas={completionSchemas}
                 />
               </Suspense>
@@ -914,7 +1196,12 @@ export function QueryWorkspace() {
                 status={activeStatus}
                 isInFlight={activeIsInFlight}
                 startedAt={activeRun?.startedAt ?? null}
-                rowCount={succeeded ? results.loadedRowCount : undefined}
+                batch={
+                  activeRun && activeRun.statements.length > 1
+                    ? {current: activeRun.currentIndex + 1, total: activeRun.statements.length}
+                    : undefined
+                }
+                rowCount={displayExecutionId !== null ? results.loadedRowCount : undefined}
                 hasMoreRows={results.hasMoreServer}
                 hasResultSet={hasResultSet}
                 totalRowCount={rowCount.total}
@@ -939,27 +1226,54 @@ export function QueryWorkspace() {
             )}
 
             <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-              {succeeded ? (
-                <QueryResultsTable
-                  columns={results.columns}
-                  rows={results.rows}
-                  pageIndex={results.pageIndex}
-                  rangeStart={results.rangeStart}
-                  rangeEnd={results.rangeEnd}
-                  totalRowCount={results.totalRowCount}
-                  hasPrev={results.hasPrev}
-                  hasNext={results.hasNext}
-                  isFetchingNext={results.isFetchingNext}
-                  isLoading={results.isPending}
-                  widths={colWidths.widths}
-                  onResize={colWidths.setWidth}
-                  onResetColumn={colWidths.resetColumn}
-                  onPrev={results.goPrev}
-                  onNext={results.goNext}
+              {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
+                  strip; the other scopes render a single result view. Tabs are
+                  ephemeral — a new run replaces the tab's run state wholesale. */}
+              {showResultTabs && activeRun && (
+                <ResultTabs
+                  tabs={activeRun.resultTabs}
+                  activeIndex={activeRun.activeResultTabIndex}
+                  onSelect={(index) =>
+                    updateRuns((r) =>
+                      r[activeTabId] ? {...r, [activeTabId]: {...r[activeTabId], activeResultTabIndex: index}} : r
+                    )
+                  }
                 />
+              )}
+              {displayExecutionId !== null ? (
+                <div
+                  className="flex min-h-0 flex-1 flex-col"
+                  {...(showResultTabs &&
+                    activeRun && {
+                      role: 'tabpanel',
+                      id: 'result-tabpanel',
+                      'aria-labelledby': `result-tab-${activeRun.activeResultTabIndex}`
+                    })}>
+                  <QueryResultsTable
+                    columns={results.columns}
+                    rows={results.rows}
+                    pageIndex={results.pageIndex}
+                    rangeStart={results.rangeStart}
+                    rangeEnd={results.rangeEnd}
+                    totalRowCount={results.totalRowCount}
+                    hasPrev={results.hasPrev}
+                    hasNext={results.hasNext}
+                    isFetchingNext={results.isFetchingNext}
+                    isLoading={results.isPending}
+                    widths={colWidths.widths}
+                    onResize={colWidths.setWidth}
+                    onResetColumn={colWidths.resetColumn}
+                    onPrev={results.goPrev}
+                    onNext={results.goNext}
+                  />
+                </div>
               ) : (
                 <p className="flex h-full items-center justify-center text-sm text-text-3">
-                  {activeIsInFlight ? 'Running your query…' : 'Run a query to see results.'}
+                  {activeIsInFlight
+                    ? 'Running your query…'
+                    : activeBatchDone && activeStatus?.state === 'SUCCEEDED'
+                      ? 'The run finished without returning rows.'
+                      : 'Run a query to see results.'}
                 </p>
               )}
             </div>
