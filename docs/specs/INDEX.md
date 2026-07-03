@@ -90,7 +90,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Completed |
 | 083 — Code-Quality Hardening (Lambda config/shape/types + Lambda & SPA cleanup smells) | Completed |
 | 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Completed |
-| 085 — Collapsible Side Nav (shared base rail + collapse control) | Draft |
+| 085 — Collapsible Side Nav (shared base rail + collapse control) | Completed |
 | 086 — Per-Database Schema Refresh (look for new tables/views) | Draft |
 
 ## Arcs

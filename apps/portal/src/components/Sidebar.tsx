@@ -1,4 +1,5 @@
 import {cx} from '../lib/cx';
+import {CollapsibleRail} from './CollapsibleRail';
 import {FolderIcon} from './icons';
 import {isConnectionUsable} from '../features/query/query.types';
 import type {Connection} from '../features/query/query.types';
@@ -27,10 +28,9 @@ type Props = {
  */
 export function Sidebar({connections, activeSpaceId, onSelectSpace}: Props) {
   return (
-    <aside
-      aria-label="Your spaces navigation"
-      className="hidden w-[248px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex">
-      <p className="px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
+    <CollapsibleRail
+      ariaLabel="Your spaces navigation"
+      title="Spaces">
       <ul
         role="list"
         className="flex flex-col gap-0.5"
@@ -73,6 +73,6 @@ export function Sidebar({connections, activeSpaceId, onSelectSpace}: Props) {
           );
         })}
       </ul>
-    </aside>
+    </CollapsibleRail>
   );
 }

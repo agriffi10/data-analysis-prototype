@@ -126,6 +126,11 @@ describe('QueryWorkspace accessibility (SPEC-045 FR-003)', () => {
     await expectNoA11yViolations(workspace(), ROUTE_AXE_OPTIONS);
   });
 
+  it('has no axe violations with the schema rail collapsed (SPEC-085 FR-004)', async () => {
+    localStorage.setItem('portal.rail.collapsed', 'true');
+    await expectNoA11yViolations(workspace(), ROUTE_AXE_OPTIONS);
+  });
+
   it('exposes exactly one <h1> and a <main> landmark', async () => {
     render(workspace());
     expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
