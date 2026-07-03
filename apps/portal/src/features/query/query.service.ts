@@ -9,7 +9,7 @@ import {withCredentialRetry} from '../../lib/credentialRetry';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './query.constants';
 import {normalizeColumnType} from './query.format';
-import type {Connection, QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
+import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
 // per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts
@@ -19,21 +19,6 @@ import type {Connection, QueryColumn, QueryResultPage, QueryState, QueryStatus} 
 function outputLocation(username: string): string {
   const bucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
   return `s3://${bucket}/${username}/athenaresults/`;
-}
-
-// SPEC-055 FR-001: choose where a query's results land by the active workspace
-// connection (SPEC-047). A personal query writes to the user's own
-// `{username}/athenaresults/` (unchanged, SPEC-034); a SHARED-DB query writes under
-// the shared space so collaborators can find it —
-// `s3://{shared-bucket}/{name}/athenaresults/{username}/`. The `{username}/`
-// segment is required: the SPEC-050 membership-slot grant scopes writes (and the
-// delete-deny) to the space, and results land where every member can read them.
-export function resultOutputLocation(connection: Connection, username: string): string {
-  if (connection.kind === 'shared') {
-    const bucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string;
-    return `s3://${bucket}/${connection.database}/athenaresults/${username}/`;
-  }
-  return outputLocation(username);
 }
 
 // Athena terminal execution states — polling stops once one is reached (FR-003).
@@ -57,11 +42,13 @@ function toServiceError(err: unknown, fallback: string) {
 // `{username}/athenaresults/` prefix (the IAM-enforced isolation boundary).
 export async function runQuery(p: {
   sql: string;
-  database: string;
   username: string;
-  // SPEC-055: where results land. Omitted → the personal prefix (SPEC-034); the
-  // caller passes a shared path for a shared-DB query (see resultOutputLocation).
-  // Internal DDL runs (runStatementToCompletion) omit it and stay personal.
+  // SPEC-077: no execution database context by default — every base table must be
+  // fully-qualified `database.table`. `database` is optional and, when omitted (the
+  // default), `QueryExecutionContext.Database` is not sent at all.
+  database?: string;
+  // SPEC-055: where results land. Omitted → the personal prefix (SPEC-034); a shared
+  // path is chosen explicitly at Save time (SPEC-049/055), no longer per run.
   outputLocation?: string;
 }): Promise<ServiceResult<{queryExecutionId: string}>> {
   const {sql, database, username, outputLocation: outLoc} = p;
@@ -71,7 +58,9 @@ export async function runQuery(p: {
         new StartQueryExecutionCommand({
           QueryString: sql,
           WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
-          QueryExecutionContext: {Database: database},
+          // Omit the field entirely when there's no database — Athena then resolves
+          // only fully-qualified names, which is the intended behavior (FR-002).
+          ...(database ? {QueryExecutionContext: {Database: database}} : {}),
           ResultConfiguration: {OutputLocation: outLoc ?? outputLocation(username)}
         })
       );

@@ -1,8 +1,20 @@
 # Spec: Cross-Database Querying (drop the active-database session)
 
 **ID:** SPEC-077
-**Status:** Draft
-**Last Updated:** 2026-07-01
+**Status:** Completed
+**Last Updated:** 2026-07-03
+
+> **Implementation notes (2026-07-03, user decisions).** Two scope changes were confirmed with the user during
+> implementation:
+> - **FR-004 dropped.** The schema rail no longer inserts anything into the editor — clicking a table/column does
+>   not paste a reference. The rail is purely for **inspection** (expand databases → tables → columns). The
+>   `onInsert`/`insertAtCursor` path was removed entirely; columns render as non-interactive rows.
+> - **FR-005 kept, full breadth.** Autocomplete **eagerly loads every accessible database's schema** (new
+>   `useAllSchemas` via `useQueries`) so fully-qualified `database.table` suggestions span all databases from the
+>   start. Tables/views are fully-qualified; columns keep their SPEC-065 bare-name + type detail form.
+> - Run-time shared-result routing (the SPEC-055 `resultOutputLocation` path) is removed with the active database —
+>   results always land in the personal prefix; a shared destination is chosen only at Save time (unchanged
+>   SPEC-049/055 picker). The now-orphaned `resultOutputLocation` was deleted.
 **Depends On:** SPEC-047 (workspace database selector — superseded here), SPEC-052 (`useConnections`), SPEC-063 (schema-rail tree), SPEC-065 (editor autocomplete)
 
 ## Overview

@@ -29,33 +29,20 @@ const inSpace = {
 const outOfSpace = {name: 'foreign', location: 's3://b/bob/x/', columns: []};
 const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
 vi.mock('./SchemaBrowser', () => ({
-  SchemaBrowser: ({
-    actions,
-    connections = [],
-    onSelectDatabase
-  }: {
-    actions: import('./SchemaBrowser').TableActions;
-    connections?: import('./query.types').Connection[];
-    onSelectDatabase?: (db: string) => void;
-  }) => (
+  // SPEC-077: the rail is browse-only — no active-database selection. Per-table
+  // actions now carry the node's database (the personal db = 'alice' here).
+  SchemaBrowser: ({actions}: {actions: import('./SchemaBrowser').TableActions}) => (
     <div data-testid="schema-browser">
-      <button onClick={() => actions.onViewSourceFiles(inSpace)}>src:in</button>
-      <button onClick={() => actions.onViewSourceFiles(outOfSpace)}>src:out</button>
-      <button onClick={() => actions.onViewDdl(inSpace)}>ddl</button>
-      <button onClick={() => actions.onViewData(inSpace)}>data</button>
-      <button onClick={() => actions.onDropTable(inSpace)}>drop</button>
-      <button onClick={() => actions.onViewDdl(viewObj)}>ddl:view</button>
-      <button onClick={() => actions.onDropTable(viewObj)}>drop:view</button>
+      <button onClick={() => actions.onViewSourceFiles('alice', inSpace)}>src:in</button>
+      <button onClick={() => actions.onViewSourceFiles('alice', outOfSpace)}>src:out</button>
+      <button onClick={() => actions.onViewDdl('alice', inSpace)}>ddl</button>
+      <button onClick={() => actions.onViewData('alice', inSpace)}>data</button>
+      <button onClick={() => actions.onDropTable('alice', inSpace)}>drop</button>
+      <button onClick={() => actions.onViewDdl('alice', viewObj)}>ddl:view</button>
+      <button onClick={() => actions.onDropTable('alice', viewObj)}>drop:view</button>
       <span>cansrc-in:{String(actions.canViewSourceFiles(inSpace))}</span>
       <span>cansrc-out:{String(actions.canViewSourceFiles(outOfSpace))}</span>
       <span>cansrc-view:{String(actions.canViewSourceFiles(viewObj))}</span>
-      {connections.map((c) => (
-        <button
-          key={c.id}
-          onClick={() => onSelectDatabase?.(c.database)}>
-          select:{c.database}
-        </button>
-      ))}
     </div>
   )
 }));
@@ -128,7 +115,7 @@ import {useQueryHistory} from './useQueryHistory';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
 import {QueryWorkspace} from './QueryWorkspace';
-import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX, QUERY_ACTIVE_DB_STORAGE_PREFIX} from './query.constants';
+import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
 import type {QueryTabsState, SavedQuery} from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
@@ -244,13 +231,12 @@ beforeEach(() => {
 });
 
 describe('QueryWorkspace', () => {
-  it('renders the workspace with a Query 1 tab, db chip, and enabled Run', async () => {
+  it('renders the workspace with a Query 1 tab and enabled Run', async () => {
     renderWorkspace();
 
     expect(screen.getByTestId('schema-browser')).toBeInTheDocument();
     expect(await screen.findByTestId('sql-editor')).toBeInTheDocument(); // lazy
     expect(screen.getByRole('tab', {name: /Query 1/})).toBeInTheDocument();
-    expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', {name: /Run/})).toBeEnabled();
   });
 
@@ -265,10 +251,9 @@ describe('QueryWorkspace', () => {
 
     expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
-    expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
-      database: 'alice',
-      username: 'alice'
-    });
+    // SPEC-077: the workspace runs with no execution-database context.
+    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: expect.any(String), username: 'alice'});
+    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
     expect(appendEntry).toHaveBeenCalledTimes(1);
   });
 
@@ -752,57 +737,8 @@ describe('QueryWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', {name: /re-run this query/i}));
 
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
-    expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
-      sql: 'SELECT 42',
-      database: 'alice'
-    });
-  });
-
-  // --- workspace database switcher ---
-
-  it('shows the active database in the read-only toolbar chip', async () => {
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-    // The chip reads "querying <db>"; default = the personal database.
-    expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
-  });
-
-  it('switching the database retargets Run for the active tab and persists', async () => {
-    mockUseConnections.mockReturnValue({
-      connections: [
-        personalConnection,
-        {
-          id: 's1',
-          label: 'Project Alpha',
-          database: 'project_alpha',
-          kind: 'shared',
-          status: 'active',
-          role: 'member'
-        }
-      ],
-      isLoading: false,
-      error: null,
-      refresh: vi.fn(),
-      isRefreshing: false,
-      reconcile: vi.fn()
-    });
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    renderWorkspace();
-    const editor = await screen.findByTestId('sql-editor');
-    fireEvent.change(editor, {target: {value: 'SELECT * FROM t;'}});
-
-    fireEvent.click(screen.getByRole('button', {name: 'select:project_alpha'}));
-    fireEvent.click(screen.getByRole('button', {name: /Run/}));
-
-    expect(mockRunQuery.mock.calls[0][0]).toMatchObject({
-      database: 'project_alpha',
-      username: 'alice' // results still route to {username}/athenaresults/
-    });
-    // Persisted workspace-globally for the next reload.
-    expect(sessionStorage.getItem('s3portal.query.activeDatabase.alice')).toBe('project_alpha');
+    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 42', username: 'alice'});
+    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
   });
 
   // --- Create view + view-aware schema actions ---
@@ -826,7 +762,9 @@ describe('QueryWorkspace', () => {
     });
     renderWorkspace();
     const editor = await screen.findByTestId('sql-editor');
-    fireEvent.change(editor, {target: {value: 'SELECT region FROM sales;'}});
+    // SPEC-077 FR-008: the target database is derived from the body's qualified
+    // base tables — here alice.sales → the personal database 'alice'.
+    fireEvent.change(editor, {target: {value: 'SELECT region FROM alice.sales;'}});
 
     fireEvent.click(screen.getByRole('button', {name: 'Create view'}));
     const dialog = screen.getByRole('dialog', {name: 'Create view'});
@@ -838,13 +776,13 @@ describe('QueryWorkspace', () => {
     expect(await screen.findByText('Created view region_view')).toBeInTheDocument();
     expect(mockRunToCompletion).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: 'CREATE OR REPLACE VIEW alice.region_view AS SELECT region FROM sales',
+        sql: 'CREATE OR REPLACE VIEW alice.region_view AS SELECT region FROM alice.sales',
         database: 'alice',
         username: 'alice'
       })
     );
     expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-view'}));
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT region FROM sales;');
+    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT region FROM alice.sales;');
   });
 
   it('Create view shows an error toast on failure', async () => {
@@ -854,7 +792,7 @@ describe('QueryWorkspace', () => {
     });
     renderWorkspace();
     const editor = await screen.findByTestId('sql-editor');
-    fireEvent.change(editor, {target: {value: 'SELECT 1;'}});
+    fireEvent.change(editor, {target: {value: 'SELECT 1 FROM alice.t;'}});
 
     fireEvent.click(screen.getByRole('button', {name: 'Create view'}));
     fireEvent.change(within(screen.getByRole('dialog', {name: 'Create view'})).getByLabelText('View name'), {
@@ -995,6 +933,8 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
     role: 'member' as const
   };
 
+  // SPEC-077: the rail no longer selects an active database; a shared destination
+  // is only chosen at Save time, so shared connections just need to be present.
   function withSharedActive() {
     mockUseConnections.mockReturnValue({
       connections: [personalConnection, sharedConnection],
@@ -1004,8 +944,6 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
       isRefreshing: false,
       reconcile: vi.fn()
     });
-    // Make the shared DB the workspace-global active target.
-    sessionStorage.setItem(`${QUERY_ACTIVE_DB_STORAGE_PREFIX}alice`, 'salesdata');
   }
 
   async function renderSharedSucceeded() {
@@ -1020,32 +958,28 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
     await screen.findByText('Succeeded');
   }
 
-  it('routes results to the shared prefix when the active connection is shared (FR-001)', async () => {
+  it('never routes results to a shared prefix at run time — results default to personal (SPEC-077)', async () => {
     withSharedActive();
     mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
     renderWorkspace();
 
     fireEvent.click(screen.getByRole('button', {name: /Run/}));
     expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
-    expect(mockRunQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        database: 'salesdata',
-        username: 'alice',
-        outputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/'
-      })
-    );
+    // No database context, no run-time shared outputLocation — just sql + username.
+    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: expect.any(String), username: 'alice'});
+    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('outputLocation');
+    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
   });
 
-  it('a personal query still omits an explicit shared outputLocation (FR-001)', async () => {
+  it('a personal query is run with just sql + username (no outputLocation, no database)', async () => {
     mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
-    renderWorkspace(); // default: only the personal connection, active = alice
+    renderWorkspace(); // default: only the personal connection
 
     fireEvent.click(screen.getByRole('button', {name: /Run/}));
     expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
-    const call = mockRunQuery.mock.calls[0][0];
-    expect(call.database).toBe('alice');
-    // Personal routing → runQuery falls back to its own personal default.
-    expect(call.outputLocation).toBe('s3://user-bucket/alice/athenaresults/');
+    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: expect.any(String), username: 'alice'});
+    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('outputLocation');
+    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
   });
 
   it('the Save dialog offers personal + member-of shared destinations (FR-003)', async () => {

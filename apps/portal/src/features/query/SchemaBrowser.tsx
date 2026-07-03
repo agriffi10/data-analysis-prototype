@@ -1,15 +1,18 @@
-import {useRef} from 'react';
 import {DatabaseNode} from './DatabaseNode';
 import {isConnectionUsable} from './query.types';
 import type {Connection, GlueTableSummary} from './query.types';
 import {connectionStatusLabel} from '../shared-spaces/connectionStatus';
 
-/** Per-table actions, wired in QueryWorkspace. */
+/**
+ * Per-table actions, wired in QueryWorkspace. Each carries the `database` of the
+ * rail node the table was invoked from (SPEC-077 FR-007) — there is no active
+ * database to source it from.
+ */
 export type TableActions = {
-  onViewSourceFiles: (table: GlueTableSummary) => void;
-  onViewDdl: (table: GlueTableSummary) => void;
-  onViewData: (table: GlueTableSummary) => void;
-  onDropTable: (table: GlueTableSummary) => void;
+  onViewSourceFiles: (database: string, table: GlueTableSummary) => void;
+  onViewDdl: (database: string, table: GlueTableSummary) => void;
+  onViewData: (database: string, table: GlueTableSummary) => void;
+  onDropTable: (database: string, table: GlueTableSummary) => void;
   /** True when the table's S3 location is within the user's own space; View source files is disabled otherwise. */
   canViewSourceFiles: (table: GlueTableSummary) => boolean;
 };
@@ -57,77 +60,48 @@ function UnusableNode({connection}: {connection: Connection}) {
 }
 
 /**
- * The schema rail. Each accessible database is a collapsible node that, when
- * expanded, loads and groups its own Tables and Views (DatabaseNode).
- * Expanding to browse is decoupled from choosing the active query target: the
- * per-node radio (a `radiogroup` across the nodes) sets the workspace-global
- * active database without toggling expansion. Loading / empty / "setting up"
- * / error states render per node.
+ * The schema rail (SPEC-077: browse-only). Each accessible database is a
+ * collapsible node that, when expanded, loads and groups its own Tables and
+ * Views (DatabaseNode) for inspection. There is no active-database selection —
+ * queries fully-qualify their own tables. Loading / empty / "setting up" /
+ * error states render per node.
  */
 export function SchemaBrowser({
-  database,
   connections = [],
-  onSelectDatabase,
-  onInsert,
   actions
 }: {
-  /** The active database (drives the active highlight + run target). */
-  database: string;
-  /** Accessible databases (default: single personal). */
+  /** Accessible databases (personal + usable shared connections). */
   connections?: Connection[];
-  /** Switches the active database. */
-  onSelectDatabase?: (database: string) => void;
-  onInsert: (name: string) => void;
   actions: TableActions;
 }) {
-  const groupRef = useRef<HTMLDivElement>(null);
-
-  const items: Connection[] =
-    connections.length > 0 ? connections : [{id: 'personal', label: database || '—', database, kind: 'personal'}];
+  const items: Connection[] = connections.length > 0 ? connections : [];
   const single = items.length <= 1;
-
-  // Roving-focus arrow-key navigation across the active-target radios (APG
-  // radiogroup). Selection stays explicit (Enter/Space), so arrows move focus
-  // without changing the active database.
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(e.key)) return;
-    const radios = Array.from(groupRef.current?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []);
-    if (radios.length === 0) return;
-    e.preventDefault();
-    const current = radios.findIndex((r) => r === document.activeElement);
-    const forward = e.key === 'ArrowDown' || e.key === 'ArrowRight';
-    const start = current === -1 ? 0 : current;
-    const next = (start + (forward ? 1 : -1) + radios.length) % radios.length;
-    radios[next]?.focus();
-  };
 
   return (
     <aside
       className={railClass}
       aria-label="Schema browser">
-      <p className={labelClass}>Database</p>
-      <div
-        ref={groupRef}
-        role="radiogroup"
-        aria-label="Active database"
-        onKeyDown={onKeyDown}
-        className="flex flex-col gap-0.5">
-        {items.map((conn) =>
-          isConnectionUsable(conn) ? (
-            <DatabaseNode
-              key={conn.id}
-              connection={conn}
-              isActive={conn.database === database}
-              defaultExpanded={conn.database === database || single}
-              onSetActive={(db) => onSelectDatabase?.(db)}
-              onInsert={onInsert}
-              actions={actions}
-            />
-          ) : (
-            <UnusableNode
-              key={conn.id}
-              connection={conn}
-            />
+      <p className={labelClass}>Databases</p>
+      <div className="flex flex-col gap-0.5">
+        {items.length === 0 ? (
+          <p className="px-3 py-2 text-sm text-text-3">No databases available.</p>
+        ) : (
+          items.map((conn, i) =>
+            isConnectionUsable(conn) ? (
+              <DatabaseNode
+                key={conn.id}
+                connection={conn}
+                // First-reveal default: expand the first database (personal), or a
+                // lone database, so there's something to see without a click.
+                defaultExpanded={single || i === 0}
+                actions={actions}
+              />
+            ) : (
+              <UnusableNode
+                key={conn.id}
+                connection={conn}
+              />
+            )
           )
         )}
       </div>

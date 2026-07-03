@@ -82,7 +82,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 074 — Help & Guides Page (Top-Bar Icon + Documentation Page) | Completed |
 | 075 — Shared-Space Member Roster for Members (read-only) | Completed |
 | 076 — Per-Tab Query Database (+ Saved Query Targets Its Database) | Superseded (by SPEC-077) |
-| 077 — Cross-Database Querying (drop the active-database session) | Draft |
+| 077 — Cross-Database Querying (drop the active-database session) | Completed |
 | 078 — Multiple SQL Statements in One Editor | Draft (needs design pass) |
 | 079 — Resizable Editor / Results Split | Draft |
 | 080 — Total Row Count in Query Stats | Draft |

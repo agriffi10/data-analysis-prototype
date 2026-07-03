@@ -59,13 +59,6 @@ export const QUERY_DRAFT_STORAGE_PREFIX = 's3portal.query.draft.';
 export const QUERY_TABS_STORAGE_PREFIX = 's3portal.query.tabs.';
 
 /**
- * sessionStorage key prefix for the workspace-global active database (full
- * key: prefix + username → a database name). Default + fallback = the
- * personal database (username). NOT a per-tab field.
- */
-export const QUERY_ACTIVE_DB_STORAGE_PREFIX = 's3portal.query.activeDatabase.';
-
-/**
  * Soft cap on open query tabs, enforced by a dialog: the `+` stays enabled,
  * but openTab refuses past this count and the caller shows the "close a tab
  * first" dialog.
@@ -83,6 +76,6 @@ export const COLUMN_RESIZE_STEP_PX = 16; // px per Arrow key press
  * The boilerplate a brand-new first tab opens with (a `+` blank tab opens
  * empty). Shared by the workspace and the tabs-state factory.
  */
-export const DEFAULT_SQL = `-- Write SQL against your database, then Run (⌘⏎).
+export const DEFAULT_SQL = `-- Reference tables as database.table (e.g. mydb.orders). Run with ⌘⏎.
 SELECT 1;
 `;

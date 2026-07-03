@@ -10,11 +10,9 @@ import {
   parseS3Url,
   getTableDdl,
   runStatementToCompletion,
-  resultOutputLocation,
   stopQuery,
   isTerminalState
 } from './query.service';
-import type {Connection} from './query.types';
 
 const mockGetClient = getAthenaClient as unknown as MockedFunction<() => Promise<unknown>>;
 
@@ -314,26 +312,6 @@ describe('parseS3Url (SPEC-049)', () => {
 
   it('returns null for a non-s3 URL', () => {
     expect(parseS3Url('not-an-s3-url')).toBeNull();
-  });
-});
-
-describe('resultOutputLocation (SPEC-055)', () => {
-  const personal: Connection = {id: 'personal', label: 'alice', database: 'alice', kind: 'personal'};
-  const shared: Connection = {
-    id: 'salesdata',
-    label: 'salesdata',
-    database: 'salesdata',
-    kind: 'shared',
-    status: 'active',
-    role: 'member'
-  };
-
-  it('routes a personal connection to the user-space prefix', () => {
-    expect(resultOutputLocation(personal, 'alice')).toBe('s3://user-bucket/alice/athenaresults/');
-  });
-
-  it('routes a shared connection to {shared-bucket}/{name}/athenaresults/{username}/', () => {
-    expect(resultOutputLocation(shared, 'alice')).toBe('s3://shared-bucket/salesdata/athenaresults/alice/');
   });
 });
 
