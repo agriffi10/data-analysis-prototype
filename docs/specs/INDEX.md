@@ -86,7 +86,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 078 — Multiple SQL Statements in One Editor | Draft (needs design pass) |
 | 079 — Resizable Editor / Results Split | Draft |
 | 080 — Total Row Count in Query Stats | Completed |
-| 081 — Double-Click a File to Download | Draft |
+| 081 — Double-Click a File to Download | Completed |
 | 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Draft |
 | 083 — Code-Quality Hardening (Lambda config/shape/types + Lambda & SPA cleanup smells) | Draft |
 | 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Draft |

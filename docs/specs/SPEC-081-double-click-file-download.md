@@ -1,7 +1,7 @@
 # Spec: Double-Click a File to Download
 
 **ID:** SPEC-081
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-01
 **Depends On:** SPEC-015 (file download), SPEC-018 (selection model)
 
