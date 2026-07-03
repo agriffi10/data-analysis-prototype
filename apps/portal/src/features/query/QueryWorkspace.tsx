@@ -188,22 +188,34 @@ export function QueryWorkspace() {
 
   const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
+  // Tabs whose run has been submitted but not yet recorded in `runs` (SPEC-083 FR-009).
+  // The de-dupe guard reads this ref so a rapid double-trigger de-dupes before the
+  // async setRuns commits, which the runs/statuses render snapshot alone can miss.
+  const submittingTabsRef = useRef<Set<string>>(new Set());
 
   const {appendEntry, updateEntry} = useQueryHistory(username || null);
   const saved = useSavedQueries(username || null);
 
   // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the
-  // stored saved query. Drives the tab-strip marker.
-  const savedById = new Map(saved.queries.map((q) => [q.id, q]));
-  const dirtyTabIds = new Set(
-    tabs.tabs
-      .filter((t) => {
-        const sq = t.savedQueryId ? savedById.get(t.savedQueryId) : undefined;
-        return sq !== undefined && !sameSql(sq.sql, t.sql);
-      })
-      .map((t) => t.id)
+  // stored saved query. Drives the tab-strip marker. Derived in render (not state),
+  // memoized on their real inputs so the Map/Set aren't rebuilt every render (SPEC-083 FR-007).
+  const savedById = useMemo(() => new Map(saved.queries.map((q) => [q.id, q])), [saved.queries]);
+  const dirtyTabIds = useMemo(
+    () =>
+      new Set(
+        tabs.tabs
+          .filter((t) => {
+            const sq = t.savedQueryId ? savedById.get(t.savedQueryId) : undefined;
+            return sq !== undefined && !sameSql(sq.sql, t.sql);
+          })
+          .map((t) => t.id)
+      ),
+    [tabs.tabs, savedById]
   );
-  const activeLinkedSaved = activeTab.savedQueryId ? savedById.get(activeTab.savedQueryId) : undefined;
+  const activeLinkedSaved = useMemo(
+    () => (activeTab.savedQueryId ? savedById.get(activeTab.savedQueryId) : undefined),
+    [activeTab.savedQueryId, savedById]
+  );
 
   const openHistory = () => {
     setSavedOpen(false);
@@ -265,9 +277,14 @@ export function QueryWorkspace() {
   // before the activeTabId state change has committed.
   const submit = (sqlText: string, tabId: string = activeTabId) => {
     if (!sqlText.trim()) return;
+    // De-dupe guard. The ref reflects a submit already in flight for this tab even
+    // before its `runs` entry commits, so a rapid double-trigger (e.g. View data
+    // opens a tab and calls submit in the same tick) starts at most one execution.
+    if (submittingTabsRef.current.has(tabId)) return;
     const existing = runs[tabId];
     const inFlight = !!existing && (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
     if (inFlight) return;
+    submittingTabsRef.current.add(tabId);
 
     // SPEC-043 FR-009: a run from a tab linked to a saved query records that
     // query's id/name in history. Captured from the active tab at submit time.
@@ -277,41 +294,47 @@ export function QueryWorkspace() {
     setRunErrors((e) => ({...e, [tabId]: null}));
     setDismissed((d) => ({...d, [tabId]: false}));
     void (async () => {
-      // SPEC-077: no execution database context — the query fully-qualifies its
-      // own tables. Results land in the personal prefix (runQuery's default); a
-      // shared destination is chosen explicitly at Save time (SPEC-049/055).
-      const result = await runQuery({
-        sql: sqlText,
-        username
-      });
-      if (!result.success) {
-        setRunErrors((e) => ({...e, [tabId]: result.error.message}));
-        return;
+      try {
+        // SPEC-077: no execution database context — the query fully-qualifies its
+        // own tables. Results land in the personal prefix (runQuery's default); a
+        // shared destination is chosen explicitly at Save time (SPEC-049/055).
+        const result = await runQuery({
+          sql: sqlText,
+          username
+        });
+        if (!result.success) {
+          setRunErrors((e) => ({...e, [tabId]: result.error.message}));
+          return;
+        }
+        const id = result.data.queryExecutionId;
+        // Reset any prior terminal status so the UI shows "running" immediately.
+        setStatuses((s) => ({...s, [tabId]: undefined}));
+        // Persist the history entry BEFORE recording the run (which mounts the
+        // poller). The finalizer's updateEntry is a read-modify-write, so if the
+        // append hasn't landed yet it would read a history without this entry and
+        // no-op — losing the terminal status and leaving history looking empty/
+        // stale. Awaiting the append closes that race for fast queries.
+        await appendEntry({
+          queryExecutionId: id,
+          sql: sqlText,
+          // SPEC-077 FR-006: informational only (there's no active database). The
+          // personal database is the fixed default context recorded for display.
+          database: username,
+          submittedAt: new Date().toISOString(),
+          ...(linkedSaved && {
+            savedQueryId: linkedSaved.id,
+            savedQueryName: linkedSaved.name
+          })
+        }).catch((e) => console.warn('[query-history] append failed', e));
+        setRuns((r) => ({
+          ...r,
+          [tabId]: {executionId: id, startedAt: Date.now(), submittedSql: sqlText}
+        }));
+      } finally {
+        // Hand off to the state-based guard: once `runs[tabId]` commits (success) or
+        // the run errored (retryable), the ref no longer needs to block.
+        submittingTabsRef.current.delete(tabId);
       }
-      const id = result.data.queryExecutionId;
-      // Reset any prior terminal status so the UI shows "running" immediately.
-      setStatuses((s) => ({...s, [tabId]: undefined}));
-      // Persist the history entry BEFORE recording the run (which mounts the
-      // poller). The finalizer's updateEntry is a read-modify-write, so if the
-      // append hasn't landed yet it would read a history without this entry and
-      // no-op — losing the terminal status and leaving history looking empty/
-      // stale. Awaiting the append closes that race for fast queries.
-      await appendEntry({
-        queryExecutionId: id,
-        sql: sqlText,
-        // SPEC-077 FR-006: informational only (there's no active database). The
-        // personal database is the fixed default context recorded for display.
-        database: username,
-        submittedAt: new Date().toISOString(),
-        ...(linkedSaved && {
-          savedQueryId: linkedSaved.id,
-          savedQueryName: linkedSaved.name
-        })
-      }).catch((e) => console.warn('[query-history] append failed', e));
-      setRuns((r) => ({
-        ...r,
-        [tabId]: {executionId: id, startedAt: Date.now(), submittedSql: sqlText}
-      }));
     })();
   };
 

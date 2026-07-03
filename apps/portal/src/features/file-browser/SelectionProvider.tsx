@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useReducer, type ReactNode} from 'react';
+import {useCallback, useEffect, useMemo, useReducer, type ReactNode} from 'react';
 import {
   SelectionContext,
   selectionReducer,
@@ -17,16 +17,30 @@ export function SelectionProvider({prefix, children}: {prefix?: string; children
     dispatch({type: 'clear'});
   }, [prefix]);
 
+  // dispatch is stable, so the mutators are stable too — a consumer that only uses
+  // one of them (e.g. a memoized checkbox reading `toggle`) doesn't churn when the
+  // selection changes. The context value's identity still updates when the selection
+  // changes (selected/count/isSelected depend on it), which is exactly when it should.
+  const toggle = useCallback(
+    (item: Parameters<SelectionContextValue['toggle']>[0]) => dispatch({type: 'toggle', item}),
+    []
+  );
+  const selectAll = useCallback(
+    (items: Parameters<SelectionContextValue['selectAll']>[0]) => dispatch({type: 'selectAll', items}),
+    []
+  );
+  const clear = useCallback(() => dispatch({type: 'clear'}), []);
+
   const value = useMemo<SelectionContextValue>(
     () => ({
       selected: state.items,
       count: state.items.size,
       isSelected: (id) => state.items.has(id),
-      toggle: (item) => dispatch({type: 'toggle', item}),
-      selectAll: (items) => dispatch({type: 'selectAll', items}),
-      clear: () => dispatch({type: 'clear'})
+      toggle,
+      selectAll,
+      clear
     }),
-    [state]
+    [state, toggle, selectAll, clear]
   );
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;

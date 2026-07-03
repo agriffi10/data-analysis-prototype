@@ -1,7 +1,7 @@
 # Spec: Code-Quality Hardening — Lambda Config/Shape/Types + Lambda & SPA Cleanup
 
 **ID:** SPEC-083
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-02
 **Depends On:** None (touches existing Lambda groups; no infra/IAM change)
 

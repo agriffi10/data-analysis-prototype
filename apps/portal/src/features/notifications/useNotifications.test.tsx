@@ -130,6 +130,34 @@ describe('useNotifications — optimistic mutations', () => {
     }
   });
 
+  it('clears pending reconcile timers on unmount — no stray refetch fires [SPEC-083 FR-008]', async () => {
+    vi.useFakeTimers();
+    try {
+      mockGet.mockResolvedValue({success: true, data: [note('05')]});
+      const client = newClient();
+      const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+      const {result, unmount} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(client)});
+      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+
+      act(() => result.current.markRead('05'));
+      // Let the enqueue resolve so onSuccess schedules the reconcile timers.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const invalidatesBeforeUnmount = invalidateSpy.mock.calls.length;
+
+      unmount();
+      // Advance past every reconcile delay (2.5s / 9s / 18s). A cleared timer must not
+      // fire its invalidate; without the cleanup this would refetch after unmount.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(invalidateSpy.mock.calls.length).toBe(invalidatesBeforeUnmount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps a mark-read applied even when a reconcile refetch still shows it unread', async () => {
     vi.useFakeTimers();
     try {

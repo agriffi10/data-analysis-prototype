@@ -257,6 +257,26 @@ describe('QueryWorkspace', () => {
     expect(appendEntry).toHaveBeenCalledTimes(1);
   });
 
+  it('de-dupes a rapid double-submit for the same tab — at most one execution [SPEC-083 FR-009]', async () => {
+    let resolveRun: (v: Awaited<ReturnType<typeof runQuery>>) => void = () => {};
+    mockRunQuery.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRun = resolve;
+      })
+    );
+    renderWorkspace();
+
+    const runBtn = screen.getByRole('button', {name: /Run/});
+    fireEvent.click(runBtn);
+    fireEvent.click(runBtn); // second trigger before the first run is recorded in `runs`
+
+    expect(mockRunQuery).toHaveBeenCalledTimes(1);
+
+    resolveRun({success: true, data: {queryExecutionId: 'q-1'}});
+    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
+    expect(mockRunQuery).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces a runQuery error in a danger banner', async () => {
     mockRunQuery.mockResolvedValue({
       success: false,
