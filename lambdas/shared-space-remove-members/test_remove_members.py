@@ -55,6 +55,19 @@ def test_remove_members_clears_slot_registry_and_cache_leaves_data():
     assert glue.created == []
 
 
+def test_remove_members_fans_reduced_roster_to_remaining_members():
+    # SPEC-075 FR-002: a remaining member (cara)'s cache reflects the reduced roster.
+    s3, glue, lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "cara": {"custom:shared_space_1": "sales"}}
+    reg = _active_reg(members=["alice", "bob", "cara"])
+    _seed_reg(s3, reg)
+
+    r.remove_members("sales", ["bob"], "req-3", reg)
+    cara_entry = json.loads(s3.store[("user-bkt", "cara/user_settings/shared-connections.json")])["connections"][0]
+    assert cara_entry["role"] == "member" and cara_entry["owner"] == "alice"
+    assert {m["username"] for m in cara_entry["members"]} == {"alice", "cara"}  # bob gone
+
+
 def test_remove_members_idempotent_for_non_member():
     s3, glue, lf, cognito = install()
     cognito.users = {"bob": {}}

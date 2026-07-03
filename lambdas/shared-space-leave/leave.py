@@ -34,7 +34,9 @@ def leave_space(space, actor, request_id, registry):
     acknowledged = [a for a in reg.effective_acknowledged(registry) if a != actor]
     registry["acknowledged"] = acknowledged
     reg.save_members(registry, remaining, request_id)
-    cache.write_owner_projection(owner, space, remaining, acknowledged, registry.get("createdAt"))
+    # The leaver's entry was dropped above; fan the reduced roster out to the owner +
+    # every remaining member (SPEC-075).
+    cache.write_roster_to_all(remaining, space, owner, acknowledged, registry.get("createdAt"))
     # Notify the owner only after the registry write lands; no-op leaves emit nothing.
     emit_notification(
         owner,

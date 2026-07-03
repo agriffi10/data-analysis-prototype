@@ -3,8 +3,8 @@ import {Drawer} from '../../components/Drawer';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
-import {cx} from '../../lib/cx';
 import {AddMembersDialog} from './AddMembersDialog';
+import {MembersList} from './MembersList';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
 import type {Member} from './sharedSpaces.types';
 
@@ -46,9 +46,6 @@ export function ManageMembersDrawer({
 }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-
-  // Owner first, then the rest A–Z; the owner can't be removed here.
-  const others = members.filter((m) => m.username !== owner).sort((a, b) => a.username.localeCompare(b.username));
 
   const handleAdd = (toAdd: string[]) => {
     setAddOpen(false);
@@ -94,36 +91,12 @@ export function ManageMembersDrawer({
         </Banner>
       )}
 
-      <ul
-        role="list"
-        className="divide-y divide-border rounded-lg border border-border">
-        <li className="flex items-center gap-3 px-4 py-2.5">
-          <Avatar name={owner} />
-          <span className="min-w-0 truncate font-medium text-text">{owner}</span>
-          <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2">
-            Owner
-          </span>
-          <div className="flex-1" />
-        </li>
-        {others.map((member) => (
-          <li
-            key={member.username}
-            className="flex items-center gap-3 px-4 py-2.5">
-            <Avatar name={member.username} />
-            <span className="min-w-0 truncate font-medium text-text">{member.username}</span>
-            <MemberStatusBadge status={member.status} />
-            <div className="flex-1" />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-danger hover:bg-danger-soft hover:text-danger"
-              onClick={() => setRemoving(member.username)}
-              disabled={busy}>
-              Remove
-            </Button>
-          </li>
-        ))}
-      </ul>
+      <MembersList
+        owner={owner}
+        members={members}
+        onRemove={setRemoving}
+        busy={busy}
+      />
 
       <p className="text-xs text-text-3">
         A <span className="font-medium text-text-2">Pending</span> member has been invited but hasn&apos;t signed in
@@ -157,34 +130,5 @@ export function ManageMembersDrawer({
         </ConfirmDialog>
       )}
     </Drawer>
-  );
-}
-
-// Per-member join status as a colored dot + text label (SPEC-073). Like the
-// Connections-page StatusBadge, the text label always carries the meaning, so the
-// color/dot is never the only signal (WCAG AA).
-function MemberStatusBadge({status}: {status: Member['status']}) {
-  const active = status === 'active';
-  return (
-    <span
-      className={cx(
-        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-        active ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
-      )}>
-      <span className="h-[7px] w-[7px] rounded-full bg-current" />
-      {active ? 'Active' : 'Pending'}
-    </span>
-  );
-}
-
-// Circular avatar showing the first two letters of the username. Decorative — the
-// username text beside it carries the name.
-function Avatar({name}: {name: string}) {
-  return (
-    <span
-      aria-hidden="true"
-      className="grid h-7 w-7 flex-none place-items-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-xs font-semibold text-white">
-      {name.slice(0, 2).toUpperCase()}
-    </span>
   );
 }

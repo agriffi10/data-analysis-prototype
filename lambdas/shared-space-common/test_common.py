@@ -182,6 +182,58 @@ def test_cache_upsert_remove_and_owner_projection():
     ] and owner[0]["role"] == "owner"
 
 
+def _conns(s3, username):
+    return json.loads(s3.store[("user-bkt", f"{username}/user_settings/shared-connections.json")])["connections"]
+
+
+def test_write_member_entry_carries_roster_and_status():
+    """SPEC-075: a member's entry now includes the same {username,status} roster the
+    owner sees, plus role/owner/createdAt."""
+    s3, *_ = install()
+    cache.write_member_entry("bob", "sales", "alice", ["alice", "bob", "cara"], ["bob"], "2026-07-03")
+    entry = _conns(s3, "bob")[0]
+    assert entry["role"] == "member" and entry["owner"] == "alice" and entry["createdAt"] == "2026-07-03"
+    assert entry["members"] == [
+        {"username": "alice", "status": "active"},  # owner always active
+        {"username": "bob", "status": "active"},  # acknowledged
+        {"username": "cara", "status": "pending"},  # not yet acked
+    ]
+
+
+def test_write_roster_to_all_fans_out_to_owner_and_every_member():
+    """SPEC-075 FR-002: the owner and every member get the full roster; the owner is
+    skipped as a member recipient (they get the owner projection, not a member entry)."""
+    s3, *_ = install()
+    cache.write_roster_to_all(["alice", "bob", "cara"], "sales", "alice", ["bob"])
+    owner = _conns(s3, "alice")[0]
+    assert owner["role"] == "owner"
+    for member in ("bob", "cara"):
+        entry = _conns(s3, member)[0]
+        assert entry["role"] == "member" and entry["owner"] == "alice"
+        assert entry["members"] == owner["members"]  # everyone sees the same roster
+
+
+def test_write_roster_to_all_is_best_effort_per_member():
+    """FR-002: one member's cache write failing is logged and skipped, never aborting
+    the fan-out — the remaining members and the owner still get the roster."""
+    from fakes import FakeS3, FakeClientError
+    import clients
+
+    class FlakyS3(FakeS3):
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            if Key == "bob/user_settings/shared-connections.json":
+                raise FakeClientError("InternalError")  # bob's cache is broken
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = FlakyS3()
+    cache.write_roster_to_all(["alice", "bob", "cara"], "sales", "alice", [])
+    # cara + the owner still landed despite bob failing.
+    assert ("user-bkt", "cara/user_settings/shared-connections.json") in clients._s3.store
+    assert ("user-bkt", "alice/user_settings/shared-connections.json") in clients._s3.store
+    assert ("user-bkt", "bob/user_settings/shared-connections.json") not in clients._s3.store
+
+
 def test_cache_cas_retries_and_preserves_concurrent_write():
     """The fix: two overlapping executions writing the same user's cache must not
     lose-update. RacyS3 commits a competing entry between our read and our first

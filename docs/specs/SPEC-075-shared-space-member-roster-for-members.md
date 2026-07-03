@@ -1,9 +1,18 @@
 # Spec: Read-Only Member Roster for Shared-Connection Members
 
 **ID:** SPEC-075
-**Status:** Draft
-**Last Updated:** 2026-06-30
-**Depends On:** SPEC-053 (owner member management), SPEC-056 (access model + registry), SPEC-062 (decomposed control plane)
+**Status:** Completed
+**Last Updated:** 2026-07-03
+**Depends On:** SPEC-053 (owner member management), SPEC-056 (access model + registry), SPEC-062 (decomposed control plane), SPEC-073 (per-member join status)
+
+> **Implementation note (2026-07-03).** This spec's Data Model says the roster is `members: string[]`, written
+> before SPEC-073 shipped per-member join status. SPEC-073 changed the owner projection (and the frontend
+> `SharedConnectionEntry.members`) to `Member[]` (`{username, status}`). So the member roster is implemented as
+> the **same `Member[]` projection the owner sees** — members see each person's Active/Pending chip too (user-
+> confirmed) — reusing `cache._member_projection` and a shared `MembersList` component. `write_roster_to_all`
+> takes `acknowledged` so it can compute status. Acknowledge-membership still updates only the owner projection
+> (fan-out is scoped to add/remove/leave per FR-002), so a peer's status in a member's roster is refreshed on the
+> next membership change — eventually consistent, as the spec intends.
 
 ## Overview
 

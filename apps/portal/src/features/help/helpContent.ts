@@ -195,7 +195,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'See who has access and their status',
         subtitle: 'Check the member list and each person’s join status.',
         steps: [
-          'Open <b>Manage</b> on a space to see its member list.',
+          'If you own the space, open <b>Manage</b>; if you belong to it, open <b>View members</b> — either shows the full member list (read-only for members).',
           'Each member shows a status: <b>Active</b> once they have signed in and opened the space, or <b>Pending</b> until they do.',
           'Click <b>Refresh</b> to check for updates.'
         ],

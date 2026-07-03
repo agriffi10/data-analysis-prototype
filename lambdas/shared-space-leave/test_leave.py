@@ -53,6 +53,18 @@ def test_leave_clears_slot_cache_registry_and_owner_projection_leaves_data():
     assert "sales" in glue.databases and glue.tables["sales"] == ["t1", "t2"]
 
 
+def test_leave_fans_reduced_roster_to_remaining_members():
+    # SPEC-075 FR-002: after bob leaves, remaining member cara's cache reflects it.
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob", "cara"))
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    l.leave_space("sales", "bob", "req-l", reg)
+    cara_entry = json.loads(s3.store[("user-bkt", "cara/user_settings/shared-connections.json")])["connections"][0]
+    assert cara_entry["role"] == "member" and cara_entry["owner"] == "alice"
+    assert {m["username"] for m in cara_entry["members"]} == {"alice", "cara"}  # bob gone
+
+
 def test_leave_idempotent_for_non_member():
     s3, glue, lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice",))

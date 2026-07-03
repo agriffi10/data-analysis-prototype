@@ -10,6 +10,7 @@ import {useCreateSharedConnection} from './useCreateSharedConnection';
 import {useManageMembers} from './useManageMembers';
 import {useLeaveOrDeleteSharedSpace} from './useLeaveOrDeleteSharedSpace';
 import {ManageMembersDrawer} from './ManageMembersDrawer';
+import {MemberRosterDrawer} from './MemberRosterDrawer';
 import {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 import {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
@@ -23,7 +24,8 @@ type ConnectionRow = {
   role: SharedConnectionRole;
   status: SharedConnectionStatus;
   reason?: string;
-  /** Owner-readable projection with per-member join status (owner rows only). */
+  /** Member roster with per-member join status. On owner rows (Manage) and, since
+   * SPEC-075, member rows too (read-only View members). Absent on legacy entries. */
   members?: Member[];
   /** ISO; drives the "created <date>" meta line. */
   createdAt?: string;
@@ -52,6 +54,9 @@ export function ConnectionsPage() {
   // from the live `rows` — a Refresh that flips a member Pending → Active is then
   // reflected in the open drawer without reopening it (FR-006).
   const [managingName, setManagingName] = useState<string | null>(null);
+  // Same NAME-tracked pattern as `managingName`, for a member's read-only roster view
+  // (SPEC-075) so a Refresh keeps the open drawer in sync.
+  const [viewingName, setViewingName] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<ConnectionRow | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRow | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -100,6 +105,12 @@ export function ConnectionsPage() {
   const managing = useMemo(
     () => (managingName ? (rows.find((r) => r.name === managingName) ?? null) : null),
     [managingName, rows]
+  );
+
+  // Same for the member roster drawer (SPEC-075).
+  const viewing = useMemo(
+    () => (viewingName ? (rows.find((r) => r.name === viewingName) ?? null) : null),
+    [viewingName, rows]
   );
 
   const handleRefresh = () => {
@@ -248,6 +259,7 @@ export function ConnectionsPage() {
                 key={row.name}
                 row={row}
                 onManage={() => setManagingName(row.name)}
+                onView={() => setViewingName(row.name)}
                 onDelete={() => setDeleting(row)}
                 onLeave={() => setLeaving(row)}
                 onDismiss={() => void handleDismiss(row.name)}
@@ -278,6 +290,18 @@ export function ConnectionsPage() {
           refreshing={isRefreshing}
           onAddMembers={(toAdd) => void handleAddMembers(managing.name, toAdd)}
           onRemoveMembers={(toRemove) => void handleRemoveMembers(managing.name, toRemove)}
+        />
+      )}
+      {viewing && username && (
+        <MemberRosterDrawer
+          open
+          onClose={() => setViewingName(null)}
+          space={viewing.name}
+          owner={viewing.owner ?? ''}
+          members={viewing.members ?? []}
+          unavailable={viewing.members === undefined}
+          onRefresh={handleRefresh}
+          refreshing={isRefreshing}
         />
       )}
       {leaving && (
@@ -341,6 +365,7 @@ function formatCreated(iso?: string): string | null {
 function ConnectionRowItem({
   row,
   onManage,
+  onView,
   onDelete,
   onLeave,
   onDismiss,
@@ -348,6 +373,7 @@ function ConnectionRowItem({
 }: {
   row: ConnectionRow;
   onManage: () => void;
+  onView: () => void;
   onDelete: () => void;
   onLeave: () => void;
   onDismiss: () => void;
@@ -403,13 +429,21 @@ function ConnectionRowItem({
           </>
         ) : (
           row.status === 'active' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-danger hover:bg-danger-soft hover:text-danger"
-              onClick={onLeave}>
-              Leave
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onView}>
+                View members
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger hover:bg-danger-soft hover:text-danger"
+                onClick={onLeave}>
+                Leave
+              </Button>
+            </>
           )
         )}
       </div>
