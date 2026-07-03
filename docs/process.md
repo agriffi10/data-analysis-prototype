@@ -138,6 +138,14 @@ When a spec is done, in the same pass:
    `docs/component-inventory.md`.
 5. A *new architectural decision* gets **one line** in CLAUDE.md's Key Decisions (+ a pointer) — never a
    paragraph. Reasoning lives in the spec/delivery doc.
+6. **User-facing docs sweep.** If the spec added, changed, or removed a capability a user can see, update the
+   surfaces that describe it — first and foremost the in-app **Help & guides** content
+   (`apps/portal/src/features/help/helpContent.ts`, SPEC-074), plus any README / onboarding copy. New shipped
+   feature → add/adjust its guide; changed flow/labels → fix the steps; removed feature → delete its guide.
+   The help module is code-grounded by contract (SPEC-074 FR-005), so **only document what's shipped and wired
+   end-to-end** — a Draft or infra-less feature stays out until it ships. If nothing user-facing changed, say so
+   and move on. (This step exists because help content silently drifts as features land; SPEC-073's join status
+   and the table-builder arc, for instance, shipped after SPEC-074 was authored and had to be folded in.)
 
 **Anti-regrowth.** If a memory or doc disagrees with the code, fix or delete it — don't let stale state
 accumulate. Don't add prose to the always-loaded tier.

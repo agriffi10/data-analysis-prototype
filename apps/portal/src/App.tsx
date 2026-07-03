@@ -7,6 +7,7 @@ import {LoadingState} from './components/LoadingState';
 import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotificationsPage from './routes/NotificationsPage';
+import HelpPage from './routes/HelpPage';
 import NotFoundPage from './routes/NotFoundPage';
 
 // The Query route pulls in Monaco + the Athena/Glue SDK clients — lazy-load the
@@ -56,6 +57,12 @@ export default function App() {
           <Route
             path="/notifications"
             element={<NotificationsPage />}
+          />
+          {/* Reached via the header help icon, not the primary tab bar. Eager —
+              content is a small static module already in the main bundle. */}
+          <Route
+            path="/help"
+            element={<HelpPage />}
           />
         </Route>
         <Route

@@ -286,3 +286,14 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `CreateTableDialog` | `CreateTableDialog.tsx` | Name prompt (suggested + validated) + optional partition-keys section; Confirm gated on name **and** keys valid; inline submit-error banner (SPEC-071). |
 | `PartitionKeysField` | `PartitionKeysField.tsx` | Controlled, ordered, reorderable/removable partition-key rows (name + type `<select>` + per-type projection config) with focus management + labelled dynamic rows (SPEC-071). |
 | `TableBuildRequest`, `PartitionKey`, `DraftPartitionKey`, `PartitionKeyErrors`, `PartitionType`, `PartitionKeysResult` | `tableBuild.types.ts`, `partitionKeys.ts` | The request + wire partition-key shapes (match the SPEC-067 contract) + the editor's draft/error/result types (SPEC-071). |
+
+## Help feature (`apps/portal/src/features/help/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `HELP_SECTIONS` | `helpContent.ts` | Static, code-grounded Help & guides content (Files incl. table builder, Query, Shared connections incl. join status, Notifications). Update on every spec that changes a user-facing feature (SPEC-074 FR-005) (SPEC-074). |
+| `HelpPage` | `HelpPage.tsx` | Section sidebar + accordion cards; active section synced to the URL hash (`/help#query`), first-section fallback, first card default-open (SPEC-074). |
+| `HelpSidebar` | `HelpSidebar.tsx` | Left rail mirroring `Sidebar`: one item per section with feature icon, label, and content-derived guide count; `aria-current` on active (SPEC-074). |
+| `HelpGuideCard` | `HelpGuideCard.tsx` | One accordion guide: header button (`aria-expanded`/`aria-controls`), numbered steps, at most one Tip/Careful callout; independent open state (SPEC-074). |
+| `HelpLink` | `HelpLink.tsx` | Header help control — `NavLink` to `/help` styled like `NotificationsBell`, active on `/help` (SPEC-074). |
+| `renderInline(text)` | `inlineMarkup.tsx` | Parses `<b>`/`<kbd>` markup in guide step + callout strings into `<strong>`/keyed elements (no `dangerouslySetInnerHTML`) (SPEC-074). |
