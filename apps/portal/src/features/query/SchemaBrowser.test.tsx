@@ -1,8 +1,10 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent, within} from '@testing-library/react';
+import {render, screen, fireEvent, within, type RenderOptions} from '@testing-library/react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import type {ReactElement, ReactNode} from 'react';
 import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
 
-vi.mock('./useSchema', () => ({useSchema: vi.fn()}));
+vi.mock('./useSchema', () => ({useSchema: vi.fn(), invalidateSchema: vi.fn()}));
 
 import {useSchema} from './useSchema';
 import {SchemaBrowser, type TableActions} from './SchemaBrowser';
@@ -10,6 +12,16 @@ import type {Connection} from './query.types';
 
 const mockUseSchema = vi.mocked(useSchema);
 type SchemaState = ReturnType<typeof useSchema>;
+
+// DatabaseNode (rendered per usable connection) uses useQueryClient for its per-node
+// Refresh (SPEC-086), so every render needs a QueryClient in context.
+function Providers({children}: {children: ReactNode}) {
+  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+function renderBrowser(ui: ReactElement, options?: RenderOptions) {
+  return render(ui, {wrapper: Providers, ...options});
+}
 
 function makeActions(over: Partial<TableActions> = {}): TableActions {
   return {
@@ -54,7 +66,7 @@ describe('SchemaBrowser', () => {
   // --- single-database default (the common case) ---
 
   it('renders a single database expanded by default with its Tables group', () => {
-    render(
+    renderBrowser(
       <SchemaBrowser
         connections={[connections[0]]}
         actions={makeActions()}
@@ -65,7 +77,7 @@ describe('SchemaBrowser', () => {
   });
 
   it('shows columns as non-interactive rows (browse-only, no click-to-insert)', () => {
-    render(
+    renderBrowser(
       <SchemaBrowser
         connections={[connections[0]]}
         actions={makeActions()}
@@ -78,7 +90,7 @@ describe('SchemaBrowser', () => {
 
   it('opens the options menu and fires an action with the node database, without toggling expand', () => {
     const actions = makeActions();
-    render(
+    renderBrowser(
       <SchemaBrowser
         connections={[connections[0]]}
         actions={actions}
@@ -94,7 +106,7 @@ describe('SchemaBrowser', () => {
   // --- multiple databases (browse-only, no active selection) ---
 
   it('expands the first (personal) database by default and fetches its schema', () => {
-    render(
+    renderBrowser(
       <SchemaBrowser
         connections={connections}
         actions={makeActions()}
@@ -107,7 +119,7 @@ describe('SchemaBrowser', () => {
   });
 
   it('expands another database to browse it (no active-database radio)', () => {
-    render(
+    renderBrowser(
       <SchemaBrowser
         connections={connections}
         actions={makeActions()}
@@ -120,7 +132,7 @@ describe('SchemaBrowser', () => {
   });
 
   it('shows an unusable shared connection but not expandable or selectable (SPEC-052 FR-004)', () => {
-    render(
+    renderBrowser(
       <SchemaBrowser
         connections={[
           connections[0],
@@ -146,10 +158,12 @@ describe('SchemaBrowser', () => {
 
   it('has no axe violations', async () => {
     await expectNoA11yViolations(
-      <SchemaBrowser
-        connections={connections}
-        actions={makeActions()}
-      />,
+      <Providers>
+        <SchemaBrowser
+          connections={connections}
+          actions={makeActions()}
+        />
+      </Providers>,
       COMPONENT_AXE_OPTIONS
     );
   });

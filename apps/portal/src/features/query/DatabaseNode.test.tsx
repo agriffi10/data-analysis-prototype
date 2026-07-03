@@ -1,14 +1,16 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {render, screen, fireEvent, within} from '@testing-library/react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 
-vi.mock('./useSchema', () => ({useSchema: vi.fn()}));
+vi.mock('./useSchema', () => ({useSchema: vi.fn(), invalidateSchema: vi.fn()}));
 
-import {useSchema} from './useSchema';
+import {useSchema, invalidateSchema} from './useSchema';
 import {DatabaseNode} from './DatabaseNode';
 import type {TableActions} from './SchemaBrowser';
 import type {Connection} from './query.types';
 
 const mockUseSchema = vi.mocked(useSchema);
+const mockInvalidateSchema = vi.mocked(invalidateSchema);
 type SchemaState = ReturnType<typeof useSchema>;
 
 function makeActions(over: Partial<TableActions> = {}): TableActions {
@@ -37,19 +39,23 @@ const mixedSchema = {
 } as unknown as SchemaState;
 
 function renderNode(props: Partial<React.ComponentProps<typeof DatabaseNode>> = {}) {
+  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
   return render(
-    <DatabaseNode
-      connection={personal}
-      defaultExpanded
-      actions={makeActions()}
-      {...props}
-    />
+    <QueryClientProvider client={client}>
+      <DatabaseNode
+        connection={personal}
+        defaultExpanded
+        actions={makeActions()}
+        {...props}
+      />
+    </QueryClientProvider>
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseSchema.mockReturnValue(mixedSchema);
+  mockInvalidateSchema.mockResolvedValue(undefined);
 });
 
 describe('DatabaseNode', () => {
@@ -150,5 +156,69 @@ describe('DatabaseNode', () => {
     } as unknown as SchemaState);
     renderNode();
     expect(screen.getByText(/Setting up your database/)).toBeInTheDocument();
+  });
+
+  // SPEC-086: per-database Refresh.
+  it('shows a Refresh control on an expanded node', () => {
+    renderNode();
+    expect(screen.getByRole('button', {name: /refresh tables in My workspace/i})).toBeInTheDocument();
+  });
+
+  it('shows no Refresh control while the node is collapsed (nothing loaded to refresh)', () => {
+    renderNode({defaultExpanded: false});
+    expect(screen.queryByRole('button', {name: /refresh tables/i})).not.toBeInTheDocument();
+  });
+
+  it('refreshing invalidates only this database’s schema (scoped)', () => {
+    renderNode();
+    fireEvent.click(screen.getByRole('button', {name: /refresh tables in My workspace/i}));
+    expect(mockInvalidateSchema).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateSchema).toHaveBeenCalledWith(expect.anything(), 'alice');
+  });
+
+  it('disables + spins the Refresh control while the node’s refetch is in flight', () => {
+    mockUseSchema.mockReturnValue({...mixedSchema, isFetching: true} as unknown as SchemaState);
+    renderNode();
+    const refresh = screen.getByRole('button', {name: /refresh tables in My workspace/i});
+    expect(refresh).toBeDisabled();
+    expect(refresh.querySelector('svg')).toHaveClass('animate-spin');
+  });
+
+  it('re-enables the Refresh control once the refetch settles', () => {
+    mockUseSchema.mockReturnValue({...mixedSchema, isFetching: false} as unknown as SchemaState);
+    renderNode();
+    const refresh = screen.getByRole('button', {name: /refresh tables in My workspace/i});
+    expect(refresh).toBeEnabled();
+    expect(refresh.querySelector('svg')).not.toHaveClass('animate-spin');
+  });
+
+  it('surfaces a freshly-read table after a refresh (drops a removed one)', () => {
+    mockUseSchema.mockReturnValue({
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      data: {database: {name: 'alice'}, tables: [{name: 'old_table', columns: []}]}
+    } as unknown as SchemaState);
+    const {rerender} = renderNode();
+    expect(screen.getByRole('button', {name: 'old_table'})).toBeInTheDocument();
+
+    // Simulate the refetch returning a new object set (new table in, old table out).
+    mockUseSchema.mockReturnValue({
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      data: {database: {name: 'alice'}, tables: [{name: 'new_table', columns: []}]}
+    } as unknown as SchemaState);
+    rerender(
+      <QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>
+        <DatabaseNode
+          connection={personal}
+          defaultExpanded
+          actions={makeActions()}
+        />
+      </QueryClientProvider>
+    );
+    expect(screen.getByRole('button', {name: 'new_table'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'old_table'})).not.toBeInTheDocument();
   });
 });

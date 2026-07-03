@@ -1,6 +1,8 @@
 import {useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
 import {cx} from '../../lib/cx';
-import {useSchema} from './useSchema';
+import {IconButton} from '../../components/IconButton';
+import {useSchema, invalidateSchema} from './useSchema';
 import {TableActionsMenu} from './TableActionsMenu';
 import {partitionSchema} from './schema.partition';
 import type {Connection, GlueTableSummary} from './query.types';
@@ -218,7 +220,12 @@ export function DatabaseNode({
   const [openTables, setOpenTables] = useState<Set<string>>(new Set());
 
   // FR-004: a node fetches its schema only when expanded (disabled while collapsed).
-  const {data, isPending, isError, error} = useSchema(expanded ? connection.database : null);
+  const {data, isPending, isError, error, isFetching} = useSchema(expanded ? connection.database : null);
+
+  // SPEC-086: re-read only THIS database's schema on demand (invalidate its query key;
+  // the expanded node is an active observer so it refetches). `isFetching` drives the
+  // button's disabled/spinner state and blocks overlapping refetches for this node.
+  const queryClient = useQueryClient();
 
   const toggleTable = (name: string) =>
     setOpenTables((prev) => {
@@ -300,7 +307,7 @@ export function DatabaseNode({
 
   return (
     <div>
-      <div className="flex items-center gap-1 rounded-md hover:bg-surface-2">
+      <div className="group flex items-center gap-1 rounded-md pr-1 hover:bg-surface-2">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
@@ -311,6 +318,28 @@ export function DatabaseNode({
           <DatabaseIcon />
           <span className="min-w-0 truncate">{connection.label}</span>
         </button>
+        {/* SPEC-086: per-node refresh — only on an expanded (loaded) node; re-reads
+            just this database's tables/views, never toggling expansion. */}
+        {expanded && (
+          <IconButton
+            label={`Refresh tables in ${connection.label}`}
+            size="sm"
+            disabled={isFetching}
+            onClick={() => void invalidateSchema(queryClient, connection.database)}>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className={cx('h-4 w-4', isFetching && 'animate-spin')}>
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+          </IconButton>
+        )}
       </div>
       {body}
     </div>
