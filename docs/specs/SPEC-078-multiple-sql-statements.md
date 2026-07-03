@@ -1,7 +1,7 @@
 # Spec: Multiple SQL Statements in One Editor
 
 **ID:** SPEC-078
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-03
 **Depends On:** SPEC-041 (multi-tab editor), SPEC-038 (results pager), SPEC-034/036 (history)
 

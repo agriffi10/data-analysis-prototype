@@ -281,6 +281,8 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `BellIcon` | `components/icons.tsx` | Shared inline bell SVG for the notifications header link (SPEC-060). |
 | `buildSqlCompletions`, `createSqlCompletionProvider`, `DatabaseSchema` | `features/query/sqlCompletions.ts` | Pure, Monaco-free builder mapping `DatabaseSchema[]` (per-DB tables) → completion descriptors: **fully-qualified** `database.table` for tables/views, bare de-duped columns with type detail; plus the Monaco provider factory reading a live `schemaRef`. Feeds multi-database autocomplete (SPEC-065/077). |
 | `deriveViewTargetDatabase(body)`, `schemaChangingDatabase(sql)` | `features/query/query.sql.ts` | Pure SQL heuristics: the single database of a view body's fully-qualified base tables (error when ambiguous/none), and the target DB of a schema-changing DDL statement — both used now that there's no active database (SPEC-077). |
+| `splitSqlStatements(buffer)`, `resolveRunStatements(buffer, stmts, sel, cursor)`, `isResultProducingSql(sql)`, `statementHint(sql)` | `features/query/query.sql.ts` | Pure multi-statement helpers (SPEC-078): split a buffer into `ParsedStatement[]` (string/comment/backtick-aware, source offsets); resolve Run Statement's scope (selection → cursor statement → sole); classify row-returning statements; short label for result tabs. |
+| `ResultTabs` | `features/query/ResultTabs.tsx` | Result-tab strip for a "tab per statement" script run (SPEC-078): WAI-ARIA tablist (roving tabindex, Arrow/Home/End), one labeled tab per `ResultTab`, controlled `activeIndex`/`onSelect`. |
 
 ## Table-builder feature (`apps/portal/src/features/table-builder/`)
 

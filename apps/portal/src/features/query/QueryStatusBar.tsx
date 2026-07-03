@@ -7,6 +7,11 @@ type QueryStatusBarProps = {
   status?: QueryStatus;
   isInFlight: boolean;
   startedAt: number | null;
+  /**
+   * Multi-statement batch progress (SPEC-078 FR-004): 1-based current statement
+   * + total. Supplied only when the run holds more than one statement.
+   */
+  batch?: {current: number; total: number};
   /** Loaded-count fallback shown while the exact total is still being counted (SPEC-038/080). */
   rowCount?: number;
   hasMoreRows?: boolean;
@@ -49,6 +54,7 @@ export function QueryStatusBar({
   status,
   isInFlight,
   startedAt,
+  batch,
   rowCount,
   hasMoreRows,
   hasResultSet = true,
@@ -90,6 +96,7 @@ export function QueryStatusBar({
             {state === 'QUEUED' ? 'Queued…' : 'Running…'}
           </span>
           <span className="text-text-2">
+            {batch && `Statement ${batch.current} of ${batch.total} · `}
             elapsed {formatDurationMs(elapsedMs)}
             {status?.dataScannedBytes !== undefined && ` · ${formatBytes(status.dataScannedBytes)} scanned`}
           </span>
@@ -111,6 +118,7 @@ export function QueryStatusBar({
             Succeeded
           </span>
           <span className="text-text-2">
+            {batch && batch.current === batch.total && `Script finished · ${batch.total} statements · `}
             {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount, atRowCeiling})} · `}
             {formatBytes(status?.dataScannedBytes)} scanned · {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>

@@ -42,17 +42,22 @@ export type UseQueryResultsResult = {
  */
 export function useQueryResults(queryExecutionId: string | null, maxRows?: number): UseQueryResultsResult {
   const pageSize = maxRows ?? QUERY_RESULTS_PAGE_SIZE;
-  const [pageIndex, setPageIndex] = useState(0);
 
-  // A new query (new execution id) resets the pager to page 1. Done as a
-  // render-phase reset (track the previous id) rather than an effect — React's
-  // documented pattern for "reset state when a prop changes", and it avoids the
-  // extra render an effect would cause.
-  const [prevExecutionId, setPrevExecutionId] = useState(queryExecutionId);
-  if (queryExecutionId !== prevExecutionId) {
-    setPrevExecutionId(queryExecutionId);
-    setPageIndex(0);
-  }
+  // The page position is kept PER execution id (SPEC-078 FR-007: each result
+  // tab owns its own pager) — switching between executions restores each one's
+  // page, mirroring how useInfiniteQuery already caches the pages per id. A new
+  // run is a new execution id with no entry yet, so it starts on page 1.
+  // Entries are tiny and session-scoped, so never pruned (same stance as
+  // useColumnWidths).
+  const [pageIndexByExecution, setPageIndexByExecution] = useState<Record<string, number>>({});
+  const pageIndex = (queryExecutionId !== null ? pageIndexByExecution[queryExecutionId] : undefined) ?? 0;
+  const setPageIndex = useCallback(
+    (index: number) => {
+      if (queryExecutionId === null) return;
+      setPageIndexByExecution((m) => ({...m, [queryExecutionId]: index}));
+    },
+    [queryExecutionId]
+  );
 
   const query = useInfiniteQuery({
     queryKey: queryKeys.results(queryExecutionId ?? '__none__'),
@@ -78,8 +83,8 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
   const loadedRowCount = pages.reduce((n, p) => n + p.rows.length, 0);
 
   const goPrev = useCallback(() => {
-    setPageIndex((i) => Math.max(0, i - 1));
-  }, []);
+    setPageIndex(Math.max(0, pageIndex - 1));
+  }, [pageIndex, setPageIndex]);
 
   const goNext = useCallback(async () => {
     // Next page already cached → just advance (instant, no refetch).
@@ -95,7 +100,7 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
         setPageIndex(pageIndex + 1);
       }
     }
-  }, [pageIndex, pages.length, current?.nextToken, query]);
+  }, [pageIndex, setPageIndex, pages.length, current?.nextToken, query]);
 
   const rowCount = current?.rows.length ?? 0;
   const rangeStart = rowCount === 0 ? 0 : pageIndex * pageSize + 1;

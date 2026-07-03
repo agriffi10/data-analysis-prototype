@@ -122,6 +122,43 @@ describe('QueryStatusBar', () => {
     expect(screen.getByText(/scanned/)).toBeInTheDocument();
   });
 
+  it('shows batch progress while a multi-statement script runs (SPEC-078 FR-004)', () => {
+    render(
+      <QueryStatusBar
+        status={status({state: 'RUNNING'})}
+        isInFlight
+        startedAt={Date.now() - 3000}
+        batch={{current: 2, total: 4}}
+        onSaveResults={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Statement 2 of 4');
+  });
+
+  it('summarizes a fully-run script on success, but not a halted one (SPEC-078)', () => {
+    const {rerender} = render(
+      <QueryStatusBar
+        status={status({state: 'SUCCEEDED'})}
+        isInFlight={false}
+        startedAt={null}
+        batch={{current: 3, total: 3}}
+        onSaveResults={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Script finished · 3 statements');
+
+    rerender(
+      <QueryStatusBar
+        status={status({state: 'SUCCEEDED'})}
+        isInFlight={false}
+        startedAt={null}
+        batch={{current: 1, total: 3}}
+        onSaveResults={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('status')).not.toHaveTextContent('Script finished');
+  });
+
   it('renders terminal Failed and Cancelled indicators', () => {
     const {rerender} = render(
       <QueryStatusBar

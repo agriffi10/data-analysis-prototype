@@ -75,13 +75,21 @@ function releaseSqlCompletions() {
 export type SqlEditorHandle = {
   /** Focuses the editor (used after re-opening a history entry / a table action). */
   focus: () => void;
+  /** The selection as buffer offsets, or null when empty (SPEC-078 FR-006). */
+  getSelectionRange: () => {start: number; end: number} | null;
+  /** The cursor position as a buffer offset (SPEC-078 FR-006). */
+  getCursorOffset: () => number;
 };
 
 type SqlEditorProps = {
   value: string;
   onChange: (value: string) => void;
-  /** ⌘/Ctrl+Enter in the editor triggers Run; optional so the shell can mount the editor before the run handler is wired. */
+  /** ⌘/Ctrl+Enter in the editor triggers Run Statement; optional so the shell can mount the editor before the run handler is wired. */
   onRun?: () => void;
+  /** ⌘/Ctrl+Shift+Enter — Run Script, single result (SPEC-078 FR-005). */
+  onRunScriptSingle?: () => void;
+  /** ⌘/Ctrl+Alt+Enter — Run Script, tab per statement (SPEC-078 FR-005). */
+  onRunScriptTabs?: () => void;
   /**
    * The accessible databases' schemas feeding the schema-aware completion
    * provider (SPEC-077 — fully-qualified `database.table` suggestions across
@@ -97,13 +105,17 @@ type SqlEditorProps = {
  * loads.
  */
 export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
-  {value, onChange, onRun, completionSchemas},
+  {value, onChange, onRun, onRunScriptSingle, onRunScriptTabs, completionSchemas},
   ref
 ) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  // Keep the latest onRun without rebinding the Monaco command each render.
+  // Keep the latest run handlers without rebinding the Monaco commands each render.
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
+  const onRunScriptSingleRef = useRef(onRunScriptSingle);
+  onRunScriptSingleRef.current = onRunScriptSingle;
+  const onRunScriptTabsRef = useRef(onRunScriptTabs);
+  onRunScriptTabsRef.current = onRunScriptTabs;
   // Feed the latest accessible-database schemas to the (singleton) completion
   // provider each render, mirroring the onRunRef pattern.
   completionSchemaRef.current = completionSchemas;
@@ -120,6 +132,22 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
+    },
+    getSelectionRange() {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      const selection = editor?.getSelection();
+      if (!model || !selection || selection.isEmpty()) return null;
+      return {
+        start: model.getOffsetAt(selection.getStartPosition()),
+        end: model.getOffsetAt(selection.getEndPosition())
+      };
+    },
+    getCursorOffset() {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      const position = editor?.getPosition();
+      return model && position ? model.getOffsetAt(position) : 0;
     }
   }));
 
@@ -127,6 +155,13 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     editorRef.current = editor;
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
       onRunRef.current?.();
+    });
+    // SPEC-078 FR-005: the two whole-script scopes' shortcuts.
+    editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter, () => {
+      onRunScriptSingleRef.current?.();
+    });
+    editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Alt | m.KeyCode.Enter, () => {
+      onRunScriptTabsRef.current?.();
     });
   };
 
