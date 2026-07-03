@@ -72,6 +72,57 @@ describe('SqlEditor completion-provider wiring', () => {
     expect(disposable.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it('survives an unmount/remount (tab switch / StrictMode) — one active provider, still functional [SPEC-084]', () => {
+    const disposable = {dispose: vi.fn()};
+    h.registerCompletionItemProvider.mockReturnValue(disposable);
+    const props = {value: '', onChange: () => {}, completionSchemas: [{database: 'alice', tables: [orders]}]};
+
+    // Mount → unmount (switch away) → remount (switch back).
+    render(<SqlEditor {...props} />).unmount();
+    render(<SqlEditor {...props} />);
+
+    // Exactly one provider is active (registrations minus disposals), so autocomplete
+    // is neither dead nor duplicated after the remount.
+    const active = h.registerCompletionItemProvider.mock.calls.length - disposable.dispose.mock.calls.length;
+    expect(active).toBe(1);
+
+    // The currently-registered provider still produces schema-aware suggestions.
+    const provider = h.registerCompletionItemProvider.mock.calls.at(-1)![1] as {
+      provideCompletionItems: (model: unknown, pos: unknown) => {suggestions: Array<{label: string}>};
+    };
+    const model = {getWordUntilPosition: () => ({startColumn: 1, endColumn: 1})};
+    expect(provider.provideCompletionItems(model, {lineNumber: 1, column: 1}).suggestions.map((s) => s.label)).toEqual([
+      'alice.orders',
+      'id'
+    ]);
+  });
+
+  it('keeps the shared provider alive while another editor instance is still mounted [SPEC-084]', () => {
+    const disposable = {dispose: vi.fn()};
+    h.registerCompletionItemProvider.mockReturnValue(disposable);
+
+    const a = render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+    const b = render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+    // Both share ONE provider on the language global (no duplicate registration).
+    expect(h.registerCompletionItemProvider).toHaveBeenCalledTimes(1);
+
+    a.unmount(); // one instance gone, one still mounted
+    expect(disposable.dispose).not.toHaveBeenCalled(); // ref-count > 0 → NOT disposed
+
+    b.unmount(); // last instance gone
+    expect(disposable.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('feeds the provider the latest completionSchemas via the shared ref', () => {
     const {rerender} = render(
       <SqlEditor

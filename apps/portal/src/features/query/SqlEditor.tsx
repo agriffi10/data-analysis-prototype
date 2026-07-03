@@ -42,20 +42,34 @@ function defineTheme(m: typeof monaco) {
   });
 }
 
-// Schema-aware completions. The provider is registered exactly once for the
-// `sql` language (module-guarded), not per editor mount — re-mounting or
-// switching tabs must not stack duplicate providers. It reads the accessible
-// databases' schemas through this module-level ref, so it always sees the
-// latest tables without rebinding. Disposed when the editor unmounts.
+// Schema-aware completions registered on Monaco's `sql` language GLOBAL (shared by
+// every editor of that language), ref-counted by mounted SqlEditor instances: it's
+// registered when the first editor mounts and disposed only when the LAST unmounts.
+// Tying the lifetime to the ref-count — not a single component instance's unmount —
+// keeps autocomplete alive across query-tab switches and StrictMode's dev
+// mount→unmount→remount (SPEC-084): no disposed-then-never-re-registered gap, and no
+// stacked duplicate providers. The provider reads the accessible databases' schemas
+// through this module-level ref, so it always sees the latest tables without rebinding.
 const completionSchemaRef: {current: DatabaseSchema[] | undefined} = {current: undefined};
 let completionDisposable: monaco.IDisposable | null = null;
+let completionRefCount = 0;
 
-function registerSqlCompletionsOnce(m: typeof monaco) {
-  if (completionDisposable) return;
-  completionDisposable = m.languages.registerCompletionItemProvider(
-    'sql',
-    createSqlCompletionProvider(m, completionSchemaRef)
-  );
+function acquireSqlCompletions(m: typeof monaco) {
+  completionRefCount += 1;
+  if (!completionDisposable) {
+    completionDisposable = m.languages.registerCompletionItemProvider(
+      'sql',
+      createSqlCompletionProvider(m, completionSchemaRef)
+    );
+  }
+}
+
+function releaseSqlCompletions() {
+  completionRefCount = Math.max(0, completionRefCount - 1);
+  if (completionRefCount === 0 && completionDisposable) {
+    completionDisposable.dispose();
+    completionDisposable = null;
+  }
 }
 
 export type SqlEditorHandle = {
@@ -94,12 +108,13 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   // provider each render, mirroring the onRunRef pattern.
   completionSchemaRef.current = completionSchemas;
 
-  // Dispose the singleton completion provider when the editor tears down.
+  // Register the shared completion provider for this editor's lifetime, ref-counted
+  // so it survives tab-switch/StrictMode unmount→remount and is disposed only when the
+  // last editor unmounts. Uses the module `monaco` import (same instance as onMount's
+  // `m`), so registration is decoupled from Monaco's editor-creation timing.
   useEffect(() => {
-    return () => {
-      completionDisposable?.dispose();
-      completionDisposable = null;
-    };
+    acquireSqlCompletions(monaco);
+    return () => releaseSqlCompletions();
   }, []);
 
   useImperativeHandle(ref, () => ({
@@ -113,7 +128,6 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
       onRunRef.current?.();
     });
-    registerSqlCompletionsOnce(m);
   };
 
   return (
