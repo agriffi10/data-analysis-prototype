@@ -229,6 +229,7 @@ function FolderRow({
 function FileRow({
   file,
   onDownload,
+  onActivate,
   onDetails,
   isDownloading,
   selectable,
@@ -239,19 +240,34 @@ function FileRow({
   // Read-only fallback only: in the authenticated flow Download lives in the
   // selection toolbar, so this is undefined there and no row Download shows.
   onDownload?: (file: S3FileItem) => void;
+  // SPEC-081: double-click anywhere on the row downloads it (both flows), reusing
+  // the same presigned-URL path as the Download control.
+  onActivate: () => void;
   onDetails: (file: S3FileItem) => void;
   isDownloading: boolean;
   selectable: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
 }) {
+  // Double-click to download. `select-none` keeps the gesture from leaving the
+  // filename text highlighted; clearing any range is a belt-and-suspenders.
+  function handleActivate() {
+    window.getSelection()?.removeAllRanges();
+    onActivate();
+  }
   return (
     <li
-      className={`flex h-12 items-center border-b border-border-2 last:border-0 ${
+      onDoubleClick={handleActivate}
+      title={`Double-click to download ${file.name}`}
+      className={`flex h-12 cursor-pointer items-center select-none border-b border-border-2 last:border-0 ${
         isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
       }`}>
       {selectable && (
-        <span className="flex w-10 shrink-0 items-center justify-center">
+        // Double-clicking the checkbox must not download (it retains its own
+        // toggle behavior); stop the row's dblclick from firing.
+        <span
+          className="flex w-10 shrink-0 items-center justify-center"
+          onDoubleClick={(e) => e.stopPropagation()}>
           <input
             type="checkbox"
             className="h-4 w-4 accent-accent"
@@ -271,8 +287,11 @@ function FileRow({
         <Badge>{fileExtension(file.name)}</Badge>
       </span>
       {/* Always-visible Details (no hover menu). Download appears here only in
-          read-only mode (no selection toolbar); otherwise it's a toolbar action. */}
-      <span className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}>
+          read-only mode (no selection toolbar); otherwise it's a toolbar action.
+          Double-clicking a button runs its own action, not the row download. */}
+      <span
+        className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}
+        onDoubleClick={(e) => e.stopPropagation()}>
         <button
           className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           onClick={() => onDetails(file)}
@@ -501,6 +520,9 @@ function FileBrowserContent({
   const [detailsFolder, setDetailsFolder] = useState<S3FolderItem | null>(null);
 
   async function handleDownload(file: S3FileItem) {
+    // Don't start a second download for a key already in flight (SPEC-081 FR-002:
+    // a rapid second double-click is a no-op; the button flow uses `disabled`).
+    if (downloadingKey === file.key) return;
     setDownloadingKey(file.key);
     setDownloadError(null);
     const result = await getDownloadUrl({bucket, key: file.key, fileName: file.name});
@@ -941,6 +963,8 @@ function FileBrowserContent({
                 // Read-only browse has no selection toolbar, so keep a per-row
                 // Download there; the authenticated flow downloads from the toolbar.
                 onDownload={canModify ? undefined : handleDownload}
+                // SPEC-081: double-click downloads in both flows.
+                onActivate={() => void handleDownload(file)}
                 onDetails={setDetailsFile}
                 isDownloading={downloadingKey === file.key}
                 selectable={canModify}

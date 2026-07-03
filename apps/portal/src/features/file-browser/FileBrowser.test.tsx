@@ -673,6 +673,104 @@ describe('download', () => {
   });
 });
 
+// ─── Double-click to download (SPEC-081) ─────────────────────────────────────────
+
+describe('double-click download', () => {
+  const fileItem = {
+    type: 'file' as const,
+    key: 'alice/docs/report.pdf',
+    name: 'report.pdf',
+    size: 1024,
+    lastModified: new Date('2024-01-01')
+  };
+  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
+  const row = () => screen.getByTitle(/double-click to download report\.pdf/i);
+
+  beforeEach(() => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [fileItem]});
+  });
+
+  it('downloads on double-click in the authenticated flow (no inline Download button)', async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    mockGetDownloadUrl.mockResolvedValue({
+      success: true,
+      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
+    });
+
+    render(<FileBrowser {...authProps} />);
+    // The authenticated flow has no row Download button — the gesture is the only inline route.
+    expect(screen.queryByRole('button', {name: /download report\.pdf/i})).not.toBeInTheDocument();
+    fireEvent.doubleClick(row());
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
+    expect(mockGetDownloadUrl).toHaveBeenCalledWith({
+      bucket: 'my-bucket',
+      key: 'alice/docs/report.pdf',
+      fileName: 'report.pdf'
+    });
+    clickSpy.mockRestore();
+  });
+
+  it('downloads on double-click in read-only browse as well', async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    mockGetDownloadUrl.mockResolvedValue({
+      success: true,
+      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
+    });
+
+    render(<FileBrowser bucket="my-bucket" />);
+    fireEvent.doubleClick(row());
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
+    expect(mockGetDownloadUrl).toHaveBeenCalledOnce();
+    clickSpy.mockRestore();
+  });
+
+  it('does not download when the selection checkbox is double-clicked', () => {
+    render(<FileBrowser {...authProps} />);
+    fireEvent.doubleClick(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
+    expect(mockGetDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not download when an action button is double-clicked', () => {
+    render(<FileBrowser {...authProps} />);
+    fireEvent.doubleClick(screen.getByRole('button', {name: /details for report\.pdf/i}));
+    expect(mockGetDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not start a duplicate download while one is already in flight for the key', async () => {
+    let resolveUrl: (v: Awaited<ReturnType<typeof getDownloadUrl>>) => void = () => {};
+    mockGetDownloadUrl.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUrl = resolve;
+      })
+    );
+
+    render(<FileBrowser {...authProps} />);
+    fireEvent.doubleClick(row());
+    fireEvent.doubleClick(row()); // second double-click while the first is pending
+
+    expect(mockGetDownloadUrl).toHaveBeenCalledOnce();
+    resolveUrl({
+      success: true,
+      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
+    });
+    await waitFor(() => expect(mockGetDownloadUrl).toHaveBeenCalledOnce());
+  });
+
+  it('surfaces the download error banner on a failed double-click download', async () => {
+    mockGetDownloadUrl.mockResolvedValue({
+      success: false,
+      error: {message: 'No AWS credentials — sign in required'}
+    });
+
+    render(<FileBrowser {...authProps} />);
+    fireEvent.doubleClick(row());
+
+    expect(await screen.findByText(/could not download report\.pdf/i)).toBeInTheDocument();
+  });
+});
+
 // ─── Details / metadata panel ───────────────────────────────────────────────────
 
 describe('details panel', () => {

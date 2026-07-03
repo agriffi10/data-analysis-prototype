@@ -47,7 +47,11 @@ export const HELP_SECTIONS: HelpSection[] = [
         id: 'download-files',
         title: 'Download files',
         subtitle: 'Save a file to your computer.',
-        steps: ['In the <b>Files</b> tab, select the file you want.', 'Click <b>Download</b> to save it locally.']
+        steps: [
+          'In the <b>Files</b> tab, select the file you want.',
+          'Click <b>Download</b> to save it locally.',
+          'Or just <b>double-click the file row</b> to download it right away.'
+        ]
       },
       {
         id: 'rename-move-copy-delete',
