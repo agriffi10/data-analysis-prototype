@@ -60,27 +60,34 @@ export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideC
         />
       </button>
 
-      {open && (
-        <div
-          id={panelId}
-          className="px-[18px] pb-5 pl-[68px] pt-1">
-          <ol className="flex list-none flex-col gap-3">
-            {guide.steps.map((step, i) => (
-              <li
-                key={i}
-                className="relative pl-[34px] text-sm leading-[1.55] text-text">
-                <span
-                  aria-hidden="true"
-                  className="absolute left-0 top-px flex h-[22px] w-[22px] items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-text">
-                  {i + 1}
-                </span>
-                {renderInline(step)}
-              </li>
-            ))}
-          </ol>
-          {guide.callout && <Callout callout={guide.callout} />}
+      <div
+        id={panelId}
+        aria-hidden={!open}
+        className={cx(
+          'grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        )}>
+        <div className="overflow-hidden">
+          <div className="px-[18px] pb-5 pl-[68px] pt-1">
+            {guide.intro && <p className="mb-4 text-sm leading-[1.55] text-text-2">{renderInline(guide.intro)}</p>}
+            <ol className="flex list-none flex-col gap-3">
+              {guide.steps.map((step, i) => (
+                <li
+                  key={i}
+                  className="relative pl-[34px] text-sm leading-[1.55] text-text">
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-px flex h-[22px] w-[22px] items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-text">
+                    {i + 1}
+                  </span>
+                  {renderInline(step)}
+                </li>
+              ))}
+            </ol>
+            {guide.callout && <Callout callout={guide.callout} />}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

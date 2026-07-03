@@ -14,83 +14,94 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'files',
     label: 'Files',
-    subtitle: 'Uploading, organizing, and managing your files.',
+    subtitle: 'Your own private space to upload, organize, and manage files.',
     icon: 'files',
     guides: [
       {
         id: 'upload-files',
         title: 'Upload files',
         subtitle: 'Add files to a folder from your computer.',
+        intro:
+          'Everything starts here — getting your files into the portal. Uploads always land in the folder you’re currently viewing, so browse to where you want them first, then drop them in. Big files are welcome; the panel keeps you posted on each one.',
         steps: [
           'Open the <b>Files</b> tab and browse to the folder you want to upload into.',
           'Click <b>Upload</b> to open the upload panel.',
           'Drag files onto the drop zone, or click it to pick files from your computer.',
-          'Each file uploads into the current folder; the panel tracks its progress.'
+          'Each file uploads into the current folder, and the panel tracks its progress until it’s done.'
         ],
         callout: {
           kind: 'tip',
-          text: 'If a file with the same name already exists, you can <b>Overwrite</b> it or keep both — the app offers an automatically numbered name.'
+          text: 'Uploading something that shares a name with an existing file? You choose what happens: <b>Overwrite</b> the old one, or keep both — the app suggests an automatically numbered name so nothing is lost.'
         }
       },
       {
         id: 'create-folders',
         title: 'Create and use folders',
         subtitle: 'Keep your files organized in folders.',
+        intro:
+          'Folders work just like they do on your computer — they’re how you keep things tidy as your files grow. You can nest them as deep as you like, and the breadcrumbs at the top always show where you are.',
         steps: [
           'In the <b>Files</b> tab, click <b>New folder</b>.',
           'Enter a <b>Folder name</b> — no slashes, and no leading or trailing spaces.',
-          'Click <b>Create</b>.',
-          'Open a folder by clicking its row; use the breadcrumbs above the list to move back up.'
+          'Click <b>Create</b>, and the new folder appears in the list.',
+          'Open a folder by clicking its row; use the breadcrumbs above the list to step back up the tree.'
         ]
       },
       {
         id: 'download-files',
         title: 'Download files',
-        subtitle: 'Save a file to your computer.',
+        subtitle: 'Save a file back to your computer.',
+        intro: 'When you need a file back on your own machine, downloading takes just a click — or a double-click.',
         steps: [
           'In the <b>Files</b> tab, select the file you want.',
           'Click <b>Download</b> to save it locally.',
-          'Or just <b>double-click the file row</b> to download it right away.'
+          'In a hurry? Just <b>double-click the file row</b> and it downloads right away.'
         ]
       },
       {
         id: 'rename-move-copy-delete',
         title: 'Rename, move, copy, or delete',
         subtitle: 'Reorganize files and folders after uploading.',
+        intro:
+          'Plans change, and so does how you want your files arranged. Tick one or more items and a toolbar of actions appears, so you can shuffle things around whenever you like. These actions work on whole folders too, not just single files.',
         steps: [
           'Tick the checkbox on one or more items — a toolbar of actions appears.',
           'Choose <b>Rename</b>, <b>Move</b>, <b>Copy</b>, or <b>Delete</b>.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
-          'For <b>Rename</b>, type a <b>New name</b> — a file keeps its original extension.'
+          'For <b>Rename</b>, type a <b>New name</b> — a file keeps its original extension automatically.'
         ],
         callout: {
           kind: 'warning',
-          text: "Deletes can't be undone — there's no version history, so a deleted file or folder is gone for good. The confirm dialog starts on <b>Cancel</b> to protect you."
+          text: 'Deleting is forever — there’s no version history or trash, so a deleted file or folder is gone for good. To keep you safe, the confirm dialog starts on <b>Cancel</b>, so a stray Enter key won’t delete anything.'
         }
       },
       {
         id: 'file-details',
         title: 'View file details',
-        subtitle: 'Inspect name, path, size, type, and metadata.',
+        subtitle: 'Inspect a file’s name, path, size, type, and metadata.',
+        intro:
+          'Sometimes you just need to know more about a file — exactly where it lives, how big it is, or what metadata it carries. The details panel gathers all of that in one place.',
         steps: [
           'Click <b>Details</b> on any file or folder row.',
           'The panel shows its name and paths, and — for files — size, type, last modified, and any custom metadata.',
-          'Use the copy buttons to copy a path; close with <b>Escape</b> or the close button.'
+          'Use the copy buttons to grab a path, and close the panel with <b>Escape</b> or the close button.'
         ]
       },
       {
         id: 'create-table',
         title: 'Create a table from a folder',
         subtitle: 'Turn a folder of files into a table you can query.',
+        intro:
+          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go.',
         steps: [
           'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>.',
           'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
-          'If your files sit in <b>key=value</b> folders (e.g. <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — with its type and range.',
-          "Click <b>Create table</b>. It's built in the background; you'll be notified when it's ready or if it couldn't be created."
+          'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
+          'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
         ],
         callout: {
           kind: 'tip',
-          text: 'Once ready, the table appears in the <b>Query</b> tab under the same space, ready to query.'
+          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away.'
         }
       }
     ]
@@ -98,92 +109,106 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'query',
     label: 'Query',
-    subtitle: 'Running SQL and exploring your data.',
+    subtitle: 'Write SQL, explore your data, and share the results.',
     icon: 'query',
     guides: [
       {
         id: 'run-query',
         title: 'Write and run a query',
         subtitle: 'Run SQL against your tables.',
+        intro:
+          'The Query tab is a full SQL workspace over your data. Type a query, run it, and the results land right below the editor. The status bar keeps you informed the whole time — how far along the query is, how many rows came back, how much data it scanned, and how long it took.',
         steps: [
           'Open the <b>Query</b> tab and type SQL in the editor.',
           'Click <b>Run Statement</b>, or press <kbd>Ctrl/Cmd + Enter</kbd> — it runs your selection if you have one, otherwise the statement under the cursor.',
-          'The status bar shows progress, the exact total row count, data scanned, and how long it took.',
-          'To stop a running query or script, click <b>Stop</b>.'
+          'Watch the status bar for progress, the exact total row count, data scanned, and how long it took.',
+          'Changed your mind mid-run? Click <b>Stop</b> to cancel a running query or script.'
         ]
       },
       {
         id: 'run-script',
         title: 'Run several statements at once',
         subtitle: 'Write a script of ;-separated statements and run it top to bottom.',
+        intro:
+          'You don’t have to run statements one at a time. Put several in the editor separated by semicolons — say, a <b>CREATE TABLE</b> followed by a <b>SELECT</b> — and the portal runs them in order, one after another. Each gets its own history entry, and you pick whether you want a single final result or one result per statement.',
         steps: [
-          'Write multiple statements in one editor, separated by semicolons (e.g. a <b>CREATE TABLE</b> followed by a <b>SELECT</b>).',
+          'Write multiple statements in one editor, separated by semicolons.',
           'Click <b>Run Script (single result)</b> (<kbd>Ctrl/Cmd + Shift + Enter</kbd>) to run every statement in order and show the last result set.',
           'Or click <b>Run Script (tab per statement)</b> (<kbd>Ctrl/Cmd + Alt + Enter</kbd>) to keep every statement’s result in its own tab above the results table.',
-          'Statements run one at a time, in order. The status bar shows which statement is running (e.g. “Statement 2 of 4”), and each statement gets its own history entry.',
-          'If a statement fails, the script stops there — the error names the failing statement, and the remaining statements are not run.'
+          'Statements run one at a time, in order. The status bar shows which one is running (for example “Statement 2 of 4”), and each gets its own history entry.',
+          'If a statement fails, the script stops there — the error names the statement that failed, and the ones after it don’t run.'
         ],
         callout: {
           kind: 'warning',
-          text: 'There are no transactions: statements that already succeeded keep their effects (a created or dropped table stays) even if a later statement fails.'
+          text: 'There are no transactions here: statements that already succeeded keep their effects — a table you created or dropped stays that way — even if a later statement fails.'
         }
       },
       {
         id: 'browse-databases',
         title: 'Browse databases and query across them',
         subtitle: 'Explore every database you can access and join across them.',
+        intro:
+          'The rail on the left is your map of everything you can query — your own personal database plus any shared spaces you belong to. Expand any database to see its tables and columns. There’s no “current” database to switch between, which means a single query can read from, and join across, any databases you have access to.',
         steps: [
           'The schema rail on the left lists every database you can access — your personal database (named after your username) and any shared spaces you belong to.',
           'Expand a database to inspect its tables and columns.',
-          'Created a table elsewhere (or a teammate did)? Click the <b>Refresh</b> icon on that database to re-read its tables and views without reloading the page.',
-          'Need more room? <b>Collapse the side panel</b> with the chevron in its header; a small handle at the edge brings it back. The choice is remembered across the Files and Query pages.',
-          'Reference each table by its full name, <b>database.table</b> (e.g. <b>mydb.orders</b>). There is no “current” database, so you can read from — and join across — any databases you have access to in a single query.'
+          'Created a table elsewhere, or a teammate did? Click the <b>Refresh</b> icon on that database to re-read its tables and views without reloading the page.',
+          'Short on space? <b>Collapse the side panel</b> with the chevron in its header; a small handle at the edge brings it back. Your choice is remembered across the Files and Query pages.',
+          'Reference each table by its full name, <b>database.table</b> (for example <b>mydb.orders</b>), and you can join freely across databases in one query.'
         ],
         callout: {
           kind: 'tip',
-          text: 'Because there’s no active database, an unqualified name like <b>orders</b> won’t resolve — always write <b>database.table</b>.'
+          text: 'Because there’s no active database, an unqualified name like <b>orders</b> won’t resolve — always write it out as <b>database.table</b>.'
         }
       },
       {
         id: 'save-query',
         title: 'Save a query',
-        subtitle: 'Keep queries you run often.',
+        subtitle: 'Keep the queries you reach for often.',
+        intro:
+          'Got a query you’ll want again? Save it and give it a name so it’s a click away next time, instead of retyping it or hunting through your history.',
         steps: [
           'With a valid query in the editor, click <b>Save</b>.',
-          'Give it a <b>Name</b> and click <b>Save</b> — re-saving updates it in place.',
-          'A marker on the tab shows when your edits have drifted from the saved copy.'
+          'Give it a <b>Name</b> and click <b>Save</b> — saving again later updates it in place.',
+          'A small marker on the tab lets you know when your edits have drifted from the saved copy.'
         ]
       },
       {
         id: 'query-history',
         title: 'Review query history',
         subtitle: 'Find and rerun something from earlier.',
+        intro:
+          'Every query you run is remembered, so you can always find your way back to something you ran an hour — or a week — ago, even if you never saved it.',
         steps: [
           'Open the history panel to see your past runs, newest first.',
-          'Each entry shows the query, its status, duration, and data scanned.',
-          'Click one to load it into a new tab and run it again.'
+          'Each entry shows the query, its status, how long it took, and how much data it scanned.',
+          'Click one to load it into a new tab, where you can tweak it and run it again.'
         ]
       },
       {
         id: 'work-with-results',
         title: 'Work with results',
         subtitle: 'Read and page through query output.',
+        intro:
+          'Once a query succeeds, its results fill the table below the editor. You can make yourself at home here — resize columns, page through large result sets, and give whichever pane you’re focused on more room.',
         steps: [
           'After a query succeeds, results appear in a table below the editor.',
-          "Drag a column's edge to resize it — widths are remembered as you switch tabs.",
+          'Drag a column’s edge to resize it — your widths are remembered as you switch tabs.',
           'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
-          'Ran a script with <b>Run Script (tab per statement)</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs; each keeps its own page position and column widths.',
-          'Need more room? The <b>Editor / Even / Results</b> control in the toolbar snaps the split between the editor and the results — grow whichever you’re working in. Your choice is remembered for the session.'
+          'Ran a script with <b>Run Script (tab per statement)</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
+          'Want more room? The <b>Default / Query Editor / Results</b> control in the toolbar snaps the split between the editor and the results — grow whichever you’re working in. Your choice sticks for the session.'
         ]
       },
       {
         id: 'save-results',
         title: 'Save results to your files',
         subtitle: 'Export a result set back into your files.',
+        intro:
+          'Results don’t have to stay in the Query tab. Save a successful query’s output as a file — in your own space or a shared one — and it becomes just another file you can download, share, or even build a new table from.',
         steps: [
           'After a successful query, click <b>Save results to my files</b> in the status bar.',
           'Choose a destination space and a file name.',
-          'The results export in the background; a notification confirms when they are saved.'
+          'The results export in the background, and a notification lets you know when they’re saved.'
         ]
       }
     ]
@@ -191,76 +216,88 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'shared-connections',
     label: 'Shared connections',
-    subtitle: 'Creating and managing spaces you share with others.',
+    subtitle: 'Spaces you share with teammates — files and tables, together.',
     icon: 'connections',
     guides: [
       {
         id: 'create-shared-connection',
         title: 'Create a shared connection',
         subtitle: 'Make a space several people can share.',
+        intro:
+          'A shared connection is a space that more than one person can work in — the same files and the same tables, visible to everyone you invite. It’s how you collaborate here. You always start out as the owner and the only member; you bring others in afterwards.',
         steps: [
           'On the <b>Connections</b> tab, click <b>Create</b>.',
           'Enter a <b>Connection name</b> (lowercase letters, digits, or underscores, starting with a letter).',
-          "Click <b>Create</b>. It's set up in the background and appears in your list when ready."
+          'Click <b>Create</b>. It’s set up in the background and shows up in your list when it’s ready.'
         ],
         callout: {
           kind: 'tip',
-          text: "The name is permanent and must be unique across all spaces — it can't be renamed later. You start the space alone; add people afterwards with <b>Add members</b>."
+          text: 'Choose the name carefully — it’s permanent, must be unique across every space, and can’t be renamed later. You’ll start the space on your own; add people whenever you’re ready with <b>Add members</b>.'
         }
       },
       {
         id: 'add-members',
         title: 'Add members',
         subtitle: 'Give other people access to a space you own.',
+        intro:
+          'Ready to bring your team in? As the owner, you can add members at any time, and each one immediately gets access to all the shared files and tables in the space.',
         steps: [
           'Open <b>Manage</b> on a space you own, then click <b>Add members</b>.',
           'Enter one or more <b>Usernames</b>, separated by spaces, commas, or new lines.',
-          'Click <b>Add</b>. Members get access to the same shared files and tables; unknown usernames are ignored.'
+          'Click <b>Add</b>. Everyone you add gets access to the same shared files and tables; any usernames that don’t exist are simply ignored.'
         ]
       },
       {
         id: 'member-status',
         title: 'See who has access and their status',
         subtitle: 'Check the member list and each person’s join status.',
+        intro:
+          'Wondering who’s in a space and whether they’ve found their way to it yet? The member list shows everyone, with a status next to each person so you can tell who has actually opened the space.',
         steps: [
-          'If you own the space, open <b>Manage</b>; if you belong to it, open <b>View members</b> — either shows the full member list (read-only for members).',
-          'Each member shows a status: <b>Active</b> once they have signed in and opened the space, or <b>Pending</b> until they do.',
-          'Click <b>Refresh</b> to check for updates.'
+          'If you own the space, open <b>Manage</b>; if you’re a member, open <b>View members</b> — either one shows the full member list (read-only for members).',
+          'Each person shows a status: <b>Active</b> once they’ve signed in and opened the space, or <b>Pending</b> until they do.',
+          'Click <b>Refresh</b> to pull in the latest statuses.'
         ],
         callout: {
           kind: 'tip',
-          text: 'Pending vs Active only reflects whether the person has opened the space yet — access is granted the moment you add them.'
+          text: 'Pending vs Active only reflects whether someone has opened the space yet — their access is granted the moment you add them, not when they first show up.'
         }
       },
       {
         id: 'remove-members',
         title: 'Remove a member',
         subtitle: 'Revoke someone’s access to a space you own.',
+        intro:
+          'If someone no longer needs to be in a space, you can remove them as the owner. Their access ends, but nothing they contributed goes away.',
         steps: [
           'In the <b>Manage</b> member list, click <b>Remove</b> next to a member and confirm.',
-          "They lose access, but the shared files and tables aren't deleted. The owner can't be removed."
+          'They lose access, but the shared files and tables stay put. The owner can’t be removed.'
         ]
       },
       {
         id: 'leave-space',
         title: 'Leave a space',
         subtitle: 'Step out of a space you belong to.',
+        intro:
+          'Done with a space you were invited to? You can leave it yourself, without needing the owner to remove you. It only affects your own access.',
         steps: [
-          "On a space you belong to but don't own, choose <b>Leave</b> and confirm.",
-          'You lose access; everyone else keeps theirs and nothing is deleted.'
+          'On a space you belong to but don’t own, choose <b>Leave</b> and confirm.',
+          'You lose access; everyone else keeps theirs, and nothing is deleted.'
         ]
       },
       {
         id: 'delete-space',
         title: 'Delete a space',
         subtitle: 'Permanently remove a space you own.',
+        intro:
+          'When a shared space has served its purpose, the owner can delete it outright. This is the big one — it clears the space away for everyone, so it asks you to confirm by name first.',
         steps: [
           'On a space you own, choose <b>Delete</b>.',
-          "Type the space's name to confirm, then click <b>Delete</b>."
+          'Type the space’s name to confirm you mean it, then click <b>Delete</b>.'
         ],
         callout: {
           kind: 'warning',
-          text: "This permanently deletes the space for everyone — all of its files, all of its tables, the database, and every member's access. It can't be undone."
+          text: 'This permanently deletes the space for everyone — all of its files, all of its tables, the database itself, and every member’s access. There’s no undo.'
         }
       }
     ]
@@ -268,13 +305,15 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'notifications',
     label: 'Notifications',
-    subtitle: 'Staying on top of activity in the portal.',
+    subtitle: 'How the portal keeps you posted on activity.',
     icon: 'notifications',
     guides: [
       {
         id: 'find-notifications',
         title: 'Find your notifications',
         subtitle: 'Know when something needs your attention.',
+        intro:
+          'Some things in the portal happen in the background — a table being built, results being exported, changes to a shared space. Notifications are how the portal taps you on the shoulder when one of those finishes or needs you. Look to the bell in the top bar.',
         steps: [
           'Look for the <b>bell</b> in the top bar.',
           'A number on the bell shows how many unread notifications you have.',
@@ -285,23 +324,27 @@ export const HELP_SECTIONS: HelpSection[] = [
         id: 'read-notifications',
         title: 'Read your notifications',
         subtitle: 'Browse your full notification history.',
+        intro:
+          'The Notifications page is the full record of everything the portal has let you know about — your shared spaces and background jobs like table builds — with the newest at the top.',
         steps: [
           'The <b>Notifications</b> page lists them newest first, 10 per page.',
-          'Switch between <b>All</b> and <b>Unread</b>, and use <b>Prev</b> / <b>Next</b> to page.',
-          'Click <b>Refresh</b> to check for new ones. Notifications cover your shared spaces and background jobs such as table builds.'
+          'Switch between <b>All</b> and <b>Unread</b>, and use <b>Prev</b> / <b>Next</b> to page through them.',
+          'Click <b>Refresh</b> to check for new ones.'
         ]
       },
       {
         id: 'mark-read',
         title: 'Mark notifications as read',
         subtitle: 'Clear the unread indicator.',
+        intro:
+          'Once you’ve seen a notification, mark it read to clear the count on the bell — one at a time, or all at once when you just want a clean slate.',
         steps: [
-          'Click <b>Mark read</b> on a single notification, or <b>Mark all read</b> to clear them all.',
+          'Click <b>Mark read</b> on a single notification, or <b>Mark all read</b> to clear them all in one go.',
           'The unread count on the bell updates right away.'
         ],
         callout: {
           kind: 'tip',
-          text: 'Notifications can’t be deleted — reading one just clears its unread marker.'
+          text: 'Notifications can’t be deleted — marking one read simply clears its unread marker, and it stays in your history.'
         }
       }
     ]
