@@ -1,46 +1,39 @@
-# ── Control-plane IAM roles (SPEC-066 FR-002) ────────────────────────────────
-# PER-VERB least-privilege roles — one execution role per Lambda (no shared "god"
-# role; lambdas.md §7), plus the Step Function role and the Pipe role. Trust +
-# permission policies are .tftpl templates rendered with templatefile() (no inline
-# jsonencode IAM, per architecture.md Lambda code/infra split).
+# ── Control-plane IAM roles ──────────────────────────────────────────────────
+# ONE shared execution role for all five verb Lambdas (user decision — reverses the
+# SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
+# SPEC-062), plus the Step Function role and the Pipe role. Trust + permission policies
+# are .tftpl templates rendered with templatefile() (no inline jsonencode IAM, per
+# architecture.md Lambda code/infra split).
 #
-# Stub shape (SPEC-066): each verb role is created with the SHAPE its verb needs,
-# refined as the actions land:
-#   - validate-authorize → logs only          (registry read added in SPEC-067)
-#   - check-table-absent → Glue read + logs    (SPEC-068)
-#   - inspect-source     → S3 list/get + logs  (SPEC-068)
-#   - infer-schema       → S3 get + logs       (SPEC-069; + the polars layer via CI)
-#   - execute-ddl        → logs only           (Athena/Glue/S3/LF finalized in SPEC-070)
+# The execution policy (execution.json.tftpl) is the UNION of every verb's needs:
+#   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
+#   - Glue Describe + CREATE on the account catalog (check-table-absent + execute-ddl)
+#   - Athena run + LF data-access + Athena-results write (execute-ddl), delete denied
+#   - logs to every table-builder function log group (wildcard)
+# The role is ALSO the table-builder Lake Formation admin (analytics data_lake_settings,
+# wired from root), so check-table-absent's GetTable + execute-ddl's CREATE resolve in
+# the DYNAMIC per-user + per-shared-space target databases that can't be statically
+# LF-granted.
 
-# ── Per-verb Lambda execution roles (uniform lambda trust) ───────────────────
-resource "aws_iam_role" "verb" {
-  for_each = local.table_builder_functions
-
-  name               = local.table_builder_role_names[each.key]
+# ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
+resource "aws_iam_role" "execution" {
+  name               = local.execution_role_name
   assume_role_policy = templatefile("${path.module}/policies/lambda-trust.json.tftpl", {})
 }
 
-# Each verb's permission policy is its own .tftpl (the per-verb shape above). The vars
-# map is a superset; each template references only the keys it needs (templatefile
-# tolerates unused keys), and log_group_arn is scoped to that verb's own log group.
-resource "aws_iam_role_policy" "verb" {
-  for_each = local.table_builder_functions
-
+resource "aws_iam_role_policy" "execution" {
   name = "permissions"
-  role = aws_iam_role.verb[each.key].id
+  role = aws_iam_role.execution.id
 
-  policy = templatefile("${path.module}/policies/${each.key}.json.tftpl", {
-    aws_region              = var.aws_region
-    account_id              = var.account_id
+  policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     user_space_bucket_arn   = local.user_space_bucket_arn
     shared_space_bucket_arn = local.shared_space_bucket_arn
     admin_bucket_arn        = local.admin_bucket_arn
-    log_group_arn           = local.table_builder_log_group_arns[each.key]
-    # execute-ddl (SPEC-070) — Athena run + Glue table ops on the account catalog.
-    athena_workgroup_arn = local.athena_workgroup_arn
-    glue_catalog_arn     = local.glue_catalog_arn
-    glue_database_any    = local.glue_database_any
-    glue_table_any       = local.glue_table_any
+    log_group_arn           = local.table_builder_log_group_wildcard_arn
+    athena_workgroup_arn    = local.athena_workgroup_arn
+    glue_catalog_arn        = local.glue_catalog_arn
+    glue_database_any       = local.glue_database_any
+    glue_table_any          = local.glue_table_any
     # SPEC-072 — every verb emits an outcome notification (SendMessage, this queue only).
     notifications_queue_arn = var.notifications_queue_arn
   })

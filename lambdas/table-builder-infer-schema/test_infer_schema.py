@@ -175,7 +175,10 @@ def test_no_notification_on_success():
     assert q.calls == []
 
 
-def test_no_notification_on_transient_s3():
+def test_notifies_actor_on_unexpected_s3_error():
+    # An S3 error that escapes the access probe (not a TerminalError) is a terminal
+    # failure the SFN records; @notifies_on_failure tells the actor rather than failing
+    # silently. The original exception still propagates unchanged (see the test above).
     i._check_access = _REAL_CHECK
 
     class _FakeS3:
@@ -188,7 +191,10 @@ def test_no_notification_on_transient_s3():
         i.handler(_event("parquet"), None)
     except RuntimeError:
         pass
-    assert q.calls == []
+    assert len(q.calls) == 1
+    assert q.calls[0]["MessageDeduplicationId"] == "r1:infer"
+    body = json.loads(q.calls[0]["MessageBody"])
+    assert body["message"] == 'Couldn\'t create table "sales_2026": something went wrong. Please try again.'
 
 
 if __name__ == "__main__":

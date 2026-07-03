@@ -67,6 +67,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
       {open && (
         <CreateTableDialog
           folderName={folderName}
+          folderPath={prefix}
           busy={busy}
           submitError={submitError}
           onSubmit={handleSubmit}

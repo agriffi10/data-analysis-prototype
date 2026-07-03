@@ -8,27 +8,34 @@
       "Resource": "${notifications_queue_arn}"
     },
     {
-      "Sid": "WriteLogs",
+      "Sid": "RegistryRead",
       "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ],
-      "Resource": "${log_group_arn}:*"
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
     },
     {
-      "Sid": "AthenaRunDdl",
+      "Sid": "SourceDataRead",
       "Effect": "Allow",
-      "Action": [
-        "athena:StartQueryExecution",
-        "athena:GetQueryExecution",
-        "athena:StopQueryExecution",
-        "athena:GetWorkGroup"
-      ],
-      "Resource": "${athena_workgroup_arn}"
+      "Action": "s3:GetObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
     },
     {
-      "Sid": "GlueTableCreate",
+      "Sid": "SourceDataList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}",
+        "${shared_space_bucket_arn}"
+      ]
+    },
+    {
+      "Sid": "GlueTableDescribeCreate",
       "Effect": "Allow",
       "Action": [
         "glue:GetDatabase",
@@ -44,25 +51,21 @@
       ]
     },
     {
+      "Sid": "AthenaRunDdl",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:StopQueryExecution",
+        "athena:GetWorkGroup"
+      ],
+      "Resource": "${athena_workgroup_arn}"
+    },
+    {
       "Sid": "LakeFormationDataAccess",
       "Effect": "Allow",
       "Action": "lakeformation:GetDataAccess",
       "Resource": "*"
-    },
-    {
-      "Sid": "SourceDataRead",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:ListBucket",
-        "s3:GetBucketLocation"
-      ],
-      "Resource": [
-        "${user_space_bucket_arn}",
-        "${user_space_bucket_arn}/*",
-        "${shared_space_bucket_arn}",
-        "${shared_space_bucket_arn}/*"
-      ]
     },
     {
       "Sid": "AthenaResultsWrite",
@@ -85,6 +88,15 @@
         "${shared_space_bucket_arn}/*",
         "${admin_bucket_arn}/*"
       ]
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}:*"
     }
   ]
 }

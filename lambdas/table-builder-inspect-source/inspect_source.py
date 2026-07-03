@@ -68,6 +68,7 @@ def _validate_layout(rel_dirs, declared_names):
         )
 
 
+@notify.notifies_on_failure("inspect")
 def handler(event, context):
     # Notify the actor on any terminal failure (best-effort) before the SFN Catch
     # records it; transient S3 errors aren't TerminalError, so they propagate for the

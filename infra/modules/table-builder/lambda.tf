@@ -1,9 +1,9 @@
 # ── Control-plane Lambdas (SPEC-066 skeleton) ────────────────────────────────
 # Five single-task verb Lambdas — validate-authorize / check-table-absent /
 # inspect-source / infer-schema / execute-ddl — orchestrated by the Step Function
-# (stepfunction.tf) as a linear pipeline. Each runs under its OWN per-verb role
-# (iam.tf) — no shared "god" role (lambdas.md §7) — and gets its task's real
-# timeout/memory (locals.tf; a small validator ≠ the polars infer step, lambdas.md §4).
+# (stepfunction.tf) as a linear pipeline. All five share ONE execution role (iam.tf;
+# user decision, mirroring shared-spaces) and each gets its task's real timeout/memory
+# (locals.tf; a small validator ≠ the polars infer step, lambdas.md §4).
 #
 # Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
@@ -38,7 +38,7 @@ resource "aws_lambda_function" "functions" {
   for_each = local.table_builder_functions
 
   function_name = local.table_builder_function_names[each.key]
-  role          = aws_iam_role.verb[each.key].arn
+  role          = aws_iam_role.execution.arn
   runtime       = "python3.12"
   handler       = each.value.handler
   timeout       = each.value.timeout
@@ -72,7 +72,7 @@ resource "aws_lambda_function" "functions" {
   }
 
   depends_on = [
-    aws_iam_role_policy.verb,
+    aws_iam_role_policy.execution,
     aws_cloudwatch_log_group.functions,
   ]
 }

@@ -11,6 +11,9 @@ import type {PartitionKey} from './tableBuild.types';
 type Props = {
   // The folder being turned into a table — drives the suggested name + the copy.
   folderName: string;
+  // The full key of that folder within its space, shown read-only so the user can see
+  // exactly which folder they're naming a table for. Empty = the space root.
+  folderPath?: string;
   // In-flight while the request is being enqueued — locks the form + dismissal.
   busy?: boolean;
   // A send failure to surface inline (the dialog stays open so the user can retry).
@@ -24,7 +27,7 @@ type Props = {
 // stays disabled until the name AND every declared key are valid; the server
 // re-validates authoritatively (SPEC-067), so this is UX only. Composes the shared
 // Modal/Input/Button primitives.
-export function CreateTableDialog({folderName, busy = false, submitError, onSubmit, onCancel}: Props) {
+export function CreateTableDialog({folderName, folderPath, busy = false, submitError, onSubmit, onCancel}: Props) {
   const [name, setName] = useState(() => suggestTableName(folderName));
   const [touched, setTouched] = useState(false);
   const [keys, setKeys] = useState<DraftPartitionKey[]>([]);
@@ -61,6 +64,17 @@ export function CreateTableDialog({folderName, busy = false, submitError, onSubm
           Creates a queryable table over the files in this folder. It’s built in the background — you’ll be notified
           when it’s ready or if it couldn’t be created.
         </p>
+
+        {folderPath !== undefined && (
+          <div className="mb-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-text-2">Folder</span>
+            <p
+              className="mt-0.5 break-all rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-sm text-text"
+              title={folderPath || '/'}>
+              {folderPath || '/ (space root)'}
+            </p>
+          </div>
+        )}
 
         <Input
           ref={inputRef}

@@ -97,10 +97,11 @@ layer exceeds **240 MB** (headroom under Lambda's 250 MB unzipped limit).
 
 ### Notes
 
-- The verb roles are **per-verb least-privilege** (SPEC-066 FR-002). At this foundation
-  stage validate-authorize and execute-ddl carry **logs only**; check-table-absent has
-  Glue read; inspect-source / infer-schema have S3 read on both data buckets. Each owning
-  spec (067→070) adds that verb's real grants.
+- The five verbs share **one execution role** (`dat-prod-table-builder-execution-role`),
+  consolidated from the SPEC-066 per-verb roles (user decision). Its union policy is
+  `policies/execution.json.tftpl`, and it is the table-builder **Lake Formation admin**
+  (analytics `data_lake_settings`) so `check-table-absent` can Describe and `execute-ddl`
+  can CREATE in the dynamic per-user / per-shared-space target databases.
 - The `Failed` state is a plain `Fail` here; SPEC-070 finalizes the structured
   recorded-failure outcome that SPEC-072's notifications read.
 
@@ -284,7 +285,7 @@ Capture `simulate-custom-policy` for the execute-ddl role and confirm it **can**
 `athenaresults/` key, and **cannot** `s3:DeleteObject` on a data key or touch the admin registry:
 
 ```bash
-ROLE=dat-prod-table-builder-execute-ddl-role
+ROLE=dat-prod-table-builder-execution-role
 POLICY=$(aws iam get-role-policy --role-name "$ROLE" --policy-name permissions --query PolicyDocument --output json)
 aws iam simulate-custom-policy --policy-input-list "$POLICY" \
   --action-names glue:CreateTable athena:StartQueryExecution s3:PutObject s3:DeleteObject \
@@ -330,7 +331,7 @@ env is the SPEC-058 queue; the shared best-effort helper is `tbcommon.notify.emi
 ### IAM check (FR-001)
 
 ```bash
-ROLE=dat-prod-table-builder-execute-ddl-role
+ROLE=dat-prod-table-builder-execution-role
 POLICY=$(aws iam get-role-policy --role-name "$ROLE" --policy-name permissions --query PolicyDocument --output json)
 NOTIF_ARN=arn:aws:sqs:us-east-1:ACCT:dat-prod-notifications-requests.fifo
 aws iam simulate-custom-policy --policy-input-list "$POLICY" \

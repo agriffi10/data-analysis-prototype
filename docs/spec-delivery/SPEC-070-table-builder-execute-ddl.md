@@ -48,6 +48,9 @@ single `CREATE` — **no `MSCK REPAIR`**, no partition-load step.
   structured outcome SPEC-072 will notify from.
 - `analytics` gains a `table_builder_execute_ddl_role_arn` var, added to the LF admins
   `compact()` list (root-wired constructed string, like the shared-space orchestrator).
+  *(Superseded: the per-verb roles were later consolidated into one shared execution
+  role, and the var renamed `table_builder_execution_role_arn` — that single role is now
+  the LF admin. See the Post-072 amendment in `docs/table-builder-architecture.md`.)*
 - **No deploy-role IAM change** — the deploy role already carries `PutDataLakeSettings` and
   scoped `iam:PassRole` on `*-table-builder-*` roles (the LF-admin approach adds no new
   resource type).

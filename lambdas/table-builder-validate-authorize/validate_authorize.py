@@ -114,6 +114,7 @@ def _authorize_space(space, actor):
     return prefix
 
 
+@notify.notifies_on_failure("validate")
 def handler(event, context):
     record = _extract_record(event)
     req = _parse_request(record)

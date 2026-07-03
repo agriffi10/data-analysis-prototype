@@ -13,12 +13,22 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-table-builder-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-table-builder-sfn-role"
 
+  # ONE shared execution role for all five verb Lambdas (user decision — reverses the
+  # SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
+  # SPEC-062). Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
+  # and it is the table-builder Lake Formation admin (analytics data_lake_settings) so
+  # check-table-absent + execute-ddl can Describe/CREATE in the DYNAMIC per-user +
+  # per-shared-space target databases (they can't be statically LF-granted). ARN is a
+  # constructed string (known at plan time) for cycle-free LF-admin wiring from root.
+  execution_role_name = "${var.project_name}-${var.environment}-table-builder-execution-role"
+  execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-builder-execution-role"
+
   # The five single-task verb Lambdas, in pipeline order. Keyed by the function
   # SUFFIX (= the lambdas/table-builder-<suffix>/ subdir AND the deploy-lambdas.yml
   # matrix name "table-builder-<suffix>"); value = the handler + the task's real
   # timeout/memory need (a small validator ≠ the polars infer step — lambdas.md §4).
-  # Each runs under its OWN per-verb role (no shared "god" role — lambdas.md §7);
-  # the Step Function orchestrates them as a LINEAR sequence (stepfunction.tf).
+  # All five share ONE execution role (execution_role above); the Step Function
+  # orchestrates them as a LINEAR sequence (stepfunction.tf).
   table_builder_functions = {
     "validate-authorize" = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
     "check-table-absent" = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }
@@ -53,20 +63,15 @@ locals {
     "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
   ]
 
-  table_builder_role_names = {
-    for suffix, _ in local.table_builder_functions :
-    suffix => "${var.project_name}-${var.environment}-table-builder-${suffix}-role"
-  }
-
   table_builder_log_group_names = {
     for suffix, name in local.table_builder_function_names :
     suffix => "/aws/lambda/${name}"
   }
 
-  table_builder_log_group_arns = {
-    for suffix, group in local.table_builder_log_group_names :
-    suffix => "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${group}"
-  }
+  # The shared execution role writes to EVERY verb's log group, so its policy scopes
+  # logs to the /aws/lambda/{project}-{env}-table-builder-* wildcard (one statement
+  # covering all five function log groups) rather than a per-verb ARN.
+  table_builder_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-builder-*"
 
   # polars Lambda layer — CI builds + publishes it (deploy-lambdas.yml), exactly like
   # shared-space-common: the heavy artifact can't be vendored into TF, so CI owns it
@@ -83,11 +88,12 @@ locals {
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
-  # execute-ddl role ARNs (SPEC-070). The Athena workgroup + the catalog it creates
-  # tables in are scoped in execute-ddl.json.tftpl. Target databases are DYNAMIC (one
-  # per user + per shared space), so Glue/table are scoped to the account catalog's
-  # database/* + table/*/* — LF (execute-ddl is an LF admin, wired in the analytics
-  # data_lake_settings) is what actually gates which DB a table lands in.
+  # Athena/Glue ARNs for the execution role's DDL statements (SPEC-070). The workgroup
+  # + the catalog it creates tables in are scoped in execution.json.tftpl. Target
+  # databases are DYNAMIC (one per user + per shared space), so Glue/table are scoped to
+  # the account catalog's database/* + table/*/* — Lake Formation (the execution role is
+  # an LF admin, wired in the analytics data_lake_settings) is what actually gates which
+  # DB a table lands in.
   athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
   glue_catalog_arn     = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
   glue_database_any    = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
