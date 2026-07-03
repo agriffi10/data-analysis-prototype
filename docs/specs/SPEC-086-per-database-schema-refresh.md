@@ -1,7 +1,7 @@
 # Spec: Per-Database Schema Refresh (Look for New Tables/Views)
 
 **ID:** SPEC-086
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-02
 **Depends On:** SPEC-063 (schema rail `DatabaseNode` + per-node `useSchema`), SPEC-034 (`useSchema` + Glue services + `invalidateSchema`), SPEC-047 (`useConnections`), SPEC-028 (`IconButton`)
 
