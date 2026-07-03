@@ -83,8 +83,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 075 — Shared-Space Member Roster for Members (read-only) | Completed |
 | 076 — Per-Tab Query Database (+ Saved Query Targets Its Database) | Superseded (by SPEC-077) |
 | 077 — Cross-Database Querying (drop the active-database session) | Completed |
-| 078 — Multiple SQL Statements in One Editor | Draft (needs design pass) |
-| 079 — Resizable Editor / Results Split | Draft |
+| 078 — Multiple SQL Statements in One Editor | Draft |
+| 079 — Editor / Results Layout Presets | Draft |
 | 080 — Total Row Count in Query Stats | Completed |
 | 081 — Double-Click a File to Download | Completed |
 | 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Completed |
@@ -254,10 +254,12 @@ names fail — the accepted trade-off). This enables **cross-database queries/jo
 already has Glue/LF/S3 grants on (personal `username` tag + shared membership tags, SPEC-056); **077 supersedes SPEC-076**
 (per-tab database — **will not be built**) and SPEC-047's workspace-global active DB. **078** runs
 **multiple SQL statements** from one editor — split on `;` (string/comment-aware), execute **sequentially, stop-on-
-failure**, one history entry per statement; **078 is Draft-but-not-build-ready** (the run/display model — run-all vs.
-run-selection vs. run-current, and single vs. many result sets — needs a design pass first; the user wants all three
-supported). **079** adds a **draggable editor/results splitter** (min-height clamps, keyboard + double-click reset,
-session-persisted height; mirrors SPEC-064's resize affordances). **080** shows the **exact total row count** in the
+failure**, one history entry per statement. **Design pass resolved:** three run scopes — **Run Statement** (selection /
+cursor stmt / sole stmt, ⌘⏎ default), **Run Script → single result** (last result-producing stmt), **Run Script → tab
+per statement** — plus a new **result-tabs** concept in the results region (one tab per result-producing statement, each
+with its own pager/stats). **079** adds **editor/results layout presets** — a three-option control (editor ~90% / even 50/50 default /
+results ~90%) that snaps the vertical split (min-height floors, keyboard-accessible, session-persisted preset); replaces
+the earlier draggable-splitter design. **080** shows the **exact total row count** in the
 status bar by **background-walking all `GetQueryResults` pages** after success (free calls, no extra scan; ceiling cap;
 per-execution reset) instead of today's loaded-count "N+". **081** (file browser) makes **double-clicking a file row
 download it** via the existing presigned-URL flow (both authenticated + read-only browse; explicit Download controls

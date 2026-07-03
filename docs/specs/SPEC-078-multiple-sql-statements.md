@@ -2,17 +2,13 @@
 
 **ID:** SPEC-078
 **Status:** Draft
-**Last Updated:** 2026-07-01
+**Last Updated:** 2026-07-03
 **Depends On:** SPEC-041 (multi-tab editor), SPEC-038 (results pager), SPEC-034/036 (history)
 
-> ⚠️ **Not build-ready.** The user wants to support all three interaction models
-> below and has asked to **dive deeper on the display/run model before this is
-> implemented.** The *settled* parts (statement splitting, sequential execution,
-> stop-on-error, per-statement history) are written as firm FRs; the *unsettled*
-> part (which statement's results show, and how "run selection / run current" is
-> triggered) is captured in **§ Design decisions to resolve before build**. Resolve
-> that section — collapsing it into concrete FRs — before generating an
-> implementation plan.
+> **Design pass complete.** The run/display model that was previously open is now
+> resolved (see **§ Run model (resolved)** and FR-005…FR-007). The settled execution
+> mechanics (statement splitting, sequential execution, stop-on-error, per-statement
+> history) remain as FR-001…FR-004.
 
 ## Overview
 
@@ -23,15 +19,25 @@ by a `SELECT`, or a few setup statements before a query) cannot run them togethe
 Users have asked to **write and run multiple SQL statements in one editor.** This
 spec parses the editor into individual statements and runs them **sequentially**
 against Athena, threading each through the existing per-tab execution/history
-machinery. The remaining product decision — how the user chooses what to run (all
-vs. selection vs. current statement) and which result set is displayed — is flagged
-for a design pass before build.
+machinery.
+
+Two user-facing concepts are introduced:
+
+1. **Three explicit run scopes** the user chooses between — **Run Statement** (the
+   selection, or the statement under the cursor, or the sole statement), **Run Script
+   → single result** (run the whole file, show the last result-producing statement),
+   and **Run Script → tab per statement** (run the whole file, keep every result set
+   in its own result tab). This mirrors how established SQL clients separate
+   "run current statement" from "run script."
+2. **Result tabs** — the results region gains tabs so that when a run produces more
+   than one result set (the per-statement scope), each statement's output is
+   independently viewable after the batch finishes.
 
 ## Scope
 
 ### In Scope
 
-- Split the active tab's editor text into individual SQL statements, respecting
+- Split the active query tab's editor text into individual SQL statements, respecting
   string literals, `--`/`/* */` comments, and quoted identifiers (a semicolon
   inside a string is not a separator).
 - Run the resulting statements **sequentially** in order, each as its own Athena
@@ -41,51 +47,67 @@ for a design pass before build.
 - Reflect batch progress in the status bar (e.g. "Statement 2 of 4…") while running.
 - Surface a failed statement's error (which statement, and Athena's reason) via the
   existing danger banner; make clear later statements were skipped.
-- Preserve single-statement behavior exactly when the editor holds one statement.
+- **Three run scopes** exposed as distinct affordances (buttons + keyboard
+  shortcuts): Run Statement (primary, ⌘⏎), Run Script → single result, Run Script →
+  tab per statement.
+- **Statement resolution** for Run Statement: run the selection if there is one,
+  else the statement under the cursor, else the sole statement.
+- **Result tabs** in the results region: one tab per result-producing statement in
+  the per-statement scope; a single result view for the single-result scopes. Each
+  result tab owns its own grid, pager (SPEC-038), and stats (SPEC-080).
+- Preserve single-statement behavior exactly when the editor holds one statement (a
+  bare ⌘⏎ runs it and shows one result, as today).
 
 ### Out of Scope
 
 - Transactional / all-or-nothing semantics — Athena has none; a partial batch can
   leave earlier statements' effects in place (a dropped/created table stays).
-- Parallel execution — statements run strictly in order (a later statement may
-  depend on an earlier one, e.g. CREATE then SELECT).
-- Cross-database targeting rules — inherited from SPEC-077 (fixed personal default
-  context + fully-qualified names); this spec does not change execution context.
+- Parallel execution — statements run strictly in order in **every** scope (a later
+  statement may depend on an earlier one, e.g. CREATE then SELECT). (Note: some tools
+  run their "separate tabs" mode in parallel; we deliberately do not.)
+- Cross-database targeting rules — inherited from SPEC-077 (fully-qualified names, no
+  active-database context); this spec does not change execution context.
 - Client-side SQL validation/linting beyond splitting.
-- The editor/results splitter (SPEC-079) and total-row-count stats (SPEC-080).
+- A dedicated result view/tab for **non-result-producing** statements (DDL/DML such
+  as `CREATE`/`INSERT`) — their outcome lives in history + the status bar; they do
+  not create a grid tab.
+- Persisting result tabs across page reloads — result tabs are ephemeral per run
+  (cleared when the next run starts), unlike the editor query tabs (SPEC-041).
+- The editor/results layout presets (SPEC-079) and total-row-count stats (SPEC-080),
+  though result tabs must compose with both.
 
 ---
 
-## Design decisions to resolve before build
+## Run model (resolved)
 
-These three models are all desired; the deeper design pass must decide how they
-combine into one interaction (they are not mutually exclusive — a likely outcome is
-"Run all" as the primary button **plus** a "Run selection / current statement"
-affordance). Each has UI and results-display consequences:
+Established SQL clients converge on separating **run one statement** from **run the
+whole script**, with multiple result sets shown either collapsed into one pane or one
+tab per statement:
 
-1. **Run all → show the last result-producing statement.** One primary Run action
-   runs every statement top-to-bottom; the results pane shows the last statement
-   that returned rows. Simplest; matches most SQL consoles' default.
-2. **Run all → show each result set.** Same sequential run, but every
-   result-producing statement's output is retained and browsable (e.g. a result-set
-   switcher, or one results tab per statement). More build surface (results model
-   must hold N result sets, not one).
-3. **Run selection / current statement.** Run only the highlighted text, or the
-   statement under the cursor, via a separate action/shortcut; "Run all" remains for
-   the whole editor. Needs cursor→statement resolution and a second run affordance.
+- **DBeaver** — *Execute SQL Statement* (Ctrl+Enter, cursor/selection, one result),
+  *Execute SQL Script* (all statements, results stacked in one tab), *Execute
+  Statements in Separate Tabs* (one result tab per statement).
+- **DataGrip** — run-current-statement by default; results open in per-statement
+  tabs (configurable to reuse a tab).
+- **MySQL Workbench** — *Execute Current Statement* (Ctrl+Enter) vs *Execute All or
+  Selection* (Ctrl+Shift+Enter).
 
-Open points for the design pass: which is the default primary action; whether (2)'s
-multiple result sets are tabs, a dropdown, or stacked; how history rows link back to
-their statement in the editor; keyboard shortcuts (⌘⏎ today runs the tab); and how
-"Stop" behaves mid-batch (cancel the in-flight statement and halt the rest).
+This spec adopts that convention with three scopes:
+
+| Scope | Trigger | Runs | Results |
+|---|---|---|---|
+| **Run Statement** (default) | ⌘⏎ / primary Run button | the selection, else the statement under the cursor, else the sole statement | one result view |
+| **Run Script → single result** | secondary button / ⌘⇧⏎ | all statements, sequential, stop-on-error | the **last result-producing** statement's rows |
+| **Run Script → tab per statement** | secondary button / ⌘⌥⏎ | all statements, sequential, stop-on-error | **one result tab per result-producing statement** |
+
+All three scopes share the same execution mechanics (FR-001…FR-004): sequential
+execution, stop-on-first-failure, one history entry per executed statement, and batch
+progress/failure surfacing. Shortcuts above are the intended defaults; the **buttons**
+are the firm requirement.
 
 ---
 
 ## Functional Requirements
-
-<!-- FR-001..FR-004 are settled regardless of which display model is chosen.
-     FR-005 is intentionally a placeholder to be replaced once the design pass
-     resolves the model above. -->
 
 ### FR-001: Statement splitting
 
@@ -103,13 +125,15 @@ or a comment; empty statements (whitespace/comment-only) are dropped.
 - [ ] A trailing semicolon / trailing whitespace yields no extra empty statement.
 - [ ] A single statement with no semicolon yields exactly one statement (unchanged
       behavior).
+- [ ] Each parsed statement retains its **source offset range** in the buffer (so the
+      cursor/selection can be mapped to a statement for FR-006).
 
 ### FR-002: Sequential execution, stop on first failure
 
 #### Description:
 
-Run the split statements in order, each as its own Athena execution, waiting for one
-to reach a terminal state before starting the next. If a statement fails (or is
+Run the statements in scope in order, each as its own Athena execution, waiting for
+one to reach a terminal state before starting the next. If a statement fails (or is
 cancelled), no subsequent statement runs.
 
 #### Acceptance Criteria:
@@ -117,6 +141,8 @@ cancelled), no subsequent statement runs.
 - [ ] Given N statements that all succeed, all N run in order.
 - [ ] If statement k fails, statements k+1…N do not start.
 - [ ] A single-statement buffer runs exactly as today.
+- [ ] **Stop** mid-batch cancels the in-flight statement and halts the remainder (no
+      further statements start).
 
 ### FR-003: One history entry per executed statement
 
@@ -147,17 +173,77 @@ statements were skipped.
       Athena's `stateChangeReason`.
 - [ ] The banner (or status) makes clear remaining statements did not run.
 
-### FR-005: Run model + results display *(to be finalized in the design pass)*
+### FR-005: Three run scopes
 
 #### Description:
 
-**Placeholder.** Replace with concrete FRs once § Design decisions is resolved —
-covering the primary Run action's scope (all vs. selection vs. current), any
-secondary run affordance, and exactly which result set(s) the results pane shows.
+The workspace exposes three distinct run affordances. Run Statement is the primary
+action (bound to the existing ⌘⏎). The two Run Script actions run the whole file and
+differ only in how results are displayed (single result vs. tab per statement). All
+three obey FR-002’s sequential/stop-on-error mechanics.
 
 #### Acceptance Criteria:
 
-- [ ] *(to be written after the design pass)*
+- [ ] There are three visible, separately-labeled run affordances: **Run Statement**,
+      **Run Script (single result)**, **Run Script (tab per statement)**.
+- [ ] **Run Statement** runs exactly the FR-006 resolved statement(s) and shows a
+      single result view.
+- [ ] **Run Script (single result)** runs every statement sequentially and the result
+      view shows the **last statement that produced rows**; if no statement produced
+      rows, the result view is empty and the status bar reflects completion.
+- [ ] **Run Script (tab per statement)** runs every statement sequentially and
+      produces the result tabs of FR-007.
+- [ ] ⌘⏎ triggers Run Statement (unchanged primary shortcut); the two script scopes
+      are reachable by button (and, if implemented, ⌘⇧⏎ / ⌘⌥⏎).
+- [ ] While any run is in flight, all three affordances are disabled/replaced by Stop
+      (per FR-002).
+
+### FR-006: Statement resolution for Run Statement
+
+#### Description:
+
+Run Statement resolves what to execute from the editor state: a non-empty selection
+wins; otherwise the statement under the cursor; otherwise, if the buffer holds exactly
+one statement, that statement.
+
+#### Acceptance Criteria:
+
+- [ ] With a non-empty selection, Run Statement executes the selected text (split per
+      FR-001 and run sequentially if it spans multiple statements, showing the last
+      result-producing one).
+- [ ] With no selection and multiple statements, Run Statement executes the statement
+      whose source range (FR-001) contains the cursor.
+- [ ] With no selection and exactly one statement in the buffer, Run Statement
+      executes that statement (today’s behavior).
+- [ ] With the cursor in whitespace/comment between statements, resolution falls back
+      to the nearest preceding statement (or the sole statement) rather than erroring.
+
+### FR-007: Result tabs
+
+#### Description:
+
+The results region gains a tab strip. In the per-statement scope each
+**result-producing** statement gets its own result tab, in execution order; the user
+switches tabs to view each statement’s output after the batch finishes. Single-result
+scopes render a single result with no tab chrome (or one implicit tab). Result tabs
+are ephemeral: a new run clears the prior run’s tabs.
+
+#### Acceptance Criteria:
+
+- [ ] Run Script (tab per statement) over a batch with M result-producing statements
+      yields M result tabs, ordered by execution order.
+- [ ] Each result tab owns its own grid, pager (SPEC-038), and row-count stats
+      (SPEC-080); paging one tab does not affect another.
+- [ ] Tabs are labeled to identify their statement (e.g. index and a short hint), and
+      the active tab is visually indicated.
+- [ ] Non-result-producing statements (e.g. `CREATE`/`INSERT`) do **not** create a
+      result tab; their outcome remains in history + the status bar.
+- [ ] Run Statement and Run Script (single result) show a single result view (no
+      multi-tab strip).
+- [ ] Result tabs belong to the active **query tab** (SPEC-041) and are cleared when a
+      new run starts; switching query tabs does not leak result tabs between them.
+- [ ] A batch that fails partway shows result tabs for the statements that produced
+      rows before the failure, plus the FR-004 failure surfacing.
 
 ---
 
@@ -165,65 +251,92 @@ secondary run affordance, and exactly which result set(s) the results pane shows
 
 ```ts
 // apps/portal/src/features/query/query.types.ts (candidate)
-// A batch is the ordered statements parsed from one tab's buffer, plus per-statement
-// run state. The exact shape depends on the resolved display model (single vs. many
-// result sets) — finalize with FR-005.
 export type ParsedStatement = {
-  index: number;   // 0-based position in the batch
-  sql: string;     // the individual statement text
+  index: number;        // 0-based position in the batch
+  sql: string;          // the individual statement text
+  range: { start: number; end: number }; // source offsets in the buffer (FR-006)
 };
 
-// Per-tab run state (SPEC-041 `TabRun`) extends to a batch:
-//   currentIndex, total, and either a single active executionId (models 1/3)
-//   or a list of executionIds (model 2).
+export type RunScope = 'statement' | 'script-single' | 'script-tabs';
+
+// One result set produced by a statement in a batch (drives a result tab).
+export type ResultTab = {
+  statementIndex: number;   // which ParsedStatement produced it
+  executionId: string;      // its Athena execution
+  label: string;            // tab label (index + short hint)
+  // + the existing per-result grid/pager/stats state (SPEC-038/080)
+};
+
+// Per-query-tab run state (SPEC-041 `TabRun`) extends to a batch:
+//   scope: RunScope; currentIndex; total; executionIds: string[];
+//   resultTabs: ResultTab[]; activeResultTabIndex: number.
 ```
 
 ## API / Interface Contract
 
 ```ts
-// New pure helper (co-located, unit-tested independently of Athena):
+// Pure helpers (co-located, unit-tested independently of Athena):
 splitSqlStatements(buffer: string): ParsedStatement[];
+resolveRunStatements(
+  statements: ParsedStatement[],
+  selection: { start: number; end: number } | null,
+  cursor: number,
+): ParsedStatement[];   // FR-006: selection → cursor stmt → sole stmt
 
-// The workspace's `submit(...)` gains a batch runner that awaits each statement to
-// terminal before starting the next (reuses runQuery + the existing poller/finalizer),
-// halting on the first non-SUCCEEDED terminal state.
+// The workspace's submit(...) takes a RunScope and runs the resolved statements
+// sequentially (reusing runQuery + the existing poller/finalizer), halting on the
+// first non-SUCCEEDED terminal state. For 'script-tabs' it accumulates a ResultTab
+// per result-producing statement; for 'statement'/'script-single' it keeps the
+// single (last result-producing) result set.
+submit(scope: RunScope): Promise<void>;
 ```
 
 ## File & Folder Structure
 
 ```
 apps/portal/src/features/query/
-├── query.sql.ts            # add splitSqlStatements (+ tests in query.sql.test.ts)
-├── QueryWorkspace.tsx      # batch runner in submit(); progress + failure surfacing
+├── query.sql.ts            # splitSqlStatements + resolveRunStatements (+ query.sql.test.ts)
+├── QueryWorkspace.tsx      # scope-aware submit(); progress + failure surfacing
+├── QueryToolbar.tsx        # three run affordances (buttons + shortcuts)  [or in QueryWorkspace]
+├── ResultTabs.tsx          # result-tab strip + active-tab switching (+ .test.tsx)
 ├── QueryStatusBar.tsx      # "Statement k of N" while running a batch
-├── SqlEditor.tsx           # (model-dependent) run-selection / run-current affordance
-└── *.test.tsx              # splitting, sequential-run, stop-on-error, history-per-stmt
+├── SqlEditor.tsx           # expose selection/cursor for statement resolution
+└── *.test.tsx              # splitting, resolution, sequential-run, stop-on-error,
+                            #   history-per-stmt, result-tab construction
 ```
 
 ## Implementation Phases
 
-### Phase 0: Resolve the design decisions
-
-- Turn § Design decisions into concrete FR-005 criteria (default Run scope, secondary
-  affordance, results-display model, mid-batch Stop). **Gate:** do not start Phase 2+
-  UI work until this lands.
-
-### Phase 1: Statement splitting (pure)
+### Phase 1: Statement splitting + resolution (pure)
 
 - Implement + unit-test `splitSqlStatements` (strings, comments, quoted identifiers,
-  trailing semicolons, single-statement passthrough).
+  trailing semicolons, single-statement passthrough, source ranges) and
+  `resolveRunStatements` (selection / cursor / sole statement).
 
 ### Phase 2: Sequential batch runner + per-statement history
 
-- Extend `submit()` to run the parsed statements in order via the existing execution
-  machinery, stop-on-failure, one history entry per statement.
+- Extend `submit(scope)` to run the resolved statements in order via the existing
+  execution machinery, stop-on-failure, one history entry per statement; mid-batch
+  Stop cancels the in-flight statement and halts the rest.
 
-### Phase 3: Progress + failure UX (+ resolved run/display model)
+### Phase 3: Run scopes (buttons + shortcuts)
 
-- Status-bar batch progress; failure banner naming the statement; implement the
-  FR-005 run/display model decided in Phase 0.
+- Wire the three affordances (Run Statement = ⌘⏎ primary; the two script scopes as
+  buttons + optional ⌘⇧⏎ / ⌘⌥⏎); Run Statement uses `resolveRunStatements`.
 
-### Phase 4: Completion ritual
+### Phase 4: Result tabs
 
-- Delivery doc, INDEX status, component-inventory row if `splitSqlStatements`/batch
-  runner is reusable.
+- `ResultTabs` strip; accumulate a `ResultTab` per result-producing statement in the
+  `script-tabs` scope; single result view for the other scopes; each tab owns its own
+  pager/stats; ephemeral per run and scoped to the active query tab.
+
+### Phase 5: Progress + failure UX
+
+- Status-bar batch progress ("Statement k of N"); failure banner naming the failing
+  statement and Athena's reason; partial-batch result tabs shown alongside the error.
+
+### Phase 6: Completion ritual
+
+- Delivery doc, INDEX status, component-inventory rows for reusable pieces
+  (`splitSqlStatements`, `resolveRunStatements`, batch runner, `ResultTabs`), and the
+  SPEC-074 Help content sweep (new run scopes + result tabs are user-facing).
