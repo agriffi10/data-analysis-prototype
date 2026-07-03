@@ -19,10 +19,13 @@ type CollapsibleRailProps = {
  * header **collapse** control and, when collapsed, a slim **reopen** handle at the
  * content's left edge.
  *
- * Collapsing sets the panel to `display:none` — removed from the flex row so `<main>`
- * fills the freed width — WITHOUT unmounting it, so in-rail expansion/selection state
- * is preserved and both controls' `aria-controls` stay valid. The collapsed choice is
- * remembered per browser via `useRailCollapsed` (shared across both rails).
+ * Collapsing eases the panel's width to `0` (border removed) so `<main>` fills the
+ * freed width, WITHOUT unmounting it, so in-rail expansion/selection state is preserved
+ * and both controls' `aria-controls` stay valid. The inner content keeps a fixed 248px
+ * width so it doesn't reflow as the panel narrows, and a `visibility` transition removes
+ * it from the accessibility tree once collapsed (matching the previous `display:none`).
+ * The collapsed choice is remembered per browser via `useRailCollapsed` (shared across
+ * both rails).
  */
 export function CollapsibleRail({ariaLabel, title, children}: CollapsibleRailProps) {
   const {collapsed, setCollapsed} = useRailCollapsed();
@@ -34,25 +37,31 @@ export function CollapsibleRail({ariaLabel, title, children}: CollapsibleRailPro
         id={railId}
         aria-label={ariaLabel}
         className={cx(
-          'w-[248px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface',
-          collapsed ? 'hidden' : 'hidden md:flex'
+          'hidden shrink-0 flex-col overflow-hidden bg-surface transition-[width] duration-200 ease-out motion-reduce:transition-none md:flex',
+          collapsed ? 'w-0 border-r-0' : 'w-[248px] border-r border-border'
         )}>
-        <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-3">
-          {title ? (
-            <span className="text-xs font-semibold uppercase tracking-[.04em] text-text-3">{title}</span>
-          ) : (
-            <span aria-hidden="true" />
-          )}
-          <IconButton
-            label="Collapse sidebar"
-            size="sm"
-            aria-expanded={!collapsed}
-            aria-controls={railId}
-            onClick={() => setCollapsed(true)}>
-            <ChevronLeftIcon className="h-4 w-4" />
-          </IconButton>
+        <div
+          className={cx(
+            'flex w-[248px] flex-1 flex-col overflow-y-auto transition-[visibility] duration-200 motion-reduce:transition-none',
+            collapsed ? 'invisible' : 'visible'
+          )}>
+          <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-3">
+            {title ? (
+              <span className="text-xs font-semibold uppercase tracking-[.04em] text-text-3">{title}</span>
+            ) : (
+              <span aria-hidden="true" />
+            )}
+            <IconButton
+              label="Collapse sidebar"
+              size="sm"
+              aria-expanded={!collapsed}
+              aria-controls={railId}
+              onClick={() => setCollapsed(true)}>
+              <ChevronLeftIcon className="h-4 w-4" />
+            </IconButton>
+          </div>
+          <div className="flex flex-col gap-1 px-3 pb-4">{children}</div>
         </div>
-        <div className="flex flex-col gap-1 px-3 pb-4">{children}</div>
       </aside>
 
       {collapsed && (

@@ -95,14 +95,14 @@ describe('DatabaseNode', () => {
     expect(screen.getByRole('button', {name: 'revenue_view'})).toBeInTheDocument();
   });
 
-  it('shows the create-table guidance for an empty Tables group and "No views." for empty views', () => {
+  it('shows "No tables." for an empty Tables group and "No views." for empty views', () => {
     mockUseSchema.mockReturnValue({
       isPending: false,
       isError: false,
       data: {database: {name: 'alice'}, tables: []}
     } as unknown as SchemaState);
     renderNode();
-    expect(screen.getByText(/No tables yet/)).toBeInTheDocument();
+    expect(screen.getByText('No tables.')).toBeInTheDocument();
     // Views (0) defaults collapsed; expanding it reveals the empty state.
     fireEvent.click(screen.getByRole('button', {name: /Views \(0\)/}));
     expect(screen.getByText('No views.')).toBeInTheDocument();

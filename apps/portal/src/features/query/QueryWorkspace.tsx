@@ -207,6 +207,17 @@ export function QueryWorkspace() {
     return () => observer.disconnect();
   }, []);
   const layout = useEditorLayout(username || null, layoutColumnHeight);
+  // Ease the editor/results split only when the user picks a preset — never on
+  // the ResizeObserver-driven height changes from window resize, which would
+  // otherwise make the panes lag behind the viewport.
+  const [animateSplit, setAnimateSplit] = useState(false);
+  const handleLayoutChange = useCallback(
+    (next: Parameters<typeof layout.setPreset>[0]) => {
+      setAnimateSplit(true);
+      layout.setPreset(next);
+    },
+    [layout]
+  );
 
   // Per-tab run state, keyed by tab id (in-memory for the session). The ref is
   // the synchronous source of truth (every write goes through updateRuns, from
@@ -996,7 +1007,7 @@ export function QueryWorkspace() {
           <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
             <EditorLayoutControl
               preset={layout.preset}
-              onChange={layout.setPreset}
+              onChange={handleLayoutChange}
             />
             <div className="flex-1" />
             <Button
@@ -1171,8 +1182,14 @@ export function QueryWorkspace() {
             ref={layoutColumnRef}
             className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div
-              className="flex-none border-b border-border"
-              style={{height: layout.editorHeight}}>
+              className={cx(
+                'flex-none border-b border-border',
+                animateSplit && 'transition-[height] duration-200 ease-out motion-reduce:transition-none'
+              )}
+              style={{height: layout.editorHeight}}
+              onTransitionEnd={(e) => {
+                if (e.target === e.currentTarget && e.propertyName === 'height') setAnimateSplit(false);
+              }}>
               <Suspense
                 fallback={
                   <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">

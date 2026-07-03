@@ -279,15 +279,7 @@ export function DatabaseNode({
             openTables={openTables}
             onToggleTable={toggleTable}
             actions={actions}
-            emptyState={
-              <p className="px-3 py-1 text-sm leading-relaxed text-text-3">
-                No tables yet. Create one with{' '}
-                <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text-2">
-                  CREATE EXTERNAL TABLE &hellip;
-                </code>{' '}
-                in the editor.
-              </p>
-            }
+            emptyState={<p className="px-3 py-1 text-sm text-text-3">No tables.</p>}
           />
           <ObjectGroup
             database={connection.database}

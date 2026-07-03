@@ -2,16 +2,17 @@ import {cx} from '../../lib/cx';
 import type {EditorLayoutPreset} from './query.constants';
 
 const OPTIONS: ReadonlyArray<{value: EditorLayoutPreset; label: string; description: string}> = [
-  {value: 'editor', label: 'Editor', description: 'Editor layout: grow the editor'},
-  {value: 'even', label: 'Even', description: 'Even layout: split editor and results evenly'},
+  {value: 'even', label: 'Default', description: 'Default layout: split editor and results evenly'},
+  {value: 'editor', label: 'Query Editor', description: 'Query Editor layout: grow the editor'},
   {value: 'results', label: 'Results', description: 'Results layout: grow the results'}
 ];
 
 /**
  * SPEC-079 layout-preset segmented control: three toggle buttons in a labeled
- * group snapping the editor/results vertical split (Editor ~90% / Even 50/50 /
- * Results ~90%). The active option carries `aria-pressed` so the selection is
- * never conveyed by styling alone (same pattern as the notifications filter).
+ * group snapping the editor/results vertical split (Default 50/50 / Query
+ * Editor ~90% / Results ~90%). The active option carries `aria-pressed` so the
+ * selection is never conveyed by styling alone (same pattern as the
+ * notifications filter).
  */
 export function EditorLayoutControl({
   preset,

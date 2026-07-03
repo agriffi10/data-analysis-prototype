@@ -20,6 +20,11 @@ export type HelpGuide = {
   title: string;
   /** One line shown beneath the title. */
   subtitle: string;
+  /**
+   * Optional friendly framing shown above the steps — a sentence or two of
+   * context (what this is for, when you'd reach for it). May contain `<b>…</b>`.
+   */
+  intro?: string;
   /** Ordered steps; text may contain `<b>…</b>` emphasis for UI labels. */
   steps: string[];
   callout?: HelpCallout;
