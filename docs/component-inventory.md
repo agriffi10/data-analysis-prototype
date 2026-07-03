@@ -45,7 +45,9 @@ before relying on them. Paths are relative to the repo root.
 | `RootLayout` | `components/RootLayout.tsx` | Top-level route layout. |
 | `ProtectedLayout` | `components/ProtectedLayout.tsx` | Auth-gated layout wrapper (redirects unauthenticated users). |
 | `Header` | `components/Header.tsx` | App header (sign-in/out, identity). |
-| `Sidebar` | `components/Sidebar.tsx` | Left nav for the authenticated shell — a **Spaces** list (`{connections, activeSpaceId, onSelectSpace}`): personal first, active shared A–Z, pending/failed disabled with status; "Manage connections →" link. Rendered by `FilesPage` (SPEC-057). |
+| `Sidebar` | `components/Sidebar.tsx` | Left nav for the authenticated shell — a **Spaces** list (`{connections, activeSpaceId, onSelectSpace}`): personal first, active shared A–Z, pending/failed disabled with status; "Manage connections →" link. Rendered by `FilesPage` (SPEC-057). Renders through `CollapsibleRail` (SPEC-085). |
+| `CollapsibleRail` | `components/CollapsibleRail.tsx` | Shared 248px left-rail chrome (`{ariaLabel, title?, children}`) for the Files `Sidebar` + Query `SchemaBrowser`: `hidden … md:flex` panel + header collapse control + a reopen handle when collapsed; collapse = `display:none` (panel kept mounted so in-rail state + `aria-controls` survive). Collapse state via `useRailCollapsed` (SPEC-085). |
+| `useRailCollapsed()` | `components/useRailCollapsed.ts` | `localStorage`-backed rail collapse state under one shared key (`RAIL_COLLAPSED_STORAGE_KEY`) so it carries across both rails; `{collapsed, toggle, setCollapsed}`; guarded access → default expanded when storage is unavailable (SPEC-085). |
 | `Button` (+ `ButtonVariant`/`ButtonSize`) | `components/Button.tsx` | Design-system button — `variant` primary/default/ghost/danger, `size` sm/md/lg, `forwardRef` (SPEC-028; `lg` added SPEC-029). |
 | `IconButton` | `components/IconButton.tsx` | Ghost icon-only button; `label` → aria-label, `forwardRef` (SPEC-028). |
 | `Input` | `components/Input.tsx` | Text input with `label` + `error` state, aria wiring, `forwardRef` (SPEC-028). |

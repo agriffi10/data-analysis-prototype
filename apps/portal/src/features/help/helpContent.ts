@@ -119,6 +119,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'The schema rail on the left lists every database you can access — your personal database (named after your username) and any shared spaces you belong to.',
           'Expand a database to inspect its tables and columns.',
+          'Need more room? <b>Collapse the side panel</b> with the chevron in its header; a small handle at the edge brings it back. The choice is remembered across the Files and Query pages.',
           'Reference each table by its full name, <b>database.table</b> (e.g. <b>mydb.orders</b>). There is no “current” database, so you can read from — and join across — any databases you have access to in a single query.'
         ],
         callout: {

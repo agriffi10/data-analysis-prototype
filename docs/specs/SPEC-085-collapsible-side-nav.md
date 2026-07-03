@@ -1,7 +1,7 @@
 # Spec: Collapsible Side Nav (Shared Base Rail + Collapse Control)
 
 **ID:** SPEC-085
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-02
 **Depends On:** SPEC-023 (app shell / layouts), SPEC-057 (Files spaces `Sidebar`), SPEC-063 (Query `SchemaBrowser` rail), SPEC-028 (`Button`/`IconButton` primitives)
 

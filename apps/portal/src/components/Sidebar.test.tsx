@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {render, screen, fireEvent} from '@testing-library/react';
+import {render, screen, fireEvent, within} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import {Sidebar} from './Sidebar';
 import type {Connection} from '../features/query/query.types';
@@ -66,7 +66,9 @@ describe('Sidebar (SPEC-057)', () => {
 
   it('a personal-only user sees just their own space', () => {
     renderSidebar([personal]);
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    // Exactly one space entry (the collapse control is rail chrome, not a space).
+    const list = screen.getByRole('list', {name: 'Spaces'});
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByRole('button', {name: /alice/i})).toBeInTheDocument();
   });
 

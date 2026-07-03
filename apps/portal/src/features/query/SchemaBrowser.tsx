@@ -1,3 +1,4 @@
+import {CollapsibleRail} from '../../components/CollapsibleRail';
 import {DatabaseNode} from './DatabaseNode';
 import {isConnectionUsable} from './query.types';
 import type {Connection, GlueTableSummary} from './query.types';
@@ -16,10 +17,6 @@ export type TableActions = {
   /** True when the table's S3 location is within the user's own space; View source files is disabled otherwise. */
   canViewSourceFiles: (table: GlueTableSummary) => boolean;
 };
-
-const railClass =
-  'hidden w-[248px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 md:flex';
-const labelClass = 'px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3';
 
 function DatabaseIcon() {
   return (
@@ -78,10 +75,9 @@ export function SchemaBrowser({
   const single = items.length <= 1;
 
   return (
-    <aside
-      className={railClass}
-      aria-label="Schema browser">
-      <p className={labelClass}>Databases</p>
+    <CollapsibleRail
+      ariaLabel="Schema browser"
+      title="Databases">
       <div className="flex flex-col gap-0.5">
         {items.length === 0 ? (
           <p className="px-3 py-2 text-sm text-text-3">No databases available.</p>
@@ -105,6 +101,6 @@ export function SchemaBrowser({
           )
         )}
       </div>
-    </aside>
+    </CollapsibleRail>
   );
 }
