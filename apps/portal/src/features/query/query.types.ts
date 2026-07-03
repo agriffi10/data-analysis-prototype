@@ -1,6 +1,6 @@
 // Shared types for the query-engine data layer.
 
-import type {SharedConnectionRole, SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
+import type {Member, SharedConnectionRole, SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
 
 export type QueryState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
@@ -74,8 +74,8 @@ export type Connection = {
   role?: SharedConnectionRole;
   /** Failure reason (present when status === 'failed'). */
   reason?: string;
-  /** Owner-readable member list (present only on a connection the user owns); drives the Manage-members drawer. */
-  members?: string[];
+  /** Owner-readable member roster + join status (present only on a connection the user owns); drives the Manage-members drawer. */
+  members?: Member[];
   /** Creation date (ISO). Absent on older cache entries. */
   createdAt?: string;
   /** Owner username; present on member connections (owner connections derive the count from `members`). */

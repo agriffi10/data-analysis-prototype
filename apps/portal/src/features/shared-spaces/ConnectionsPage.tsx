@@ -14,7 +14,7 @@ import {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 import {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
 import {connectionStatusLabel} from './connectionStatus';
-import type {SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
+import type {Member, SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
 
 // One renderable shared-connection row, normalized from the cache (via
 // useConnections) and the local optimistic pending list.
@@ -23,8 +23,8 @@ type ConnectionRow = {
   role: SharedConnectionRole;
   status: SharedConnectionStatus;
   reason?: string;
-  /** Owner-readable projection (owner rows only). */
-  members?: string[];
+  /** Owner-readable projection with per-member join status (owner rows only). */
+  members?: Member[];
   /** ISO; drives the "created <date>" meta line. */
   createdAt?: string;
   /** Owner username (member rows); drives the "owner: <name>" meta line. */
@@ -48,7 +48,10 @@ export function ConnectionsPage() {
   const {leave, remove, forget, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [managing, setManaging] = useState<ConnectionRow | null>(null);
+  // Track the managed space by NAME (not a row snapshot) so the drawer re-derives
+  // from the live `rows` — a Refresh that flips a member Pending → Active is then
+  // reflected in the open drawer without reopening it (FR-006).
+  const [managingName, setManagingName] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<ConnectionRow | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRow | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -91,6 +94,13 @@ export function ConnectionsPage() {
         .sort((a, b) => a.name.localeCompare(b.name))
     );
   }, [connections, pending, dismissed, retrying, transitioning]);
+
+  // The live row for the open Manage drawer, re-derived from `rows` each render so a
+  // Refresh (or auto-poll) surfaces member/status changes without reopening.
+  const managing = useMemo(
+    () => (managingName ? (rows.find((r) => r.name === managingName) ?? null) : null),
+    [managingName, rows]
+  );
 
   const handleRefresh = () => {
     // The cache is authoritative after a refresh — drop local-only overrides so
@@ -237,7 +247,7 @@ export function ConnectionsPage() {
               <ConnectionRowItem
                 key={row.name}
                 row={row}
-                onManage={() => setManaging(row)}
+                onManage={() => setManagingName(row.name)}
                 onDelete={() => setDeleting(row)}
                 onLeave={() => setLeaving(row)}
                 onDismiss={() => void handleDismiss(row.name)}
@@ -258,12 +268,14 @@ export function ConnectionsPage() {
       {managing && username && (
         <ManageMembersDrawer
           open
-          onClose={() => setManaging(null)}
+          onClose={() => setManagingName(null)}
           space={managing.name}
           owner={username}
-          members={managing.members ?? [username]}
+          members={managing.members ?? [{username, status: 'active'}]}
           unavailable={managing.members === undefined}
           busy={membersBusy}
+          onRefresh={handleRefresh}
+          refreshing={isRefreshing}
           onAddMembers={(toAdd) => void handleAddMembers(managing.name, toAdd)}
           onRemoveMembers={(toRemove) => void handleRemoveMembers(managing.name, toRemove)}
         />
@@ -304,6 +316,8 @@ function metaLine(row: ConnectionRow): string | null {
       if (row.members) {
         const n = row.members.length;
         parts.push(`${n} member${n === 1 ? '' : 's'}`);
+        const pending = row.members.filter((m) => m.status === 'pending').length;
+        if (pending > 0) parts.push(`${pending} pending`);
       }
       const created = formatCreated(row.createdAt);
       if (created) parts.push(`created ${created}`);

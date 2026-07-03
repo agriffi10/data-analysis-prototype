@@ -179,6 +179,55 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     expect(result.success && result.data.connections).toEqual([{name: 'good', role: 'owner', status: 'active'}]);
   });
 
+  it('normalizes the owner projection members to {username, status} (SPEC-073)', async () => {
+    const body = JSON.stringify({
+      version: 1,
+      connections: [
+        {
+          name: 'sales',
+          role: 'owner',
+          status: 'active',
+          members: [
+            {username: 'alice', status: 'active'},
+            {username: 'bob', status: 'pending'}
+          ]
+        }
+      ]
+    });
+    fakeS3({body});
+    const result = await readSharedConnectionsCache('alice');
+    expect(result.success && result.data.connections[0].members).toEqual([
+      {username: 'alice', status: 'active'},
+      {username: 'bob', status: 'pending'}
+    ]);
+  });
+
+  it('reads a legacy string[] members projection as all-active, dropping malformed entries (FR-005)', async () => {
+    const body = JSON.stringify({
+      version: 1,
+      connections: [
+        {name: 'sales', role: 'owner', status: 'active', members: ['alice', 'bob', '', 42, {status: 'pending'}]}
+      ]
+    });
+    fakeS3({body});
+    const result = await readSharedConnectionsCache('alice');
+    // Bare strings -> active; '' / non-string / no-username entries dropped.
+    expect(result.success && result.data.connections[0].members).toEqual([
+      {username: 'alice', status: 'active'},
+      {username: 'bob', status: 'active'}
+    ]);
+  });
+
+  it('degrades a malformed non-array members field to undefined (no crash)', async () => {
+    const body = JSON.stringify({
+      version: 1,
+      connections: [{name: 'sales', role: 'owner', status: 'active', members: 'garbage'}]
+    });
+    fakeS3({body});
+    const result = await readSharedConnectionsCache('alice');
+    expect(result.success && result.data.connections[0].members).toBeUndefined();
+  });
+
   it('returns a ServiceResult error (never throws) on a non-404 read failure', async () => {
     fakeS3({
       rejectWith: Object.assign(new Error('boom'), {name: 'AccessDenied'})

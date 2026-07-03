@@ -139,7 +139,15 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
   it('shows Manage only on an active connection the user owns, and opens the drawer', async () => {
     mockRead.mockResolvedValue(
       cache([
-        {name: 'owned', role: 'owner', status: 'active', members: ['alice', 'bob']},
+        {
+          name: 'owned',
+          role: 'owner',
+          status: 'active',
+          members: [
+            {username: 'alice', status: 'active'},
+            {username: 'bob', status: 'active'}
+          ]
+        },
         {name: 'joined', role: 'member', status: 'active'},
         {name: 'pending', role: 'owner', status: 'provisioning'}
       ])
@@ -167,7 +175,9 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
   });
 
   it('adding a member from the drawer enqueues one add_members request', async () => {
-    mockRead.mockResolvedValue(cache([{name: 'owned', role: 'owner', status: 'active', members: ['alice']}]));
+    mockRead.mockResolvedValue(
+      cache([{name: 'owned', role: 'owner', status: 'active', members: [{username: 'alice', status: 'active'}]}])
+    );
     mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
     renderPage();
 
@@ -210,7 +220,9 @@ describe('ConnectionsPage — Leave & Delete (SPEC-054)', () => {
   });
 
   it('offers Delete (not Leave) to an owner; the type-the-name guard gates the destructive button', async () => {
-    mockRead.mockResolvedValue(cache([{name: 'owned', role: 'owner', status: 'active', members: ['alice']}]));
+    mockRead.mockResolvedValue(
+      cache([{name: 'owned', role: 'owner', status: 'active', members: [{username: 'alice', status: 'active'}]}])
+    );
     mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
     renderPage();
 

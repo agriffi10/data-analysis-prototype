@@ -3,18 +3,24 @@ import {Drawer} from '../../components/Drawer';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {cx} from '../../lib/cx';
 import {AddMembersDialog} from './AddMembersDialog';
+import {RefreshConnectionsButton} from './RefreshConnectionsButton';
+import type {Member} from './sharedSpaces.types';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   space: string;
   owner: string;
-  /** Current membership (the owner-readable cache projection); includes the owner. */
-  members: string[];
+  /** Current membership (the owner-readable cache projection), with join status; includes the owner. */
+  members: Member[];
   /** True if the member projection isn't available yet (older cache entry) — shows a note instead of an empty list. */
   unavailable?: boolean;
   busy?: boolean;
+  /** Re-read member state on demand (a Pending → Active flip lands async, after the member acks). */
+  onRefresh: () => void;
+  refreshing?: boolean;
   onAddMembers: (members: string[]) => void;
   onRemoveMembers: (members: string[]) => void;
 };
@@ -33,6 +39,8 @@ export function ManageMembersDrawer({
   members,
   unavailable = false,
   busy = false,
+  onRefresh,
+  refreshing = false,
   onAddMembers,
   onRemoveMembers
 }: Props) {
@@ -40,7 +48,7 @@ export function ManageMembersDrawer({
   const [removing, setRemoving] = useState<string | null>(null);
 
   // Owner first, then the rest A–Z; the owner can't be removed here.
-  const others = members.filter((m) => m !== owner).sort((a, b) => a.localeCompare(b));
+  const others = members.filter((m) => m.username !== owner).sort((a, b) => a.username.localeCompare(b.username));
 
   const handleAdd = (toAdd: string[]) => {
     setAddOpen(false);
@@ -64,14 +72,19 @@ export function ManageMembersDrawer({
       ariaLabel="Manage members"
       closeLabel="Close manage members"
       headerAccessory={
-        <Button
-          variant="primary"
-          size="sm"
-          className="ml-2 flex-none"
-          onClick={() => setAddOpen(true)}
-          disabled={busy}>
-          Add members
-        </Button>
+        <div className="ml-2 flex flex-none items-center gap-1.5">
+          <RefreshConnectionsButton
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          />
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setAddOpen(true)}
+            disabled={busy}>
+            Add members
+          </Button>
+        </div>
       }
       // While a nested dialog is open it owns Escape.
       closeOnEscape={!addOpen && !removing}>
@@ -94,16 +107,17 @@ export function ManageMembersDrawer({
         </li>
         {others.map((member) => (
           <li
-            key={member}
+            key={member.username}
             className="flex items-center gap-3 px-4 py-2.5">
-            <Avatar name={member} />
-            <span className="min-w-0 truncate font-medium text-text">{member}</span>
+            <Avatar name={member.username} />
+            <span className="min-w-0 truncate font-medium text-text">{member.username}</span>
+            <MemberStatusBadge status={member.status} />
             <div className="flex-1" />
             <Button
               variant="ghost"
               size="sm"
               className="text-danger hover:bg-danger-soft hover:text-danger"
-              onClick={() => setRemoving(member)}
+              onClick={() => setRemoving(member.username)}
               disabled={busy}>
               Remove
             </Button>
@@ -112,13 +126,15 @@ export function ManageMembersDrawer({
       </ul>
 
       <p className="text-xs text-text-3">
-        Changes apply after the member&apos;s next sign-in; use Refresh connections to see the updated list.
+        A <span className="font-medium text-text-2">Pending</span> member has been invited but hasn&apos;t signed in
+        yet; they become <span className="font-medium text-text-2">Active</span> once they do. Use Refresh to check for
+        updates.
       </p>
 
       {addOpen && (
         <AddMembersDialog
           busy={busy}
-          existing={members}
+          existing={members.map((m) => m.username)}
           onAdd={handleAdd}
           onCancel={() => setAddOpen(false)}
         />
@@ -141,6 +157,23 @@ export function ManageMembersDrawer({
         </ConfirmDialog>
       )}
     </Drawer>
+  );
+}
+
+// Per-member join status as a colored dot + text label (SPEC-073). Like the
+// Connections-page StatusBadge, the text label always carries the meaning, so the
+// color/dot is never the only signal (WCAG AA).
+function MemberStatusBadge({status}: {status: Member['status']}) {
+  const active = status === 'active';
+  return (
+    <span
+      className={cx(
+        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
+        active ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
+      )}>
+      <span className="h-[7px] w-[7px] rounded-full bg-current" />
+      {active ? 'Active' : 'Pending'}
+    </span>
   );
 }
 
