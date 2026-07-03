@@ -104,7 +104,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Open the <b>Query</b> tab and type SQL in the editor.',
           'Click <b>Run</b>, or press <kbd>Ctrl/Cmd + Enter</kbd>.',
-          'The status bar shows progress, the rows returned, data scanned, and how long it took.',
+          'The status bar shows progress, the exact total row count, data scanned, and how long it took.',
           'To stop a long-running query, click <b>Stop</b>.'
         ]
       },

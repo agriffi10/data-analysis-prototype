@@ -11,6 +11,7 @@ import {invalidateListing} from '../../lib/queryClient';
 import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
+import {useResultRowCount} from './useResultRowCount';
 import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
@@ -223,6 +224,12 @@ export function QueryWorkspace() {
   // Results only fetch once the active query has succeeded; one page (≤20 rows)
   // at a time via the SPEC-038 pager.
   const results = useQueryResults(succeeded ? activeExecutionId : null);
+
+  // SPEC-080: exact total row count via a background page-walk. Gated on a result
+  // set actually existing (columns present) so DDL/no-result statements show no
+  // row-count stat; scoped to the execution id so a new run / tab switch recomputes.
+  const hasResultSet = succeeded && results.columns.length > 0;
+  const rowCount = useResultRowCount(hasResultSet ? activeExecutionId : null);
 
   // SPEC-064: result-column widths, keyed by execution id. Lives here (not in
   // QueryResultsTable, which unmounts when the active tab has no results) so a
@@ -856,6 +863,9 @@ export function QueryWorkspace() {
               startedAt={activeRun?.startedAt ?? null}
               rowCount={succeeded ? results.loadedRowCount : undefined}
               hasMoreRows={results.hasMoreServer}
+              hasResultSet={hasResultSet}
+              totalRowCount={rowCount.total}
+              atRowCeiling={rowCount.atCeiling}
               canSaveResults={canSaveResults}
               onSaveResults={() => setSaveResultsOpen(true)}
             />

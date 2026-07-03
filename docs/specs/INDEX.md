@@ -85,7 +85,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 077 — Cross-Database Querying (drop the active-database session) | Completed |
 | 078 — Multiple SQL Statements in One Editor | Draft (needs design pass) |
 | 079 — Resizable Editor / Results Split | Draft |
-| 080 — Total Row Count in Query Stats | Draft |
+| 080 — Total Row Count in Query Stats | Completed |
 | 081 — Double-Click a File to Download | Draft |
 | 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Draft |
 | 083 — Code-Quality Hardening (Lambda config/shape/types + Lambda & SPA cleanup smells) | Draft |

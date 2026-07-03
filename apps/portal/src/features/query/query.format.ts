@@ -14,6 +14,11 @@ export function formatBytes(bytes?: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
 
+/** Integer with locale thousands separators (e.g. 1384 → "1,384"). */
+export function formatCount(n: number): string {
+  return n.toLocaleString();
+}
+
 /** Human-readable duration from milliseconds (e.g. 800 → "800 ms", 1234 → "1.2s"). */
 export function formatDurationMs(ms?: number): string {
   if (ms === undefined) return '—';
