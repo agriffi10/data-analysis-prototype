@@ -1,7 +1,7 @@
 # Spec: Editor / Results Layout Presets
 
 **ID:** SPEC-079
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-03
 **Depends On:** SPEC-035 (query workspace layout)
 

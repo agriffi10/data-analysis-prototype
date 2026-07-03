@@ -84,7 +84,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 076 — Per-Tab Query Database (+ Saved Query Targets Its Database) | Superseded (by SPEC-077) |
 | 077 — Cross-Database Querying (drop the active-database session) | Completed |
 | 078 — Multiple SQL Statements in One Editor | Draft |
-| 079 — Editor / Results Layout Presets | Draft |
+| 079 — Editor / Results Layout Presets | Completed |
 | 080 — Total Row Count in Query Stats | Completed |
 | 081 — Double-Click a File to Download | Completed |
 | 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Completed |
