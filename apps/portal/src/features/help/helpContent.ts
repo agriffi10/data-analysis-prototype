@@ -109,14 +109,18 @@ export const HELP_SECTIONS: HelpSection[] = [
         ]
       },
       {
-        id: 'choose-database',
-        title: 'Choose the active database',
-        subtitle: 'Pick which database your queries run against.',
+        id: 'browse-databases',
+        title: 'Browse databases and query across them',
+        subtitle: 'Explore every database you can access and join across them.',
         steps: [
-          'In the schema rail on the left, under <b>Connections</b>, click a database.',
-          'Your personal database is named after your username; shared spaces you belong to appear below it.',
-          'Its tables load into the schema rail and autocomplete, and every query tab runs against it.'
-        ]
+          'The schema rail on the left lists every database you can access — your personal database (named after your username) and any shared spaces you belong to.',
+          'Expand a database to inspect its tables and columns.',
+          'Reference each table by its full name, <b>database.table</b> (e.g. <b>mydb.orders</b>). There is no “current” database, so you can read from — and join across — any databases you have access to in a single query.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'Because there’s no active database, an unqualified name like <b>orders</b> won’t resolve — always write <b>database.table</b>.'
+        }
       },
       {
         id: 'save-query',

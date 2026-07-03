@@ -2,8 +2,7 @@ import {forwardRef, useEffect, useImperativeHandle, useRef} from 'react';
 import Editor, {loader, type OnMount} from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import {createSqlCompletionProvider} from './sqlCompletions';
-import type {GlueTableSummary} from './query.types';
+import {createSqlCompletionProvider, type DatabaseSchema} from './sqlCompletions';
 
 // Self-host Monaco: no CDN/runtime external. Vite builds the editor worker
 // (?worker), and we point @monaco-editor/react's loader at the bundled
@@ -45,10 +44,10 @@ function defineTheme(m: typeof monaco) {
 
 // Schema-aware completions. The provider is registered exactly once for the
 // `sql` language (module-guarded), not per editor mount — re-mounting or
-// switching tabs must not stack duplicate providers. It reads the active
-// database's schema through this module-level ref, so it always sees the
+// switching tabs must not stack duplicate providers. It reads the accessible
+// databases' schemas through this module-level ref, so it always sees the
 // latest tables without rebinding. Disposed when the editor unmounts.
-const completionSchemaRef: {current: GlueTableSummary[] | undefined} = {current: undefined};
+const completionSchemaRef: {current: DatabaseSchema[] | undefined} = {current: undefined};
 let completionDisposable: monaco.IDisposable | null = null;
 
 function registerSqlCompletionsOnce(m: typeof monaco) {
@@ -60,9 +59,7 @@ function registerSqlCompletionsOnce(m: typeof monaco) {
 }
 
 export type SqlEditorHandle = {
-  /** Inserts text at the current cursor/selection (schema-browser click-to-insert); refocuses the editor. */
-  insertAtCursor: (text: string) => void;
-  /** Focuses the editor (used after re-opening a history entry). */
+  /** Focuses the editor (used after re-opening a history entry / a table action). */
   focus: () => void;
 };
 
@@ -72,29 +69,30 @@ type SqlEditorProps = {
   /** ⌘/Ctrl+Enter in the editor triggers Run; optional so the shell can mount the editor before the run handler is wired. */
   onRun?: () => void;
   /**
-   * The active database's tables/views feeding the schema-aware completion
-   * provider. Undefined while no schema is loaded — completions then fall
-   * back to Monaco's built-in keywords only.
+   * The accessible databases' schemas feeding the schema-aware completion
+   * provider (SPEC-077 — fully-qualified `database.table` suggestions across
+   * every accessible database). Undefined/empty while no schema is loaded —
+   * completions then fall back to Monaco's built-in keywords only.
    */
-  completionTables?: GlueTableSummary[];
+  completionSchemas?: DatabaseSchema[];
 };
 
 /**
- * Monaco SQL editor. Forwards a ref exposing insertAtCursor/focus; React.lazy
+ * Monaco SQL editor. Forwards a ref exposing focus; React.lazy
  * forwards the ref through to this inner forwardRef component once the chunk
  * loads.
  */
 export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
-  {value, onChange, onRun, completionTables},
+  {value, onChange, onRun, completionSchemas},
   ref
 ) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   // Keep the latest onRun without rebinding the Monaco command each render.
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
-  // Feed the latest active-database schema to the (singleton) completion
+  // Feed the latest accessible-database schemas to the (singleton) completion
   // provider each render, mirroring the onRunRef pattern.
-  completionSchemaRef.current = completionTables;
+  completionSchemaRef.current = completionSchemas;
 
   // Dispose the singleton completion provider when the editor tears down.
   useEffect(() => {
@@ -105,14 +103,6 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   }, []);
 
   useImperativeHandle(ref, () => ({
-    insertAtCursor(text: string) {
-      const editor = editorRef.current;
-      if (!editor) return;
-      const selection = editor.getSelection();
-      if (!selection) return;
-      editor.executeEdits('schema-insert', [{range: selection, text, forceMoveMarkers: true}]);
-      editor.focus();
-    },
     focus() {
       editorRef.current?.focus();
     }

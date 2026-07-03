@@ -21,37 +21,44 @@ export type SqlCompletion = {
 // A Glue `VIRTUAL_VIEW` is a view; everything else is a table.
 const VIEW_TABLE_TYPE = 'VIRTUAL_VIEW';
 
+/** One accessible database's schema, as fed to the completion provider (SPEC-077). */
+export type DatabaseSchema = {database: string; tables: GlueTableSummary[]};
+
 /**
- * Builds schema completion descriptors from the active database's
- * tables/views: one item per table + view, one item per de-duplicated column
- * name (with its type + table as detail). Returns [] when `tables` is
- * undefined/empty.
+ * Builds schema completion descriptors across every accessible database
+ * (SPEC-077 FR-005). Tables/views are suggested **fully-qualified**
+ * (`database.table`) since there is no active-database context; columns keep
+ * their SPEC-065 form — bare name, de-duplicated across all databases, with
+ * type + owning table as detail. Returns [] when there is no schema.
  */
-export function buildSqlCompletions(tables: GlueTableSummary[] | undefined): SqlCompletion[] {
-  if (!tables || tables.length === 0) return [];
+export function buildSqlCompletions(schemas: DatabaseSchema[] | undefined): SqlCompletion[] {
+  if (!schemas || schemas.length === 0) return [];
 
   const items: SqlCompletion[] = [];
-  // De-dup columns by name across tables — the same name from two tables yields a
-  // single suggestion (detail reflects the first table that declared it).
+  // De-dup columns by name across ALL tables/databases — the same name yields one
+  // suggestion (detail reflects the first table that declared it).
   const seenColumns = new Set<string>();
 
-  for (const table of tables) {
-    const isView = table.tableType === VIEW_TABLE_TYPE;
-    items.push({
-      label: table.name,
-      insertText: table.name,
-      kind: isView ? 'view' : 'table',
-      detail: isView ? 'view' : 'table'
-    });
-    for (const column of table.columns) {
-      if (seenColumns.has(column.name)) continue;
-      seenColumns.add(column.name);
+  for (const {database, tables} of schemas) {
+    for (const table of tables) {
+      const isView = table.tableType === VIEW_TABLE_TYPE;
+      const qualified = `${database}.${table.name}`;
       items.push({
-        label: column.name,
-        insertText: column.name,
-        kind: 'column',
-        detail: `${column.type} · ${table.name}`
+        label: qualified,
+        insertText: qualified,
+        kind: isView ? 'view' : 'table',
+        detail: isView ? `view · ${database}` : `table · ${database}`
       });
+      for (const column of table.columns) {
+        if (seenColumns.has(column.name)) continue;
+        seenColumns.add(column.name);
+        items.push({
+          label: column.name,
+          insertText: column.name,
+          kind: 'column',
+          detail: `${column.type} · ${qualified}`
+        });
+      }
     }
   }
 
@@ -74,14 +81,14 @@ function toMonacoKind(m: typeof monaco, kind: SqlCompletionKind): monaco.languag
 
 /**
  * Factory for the SQL completion provider. Reads `schemaRef.current` on every
- * invocation (latest active-database schema, never a stale closure) and
- * returns schema items only — Monaco's built-in SQL keyword provider still
- * contributes keywords (augment, not replace). Pure w.r.t. Monaco values
- * (kinds come from `m`), so it is unit-testable with a fake monaco.
+ * invocation (latest schemas across all accessible databases, never a stale
+ * closure) and returns schema items only — Monaco's built-in SQL keyword
+ * provider still contributes keywords (augment, not replace). Pure w.r.t.
+ * Monaco values (kinds come from `m`), so it is unit-testable with a fake monaco.
  */
 export function createSqlCompletionProvider(
   m: typeof monaco,
-  schemaRef: {current: GlueTableSummary[] | undefined}
+  schemaRef: {current: DatabaseSchema[] | undefined}
 ): monaco.languages.CompletionItemProvider {
   return {
     provideCompletionItems(model, position) {

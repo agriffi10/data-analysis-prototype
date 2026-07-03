@@ -5,15 +5,7 @@ import {useAuth} from '../auth';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
-import {
-  runQuery,
-  stopQuery,
-  getTableDdl,
-  runStatementToCompletion,
-  parseS3Url,
-  resultOutputLocation,
-  isTerminalState
-} from './query.service';
+import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, parseS3Url, isTerminalState} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
 import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
@@ -24,9 +16,8 @@ import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
-import {useActiveDatabase} from './useActiveDatabase';
-import {invalidateSchema, useSchema} from './useSchema';
-import {isSchemaChangingSql, sameSql, stripTrailingSemicolons} from './query.sql';
+import {invalidateSchema, useAllSchemas} from './useSchema';
+import {deriveViewTargetDatabase, schemaChangingDatabase, sameSql, stripTrailingSemicolons} from './query.sql';
 import {SchemaBrowser} from './SchemaBrowser';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
@@ -108,24 +99,27 @@ export function QueryWorkspace() {
   // SPEC-055: the shared-space bucket (where shared-DB results land + a Save target).
   const sharedSpaceBucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined;
 
-  // SPEC-047: the workspace targets one active database for all tabs (persisted,
-  // default = personal), chosen from the connections the user can query. The
-  // shared-spaces arc extends `useConnections` without touching this wiring.
+  // SPEC-077: there is no active database. The rail browses every accessible
+  // database; queries carry no execution context and must fully-qualify every
+  // base table. `useConnections` still enumerates the browsable/queryable spaces.
   const {connections} = useConnections(username || null);
-  const {activeDatabase, setActiveDatabase, fellBack, dismissFellBack} = useActiveDatabase(
-    username || null,
-    connections
-  );
-  const database = activeDatabase;
-  // SPEC-065: the active database's schema feeds the editor's autocomplete. Same
-  // query key as the schema rail, so this shares TanStack's cache (no extra fetch).
-  const {data: activeSchema} = useSchema(activeDatabase || null);
-  // SPEC-055: the full active connection (not just its DB name) — drives where
-  // query results land (personal vs the shared space) and the Save destinations.
-  const activeConnection = useMemo(
-    () => connections.find((c) => c.database === activeDatabase) ?? null,
-    [connections, activeDatabase]
-  );
+  // Every usable database, for the browse rail + multi-database autocomplete.
+  const usableDatabases = useMemo(() => connections.filter(isConnectionUsable).map((c) => c.database), [connections]);
+  // SPEC-077 FR-005: autocomplete offers fully-qualified names across every
+  // accessible database (shares the schema cache with the expandable rail nodes).
+  const completionSchemas = useAllSchemas(usableDatabases);
+
+  // One-time cleanup of the retired SPEC-047 active-database sessionStorage key.
+  useEffect(() => {
+    try {
+      const legacyPrefix = 's3portal.query.activeDatabase.';
+      for (const key of Object.keys(sessionStorage)) {
+        if (key.startsWith(legacyPrefix)) sessionStorage.removeItem(key);
+      }
+    } catch {
+      // sessionStorage unavailable — nothing to clean up.
+    }
+  }, []);
 
   // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
   // first, then every shared space they currently belong to (usable). The picker
@@ -170,11 +164,12 @@ export function QueryWorkspace() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [closing, setClosing] = useState<QueryTab | null>(null);
   // SPEC-044 table actions.
-  const [dropping, setDropping] = useState<GlueTableSummary | null>(null);
+  const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
   const [toast, setToast] = useState<(ToastState & {action?: {label: string; onClick: () => void}}) | null>(null);
-  // SPEC-048: Create view.
+  // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
+  const [createViewDb, setCreateViewDb] = useState('');
   const [createViewInFlight, setCreateViewInFlight] = useState(false);
   // SPEC-049: Save results.
   const [saveResultsOpen, setSaveResultsOpen] = useState(false);
@@ -250,18 +245,19 @@ export function QueryWorkspace() {
         }
       }).catch((e) => console.warn('[query-history] update failed', e));
 
-      if (status.state === 'SUCCEEDED' && database && isSchemaChangingSql(sql)) {
-        void invalidateSchema(queryClient, database);
-      }
+      // SPEC-077: a user-typed DDL fully-qualifies its own target; refresh that
+      // database's schema (there's no active database to assume).
+      const ddlDb = status.state === 'SUCCEEDED' ? schemaChangingDatabase(sql) : null;
+      if (ddlDb) void invalidateSchema(queryClient, ddlDb);
     },
-    [updateEntry, queryClient, database]
+    [updateEntry, queryClient]
   );
 
   // Submit a SQL string into a tab (defaults to the active tab). An explicit
   // tabId lets a just-opened tab (View data, SPEC-044) auto-run into itself
   // before the activeTabId state change has committed.
   const submit = (sqlText: string, tabId: string = activeTabId) => {
-    if (!sqlText.trim() || !database) return;
+    if (!sqlText.trim()) return;
     const existing = runs[tabId];
     const inFlight = !!existing && (!statuses[tabId] || !isTerminalState(statuses[tabId]!.state));
     if (inFlight) return;
@@ -274,13 +270,12 @@ export function QueryWorkspace() {
     setRunErrors((e) => ({...e, [tabId]: null}));
     setDismissed((d) => ({...d, [tabId]: false}));
     void (async () => {
+      // SPEC-077: no execution database context — the query fully-qualifies its
+      // own tables. Results land in the personal prefix (runQuery's default); a
+      // shared destination is chosen explicitly at Save time (SPEC-049/055).
       const result = await runQuery({
         sql: sqlText,
-        database,
-        username,
-        // SPEC-055 FR-001: route results to the shared space when the active
-        // connection is shared; personal otherwise (the default in runQuery).
-        ...(activeConnection ? {outputLocation: resultOutputLocation(activeConnection, username)} : {})
+        username
       });
       if (!result.success) {
         setRunErrors((e) => ({...e, [tabId]: result.error.message}));
@@ -297,7 +292,9 @@ export function QueryWorkspace() {
       await appendEntry({
         queryExecutionId: id,
         sql: sqlText,
-        database,
+        // SPEC-077 FR-006: informational only (there's no active database). The
+        // personal database is the fixed default context recorded for display.
+        database: username,
         submittedAt: new Date().toISOString(),
         ...(linkedSaved && {
           savedQueryId: linkedSaved.id,
@@ -468,7 +465,9 @@ export function QueryWorkspace() {
       id: targetId ?? crypto.randomUUID(),
       name,
       sql: activeTab.sql,
-      database,
+      // SPEC-077 FR-006: informational only (there's no active database). The
+      // personal database is recorded as the fixed default context.
+      database: username,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
@@ -507,17 +506,19 @@ export function QueryWorkspace() {
     return username && key.startsWith(`${username}/`) ? key : null;
   };
 
+  // SPEC-077 FR-007: each per-table action takes the database from the rail node
+  // the table was invoked from (a table under `db_a` acts on `db_a.<table>`) —
+  // there is no active-database selection to source it from.
   const tableActions = {
     canViewSourceFiles: (table: GlueTableSummary) => tablePrefix(table) !== null,
-    // FR-002: deep-link the file browser to the table's data folder.
-    onViewSourceFiles: (table: GlueTableSummary) => {
+    // Deep-link the file browser to the table's data folder (location-based; no db).
+    onViewSourceFiles: (_database: string, table: GlueTableSummary) => {
       const key = tablePrefix(table);
       if (!key) return;
       navigate(`/files?prefix=${encodeURIComponent(key)}`);
     },
-    // FR-003: SHOW CREATE TABLE → a new, non-run "DDL: {table}" tab.
-    onViewDdl: (table: GlueTableSummary) => {
-      if (!database) return;
+    // SHOW CREATE TABLE against the node's database → a new, non-run "DDL: {table}" tab.
+    onViewDdl: (database: string, table: GlueTableSummary) => {
       setToast({variant: 'info', message: `Loading DDL for ${table.name}…`});
       void (async () => {
         const result = await getTableDdl({
@@ -542,8 +543,8 @@ export function QueryWorkspace() {
         else editorRef.current?.focus();
       })();
     },
-    // FR-004: open a "{table}" tab pre-filled with SELECT * LIMIT N and auto-run.
-    onViewData: (table: GlueTableSummary) => {
+    // Open a "{table}" tab pre-filled with a fully-qualified SELECT * LIMIT N + auto-run.
+    onViewData: (database: string, table: GlueTableSummary) => {
       const sql = `SELECT * FROM ${database}.${table.name} LIMIT ${TABLE_PREVIEW_ROW_LIMIT}`;
       const id = tabs.openTab({label: table.name, sql});
       if (id === null) {
@@ -553,13 +554,16 @@ export function QueryWorkspace() {
       editorRef.current?.focus();
       submit(sql, id); // auto-run into the just-opened tab
     },
-    // FR-005: confirm, then drop in the background (handled on confirm).
-    onDropTable: (table: GlueTableSummary) => setDropping(table)
+    // Confirm, then drop in the background (handled on confirm) — carries the node's db.
+    onDropTable: (database: string, table: GlueTableSummary) => setDropping({database, table})
   };
 
-  // SPEC-048 FR-001–004: turn the active tab's SQL into a named view in the active
-  // database, in the background (the editor keeps showing the user's SELECT).
+  // SPEC-048/077: turn the active tab's SQL into a named view, in the background
+  // (the editor keeps showing the user's SELECT). The target database is derived
+  // from the view body's fully-qualified base tables (FR-008), captured in
+  // `createViewDb` when the dialog opened.
   const handleCreateView = (name: string) => {
+    const database = createViewDb;
     if (!database) return;
     const body = stripTrailingSemicolons(activeTab.sql);
     const sql = `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`;
@@ -600,8 +604,8 @@ export function QueryWorkspace() {
   };
 
   const handleDropConfirm = () => {
-    if (!dropping || !database) return;
-    const table = dropping;
+    if (!dropping) return;
+    const {database, table} = dropping;
     const isView = table.tableType === 'VIRTUAL_VIEW';
     const sql = `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`;
     setDropInFlight(true);
@@ -648,7 +652,7 @@ export function QueryWorkspace() {
     runErrors[activeTabId] ??
     (activeStatus?.state === 'FAILED' ? (activeStatus.stateChangeReason ?? 'The query failed.') : null);
   const showError = !!errorMessage && !dismissed[activeTabId];
-  const canRun = !!activeTab.sql.trim() && !!database && !activeIsInFlight;
+  const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
   const canSave = !!activeTab.sql.trim(); // FR-001: disabled only when empty
 
@@ -677,10 +681,7 @@ export function QueryWorkspace() {
     // scrolls itself (`overflow-y-auto`).
     <div className="flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 overflow-hidden">
       <SchemaBrowser
-        database={database}
         connections={connections}
-        onSelectDatabase={setActiveDatabase}
-        onInsert={(name) => editorRef.current?.insertAtCursor(name)}
         actions={tableActions}
       />
 
@@ -719,27 +720,7 @@ export function QueryWorkspace() {
           id="query-tabpanel"
           aria-labelledby={`query-tab-${activeTabId}`}
           className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* SPEC-047 FR-002: a persisted database that's no longer available resets
-            to the personal workspace — surfaced non-blockingly here. */}
-          {fellBack && (
-            <div className="px-5 pt-4">
-              <Banner
-                variant="info"
-                role="status"
-                title="Switched to your workspace"
-                onDismiss={dismissFellBack}>
-                The database you were querying is no longer available, so we switched back to your personal workspace.
-              </Banner>
-            </div>
-          )}
           <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
-            <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-sm text-text-2">
-              <span
-                className="h-2 w-2 rounded-full bg-accent"
-                aria-hidden="true"
-              />
-              querying <code className="font-mono text-text">{database}</code>
-            </span>
             <div className="flex-1" />
             <Button
               variant="ghost"
@@ -779,7 +760,18 @@ export function QueryWorkspace() {
             </Button>
             <Button
               variant="ghost"
-              onClick={() => setCreateViewOpen(true)}
+              onClick={() => {
+                // FR-008: derive the target database from the view body before
+                // opening the dialog; a non-derivable body raises a clear error
+                // and never silently picks a database.
+                const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
+                if ('error' in target) {
+                  setToast({variant: 'danger', message: target.error});
+                  return;
+                }
+                setCreateViewDb(target.database);
+                setCreateViewOpen(true);
+              }}
               disabled={!canSave}
               aria-label="Create view">
               <svg
@@ -852,7 +844,7 @@ export function QueryWorkspace() {
                 value={activeTab.sql}
                 onChange={tabs.setActiveSql}
                 onRun={handleRun}
-                completionTables={activeSchema?.tables}
+                completionSchemas={completionSchemas}
               />
             </Suspense>
           </div>
@@ -956,15 +948,16 @@ export function QueryWorkspace() {
       {createViewOpen && (
         <CreateViewDialog
           busy={createViewInFlight}
+          targetDatabase={createViewDb}
           onCreate={handleCreateView}
           onCancel={() => setCreateViewOpen(false)}
         />
       )}
       {dropping && (
         <DropTableDialog
-          table={dropping.name}
+          table={dropping.table.name}
           isDropping={dropInFlight}
-          isView={dropping.tableType === 'VIRTUAL_VIEW'}
+          isView={dropping.table.tableType === 'VIRTUAL_VIEW'}
           onConfirm={handleDropConfirm}
           onCancel={() => setDropping(null)}
         />

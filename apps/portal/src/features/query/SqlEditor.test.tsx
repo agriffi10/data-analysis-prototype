@@ -72,12 +72,12 @@ describe('SqlEditor completion-provider wiring', () => {
     expect(disposable.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('feeds the provider the latest completionTables via the shared ref', () => {
+  it('feeds the provider the latest completionSchemas via the shared ref', () => {
     const {rerender} = render(
       <SqlEditor
         value=""
         onChange={() => {}}
-        completionTables={undefined}
+        completionSchemas={undefined}
       />
     );
     const provider = h.registerCompletionItemProvider.mock.calls[0][1] as {
@@ -92,9 +92,9 @@ describe('SqlEditor completion-provider wiring', () => {
       <SqlEditor
         value=""
         onChange={() => {}}
-        completionTables={[orders]}
+        completionSchemas={[{database: 'alice', tables: [orders]}]}
       />
     );
-    expect(provider.provideCompletionItems(model, pos).suggestions.map((s) => s.label)).toEqual(['orders', 'id']);
+    expect(provider.provideCompletionItems(model, pos).suggestions.map((s) => s.label)).toEqual(['alice.orders', 'id']);
   });
 });

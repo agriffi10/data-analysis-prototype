@@ -7,9 +7,21 @@ beforeEach(() => {
 });
 
 describe('CreateViewDialog (SPEC-048 FR-001/002)', () => {
+  it('shows the derived target database read-only (SPEC-077 FR-008)', () => {
+    render(
+      <CreateViewDialog
+        targetDatabase="alice"
+        onCreate={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByText('alice')).toBeInTheDocument();
+  });
+
   it('disables Create until the name passes the catalog-safe rule', () => {
     render(
       <CreateViewDialog
+        targetDatabase="alice"
         onCreate={vi.fn()}
         onCancel={vi.fn()}
       />
@@ -35,6 +47,7 @@ describe('CreateViewDialog (SPEC-048 FR-001/002)', () => {
     const onCreate = vi.fn();
     render(
       <CreateViewDialog
+        targetDatabase="alice"
         onCreate={onCreate}
         onCancel={vi.fn()}
       />
@@ -50,6 +63,7 @@ describe('CreateViewDialog (SPEC-048 FR-001/002)', () => {
     const onCreate = vi.fn();
     render(
       <CreateViewDialog
+        targetDatabase="alice"
         onCreate={onCreate}
         onCancel={vi.fn()}
       />
@@ -65,6 +79,7 @@ describe('CreateViewDialog (SPEC-048 FR-001/002)', () => {
     const onCreate = vi.fn();
     render(
       <CreateViewDialog
+        targetDatabase="alice"
         onCreate={onCreate}
         onCancel={onCancel}
       />
@@ -77,6 +92,7 @@ describe('CreateViewDialog (SPEC-048 FR-001/002)', () => {
   it('locks Create + shows progress while busy', () => {
     render(
       <CreateViewDialog
+        targetDatabase="alice"
         busy
         onCreate={vi.fn()}
         onCancel={vi.fn()}

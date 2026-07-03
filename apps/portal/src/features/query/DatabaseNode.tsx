@@ -45,20 +45,20 @@ function DatabaseIcon() {
   );
 }
 
-// FR-005: each object row keeps its current behavior — expand to reveal columns,
-// click a column to insert it, the per-row (view-aware) actions menu. The "View"
-// badge is dropped inside the Views group (membership conveys the type, FR-005).
+// Each object row: expand to reveal its columns (inspection only — SPEC-077
+// drops click-to-insert) and a per-row (view-aware) actions menu. The "View"
+// badge is dropped inside the Views group (membership conveys the type).
 function TableRow({
+  database,
   table,
   open,
   onToggle,
-  onInsert,
   actions
 }: {
+  database: string;
   table: GlueTableSummary;
   open: boolean;
   onToggle: () => void;
-  onInsert: (name: string) => void;
   actions: TableActions;
 }) {
   const isView = table.tableType === 'VIRTUAL_VIEW';
@@ -99,23 +99,23 @@ function TableRow({
               {
                 key: 'view-source',
                 label: 'View source files',
-                onSelect: () => actions.onViewSourceFiles(table),
+                onSelect: () => actions.onViewSourceFiles(database, table),
                 disabled: !actions.canViewSourceFiles(table)
               },
               {
                 key: 'view-ddl',
                 label: 'View DDL',
-                onSelect: () => actions.onViewDdl(table)
+                onSelect: () => actions.onViewDdl(database, table)
               },
               {
                 key: 'view-data',
                 label: 'View data',
-                onSelect: () => actions.onViewData(table)
+                onSelect: () => actions.onViewData(database, table)
               },
               {
                 key: 'drop',
                 label: isView ? 'Drop view' : 'Drop table',
-                onSelect: () => actions.onDropTable(table),
+                onSelect: () => actions.onDropTable(database, table),
                 danger: true,
                 separatorBefore: true
               }
@@ -124,24 +124,21 @@ function TableRow({
         </div>
       </div>
       {open && (
-        <div className="flex flex-col py-1 pl-8">
+        <ul className="flex flex-col py-1 pl-8">
           {table.columns.length === 0 ? (
-            <p className="px-2 py-1 text-xs text-text-3">No columns</p>
+            <li className="px-2 py-1 text-xs text-text-3">No columns</li>
           ) : (
+            // SPEC-077: columns are shown for inspection only — no click-to-insert.
             table.columns.map((column) => (
-              <button
+              <li
                 key={column.name}
-                type="button"
-                onClick={() => onInsert(column.name)}
-                title={`Insert "${column.name}"`}
-                aria-label={`Insert column ${column.name} into the query editor`}
-                className="flex items-baseline gap-2 rounded-sm px-2 py-[3px] text-left text-sm text-text-2 hover:bg-surface-2 hover:text-text">
+                className="flex items-baseline gap-2 px-2 py-[3px] text-sm text-text-2">
                 <span className="min-w-0 truncate">{column.name}</span>
                 <span className="ml-auto flex-none font-mono text-xs text-text-3">{column.type}</span>
-              </button>
+              </li>
             ))
           )}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -150,6 +147,7 @@ function TableRow({
 // FR-002: a Tables/Views sub-group — its own disclosure toggle + object count, and
 // an empty state so the grouping stays legible rather than disappearing.
 function ObjectGroup({
+  database,
   title,
   objects,
   open,
@@ -157,9 +155,9 @@ function ObjectGroup({
   emptyState,
   openTables,
   onToggleTable,
-  onInsert,
   actions
 }: {
+  database: string;
   title: string;
   objects: GlueTableSummary[];
   open: boolean;
@@ -167,7 +165,6 @@ function ObjectGroup({
   emptyState: React.ReactNode;
   openTables: Set<string>;
   onToggleTable: (name: string) => void;
-  onInsert: (name: string) => void;
   actions: TableActions;
 }) {
   return (
@@ -190,10 +187,10 @@ function ObjectGroup({
             {objects.map((table) => (
               <TableRow
                 key={table.name}
+                database={database}
                 table={table}
                 open={openTables.has(table.name)}
                 onToggle={() => onToggleTable(table.name)}
-                onInsert={onInsert}
                 actions={actions}
               />
             ))}
@@ -205,18 +202,12 @@ function ObjectGroup({
 
 export function DatabaseNode({
   connection,
-  isActive,
   defaultExpanded,
-  onSetActive,
-  onInsert,
   actions
 }: {
   connection: Connection;
-  isActive: boolean;
   // First-reveal default for the node body; once the user toggles, their choice wins.
   defaultExpanded: boolean;
-  onSetActive: (database: string) => void;
-  onInsert: (name: string) => void;
   actions: TableActions;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -273,13 +264,13 @@ export function DatabaseNode({
       body = (
         <div className="flex flex-col gap-1 py-1">
           <ObjectGroup
+            database={connection.database}
             title="Tables"
             objects={tables}
             open={effectiveTablesOpen}
             onToggle={() => setTablesOpen(!effectiveTablesOpen)}
             openTables={openTables}
             onToggleTable={toggleTable}
-            onInsert={onInsert}
             actions={actions}
             emptyState={
               <p className="px-3 py-1 text-sm leading-relaxed text-text-3">
@@ -292,13 +283,13 @@ export function DatabaseNode({
             }
           />
           <ObjectGroup
+            database={connection.database}
             title="Views"
             objects={views}
             open={effectiveViewsOpen}
             onToggle={() => setViewsOpen(!effectiveViewsOpen)}
             openTables={openTables}
             onToggleTable={toggleTable}
-            onInsert={onInsert}
             actions={actions}
             emptyState={<p className="px-3 py-1 text-sm text-text-3">No views.</p>}
           />
@@ -309,36 +300,16 @@ export function DatabaseNode({
 
   return (
     <div>
-      <div className={cx('flex items-center gap-1 rounded-md', isActive ? 'bg-accent-soft' : 'hover:bg-surface-2')}>
+      <div className="flex items-center gap-1 rounded-md hover:bg-surface-2">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${connection.label}`}
-          className={cx(
-            'flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-base font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-            isActive ? 'text-accent-text' : 'text-text-2 hover:text-text'
-          )}>
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-base font-semibold text-text-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           <Chevron open={expanded} />
           <DatabaseIcon />
           <span className="min-w-0 truncate">{connection.label}</span>
-        </button>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={isActive}
-          tabIndex={isActive ? 0 : -1}
-          onClick={() => onSetActive(connection.database)}
-          aria-label={`Use ${connection.label} as the active database`}
-          className="mr-1 flex-none rounded-full p-1 text-text-3 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          <span
-            className={cx(
-              'block h-[14px] w-[14px] rounded-full border-2',
-              isActive ? 'border-accent bg-accent' : 'border-border'
-            )}
-            aria-hidden="true"
-          />
-          {isActive && <span className="sr-only">(current database)</span>}
         </button>
       </div>
       {body}

@@ -40,10 +40,7 @@ function renderNode(props: Partial<React.ComponentProps<typeof DatabaseNode>> = 
   return render(
     <DatabaseNode
       connection={personal}
-      isActive
       defaultExpanded
-      onSetActive={vi.fn()}
-      onInsert={vi.fn()}
       actions={makeActions()}
       {...props}
     />
@@ -117,33 +114,31 @@ describe('DatabaseNode', () => {
     expect(screen.queryByText('No views.')).not.toBeInTheDocument();
   });
 
-  it('inserts a column name on click', () => {
-    const onInsert = vi.fn();
-    renderNode({onInsert});
+  it('expanding a table reveals its columns as non-interactive rows (no click-to-insert)', () => {
+    renderNode();
     fireEvent.click(screen.getByRole('button', {name: 'sales_2026'}));
-    fireEvent.click(screen.getByRole('button', {name: /region/}));
-    expect(onInsert).toHaveBeenCalledWith('region');
+    // The column name + type show for inspection, but there is no button/insert affordance.
+    expect(screen.getByText('region')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /region/})).not.toBeInTheDocument();
   });
 
-  it('offers view-aware actions for a view row', () => {
-    const actions = makeActions({canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW'});
+  it('offers view-aware actions for a view row and invokes them with (database, table)', () => {
+    const onViewDdl = vi.fn();
+    const actions = makeActions({
+      canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW',
+      onViewDdl
+    });
     renderNode({actions});
     fireEvent.click(screen.getByRole('button', {name: 'Options for revenue_view'}));
     const menu = screen.getByRole('menu');
     expect(within(menu).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
     expect(within(menu).getByRole('menuitem', {name: 'View source files'})).toBeDisabled();
-  });
 
-  it('the active radio is checked and selecting it does not toggle expansion', () => {
-    const onSetActive = vi.fn();
-    renderNode({onSetActive});
-    const radio = screen.getByRole('radio', {name: /Use My workspace as the active database/});
-    expect(radio).toHaveAttribute('aria-checked', 'true');
-    const disclosure = screen.getByRole('button', {name: /Collapse My workspace/});
-    fireEvent.click(radio);
-    expect(onSetActive).toHaveBeenCalledWith('alice');
-    // Expansion unchanged (still expanded → still "Collapse").
-    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(within(menu).getByRole('menuitem', {name: 'View DDL'}));
+    expect(onViewDdl).toHaveBeenCalledWith(
+      'alice',
+      expect.objectContaining({name: 'revenue_view', tableType: 'VIRTUAL_VIEW'})
+    );
   });
 
   it('renders a per-node "setting up" state on a NotFound error', () => {
