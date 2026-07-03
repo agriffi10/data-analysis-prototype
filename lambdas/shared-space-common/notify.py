@@ -15,7 +15,7 @@ import clients
 logger = logging.getLogger()
 
 
-def emit_notification(username, message, dedup_id=None):
+def emit_notification(username: str, message: str, dedup_id: str | None = None) -> None:
     """Send a ``create`` envelope to the notifications queue for ``username``.
 
     No-op (single log line) when NOTIFICATIONS_QUEUE_URL is unset. Catches and logs

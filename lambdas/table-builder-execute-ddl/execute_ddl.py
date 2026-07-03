@@ -38,7 +38,7 @@ def _results_location(space, actor):
 
 
 @notify.notifies_on_failure("execute")
-def handler(event, context):
+def handler(event: dict, context) -> dict:
     space = event["space"]
     actor = event["actor"]
     database = space["database"]

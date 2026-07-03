@@ -14,7 +14,7 @@ the change to the *freshly-read* record, and ``PutObject`` conditioned on that E
 """
 
 import json
-import time
+from datetime import datetime, timezone
 
 import config
 import clients
@@ -32,11 +32,11 @@ def _key(name):
     return f"shared-spaces/{name}.json"
 
 
-def now_iso():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _read(name):
+def _read(name: str) -> tuple[dict | None, str | None]:
     """Return ``(record, etag)`` for a space; ``(None, None)`` when it doesn't exist.
 
     Only a true-absent signal (``NoSuchKey``/404) is treated as missing — the admin
@@ -55,7 +55,7 @@ def _read(name):
     return json.loads(obj["Body"].read()), obj.get("ETag")
 
 
-def _put(name, record, etag):
+def _put(name: str, record: dict, etag: str | None) -> None:
     """Write a registry record conditionally: ``If-Match`` the read ETag, or
     ``If-None-Match: *`` when absent (create). Raises the S3 ClientError on a
     precondition failure so the CAS loop can retry."""
@@ -72,13 +72,13 @@ def _put(name, record, etag):
     clients.s3().put_object(**kwargs)
 
 
-def load(space):
+def load(space: str) -> dict | None:
     """Return the registry record for ``space`` (dict) or None if it doesn't exist."""
     record, _etag = _read(space)
     return record
 
 
-def reserve(name, actor, request_id):
+def reserve(name: str, actor: str, request_id: str) -> str:
     """Atomically create the registry object (status=provisioning) to claim the name.
 
     Returns 'created', or 'replay' if this exact request already created it
@@ -115,7 +115,7 @@ def reserve(name, actor, request_id):
         return _resolve_reserve_collision(name, actor, request_id, record, exc)
 
 
-def _resolve_reserve_collision(name, actor, request_id, record, cause):
+def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: dict, cause: Exception) -> str:
     """Resolve a create collision: ``replay`` for the same request, a *conditional*
     overwrite when the owner retries their own ``failed`` create, else the name is
     genuinely taken.
@@ -152,7 +152,7 @@ def _resolve_reserve_collision(name, actor, request_id, record, cause):
     raise RuntimeError(f"reserve collision resolution for {name} exhausted attempts")
 
 
-def finalize(name, actor, request_id, status, reason=None):
+def finalize(name: str, actor: str, request_id: str, status: str, reason: str | None = None) -> None:
     """Rewrite the registry record for a create outcome (members=[owner]).
 
     Flags ``active`` on success or ``failed`` with a reason on a create error.
@@ -183,7 +183,7 @@ def finalize(name, actor, request_id, status, reason=None):
     )
 
 
-def effective_acknowledged(registry):
+def effective_acknowledged(registry: dict) -> list[str]:
     """Return the acknowledged-member usernames for a registry record (SPEC-073).
 
     Membership stays a plain ``members: string[]``; join status is tracked out-of-band
@@ -199,7 +199,7 @@ def effective_acknowledged(registry):
     return list(ack)
 
 
-def save_members(registry, members, request_id):
+def save_members(registry: dict, members: list[str], request_id: str) -> None:
     """Rewrite the registry record with a new members list, preserving other fields.
 
     The add/remove/leave read-modify-write path. Compare-and-swap: the new members +
@@ -231,7 +231,7 @@ def save_members(registry, members, request_id):
     )
 
 
-def set_status(registry, status, request_id, reason=None):
+def set_status(registry: dict, status: str, request_id: str, reason: str | None = None) -> None:
     """Rewrite the registry record with a new status, preserving owner/members/etc.
 
     Flags a space ``deleting`` before the cascade and ``failed`` on a hard error.
@@ -260,7 +260,7 @@ def set_status(registry, status, request_id, reason=None):
     )
 
 
-def delete(name):
+def delete(name: str) -> None:
     """Delete the registry object — the LAST cascade step, freeing the name for reuse.
 
     Idempotent (deleting an absent key is a no-op in S3).

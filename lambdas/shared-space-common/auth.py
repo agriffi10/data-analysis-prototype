@@ -7,6 +7,8 @@ the registry. Both run in the validate-authorize Lambda; the verb Lambdas trust 
 decision and never re-verify.
 """
 
+import jwt
+
 import config
 import clients
 
@@ -15,10 +17,8 @@ class AuthorizationError(Exception):
     """An untrusted or unauthorized request; terminal (never retried), no side effects."""
 
 
-def verified_username(id_token):
+def verified_username(id_token: str) -> str:
     """Verify a Cognito ID token and return the trusted ``cognito:username``."""
-    import jwt
-
     if not id_token:
         raise AuthorizationError("missing idToken")
     issuer = f"https://cognito-idp.{config.REGION}.amazonaws.com/{config.USER_POOL_ID}"

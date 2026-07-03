@@ -12,7 +12,7 @@ import clients
 from registry import ProvisioningError
 
 
-def normalize_members(raw, owner):
+def normalize_members(raw: list | None, owner: str) -> list[str]:
     """Trim/lowercase/de-dupe the requested usernames and drop the owner.
 
     The owner is implicitly a member and is never added or removed. Defensive — the
@@ -31,11 +31,11 @@ def normalize_members(raw, owner):
     return out
 
 
-def _slot_attr(k):
+def _slot_attr(k: int) -> str:
     return f"custom:shared_space_{k}"
 
 
-def assign_or_find_slot(username, name):
+def assign_or_find_slot(username: str, name: str) -> int:
     """Return the slot index holding ``name`` for ``username``, assigning one if needed.
 
     Idempotent on re-run (an existing assignment is returned as-is).
@@ -64,7 +64,7 @@ def assign_or_find_slot(username, name):
     return free
 
 
-def clear_slot(username, name):
+def clear_slot(username: str, name: str) -> None:
     """Clear the membership slot holding ``name`` for ``username``.
 
     Sets the slot empty, which assign_or_find_slot treats as free. Idempotent — a

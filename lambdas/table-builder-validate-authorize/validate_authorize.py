@@ -115,7 +115,14 @@ def _authorize_space(space, actor):
 
 
 @notify.notifies_on_failure("validate")
-def handler(event, context):
+def handler(event, context) -> dict:
+    # Thin handler: the parse → verify → authorize → validate → assemble orchestration
+    # (incl. the notify-on-failure envelope) lives in the delegated pure function, so it
+    # is testable without a Lambda context.
+    return _validate_and_authorize(event)
+
+
+def _validate_and_authorize(event) -> dict:
     record = _extract_record(event)
     req = _parse_request(record)
     space = req.get("space") or {}

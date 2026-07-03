@@ -68,6 +68,22 @@ def test_missing_table_name_uses_a_placeholder():
     assert 'your table' in messages.failure_message("no_data_files", table_name="")
 
 
+def test_malformed_event_reason_has_friendly_text():
+    msg = messages.failure_message("malformed_event", table_name="orders")
+    assert msg == 'Couldn\'t create table "orders": the request was malformed. Please try again.'
+
+
+def test_literal_brace_in_body_does_not_raise():
+    """SPEC-083 FR-005: a reason body containing a literal brace must not blow up the
+    placeholder substitution (it no longer uses str.format)."""
+    messages._BODIES["_brace_probe"] = "weird {not_a_placeholder} body."  # noqa: SLF001 - test-only
+    try:
+        msg = messages.failure_message("_brace_probe", table_name="orders")
+        assert msg == 'Couldn\'t create table "orders": weird {not_a_placeholder} body.'
+    finally:
+        messages._BODIES.pop("_brace_probe", None)
+
+
 def test_success_message():
     assert messages.success_message("orders", "sales") == 'Table "orders" is ready to query in "sales".'
 

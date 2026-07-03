@@ -98,7 +98,7 @@ def _mutate(username, fn):
     )
 
 
-def upsert_entry(username, entry):
+def upsert_entry(username: str, entry: dict) -> None:
     """Compare-and-swap the user's cache, upserting ``entry`` by name."""
 
     def apply(connections):
@@ -109,7 +109,7 @@ def upsert_entry(username, entry):
     _mutate(username, apply)
 
 
-def remove_entry(username, name):
+def remove_entry(username: str, name: str) -> None:
     """Remove the user's cache entry for ``name`` (compare-and-swap; never an S3 delete).
 
     Idempotent — a missing cache or absent entry is a no-op (no write).
@@ -121,7 +121,7 @@ def remove_entry(username, name):
     _mutate(username, apply)
 
 
-def write_owner_pending(owner, name):
+def write_owner_pending(owner: str, name: str) -> None:
     """Seed the creator's cache with a ``provisioning`` owner entry on create-accept.
 
     Written before any provisioning work so the space survives a browser reload even
@@ -133,7 +133,7 @@ def write_owner_pending(owner, name):
     upsert_entry(owner, {"name": name, "role": "owner", "status": "provisioning"})
 
 
-def write_owner_deleting(owner, name):
+def write_owner_deleting(owner: str, name: str) -> None:
     """Mark the owner's cache entry ``deleting`` once a delete is accepted.
 
     Written after verification so the card shows a durable "Deleting…" state instead
@@ -156,7 +156,9 @@ def _member_projection(members, owner, acknowledged):
     ]
 
 
-def write_owner_projection(owner, name, members, acknowledged, created_at=None):
+def write_owner_projection(
+    owner: str, name: str, members: list[str], acknowledged: list[str], created_at: str | None = None
+) -> None:
     """Update the owner's cache entry with the current member roster + join status.
 
     This is the owner-readable projection the Manage drawer renders; members never see
@@ -175,7 +177,9 @@ def write_owner_projection(owner, name, members, acknowledged, created_at=None):
     upsert_entry(owner, entry)
 
 
-def write_member_entry(member, name, owner, members, acknowledged, created_at=None):
+def write_member_entry(
+    member: str, name: str, owner: str, members: list[str], acknowledged: list[str], created_at: str | None = None
+) -> None:
     """Write a member's cache entry for a space they belong to.
 
     As of SPEC-075 a member's entry carries the same ``{username, status}`` roster the
@@ -195,7 +199,9 @@ def write_member_entry(member, name, owner, members, acknowledged, created_at=No
     upsert_entry(member, entry)
 
 
-def write_roster_to_all(members, name, owner, acknowledged, created_at=None):
+def write_roster_to_all(
+    members: list[str], name: str, owner: str, acknowledged: list[str], created_at: str | None = None
+) -> None:
     """Fan the current roster out to the owner + every member's cache (SPEC-075).
 
     Called by add/remove/leave *after* the registry write (the consistency point) so

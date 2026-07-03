@@ -160,6 +160,21 @@ def test_notifies_actor_on_unexpected_glue_error():
     }
 
 
+def test_malformed_event_is_terminal_and_notifies():
+    # SPEC-083 FR-002: a task input missing a required key becomes a typed terminal +
+    # actor notification, not a bare KeyError.
+    _install("absent")
+    q = _arm_notifications()
+    bad = {"actor": "alice", "requestId": "r1"}  # no space.database / tableName
+    try:
+        c.handler(bad, None)
+    except TerminalError as exc:
+        assert exc.reason == "malformed_event"
+    else:
+        raise AssertionError("expected TerminalError(malformed_event)")
+    assert len(q.calls) == 1 and q.calls[0]["MessageGroupId"] == "alice"
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

@@ -6,14 +6,14 @@ a body-asserted username. Any failure is a terminal unauthorized: never retried,
 side effects.
 """
 
+import jwt
+
 from . import config, clients
 from .errors import TerminalError
 
 
-def verified_username(id_token):
+def verified_username(id_token: str) -> str:
     """Verify a Cognito ID token and return the trusted ``cognito:username``."""
-    import jwt
-
     if not id_token:
         raise TerminalError("unauthorized", "missing idToken")
     issuer = f"https://cognito-idp.{config.REGION}.amazonaws.com/{config.USER_POOL_ID}"

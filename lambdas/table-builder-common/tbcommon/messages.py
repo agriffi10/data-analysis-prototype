@@ -23,13 +23,14 @@ _BODIES = {
     "unmappable_type": "the data schema couldn't be read.",
     "ddl_execution_failed": "creating the table failed{detail}.",
     "ddl_timeout": "creating the table failed{detail}.",
+    "malformed_event": "the request was malformed. Please try again.",
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the actor.
     "unexpected_error": "something went wrong. Please try again.",
 }
 
 
-def failure_message(reason, table_name="", database="", detail=""):
+def failure_message(reason: str, table_name: str = "", database: str = "", detail: str = "") -> str:
     """Map a terminal reason (+ context) to the message the actor sees.
 
     An unknown reason falls back to a generic couldn't-create line rather than
@@ -41,10 +42,12 @@ def failure_message(reason, table_name="", database="", detail=""):
     body = _BODIES.get(reason, "something went wrong.")
     # Only the DDL reasons interpolate a detail; keep it short + parenthesized.
     detail_frag = f" ({detail})" if detail else ""
-    body = body.format(database=database, detail=detail_frag)
+    # Substitute the two known placeholders directly (never str.format) so a body that
+    # ever contains a literal brace can't raise KeyError/ValueError (SPEC-083 FR-005).
+    body = body.replace("{database}", database).replace("{detail}", detail_frag)
     return f'Couldn\'t create table "{name}": {body}'
 
 
-def success_message(table_name, database):
+def success_message(table_name: str, database: str) -> str:
     """Return the ready-to-query message emitted on execute-ddl success."""
     return f'Table "{table_name}" is ready to query in "{database}".'

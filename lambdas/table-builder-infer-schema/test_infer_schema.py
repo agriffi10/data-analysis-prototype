@@ -197,6 +197,20 @@ def test_notifies_actor_on_unexpected_s3_error():
     assert body["message"] == 'Couldn\'t create table "sales_2026": something went wrong. Please try again.'
 
 
+def test_malformed_event_is_terminal_and_notifies():
+    # SPEC-083 FR-002: a missing required key → typed terminal + actor notification,
+    # before any S3 access probe.
+    q = _arm_notifications()
+    bad = {"actor": "alice", "space": {"database": "alice"}, "requestId": "r1"}  # no format/sampleObjectKey/...
+    try:
+        i.handler(bad, None)
+    except TerminalError as exc:
+        assert exc.reason == "malformed_event"
+    else:
+        raise AssertionError("expected TerminalError(malformed_event)")
+    assert len(q.calls) == 1 and q.calls[0]["MessageGroupId"] == "alice"
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

@@ -7,16 +7,29 @@ from config import X) so tests can patch the attribute and the change takes effe
 import os
 import re
 
-# Set by Terraform; AWS_REGION is provided by the runtime.
-USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
-APP_CLIENT_ID = os.environ.get("COGNITO_APP_CLIENT_ID", "")
-ADMIN_BUCKET = os.environ.get("ADMIN_BUCKET", "")
-USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
-SHARED_SPACE_BUCKET = os.environ.get("SHARED_SPACE_BUCKET", "")
+
+def _require(name: str) -> str:
+    """Return a required env var, failing fast at import if it's unset or empty.
+
+    Surfaces a missing var as a clear, named error at cold start rather than an opaque
+    S3/Athena/JWKS failure mid-invocation (SPEC-083 FR-001).
+    """
+    value = os.environ.get(name, "")
+    if not value:
+        raise RuntimeError(f"required environment variable {name!r} is unset or empty")
+    return value
+
+
+# Set by Terraform (required — fail fast if missing); AWS_REGION is provided by the runtime.
+USER_POOL_ID = _require("COGNITO_USER_POOL_ID")
+APP_CLIENT_ID = _require("COGNITO_APP_CLIENT_ID")
+ADMIN_BUCKET = _require("ADMIN_BUCKET")
+USER_SPACE_BUCKET = _require("USER_SPACE_BUCKET")
+SHARED_SPACE_BUCKET = _require("SHARED_SPACE_BUCKET")
 REGION = os.environ.get("AWS_REGION", "")
 
 # The shared analytics workgroup execute-ddl runs the CREATE DDL in.
-ATHENA_WORKGROUP = os.environ.get("ATHENA_WORKGROUP", "")
+ATHENA_WORKGROUP = _require("ATHENA_WORKGROUP")
 
 # Target queue for outcome notifications; when unset, emits are a logged no-op.
 NOTIFICATIONS_QUEUE_URL = os.environ.get("NOTIFICATIONS_QUEUE_URL", "")

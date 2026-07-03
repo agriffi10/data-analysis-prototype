@@ -10,19 +10,32 @@ and every verb Lambda.
 
 import os
 
+
+def _require(name: str) -> str:
+    """Return a required env var, failing fast at import if it's unset or empty.
+
+    Surfaces a missing var as a clear, named error at cold start rather than an opaque
+    S3/JWKS failure mid-invocation (SPEC-083 FR-001).
+    """
+    value = os.environ.get(name, "")
+    if not value:
+        raise RuntimeError(f"required environment variable {name!r} is unset or empty")
+    return value
+
+
 SCHEMA_VERSION = 1
 OWNER_ONLY_ACTIONS = frozenset({"add_members", "remove_members", "delete"})
 VALID_ACTIONS = frozenset(
     {"create", "add_members", "remove_members", "leave", "delete", "forget", "acknowledge_membership"}
 )
 
-# Set by Terraform; AWS_REGION is provided by the Lambda runtime.
-USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
-APP_CLIENT_ID = os.environ.get("COGNITO_APP_CLIENT_ID", "")
-ADMIN_BUCKET = os.environ.get("ADMIN_BUCKET", "")
-SHARED_SPACE_BUCKET = os.environ.get("SHARED_SPACE_BUCKET", "")
-USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
-PORTAL_ROLE_ARN = os.environ.get("PORTAL_ROLE_ARN", "")
+# Set by Terraform (required — fail fast if missing); AWS_REGION is provided by the runtime.
+USER_POOL_ID = _require("COGNITO_USER_POOL_ID")
+APP_CLIENT_ID = _require("COGNITO_APP_CLIENT_ID")
+ADMIN_BUCKET = _require("ADMIN_BUCKET")
+SHARED_SPACE_BUCKET = _require("SHARED_SPACE_BUCKET")
+USER_SPACE_BUCKET = _require("USER_SPACE_BUCKET")
+PORTAL_ROLE_ARN = _require("PORTAL_ROLE_ARN")
 MAX_SHARED_MEMBERSHIPS = int(os.environ.get("MAX_SHARED_MEMBERSHIPS", "10"))
 REGION = os.environ.get("AWS_REGION", "")
 
