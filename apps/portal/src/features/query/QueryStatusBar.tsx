@@ -1,17 +1,44 @@
 import {useEffect, useState} from 'react';
-import {formatBytes, formatDurationMs} from './query.format';
+import {formatBytes, formatCount, formatDurationMs} from './query.format';
+import {ROW_COUNT_CEILING} from './query.constants';
 import type {QueryStatus} from './query.types';
 
 type QueryStatusBarProps = {
   status?: QueryStatus;
   isInFlight: boolean;
   startedAt: number | null;
+  /** Loaded-count fallback shown while the exact total is still being counted (SPEC-038/080). */
   rowCount?: number;
   hasMoreRows?: boolean;
+  /**
+   * Whether the succeeded query returned a result set. False for DDL/no-result
+   * statements, which show no row-count stat at all (SPEC-080 FR-004).
+   */
+  hasResultSet?: boolean;
+  /** Exact total from the background page-walk; null while still counting (SPEC-080). */
+  totalRowCount?: number | null;
+  /** The count walk stopped at ROW_COUNT_CEILING → show "{ceiling}+ rows". */
+  atRowCeiling?: boolean;
   /** Shown only when the succeeded query produced a savable result (row-returning, not pure DDL). */
   canSaveResults?: boolean;
   onSaveResults: () => void;
 };
+
+/**
+ * The row-count fragment for a succeeded, row-returning query. Prefers the exact
+ * background total (SPEC-080); until it resolves, falls back to today's loaded
+ * count with a "+" when more pages exist.
+ */
+function rowCountLabel({
+  rowCount,
+  hasMoreRows,
+  totalRowCount,
+  atRowCeiling
+}: Pick<QueryStatusBarProps, 'rowCount' | 'hasMoreRows' | 'totalRowCount' | 'atRowCeiling'>): string {
+  if (atRowCeiling) return `${formatCount(ROW_COUNT_CEILING)}+ rows`;
+  if (totalRowCount !== null && totalRowCount !== undefined) return `${formatCount(totalRowCount)} rows`;
+  return `${formatCount(rowCount ?? 0)}${hasMoreRows ? '+' : ''} rows`;
+}
 
 /**
  * Slim execution-status bar below the editor. An accessible live region;
@@ -24,6 +51,9 @@ export function QueryStatusBar({
   startedAt,
   rowCount,
   hasMoreRows,
+  hasResultSet = true,
+  totalRowCount = null,
+  atRowCeiling = false,
   canSaveResults = false,
   onSaveResults
 }: QueryStatusBarProps) {
@@ -81,9 +111,8 @@ export function QueryStatusBar({
             Succeeded
           </span>
           <span className="text-text-2">
-            {rowCount ?? 0}
-            {hasMoreRows ? '+' : ''} rows · {formatBytes(status?.dataScannedBytes)} scanned ·{' '}
-            {formatDurationMs(status?.engineExecutionTimeMillis)}
+            {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount, atRowCeiling})} · `}
+            {formatBytes(status?.dataScannedBytes)} scanned · {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
           {canSaveResults && (
             <>

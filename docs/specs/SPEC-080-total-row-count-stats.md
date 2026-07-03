@@ -1,7 +1,7 @@
 # Spec: Total Row Count in Query Stats
 
 **ID:** SPEC-080
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-01
 **Depends On:** SPEC-038 (results pager / `useQueryResults`), SPEC-035 (status bar)
 
