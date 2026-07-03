@@ -1,4 +1,4 @@
-import {useMemo, useRef} from 'react';
+import {useCallback, useMemo, useRef} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {getSessionCredentials} from '../../lib/awsCredentials';
@@ -48,7 +48,7 @@ export type UseConnectionsResult = {
  */
 export function useConnections(username: string | null): UseConnectionsResult {
   const queryClient = useQueryClient();
-  const key = queryKeys.connections(username ?? '__none__');
+  const key = useMemo(() => queryKeys.connections(username ?? '__none__'), [username]);
   // End of the active reconcile window (epoch ms). A ref (not state) because the
   // refetchInterval callback below is re-evaluated by the query after each fetch —
   // it reads the latest value without needing a re-render.
@@ -97,27 +97,37 @@ export function useConnections(username: string | null): UseConnectionsResult {
     return [personal, ...shared];
   }, [username, query.data]);
 
-  return {
-    connections,
-    // The initial fetch is loading; once we have any data (incl. the empty cache)
-    // the list is usable even while a background refetch runs.
-    isLoading: query.isPending && username !== null,
-    error: query.isError ? (query.error as Error).message : null,
-    refresh: async () => {
-      // Force a fresh credential vend so newly-granted membership tags apply
-      // on demand, then re-read the cache. A failed refresh keeps the prior
-      // list intact (invalidate is non-destructive).
-      await getSessionCredentials(true);
-      return queryClient.invalidateQueries({queryKey: key});
-    },
-    isRefreshing: query.isRefetching,
-    reconcile: async () => {
-      // Open the polling window first so the refetch triggered below schedules the
-      // next poll, then re-mint the token (new membership tags for the actor) and
-      // re-read the cache once immediately.
-      reconcileUntil.current = Date.now() + RECONCILE_WINDOW_MS;
-      await getSessionCredentials(true);
-      return queryClient.invalidateQueries({queryKey: key});
-    }
-  };
+  const refresh = useCallback(async () => {
+    // Force a fresh credential vend so newly-granted membership tags apply
+    // on demand, then re-read the cache. A failed refresh keeps the prior
+    // list intact (invalidate is non-destructive).
+    await getSessionCredentials(true);
+    return queryClient.invalidateQueries({queryKey: key});
+  }, [queryClient, key]);
+
+  const reconcile = useCallback(async () => {
+    // Open the polling window first so the refetch triggered below schedules the
+    // next poll, then re-mint the token (new membership tags for the actor) and
+    // re-read the cache once immediately.
+    reconcileUntil.current = Date.now() + RECONCILE_WINDOW_MS;
+    await getSessionCredentials(true);
+    return queryClient.invalidateQueries({queryKey: key});
+  }, [queryClient, key]);
+
+  // Memoized so the returned object's identity is stable unless a real input changes
+  // (consumers use `refresh`/`reconcile` as effect deps — a fresh object each render
+  // would churn them).
+  return useMemo<UseConnectionsResult>(
+    () => ({
+      connections,
+      // The initial fetch is loading; once we have any data (incl. the empty cache)
+      // the list is usable even while a background refetch runs.
+      isLoading: query.isPending && username !== null,
+      error: query.isError ? (query.error as Error).message : null,
+      refresh,
+      isRefreshing: query.isRefetching,
+      reconcile
+    }),
+    [connections, username, query.isPending, query.isError, query.error, query.isRefetching, refresh, reconcile]
+  );
 }

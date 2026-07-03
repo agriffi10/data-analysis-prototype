@@ -113,6 +113,11 @@ export function QueryResultsTable({
                   ))}
                 </tr>
               </thead>
+              {/* Array-index keys are intentional here (SPEC-083 FR-010): result
+                  rows/cells are plain strings with no stable identity, columns can
+                  share a name (e.g. SELECT a, a), and the table is FULLY replaced on
+                  every page/query with no per-cell focus or local state to preserve —
+                  so index keys can't reuse a node across logically-different content. */}
               <tbody>
                 {rows.map((row, rowIndex) => (
                   <tr

@@ -79,11 +79,14 @@ export function useNotifications(
   const [pendingRead, setPendingRead] = useState<Set<string>>(() => new Set());
   const [pendingAll, setPendingAll] = useState(false);
 
-  // Reconcile timers are cleared on unmount so no stray invalidate fires.
+  // Reconcile timers are cleared on unmount so no stray invalidate fires. Capture the
+  // ref OBJECT (stable) and read its `.current` array at teardown — so it clears
+  // whatever is pending even if the array is later reassigned, rather than a snapshot
+  // taken at mount (the fragile pattern this replaces).
   const reconcileTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
-    const timers = reconcileTimers.current;
-    return () => timers.forEach(clearTimeout);
+    const timersRef = reconcileTimers;
+    return () => timersRef.current.forEach(clearTimeout);
   }, []);
 
   const scheduleReconcile = () => {
