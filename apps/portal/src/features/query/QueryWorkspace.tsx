@@ -420,9 +420,12 @@ export function QueryWorkspace() {
           return;
         }
         const nextId = started.data.queryExecutionId;
-        // Stop landed while the next statement was starting — cancel it and
-        // settle the batch instead of installing it.
-        if (runsRef.current[tabId]?.halted) {
+        // Stop, tab close, or a replacing run landed while the next statement
+        // was starting — cancel it and settle the batch instead of installing
+        // it (otherwise it would run with no poller attached and its history
+        // entry would never finalize).
+        const latest = runsRef.current[tabId];
+        if (!latest || latest.halted || latest.executionId !== executionId) {
           void stopQuery(nextId);
           patchRun((cur) => ({...cur, done: true}));
           return;
@@ -465,7 +468,9 @@ export function QueryWorkspace() {
     // before its `runs` entry commits, so a rapid double-trigger (e.g. View data
     // opens a tab and calls submit in the same tick) starts at most one execution.
     if (submittingTabsRef.current.has(tabId)) return;
-    const existing = runs[tabId];
+    // Read the ref, not the render snapshot — it reflects a run installed in
+    // this same tick (the submittingTabsRef guard is released before re-render).
+    const existing = runsRef.current[tabId];
     if (existing && !existing.done) return;
     submittingTabsRef.current.add(tabId);
 

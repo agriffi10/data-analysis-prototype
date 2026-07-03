@@ -215,8 +215,12 @@ one statement, that statement.
       whose source range (FR-001) contains the cursor.
 - [ ] With no selection and exactly one statement in the buffer, Run Statement
       executes that statement (today’s behavior).
-- [ ] With the cursor in whitespace/comment between statements, resolution falls back
+- [ ] With the cursor in the whitespace between statements, resolution falls back
       to the nearest preceding statement (or the sole statement) rather than erroring.
+      (A comment between statements attaches to the statement it precedes — the
+      cursor inside it resolves to that following statement. Amended at
+      implementation: leading comments are part of a statement's source range,
+      matching how established clients attach them.)
 
 ### FR-007: Result tabs
 
