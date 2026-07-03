@@ -8,7 +8,11 @@ function setup(overrides: Partial<Parameters<typeof ManageMembersDrawer>[0]> = {
     onClose: vi.fn(),
     space: 'salesdata',
     owner: 'alice',
-    members: ['alice', 'bob'],
+    members: [
+      {username: 'alice', status: 'active' as const},
+      {username: 'bob', status: 'active' as const}
+    ],
+    onRefresh: vi.fn(),
     onAddMembers: vi.fn(),
     onRemoveMembers: vi.fn(),
     ...overrides
@@ -50,7 +54,27 @@ describe('ManageMembersDrawer (SPEC-053 FR-001/003)', () => {
   });
 
   it('shows an info note when the member projection is unavailable', () => {
-    setup({members: ['alice'], unavailable: true});
+    setup({members: [{username: 'alice', status: 'active'}], unavailable: true});
     expect(screen.getByText(/Member details aren.t available yet/)).toBeInTheDocument();
+  });
+
+  it('renders a per-member Pending/Active status chip (SPEC-073 FR-004)', () => {
+    setup({
+      members: [
+        {username: 'alice', status: 'active'},
+        {username: 'bob', status: 'pending'},
+        {username: 'cara', status: 'active'}
+      ]
+    });
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText('Pending')).toBeInTheDocument();
+    const caraRow = screen.getByText('cara').closest('li')!;
+    expect(within(caraRow).getByText('Active')).toBeInTheDocument();
+  });
+
+  it('offers a Refresh control that re-reads member state (SPEC-073 FR-006)', () => {
+    const {onRefresh} = setup();
+    fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
+    expect(onRefresh).toHaveBeenCalled();
   });
 });

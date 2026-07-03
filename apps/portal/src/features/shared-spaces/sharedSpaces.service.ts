@@ -6,6 +6,7 @@ import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import type {ServiceResult} from '../../types/service.types';
 import type {
+  Member,
   SharedConnectionEntry,
   SharedConnectionsCache,
   SharedSpaceAction,
@@ -102,7 +103,7 @@ function isNotFound(err: unknown): boolean {
 }
 
 // A corrupt/partial entry is dropped, not fatal — degrade to what we can trust.
-function isValidEntry(e: unknown): e is SharedConnectionEntry {
+function isValidEntry(e: unknown): boolean {
   const o = e as Partial<SharedConnectionEntry> | null;
   return (
     !!o &&
@@ -115,13 +116,34 @@ function isValidEntry(e: unknown): e is SharedConnectionEntry {
   );
 }
 
+// Normalize one raw projection member to `Member` (SPEC-073). A bare string is a
+// legacy member and reads as `active` (FR-005); a well-formed object is passed
+// through (status other than 'pending' defaults to 'active'). Malformed → null (dropped).
+function normalizeMember(raw: unknown): Member | null {
+  if (typeof raw === 'string') {
+    return raw.length > 0 ? {username: raw, status: 'active'} : null;
+  }
+  const o = raw as {username?: unknown; status?: unknown} | null;
+  if (!o || typeof o.username !== 'string' || o.username.length === 0) return null;
+  return {username: o.username, status: o.status === 'pending' ? 'pending' : 'active'};
+}
+
+// Coerce a validated raw entry into a `SharedConnectionEntry`, normalizing the
+// owner-readable `members` projection (legacy `string[]` or new `Member[]`) to `Member[]`.
+function normalizeEntry(e: unknown): SharedConnectionEntry {
+  const o = e as SharedConnectionEntry & {members?: unknown};
+  if (!Array.isArray(o.members)) return o;
+  const members = o.members.map(normalizeMember).filter((m): m is Member => m !== null);
+  return {...o, members};
+}
+
 // Forgiving parse: a malformed/legacy file yields the empty cache, never an error.
 function parseCache(body: string | undefined): SharedConnectionsCache {
   if (!body) return emptyCache();
   try {
     const parsed = JSON.parse(body) as SharedConnectionsCache;
     if (parsed?.version === 1 && Array.isArray(parsed.connections)) {
-      return {version: 1, connections: parsed.connections.filter(isValidEntry)};
+      return {version: 1, connections: parsed.connections.filter(isValidEntry).map(normalizeEntry)};
     }
     return emptyCache();
   } catch {

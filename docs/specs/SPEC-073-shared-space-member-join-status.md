@@ -1,8 +1,8 @@
 # Spec: Shared-Space Member Join Status (Pending / Active)
 
 **ID:** SPEC-073
-**Status:** Draft
-**Last Updated:** 2026-06-30
+**Status:** Completed
+**Last Updated:** 2026-07-03
 **Depends On:** SPEC-053 (add/remove members + owner-readable member projection), SPEC-056 (membership-slot principal tag), SPEC-062 (control-plane verb Lambdas + `shared-space-common` layer), SPEC-051/050 (FIFO SQS → EventBridge Pipe → Step Function control plane)
 
 > **Origin:** UI feedback (2026-06-30). The Manage-members surface should distinguish a member who has

@@ -12,6 +12,7 @@ import {Sidebar} from '../components/Sidebar';
 import {Banner} from '../components/Banner';
 import {useAuth} from '../features/auth';
 import {useConnections} from '../features/query/useConnections';
+import {useAcknowledgeMembership} from '../features/shared-spaces';
 import type {Connection} from '../features/query/query.types';
 import {usePageTitle} from '../hooks/usePageTitle';
 
@@ -44,6 +45,9 @@ export default function FilesPage() {
     userSpaceBucket,
     sharedSpaceBucket
   });
+  // SPEC-073: a member resolving a shared space they belong to acks their membership
+  // (once per session), flipping them Pending → Active in the owner's projection.
+  useAcknowledgeMembership(user?.username ?? null, connections, activeSpaceId);
 
   // Guarantee the user's personal prefix marker exists on load. Best-effort,
   // non-blocking, personal-space-only — a shared space's marker is provisioned
