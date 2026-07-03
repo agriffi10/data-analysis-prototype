@@ -1,7 +1,7 @@
 # Spec: Query Editor Autocomplete Lifecycle Fix (Monaco completion provider)
 
 **ID:** SPEC-084
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-02
 **Depends On:** SPEC-035 (Monaco SQL editor), SPEC-047 (schema-aware completions)
 
