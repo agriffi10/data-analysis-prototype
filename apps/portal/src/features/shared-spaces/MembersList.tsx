@@ -1,0 +1,93 @@
+import {Button} from '../../components/Button';
+import {cx} from '../../lib/cx';
+import type {Member} from './sharedSpaces.types';
+
+type MembersListProps = {
+  /** The space owner's username — rendered first with an "Owner" tag, never removable. */
+  owner: string;
+  /** The full roster (with join status), including the owner. */
+  members: Member[];
+  /**
+   * When provided, each non-owner member shows a Remove button (owner's Manage view).
+   * Omit for the read-only member roster (SPEC-075).
+   */
+  onRemove?: (username: string) => void;
+  busy?: boolean;
+};
+
+/**
+ * Shared presentational roster: the owner first (tagged, never removable), then the
+ * other members A–Z, each with a join-status chip. Read-only by default; pass
+ * `onRemove` to expose per-member Remove (the owner's Manage drawer). Used by both
+ * `ManageMembersDrawer` (read-write) and `MemberRosterDrawer` (read-only) — SPEC-075.
+ *
+ * @example
+ * <MembersList owner="alice" members={members} />                 // read-only
+ * <MembersList owner="alice" members={members} onRemove={remove} /> // owner: read-write
+ */
+export function MembersList({owner, members, onRemove, busy = false}: MembersListProps) {
+  const others = members.filter((m) => m.username !== owner).sort((a, b) => a.username.localeCompare(b.username));
+
+  return (
+    <ul
+      role="list"
+      className="divide-y divide-border rounded-lg border border-border">
+      <li className="flex items-center gap-3 px-4 py-2.5">
+        <Avatar name={owner} />
+        <span className="min-w-0 truncate font-medium text-text">{owner}</span>
+        <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2">
+          Owner
+        </span>
+        <div className="flex-1" />
+      </li>
+      {others.map((member) => (
+        <li
+          key={member.username}
+          className="flex items-center gap-3 px-4 py-2.5">
+          <Avatar name={member.username} />
+          <span className="min-w-0 truncate font-medium text-text">{member.username}</span>
+          <MemberStatusBadge status={member.status} />
+          <div className="flex-1" />
+          {onRemove && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-danger hover:bg-danger-soft hover:text-danger"
+              onClick={() => onRemove(member.username)}
+              disabled={busy}>
+              Remove
+            </Button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Per-member join status as a colored dot + text label (SPEC-073). The text label
+// always carries the meaning, so the color/dot is never the only signal (WCAG AA).
+function MemberStatusBadge({status}: {status: Member['status']}) {
+  const active = status === 'active';
+  return (
+    <span
+      className={cx(
+        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
+        active ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
+      )}>
+      <span className="h-[7px] w-[7px] rounded-full bg-current" />
+      {active ? 'Active' : 'Pending'}
+    </span>
+  );
+}
+
+// Circular avatar showing the first two letters of the username. Decorative — the
+// username text beside it carries the name.
+function Avatar({name}: {name: string}) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-7 w-7 flex-none place-items-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-xs font-semibold text-white">
+      {name.slice(0, 2).toUpperCase()}
+    </span>
+  );
+}

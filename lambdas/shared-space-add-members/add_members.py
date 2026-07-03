@@ -55,7 +55,6 @@ def add_members(space, members, request_id, registry):
                 (owner, f'Couldn\'t add "{member}" to "{space}": they\'ve reached their workspace limit.', f"add-limit:{member}")
             )
             continue
-        cache.write_member_entry(member, space, owner, created_at)
         current.append(member)
         current_set.add(member)
         summary["added"].append(member)
@@ -65,7 +64,9 @@ def add_members(space, members, request_id, registry):
 
     registry["acknowledged"] = acknowledged
     reg.save_members(registry, current, request_id)
-    cache.write_owner_projection(owner, space, current, acknowledged, created_at)
+    # Fan the new roster out to the owner + every member (SPEC-075) — newly-added
+    # members get their cache entry here, with the full roster, in one pass.
+    cache.write_roster_to_all(current, space, owner, acknowledged, created_at)
     for recipient, message, tag in pending_notifications:
         emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
     logger.info("add_members %s: %s", space, summary)

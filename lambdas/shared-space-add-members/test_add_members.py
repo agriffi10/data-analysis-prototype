@@ -52,8 +52,20 @@ def test_add_members_assigns_slot_registry_cache_and_owner_projection():
     assert out["ignoredUnknown"] == [] and out["skippedAtLimit"] == []
     assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
     bob_cache = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    # SPEC-075: bob's own entry now carries the full roster (owner active, bob pending
+    # until he acks), same projection the owner sees.
     assert bob_cache["connections"] == [
-        {"name": "sales", "role": "member", "status": "active", "owner": "alice", "createdAt": "t0"}
+        {
+            "name": "sales",
+            "role": "member",
+            "status": "active",
+            "owner": "alice",
+            "members": [
+                {"username": "alice", "status": "active"},
+                {"username": "bob", "status": "pending"},
+            ],
+            "createdAt": "t0",
+        }
     ]
     reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert set(reg2["members"]) == {"alice", "bob"} and reg2["owner"] == "alice"
@@ -184,6 +196,24 @@ def test_bulk_add_emits_per_affected_user_and_silences_existing_members():
     assert ("alice", 'Couldn\'t add "ghost" to "sales": no such user.') in sent
     assert len(sent) == 4
     assert all(r != "dave" and "dave" not in m for r, m in sent)
+
+
+def test_add_members_fans_roster_to_existing_members():
+    # SPEC-075 FR-002: adding cara refreshes an existing member (bob)'s roster too.
+    s3, glue, lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "cara": {}}
+    reg = _active_reg(members=["alice", "bob"])
+    reg["acknowledged"] = ["bob"]
+    _seed_reg(s3, reg)
+
+    a.add_members("sales", ["cara"], "req-2", reg)
+    bob_entry = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])["connections"][0]
+    assert bob_entry["role"] == "member" and bob_entry["owner"] == "alice"
+    assert {(m["username"], m["status"]) for m in bob_entry["members"]} == {
+        ("alice", "active"),
+        ("bob", "active"),
+        ("cara", "pending"),
+    }
 
 
 def test_handler_uses_validated_context():

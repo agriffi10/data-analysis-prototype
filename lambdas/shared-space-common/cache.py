@@ -194,13 +194,40 @@ def write_owner_projection(owner, name, members, acknowledged, created_at=None):
     upsert_entry(owner, entry)
 
 
-def write_member_entry(member, name, owner, created_at=None):
+def write_member_entry(member, name, owner, members, acknowledged, created_at=None):
     """Write a member's cache entry for a space they belong to.
 
-    Members never get the member list (privacy), but do get the ``owner`` name and
-    ``createdAt`` for the Connections card's "owner: <name>" / "created <date>" line.
+    As of SPEC-075 a member's entry carries the same ``{username, status}`` roster the
+    owner sees (SPEC-053's member-privacy stance is reversed), plus the ``owner`` name
+    and ``createdAt`` for the Connections card. The read-only roster view renders it;
+    members get no add/remove power.
     """
-    entry = {"name": name, "role": "member", "status": "active", "owner": owner}
+    entry = {
+        "name": name,
+        "role": "member",
+        "status": "active",
+        "owner": owner,
+        "members": _member_projection(members, owner, acknowledged),
+    }
     if created_at:
         entry["createdAt"] = created_at
     upsert_entry(member, entry)
+
+
+def write_roster_to_all(members, name, owner, acknowledged, created_at=None):
+    """Fan the current roster out to the owner + every member's cache (SPEC-075).
+
+    Called by add/remove/leave *after* the registry write (the consistency point) so
+    each remaining member's cache reflects the same roster the owner sees. Per-member
+    writes are best-effort: one member's cache failing is logged and skipped rather than
+    aborting the rest of the fan-out (the registry mutation already committed). The
+    owner projection is written last, preserving the verbs' prior end state.
+    """
+    for member in members:
+        if member == owner:
+            continue
+        try:
+            write_member_entry(member, name, owner, members, acknowledged, created_at)
+        except Exception:  # best-effort fan-out — never abort the others on one failure
+            logger.exception("roster fan-out to %s for %s failed (best-effort)", member, name)
+    write_owner_projection(owner, name, members, acknowledged, created_at)

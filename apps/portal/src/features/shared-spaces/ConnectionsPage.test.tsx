@@ -248,6 +248,46 @@ describe('ConnectionsPage — Leave & Delete (SPEC-054)', () => {
     expect(within(row).getByText('Deleting…')).toBeInTheDocument();
   });
 
+  it('offers View members to a member and opens a read-only roster (SPEC-075)', async () => {
+    mockUseAuth.mockReturnValue({user: {username: 'bob'}});
+    mockRead.mockResolvedValue(
+      cache([
+        {
+          name: 'joined',
+          role: 'member',
+          status: 'active',
+          owner: 'alice',
+          members: [
+            {username: 'alice', status: 'active'},
+            {username: 'bob', status: 'pending'}
+          ]
+        }
+      ])
+    );
+    renderPage();
+
+    const row = (await screen.findByText('joined')).closest('li')!;
+    fireEvent.click(within(row).getByRole('button', {name: 'View members'}));
+
+    const drawer = screen.getByRole('dialog', {name: 'View members'});
+    expect(within(drawer).getByText('alice')).toBeInTheDocument();
+    expect(within(drawer).getByText('Owner')).toBeInTheDocument();
+    expect(within(drawer).getByText('bob')).toBeInTheDocument();
+    // Read-only: no management controls.
+    expect(within(drawer).queryByRole('button', {name: 'Remove'})).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('button', {name: /Add members/})).not.toBeInTheDocument();
+  });
+
+  it('a member with a legacy entry (no roster) sees the not-available note (SPEC-075)', async () => {
+    mockUseAuth.mockReturnValue({user: {username: 'bob'}});
+    mockRead.mockResolvedValue(cache([{name: 'joined', role: 'member', status: 'active', owner: 'alice'}]));
+    renderPage();
+
+    const row = (await screen.findByText('joined')).closest('li')!;
+    fireEvent.click(within(row).getByRole('button', {name: 'View members'}));
+    expect(screen.getByText(/member list isn.t available yet/i)).toBeInTheDocument();
+  });
+
   it('offers neither Leave nor Delete on a non-active connection', async () => {
     mockRead.mockResolvedValue(
       cache([

@@ -38,7 +38,9 @@ def remove_members(space, members, request_id, registry):
     acknowledged = [a for a in acknowledged if a not in removed_set]
     registry["acknowledged"] = acknowledged
     reg.save_members(registry, current, request_id)
-    cache.write_owner_projection(owner, space, current, acknowledged, registry.get("createdAt"))
+    # Removed members' entries were dropped above; fan the reduced roster out to the
+    # owner + every remaining member (SPEC-075).
+    cache.write_roster_to_all(current, space, owner, acknowledged, registry.get("createdAt"))
     # Notify each removed member only AFTER the registry write lands — a real outcome,
     # not a step that may roll back or retry. The owner gets no roster notification.
     for member in removed:

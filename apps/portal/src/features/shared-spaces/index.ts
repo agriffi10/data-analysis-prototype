@@ -6,6 +6,8 @@ export {useAcknowledgeMembership} from './useAcknowledgeMembership';
 export {useLeaveOrDeleteSharedSpace} from './useLeaveOrDeleteSharedSpace';
 export {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 export {ManageMembersDrawer} from './ManageMembersDrawer';
+export {MemberRosterDrawer} from './MemberRosterDrawer';
+export {MembersList} from './MembersList';
 export {AddMembersDialog} from './AddMembersDialog';
 export {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 export {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
