@@ -234,6 +234,7 @@ hook (SPEC-052) feeds all three surfaces.
 | SPEC-054 | **Leave & delete** — member **leave** (self-service slot+cache revoke; owner can't leave); owner **delete** (cascade: files, tables, DB, all members' slots/caches, registry object). |
 | SPEC-055 | **Shared-space results routing + save** — route Athena results to `dat-prod-shared-space/{name}/athenaresults/{username}/` (§5) when the active (workspace-global) DB is shared; Save-results (SPEC-049) within a shared space. |
 | SPEC-057 | **Shared spaces in the file browser** — the Files sidebar lists personal + shared spaces in one list; selecting a shared space browses `dat-prod-shared-space/{name}/` with the existing (bucket-parameterized) file operations under the membership-slot IAM. |
+| SPEC-082 | **Registry write-concurrency (optimistic CAS)** — the registry mutators (`finalize`/`save_members`/`set_status` + the `reserve` failed-retry) now read-modify-write under an ETag compare-and-swap, sharing one primitive (`casio.py`) with `cache.py`, so two verbs racing on the same space can't lost-update the members list or regress a `deleting` status. Code-only; no infra/IAM. |
 
 ## 9. Decisions
 

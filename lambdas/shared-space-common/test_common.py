@@ -129,6 +129,178 @@ def test_save_members_heals_missing_created_at():
     assert rec["createdAt"]  # healed, no longer blank
 
 
+# ── Registry write-concurrency (SPEC-082) ─────────────────────────────────────────
+
+
+def test_registry_set_status_cas_preserves_concurrent_member_add():
+    """FR-001: set_status's conditional write loses to a concurrent add-members that
+    commits first, so it re-reads and re-applies its status change on the FRESH record —
+    both changes survive (the add is not lost, and status still lands)."""
+    from fakes import FakeS3
+    import clients
+
+    class RacyS3(FakeS3):
+        _injected = False
+
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            if not self._injected and IfMatch is not None and Key == "shared-spaces/sales.json":
+                self._injected = True  # a concurrent add-members commits, advancing the ETag
+                current = json.loads(self.store[(Bucket, Key)])
+                current["members"] = current["members"] + ["bob"]
+                super().put_object(Bucket=Bucket, Key=Key, Body=json.dumps(current).encode())
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = RacyS3()
+    reg.finalize("sales", "alice", "req-1", "active")  # members=[alice], status=active
+    reg.set_status(reg.load("sales"), "deleting", "req-3")
+    rec = reg.load("sales")
+    assert rec["status"] == "deleting"  # our change applied after the retry
+    assert rec["members"] == ["alice", "bob"]  # concurrent add preserved (no lost update)
+
+
+def test_registry_save_members_cas_retries_and_preserves_untouched_field():
+    """FR-001: save_members re-reads fresh on a 412, so a concurrent writer's change to
+    a field it doesn't touch survives while its own members change still lands."""
+    from fakes import FakeS3
+    import clients
+
+    class RacyS3(FakeS3):
+        _injected = False
+
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            if not self._injected and IfMatch is not None and Key == "shared-spaces/sales.json":
+                self._injected = True
+                current = json.loads(self.store[(Bucket, Key)])
+                current["extra"] = "concurrent"  # a field save_members doesn't rewrite
+                super().put_object(Bucket=Bucket, Key=Key, Body=json.dumps(current).encode())
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = RacyS3()
+    reg.finalize("sales", "alice", "req-1", "active")
+    reg.save_members(reg.load("sales"), ["alice", "bob"], "req-2")
+    rec = reg.load("sales")
+    assert rec["members"] == ["alice", "bob"]  # our change landed after the retry
+    assert rec["extra"] == "concurrent"  # concurrent field survived the re-read
+
+
+def test_registry_cas_exhausts_after_persistent_contention():
+    """FR-001: unbounded contention raises a typed RuntimeError (non-swallowed), so the
+    Step Function records a terminal failure rather than a silent success/lost write."""
+    from fakes import FakeS3
+    import clients
+
+    class AlwaysRacyS3(FakeS3):
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            if IfMatch is not None and Key == "shared-spaces/sales.json":
+                current = json.loads(self.store[(Bucket, Key)])  # a competitor always wins first
+                current["members"] = current.get("members", []) + ["x"]
+                super().put_object(Bucket=Bucket, Key=Key, Body=json.dumps(current).encode())
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = AlwaysRacyS3()
+    reg.finalize("sales", "alice", "req-1", "active")
+    raises(lambda: reg.set_status(reg.load("sales"), "deleting", "req-3"), RuntimeError, "exhausted")
+
+
+def test_reserve_failed_retry_is_conditional_under_contention():
+    """FR-002: the owner's failed-create retry overwrites CONDITIONALLY, so a sibling
+    retry that commits first makes this one 412 and re-read (not a blind double-write) —
+    the loser gets a typed ProvisioningError and the sibling's record stands."""
+    from fakes import FakeS3
+    import clients
+
+    def _as_bytes(body):
+        return body if isinstance(body, (bytes, bytearray)) else body.encode()
+
+    class RacyS3(FakeS3):
+        _injected = False
+
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            # Fire only for alice's own conditional failed-retry overwrite (req-2), not
+            # for the earlier reserve/finalize writes.
+            if not self._injected and IfMatch is not None and b"req-2" in _as_bytes(Body):
+                self._injected = True
+                sibling = {
+                    "version": 1, "name": "sales", "owner": "alice", "members": ["alice"],
+                    "status": "provisioning", "createdAt": "t0", "lastRequestId": "req-sibling",
+                }
+                super().put_object(Bucket=Bucket, Key=Key, Body=json.dumps(sibling).encode())
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = RacyS3()
+    reg.reserve("sales", "alice", "req-1")
+    reg.finalize("sales", "alice", "req-1", "failed", "boom")  # leaves a failed reservation
+    raises(lambda: reg.reserve("sales", "alice", "req-2"), reg.ProvisioningError, "name already taken")
+    assert reg.load("sales")["lastRequestId"] == "req-sibling"  # sibling stands; no double-write
+
+
+# ── Shared CAS primitive (SPEC-082 FR-003) — tested independent of any caller ──────
+
+
+def test_casio_precondition_detection():
+    import casio
+    from fakes import FakeClientError
+
+    assert casio.is_precondition(FakeClientError("PreconditionFailed"))
+    assert casio.is_precondition(FakeClientError("412"))
+    assert not casio.is_precondition(FakeClientError("InternalError"))
+    assert not casio.is_precondition(RuntimeError("boom"))  # no .response -> code ""
+
+
+def test_casio_cas_mutate_reapplies_on_precondition():
+    import casio
+    from fakes import FakeClientError
+
+    state = {"value": 0, "etag": "e0"}
+    calls = {"n": 0}
+
+    def read():
+        return state["value"], state["etag"]
+
+    def write(value, etag):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            state["value"], state["etag"] = 5, "e1"  # a competitor moved the value
+            raise FakeClientError("PreconditionFailed")
+        state["value"], state["etag"] = value, "e2"
+
+    result = casio.cas_mutate(read, lambda v: v + 1, write, label="t")
+    assert result == 6 and calls["n"] == 2  # re-read saw 5, applied +1
+
+
+def test_casio_cas_mutate_skips_write_on_noop():
+    import casio
+
+    def write(value, etag):
+        raise AssertionError("no-op must not write")
+
+    assert casio.cas_mutate(lambda: ([1, 2], "e"), lambda v: v, write, label="t") == [1, 2]
+
+
+def test_casio_cas_mutate_exhausts_and_reraises_nonprecondition():
+    import casio
+    from fakes import FakeClientError
+
+    def always_412(value, etag):
+        raise FakeClientError("412")
+
+    raises(
+        lambda: casio.cas_mutate(lambda: (0, "e"), lambda v: v + 1, always_412, label="t", max_attempts=3),
+        RuntimeError,
+        "exhausted",
+    )
+
+    def broken(value, etag):
+        raise FakeClientError("InternalError")
+
+    # A non-precondition write error propagates immediately (no retry, no swallow).
+    raises(lambda: casio.cas_mutate(lambda: (0, "e"), lambda v: v + 1, broken, label="t"), FakeClientError)
+
+
 def test_assign_slot_then_replay_safe():
     _, _, _, cognito = install()
     cognito.users = {"bob": {}}
