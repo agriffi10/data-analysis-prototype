@@ -51,7 +51,7 @@ def test_remove_members_clears_slot_registry_and_cache_leaves_data():
     bob_cache = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
     assert bob_cache["connections"] == []
     owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert owner_cache["connections"][0]["members"] == ["alice"]
+    assert owner_cache["connections"][0]["members"] == [{"username": "alice", "status": "active"}]
     assert glue.created == []
 
 

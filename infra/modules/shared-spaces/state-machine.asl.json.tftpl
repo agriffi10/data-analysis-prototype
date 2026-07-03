@@ -1,5 +1,5 @@
 {
-  "Comment": "Shared-space provisioning orchestrator (SPEC-062). The Step Function — not in-Lambda code — routes by action: Validate (verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete / forget) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
+  "Comment": "Shared-space provisioning orchestrator (SPEC-062). The Step Function — not in-Lambda code — routes by action: Validate (verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete / forget / acknowledge-membership) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
   "StartAt": "Validate",
   "States": {
     "Validate": {
@@ -65,6 +65,11 @@
           "Variable": "$.action",
           "StringEquals": "forget",
           "Next": "ForgetSpace"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "acknowledge_membership",
+          "Next": "AcknowledgeMembership"
         }
       ],
       "Default": "Failed"
@@ -214,6 +219,35 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${forget_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "AcknowledgeMembership": {
+      "Type": "Task",
+      "Comment": "SPEC-073 — a member confirms they've picked up the space; flips them pending -> active in the owner's projection.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${acknowledge_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [

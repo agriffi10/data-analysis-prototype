@@ -58,7 +58,11 @@ def test_add_members_assigns_slot_registry_cache_and_owner_projection():
     reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert set(reg2["members"]) == {"alice", "bob"} and reg2["owner"] == "alice"
     owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert owner_cache["connections"][0]["members"] == ["alice", "bob"]
+    # bob is newly added -> pending until he signs in and acks; alice (owner) is active.
+    assert owner_cache["connections"][0]["members"] == [
+        {"username": "alice", "status": "active"},
+        {"username": "bob", "status": "pending"},
+    ]
 
 
 def test_add_members_ignores_unknown_users_silently():
@@ -96,6 +100,22 @@ def test_add_members_idempotent_for_existing_member():
     out = a.add_members("sales", ["bob"], "req-2", reg)
     assert out["added"] == []
     assert cognito.updates == []
+
+
+def test_add_members_does_not_demote_active_member():
+    # FR-002: re-adding an already-acknowledged (active) member keeps them active.
+    s3, glue, lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    reg = _active_reg(members=["alice", "bob"])
+    reg["acknowledged"] = ["bob"]
+    _seed_reg(s3, reg)
+
+    a.add_members("sales", ["bob"], "req-2", reg)
+    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert owner_cache["connections"][0]["members"] == [
+        {"username": "alice", "status": "active"},
+        {"username": "bob", "status": "active"},
+    ]
 
 
 def test_add_members_never_adds_the_owner():

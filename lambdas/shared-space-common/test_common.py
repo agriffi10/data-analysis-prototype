@@ -35,6 +35,29 @@ def test_leave_allowed_for_member():
     assert auth.authorize("leave", "sales", "bob", REG) is None
 
 
+def test_acknowledge_membership_member_only():
+    # SPEC-073: a member may acknowledge; the owner and non-members may not.
+    assert auth.authorize("acknowledge_membership", "sales", "bob", REG) is None
+    raises(
+        lambda: auth.authorize("acknowledge_membership", "sales", "alice", REG),
+        auth.AuthorizationError,
+        "owner does not acknowledge",
+    )
+    raises(
+        lambda: auth.authorize("acknowledge_membership", "sales", "mallory", REG),
+        auth.AuthorizationError,
+        "not a member",
+    )
+
+
+def test_effective_acknowledged_back_compat():
+    # Legacy record (no `acknowledged`) -> all non-owner members treated as active.
+    assert reg.effective_acknowledged(REG) == ["bob"]
+    # Explicit field is honoured verbatim.
+    assert reg.effective_acknowledged({**REG, "acknowledged": []}) == []
+    assert reg.effective_acknowledged({**REG, "acknowledged": ["bob"]}) == ["bob"]
+
+
 def test_missing_space_denied():
     raises(lambda: auth.authorize("delete", "ghost", "alice", None), auth.AuthorizationError, "does not exist")
 
@@ -151,9 +174,12 @@ def test_cache_upsert_remove_and_owner_projection():
     cache.remove_entry("bob", "sales")
     conns = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])["connections"]
     assert {c["name"] for c in conns} == {"ops"}
-    cache.write_owner_projection("alice", "sales", ["alice", "bob"])
+    cache.write_owner_projection("alice", "sales", ["alice", "bob"], ["bob"])
     owner = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])["connections"]
-    assert owner[0]["members"] == ["alice", "bob"] and owner[0]["role"] == "owner"
+    assert owner[0]["members"] == [
+        {"username": "alice", "status": "active"},
+        {"username": "bob", "status": "active"},
+    ] and owner[0]["role"] == "owner"
 
 
 def test_cache_cas_retries_and_preserves_concurrent_write():

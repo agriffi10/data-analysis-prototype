@@ -118,6 +118,22 @@ def finalize(name, actor, request_id, status, reason=None):
     )
 
 
+def effective_acknowledged(registry):
+    """Return the acknowledged-member usernames for a registry record (SPEC-073).
+
+    Membership stays a plain ``members: string[]``; join status is tracked out-of-band
+    as ``acknowledged: string[]`` (members who have signed in and picked up the space).
+    A record written before SPEC-073 has no ``acknowledged`` field — its members predate
+    the pending concept, so they are all treated as acknowledged (active). The caller
+    persists any change by setting ``registry["acknowledged"]`` before ``save_members``.
+    """
+    ack = registry.get("acknowledged")
+    if ack is None:
+        owner = registry.get("owner")
+        return [m for m in registry.get("members", []) if m != owner]
+    return list(ack)
+
+
 def save_members(registry, members, request_id):
     """Rewrite the registry record with a new members list, preserving other fields.
 

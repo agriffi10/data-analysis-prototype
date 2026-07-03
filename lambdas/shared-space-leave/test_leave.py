@@ -48,7 +48,7 @@ def test_leave_clears_slot_cache_registry_and_owner_projection_leaves_data():
     reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert reg2["members"] == ["alice"]
     owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert owner_cache["connections"][0]["members"] == ["alice"]
+    assert owner_cache["connections"][0]["members"] == [{"username": "alice", "status": "active"}]
     assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
     assert "sales" in glue.databases and glue.tables["sales"] == ["t1", "t2"]
 

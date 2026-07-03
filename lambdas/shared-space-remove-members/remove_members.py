@@ -21,6 +21,7 @@ def remove_members(space, members, request_id, registry):
     owner = registry["owner"]
     current = list(registry.get("members", []))
     current_set = set(current)
+    acknowledged = reg.effective_acknowledged(registry)
     removed = []
 
     for member in membership.normalize_members(members, owner):
@@ -32,8 +33,12 @@ def remove_members(space, members, request_id, registry):
         current_set.discard(member)
         removed.append(member)
 
+    # Drop removed users from acknowledged so a later re-add starts them at `pending`.
+    removed_set = set(removed)
+    acknowledged = [a for a in acknowledged if a not in removed_set]
+    registry["acknowledged"] = acknowledged
     reg.save_members(registry, current, request_id)
-    cache.write_owner_projection(owner, space, current, registry.get("createdAt"))
+    cache.write_owner_projection(owner, space, current, acknowledged, registry.get("createdAt"))
     # Notify each removed member only AFTER the registry write lands — a real outcome,
     # not a step that may roll back or retry. The owner gets no roster notification.
     for member in removed:

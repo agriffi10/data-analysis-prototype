@@ -19,13 +19,14 @@ locals {
   # all run under the single shared orchestrator role (no per-verb roles — user
   # decision, see SPEC-062 FR-005 note). `forget` = durable "clear from my list".
   shared_space_functions = {
-    "validate"       = "validate.handler"
-    "create"         = "create_space.handler"
-    "add-members"    = "add_members.handler"
-    "remove-members" = "remove_members.handler"
-    "leave"          = "leave.handler"
-    "delete"         = "delete_space.handler"
-    "forget"         = "forget_space.handler"
+    "validate"               = "validate.handler"
+    "create"                 = "create_space.handler"
+    "add-members"            = "add_members.handler"
+    "remove-members"         = "remove_members.handler"
+    "leave"                  = "leave.handler"
+    "delete"                 = "delete_space.handler"
+    "forget"                 = "forget_space.handler"
+    "acknowledge-membership" = "acknowledge_membership.handler" # SPEC-073 join-status ack
   }
 
   shared_space_function_names = {

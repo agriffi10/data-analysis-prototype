@@ -98,7 +98,7 @@ def create_space(name, actor, request_id):
         # Seed the owner's member projection with just the owner; carry the registry's
         # createdAt so the Connections card meta line can show it.
         created_at = (reg.load(name) or {}).get("createdAt")
-        cache.write_owner_projection(actor, name, [actor], created_at)
+        cache.write_owner_projection(actor, name, [actor], [], created_at)
         reg.finalize(name, actor, request_id, "active")
     except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
         reason = str(exc)
