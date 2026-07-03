@@ -12,7 +12,9 @@ import os
 
 SCHEMA_VERSION = 1
 OWNER_ONLY_ACTIONS = frozenset({"add_members", "remove_members", "delete"})
-VALID_ACTIONS = frozenset({"create", "add_members", "remove_members", "leave", "delete", "forget"})
+VALID_ACTIONS = frozenset(
+    {"create", "add_members", "remove_members", "leave", "delete", "forget", "acknowledge_membership"}
+)
 
 # Set by Terraform; AWS_REGION is provided by the Lambda runtime.
 USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")

@@ -228,6 +228,7 @@ jobs:
           - { name: shared-space-leave, layer: true, polars: false, tbcommon: false }
           - { name: shared-space-delete, layer: true, polars: false, tbcommon: false }
           - { name: shared-space-forget, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-acknowledge-membership, layer: true, polars: false, tbcommon: false }
           # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
           # — ALL five verbs use the shared tbcommon package now (config/clients/errors +
           # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer

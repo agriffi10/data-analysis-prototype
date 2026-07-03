@@ -162,14 +162,33 @@ def write_owner_deleting(owner, name):
     upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting"})
 
 
-def write_owner_projection(owner, name, members, created_at=None):
-    """Update the owner's cache entry with the current member list.
+def _member_projection(members, owner, acknowledged):
+    """Build the ``[{username, status}]`` projection (SPEC-073).
+
+    A member is ``active`` once they've acknowledged the space (or they're the owner,
+    always active); otherwise ``pending`` — invited but not yet signed in to pick it up.
+    """
+    ack = set(acknowledged or [])
+    return [
+        {"username": m, "status": "active" if (m == owner or m in ack) else "pending"}
+        for m in members
+    ]
+
+
+def write_owner_projection(owner, name, members, acknowledged, created_at=None):
+    """Update the owner's cache entry with the current member roster + join status.
 
     This is the owner-readable projection the Manage drawer renders; members never see
-    this list. ``created_at`` (when known) is carried so the Connections card can
-    render its "created <date>" meta line.
+    this list. Members are stored as ``{username, status}`` (SPEC-073) where status is
+    derived from ``acknowledged``. ``created_at`` (when known) is carried so the
+    Connections card can render its "created <date>" meta line.
     """
-    entry = {"name": name, "role": "owner", "status": "active", "members": members}
+    entry = {
+        "name": name,
+        "role": "owner",
+        "status": "active",
+        "members": _member_projection(members, owner, acknowledged),
+    }
     if created_at:
         entry["createdAt"] = created_at
     upsert_entry(owner, entry)

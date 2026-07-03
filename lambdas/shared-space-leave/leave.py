@@ -31,8 +31,10 @@ def leave_space(space, actor, request_id, registry):
     membership.clear_slot(actor, space)
     cache.remove_entry(actor, space)
     remaining = [m for m in members if m != actor]
+    acknowledged = [a for a in reg.effective_acknowledged(registry) if a != actor]
+    registry["acknowledged"] = acknowledged
     reg.save_members(registry, remaining, request_id)
-    cache.write_owner_projection(owner, space, remaining, registry.get("createdAt"))
+    cache.write_owner_projection(owner, space, remaining, acknowledged, registry.get("createdAt"))
     # Notify the owner only after the registry write lands; no-op leaves emit nothing.
     emit_notification(
         owner,

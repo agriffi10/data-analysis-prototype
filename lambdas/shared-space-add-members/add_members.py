@@ -26,6 +26,9 @@ def add_members(space, members, request_id, registry):
     created_at = registry.get("createdAt")
     current = list(registry.get("members", []))
     current_set = set(current)
+    # Join status (SPEC-073): existing members stay as-is; newly-added users are NOT
+    # added to `acknowledged`, so they surface as `pending` until they sign in and ack.
+    acknowledged = reg.effective_acknowledged(registry)
     summary = {"added": [], "ignoredUnknown": [], "skippedAtLimit": []}
     # Collected during the loop, emitted only AFTER the registry write lands — notify a
     # real outcome, not a step that may roll back or retry.
@@ -60,8 +63,9 @@ def add_members(space, members, request_id, registry):
             (member, f'You\'ve been added to the shared workspace "{space}".', f"add-member:{member}")
         )
 
+    registry["acknowledged"] = acknowledged
     reg.save_members(registry, current, request_id)
-    cache.write_owner_projection(owner, space, current, created_at)
+    cache.write_owner_projection(owner, space, current, acknowledged, created_at)
     for recipient, message, tag in pending_notifications:
         emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
     logger.info("add_members %s: %s", space, summary)

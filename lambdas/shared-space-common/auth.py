@@ -72,3 +72,11 @@ def authorize(action, space, actor, registry):
         if actor not in members:
             raise AuthorizationError(f"{actor!r} is not a member of {space!r}")
         return
+    if action == "acknowledge_membership":
+        # A member confirming they've picked up the space (SPEC-073). Owner-exempt (the
+        # owner is always active) and member-only — same membership gate as leave.
+        if actor == owner:
+            raise AuthorizationError("owner does not acknowledge membership")
+        if actor not in members:
+            raise AuthorizationError(f"{actor!r} is not a member of {space!r}")
+        return

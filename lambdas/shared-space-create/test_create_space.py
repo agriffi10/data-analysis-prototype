@@ -42,7 +42,7 @@ def test_create_happy_path_provisions_everything():
         "name": "sales",
         "role": "owner",
         "status": "active",
-        "members": ["alice"],
+        "members": [{"username": "alice", "status": "active"}],
     }
     # createdAt is carried from the registry (a real timestamp) — just assert it's there.
     assert entry["createdAt"]
