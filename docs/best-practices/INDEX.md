@@ -7,10 +7,10 @@ unless the task genuinely spans both. This index is a **router, not content** �
 
 | Domain | Doc | Load when you are… | Internal index |
 |---|---|---|---|
-| React (18/19, function components + Hooks) | `react/react.md` | writing or refactoring any React component, hook, state, or effect | §1–§19 (Purity → JSDoc component docs) |
+| React (18/19, function components + Hooks) | `react/react.md` | writing or refactoring any React component, hook, state, or effect | §1–§19 (Purity → JSDoc component docs — the primary source of context; keep inline comments sparse) |
 | Web accessibility (WCAG 2.2) | `accessibility/accessibility.md` | building or auditing any user-facing UI — markup, forms, keyboard/focus, color, ARIA | Task Index → §1–§4 (Perceivable / Operable / Understandable / Robust) |
 | AWS Lambda (Python; event-driven, Step Function / Pipe / Cognito triggers) | `lambdas/lambdas.md` | writing, refactoring, or decomposing any Lambda function or its Step Function orchestration / IAM | §1–§12 (Single responsibility → Code/infra split) |
-| Python (3.12; language style for Lambda source + layers) | `python/python.md` | writing or refactoring any Python — style, naming, types, exceptions, docstrings (layer over `lambdas.md` for Lambda *shape*) | §1–§15 (Tooling → Modules & power features) |
+| Python (3.12; language style for Lambda source + layers) | `python/python.md` | writing or refactoring any Python — style, naming, types, exceptions, docstrings (layer over `lambdas.md` for Lambda *shape*) | §1–§15 (Tooling → Modules & power features; §14 docstrings are the primary source of context, keep inline comments sparse) |
 
 ## How to use
 

@@ -26,7 +26,7 @@
 - **§16 Architecture & mental model** — declarative > imperative; react vs react-dom; Elements; FP principles.
 - **§17 Build workflow** — Thinking in React 5-step process.
 - **§18 Tooling** — StrictMode + eslint-plugin-react-hooks; never suppress the linter.
-- **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference.
+- **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference; JSDoc (not inline comments) is the primary source of context.
 
 ---
 
@@ -183,7 +183,11 @@ Effects are an escape hatch for syncing with external systems. If no external sy
 ## §19 JSDoc component documentation
 Document components with a JSDoc block so usage, prop meaning, and examples surface on hover in the editor. **This repo is TS-strict (§18/CLAUDE.md), so TypeScript owns the *types*** — use JSDoc for the *prose* (what the component does, what each prop means, examples), and let the `interface`/prop types carry the shapes. Don't restate TS types in `@param {string}` tags — duplicated types drift.
 
-- ✅ Put a JSDoc block above every exported component: a one-line summary, then prop descriptions and at least one `@example`. This is what shows in the VSCode hover tooltip.
+**JSDoc is the primary source of context, not inline comments.** This applies to every exported component, hook, and utility/service function, not just components.
+
+- ✅ Put a JSDoc block above every exported component, hook, and non-trivial function: a one-line summary, then prop/param descriptions and (for components/hooks) at least one `@example`. This is what shows on hover.
+- ✅ When code needs explaining, prefer expanding the JSDoc block over adding narrative comments — the doc block is discoverable (hover, IDE, generated docs); a comment buried mid-function is not.
+- 🔴 No verbose or paragraph-length inline comments. Keep inline comments short, sparse, and reserved for the genuinely non-obvious *why* (a tricky workaround, a non-obvious ordering requirement) — never restate *what* the next line does.
 - ✅ **Types come from TS, docs from JSDoc.** Define props as a TS `interface`/`type` (repo convention: `ComponentNameProps` in `component.types.ts` or co-located); annotate meaning with `@property`/inline JSDoc on the interface members, not with typed `@param` tags that repeat the type.
 - ✅ Use **`@example`** (optionally with `<caption>`) to show real usage — the highest-value part for consumers; multiple examples are fine.
 - 🔴 Don't hand-write `@param {object} props` / `@returns {JSX.Element}` type tags in `.tsx` — TS already infers them, and the tags fight the compiler. ✅ Keep `@example` and descriptions; drop the type tags.

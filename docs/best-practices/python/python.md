@@ -25,7 +25,7 @@
 - **§11 Strings, logging & errors** — f-strings/`%`/`.format`, never `+` in loops; lazy `%`-logging; precise, greppable error messages.
 - **§12 Truthiness & conditionals** — implicit falsiness with caveats; `is None`; `isinstance`; `startswith`/`endswith`; simple ternaries.
 - **§13 Resources & global state** — `with` for files/clients/closeables; avoid mutable global state; module-level constants OK.
-- **§14 Docstrings & comments** — triple-quoted summary line; `Args`/`Returns`/`Raises`; comment *why*, not *what*; `TODO:` + tracked ref.
+- **§14 Docstrings & comments** — docstrings are the primary source of context; triple-quoted summary line; `Args`/`Returns`/`Raises`; no verbose comments, comment *why* not *what*; `TODO:` + tracked ref.
 - **§15 Modules, main & power features** — module docstring; `main()` behind `if __name__ == '__main__'`; avoid metaclasses/reflection/`__del__` cleanup.
 
 ---
@@ -158,12 +158,13 @@ Close what you open; avoid mutable module/class state.
 - 🔴 Don't rely on atomicity of built-in types across threads; use `queue.Queue` or `threading` primitives to communicate between threads.
 
 ## §14 Docstrings & comments
-Docstrings describe the interface; comments explain the non-obvious.
+Docstrings describe the interface and are the **primary source of context**; comments explain the non-obvious and should be rare.
 
 - ✅ Triple-double-quoted `"""` docstrings (PEP 257) for every public module, function, class, and method — plus any nontrivial or non-obvious function. First line a summary ending in a period, ≤ the docstring line limit; multi-line = summary, blank line, details, closing `"""` on its own line. 🔴 No docstring on a `lambda`. Enough info to call it without reading the body.
 - ✅ Use the section format when it adds info: **`Args:`** (each param + description; note types if not annotated), **`Returns:`** (or **`Yields:`** for generators; omit if it only returns `None` or the summary already says it), **`Raises:`** (exceptions relevant to the interface).
 - ✅ Class docstring below the `class` line summarizing what an **instance represents** (an `Exception` subclass says what it *represents*, not when it's raised); document public attributes in an `Attributes:` section.
-- ✅ **Comments explain *why*, not *what*** — tricky logic, non-obvious decisions; assume the reader knows Python. Complete sentences, proper capitalization/punctuation, kept in sync with the code. 🔴 Never leave a comment that contradicts the code. Block comments at the code's indent (`# ` prefix); inline comments ≥2 spaces from code, used sparingly.
+- ✅ **When code needs explaining, prefer expanding the docstring over adding comments.** Docstrings are discoverable (`help()`, hover, generated docs); scattered comments are not.
+- ✅ **Comments explain *why*, not *what*** — tricky logic, non-obvious decisions; assume the reader knows Python. Complete sentences, proper capitalization/punctuation, kept in sync with the code. 🔴 No verbose or paragraph-length comments, and never a comment that just narrates *what* the next line does. 🔴 Never leave a comment that contradicts the code. Block comments at the code's indent (`# ` prefix); inline comments ≥2 spaces from code, used sparingly.
 - ✅ `TODO:` in caps + colon + a **tracked reference** (issue link preferred) + `-` explanation: `# TODO: <issue-url> - Investigate X`. Don't attribute TODOs to a person/team as the context.
 
 ## §15 Modules, main & power features
