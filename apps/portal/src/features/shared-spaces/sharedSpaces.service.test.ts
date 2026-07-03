@@ -218,6 +218,16 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     ]);
   });
 
+  it('degrades a malformed non-array members field to undefined (no crash)', async () => {
+    const body = JSON.stringify({
+      version: 1,
+      connections: [{name: 'sales', role: 'owner', status: 'active', members: 'garbage'}]
+    });
+    fakeS3({body});
+    const result = await readSharedConnectionsCache('alice');
+    expect(result.success && result.data.connections[0].members).toBeUndefined();
+  });
+
   it('returns a ServiceResult error (never throws) on a non-404 read failure', async () => {
     fakeS3({
       rejectWith: Object.assign(new Error('boom'), {name: 'AccessDenied'})

@@ -132,7 +132,10 @@ function normalizeMember(raw: unknown): Member | null {
 // owner-readable `members` projection (legacy `string[]` or new `Member[]`) to `Member[]`.
 function normalizeEntry(e: unknown): SharedConnectionEntry {
   const o = e as SharedConnectionEntry & {members?: unknown};
-  if (!Array.isArray(o.members)) return o;
+  if (o.members === undefined) return o;
+  // A malformed (non-array) members field degrades to "unavailable" rather than
+  // reaching the UI as a non-Member[] that a later .filter/.length would crash on.
+  if (!Array.isArray(o.members)) return {...o, members: undefined};
   const members = o.members.map(normalizeMember).filter((m): m is Member => m !== null);
   return {...o, members};
 }
