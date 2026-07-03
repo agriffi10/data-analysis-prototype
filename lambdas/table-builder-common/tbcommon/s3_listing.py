@@ -5,17 +5,19 @@ The single source of "what counts as a data object": the prefix marker
 placeholders), and hidden/partial files (basename starting "_" or ".") are not data.
 """
 
+from collections.abc import Iterator
+
 from . import clients
 
 # The user-space / shared-space prefix marker written at folder creation.
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
 
-def _basename(key):
+def _basename(key: str) -> str:
     return key.rsplit("/", 1)[-1]
 
 
-def is_ignored(key, size, prefix):
+def is_ignored(key: str, size: int, prefix: str) -> bool:
     """True if ``key`` is not a data object (marker / results / placeholder / hidden).
 
     ``prefix`` is the request prefix, used to spot the ``athenaresults/`` sub-tree
@@ -37,7 +39,7 @@ def is_ignored(key, size, prefix):
     return False
 
 
-def list_data_objects(bucket, prefix):
+def list_data_objects(bucket: str, prefix: str) -> Iterator[tuple[str, int]]:
     """Yield ``(key, size)`` for every non-ignored data object under ``prefix``.
 
     Paginated (handles > 1000 objects). Transient S3 errors propagate so the Step

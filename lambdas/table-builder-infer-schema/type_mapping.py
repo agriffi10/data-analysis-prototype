@@ -37,7 +37,7 @@ _SIMPLE = [
 ]
 
 
-def map_dtype(dtype):
+def map_dtype(dtype) -> str:
     """Map a polars dtype to its Hive type string; raises UnmappableTypeError."""
     # Parametric types first (they carry precision/scale/inner/fields).
     if isinstance(dtype, pl.Datetime):

@@ -12,7 +12,7 @@ are terminal with a specific reason; transient S3 errors propagate for the SFN R
 
 import logging
 
-from tbcommon import s3_listing, notify
+from tbcommon import s3_listing, events, notify
 from tbcommon.errors import TerminalError
 
 logger = logging.getLogger()
@@ -69,7 +69,7 @@ def _validate_layout(rel_dirs, declared_names):
 
 
 @notify.notifies_on_failure("inspect")
-def handler(event, context):
+def handler(event: dict, context) -> dict:
     # Notify the actor on any terminal failure (best-effort) before the SFN Catch
     # records it; transient S3 errors aren't TerminalError, so they propagate for the
     # Retry without a notification.
@@ -80,9 +80,9 @@ def handler(event, context):
         raise
 
 
-def _inspect(event):
-    bucket = event["space"]["bucket"]
-    prefix = event["space"]["prefix"]
+def _inspect(event: dict) -> dict:
+    bucket = events.require(event, "space", "bucket")
+    prefix = events.require(event, "space", "prefix")
     declared_names = [k["name"] for k in (event.get("partitionKeys") or [])]
 
     formats = set()

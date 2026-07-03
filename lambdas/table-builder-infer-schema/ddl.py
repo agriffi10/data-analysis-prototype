@@ -75,7 +75,14 @@ def _tblproperties(fmt, partition_keys):
     return props
 
 
-def build_create_table_ddl(database, table_name, columns, partition_keys, fmt, location):
+def build_create_table_ddl(
+    database: str,
+    table_name: str,
+    columns: list[dict],
+    partition_keys: list[dict],
+    fmt: str,
+    location: str,
+) -> str:
     """Build a valid CREATE EXTERNAL TABLE IF NOT EXISTS statement (string).
 
     ``columns`` is the ordered [{name, type}] (Hive types) data body;

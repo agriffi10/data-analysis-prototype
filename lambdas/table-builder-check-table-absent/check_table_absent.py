@@ -16,7 +16,7 @@ failing silently, and re-raised for the SFN Catch.
 
 import logging
 
-from tbcommon import clients, notify
+from tbcommon import clients, events, notify
 from tbcommon.errors import TerminalError
 
 logger = logging.getLogger()
@@ -24,9 +24,21 @@ logger.setLevel(logging.INFO)
 
 
 @notify.notifies_on_failure("check")
-def handler(event, context):
-    database = event["space"]["database"]
-    table = event["tableName"]
+def handler(event: dict, context) -> dict:
+    # Thin handler: delegate, and notify the actor on any terminal failure (best-effort)
+    # before the SFN Catch records it. A non-terminal error (transient Glue fault)
+    # propagates for the SFN Retry; @notifies_on_failure notifies unexpected ones.
+    try:
+        return _check_table_absent(event)
+    except TerminalError as err:
+        notify.emit_failure(event, err, "check")
+        raise
+
+
+def _check_table_absent(event: dict) -> dict:
+    """GetTable the target; pass the event through if absent, else terminal table_exists."""
+    database = events.require(event, "space", "database")
+    table = events.require(event, "tableName")
 
     glue = clients.glue()
     try:
@@ -36,8 +48,5 @@ def handler(event, context):
         logger.info("table %s absent in %s — proceeding", table, database)
         return event
 
-    # A GetTable that returns ⇒ the table already exists. Notify the actor (best-effort)
-    # before raising the terminal failure; any other error escapes to the wrapper.
-    err = TerminalError("table_exists", f"table {table!r} already exists in database {database!r}")
-    notify.emit_failure(event, err, "check")
-    raise err
+    # A GetTable that returns ⇒ the table already exists.
+    raise TerminalError("table_exists", f"table {table!r} already exists in database {database!r}")

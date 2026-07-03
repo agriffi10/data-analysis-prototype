@@ -178,6 +178,19 @@ def test_no_notification_on_success():
     assert q.calls == []
 
 
+def test_malformed_event_is_terminal_and_notifies():
+    # SPEC-083 FR-002: a missing required key → typed terminal + actor notification.
+    q = _arm_notifications()
+    bad = {"actor": "alice", "space": {"kind": "personal"}, "requestId": "r1"}  # no bucket/prefix
+    try:
+        i.handler(bad, None)
+    except TerminalError as exc:
+        assert exc.reason == "malformed_event"
+    else:
+        raise AssertionError("expected TerminalError(malformed_event)")
+    assert len(q.calls) == 1 and q.calls[0]["MessageGroupId"] == "alice"
+
+
 # Fake S3 paginator backing the ignore-rules test above.
 class _FakePaginator:
     def __init__(self, pages):

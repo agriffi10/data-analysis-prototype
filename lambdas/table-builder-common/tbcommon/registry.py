@@ -11,7 +11,7 @@ import json
 from . import config, clients
 
 
-def load(name):
+def load(name: str) -> dict | None:
     """Return the registry record for shared space ``name`` (dict) or None if absent."""
     s3 = clients.s3()
     try:
@@ -21,6 +21,6 @@ def load(name):
     return json.loads(obj["Body"].read())
 
 
-def is_active_member(record, actor):
+def is_active_member(record: dict | None, actor: str) -> bool:
     """True iff ``record`` is an active space and ``actor`` is in its members."""
     return bool(record) and record.get("status") == "active" and actor in (record.get("members") or [])

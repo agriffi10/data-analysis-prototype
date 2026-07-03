@@ -17,7 +17,7 @@ wrong format) is terminal schema_inference_failed.
 import logging
 import re
 
-from tbcommon import clients, notify
+from tbcommon import clients, events, notify
 from tbcommon.errors import TerminalError
 
 from ddl import build_create_table_ddl
@@ -101,7 +101,7 @@ def _infer_columns(source, fmt):
 
 
 @notify.notifies_on_failure("infer")
-def handler(event, context):
+def handler(event: dict, context) -> dict:
     # Notify the actor on a terminal schema failure (best-effort). Any other error that
     # escapes _infer (e.g. an S3 access probe failure) is an unexpected terminal failure
     # that @notifies_on_failure surfaces to the actor before the SFN Catch records it.
@@ -112,10 +112,13 @@ def handler(event, context):
         raise
 
 
-def _infer(event):
-    fmt = event["format"]
-    bucket = event["space"]["bucket"]
-    sample_key = event["sampleObjectKey"]
+def _infer(event: dict) -> dict:
+    fmt = events.require(event, "format")
+    bucket = events.require(event, "space", "bucket")
+    sample_key = events.require(event, "sampleObjectKey")
+    database = events.require(event, "space", "database")
+    table_name = events.require(event, "tableName")
+    location = events.require(event, "location")
 
     _check_access(bucket, sample_key)
     source = _object_uri(bucket, sample_key)
@@ -127,17 +130,10 @@ def _infer(event):
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
 
     partition_keys = event.get("partitionKeys") or []
-    ddl = build_create_table_ddl(
-        event["space"]["database"],
-        event["tableName"],
-        columns,
-        partition_keys,
-        fmt,
-        event["location"],
-    )
+    ddl = build_create_table_ddl(database, table_name, columns, partition_keys, fmt, location)
 
     out = dict(event)
     out["columns"] = columns
     out["ddl"] = ddl
-    logger.info("inferred %d columns for %s.%s", len(columns), event["space"]["database"], event["tableName"])
+    logger.info("inferred %d columns for %s.%s", len(columns), database, table_name)
     return out

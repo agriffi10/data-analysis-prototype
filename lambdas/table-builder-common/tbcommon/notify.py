@@ -27,12 +27,12 @@ from .messages import failure_message, success_message
 logger = logging.getLogger()
 
 
-def _dedup(request_id, step):
+def _dedup(request_id: str, step: str) -> str | None:
     """FIFO dedup id "{requestId}:{step}"; None without a requestId (content dedup)."""
     return f"{request_id}:{step}" if request_id else None
 
 
-def emit_failure(event, err, step):
+def emit_failure(event: dict, err: TerminalError, step: str) -> None:
     """Emit the actor-addressed failure notification for a verb's TerminalError.
 
     Best-effort. Reads the actor/table/database/requestId from the validated event.
@@ -47,7 +47,7 @@ def emit_failure(event, err, step):
     )
 
 
-def emit_unexpected(event, step):
+def emit_unexpected(event, step: str) -> None:
     """Emit the actor-addressed failure notification for an UNEXPECTED verb exception.
 
     Best-effort. Uses the generic "unexpected_error" reason (no leaked internals) and
@@ -64,7 +64,7 @@ def emit_unexpected(event, step):
     )
 
 
-def notifies_on_failure(step):
+def notifies_on_failure(step: str):
     """Wrap a verb handler so an UNEXPECTED terminal exception notifies the actor
     before it propagates — closing the silent-failure gap for errors the handler
     didn't anticipate (an AccessDenied, a bug, a bad response).
@@ -95,7 +95,7 @@ def notifies_on_failure(step):
     return decorate
 
 
-def emit_created(event):
+def emit_created(event: dict) -> None:
     """Emit the actor-addressed success notification for a created table (best-effort)."""
     space = event.get("space") or {}
     emit_notification(
@@ -105,7 +105,7 @@ def emit_created(event):
     )
 
 
-def emit_notification(username, message, dedup_id=None):
+def emit_notification(username: str, message: str, dedup_id: str | None = None) -> None:
     """Send a "create" envelope to the FIFO notifications queue, grouped by username.
 
     No-op (one log line) when NOTIFICATIONS_QUEUE_URL is unset or there is no
