@@ -75,6 +75,15 @@
     box-sizing: border-box;
   }
 
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'],
+  [role='radio']:not([aria-disabled='true']),
+  [role='menuitem'],
+  [role='option'] {
+    cursor: pointer;
+  }
+
   html {
     font-family: var(--font-sans);
     font-size: 14px;

@@ -90,6 +90,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Draft |
 | 083 — Code-Quality Hardening (Lambda config/shape/types + Lambda & SPA cleanup smells) | Draft |
 | 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Draft |
+| 085 — Collapsible Side Nav (shared base rail + collapse control) | Draft |
+| 086 — Per-Database Schema Refresh (look for new tables/views) | Draft |
 
 ## Arcs
 
@@ -261,6 +263,15 @@ per-execution reset) instead of today's loaded-count "N+". **081** (file browser
 download it** via the existing presigned-URL flow (both authenticated + read-only browse; explicit Download controls
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
+
+**App-shell / schema-rail UX one-offs (085, 086)** — filed 2026-07-02, both presentation-only (no data-layer/IAM/infra).
+**085** adds a **collapsible side nav**: the Files spaces `Sidebar` and the Query `SchemaBrowser` share the same 248px rail
+chrome, so it's factored into one **`CollapsibleRail`** base component with a collapse control; collapsed = **fully hidden +
+a reopen handle** (not a slim icon rail), and the state is **persisted per browser in `localStorage` under one shared key**
+so the choice carries across both rails. Below-`md` behavior (rail hidden) and the top-bar tabs are untouched. **086** adds a
+**per-database Refresh** control to each schema-rail `DatabaseNode` (SPEC-063) that re-reads only that database's tables/views
+(`queryKeys.schema(database)` invalidate/refetch via the existing `useSchema`/`invalidateSchema`) — manual, per-node, error
+non-destructive; mirrors the SPEC-046 history-refresh pattern. Both are independent of each other and of everything else.
 
 **Best-practice audit follow-ups (082→084)** — filed 2026-07-02 from a read-only audit of the Lambdas + SPA against
 `docs/best-practices/`; all code-only, no IAM/infra. **082** fixes a lost-update race in the shared-space **registry**
