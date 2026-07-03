@@ -155,7 +155,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'After a query succeeds, results appear in a table below the editor.',
           "Drag a column's edge to resize it — widths are remembered as you switch tabs.",
-          'Use <b>Prev</b> and <b>Next</b> to page through large result sets.'
+          'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
+          'Need more room? The <b>Editor / Even / Results</b> control in the toolbar snaps the split between the editor and the results — grow whichever you’re working in. Your choice is remembered for the session.'
         ]
       },
       {

@@ -1,111 +1,131 @@
-# Spec: Resizable Editor / Results Split
+# Spec: Editor / Results Layout Presets
 
 **ID:** SPEC-079
-**Status:** Draft
-**Last Updated:** 2026-07-01
-**Depends On:** SPEC-035 (query workspace layout), SPEC-064 (drag-resize precedent)
+**Status:** Completed
+**Last Updated:** 2026-07-03
+**Depends On:** SPEC-035 (query workspace layout)
 
 ## Overview
 
 The query workspace stacks a **fixed-height** editor (`h-[200px]`) above a
 `flex-1` results pane. Users writing longer queries can't grow the editor, and users
 scanning wide/tall result sets can't grow the results area — the split is frozen.
-This spec adds a **draggable horizontal splitter** between the editor and the results
-region so the user can rebalance the two panes, mirroring the drag-to-resize
-interaction already shipped for result columns (SPEC-064). The chosen split persists
-for the session so it survives tab switches and paging.
+This spec adds a small set of **layout preset controls** that let the user snap the
+vertical split between the editor and the results region to one of three fixed
+proportions: **editor 90%**, an **even 50/50** split, or **results 90%**. This is a
+discrete, click-to-choose interaction (not a continuous drag). The chosen preset
+persists for the session so it survives tab switches and reloads.
 
 ## Scope
 
 ### In Scope
 
-- A draggable divider between the SQL editor pane and the results region (the
-  status bar + error banner + results table below it) that changes the editor's
-  height and lets the results region take the remainder.
-- Minimum heights for both panes (the editor can't collapse to nothing; the results
-  region keeps a usable floor), enforced as drag clamps.
-- Keyboard operability + a double-click-to-reset on the divider (reuse the SPEC-064
-  pattern): the divider is focusable, Arrow Up/Down nudges the split, double-click
-  restores the default height.
-- Persist the editor height for the session (per-user `sessionStorage`, same pattern
+- A three-option layout control (a segmented control) in the query workspace that
+  sets the editor/results vertical split to one of three presets:
+  - **Editor** — editor takes ~90% of the available vertical space.
+  - **Even** — editor and results split the space ~50/50 (the default).
+  - **Results** — results region takes ~90% of the available vertical space.
+- Applying the chosen preset as the editor pane's height (a percentage of the
+  available editor+results column height), with the results region taking the
+  remainder; the Monaco editor re-lays-out to the new height.
+- Minimum-height floors so that even at the extreme presets neither pane collapses
+  to an unusable size (the 90% presets are floored/capped by these).
+- Keyboard operability of the control (the segmented control is a proper
+  focusable/selectable control group with accessible names).
+- Persist the chosen preset for the session (per-user `sessionStorage`, same pattern
   as tabs/draft state) so it survives tab switches and reloads within the session.
 - Correct behavior within the existing viewport-bounded flex column (the workspace
   is capped to `100dvh - header`; the results region scrolls internally).
 
 ### Out of Scope
 
-- Resizing the **schema rail** width (left column) — separate concern, not
-  requested.
+- A **draggable / continuously-resizable** splitter between the editor and results —
+  explicitly replaced by discrete presets (this reworks the original SPEC-079
+  drag-resize design).
+- Resizing the **schema rail** width (left column) — separate concern, not requested.
 - Resizing result **columns** — already shipped (SPEC-064).
-- A collapse/expand (hide-a-pane) toggle — only continuous resize is in scope.
-- Persisting the split **across** sessions (a durable per-user server-side setting)
+- A collapse/expand (fully hide-a-pane) toggle — the extreme presets are ~90%, not
+  100%; neither pane fully disappears.
+- Persisting the preset **across** sessions (a durable per-user server-side setting)
   — session persistence only, matching existing workspace state.
 - Horizontal (side-by-side) editor/results layout — vertical stack only.
+- Arbitrary/custom proportions — only the three fixed presets.
 
 ---
 
 ## Functional Requirements
 
-### FR-001: Draggable editor/results divider
+### FR-001: Three layout presets
 
 #### Description:
 
-A horizontal divider sits between the editor pane and the results region. Dragging it
-down grows the editor and shrinks the results region; dragging up does the reverse.
-The results region continues to scroll internally rather than growing the page.
+A layout control offers three options — **Editor** (~90% editor), **Even** (~50/50),
+and **Results** (~90% results). Selecting an option sets the editor pane's height to
+the corresponding proportion of the available editor+results column height; the
+results region takes the remainder. The results region continues to scroll
+internally rather than growing the page.
 
 #### Acceptance Criteria:
 
-- [ ] Dragging the divider down increases the editor's height and decreases the
-      results region's height by the same amount.
-- [ ] Dragging up decreases the editor's height and increases the results region.
+- [ ] Selecting **Editor** grows the editor to ~90% of the available height and
+      shrinks the results region to the remainder.
+- [ ] Selecting **Results** shrinks the editor to ~10% (floored, see FR-002) and
+      grows the results region to the remainder.
+- [ ] Selecting **Even** splits the available height ~50/50 between editor and
+      results.
+- [ ] The currently-selected preset is visually indicated in the control.
 - [ ] The workspace stays bounded to the viewport; the results region scrolls
       internally (no page-level scroll introduced).
-- [ ] The Monaco editor re-lays-out to the new height (no clipped/!frozen editor
-      viewport after a resize).
+- [ ] The Monaco editor re-lays-out to the new height after a preset change (no
+      clipped/frozen editor viewport).
 
-### FR-002: Minimum-height clamps
+### FR-002: Minimum-height floors
 
 #### Description:
 
-Both panes have a minimum height enforced during drag, so neither the editor nor the
-results region can be dragged away to an unusable size.
+Both panes have a minimum height. At the extreme presets the applied proportion is
+clamped so neither the editor nor the results region drops below its floor
+(important on short viewports where 10% would be unusably small).
 
 #### Acceptance Criteria:
 
-- [ ] The editor cannot be dragged below `MIN_EDITOR_HEIGHT`.
-- [ ] The results region cannot be dragged below its minimum (the editor cannot grow
-      past `containerHeight - MIN_RESULTS_HEIGHT`).
-- [ ] Clamping is smooth (the divider stops at the bound; no overshoot/jump).
+- [ ] At the **Results** preset the editor never renders below `MIN_EDITOR_HEIGHT`.
+- [ ] At the **Editor** preset the results region never renders below
+      `MIN_RESULTS_HEIGHT`.
+- [ ] On a short viewport where the proportions would violate a floor, the applied
+      split clamps to respect both floors (no negative/overlapping panes).
 
-### FR-003: Keyboard + double-click reset
+### FR-003: Keyboard + accessibility
 
 #### Description:
 
-The divider is keyboard-operable and resets to the default split on double-click,
-matching the SPEC-064 column-resize affordances.
+The layout control is fully keyboard-operable and exposes accessible names so a
+selection can be made without a pointer.
 
 #### Acceptance Criteria:
 
-- [ ] The divider is focusable and exposes an accessible role/name (a
-      `separator`-style control with an aria-label).
-- [ ] Arrow Up / Arrow Down move the split by a fixed step (clamped by FR-002).
-- [ ] Double-clicking the divider restores `DEFAULT_EDITOR_HEIGHT`.
+- [ ] The three options form a single focusable control group (radio/segmented
+      semantics) with an accessible group label and per-option accessible names.
+- [ ] The options are selectable via keyboard (focus + Enter/Space or arrow-key
+      selection consistent with the control's role).
+- [ ] The selected option is programmatically indicated (e.g. `aria-pressed` /
+      `aria-checked` / `aria-current`) for assistive tech.
 
-### FR-004: Session persistence of the split
+### FR-004: Session persistence of the preset
 
 #### Description:
 
-The editor height persists per-user in `sessionStorage`, so switching query tabs or
-reloading within the session keeps the user's chosen split. A disabled/failed
+The chosen preset persists per-user in `sessionStorage`, so switching query tabs or
+reloading within the session keeps the user's chosen layout. A disabled/failed
 storage degrades to non-persistent (never crashes the workspace).
 
 #### Acceptance Criteria:
 
-- [ ] After resizing and switching tabs, the split is unchanged.
-- [ ] After resizing and reloading the page, the split is restored.
-- [ ] With `sessionStorage` unavailable, resize still works for the session (just
-      not persisted) and no error surfaces.
+- [ ] After choosing a preset and switching tabs, the preset is unchanged.
+- [ ] After choosing a preset and reloading the page, the preset is restored.
+- [ ] With `sessionStorage` unavailable, preset selection still works for the session
+      (just not persisted) and no error surfaces.
+- [ ] With no stored value, the workspace opens at the **Even** default.
 
 ---
 
@@ -113,55 +133,72 @@ storage degrades to non-persistent (never crashes the workspace).
 
 ```ts
 // apps/portal/src/features/query/query.constants.ts
-export const DEFAULT_EDITOR_HEIGHT = 200; // px — today's fixed h-[200px]
-export const MIN_EDITOR_HEIGHT = 96;      // px — editor drag floor
-export const MIN_RESULTS_HEIGHT = 120;    // px — results-region drag floor
-export const EDITOR_RESIZE_STEP_PX = 16;  // px per Arrow key press
-export const QUERY_EDITOR_HEIGHT_STORAGE_PREFIX = 's3portal.query.editorHeight.';
+export type EditorLayoutPreset = 'editor' | 'even' | 'results';
 
-// Hook state: a single number (editor height in px), clamped and persisted.
+export const DEFAULT_LAYOUT_PRESET: EditorLayoutPreset = 'even';
+
+// Editor-pane share of the editor+results column height, per preset.
+export const LAYOUT_PRESET_EDITOR_FRACTION: Record<EditorLayoutPreset, number> = {
+  editor: 0.9,
+  even: 0.5,
+  results: 0.1,
+};
+
+export const MIN_EDITOR_HEIGHT = 96;   // px — editor floor (Results preset clamp)
+export const MIN_RESULTS_HEIGHT = 120; // px — results-region floor (Editor preset clamp)
+export const QUERY_EDITOR_LAYOUT_STORAGE_PREFIX = 's3portal.query.editorLayout.';
+
+// Hook state: the selected preset; the pixel height is derived from the preset,
+// the container height, and the min-height clamps.
 ```
 
 ## API / Interface Contract
 
 ```ts
-// apps/portal/src/features/query/useEditorHeight.ts
-export type UseEditorHeightResult = {
-  height: number;                 // current editor height (px), clamped
-  setHeight: (px: number) => void;// clamp to [MIN_EDITOR_HEIGHT, max] + persist
-  reset: () => void;              // back to DEFAULT_EDITOR_HEIGHT
+// apps/portal/src/features/query/useEditorLayout.ts
+export type UseEditorLayoutResult = {
+  preset: EditorLayoutPreset;              // current selection (persisted)
+  setPreset: (p: EditorLayoutPreset) => void; // select + persist
+  editorHeight: number;                    // derived px height, clamped to floors
 };
-export function useEditorHeight(username: string | null, containerHeight: number): UseEditorHeightResult;
+export function useEditorLayout(
+  username: string | null,
+  containerHeight: number,
+): UseEditorLayoutResult;
 
-// A small presentational <ResizableDivider> handles pointer drag + Arrow keys +
-// double-click, calling setHeight/reset; QueryWorkspace owns the height and applies
-// it to the editor pane (replacing the fixed h-[200px]).
+// A small presentational <EditorLayoutControl> renders the three-option segmented
+// control (accessible group + selection state), calling setPreset. QueryWorkspace
+// owns the height and applies editorHeight to the editor pane (replacing the fixed
+// h-[200px]); the results region takes the remainder and scrolls internally.
 ```
 
 ## File & Folder Structure
 
 ```
 apps/portal/src/features/query/
-├── useEditorHeight.ts          # clamp + session persistence (+ .test.ts)
-├── ResizableDivider.tsx        # pointer/keyboard/dbl-click handle (+ .test.tsx, a11y)
-├── QueryWorkspace.tsx          # apply height to the editor pane; render the divider
-└── query.constants.ts          # heights + step + storage prefix
+├── useEditorLayout.ts           # preset → clamped height + session persistence (+ .test.ts)
+├── EditorLayoutControl.tsx      # three-option segmented control (+ .test.tsx, a11y)
+├── QueryWorkspace.tsx           # apply derived height to the editor pane; render the control
+└── query.constants.ts           # presets, fractions, floors, storage prefix
 ```
 
 ## Implementation Phases
 
-### Phase 1: Height state + persistence
+### Phase 1: Preset state + persistence
 
-- `useEditorHeight` with clamp to the container and `sessionStorage` persistence
-  (degrade-safe); unit tests for clamp/persist/reset.
+- `useEditorLayout` deriving the clamped editor height from the selected preset +
+  container height + min-height floors, with `sessionStorage` persistence
+  (degrade-safe, default **even**); unit tests for preset→height, clamping, persist,
+  and default.
 
-### Phase 2: Divider component + wiring
+### Phase 2: Layout control + wiring
 
-- `ResizableDivider` (pointer drag, Arrow keys, double-click reset); replace the
-  editor's fixed `h-[200px]` with the hook height; ensure Monaco re-layouts and the
-  results region keeps scrolling internally. Component + a11y tests.
+- `EditorLayoutControl` (accessible three-option segmented control with selection
+  state); replace the editor's fixed `h-[200px]` with the derived height; ensure
+  Monaco re-layouts and the results region keeps scrolling internally. Component +
+  a11y tests.
 
 ### Phase 3: Completion ritual
 
-- Delivery doc, INDEX status, component-inventory rows (`useEditorHeight`,
-  `ResizableDivider`).
+- Delivery doc, INDEX status, component-inventory rows (`useEditorLayout`,
+  `EditorLayoutControl`).

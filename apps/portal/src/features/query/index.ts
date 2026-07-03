@@ -16,6 +16,8 @@ export {useQueryResults} from './useQueryResults';
 export type {UseQueryResultsResult} from './useQueryResults';
 export {useColumnWidths} from './useColumnWidths';
 export type {UseColumnWidthsResult} from './useColumnWidths';
+export {useEditorLayout} from './useEditorLayout';
+export type {UseEditorLayoutResult} from './useEditorLayout';
 export {useSchema, invalidateSchema} from './useSchema';
 export type {SchemaData} from './useSchema';
 export {useQueryHistory} from './useQueryHistory';
@@ -37,8 +39,13 @@ export {
   DEFAULT_COLUMN_WIDTH,
   MIN_COLUMN_WIDTH,
   COLUMN_RESIZE_STEP_PX,
-  DEFAULT_SQL
+  DEFAULT_SQL,
+  DEFAULT_LAYOUT_PRESET,
+  LAYOUT_PRESET_EDITOR_FRACTION,
+  MIN_EDITOR_HEIGHT,
+  MIN_RESULTS_HEIGHT
 } from './query.constants';
+export type {EditorLayoutPreset} from './query.constants';
 export type {
   QueryState,
   QueryStatus,

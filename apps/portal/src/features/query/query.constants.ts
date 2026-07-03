@@ -87,6 +87,30 @@ export const MIN_COLUMN_WIDTH = 72; // px
 export const COLUMN_RESIZE_STEP_PX = 16; // px per Arrow key press
 
 /**
+ * Editor/results layout presets (SPEC-079): the vertical split snaps to one of
+ * three fixed proportions — no continuous drag.
+ */
+export type EditorLayoutPreset = 'editor' | 'even' | 'results';
+
+export const DEFAULT_LAYOUT_PRESET: EditorLayoutPreset = 'even';
+
+/** Editor-pane share of the editor+results column height, per preset. */
+export const LAYOUT_PRESET_EDITOR_FRACTION: Record<EditorLayoutPreset, number> = {
+  editor: 0.9,
+  even: 0.5,
+  results: 0.1
+};
+
+// Minimum-height floors so the extreme presets never collapse a pane to an
+// unusable size (SPEC-079 FR-002). When a short viewport can't honor both,
+// the editor floor wins (see useEditorLayout).
+export const MIN_EDITOR_HEIGHT = 96; // px — editor floor (Results preset clamp)
+export const MIN_RESULTS_HEIGHT = 120; // px — results-region floor (Editor preset clamp)
+
+/** sessionStorage key prefix for the per-user layout preset (full key: prefix + username). */
+export const QUERY_EDITOR_LAYOUT_STORAGE_PREFIX = 's3portal.query.editorLayout.';
+
+/**
  * The boilerplate a brand-new first tab opens with (a `+` blank tab opens
  * empty). Shared by the workspace and the tabs-state factory.
  */

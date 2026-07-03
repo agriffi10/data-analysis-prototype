@@ -1,4 +1,4 @@
-import {Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
@@ -15,6 +15,8 @@ import {useResultRowCount} from './useResultRowCount';
 import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
+import {useEditorLayout} from './useEditorLayout';
+import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
 import {invalidateSchema, useAllSchemas} from './useSchema';
@@ -150,6 +152,22 @@ export function QueryWorkspace() {
 
   const tabs = useQueryTabs(username);
   const {activeTab, activeTabId} = tabs;
+
+  // SPEC-079: the editor/results layout preset. The editor+results column is
+  // measured (ResizeObserver, guarded for environments without one) and the
+  // hook derives the editor pane's clamped pixel height from the preset.
+  const layoutColumnRef = useRef<HTMLDivElement>(null);
+  const [layoutColumnHeight, setLayoutColumnHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = layoutColumnRef.current;
+    if (!el) return;
+    setLayoutColumnHeight(el.clientHeight);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setLayoutColumnHeight(el.clientHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const layout = useEditorLayout(username || null, layoutColumnHeight);
 
   // Per-tab run state, keyed by tab id (in-memory for the session).
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
@@ -751,6 +769,10 @@ export function QueryWorkspace() {
           aria-labelledby={`query-tab-${activeTabId}`}
           className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
+            <EditorLayoutControl
+              preset={layout.preset}
+              onChange={layout.setPreset}
+            />
             <div className="flex-1" />
             <Button
               variant="ghost"
@@ -862,76 +884,85 @@ export function QueryWorkspace() {
             )}
           </div>
 
-          <div className="h-[200px] flex-none border-b border-border">
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
-                  Loading editor&hellip;
-                </div>
-              }>
-              <SqlEditor
-                ref={editorRef}
-                value={activeTab.sql}
-                onChange={tabs.setActiveSql}
-                onRun={handleRun}
-                completionSchemas={completionSchemas}
-              />
-            </Suspense>
-          </div>
-
-          {activeExecutionId !== null && (
-            <QueryStatusBar
-              status={activeStatus}
-              isInFlight={activeIsInFlight}
-              startedAt={activeRun?.startedAt ?? null}
-              rowCount={succeeded ? results.loadedRowCount : undefined}
-              hasMoreRows={results.hasMoreServer}
-              hasResultSet={hasResultSet}
-              totalRowCount={rowCount.total}
-              atRowCeiling={rowCount.atCeiling}
-              canSaveResults={canSaveResults}
-              onSaveResults={() => setSaveResultsOpen(true)}
-            />
-          )}
-
-          {showError && (
-            <div className="px-5 pt-4">
-              <Banner
-                variant="danger"
-                title="Query failed."
-                onDismiss={() => {
-                  setRunErrors((e) => ({...e, [activeTabId]: null}));
-                  setDismissed((d) => ({...d, [activeTabId]: true}));
-                }}>
-                <code className="font-mono text-xs">{errorMessage}</code>
-              </Banner>
+          {/* SPEC-079: the measured editor+results column. The editor pane takes
+              the preset's clamped height; everything below it (status bar +
+              results) flexes into the remainder and keeps scrolling internally. */}
+          <div
+            ref={layoutColumnRef}
+            className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div
+              className="flex-none border-b border-border"
+              style={{height: layout.editorHeight}}>
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
+                    Loading editor&hellip;
+                  </div>
+                }>
+                <SqlEditor
+                  ref={editorRef}
+                  value={activeTab.sql}
+                  onChange={tabs.setActiveSql}
+                  onRun={handleRun}
+                  completionSchemas={completionSchemas}
+                />
+              </Suspense>
             </div>
-          )}
 
-          <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-            {succeeded ? (
-              <QueryResultsTable
-                columns={results.columns}
-                rows={results.rows}
-                pageIndex={results.pageIndex}
-                rangeStart={results.rangeStart}
-                rangeEnd={results.rangeEnd}
-                totalRowCount={results.totalRowCount}
-                hasPrev={results.hasPrev}
-                hasNext={results.hasNext}
-                isFetchingNext={results.isFetchingNext}
-                isLoading={results.isPending}
-                widths={colWidths.widths}
-                onResize={colWidths.setWidth}
-                onResetColumn={colWidths.resetColumn}
-                onPrev={results.goPrev}
-                onNext={results.goNext}
+            {activeExecutionId !== null && (
+              <QueryStatusBar
+                status={activeStatus}
+                isInFlight={activeIsInFlight}
+                startedAt={activeRun?.startedAt ?? null}
+                rowCount={succeeded ? results.loadedRowCount : undefined}
+                hasMoreRows={results.hasMoreServer}
+                hasResultSet={hasResultSet}
+                totalRowCount={rowCount.total}
+                atRowCeiling={rowCount.atCeiling}
+                canSaveResults={canSaveResults}
+                onSaveResults={() => setSaveResultsOpen(true)}
               />
-            ) : (
-              <p className="flex h-full items-center justify-center text-sm text-text-3">
-                {activeIsInFlight ? 'Running your query…' : 'Run a query to see results.'}
-              </p>
             )}
+
+            {showError && (
+              <div className="px-5 pt-4">
+                <Banner
+                  variant="danger"
+                  title="Query failed."
+                  onDismiss={() => {
+                    setRunErrors((e) => ({...e, [activeTabId]: null}));
+                    setDismissed((d) => ({...d, [activeTabId]: true}));
+                  }}>
+                  <code className="font-mono text-xs">{errorMessage}</code>
+                </Banner>
+              </div>
+            )}
+
+            <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
+              {succeeded ? (
+                <QueryResultsTable
+                  columns={results.columns}
+                  rows={results.rows}
+                  pageIndex={results.pageIndex}
+                  rangeStart={results.rangeStart}
+                  rangeEnd={results.rangeEnd}
+                  totalRowCount={results.totalRowCount}
+                  hasPrev={results.hasPrev}
+                  hasNext={results.hasNext}
+                  isFetchingNext={results.isFetchingNext}
+                  isLoading={results.isPending}
+                  widths={colWidths.widths}
+                  onResize={colWidths.setWidth}
+                  onResetColumn={colWidths.resetColumn}
+                  onPrev={results.goPrev}
+                  onNext={results.goNext}
+                />
+              ) : (
+                <p className="flex h-full items-center justify-center text-sm text-text-3">
+                  {activeIsInFlight ? 'Running your query…' : 'Run a query to see results.'}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </main>
