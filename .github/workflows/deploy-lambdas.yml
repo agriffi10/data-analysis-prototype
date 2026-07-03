@@ -57,7 +57,7 @@ jobs:
           pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
           # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
           # Keep this list in sync with lambdas/shared-space-common/.
-          for m in config clients auth registry membership cache notify teardown; do
+          for m in config clients casio auth registry membership cache notify teardown; do
             cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
           done
           (cd build/layer && zip --quiet --recurse-paths ../shared-space-common-layer.zip .)

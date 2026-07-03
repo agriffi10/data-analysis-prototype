@@ -18,25 +18,13 @@ import logging
 
 import config
 import clients
+import casio
 
 logger = logging.getLogger()
-
-# Contention is rare (one user in a few concurrent ops), so a small cap is plenty;
-# exhausting it raises rather than silently dropping a write.
-_MAX_CAS_ATTEMPTS = 6
 
 
 def _key(username):
     return f"{username}/user_settings/shared-connections.json"
-
-
-def _error_code(exc):
-    return str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
-
-
-def _is_precondition(exc):
-    """True when a conditional PutObject failed, i.e. a concurrent writer won."""
-    return _error_code(exc) in ("PreconditionFailed", "412")
 
 
 def _is_absent(exc):
@@ -46,9 +34,10 @@ def _is_absent(exc):
     AccessDenied`` for a missing key when the caller lacks ``s3:ListBucket``. Treating
     403 as absent is safe only because the create path is conditional: a
     present-but-unreadable object misread as absent would make the ``If-None-Match: *``
-    create fail with 412 rather than overwrite real data.
+    create fail with 412 rather than overwrite real data. (The registry deliberately
+    does NOT treat 403 as absent — its admin-bucket role has ``s3:ListBucket``.)
     """
-    return _error_code(exc) in ("NoSuchKey", "NotFound", "404", "AccessDenied", "403")
+    return casio.error_code(exc) in ("NoSuchKey", "NotFound", "404", "AccessDenied", "403")
 
 
 def _read(username):
@@ -64,7 +53,7 @@ def _read(username):
         return [], None
     except s3.exceptions.ClientError as exc:
         if _is_absent(exc):
-            logger.warning("cache read for %s treated as absent: %s", username, _error_code(exc))
+            logger.warning("cache read for %s treated as absent: %s", username, casio.error_code(exc))
             return [], None
         raise
     try:
@@ -99,22 +88,14 @@ def _mutate(username, fn):
 
     Read (+ETag), apply ``fn``, write conditionally; retry on a concurrent-writer
     precondition failure. A no-op change skips the write so removing an absent entry
-    stays a true no-op.
+    stays a true no-op. The CAS loop is the shared ``casio`` primitive (SPEC-082).
     """
-    s3 = clients.s3()
-    for attempt in range(_MAX_CAS_ATTEMPTS):
-        connections, etag = _read(username)
-        updated = fn(list(connections))
-        if updated == connections:
-            return  # nothing changed — don't write
-        try:
-            _write(username, updated, etag)
-            return
-        except s3.exceptions.ClientError as exc:
-            if _is_precondition(exc) and attempt < _MAX_CAS_ATTEMPTS - 1:
-                continue  # a concurrent writer won; re-read and reapply
-            raise
-    raise RuntimeError(f"cache CAS for {username} exhausted {_MAX_CAS_ATTEMPTS} attempts")
+    casio.cas_mutate(
+        read=lambda: _read(username),
+        apply=lambda connections: fn(list(connections)),
+        write=lambda connections, etag: _write(username, connections, etag),
+        label=f"cache/{username}",
+    )
 
 
 def upsert_entry(username, entry):

@@ -1,7 +1,7 @@
 # Spec: Shared-Space Registry Write Concurrency (optimistic CAS)
 
 **ID:** SPEC-082
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-02
 **Depends On:** SPEC-056, SPEC-062 (shared-space control plane + verb Lambdas)
 

@@ -87,7 +87,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 079 — Resizable Editor / Results Split | Draft |
 | 080 — Total Row Count in Query Stats | Completed |
 | 081 — Double-Click a File to Download | Completed |
-| 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Draft |
+| 082 — Shared-Space Registry Write Concurrency (optimistic CAS) | Completed |
 | 083 — Code-Quality Hardening (Lambda config/shape/types + Lambda & SPA cleanup smells) | Draft |
 | 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Draft |
 | 085 — Collapsible Side Nav (shared base rail + collapse control) | Draft |
