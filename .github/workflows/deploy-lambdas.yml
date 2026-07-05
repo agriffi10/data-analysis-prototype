@@ -362,6 +362,11 @@ jobs:
             sleep 10
           done
 
+          # A just-created function can still be in state Pending/Creating (the same
+          # push's Deploy Infrastructure run), and update-function-code then fails
+          # with ResourceConflictException — wait for Active first (hit on SPEC-088).
+          aws lambda wait function-active-v2 --function-name "$FUNCTION"
+
           aws s3 cp "build/${{ matrix.lambda.name }}.zip" "s3://${BUCKET}/${KEY}"
           aws lambda update-function-code \
             --function-name "$FUNCTION" \
