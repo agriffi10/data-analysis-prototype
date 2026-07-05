@@ -1,5 +1,5 @@
 {
-  "Comment": "Table-share control plane SKELETON (SPEC-088). validate-authorize → inspect-source run once per request; a Map fans out over $.recipients running check-target-absent → copy-objects → create-table per recipient with a per-item Catch (one recipient's failure never aborts its siblings — architecture §2). The verb bodies are placeholder pass-throughs here; the real logic, error taxonomy, and structured terminal outcomes land in SPEC-089→092. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "Comment": "Table-share control plane (SPEC-088 skeleton; verbs real since SPEC-089→092). validate-authorize → inspect-source run once per request; a Map fans out over $.recipients running check-target-absent → copy-objects → create-table per recipient with a per-item Catch (one recipient's failure never aborts its siblings — architecture §2). ShapeSummary/RecordFailure carry the structured terminal outcomes SPEC-094 notifies from. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -175,9 +175,10 @@
           },
           "RecipientSucceeded": {
             "Type": "Pass",
-            "Comment": "Per-recipient success record (SPEC-092 finalizes the shape): the Map item's outcome the summary + SPEC-094 notifications read.",
+            "Comment": "Per-recipient success record (SPEC-092 final shape): a flat {kind, name, status} summary entry — what ShapeSummary collects and SPEC-094 notifications read.",
             "Parameters": {
-              "recipient.$": "$.recipient",
+              "kind.$": "$.recipient.kind",
+              "name.$": "$.recipient.name",
               "status": "ok"
             },
             "End": true
@@ -193,9 +194,10 @@
           },
           "RecipientFailed": {
             "Type": "Pass",
-            "Comment": "Per-item terminal-failure record. Ends the ITEM, not the Map: sibling recipients continue. reason carries the verb's 'reason: detail' TerminalError string (unknown_user/unknown_space/conflict/target_not_readable/copy_failed…).",
+            "Comment": "Per-item terminal-failure record (flat summary entry). Ends the ITEM, not the Map: sibling recipients continue. reason carries the verb's 'reason: detail' TerminalError string (unknown_user/unknown_space/conflict/target_not_readable/copy_failed/create_failed…).",
             "Parameters": {
-              "recipient.$": "$.recipient",
+              "kind.$": "$.recipient.kind",
+              "name.$": "$.recipient.name",
               "status": "failed",
               "reason.$": "$.cause.errorMessage"
             },
@@ -210,6 +212,17 @@
           "Next": "ParseError"
         }
       ],
+      "Next": "ShapeSummary"
+    },
+    "ShapeSummary": {
+      "Type": "Pass",
+      "Comment": "The whole-request success outcome (SPEC-092 FR-003): identity + the per-recipient summary array collected from the Map ({kind, name, status:'ok'|'failed', reason?} each). The Succeed state passes this through as the execution output — what SPEC-094's sender/recipient notifications read.",
+      "Parameters": {
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "tableName.$": "$.tableName",
+        "results.$": "$.recipientResults"
+      },
       "Next": "Succeeded"
     },
     "ValidateFailureSeed": {

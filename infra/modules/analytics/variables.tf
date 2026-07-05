@@ -85,3 +85,9 @@ variable "table_builder_execution_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "table_share_execution_role_arn" {
+  description = "SPEC-092: ARN of the table-share shared execution role (all five verbs run under it), added as a Lake Formation admin so check-target-absent can Describe and create-table can CREATE tables in the dynamic recipient databases (per-user + per-shared-space — not enumerable in static Terraform), and so inspect-source can read LF-gated source tables. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  type        = string
+  default     = ""
+}

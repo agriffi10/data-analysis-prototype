@@ -28,7 +28,10 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   #     Describe/create via LF admin). Constructed string; the role is created by
   #     module.table_builder (which depends_on this module), so a from-scratch first
   #     apply may need a re-run once the role exists (SPEC-070 FR-005).
-  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn, var.table_builder_execution_role_arn])
+  #   - table-share execution role (SPEC-092; same model) — reads LF-gated source
+  #     tables (inspect-source), Describes recipient DBs (check-target-absent) and
+  #     CREATEs the clone tables (create-table) in the dynamic recipient DBs.
+  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn, var.table_builder_execution_role_arn, var.table_share_execution_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.

@@ -76,3 +76,11 @@ variable "shared_space_bucket_name" {
   type        = string
   default     = ""
 }
+
+# ── SPEC-092: recipient table creation (create-table) ─────────────────────────
+
+variable "athena_workgroup" {
+  description = "SPEC-092: name of the shared analytics workgroup (SPEC-032) create-table runs the recipient CREATE EXTERNAL TABLE in — the same LF-enforced path the table-builder and app queries use. Scopes the execution role's athena:* grant and feeds the verbs' ATHENA_WORKGROUP env."
+  type        = string
+  default     = ""
+}

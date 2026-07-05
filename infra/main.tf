@@ -71,6 +71,15 @@ locals {
   # it (LF rejects an unknown admin principal) — no from-scratch re-run needed.
   table_builder_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-builder-execution-role"
 
+  # Table-share SHARED execution role ARN (SPEC-092; one role for all five verbs, user
+  # decision mirroring the table-builder). Added to the analytics Lake Formation admins
+  # list as a CONSTRUCTED STRING — known at plan time so it's compact()-safe — because
+  # the recipient databases are DYNAMIC (per-user + per-shared-space): check-target-absent
+  # Describes and create-table CREATEs in DBs static Terraform can't enumerate.
+  # module.analytics depends_on module.table_share, so the role exists BEFORE
+  # data_lake_settings references it (LF rejects an unknown admin principal).
+  table_share_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
+
   # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
   # Passed to module.data so the user-space bucket policy can EXCLUDE it from the
@@ -258,13 +267,18 @@ module "analytics" {
   # above) — known at plan time so it's compact()-safe.
   table_builder_execution_role_arn = local.table_builder_execution_role_arn
 
+  # SPEC-092: add the table-share shared execution role as a Lake Formation admin for
+  # the same reason — its verbs Describe (check-target-absent) + CREATE (create-table)
+  # tables in the dynamic recipient databases. Constructed string (locals above).
+  table_share_execution_role_arn = local.table_share_execution_role_arn
+
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF
-  # and attaches the analytics policy to; shared_spaces + table_builder create the
-  # orchestrator/execution roles added to the LF admins list (they must exist before
-  # data_lake_settings references them — LF rejects an unknown admin principal). Force
-  # all to settle first.
-  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder]
+  # and attaches the analytics policy to; shared_spaces + table_builder + table_share
+  # create the orchestrator/execution roles added to the LF admins list (they must
+  # exist before data_lake_settings references them — LF rejects an unknown admin
+  # principal). Force all to settle first.
+  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder, module.table_share]
 }
 
 # Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control
@@ -405,8 +419,8 @@ module "table_builder" {
 # decision record: docs/table-share-architecture.md. Standalone-deployable: names
 # derive from {project}-{environment} inside the module. The deploy-role grants this
 # module needs landed + applied in SPEC-088 PR1, so no in-module time_sleep guard is
-# required. SPEC-092 later adds the execution role to the analytics LF admins list
-# (module.analytics gains depends_on module.table_share then).
+# required. SPEC-092: the shared execution role is on the analytics LF admins list
+# (module.analytics depends_on module.table_share for the role-exists ordering).
 module "table_share" {
   source = "./modules/table-share"
 
@@ -428,6 +442,9 @@ module "table_share" {
   # inspect-source lists them for the copy plan (constructed names — plans standalone).
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
+
+  # SPEC-092: the analytics workgroup create-table runs the recipient CREATE in.
+  athena_workgroup = local.athena_workgroup_name
 
   # base grants the deploy role its table-share perms (SPEC-088 PR1, already
   # applied); data creates the portal role this module attaches the enqueue policy
