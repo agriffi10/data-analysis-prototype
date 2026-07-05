@@ -42,19 +42,13 @@ locals {
     suffix => "${var.project_name}-${var.environment}-table-builder-${suffix}"
   }
 
-  # Per-verb extra env, merged over the common bucket-name env (lambda.tf). Only
-  # validate-authorize needs the Cognito pool/client (offline token verify, SPEC-067);
-  # execute-ddl needs the analytics workgroup to run the CREATE (SPEC-070); later
-  # verbs' action env is added by their owning specs.
-  table_builder_verb_env = {
-    "validate-authorize" = {
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-    }
-    "execute-ddl" = {
-      ATHENA_WORKGROUP = var.athena_workgroup
-    }
-  }
+  # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR
+  # OPTIONAL action env only: everything tbcommon/config.py _require()s must live
+  # in the COMMON env instead — the shared layer's import-time fail-fast runs for
+  # every verb (each imports notify → config), so a verb missing any required var
+  # crashes at cold start (the 2026-07-05 production break). The Cognito pair +
+  # workgroup moved to the common env for that reason.
+  table_builder_verb_env = {}
 
   # Constructed function ARNs (known at plan time) — fed to the SFN role's
   # InvokeFunction list and the Step Function tasks.

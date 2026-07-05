@@ -44,11 +44,13 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # Source-bucket names every reading verb needs (SPEC-068→070 use them) + the per-verb
-  # action env merged in (locals.tf): validate-authorize gets the Cognito pool/client
-  # for offline token verification (SPEC-067); other verbs' action env lands with their
-  # owning specs. NOTIFICATIONS_QUEUE_URL is COMMON — every verb emits an outcome
-  # notification to the actor (SPEC-072), a no-op when unset.
+  # EVERY variable tbcommon/config.py _require()s at import must be COMMON to all
+  # five verbs: the shared layer's config runs its fail-fast (SPEC-083 FR-001) on
+  # any `from tbcommon import …` chain (every verb imports notify → config), so a
+  # verb missing ANY required var crashes at cold start — the 2026-07-05 production
+  # break (check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset). Per-verb
+  # env (local.table_builder_verb_env) is reserved for OPTIONAL action env only.
+  # NOTIFICATIONS_QUEUE_URL stays optional (emit is a no-op when unset).
   environment {
     variables = merge(
       {
@@ -56,6 +58,9 @@ resource "aws_lambda_function" "functions" {
         SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
         ADMIN_BUCKET            = var.admin_bucket_name
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
+        COGNITO_USER_POOL_ID    = var.user_pool_id
+        COGNITO_APP_CLIENT_ID   = var.app_client_id
+        ATHENA_WORKGROUP        = var.athena_workgroup
       },
       lookup(local.table_builder_verb_env, each.key, {}),
     )
