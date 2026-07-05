@@ -29,13 +29,35 @@ locals {
   # need (a small validator ≠ a long parallel S3 copy — lambdas.md §4).
   # validate-authorize + inspect-source run once per request; the other three run
   # per recipient inside the Step Function Map (stepfunction.tf).
+  # Module names carry the table_share_ prefix so they can't collide with the
+  # table-builder's identically-named verbs on sys.modules under one
+  # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
   table_share_functions = {
-    "validate-authorize"  = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
-    "inspect-source"      = { handler = "inspect_source.handler", timeout = 60, memory = 512 }
-    "check-target-absent" = { handler = "check_target_absent.handler", timeout = 15, memory = 256 }
-    "copy-objects"        = { handler = "copy_objects.handler", timeout = 900, memory = 1024 }
-    "create-table"        = { handler = "create_table.handler", timeout = 300, memory = 512 }
+    "validate-authorize"  = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
+    "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 60, memory = 512 }
+    "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
+    "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
+    "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
   }
+
+  # Per-verb extra env, merged over the common env (lambda.tf). Only
+  # validate-authorize needs the Cognito pool/client (offline token verify) + the
+  # admin bucket (registry reads) at this stage (SPEC-089); later verbs' action env
+  # is added by their owning specs.
+  table_share_verb_env = {
+    "validate-authorize" = {
+      COGNITO_USER_POOL_ID  = var.user_pool_id
+      COGNITO_APP_CLIENT_ID = var.app_client_id
+      ADMIN_BUCKET          = var.admin_bucket_name
+    }
+  }
+
+  # ARNs for the execution role's SPEC-089 grants (constructed, known at plan).
+  admin_bucket_arn  = "arn:aws:s3:::${var.admin_bucket_name}"
+  user_pool_arn     = "arn:aws:cognito-idp:${var.aws_region}:${var.account_id}:userpool/${var.user_pool_id}"
+  glue_catalog_arn  = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
+  glue_database_any = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
+  glue_table_any    = "arn:aws:glue:${var.aws_region}:${var.account_id}:table/*/*"
 
   table_share_function_names = {
     for suffix, _ in local.table_share_functions :

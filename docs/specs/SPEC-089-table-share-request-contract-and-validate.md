@@ -1,7 +1,7 @@
 # Spec: Table Share — Request Contract, Enqueue & Validate-Authorize
 
 **ID:** SPEC-089
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-088 (foundation), SPEC-056 (registry + ID-token actor), SPEC-067 (table-builder request-contract precedent), SPEC-033/048 (`CATALOG_IDENTIFIER_RE`)
 

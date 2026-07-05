@@ -298,6 +298,13 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `PartitionKeysField` | `PartitionKeysField.tsx` | Controlled, ordered, reorderable/removable partition-key rows (name + type `<select>` + per-type projection config) with focus management + labelled dynamic rows (SPEC-071). |
 | `TableBuildRequest`, `PartitionKey`, `DraftPartitionKey`, `PartitionKeyErrors`, `PartitionType`, `PartitionKeysResult` | `tableBuild.types.ts`, `partitionKeys.ts` | The request + wire partition-key shapes (match the SPEC-067 contract) + the editor's draft/error/result types (SPEC-071). |
 
+## Table-share feature (`apps/portal/src/features/table-share/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `enqueueTableShare(req)` | `tableShare.service.ts` | The browser's only table-share call: builds the SPEC-089 envelope (`actor` ID token + `source` + `tableName` + `recipients[]`) and FIFO-sends to `VITE_TABLE_SHARE_QUEUE_URL` (`MessageGroupId` = `"{db}.{table}"`, dedup = SHA-256 content hash + 1-min bucket) via `getSqsClient`; `ServiceResult<void>` (enqueued ≠ shared), never throws (SPEC-089). |
+| `ShareRecipient`, `TableShareRequest` | `tableShare.types.ts` | The share-request shapes matching the SPEC-089 contract (SPEC-089). |
+
 ## Help feature (`apps/portal/src/features/help/`)
 
 | Symbol | File | Purpose |

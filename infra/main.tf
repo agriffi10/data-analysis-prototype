@@ -415,7 +415,17 @@ module "table_share" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
+  # SPEC-089: the portal role this module attaches the sqs:SendMessage enqueue
+  # policy to (by name), the Cognito pool/client validate-authorize verifies tokens
+  # with, and the admin bucket holding the shared-spaces registry (source authz +
+  # recipient-space existence — read-only).
+  portal_role_name  = local.portal_role_name
+  user_pool_id      = module.auth.user_pool_id
+  app_client_id     = module.auth.user_pool_client_id
+  admin_bucket_name = local.athena_admin_bucket_name
+
   # base grants the deploy role its table-share perms (SPEC-088 PR1, already
-  # applied). Settle that first.
-  depends_on = [module.base]
+  # applied); data creates the portal role this module attaches the enqueue policy
+  # to. Settle both first.
+  depends_on = [module.base, module.data]
 }

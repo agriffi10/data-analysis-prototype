@@ -1,5 +1,38 @@
-"""Lazy, cached AWS + JWKS client factories for the table-share verbs (SPEC-089+ fills this in; mirrors tbcommon.clients).
+"""Lazy, cached AWS + JWKS client factories.
 
-Stub namespace (SPEC-088): the module exists so the tscommon package/layer
-layout is stable across the arc; it holds no production logic yet.
+Clients are created once per warm container and reused. Heavy deps (boto3, PyJWT)
+are imported lazily so a verb that doesn't need a client never pays for it. Tests
+patch the cached globals directly (e.g. clients._s3 = Fake()).
 """
+
+_s3 = None
+_cognito = None
+_jwks = None
+
+
+def s3():
+    global _s3
+    if _s3 is None:
+        import boto3
+
+        _s3 = boto3.client("s3")
+    return _s3
+
+
+def cognito():
+    global _cognito
+    if _cognito is None:
+        import boto3
+
+        _cognito = boto3.client("cognito-idp")
+    return _cognito
+
+
+def jwks(url):
+    """Return the cached PyJWKClient for the User Pool JWKS endpoint."""
+    global _jwks
+    if _jwks is None:
+        from jwt import PyJWKClient
+
+        _jwks = PyJWKClient(url)
+    return _jwks

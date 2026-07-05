@@ -4,7 +4,7 @@
   "States": {
     "ValidateAuthorize": {
       "Type": "Task",
-      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the parsed request object the whole state for the next steps. SPEC-089 replaces the placeholder with the real token-verify/authorize logic + a structured recorded-failure terminal.",
+      "Comment": "First step (real since SPEC-089): verifies the ID token into the actor, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",
@@ -17,7 +17,8 @@
             "Lambda.ServiceException",
             "Lambda.TooManyRequestsException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "TransientError"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
@@ -27,8 +28,7 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "ResultPath": "$.error",
-          "Next": "Failed"
+          "Next": "ValidateFailureSeed"
         }
       ],
       "Next": "InspectSource"
@@ -47,7 +47,8 @@
             "Lambda.ServiceException",
             "Lambda.TooManyRequestsException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "TransientError"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
@@ -58,7 +59,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "Failed"
+          "Next": "ParseError"
         }
       ],
       "Next": "ShareToRecipients"
@@ -183,10 +184,42 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "Failed"
+          "Next": "ParseError"
         }
       ],
       "Next": "Succeeded"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared ParseError/RecordFailure path is uniform for every whole-request failure.",
+      "Parameters": {
+        "actor": null,
+        "source": { "database": null, "table": null },
+        "tableName": null,
+        "error.$": "$"
+      },
+      "Next": "ParseError"
+    },
+    "ParseError": {
+      "Type": "Pass",
+      "Comment": "Decode the Lambda error Cause (a JSON string) so RecordFailure can read the errorMessage — the 'reason: detail' string TerminalError raised (e.g. 'forbidden: …').",
+      "Parameters": {
+        "cause.$": "States.StringToJson($.error.Cause)"
+      },
+      "ResultPath": "$.parsed",
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome { actor, source, tableName, status:'failed', reason } SPEC-094 notifies from, then fails the execution. Per-RECIPIENT failures never come here — they end their Map item via RecipientFailed and siblings continue.",
+      "Parameters": {
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "tableName.$": "$.tableName",
+        "status": "failed",
+        "reason.$": "$.parsed.cause.errorMessage"
+      },
+      "Next": "Failed"
     },
     "Succeeded": {
       "Type": "Succeed"
@@ -194,7 +227,7 @@
     "Failed": {
       "Type": "Fail",
       "Error": "TableShareFailed",
-      "Cause": "The table-share control plane recorded an unrecoverable whole-request error (the structured recorded-failure outcome lands with SPEC-089→092)."
+      "Cause": "The table-share control plane recorded an unrecoverable whole-request error (see the RecordFailure state output for the structured { status:'failed', reason } outcome)."
     }
   }
 }

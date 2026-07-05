@@ -45,9 +45,15 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
+  # Per-verb action env (locals.tf): validate-authorize gets the Cognito
+  # pool/client for offline token verification + the admin bucket for registry
+  # reads (SPEC-089); other verbs' env lands with their owning specs
+  # (SPEC-090 buckets/caps, SPEC-092 workgroup).
+  environment {
+    variables = lookup(local.table_share_verb_env, each.key, {})
+  }
+
   # Bootstrap with the placeholder; CI replaces code + attaches the tscommon layer.
-  # No action env at this stage — each later spec wires the env its verb needs
-  # (SPEC-089 Cognito pool/client, SPEC-090 buckets/caps, SPEC-092 workgroup).
   filename         = data.archive_file.placeholder[each.key].output_path
   source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 

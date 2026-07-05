@@ -2,6 +2,34 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "RegistryRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
+    },
+    {
+      "Sid": "RecipientUserCheck",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:ListUsers"
+      ],
+      "Resource": "${user_pool_arn}"
+    },
+    {
+      "Sid": "GlueSourceRead",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetTable"
+      ],
+      "Resource": [
+        "${glue_catalog_arn}",
+        "${glue_database_any}",
+        "${glue_table_any}"
+      ]
+    },
+    {
       "Sid": "WriteLogs",
       "Effect": "Allow",
       "Action": [

@@ -37,3 +37,28 @@ variable "dlq_max_receive_count" {
   type        = number
   default     = 3
 }
+
+# ── SPEC-089: request contract + validate-authorize ──────────────────────────
+
+variable "portal_role_name" {
+  description = "SPEC-089: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (table-share queue only) inline policy to, by name — mirrors the table-builder/notifications modules."
+  type        = string
+}
+
+variable "user_pool_id" {
+  description = "SPEC-089: Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification, and used to build the pool ARN scoping the execution role's recipient-existence checks (AdminGetUser/ListUsers)."
+  type        = string
+  default     = ""
+}
+
+variable "app_client_id" {
+  description = "SPEC-089: Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
+  type        = string
+  default     = ""
+}
+
+variable "admin_bucket_name" {
+  description = "SPEC-089: name of the existing analytics admin bucket (SPEC-032). The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created here."
+  type        = string
+  default     = ""
+}
