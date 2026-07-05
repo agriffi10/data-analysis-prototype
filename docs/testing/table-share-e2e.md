@@ -106,3 +106,61 @@ The full envelope is defined in SPEC-089; for this smoke test any JSON body with
 - An **empty `recipients` array** is valid at this stage: the Map runs zero
   iterations and the execution still `Succeeded`s (per-recipient validation is
   SPEC-089's).
+
+---
+
+## SPEC-089 — request contract + validate-authorize
+
+### Request envelope (the contract)
+
+The browser enqueues this JSON body (FIFO: `MessageGroupId = "{source.database}.{source.table}"`,
+`MessageDeduplicationId` = SHA-256 of token + content + a 1-minute bucket — content
+dedup is OFF, this id is the only double-submit guard). The portal role gains
+`sqs:SendMessage` here; the UI that sends lands in SPEC-093.
+
+```jsonc
+{
+  "actor": "<cognito ID token>",           // REQUIRED; actor derived from the verified claim
+  "source": { "database": "alice", "table": "orders" },
+  "tableName": "orders_copy",              // catalog-safe (CATALOG_IDENTIFIER_RE); one name, all recipients
+  "recipients": [
+    { "kind": "user",  "name": "bob" },    // must exist in the User Pool
+    { "kind": "space", "name": "salesteam" } // must be an ACTIVE registry space (membership NOT required)
+  ]
+}
+```
+
+### What `validate-authorize` does (SPEC-089)
+
+Verifies the ID token **offline** (pool JWKS) → `actor`; authorizes the **source**
+(personal: `source.database == actor`; otherwise the actor must be an **active
+member** of that space per `<admin-bucket>/shared-spaces/{database}.json`); validates
+`tableName`; normalizes recipients (dedupe on kind+name) and **annotates** each with
+`valid` / `reason` (`unknown_user` / `unknown_space`) — an invalid recipient is NOT
+fatal (it fails per-recipient in the Map; siblings proceed). Whole-request terminals
+(`unauthorized` / `forbidden` / `invalid_table_name` / `invalid_recipients` /
+`no_recipients`) route Catch → `ValidateFailureSeed → ParseError → RecordFailure →
+Failed` with the structured `{actor, source, tableName, status:'failed', reason}`.
+
+### Checks
+
+1. **Forged / stub token is recorded-failed at validate** (live, CLI):
+
+   ```bash
+   QURL=$(aws sqs get-queue-url --queue-name dat-prod-table-share-requests.fifo --query QueueUrl --output text)
+   aws sqs send-message --queue-url "$QURL" \
+     --message-group-id alice.orders --message-deduplication-id smoke-089-bad-token \
+     --message-body '{"actor":"forged","source":{"database":"alice","table":"orders"},"tableName":"orders_copy","recipients":[{"kind":"user","name":"bob"}]}'
+   ```
+
+   Expect the newest execution **FAILED**, with the `RecordFailure` state output
+   carrying `status:"failed"`, null identity fields, and
+   `reason: "unauthorized: token verification failed: …"`; no downstream state ran.
+2. **Valid request** — not CLI-testable (the SPA app client is SRP/refresh-only, no
+   CLI-mintable ID token — same as SPEC-051/067); exercised end to end by SPEC-093's
+   UI. The recipient-annotation and authorization matrix is covered by the 15 unit
+   tests.
+3. **Unit tests** — `python3 lambdas/table-share-validate-authorize/test_table_share_validate_authorize.py`
+   (or pytest): personal/shared source authz, inactive-space source, malformed
+   source/recipients, name rule, dedupe, unknown-user/space annotation,
+   any-active-space-is-a-valid-target.

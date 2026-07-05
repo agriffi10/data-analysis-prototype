@@ -94,7 +94,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 086 — Per-Database Schema Refresh (look for new tables/views) | Completed |
 | 087 — Configurable Query-Results Page Size (default 100, user-adjustable, workspace-wide) | Completed |
 | 088 — Table Share: Foundation Infrastructure + Common Layer | Completed |
-| 089 — Table Share: Request Contract, Enqueue & Validate-Authorize | Draft |
+| 089 — Table Share: Request Contract, Enqueue & Validate-Authorize | Completed |
 | 090 — Table Share: Source Resolution & Copy Plan (inspect-source) | Draft |
 | 091 — Table Share: Recipient Map + Copy (check-target-absent + copy-objects) | Draft |
 | 092 — Table Share: Recipient Table Creation & Terminal States (create-table) | Draft |

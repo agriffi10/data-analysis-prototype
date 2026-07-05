@@ -22,6 +22,30 @@ resource "aws_iam_role_policy" "execution" {
 
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     log_group_arn = local.table_share_log_group_wildcard_arn
+    # SPEC-089: registry read (source authz + recipient-space existence), Cognito
+    # recipient-existence checks, and the source Glue read (LF-admin wiring for the
+    # LF-gated databases lands with SPEC-092).
+    admin_bucket_arn  = local.admin_bucket_arn
+    user_pool_arn     = local.user_pool_arn
+    glue_catalog_arn  = local.glue_catalog_arn
+    glue_database_any = local.glue_database_any
+    glue_table_any    = local.glue_table_any
+  })
+}
+
+# ── Portal role — table-share enqueue policy (SPEC-089 FR-001) ────────────────
+# The browser's ONLY table-share privilege: sqs:SendMessage to the request queue.
+# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like
+# the table-builder / notifications modules (the role is created in module.data; the
+# root module-level depends_on guarantees it exists first). No Lambda invoke, no DLQ,
+# no Step Function — just enqueue. The send helper is enqueueTableShare; the UI that
+# uses it lands in SPEC-093.
+resource "aws_iam_role_policy" "portal_table_share" {
+  name = "table-share-enqueue"
+  role = var.portal_role_name
+
+  policy = templatefile("${path.module}/policies/portal-role-table-share.json.tftpl", {
+    request_queue_arn = aws_sqs_queue.requests.arn
   })
 }
 
