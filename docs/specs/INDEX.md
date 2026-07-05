@@ -92,6 +92,14 @@ Add a row when a spec is created; update its status on completion (status only �
 | 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Completed |
 | 085 — Collapsible Side Nav (shared base rail + collapse control) | Completed |
 | 086 — Per-Database Schema Refresh (look for new tables/views) | Completed |
+| 087 — Configurable Query-Results Page Size (default 100, user-adjustable, workspace-wide) | Draft |
+| 088 — Table Share: Foundation Infrastructure + Common Layer | Draft |
+| 089 — Table Share: Request Contract, Enqueue & Validate-Authorize | Draft |
+| 090 — Table Share: Source Resolution & Copy Plan (inspect-source) | Draft |
+| 091 — Table Share: Recipient Map + Copy (check-target-absent + copy-objects) | Draft |
+| 092 — Table Share: Recipient Table Creation & Terminal States (create-table) | Draft |
+| 093 — Table Share: "Share table" UI (Query Schema Rail) | Draft |
+| 094 — Table Share: Notification Producer (sender + recipients) | Draft |
 
 ## Arcs
 
@@ -265,6 +273,8 @@ per-execution reset) instead of today's loaded-count "N+". **081** (file browser
 download it** via the existing presigned-URL flow (both authenticated + read-only browse; explicit Download controls
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
+
+**Table-Share arc (088 → 089 → 090 → 091 → 092 → 093, + 094 producer)** — filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/table-share-architecture.md` (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
 
 **App-shell / schema-rail UX one-offs (085, 086)** — filed 2026-07-02, both presentation-only (no data-layer/IAM/infra).
 **085** adds a **collapsible side nav**: the Files spaces `Sidebar` and the Query `SchemaBrowser` share the same 248px rail
