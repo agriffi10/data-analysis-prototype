@@ -28,7 +28,8 @@ resource "aws_iam_role_policy" "execution" {
     # results write + lakeformation:GetDataAccess — the LF-admin designation itself
     # lives in module.analytics' data_lake_settings (root wires the constructed
     # role ARN; recipient DBs are dynamic, so catalog-wide create via LF admin,
-    # mirroring the table-builder).
+    # mirroring the table-builder). SPEC-094: sqs:SendMessage to the notifications
+    # queue ONLY (best-effort sender + recipient outcome notifications).
     admin_bucket_arn        = local.admin_bucket_arn
     user_pool_arn           = local.user_pool_arn
     glue_catalog_arn        = local.glue_catalog_arn
@@ -37,6 +38,7 @@ resource "aws_iam_role_policy" "execution" {
     user_space_bucket_arn   = local.user_space_bucket_arn
     shared_space_bucket_arn = local.shared_space_bucket_arn
     athena_workgroup_arn    = local.athena_workgroup_arn
+    notifications_queue_arn = var.notifications_queue_arn
   })
 }
 

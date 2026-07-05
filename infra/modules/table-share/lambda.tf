@@ -59,6 +59,8 @@ resource "aws_lambda_function" "functions" {
         COGNITO_USER_POOL_ID  = var.user_pool_id
         COGNITO_APP_CLIENT_ID = var.app_client_id
         ATHENA_WORKGROUP      = var.athena_workgroup
+        # SPEC-094 (optional in tscommon.config — unset ⇒ emits are logged no-ops).
+        NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
       },
       lookup(local.table_share_verb_env, each.key, {}),
     )
