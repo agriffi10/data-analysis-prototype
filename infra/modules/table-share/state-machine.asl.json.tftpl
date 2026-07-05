@@ -1,0 +1,200 @@
+{
+  "Comment": "Table-share control plane SKELETON (SPEC-088). validate-authorize → inspect-source run once per request; a Map fans out over $.recipients running check-target-absent → copy-objects → create-table per recipient with a per-item Catch (one recipient's failure never aborts its siblings — architecture §2). The verb bodies are placeholder pass-throughs here; the real logic, error taxonomy, and structured terminal outcomes land in SPEC-089→092. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "StartAt": "ValidateAuthorize",
+  "States": {
+    "ValidateAuthorize": {
+      "Type": "Task",
+      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the parsed request object the whole state for the next steps. SPEC-089 replaces the placeholder with the real token-verify/authorize logic + a structured recorded-failure terminal.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${validate_authorize_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "InspectSource"
+    },
+    "InspectSource": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${inspect_source_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "ShareToRecipients"
+    },
+    "ShareToRecipients": {
+      "Type": "Map",
+      "Comment": "Per-recipient fan-out (architecture §2). Each item runs the three recipient verbs in sequence; the per-item Catch records that recipient failed WITHOUT aborting siblings. ItemSelector hands each iteration its recipient plus the full request context; the per-recipient results collect under $.recipientResults.",
+      "ItemsPath": "$.recipients",
+      "ItemSelector": {
+        "recipient.$": "$$.Map.Item.Value",
+        "request.$": "$"
+      },
+      "ResultPath": "$.recipientResults",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "CheckTargetAbsent",
+        "States": {
+          "CheckTargetAbsent": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${check_target_absent_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "RecipientFailed"
+              }
+            ],
+            "Next": "CopyObjects"
+          },
+          "CopyObjects": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${copy_objects_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "RecipientFailed"
+              }
+            ],
+            "Next": "CreateTable"
+          },
+          "CreateTable": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${create_table_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "RecipientFailed"
+              }
+            ],
+            "End": true
+          },
+          "RecipientFailed": {
+            "Type": "Pass",
+            "Comment": "Per-item Catch target — the recipient's terminal-failure record (SPEC-091 shapes the real structured reason). Ends the ITEM, not the Map: sibling recipients continue.",
+            "Parameters": {
+              "status": "failed",
+              "error.$": "$.error"
+            },
+            "End": true
+          }
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "TableShareFailed",
+      "Cause": "The table-share control plane recorded an unrecoverable whole-request error (the structured recorded-failure outcome lands with SPEC-089→092)."
+    }
+  }
+}

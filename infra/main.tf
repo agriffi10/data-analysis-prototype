@@ -394,3 +394,28 @@ module "table_builder" {
   # apply has created it.
   depends_on = [module.base, module.data]
 }
+
+# Table-share control plane (SPEC-088): a DEDICATED FIFO SQS → EventBridge Pipe →
+# Standard Step Function pipeline orchestrating five single-task verb Lambdas
+# (validate-authorize → inspect-source → Map(recipients): check-target-absent →
+# copy-objects → create-table) that copy a table's data files into recipient spaces
+# and create a clone table in each recipient database. Mirrors the table-builder
+# control-plane PATTERN with ONE shared execution role (logs-only at this stage;
+# grants land with SPEC-089→092). Foundation only here (plumbing + Lambda stubs);
+# decision record: docs/table-share-architecture.md. Standalone-deployable: names
+# derive from {project}-{environment} inside the module. The deploy-role grants this
+# module needs landed + applied in SPEC-088 PR1, so no in-module time_sleep guard is
+# required. SPEC-092 later adds the execution role to the analytics LF admins list
+# (module.analytics gains depends_on module.table_share then).
+module "table_share" {
+  source = "./modules/table-share"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # base grants the deploy role its table-share perms (SPEC-088 PR1, already
+  # applied). Settle that first.
+  depends_on = [module.base]
+}
