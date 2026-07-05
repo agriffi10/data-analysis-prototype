@@ -192,3 +192,33 @@ partition-projection. Terminal reasons: `source_is_view` / `source_not_external`
    returns `AccessDenied` → terminal `source_not_readable`. This is expected; the
    end-to-end live share is SPEC-092's check. (The same LF foot-gun the
    table-builder hit — see its #174 bugfix.)
+
+---
+
+## SPEC-091 — recipient Map + copy (check-target-absent + copy-objects)
+
+The recipient fan-out is real: the Map (MaxConcurrency 5) runs
+`check-target-absent → copy-objects → create-table(stub)` per recipient with a
+per-item `Catch → RecipientParseError → RecipientFailed` shaping
+`{recipient, status:'failed', reason}` — one recipient's failure never aborts
+siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok'}`).
+
+- **check-target-absent**: invalid recipients (SPEC-089 annotation) short-circuit to
+  their `unknown_user`/`unknown_space` terminal; destination =
+  `{name}/shared_tables/{tableName}/` in the kind's bucket; `conflict` when the
+  table exists in the recipient DB or the destination prefix is non-empty.
+- **copy-objects**: `tscommon.copy.copy_prefix` — bounded-parallel (8) server-side
+  `CopyObject`, layout preserved; > 5 GiB via multipart `UploadPartCopy` (1 GiB
+  ranges, abort on failure); throttles → `TransientError` (SFN retries the
+  idempotent verb), deterministic errors → `copy_failed`.
+
+### Checks
+
+1. **Unit tests** — `python3 lambdas/table-share-check-target-absent/test_table_share_check_target_absent.py`
+   (8) + `python3 lambdas/table-share-copy-objects/test_table_share_copy_objects.py` (6):
+   destination resolution, both conflict guards, invalid short-circuit,
+   `target_not_readable`, layout-preserving keys, multipart range math + abort,
+   transient/terminal mapping, concurrency bound.
+2. **Live per-recipient path** — still gated on the SPEC-092 LF-admin wiring
+   (recipient-DB `GetTable` → `target_not_readable` until then). The full live
+   share (copy + create + per-recipient outcomes) is SPEC-092's check.

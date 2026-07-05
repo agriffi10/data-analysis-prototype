@@ -29,6 +29,38 @@
       ]
     },
     {
+      "Sid": "SourceDataRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "SharedTablesWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*/shared_tables/*",
+        "${shared_space_bucket_arn}/*/shared_tables/*"
+      ]
+    },
+    {
+      "Sid": "NoDataObjectDelete",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*",
+        "${admin_bucket_arn}/*"
+      ]
+    },
+    {
       "Sid": "GlueSourceRead",
       "Effect": "Allow",
       "Action": [
