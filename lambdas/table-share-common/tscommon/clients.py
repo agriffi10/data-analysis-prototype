@@ -7,7 +7,17 @@ patch the cached globals directly (e.g. clients._s3 = Fake()).
 
 _s3 = None
 _cognito = None
+_glue = None
 _jwks = None
+
+
+def glue():
+    global _glue
+    if _glue is None:
+        import boto3
+
+        _glue = boto3.client("glue")
+    return _glue
 
 
 def s3():

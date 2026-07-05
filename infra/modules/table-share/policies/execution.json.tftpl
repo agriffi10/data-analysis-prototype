@@ -17,6 +17,18 @@
       "Resource": "${user_pool_arn}"
     },
     {
+      "Sid": "SourceDataList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}",
+        "${shared_space_bucket_arn}"
+      ]
+    },
+    {
       "Sid": "GlueSourceRead",
       "Effect": "Allow",
       "Action": [

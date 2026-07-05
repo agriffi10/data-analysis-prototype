@@ -1,17 +1,69 @@
-"""inspect-source — table-share verb Lambda (PLACEHOLDER).
+"""inspect-source — resolve the source table into a copy plan (SPEC-090).
 
-SPEC-088 stub: passes its input through unchanged so the control-plane skeleton
-(queue → pipe → state machine → recipient Map) can be smoke-tested end to end.
-The real logic — clones the source Glue table definition, lists the source objects, and enforces the copy caps — lands in SPEC-090.
+Given the validated request, GetTable the source, confirm it is a shareable shape
+(base EXTERNAL_TABLE, flat or partition-projection — views, managed tables, and
+catalog-registered partitions are rejected), clone its definition verbatim
+(LOCATION stripped), list the source data objects (relative keys + sizes), and
+enforce the copy caps. Read-only — no copy/create side effects. Every rejection is
+a whole-request TerminalError (Catch → recorded failure; no recipient runs).
+
+Emits the copy plan merged over the threaded request:
+{…request, tableDefinition, location: {bucket, prefix}, objects: [{relKey, size}], partitioned}.
 """
 
 import logging
+
+from tscommon import config, s3_listing
+from tscommon import glue as glue_mod
+from tscommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def handler(event, context):
-    """Pass the threaded state object through unchanged."""
-    logger.info("placeholder inspect-source invoked")
-    return event
+def handler(event, context) -> dict:
+    return _inspect_source(event)
+
+
+def _inspect_source(event) -> dict:
+    source = event.get("source") or {}
+    database, table = source.get("database"), source.get("table")
+
+    raw_table = glue_mod.get_table(database, table)
+    definition, location, partitioned = glue_mod.clone_definition(raw_table)
+
+    objects = []
+    total_bytes = 0
+    for rel_key, size in s3_listing.list_data_objects(location["bucket"], location["prefix"]):
+        objects.append({"relKey": rel_key, "size": size})
+        total_bytes += size
+        if len(objects) > config.SHARE_MAX_OBJECTS:
+            raise TerminalError(
+                "source_too_large",
+                f"{database}.{table} has more than {config.SHARE_MAX_OBJECTS} objects "
+                "— too large for v1 (S3 Batch Operations is the deferred path)",
+            )
+    if not objects:
+        raise TerminalError("source_empty", f"{database}.{table} has no data objects to share")
+    if total_bytes > config.SHARE_MAX_TOTAL_BYTES:
+        raise TerminalError(
+            "source_too_large",
+            f"{database}.{table} is {total_bytes} bytes (cap {config.SHARE_MAX_TOTAL_BYTES}) "
+            "— too large for v1 (S3 Batch Operations is the deferred path)",
+        )
+
+    logger.info(
+        "copy plan for %s.%s: %d objects, %d bytes, partitioned=%s",
+        database,
+        table,
+        len(objects),
+        total_bytes,
+        partitioned,
+    )
+    return {
+        **event,
+        "tableDefinition": definition,
+        "location": location,
+        "objects": objects,
+        "partitioned": partitioned,
+    }

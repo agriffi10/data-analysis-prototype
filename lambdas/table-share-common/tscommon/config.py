@@ -20,11 +20,24 @@ def _require(name: str) -> str:
     return value
 
 
-# Set by Terraform (required — fail fast if missing); AWS_REGION is provided by the runtime.
+# Set by Terraform (required — fail fast if missing); AWS_REGION is provided by the
+# runtime. EVERYTHING _require()d here must be in the module's COMMON lambda env —
+# the fail-fast runs at import for every verb that touches any tscommon module
+# (the table-builder hit this in production, PR #196: per-verb env + a shared
+# layer config's import-time require = cold-start crash on the verbs missing it).
+ADMIN_BUCKET = _require("ADMIN_BUCKET")
+USER_SPACE_BUCKET = _require("USER_SPACE_BUCKET")
+SHARED_SPACE_BUCKET = _require("SHARED_SPACE_BUCKET")
 USER_POOL_ID = _require("COGNITO_USER_POOL_ID")
 APP_CLIENT_ID = _require("COGNITO_APP_CLIENT_ID")
-ADMIN_BUCKET = _require("ADMIN_BUCKET")
 REGION = os.environ.get("AWS_REGION", "")
+
+# Copy caps (SPEC-090): a share exceeding either is a whole-request terminal
+# failure ("too large for v1 — S3 Batch Operations is the deferred escape hatch").
+# Sized so a recipient Map item's parallel server-side copy finishes comfortably
+# inside copy-objects' 900s timeout (architecture §12).
+SHARE_MAX_OBJECTS = 1000
+SHARE_MAX_TOTAL_BYTES = 20 * 1024**3  # 20 GiB
 
 # Catalog-safe identifier: lowercase, leading letter, [a-z0-9_], 3-63 chars. The
 # single rule for usernames, DB names, view names, and (result) table names.

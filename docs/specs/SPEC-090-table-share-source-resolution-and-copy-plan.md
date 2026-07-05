@@ -1,7 +1,7 @@
 # Spec: Table Share — Source Resolution & Copy Plan (inspect-source)
 
 **ID:** SPEC-090
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-089 (validated request + actor), SPEC-068 (`tbcommon.s3_listing` precedent), SPEC-032 (LF-registered buckets)
 
