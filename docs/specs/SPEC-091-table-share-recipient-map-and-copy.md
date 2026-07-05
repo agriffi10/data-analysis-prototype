@@ -1,7 +1,7 @@
 # Spec: Table Share — Recipient Map + Copy (check-target-absent + copy-objects)
 
 **ID:** SPEC-091
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-090 (copy plan + cloned definition), SPEC-089 (validated recipients)
 

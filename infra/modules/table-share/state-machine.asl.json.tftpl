@@ -68,6 +68,7 @@
       "Type": "Map",
       "Comment": "Per-recipient fan-out (architecture §2). Each item runs the three recipient verbs in sequence; the per-item Catch records that recipient failed WITHOUT aborting siblings. ItemSelector hands each iteration its recipient plus the full request context; the per-recipient results collect under $.recipientResults.",
       "ItemsPath": "$.recipients",
+      "MaxConcurrency": 5,
       "ItemSelector": {
         "recipient.$": "$$.Map.Item.Value",
         "request.$": "$"
@@ -93,7 +94,8 @@
                   "Lambda.ServiceException",
                   "Lambda.TooManyRequestsException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "TransientError"
                 ],
                 "IntervalSeconds": 2,
                 "MaxAttempts": 3,
@@ -104,7 +106,7 @@
               {
                 "ErrorEquals": ["States.ALL"],
                 "ResultPath": "$.error",
-                "Next": "RecipientFailed"
+                "Next": "RecipientParseError"
               }
             ],
             "Next": "CopyObjects"
@@ -123,7 +125,8 @@
                   "Lambda.ServiceException",
                   "Lambda.TooManyRequestsException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "TransientError"
                 ],
                 "IntervalSeconds": 2,
                 "MaxAttempts": 3,
@@ -134,7 +137,7 @@
               {
                 "ErrorEquals": ["States.ALL"],
                 "ResultPath": "$.error",
-                "Next": "RecipientFailed"
+                "Next": "RecipientParseError"
               }
             ],
             "Next": "CreateTable"
@@ -153,7 +156,8 @@
                   "Lambda.ServiceException",
                   "Lambda.TooManyRequestsException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "TransientError"
                 ],
                 "IntervalSeconds": 2,
                 "MaxAttempts": 3,
@@ -164,17 +168,36 @@
               {
                 "ErrorEquals": ["States.ALL"],
                 "ResultPath": "$.error",
-                "Next": "RecipientFailed"
+                "Next": "RecipientParseError"
               }
             ],
+            "Next": "RecipientSucceeded"
+          },
+          "RecipientSucceeded": {
+            "Type": "Pass",
+            "Comment": "Per-recipient success record (SPEC-092 finalizes the shape): the Map item's outcome the summary + SPEC-094 notifications read.",
+            "Parameters": {
+              "recipient.$": "$.recipient",
+              "status": "ok"
+            },
             "End": true
+          },
+          "RecipientParseError": {
+            "Type": "Pass",
+            "Comment": "Decode the Lambda error Cause (a JSON string) so RecipientFailed can carry the 'reason: detail' TerminalError string (e.g. 'conflict: …') for this recipient only.",
+            "Parameters": {
+              "recipient.$": "$.recipient",
+              "cause.$": "States.StringToJson($.error.Cause)"
+            },
+            "Next": "RecipientFailed"
           },
           "RecipientFailed": {
             "Type": "Pass",
-            "Comment": "Per-item Catch target — the recipient's terminal-failure record (SPEC-091 shapes the real structured reason). Ends the ITEM, not the Map: sibling recipients continue.",
+            "Comment": "Per-item terminal-failure record. Ends the ITEM, not the Map: sibling recipients continue. reason carries the verb's 'reason: detail' TerminalError string (unknown_user/unknown_space/conflict/target_not_readable/copy_failed…).",
             "Parameters": {
+              "recipient.$": "$.recipient",
               "status": "failed",
-              "error.$": "$.error"
+              "reason.$": "$.cause.errorMessage"
             },
             "End": true
           }

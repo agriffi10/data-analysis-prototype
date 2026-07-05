@@ -30,6 +30,26 @@ def get_table(database: str, table: str) -> dict:
         raise TransientError(f"GetTable failed for {database}.{table}: {exc}") from exc
 
 
+def table_exists(database: str, table: str) -> bool:
+    """True iff ``database.table`` exists — the recipient conflict check (SPEC-091).
+
+    A denied read is terminal (the recipient DB should be readable once the role is
+    an LF admin, SPEC-092); anything else transient so the SFN retries rather than
+    mis-reporting a throttle as a conflict verdict.
+    """
+    client = clients.glue()
+    try:
+        client.get_table(DatabaseName=database, Name=table)
+        return True
+    except Exception as exc:  # noqa: BLE001 - mapped by error code below
+        code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+        if code == "EntityNotFoundException":
+            return False
+        if code == "AccessDeniedException":
+            raise TerminalError("target_not_readable", f"{database}.{table}: {exc}") from exc
+        raise TransientError(f"GetTable failed for {database}.{table}: {exc}") from exc
+
+
 def _parse_location(location: str) -> dict:
     """Resolve the table LOCATION to a single listable prefix in a known bucket.
 
