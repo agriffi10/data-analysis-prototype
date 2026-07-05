@@ -114,6 +114,16 @@ function TableRow({
                 label: 'View data',
                 onSelect: () => actions.onViewData(database, table)
               },
+              // SPEC-093: base tables only — the server rejects views, so no item.
+              ...(isView
+                ? []
+                : [
+                    {
+                      key: 'share',
+                      label: 'Share table',
+                      onSelect: () => actions.onShareTable(database, table)
+                    }
+                  ]),
               {
                 key: 'drop',
                 label: isView ? 'Drop view' : 'Drop table',

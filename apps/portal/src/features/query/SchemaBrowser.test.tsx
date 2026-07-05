@@ -28,6 +28,7 @@ function makeActions(over: Partial<TableActions> = {}): TableActions {
     onViewSourceFiles: vi.fn(),
     onViewDdl: vi.fn(),
     onViewData: vi.fn(),
+    onShareTable: vi.fn(),
     onDropTable: vi.fn(),
     canViewSourceFiles: () => true,
     ...over
