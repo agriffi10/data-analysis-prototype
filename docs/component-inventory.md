@@ -304,6 +304,8 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 |---|---|---|
 | `enqueueTableShare(req)` | `tableShare.service.ts` | The browser's only table-share call: builds the SPEC-089 envelope (`actor` ID token + `source` + `tableName` + `recipients[]`) and FIFO-sends to `VITE_TABLE_SHARE_QUEUE_URL` (`MessageGroupId` = `"{db}.{table}"`, dedup = SHA-256 content hash + 1-min bucket) via `getSqsClient`; `ServiceResult<void>` (enqueued ≠ shared), never throws (SPEC-089). |
 | `ShareRecipient`, `TableShareRequest` | `tableShare.types.ts` | The share-request shapes matching the SPEC-089 contract (SPEC-089). |
+| `useTableShare(notify)` | `useTableShare.ts` | Dialog + enqueue state for "Share table": `open(db, table)` / `close` / `submit` → `enqueueTableShare`; success closes + emits the pending toast via `notify`, failure keeps the dialog open with `error` set (SPEC-093). |
+| `TableShareDialog` | `TableShareDialog.tsx` | The Share modal: read-only `db.table`, Users/Shared-spaces radio toggle, multi-entry recipient chips (reuses `parseMemberInput`; removable, mixed kinds allowed), catalog-safe result-name field, busy lock + inline submit-error `Banner`; axe-tested (SPEC-093). |
 
 ## Help feature (`apps/portal/src/features/help/`)
 

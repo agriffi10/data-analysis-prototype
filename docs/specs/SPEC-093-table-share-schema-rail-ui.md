@@ -1,7 +1,7 @@
 # Spec: Table Share — "Share table" UI (Query Schema Rail)
 
 **ID:** SPEC-093
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-089 (enqueue contract), SPEC-044 (schema-rail table options menu), SPEC-052 (`useConnections` — known spaces), SPEC-063 (schema-rail tree)
 

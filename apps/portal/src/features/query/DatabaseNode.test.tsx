@@ -18,6 +18,7 @@ function makeActions(over: Partial<TableActions> = {}): TableActions {
     onViewSourceFiles: vi.fn(),
     onViewDdl: vi.fn(),
     onViewData: vi.fn(),
+    onShareTable: vi.fn(),
     onDropTable: vi.fn(),
     canViewSourceFiles: () => true,
     ...over
@@ -139,12 +140,24 @@ describe('DatabaseNode', () => {
     const menu = screen.getByRole('menu');
     expect(within(menu).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
     expect(within(menu).getByRole('menuitem', {name: 'View source files'})).toBeDisabled();
+    // SPEC-093: views can't be shared — the item is absent, not disabled.
+    expect(within(menu).queryByRole('menuitem', {name: 'Share table'})).not.toBeInTheDocument();
 
     fireEvent.click(within(menu).getByRole('menuitem', {name: 'View DDL'}));
     expect(onViewDdl).toHaveBeenCalledWith(
       'alice',
       expect.objectContaining({name: 'revenue_view', tableType: 'VIRTUAL_VIEW'})
     );
+  });
+
+  // SPEC-093: Share table on base tables, invoked with the rail node's database.
+  it('offers Share table on a base table and invokes it with (database, table)', () => {
+    const onShareTable = vi.fn();
+    renderNode({actions: makeActions({onShareTable})});
+    fireEvent.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
+    const menu = screen.getByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem', {name: 'Share table'}));
+    expect(onShareTable).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'sales_2026'}));
   });
 
   it('renders a per-node "setting up" state on a NotFound error', () => {

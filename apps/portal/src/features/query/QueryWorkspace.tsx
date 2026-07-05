@@ -34,6 +34,7 @@ import {
 } from './query.sql';
 import {ResultTabs} from './ResultTabs';
 import {SchemaBrowser} from './SchemaBrowser';
+import {TableShareDialog, useTableShare} from '../table-share';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
@@ -247,6 +248,8 @@ export function QueryWorkspace() {
   const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
   const [toast, setToast] = useState<(ToastState & {action?: {label: string; onClick: () => void}}) | null>(null);
+  // SPEC-093: "Share table" dialog + enqueue state (toasts route through setToast).
+  const share = useTableShare(setToast);
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
@@ -823,6 +826,9 @@ export function QueryWorkspace() {
       editorRef.current?.focus();
       submitBatch(splitSqlStatements(sql), 'script-single', id); // auto-run into the just-opened tab
     },
+    // SPEC-093: open the Share dialog for this rail table (base tables only — the
+    // menu omits the item for views); submission + toasts live in useTableShare.
+    onShareTable: (database: string, table: GlueTableSummary) => share.open(database, table.name),
     // Confirm, then drop in the background (handled on confirm) — carries the node's db.
     onDropTable: (database: string, table: GlueTableSummary) => setDropping({database, table})
   };
@@ -1362,6 +1368,15 @@ export function QueryWorkspace() {
           targetDatabase={createViewDb}
           onCreate={handleCreateView}
           onCancel={() => setCreateViewOpen(false)}
+        />
+      )}
+      {share.target && (
+        <TableShareDialog
+          source={share.target}
+          busy={share.busy}
+          submitError={share.error}
+          onSubmit={(args) => void share.submit(args)}
+          onCancel={share.close}
         />
       )}
       {dropping && (

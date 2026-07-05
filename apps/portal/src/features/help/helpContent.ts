@@ -162,6 +162,23 @@ export const HELP_SECTIONS: HelpSection[] = [
         }
       },
       {
+        id: 'share-table',
+        title: 'Share a table',
+        subtitle: 'Copy a table into other users’ or shared spaces’ databases.',
+        intro:
+          'Any table you can browse in the schema rail can be shared. Sharing copies the table’s data files into each recipient’s space and creates the table in their database, so they can query it as their own — it’s a one-time snapshot, not a live link.',
+        steps: [
+          'In the schema rail, open the <b>⋮</b> menu on a table and choose <b>Share table</b> (views can’t be shared).',
+          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b>. You can mix both kinds in one share.',
+          'Adjust the <b>Table name for recipients</b> if you like (it defaults to the source table’s name).',
+          'Click <b>Share</b>. The copy runs in the background — each recipient is notified on success, and every outcome lands in your notifications.'
+        ],
+        callout: {
+          kind: 'warning',
+          text: 'If a recipient already has a table with that name (or leftover files where it would go), that recipient’s share fails with a notification — nothing is overwritten. The others still go through.'
+        }
+      },
+      {
         id: 'save-query',
         title: 'Save a query',
         subtitle: 'Keep the queries you reach for often.',

@@ -98,7 +98,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 090 — Table Share: Source Resolution & Copy Plan (inspect-source) | Completed |
 | 091 — Table Share: Recipient Map + Copy (check-target-absent + copy-objects) | Completed |
 | 092 — Table Share: Recipient Table Creation & Terminal States (create-table) | Completed |
-| 093 — Table Share: "Share table" UI (Query Schema Rail) | Draft |
+| 093 — Table Share: "Share table" UI (Query Schema Rail) | Completed |
 | 094 — Table Share: Notification Producer (sender + recipients) | Draft |
 
 ## Arcs
