@@ -14,6 +14,8 @@ export {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQuerie
 export {useQueryExecution} from './useQueryExecution';
 export {useQueryResults} from './useQueryResults';
 export type {UseQueryResultsResult} from './useQueryResults';
+export {useResultsPageSize, clampPageSize} from './useResultsPageSize';
+export type {UseResultsPageSizeResult} from './useResultsPageSize';
 export {useColumnWidths} from './useColumnWidths';
 export type {UseColumnWidthsResult} from './useColumnWidths';
 export {useEditorLayout} from './useEditorLayout';
@@ -31,7 +33,9 @@ export {
   POLL_INTERVAL_MS,
   MAX_POLL_DURATION_MS,
   DEFAULT_MAX_ROWS,
-  QUERY_RESULTS_PAGE_SIZE,
+  DEFAULT_RESULTS_PAGE_SIZE,
+  MIN_RESULTS_PAGE_SIZE,
+  MAX_RESULTS_PAGE_SIZE,
   QUERY_HISTORY_MAX,
   QUERY_TABS_MAX,
   QUERY_HISTORY_PAGE_SIZE,

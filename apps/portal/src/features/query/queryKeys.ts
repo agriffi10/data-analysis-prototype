@@ -7,7 +7,9 @@ export const queryKeys = {
   all: ['query'] as const,
   schema: (db: string) => [...queryKeys.all, 'schema', db] as const,
   execution: (id: string) => [...queryKeys.all, 'execution', id] as const,
-  results: (id: string) => [...queryKeys.all, 'results', id] as const,
+  // Keyed by page size too (SPEC-087): a "Rows per page" change re-fetches
+  // page 1 at the new size instead of mixing in stale-sized cached pages.
+  results: (id: string, pageSize: number) => [...queryKeys.all, 'results', id, pageSize] as const,
   // Background total-row-count walk (SPEC-080) — a separate key from `results`
   // so the large-page count never perturbs the visible 20/page pager cache.
   rowCount: (id: string) => [...queryKeys.all, 'rowCount', id] as const,

@@ -55,8 +55,6 @@ export function QueryResultsTable({
 }: QueryResultsTableProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <h2 className="mb-3 flex-none text-base font-semibold">Results</h2>
-
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-3">
           {isLoading ? 'Loading results…' : 'No rows returned.'}

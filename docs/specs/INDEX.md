@@ -92,7 +92,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 084 — Query Editor Autocomplete Lifecycle Fix (Monaco completion provider) | Completed |
 | 085 — Collapsible Side Nav (shared base rail + collapse control) | Completed |
 | 086 — Per-Database Schema Refresh (look for new tables/views) | Completed |
-| 087 — Configurable Query-Results Page Size (default 100, user-adjustable, workspace-wide) | Draft |
+| 087 — Configurable Query-Results Page Size (default 100, user-adjustable, workspace-wide) | Completed |
 | 088 — Table Share: Foundation Infrastructure + Common Layer | Draft |
 | 089 — Table Share: Request Contract, Enqueue & Validate-Authorize | Draft |
 | 090 — Table Share: Source Resolution & Copy Plan (inspect-source) | Draft |
