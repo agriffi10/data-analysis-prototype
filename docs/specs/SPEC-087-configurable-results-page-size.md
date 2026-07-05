@@ -1,7 +1,7 @@
 # Spec: Configurable Query-Results Page Size (default 100)
 
 **ID:** SPEC-087
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-038 (results pager / `useQueryResults`), SPEC-078 (result tabs), SPEC-080 (row-count stats), SPEC-079 (session-persisted per-user preference pattern)
 

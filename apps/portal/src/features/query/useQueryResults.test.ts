@@ -108,6 +108,50 @@ describe('useQueryResults', () => {
     await waitFor(() => expect(result.current.pageIndex).toBe(0));
   });
 
+  it('re-pages to page 1 and refetches at the new size when the page size changes (SPEC-087)', async () => {
+    const {result, rerender} = renderHook(({size}) => useQueryResults('q-1', size), {
+      wrapper: wrapper(),
+      initialProps: {size: 2}
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    await act(async () => {
+      result.current.goNext();
+    });
+    await waitFor(() => expect(result.current.pageIndex).toBe(1));
+
+    rerender({size: 3});
+
+    // Back on page 1, fetched fresh at the new size (the old-size pages are
+    // keyed separately and never mixed in).
+    await waitFor(() => expect(result.current.pageIndex).toBe(0));
+    await waitFor(() =>
+      expect(mockGetQueryResults).toHaveBeenLastCalledWith(expect.objectContaining({maxRows: 3, nextToken: undefined}))
+    );
+  });
+
+  it('numbers rows from the actual loaded page lengths, not an assumed uniform size', async () => {
+    // A short first page (like the 1000-cap case, where page 1 nets one fewer
+    // row): rows must continue 1 → 2,3 — not skip to pageIndex*pageSize+1.
+    mockGetQueryResults.mockImplementation(async ({nextToken}) => {
+      if (!nextToken) return ok([['1']], 'T2');
+      if (nextToken === 'T2') return ok([['2'], ['3']]);
+      throw new Error(`unexpected token ${nextToken}`);
+    });
+    const {result} = renderHook(() => useQueryResults('q-1', 2), {
+      wrapper: wrapper()
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(result.current.rangeStart).toBe(1);
+    expect(result.current.rangeEnd).toBe(1);
+
+    await act(async () => {
+      result.current.goNext();
+    });
+    await waitFor(() => expect(result.current.pageIndex).toBe(1));
+    expect(result.current.rangeStart).toBe(2);
+    expect(result.current.rangeEnd).toBe(3);
+  });
+
   it('remembers each execution’s page when switching back (SPEC-078 result tabs)', async () => {
     const {result, rerender} = renderHook(({id}) => useQueryResults(id, 2), {
       wrapper: wrapper(),

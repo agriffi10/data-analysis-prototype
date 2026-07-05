@@ -21,12 +21,24 @@ export const MAX_POLL_DURATION_MS = 5 * 60_000;
 export const DEFAULT_MAX_ROWS = 100;
 
 /**
- * Data rows per query-results page. Drives GetQueryResults MaxResults (the
- * first page requests +1 to absorb the Athena SELECT header row, see
- * getQueryResults) and the Prev/Next pager. Deliberately small so only one
- * page is ever mounted in the DOM.
+ * Default data rows per query-results page when the user hasn't chosen a
+ * value (SPEC-087). Drives GetQueryResults MaxResults (the first page
+ * requests +1 to absorb the Athena SELECT header row, see getQueryResults)
+ * and the Prev/Next pager. One display page = one fetch.
  */
-export const QUERY_RESULTS_PAGE_SIZE = 20;
+export const DEFAULT_RESULTS_PAGE_SIZE = 100;
+
+/** Smallest accepted "Rows per page" value (SPEC-087 FR-003). */
+export const MIN_RESULTS_PAGE_SIZE = 1;
+
+/**
+ * Largest accepted "Rows per page" value — Athena's GetQueryResults returns at
+ * most 1000 rows per call and one display page stays one fetch (SPEC-087).
+ */
+export const MAX_RESULTS_PAGE_SIZE = 1000;
+
+/** sessionStorage key prefix for the per-user results page size (full key: prefix + username). */
+export const QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX = 's3portal.query.resultsPageSize.';
 
 /**
  * GetQueryResults MaxResults for the background total-row-count walk (SPEC-080) —

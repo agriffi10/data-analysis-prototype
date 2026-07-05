@@ -132,15 +132,19 @@ export async function getQueryResults(p: {
   // SELECT (the header foot-gun handled below). Request one extra row on page 1
   // so that, after dropping that header, a SELECT still nets a full `pageSize`
   // data rows; continuation pages have no header and request exactly `pageSize`
-  // (SPEC-038 FR-001).
+  // (SPEC-038 FR-001). Athena rejects MaxResults > 1000, so at the SPEC-087
+  // 1000-row maximum the +1 is clamped away and page 1 nets 999 data rows —
+  // callers must not assume uniform page lengths (useQueryResults numbers rows
+  // from the actual loaded pages).
   const isFirstPage = !nextToken;
+  const ATHENA_MAX_RESULTS = 1000;
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
       const response = await client.send(
         new GetQueryResultsCommand({
           QueryExecutionId: queryExecutionId,
           NextToken: nextToken,
-          MaxResults: isFirstPage ? pageSize + 1 : pageSize
+          MaxResults: Math.min(isFirstPage ? pageSize + 1 : pageSize, ATHENA_MAX_RESULTS)
         })
       );
 

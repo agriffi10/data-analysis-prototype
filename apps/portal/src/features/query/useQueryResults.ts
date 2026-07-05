@@ -2,7 +2,6 @@ import {useCallback, useState} from 'react';
 import {useInfiniteQuery} from '@tanstack/react-query';
 import {getQueryResults} from './query.service';
 import {queryKeys} from './queryKeys';
-import {QUERY_RESULTS_PAGE_SIZE} from './query.constants';
 import type {QueryColumn, QueryResultPage} from './query.types';
 
 export type UseQueryResultsResult = {
@@ -39,10 +38,12 @@ export type UseQueryResultsResult = {
  * which cached page is shown — Next fetches forward only when the next page
  * isn't already cached; Prev is always served from cache. Disabled while the
  * id is null.
+ *
+ * `pageSize` is the workspace-global "Rows per page" value (SPEC-087). The
+ * query is keyed by it, so a size change drops stale-sized cached pages and
+ * refetches page 1 at the new size for every result tab.
  */
-export function useQueryResults(queryExecutionId: string | null, maxRows?: number): UseQueryResultsResult {
-  const pageSize = maxRows ?? QUERY_RESULTS_PAGE_SIZE;
-
+export function useQueryResults(queryExecutionId: string | null, pageSize: number): UseQueryResultsResult {
   // The page position is kept PER execution id (SPEC-078 FR-007: each result
   // tab owns its own pager) — switching between executions restores each one's
   // page, mirroring how useInfiniteQuery already caches the pages per id. A new
@@ -50,6 +51,17 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
   // Entries are tiny and session-scoped, so never pruned (same stance as
   // useColumnWidths).
   const [pageIndexByExecution, setPageIndexByExecution] = useState<Record<string, number>>({});
+
+  // SPEC-087 FR-004: a page-size change resets EVERY execution to page 1 —
+  // remembered positions were positions in the old page geometry. Render-time
+  // state adjustment (the React "derive state from props" pattern), so the
+  // reset lands in the same render as the new size.
+  const [prevPageSize, setPrevPageSize] = useState(pageSize);
+  if (prevPageSize !== pageSize) {
+    setPrevPageSize(pageSize);
+    setPageIndexByExecution({});
+  }
+
   const pageIndex = (queryExecutionId !== null ? pageIndexByExecution[queryExecutionId] : undefined) ?? 0;
   const setPageIndex = useCallback(
     (index: number) => {
@@ -60,7 +72,7 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
   );
 
   const query = useInfiniteQuery({
-    queryKey: queryKeys.results(queryExecutionId ?? '__none__'),
+    queryKey: queryKeys.results(queryExecutionId ?? '__none__', pageSize),
     enabled: queryExecutionId !== null,
     queryFn: async ({pageParam}): Promise<QueryResultPage> => {
       const result = await getQueryResults({
@@ -102,9 +114,14 @@ export function useQueryResults(queryExecutionId: string | null, maxRows?: numbe
     }
   }, [pageIndex, setPageIndex, pages.length, current?.nextToken, query]);
 
+  // Row numbering derives from the ACTUAL loaded page lengths, not
+  // pageIndex * pageSize: at the 1000 cap the first page nets 999 data rows
+  // (Athena's MaxResults ceiling absorbs the header row, see getQueryResults),
+  // so assuming uniform pages would drift the numbering.
   const rowCount = current?.rows.length ?? 0;
-  const rangeStart = rowCount === 0 ? 0 : pageIndex * pageSize + 1;
-  const rangeEnd = rowCount === 0 ? 0 : pageIndex * pageSize + rowCount;
+  const rowsBefore = pages.slice(0, pageIndex).reduce((n, p) => n + p.rows.length, 0);
+  const rangeStart = rowCount === 0 ? 0 : rowsBefore + 1;
+  const rangeEnd = rowCount === 0 ? 0 : rowsBefore + rowCount;
 
   return {
     columns: current?.columns ?? pages[0]?.columns ?? [],

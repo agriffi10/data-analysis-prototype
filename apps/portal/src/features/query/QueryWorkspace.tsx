@@ -11,6 +11,8 @@ import {invalidateListing} from '../../lib/queryClient';
 import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
+import {useResultsPageSize} from './useResultsPageSize';
+import {ResultsPageSizeControl} from './ResultsPageSizeControl';
 import {useResultRowCount} from './useResultRowCount';
 import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
@@ -329,8 +331,10 @@ export function QueryWorkspace() {
   const showResultTabs = activeRun?.scope === 'script-tabs' && activeBatchDone && activeRun.resultTabs.length > 0;
 
   // Results only fetch once the batch has settled on a displayable execution;
-  // one page (≤20 rows) at a time via the SPEC-038 pager.
-  const results = useQueryResults(displayExecutionId);
+  // one page at a time via the SPEC-038 pager, sized by the workspace-global
+  // "Rows per page" value (SPEC-087) — one shared value for every result tab.
+  const resultsPageSize = useResultsPageSize(username || null);
+  const results = useQueryResults(displayExecutionId, resultsPageSize.pageSize);
 
   // SPEC-080: exact total row count via a background page-walk. Gated on a result
   // set actually existing (columns present) so DDL/no-result statements show no
@@ -1257,6 +1261,18 @@ export function QueryWorkspace() {
                   }
                 />
               )}
+              {/* SPEC-087 FR-002: the Results header row carries the "Rows per
+                  page" control — above the grid, right under the status bar's
+                  row-count stat, and always rendered (disabled, never hidden,
+                  when there's no result set to page). */}
+              <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3">
+                <h2 className="text-base font-semibold">Results</h2>
+                <ResultsPageSizeControl
+                  pageSize={resultsPageSize.pageSize}
+                  onCommit={resultsPageSize.setPageSize}
+                  disabled={!hasResultSet}
+                />
+              </div>
               {displayExecutionId !== null ? (
                 <div
                   className="flex min-h-0 flex-1 flex-col"
