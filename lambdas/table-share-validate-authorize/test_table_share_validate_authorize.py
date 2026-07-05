@@ -17,6 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
 os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
+os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
+os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import table_share_validate_authorize as v  # noqa: E402
 from tscommon.errors import TerminalError  # noqa: E402

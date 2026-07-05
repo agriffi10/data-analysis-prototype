@@ -15,11 +15,11 @@ locals {
 
   # ONE shared execution role for all five verb Lambdas (user decision, recorded in
   # docs/table-share-architecture.md §7 — mirrors the table-builder's post-SPEC-072
-  # consolidated model; per-verb roles are NOT used). At this stage its permission
-  # policy is LOGS ONLY (execution.json.tftpl); the LF-admin / Glue / Athena / S3 /
-  # Cognito grants are added by the spec that first needs each (SPEC-089/090/092).
-  # ARN is a constructed string (known at plan time) for the later cycle-free
-  # LF-admin wiring from root (SPEC-092).
+  # consolidated model; per-verb roles are NOT used). Its permission policy
+  # (execution.json.tftpl) grows with the arc: logs (088) + registry/Cognito/Glue
+  # reads (089) + source-bucket listing (090); the copy/create + LF-admin grants
+  # land with SPEC-091/092. ARN is a constructed string (known at plan time) for
+  # the later cycle-free LF-admin wiring from root (SPEC-092).
   execution_role_name = "${var.project_name}-${var.environment}-table-share-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
 
@@ -40,24 +40,21 @@ locals {
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
   }
 
-  # Per-verb extra env, merged over the common env (lambda.tf). Only
-  # validate-authorize needs the Cognito pool/client (offline token verify) + the
-  # admin bucket (registry reads) at this stage (SPEC-089); later verbs' action env
-  # is added by their owning specs.
-  table_share_verb_env = {
-    "validate-authorize" = {
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-      ADMIN_BUCKET          = var.admin_bucket_name
-    }
-  }
+  # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR
+  # OPTIONAL action env only: everything tscommon/config.py _require()s must live
+  # in the COMMON env instead — the shared layer's import-time fail-fast runs for
+  # every verb, so a verb missing any required var crashes at cold start (the
+  # table-builder production break, PR #196).
+  table_share_verb_env = {}
 
-  # ARNs for the execution role's SPEC-089 grants (constructed, known at plan).
-  admin_bucket_arn  = "arn:aws:s3:::${var.admin_bucket_name}"
-  user_pool_arn     = "arn:aws:cognito-idp:${var.aws_region}:${var.account_id}:userpool/${var.user_pool_id}"
-  glue_catalog_arn  = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
-  glue_database_any = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
-  glue_table_any    = "arn:aws:glue:${var.aws_region}:${var.account_id}:table/*/*"
+  # ARNs for the execution role's grants (constructed, known at plan).
+  admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
+  user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
+  shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
+  user_pool_arn           = "arn:aws:cognito-idp:${var.aws_region}:${var.account_id}:userpool/${var.user_pool_id}"
+  glue_catalog_arn        = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
+  glue_database_any       = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
+  glue_table_any          = "arn:aws:glue:${var.aws_region}:${var.account_id}:table/*/*"
 
   table_share_function_names = {
     for suffix, _ in local.table_share_functions :

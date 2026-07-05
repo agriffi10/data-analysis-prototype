@@ -62,3 +62,17 @@ variable "admin_bucket_name" {
   type        = string
   default     = ""
 }
+
+# ── SPEC-090: source resolution + copy plan ───────────────────────────────────
+
+variable "user_space_bucket_name" {
+  description = "SPEC-090: name of the user-space bucket (Bucket 1, SPEC-013). A personal source table's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it (SPEC-091). No bucket is created here."
+  type        = string
+  default     = ""
+}
+
+variable "shared_space_bucket_name" {
+  description = "SPEC-090: name of the shared-space bucket (Bucket 2, SPEC-050). A shared source/recipient's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it (SPEC-091). No bucket is created here."
+  type        = string
+  default     = ""
+}

@@ -45,12 +45,22 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # Per-verb action env (locals.tf): validate-authorize gets the Cognito
-  # pool/client for offline token verification + the admin bucket for registry
-  # reads (SPEC-089); other verbs' env lands with their owning specs
-  # (SPEC-090 buckets/caps, SPEC-092 workgroup).
+  # EVERY variable tscommon/config.py _require()s at import must be COMMON to all
+  # five verbs: the shared layer's fail-fast runs on any `from tscommon import …`
+  # chain, so a verb missing ANY required var crashes at cold start (the
+  # table-builder production break, PR #196). The per-verb map (locals.tf) is
+  # reserved for OPTIONAL action env only.
   environment {
-    variables = lookup(local.table_share_verb_env, each.key, {})
+    variables = merge(
+      {
+        ADMIN_BUCKET          = var.admin_bucket_name
+        USER_SPACE_BUCKET     = var.user_space_bucket_name
+        SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
+        COGNITO_USER_POOL_ID  = var.user_pool_id
+        COGNITO_APP_CLIENT_ID = var.app_client_id
+      },
+      lookup(local.table_share_verb_env, each.key, {}),
+    )
   }
 
   # Bootstrap with the placeholder; CI replaces code + attaches the tscommon layer.

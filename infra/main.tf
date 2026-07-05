@@ -424,6 +424,11 @@ module "table_share" {
   app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
 
+  # SPEC-090: source LOCATIONs must resolve inside one of the two data buckets;
+  # inspect-source lists them for the copy plan (constructed names — plans standalone).
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+
   # base grants the deploy role its table-share perms (SPEC-088 PR1, already
   # applied); data creates the portal role this module attaches the enqueue policy
   # to. Settle both first.

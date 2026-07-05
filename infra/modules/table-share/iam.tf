@@ -24,12 +24,15 @@ resource "aws_iam_role_policy" "execution" {
     log_group_arn = local.table_share_log_group_wildcard_arn
     # SPEC-089: registry read (source authz + recipient-space existence), Cognito
     # recipient-existence checks, and the source Glue read (LF-admin wiring for the
-    # LF-gated databases lands with SPEC-092).
-    admin_bucket_arn  = local.admin_bucket_arn
-    user_pool_arn     = local.user_pool_arn
-    glue_catalog_arn  = local.glue_catalog_arn
-    glue_database_any = local.glue_database_any
-    glue_table_any    = local.glue_table_any
+    # LF-gated databases lands with SPEC-092). SPEC-090: source-bucket ListBucket
+    # for the copy-plan listing.
+    admin_bucket_arn        = local.admin_bucket_arn
+    user_pool_arn           = local.user_pool_arn
+    glue_catalog_arn        = local.glue_catalog_arn
+    glue_database_any       = local.glue_database_any
+    glue_table_any          = local.glue_table_any
+    user_space_bucket_arn   = local.user_space_bucket_arn
+    shared_space_bucket_arn = local.shared_space_bucket_arn
   })
 }
 

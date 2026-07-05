@@ -164,3 +164,31 @@ Failed` with the structured `{actor, source, tableName, status:'failed', reason}
    (or pytest): personal/shared source authz, inactive-space source, malformed
    source/recipients, name rule, dedupe, unknown-user/space annotation,
    any-active-space-is-a-valid-target.
+
+---
+
+## SPEC-090 — source resolution & copy plan (inspect-source)
+
+`inspect-source` is real: Glue `GetTable` on the source → shape validation → clone
+the definition verbatim (LOCATION stripped) → list the source objects (relative
+keys + sizes, shared ignore rules incl. `_`/`.`-prefixed path segments) → enforce
+`SHARE_MAX_OBJECTS` (1000) / `SHARE_MAX_TOTAL_BYTES` (20 GiB) → emit the copy plan
+`{tableDefinition, location, objects[], partitioned}` merged over the request.
+
+**Supported source shapes (v1):** base `EXTERNAL_TABLE`, flat or
+partition-projection. Terminal reasons: `source_is_view` / `source_not_external` /
+`source_catalog_partitioned` / `source_location_unsupported` (LOCATION must be
+`s3://{user-space|shared-space}/prefix`) / `source_not_found` /
+`source_not_readable` / `source_empty` / `source_too_large`.
+
+### Checks
+
+1. **Unit tests** — `python3 lambdas/table-share-inspect-source/test_table_share_inspect_source.py`
+   (16 cases): the shape matrix, clone fidelity (+ projection props carried,
+   bookkeeping params stripped), LOCATION rules, ignore rules/relative keys, both
+   caps, transient-vs-terminal Glue error mapping.
+2. **Live happy path is BLOCKED until SPEC-092** — the execution role isn't a Lake
+   Formation admin yet, so `GetTable` on a real (LF-gated) personal/shared DB
+   returns `AccessDenied` → terminal `source_not_readable`. This is expected; the
+   end-to-end live share is SPEC-092's check. (The same LF foot-gun the
+   table-builder hit — see its #174 bugfix.)
