@@ -1,7 +1,7 @@
 # Spec: Table Share — Foundation Infrastructure + Common Layer
 
 **ID:** SPEC-088
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-050 (control-plane pattern), SPEC-066 (table-builder foundation — the mirrored precedent), SPEC-032 (analytics buckets/workgroup/LF)
 
