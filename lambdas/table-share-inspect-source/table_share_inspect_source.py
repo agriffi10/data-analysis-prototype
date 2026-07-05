@@ -13,7 +13,7 @@ Emits the copy plan merged over the threaded request:
 
 import logging
 
-from tscommon import config, s3_listing
+from tscommon import config, notify, s3_listing
 from tscommon import glue as glue_mod
 from tscommon.errors import TerminalError
 
@@ -21,8 +21,15 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
+@notify.notifies_on_failure("inspect")
 def handler(event, context) -> dict:
-    return _inspect_source(event)
+    # A terminal rejection is a WHOLE-REQUEST failure (no recipient runs) —
+    # notify the sender before the Catch records it (SPEC-094 FR-003, best-effort).
+    try:
+        return _inspect_source(event)
+    except TerminalError as err:
+        notify.emit_failure(event, err, "inspect")
+        raise
 
 
 def _inspect_source(event) -> dict:

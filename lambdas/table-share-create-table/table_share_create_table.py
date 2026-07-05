@@ -18,7 +18,8 @@ consistent with the SPEC-055/070 routing.
 import logging
 
 from tscommon import athena as athena_mod
-from tscommon import config, ddl
+from tscommon import config, ddl, notify
+from tscommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -29,6 +30,7 @@ def _results_location(recipient: dict, actor: str) -> str:
     return f"s3://{recipient['destBucket']}/{recipient['database']}/athenaresults/{actor}/"
 
 
+@notify.notifies_on_failure("create")
 def handler(event, context) -> dict:
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
@@ -41,12 +43,22 @@ def handler(event, context) -> dict:
         table_name,
         f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",
     )
-    athena_mod.run_ddl(
-        query=query,
-        database=database,
-        workgroup=config.ATHENA_WORKGROUP,
-        output_location=_results_location(recipient, request.get("actor")),
-    )
+    # A failed/timed-out CREATE notifies the sender before the per-recipient Catch
+    # records it (SPEC-094, best-effort); TransientError isn't caught, so a
+    # retryable error propagates without a (premature) notification.
+    try:
+        athena_mod.run_ddl(
+            query=query,
+            database=database,
+            workgroup=config.ATHENA_WORKGROUP,
+            output_location=_results_location(recipient, request.get("actor")),
+        )
+    except TerminalError as err:
+        notify.emit_failure(event, err, "create")
+        raise
 
     logger.info("created table %s.%s for %s", database, table_name, request.get("actor"))
+    # Terminal success — tell the sender AND the success target (user recipient
+    # directly; space recipient via its owner) (SPEC-094 FR-001/FR-002).
+    notify.emit_recipient_success(event)
     return {"recipient": recipient, "request": request}

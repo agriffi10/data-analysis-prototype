@@ -15,7 +15,7 @@ Emits the item state with the recipient enriched:
 
 import logging
 
-from tscommon import clients, config
+from tscommon import clients, config, notify
 from tscommon import glue as glue_mod
 from tscommon.errors import TerminalError, TransientError
 
@@ -47,8 +47,15 @@ def _prefix_is_empty(bucket: str, prefix: str) -> bool:
     return page.get("KeyCount", 0) == 0
 
 
+@notify.notifies_on_failure("check")
 def handler(event, context) -> dict:
-    return _check_target_absent(event)
+    # A terminal conflict / invalid-recipient failure notifies the sender before
+    # the per-recipient Catch records it (SPEC-094, best-effort).
+    try:
+        return _check_target_absent(event)
+    except TerminalError as err:
+        notify.emit_failure(event, err, "check")
+        raise
 
 
 def _check_target_absent(event) -> dict:

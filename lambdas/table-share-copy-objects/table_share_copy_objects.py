@@ -12,24 +12,33 @@ foreign data. No object bytes pass through the Lambda.
 import logging
 
 from tscommon import copy as copy_mod
+from tscommon import notify
+from tscommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
+@notify.notifies_on_failure("copy")
 def handler(event, context) -> dict:
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
     location = request.get("location") or {}
     objects = request.get("objects") or []
 
-    copied = copy_mod.copy_prefix(
-        src_bucket=location.get("bucket"),
-        src_prefix=location.get("prefix"),
-        objects=objects,
-        dest_bucket=recipient.get("destBucket"),
-        dest_prefix=recipient.get("destPrefix"),
-    )
+    # A terminal copy failure notifies the sender before the per-recipient Catch
+    # records it (SPEC-094, best-effort); TransientError propagates for the Retry.
+    try:
+        copied = copy_mod.copy_prefix(
+            src_bucket=location.get("bucket"),
+            src_prefix=location.get("prefix"),
+            objects=objects,
+            dest_bucket=recipient.get("destBucket"),
+            dest_prefix=recipient.get("destPrefix"),
+        )
+    except TerminalError as err:
+        notify.emit_failure(event, err, "copy")
+        raise
     logger.info(
         "copied %d objects to %s/%s",
         copied,

@@ -84,3 +84,17 @@ variable "athena_workgroup" {
   type        = string
   default     = ""
 }
+
+# ── SPEC-094: notification producer (sender + recipients) ─────────────────────
+
+variable "notifications_queue_arn" {
+  description = "SPEC-094: ARN of the SPEC-058 notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the verbs emit sender + recipient outcome notifications, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
+  type        = string
+  default     = ""
+}
+
+variable "notifications_queue_url" {
+  description = "SPEC-094: URL of the SPEC-058 notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in tscommon.config: unset makes every emit a logged no-op)."
+  type        = string
+  default     = ""
+}

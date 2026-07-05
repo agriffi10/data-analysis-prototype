@@ -33,6 +33,10 @@ APP_CLIENT_ID = _require("COGNITO_APP_CLIENT_ID")
 ATHENA_WORKGROUP = _require("ATHENA_WORKGROUP")
 REGION = os.environ.get("AWS_REGION", "")
 
+# Optional (never _require): notifications are best-effort — an unset queue URL
+# makes every emit a logged no-op, it must not crash the verbs (SPEC-094).
+NOTIFICATIONS_QUEUE_URL = os.environ.get("NOTIFICATIONS_QUEUE_URL", "")
+
 # Copy caps (SPEC-090): a share exceeding either is a whole-request terminal
 # failure ("too large for v1 — S3 Batch Operations is the deferred escape hatch").
 # Sized so a recipient Map item's parallel server-side copy finishes comfortably

@@ -17,7 +17,7 @@ Emits the validated, normalized request the next states consume:
 import json
 import logging
 
-from tscommon import auth, config
+from tscommon import auth, config, notify
 from tscommon import cognito as cog
 from tscommon import registry as reg
 from tscommon.errors import TerminalError
@@ -126,9 +126,12 @@ def _annotate_recipients(recipients) -> list:
     return annotated
 
 
+@notify.notifies_on_failure("validate")
 def handler(event, context) -> dict:
     # Thin handler: the parse → verify → authorize → validate → annotate orchestration
     # lives in the delegated pure function, so it is testable without a Lambda context.
+    # (An UNEXPECTED failure here happens against the raw SQS array — no trusted
+    # actor — so the wrapper's emit is a safe no-op in that window.)
     return _validate_and_authorize(event)
 
 
@@ -140,10 +143,20 @@ def _validate_and_authorize(event) -> dict:
     # from a body username.
     actor = auth.verified_username(req.get("actor"))
 
-    source = _authorize_source(req.get("source"), actor)
-    table_name = req.get("tableName")
-    _validate_table_name(table_name)
-    recipients = _annotate_recipients(_normalize_recipients(req.get("recipients")))
+    # From here the sender is KNOWN, so a whole-request rejection notifies them
+    # before the Catch records it (SPEC-094 FR-003, best-effort). Pre-verification
+    # failures (unauthorized) have no trusted recipient and stay notification-free.
+    # The source table named in the message is display-only body input — shown
+    # back to the sender who wrote it, never used for addressing.
+    try:
+        source = _authorize_source(req.get("source"), actor)
+        table_name = req.get("tableName")
+        _validate_table_name(table_name)
+        recipients = _annotate_recipients(_normalize_recipients(req.get("recipients")))
+    except TerminalError as err:
+        raw_source = req.get("source") if isinstance(req.get("source"), dict) else {}
+        notify.emit_failure({"actor": actor, "source": raw_source}, err, "validate")
+        raise
 
     validated = {
         "actor": actor,

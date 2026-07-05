@@ -9,6 +9,7 @@ _s3 = None
 _cognito = None
 _glue = None
 _athena = None
+_sqs = None
 _jwks = None
 
 
@@ -37,6 +38,15 @@ def s3():
 
         _s3 = boto3.client("s3")
     return _s3
+
+
+def sqs():
+    global _sqs
+    if _sqs is None:
+        import boto3
+
+        _sqs = boto3.client("sqs")
+    return _sqs
 
 
 def cognito():

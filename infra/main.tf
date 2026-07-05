@@ -446,6 +446,13 @@ module "table_share" {
   # SPEC-092: the analytics workgroup create-table runs the recipient CREATE in.
   athena_workgroup = local.athena_workgroup_name
 
+  # SPEC-094: the SPEC-058 notifications queue the verbs emit sender + recipient
+  # outcome notifications to — the ARN scopes the execution role's sqs:SendMessage,
+  # the URL is the verbs' NOTIFICATIONS_QUEUE_URL. Constructed-string locals (known
+  # at plan, cycle-free — same as shared_spaces / table_builder).
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
   # base grants the deploy role its table-share perms (SPEC-088 PR1, already
   # applied); data creates the portal role this module attaches the enqueue policy
   # to. Settle both first.

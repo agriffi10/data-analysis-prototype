@@ -1,7 +1,7 @@
 # Spec: Table Share — Notification Producer (sender + recipients)
 
 **ID:** SPEC-094
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-058 (notifications write pipeline + `create` contract), SPEC-092 (per-recipient outcomes + shared role), SPEC-061/072 (emit-pattern precedents)
 
