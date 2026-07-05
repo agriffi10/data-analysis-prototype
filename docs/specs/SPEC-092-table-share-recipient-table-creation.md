@@ -1,7 +1,7 @@
 # Spec: Table Share — Recipient Table Creation & Terminal States (create-table)
 
 **ID:** SPEC-092
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-04
 **Depends On:** SPEC-091 (copied data + per-recipient item), SPEC-090 (cloned definition), SPEC-070 (Athena-DDL + LF-admin precedent), SPEC-032 (workgroup + LF)
 
@@ -62,11 +62,15 @@ Complete the recipient `Map` with **create-table**: from the cloned source defin
 
 ```python
 # create-table input: the SPEC-091 Map item (recipient + plan + copied)
-# create-table output (recipient item): { ...recipient, outcome: { status:'ok'|'create_failed', reason? } }
-# SFN Succeed output:
+# create-table output: {recipient, request} threaded through; an Athena failure raises
+#   TerminalError("create_failed"|"create_timeout", detail) → the per-item Catch records it.
+# Per-recipient summary entry (RecipientSucceeded / RecipientFailed Pass states — as built,
+#   uniform with the SPEC-091 verbs: status is ok|failed, the reason slug lives in `reason`):
+#   { kind, name, status:'ok' } | { kind, name, status:'failed', reason:'<slug>: <detail>' }
+# SFN Succeed output (ShapeSummary Pass):
 { "actor":"...", "source":{...}, "tableName":"...",
   "results": [ { "kind":"user","name":"alice","status":"ok" },
-               { "kind":"space","name":"salesteam","status":"conflict","reason":"table exists" } ] }
+               { "kind":"space","name":"salesteam","status":"failed","reason":"conflict: a table named 'orders' already exists in 'salesteam'" } ] }
 ```
 
 ```python

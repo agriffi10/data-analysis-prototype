@@ -61,16 +61,46 @@
       ]
     },
     {
-      "Sid": "GlueSourceRead",
+      "Sid": "GlueDescribeCreate",
       "Effect": "Allow",
       "Action": [
         "glue:GetDatabase",
-        "glue:GetTable"
+        "glue:GetTable",
+        "glue:CreateTable"
       ],
       "Resource": [
         "${glue_catalog_arn}",
         "${glue_database_any}",
         "${glue_table_any}"
+      ]
+    },
+    {
+      "Sid": "AthenaRunDdl",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:StopQueryExecution",
+        "athena:GetWorkGroup"
+      ],
+      "Resource": "${athena_workgroup_arn}"
+    },
+    {
+      "Sid": "LakeFormationDataAccess",
+      "Effect": "Allow",
+      "Action": "lakeformation:GetDataAccess",
+      "Resource": "*"
+    },
+    {
+      "Sid": "AthenaResultsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*"
       ]
     },
     {

@@ -58,6 +58,7 @@ resource "aws_lambda_function" "functions" {
         SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
         COGNITO_USER_POOL_ID  = var.user_pool_id
         COGNITO_APP_CLIENT_ID = var.app_client_id
+        ATHENA_WORKGROUP      = var.athena_workgroup
       },
       lookup(local.table_share_verb_env, each.key, {}),
     )

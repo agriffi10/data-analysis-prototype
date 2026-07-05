@@ -30,6 +30,7 @@ USER_SPACE_BUCKET = _require("USER_SPACE_BUCKET")
 SHARED_SPACE_BUCKET = _require("SHARED_SPACE_BUCKET")
 USER_POOL_ID = _require("COGNITO_USER_POOL_ID")
 APP_CLIENT_ID = _require("COGNITO_APP_CLIENT_ID")
+ATHENA_WORKGROUP = _require("ATHENA_WORKGROUP")
 REGION = os.environ.get("AWS_REGION", "")
 
 # Copy caps (SPEC-090): a share exceeding either is a whole-request terminal

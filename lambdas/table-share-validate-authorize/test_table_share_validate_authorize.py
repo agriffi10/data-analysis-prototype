@@ -19,6 +19,7 @@ os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
+os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import table_share_validate_authorize as v  # noqa: E402
 from tscommon.errors import TerminalError  # noqa: E402

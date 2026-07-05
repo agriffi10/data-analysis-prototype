@@ -1,0 +1,162 @@
+"""Unit tests for the table-share create-table Lambda (SPEC-092).
+
+Pure logic, AWS stubbed: Athena run_ddl is faked at the module seam. Asserts the
+rendered DDL (recipient DB + repointed LOCATION + carried projection props), the
+recipient-DB execution context + results routing, the pass-through output, and the
+terminal/transient routing. Runnable under pytest or directly:
+python3 test_table_share_create_table.py.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-share-common"))
+
+os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
+os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
+os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
+os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
+os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
+os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
+
+import table_share_create_table as m  # noqa: E402
+from tscommon.errors import TerminalError  # noqa: E402
+
+
+class _FakeRunDdl:
+    def __init__(self, error=None):
+        self.error = error
+        self.calls = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return "qid-1"
+
+
+_DEFINITION = {
+    "columns": [{"name": "id", "type": "bigint"}, {"name": "amount", "type": "double"}],
+    "partitionKeys": [{"name": "dt", "type": "string"}],
+    "serde": {
+        "serializationLibrary": "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+        "parameters": {"serialization.format": "1"},
+    },
+    "inputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+    "tableType": "EXTERNAL_TABLE",
+    "tableProperties": {"projection.enabled": "true", "projection.dt.type": "enum", "projection.dt.values": "a,b"},
+}
+
+
+def _event(definition=_DEFINITION):
+    return {
+        "recipient": {
+            "kind": "user",
+            "name": "bob",
+            "valid": True,
+            "database": "bob",
+            "destBucket": "user-bkt",
+            "destPrefix": "bob/shared_tables/orders_copy/",
+        },
+        "request": {
+            "actor": "alice",
+            "source": {"database": "alice", "table": "orders"},
+            "tableName": "orders_copy",
+            "tableDefinition": definition,
+            "location": {"bucket": "user-bkt", "prefix": "alice/sales/"},
+            "objects": [{"relKey": "part-0.parquet", "size": 10}],
+        },
+    }
+
+
+def _setup(error=None):
+    fake = _FakeRunDdl(error=error)
+    m.athena_mod.run_ddl = fake
+    return fake
+
+
+def test_renders_and_runs_the_clone_ddl_against_the_recipient_db():
+    fake = _setup()
+    out = m.handler(_event(), None)
+
+    assert len(fake.calls) == 1
+    call = fake.calls[0]
+    assert call["database"] == "bob"
+    assert call["workgroup"] == "test-workgroup"
+    assert call["output_location"] == "s3://user-bkt/bob/athenaresults/alice/"
+
+    query = call["query"]
+    assert query.startswith("CREATE EXTERNAL TABLE IF NOT EXISTS `bob`.`orders_copy` (")
+    assert "`id` bigint, `amount` double" in query
+    assert "PARTITIONED BY (`dt` string)" in query
+    assert "LOCATION 's3://user-bkt/bob/shared_tables/orders_copy/'" in query
+    assert "'projection.enabled'='true'" in query
+    assert "'projection.dt.values'='a,b'" in query
+    assert "ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'" in query
+    assert "STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'" in query
+    assert "OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'" in query
+
+    # The item state threads through unchanged for RecipientSucceeded.
+    assert out["recipient"]["name"] == "bob"
+    assert out["request"]["tableName"] == "orders_copy"
+
+
+def test_flat_definition_renders_without_partition_or_properties_clauses():
+    fake = _setup()
+    flat = {**_DEFINITION, "partitionKeys": [], "tableProperties": {}}
+    m.handler(_event(definition=flat), None)
+    query = fake.calls[0]["query"]
+    assert "PARTITIONED BY" not in query
+    assert "TBLPROPERTIES" not in query
+
+
+def test_serde_properties_and_literal_escaping():
+    fake = _setup()
+    quirky = {
+        **_DEFINITION,
+        "partitionKeys": [],
+        "serde": {
+            "serializationLibrary": "org.apache.hadoop.hive.serde2.OpenCSVSerde",
+            "parameters": {"escapeChar": "\\", "quoteChar": "'"},
+        },
+        "tableProperties": {"skip.header.line.count": "1"},
+    }
+    m.handler(_event(definition=quirky), None)
+    query = fake.calls[0]["query"]
+    assert "WITH SERDEPROPERTIES ('escapeChar'='\\\\', 'quoteChar'='\\'')" in query
+    assert "TBLPROPERTIES ('skip.header.line.count'='1')" in query
+
+
+def test_column_comment_is_carried_and_escaped():
+    fake = _setup()
+    commented = {
+        **_DEFINITION,
+        "columns": [{"name": "id", "type": "bigint", "comment": "the 'primary' id"}],
+        "partitionKeys": [],
+    }
+    m.handler(_event(definition=commented), None)
+    assert "`id` bigint COMMENT 'the \\'primary\\' id'" in fake.calls[0]["query"]
+
+
+def test_athena_terminal_failure_propagates_as_create_failed():
+    _setup(error=TerminalError("create_failed", "SYNTAX_ERROR: line 1"))
+    try:
+        m.handler(_event(), None)
+    except TerminalError as exc:
+        assert exc.reason == "create_failed"
+        return
+    raise AssertionError("expected TerminalError('create_failed')")
+
+
+if __name__ == "__main__":
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print(f"PASS {name}")
+            except AssertionError as exc:
+                failures += 1
+                print(f"FAIL {name}: {exc}")
+    raise SystemExit(1 if failures else 0)

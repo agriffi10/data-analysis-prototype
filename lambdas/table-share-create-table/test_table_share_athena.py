@@ -1,0 +1,155 @@
+"""Unit tests for tscommon.athena (SPEC-092) — the start+poll DDL runner.
+
+Fake Athena client + fake clock (the module's _now/_sleep seams): asserts the
+submit parameters, success/failed/cancelled/timeout outcome mapping, and the
+transient-vs-terminal error classification. Runnable under pytest or directly:
+python3 test_table_share_athena.py.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-share-common"))
+
+os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
+os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
+os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
+os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
+os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
+os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
+
+from tscommon import athena as athena_mod  # noqa: E402
+from tscommon import clients  # noqa: E402
+from tscommon.errors import TerminalError, TransientError  # noqa: E402
+
+
+class _BotoError(Exception):
+    def __init__(self, code):
+        self.response = {"Error": {"Code": code}}
+        super().__init__(code)
+
+
+class _FakeAthena:
+    """States are consumed one per poll; the last repeats if polling continues."""
+
+    def __init__(self, states=("SUCCEEDED",), reason=None, start_error=None, poll_error=None):
+        self.states = list(states)
+        self.reason = reason
+        self.start_error = start_error
+        self.poll_error = poll_error
+        self.start_calls = []
+        self.poll_count = 0
+
+    def start_query_execution(self, **kwargs):
+        self.start_calls.append(kwargs)
+        if self.start_error:
+            raise self.start_error
+        return {"QueryExecutionId": "qid-1"}
+
+    def get_query_execution(self, **kwargs):
+        self.poll_count += 1
+        if self.poll_error:
+            raise self.poll_error
+        state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
+        status = {"State": state}
+        if self.reason:
+            status["StateChangeReason"] = self.reason
+        return {"QueryExecution": {"Status": status}}
+
+
+class _FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def now(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += seconds
+
+
+def _setup(fake):
+    clients._athena = fake
+    clock = _FakeClock()
+    athena_mod._now = clock.now
+    athena_mod._sleep = clock.sleep
+    return clock
+
+
+def _run():
+    return athena_mod.run_ddl(
+        query="CREATE EXTERNAL TABLE …",
+        database="bob",
+        workgroup="test-workgroup",
+        output_location="s3://user-bkt/bob/athenaresults/alice/",
+    )
+
+
+def _expect(reason, exc_type=TerminalError):
+    try:
+        _run()
+    except exc_type as exc:
+        if exc_type is TerminalError:
+            assert exc.reason == reason, f"expected {reason!r}, got {exc.reason!r}"
+        return
+    raise AssertionError(f"expected {exc_type.__name__}")
+
+
+def test_succeeded_returns_the_execution_id_with_the_right_submit_params():
+    fake = _FakeAthena(states=("RUNNING", "SUCCEEDED"))
+    _setup(fake)
+    assert _run() == "qid-1"
+    call = fake.start_calls[0]
+    assert call["QueryExecutionContext"] == {"Database": "bob"}
+    assert call["WorkGroup"] == "test-workgroup"
+    assert call["ResultConfiguration"] == {"OutputLocation": "s3://user-bkt/bob/athenaresults/alice/"}
+
+
+def test_failed_state_is_terminal_with_athenas_reason():
+    _setup(_FakeAthena(states=("RUNNING", "FAILED"), reason="SYNTAX_ERROR: line 1"))
+    try:
+        _run()
+    except TerminalError as exc:
+        assert exc.reason == "create_failed"
+        assert "SYNTAX_ERROR" in exc.detail
+        return
+    raise AssertionError("expected TerminalError")
+
+
+def test_cancelled_state_is_terminal():
+    _setup(_FakeAthena(states=("CANCELLED",)))
+    _expect("create_failed")
+
+
+def test_poll_cap_exceeded_is_create_timeout():
+    clock = _setup(_FakeAthena(states=("RUNNING",)))
+    _expect("create_timeout")
+    assert clock.t >= athena_mod.MAX_POLL_DURATION_SECONDS
+
+
+def test_throttled_start_is_transient():
+    _setup(_FakeAthena(start_error=_BotoError("TooManyRequestsException")))
+    _expect(None, exc_type=TransientError)
+
+
+def test_throttled_poll_is_transient():
+    _setup(_FakeAthena(poll_error=_BotoError("ThrottlingException")))
+    _expect(None, exc_type=TransientError)
+
+
+def test_non_transient_start_error_is_terminal():
+    _setup(_FakeAthena(start_error=_BotoError("InvalidRequestException")))
+    _expect("create_failed")
+
+
+if __name__ == "__main__":
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print(f"PASS {name}")
+            except AssertionError as exc:
+                failures += 1
+                print(f"FAIL {name}: {exc}")
+    raise SystemExit(1 if failures else 0)

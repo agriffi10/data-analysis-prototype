@@ -48,6 +48,7 @@ locals {
   table_share_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan).
+  athena_workgroup_arn    = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
   user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"

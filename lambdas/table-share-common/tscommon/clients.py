@@ -8,6 +8,7 @@ patch the cached globals directly (e.g. clients._s3 = Fake()).
 _s3 = None
 _cognito = None
 _glue = None
+_athena = None
 _jwks = None
 
 
@@ -18,6 +19,15 @@ def glue():
 
         _glue = boto3.client("glue")
     return _glue
+
+
+def athena():
+    global _athena
+    if _athena is None:
+        import boto3
+
+        _athena = boto3.client("athena")
+    return _athena
 
 
 def s3():
