@@ -2,9 +2,10 @@ import type {HelpSection} from './help.types';
 
 // SPEC-074 FR-005 — MAINTENANCE NOTE.
 // This content describes only the portal behavior that is shipped and reachable
-// by users as of implementation (2026-07-03): Files (incl. Table Builder),
-// Query, Shared connections (incl. SPEC-073 pending/active join status), and
-// Notifications. Every step below maps to a real, wired affordance in the code.
+// by users as of implementation: Files, Query, Tables (create-from-folder +
+// share, SPEC-066→072 / 088→094), Shared connections (incl. SPEC-073
+// pending/active join status), and Notifications. Every step below maps to a
+// real, wired affordance in the code.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
@@ -86,23 +87,6 @@ export const HELP_SECTIONS: HelpSection[] = [
           'The panel shows its name and paths, and — for files — size, type, last modified, and any custom metadata.',
           'Use the copy buttons to grab a path, and close the panel with <b>Escape</b> or the close button.'
         ]
-      },
-      {
-        id: 'create-table',
-        title: 'Create a table from a folder',
-        subtitle: 'Turn a folder of files into a table you can query.',
-        intro:
-          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go.',
-        steps: [
-          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>.',
-          'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
-          'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
-          'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
-        ],
-        callout: {
-          kind: 'tip',
-          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away.'
-        }
       }
     ]
   },
@@ -162,23 +146,6 @@ export const HELP_SECTIONS: HelpSection[] = [
         }
       },
       {
-        id: 'share-table',
-        title: 'Share a table',
-        subtitle: 'Copy a table into other users’ or shared spaces’ databases.',
-        intro:
-          'Any table you can browse in the schema rail can be shared. Sharing copies the table’s data files into each recipient’s space and creates the table in their database, so they can query it as their own — it’s a one-time snapshot, not a live link.',
-        steps: [
-          'In the schema rail, open the <b>⋮</b> menu on a table and choose <b>Share table</b> (views can’t be shared).',
-          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b>. You can mix both kinds in one share.',
-          'Adjust the <b>Table name for recipients</b> if you like (it defaults to the source table’s name).',
-          'Click <b>Share</b>. The copy runs in the background — each recipient is notified on success, and every outcome lands in your notifications.'
-        ],
-        callout: {
-          kind: 'warning',
-          text: 'If a recipient already has a table with that name (or leftover files where it would go), that recipient’s share fails with a notification — nothing is overwritten. The others still go through.'
-        }
-      },
-      {
         id: 'save-query',
         title: 'Save a query',
         subtitle: 'Keep the queries you reach for often.',
@@ -228,6 +195,48 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Choose a destination space and a file name.',
           'The results export in the background, and a notification lets you know when they’re saved.'
         ]
+      }
+    ]
+  },
+  {
+    id: 'tables',
+    label: 'Tables',
+    subtitle: 'Turn folders of files into queryable tables, and share them.',
+    icon: 'tables',
+    guides: [
+      {
+        id: 'create-table',
+        title: 'Create a table from a folder',
+        subtitle: 'Turn a folder of files into a table you can query.',
+        intro:
+          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go.',
+        steps: [
+          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>.',
+          'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
+          'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
+          'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away.'
+        }
+      },
+      {
+        id: 'share-table',
+        title: 'Share a table',
+        subtitle: 'Copy a table into other users’ or shared spaces’ databases.',
+        intro:
+          'Any table you can browse in the <b>Query</b> schema rail can be shared. Sharing copies the table’s data files into each recipient’s space and creates the table in their database, so they can query it as their own — it’s a one-time snapshot, not a live link.',
+        steps: [
+          'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on a table and choose <b>Share table</b> (views can’t be shared).',
+          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b>. You can mix both kinds in one share.',
+          'Adjust the <b>Table name for recipients</b> if you like (it defaults to the source table’s name).',
+          'Click <b>Share</b>. The copy runs in the background — each recipient is notified on success, and every outcome lands in your notifications.'
+        ],
+        callout: {
+          kind: 'warning',
+          text: 'If a recipient already has a table with that name (or leftover files where it would go), that recipient’s share fails with a notification — nothing is overwritten. The others still go through.'
+        }
       }
     ]
   },

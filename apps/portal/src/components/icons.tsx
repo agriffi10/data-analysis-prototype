@@ -257,6 +257,35 @@ export function DatabaseIcon({className}: IconProps) {
 }
 
 /**
+ * Grid / table (Tables feature icon — create-from-folder + share).
+ *
+ * @example
+ * <TableIcon className="h-[18px] w-[18px]" />
+ */
+export function TableIcon({className}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true">
+      <rect
+        x="3"
+        y="4"
+        width="18"
+        height="16"
+        rx="2"
+      />
+      <path d="M3 9h18M3 14.5h18M9 9v11M15 9v11" />
+    </svg>
+  );
+}
+
+/**
  * Three linked nodes (Shared connections feature icon).
  *
  * @example
