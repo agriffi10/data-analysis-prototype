@@ -59,7 +59,15 @@ export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true
           aria-modal="true"
           aria-label={ariaLabel}
           tabIndex={-1}
-          className={cx('w-full rounded-lg bg-surface shadow-lg', className ?? 'max-w-md')}
+          // The outer `p-4` keeps the panel off the screen edges on mobile; the
+          // matching `max-h` (100dvh − the 1rem gutters) + `overflow-y-auto` cap
+          // a long body to the viewport, scrolling inside the panel, at every
+          // width. Desktop width/centering is unchanged (`max-w-md` default or a
+          // passed class).
+          className={cx(
+            'max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-lg bg-surface shadow-lg',
+            className ?? 'max-w-md'
+          )}
           onClick={(e) => e.stopPropagation()}>
           {children}
         </div>

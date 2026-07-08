@@ -27,6 +27,7 @@
 - **§17 Build workflow** — Thinking in React 5-step process.
 - **§18 Tooling** — StrictMode + eslint-plugin-react-hooks; never suppress the linter.
 - **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference; JSDoc (not inline comments) is the primary source of context.
+- **§20 Responsive design** — mobile-first; the project's `tablet:`/`desktop:` breakpoint vocabulary; responsive-by-default (utilities on one tree) vs. a justified separate-markup branch; the one viewport hook (`useBreakpoint`) is mount-gating only.
 
 ---
 
@@ -218,3 +219,21 @@ export const ShopLabel = ({ shopName, className = '' }: ShopLabelProps) => {
 - If a **plain-JS** (`.jsx`) file ever needs typing without TS, the article's typed JSDoc (`@typedef`/`@param {ShopLabelProps}` / `React.HTMLAttributes<*>` intersection) is the fallback — but in this repo prefer converting to `.tsx` over annotating JS with JSDoc types.
 
 Source: [Writing JSDoc for React Components — Thomas Schoffelen](https://schof.co/writing-jsdoc-for-react-components/).
+
+## §20 Responsive design
+The app targets three widths with **project-custom breakpoints** (SPEC-095), not Tailwind's defaults. The defaults (`sm`/`md`/`lg`/`xl`/`2xl`) are reset to `initial` in `src/index.css` `@theme`; only two self-documenting prefixes compile:
+
+| Tier | Prefix | Threshold |
+|---|---|---|
+| **Mobile** | base (no prefix) | `< 900px` |
+| **Tablet** | `tablet:` | `900–1299px` |
+| **Desktop** | `desktop:` | `≥ 1300px` |
+
+- ✅ **Mobile-first.** Unprefixed utilities *are* the mobile (`< 900px`) layout; `tablet:` / `desktop:` layer changes on top. A prefix means "at that width **and up**".
+- 🔴 **Never use a prefix to *target* mobile.** There is no lower prefix — mobile is the unprefixed base. (This is why the defaults are removed: a `md:` that secretly meant 900px is a footgun.)
+- ✅ **Tablet-band-only** styles use the stacked `tablet:max-desktop:` variant (≥900 and <1300). `max-tablet:` / `max-desktop:` are also available.
+- ✅ **Responsive by default (FR-008).** Restyle across breakpoints — spacing, direction, column counts, alignment, ordering, per-cell show/hide — with utility variants on **one** element (`flex-col` → `tablet:flex-row`, `grid-cols-1` → `tablet:grid-cols-3`, `hidden`/`desktop:block`, `order-*`, `gap-*`). Keep behavior, state, refs, and a11y in one place.
+- ✅ **A separate component / `tablet:hidden` markup branch is allowed only when the two presentations are genuinely, structurally different** (different DOM/semantics, not just spacing) — the canonical case is the Files **data table vs. mobile card list** (SPEC-099). State the structural justification in the spec and still reuse the same data + shared child components/handlers (no forked logic).
+- ✅ Two cases CSS alone can't express, which always justify a branch: **mounting cost / distinct interaction** (e.g. not mounting Monaco on phones — `hidden` still instantiates it) and **mobile-only chrome** (the `MobileActionBar`, the hamburger — `tablet:hidden`).
+- ✅ Where a viewport hook is genuinely needed (**mount-gating only**, never for styling), use the one shared `useBreakpoint()` / `useIsMobile()` in `src/lib/` — not ad-hoc `matchMedia` per feature.
+- 🔴 No `*Mobile`/`*Desktop` twin for a layout that is only a restyle of the same DOM.

@@ -145,7 +145,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                   </div>
                 </div>
 
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mt-2 grid grid-cols-1 gap-2 tablet:grid-cols-2">
                   <div>
                     <label
                       htmlFor={`${row.id}-type`}
@@ -188,7 +188,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           onChange={(e) => update(row.id, {max: e.target.value})}
                         />
                       </div>
-                      <div className="sm:col-span-2">
+                      <div className="tablet:col-span-2">
                         <Input
                           aria-label={`Partition key ${i + 1} digit width`}
                           label="Digits (optional zero-pad, e.g. 2 for 01)"
@@ -225,7 +225,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           onChange={(e) => update(row.id, {end: e.target.value})}
                         />
                       </div>
-                      <div className="sm:col-span-2">
+                      <div className="tablet:col-span-2">
                         <Input
                           aria-label={`Partition key ${i + 1} date format`}
                           label="Format"
@@ -240,7 +240,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                   )}
 
                   {row.type === 'string' && (
-                    <div className="sm:col-span-2">
+                    <div className="tablet:col-span-2">
                       <Input
                         aria-label={`Partition key ${i + 1} values`}
                         label="Values (comma-separated)"

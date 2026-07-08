@@ -15,7 +15,7 @@ type CollapsibleRailProps = {
 
 /**
  * Shared chrome for the two authenticated left rails (Files `Sidebar` + Query
- * `SchemaBrowser`, SPEC-085): the 248px panel (hidden below `md` as before) plus a
+ * `SchemaBrowser`, SPEC-085): the 248px panel (hidden below `tablet` as before) plus a
  * header **collapse** control and, when collapsed, a slim **reopen** handle at the
  * content's left edge.
  *
@@ -37,7 +37,7 @@ export function CollapsibleRail({ariaLabel, title, children}: CollapsibleRailPro
         id={railId}
         aria-label={ariaLabel}
         className={cx(
-          'hidden shrink-0 flex-col overflow-hidden bg-surface transition-[width] duration-200 ease-out motion-reduce:transition-none md:flex',
+          'hidden shrink-0 flex-col overflow-hidden bg-surface transition-[width] duration-200 ease-out motion-reduce:transition-none tablet:flex',
           collapsed ? 'w-0 border-r-0' : 'w-[248px] border-r border-border'
         )}>
         <div
@@ -71,7 +71,7 @@ export function CollapsibleRail({ariaLabel, title, children}: CollapsibleRailPro
           aria-expanded={false}
           aria-controls={railId}
           onClick={() => setCollapsed(false)}
-          className="hidden w-7 shrink-0 items-start justify-center border-r border-border bg-surface pt-3 text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent md:flex">
+          className="hidden w-7 shrink-0 items-start justify-center border-r border-border bg-surface pt-3 text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent tablet:flex">
           <ChevronRightIcon className="h-4 w-4" />
         </button>
       )}

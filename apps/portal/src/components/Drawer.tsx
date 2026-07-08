@@ -4,10 +4,20 @@ import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {useEscapeKey} from '../hooks/useEscapeKey';
 
+/** Below `tablet`, how the drawer presents: docked bottom sheet or full-height sheet. */
+export type DrawerMobileVariant = 'bottom-sheet' | 'full-height';
+
 type DrawerProps = {
   open: boolean;
   onClose: () => void;
   title: string;
+  /**
+   * Mobile (< tablet) presentation: `bottom-sheet` (full-width, docked to the
+   * bottom, rounded top — content/detail drawers) or `full-height` (full-width,
+   * full-height — member/roster drawers). Desktop is always the 440px right
+   * slide-over. Default `bottom-sheet`.
+   */
+  mobileVariant?: DrawerMobileVariant;
   /** Extends the title's classes (e.g. `font-mono` for a name). */
   titleClassName?: string;
   /** Small muted line rendered under the title. */
@@ -28,10 +38,12 @@ type DrawerProps = {
 };
 
 /**
- * Right slide-over drawer: scrim + 440px panel + header with close button +
- * scrollable body. Traps focus while open and restores it to the trigger on
- * close; Escape and backdrop click both dismiss (Escape is opt-out via
- * `closeOnEscape` when a nested dialog owns it).
+ * Slide-over drawer: scrim + panel + header with close button + scrollable body.
+ * Traps focus while open and restores it to the trigger on close; Escape and
+ * backdrop click both dismiss (Escape is opt-out via `closeOnEscape` when a
+ * nested dialog owns it). Desktop (≥ tablet) is a 440px right slide-over; below
+ * tablet it becomes a full-width sheet — a docked bottom sheet or a full-height
+ * sheet per `mobileVariant` (SPEC-095).
  *
  * @example
  * <Drawer open={open} onClose={() => setOpen(false)} title="History" footer={<Pager {...pager} />}>
@@ -47,6 +59,7 @@ export function Drawer({
   ariaLabel,
   closeLabel,
   closeOnEscape = true,
+  mobileVariant = 'bottom-sheet',
   headerAccessory,
   bodyClassName = 'gap-3',
   children,
@@ -68,7 +81,12 @@ export function Drawer({
         allowOutsideClick: true
       }}>
       <div
-        className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-sm"
+        className={cx(
+          'fixed inset-0 z-40 flex bg-black/30 backdrop-blur-sm tablet:justify-end',
+          // Below tablet a bottom sheet docks to the bottom edge; full-height
+          // (and desktop) stretch. Reset to stretch at tablet for the slide-over.
+          mobileVariant === 'bottom-sheet' ? 'items-end tablet:items-stretch' : ''
+        )}
         onClick={onClose}>
         <aside
           ref={panelRef}
@@ -76,7 +94,10 @@ export function Drawer({
           aria-modal="true"
           aria-label={ariaLabel ?? title}
           tabIndex={-1}
-          className="flex h-full w-full max-w-[440px] flex-col bg-surface shadow-lg"
+          className={cx(
+            'flex w-full flex-col bg-surface shadow-lg tablet:h-full tablet:max-h-none tablet:w-full tablet:max-w-[440px] tablet:rounded-none',
+            mobileVariant === 'bottom-sheet' ? 'max-h-[85dvh] rounded-t-xl' : 'h-full'
+          )}
           onClick={(e) => e.stopPropagation()}>
           <div className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-5 py-2">
             <div className="min-w-0">
@@ -103,7 +124,7 @@ export function Drawer({
             </IconButton>
           </div>
 
-          <div className={cx('flex flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>{children}</div>
+          <div className={cx('flex min-h-0 flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>{children}</div>
 
           {footer}
         </aside>

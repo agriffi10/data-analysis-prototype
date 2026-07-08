@@ -68,6 +68,7 @@ export function ManageMembersDrawer({
       subtitle="Members · everyone shares the same files and tables"
       ariaLabel="Manage members"
       closeLabel="Close manage members"
+      mobileVariant="full-height"
       headerAccessory={
         <div className="ml-2 flex flex-none items-center gap-1.5">
           <RefreshConnectionsButton
