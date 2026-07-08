@@ -303,3 +303,67 @@ describe('ConnectionsPage — Leave & Delete (SPEC-054)', () => {
     expect(within(joining).queryByRole('button', {name: 'Leave'})).not.toBeInTheDocument();
   });
 });
+
+// ─── SPEC-101: responsive reflow ─────────────────────────────────────────────
+
+describe('ConnectionsPage responsive reflow (SPEC-101)', () => {
+  it('stacks the card on mobile and rows it at ≥ tablet', async () => {
+    mockRead.mockResolvedValue(cache([{name: 'sales', role: 'owner', status: 'active'}]));
+    renderPage();
+    const li = (await screen.findByText('sales')).closest('li')!;
+    expect(li).toHaveClass('flex-col', 'tablet:flex-row');
+  });
+
+  it('renders two active-owner actions as a full-width 50/50 grid on mobile', async () => {
+    mockRead.mockResolvedValue(cache([{name: 'sales', role: 'owner', status: 'active'}]));
+    renderPage();
+    const manage = await screen.findByRole('button', {name: 'Manage'});
+    expect(manage.parentElement).toHaveClass('grid-cols-2', 'w-full', 'tablet:flex');
+    expect(manage).toHaveClass('w-full', 'tablet:w-auto');
+  });
+
+  it('renders a single provisioning-owner action full-width on mobile', async () => {
+    mockRead.mockResolvedValue(cache([{name: 'ops', role: 'owner', status: 'provisioning'}]));
+    renderPage();
+    const manage = await screen.findByRole('button', {name: 'Manage'});
+    expect(manage).toBeDisabled();
+    expect(manage.parentElement).toHaveClass('grid-cols-1');
+  });
+
+  it('stacks pills under the name on mobile (inline at ≥ tablet)', async () => {
+    mockRead.mockResolvedValue(cache([{name: 'sales', role: 'owner', status: 'active'}]));
+    renderPage();
+    const nameRow = (await screen.findByText('sales')).parentElement!;
+    expect(nameRow).toHaveClass('flex-col', 'tablet:flex-row');
+  });
+
+  it('shortens the New button label but keeps its full accessible name', async () => {
+    mockRead.mockResolvedValue(cache([]));
+    renderPage();
+    await screen.findByText(/No shared connections yet/);
+    const newBtn = screen.getByRole('button', {name: 'New shared connection'});
+    expect(newBtn).toHaveClass('w-full', 'tablet:w-auto');
+    expect(within(newBtn).getByText('New')).toHaveClass('desktop:hidden');
+    expect(within(newBtn).getByText('New shared connection')).toHaveClass('hidden', 'desktop:inline');
+  });
+
+  it('opts the page header into the stacked mobile layout', async () => {
+    mockRead.mockResolvedValue(cache([]));
+    renderPage();
+    await screen.findByText(/No shared connections yet/);
+    const header = screen.getByRole('heading', {level: 1, name: 'Shared connections'}).closest('div')!.parentElement!;
+    expect(header).toHaveClass('flex-col', 'tablet:flex-row');
+  });
+
+  it('opens Manage as a full-height sheet variant (FR-005)', async () => {
+    mockRead.mockResolvedValue(
+      cache([{name: 'sales', role: 'owner', status: 'active', members: [{username: 'alice', status: 'active'}]}])
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', {name: 'Manage'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Manage members'});
+    // full-height variant → h-full, not the bottom-sheet's rounded top.
+    expect(dialog).toHaveClass('h-full');
+    expect(dialog).not.toHaveClass('rounded-t-xl');
+  });
+});

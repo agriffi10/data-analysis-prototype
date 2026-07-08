@@ -1,7 +1,7 @@
 # Spec: Shared Connections — Responsive Reflow
 
 **ID:** SPEC-101  
-**Status:** Draft  
+**Status:** Completed  
 **Last Updated:** 2026-07-08  
 **Depends On:** SPEC-095
 

@@ -1,7 +1,8 @@
-import {useMemo, useState} from 'react';
+import {useMemo, useState, type ReactNode} from 'react';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {PageLayout} from '../../components/PageLayout';
+import {cx} from '../../lib/cx';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {Toast, type ToastState} from '../query/Toast';
@@ -225,8 +226,17 @@ export function ConnectionsPage() {
           don't stretch across very wide viewports. */}
       <PageLayout
         title="Shared connections"
-        subtitle="Spaces you own or belong to. Files, tables, and the database are shared by all members."
+        subtitle={
+          <>
+            Spaces you own or belong to.
+            {/* Full sentence at desktop; trimmed below (SPEC-101 FR-002). One
+                span (display:none removes it from the a11y tree), so the subtitle
+                is never read doubled. */}
+            <span className="hidden desktop:inline"> Files, tables, and the database are shared by all members.</span>
+          </>
+        }
         contentClassName="max-w-[920px] gap-3"
+        stackActionsOnMobile
         actions={
           <>
             <RefreshConnectionsButton
@@ -235,8 +245,13 @@ export function ConnectionsPage() {
             />
             <Button
               variant="primary"
+              aria-label="New shared connection"
+              className="w-full tablet:w-auto"
               onClick={() => setDialogOpen(true)}>
-              New shared connection
+              {/* "New" below desktop, full label at desktop; aria-label carries
+                  the full intent at every width (SPEC-101 FR-002). */}
+              <span className="desktop:hidden">New</span>
+              <span className="hidden desktop:inline">New shared connection</span>
             </Button>
           </>
         }>
@@ -381,72 +396,100 @@ function ConnectionRowItem({
 }) {
   const isOwner = row.role === 'owner';
   const meta = metaLine(row);
+
+  // The applicable actions per state, each full-width on mobile / auto at ≥ tablet.
+  const dangerGhost = 'w-full text-danger hover:bg-danger-soft hover:text-danger tablet:w-auto';
+  const actions: ReactNode[] = [];
+  if (row.status === 'failed') {
+    actions.push(
+      <Button
+        key="dismiss"
+        variant="ghost"
+        size="sm"
+        className="w-full tablet:w-auto"
+        onClick={onDismiss}>
+        Dismiss
+      </Button>,
+      <Button
+        key="retry"
+        size="sm"
+        className="w-full tablet:w-auto"
+        onClick={onRetry}>
+        Retry
+      </Button>
+    );
+  } else if (isOwner) {
+    actions.push(
+      <Button
+        key="manage"
+        size="sm"
+        className="w-full tablet:w-auto"
+        onClick={onManage}
+        disabled={row.status !== 'active'}>
+        Manage
+      </Button>
+    );
+    if (row.status === 'active') {
+      actions.push(
+        <Button
+          key="delete"
+          variant="ghost"
+          size="sm"
+          className={dangerGhost}
+          onClick={onDelete}>
+          Delete
+        </Button>
+      );
+    }
+  } else if (row.status === 'active') {
+    actions.push(
+      <Button
+        key="view"
+        variant="ghost"
+        size="sm"
+        className="w-full tablet:w-auto"
+        onClick={onView}>
+        View members
+      </Button>,
+      <Button
+        key="leave"
+        variant="ghost"
+        size="sm"
+        className={dangerGhost}
+        onClick={onLeave}>
+        Leave
+      </Button>
+    );
+  }
+
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-border bg-surface px-5 py-4">
+    // Stacked on mobile (name / pills / meta then a full-width action row); a
+    // single horizontal row with right-aligned actions at ≥ tablet (SPEC-101).
+    <li className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-5 py-4 tablet:flex-row tablet:items-center">
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Name on line 1, pills wrap under it on mobile; all inline (wrapping
+            only on collision) at ≥ tablet via `tablet:contents`. */}
+        <div className="flex flex-col gap-1 tablet:flex-row tablet:flex-wrap tablet:items-center tablet:gap-2">
           <span className="truncate font-mono text-base font-semibold text-text">{row.name}</span>
-          <RolePill role={row.role} />
-          <StatusBadge status={row.status} />
+          <div className="flex flex-wrap items-center gap-2 tablet:contents">
+            <RolePill role={row.role} />
+            <StatusBadge status={row.status} />
+          </div>
         </div>
         {meta && <div className="mt-1 text-xs text-text-3">{meta}</div>}
         {row.status === 'failed' && (
           <div className="mt-1 text-xs text-danger">{row.reason ?? 'Provisioning failed.'}</div>
         )}
       </div>
-      <div className="flex flex-none items-center gap-2">
-        {row.status === 'failed' ? (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onDismiss}>
-              Dismiss
-            </Button>
-            <Button
-              size="sm"
-              onClick={onRetry}>
-              Retry
-            </Button>
-          </>
-        ) : isOwner ? (
-          <>
-            <Button
-              size="sm"
-              onClick={onManage}
-              disabled={row.status !== 'active'}>
-              Manage
-            </Button>
-            {row.status === 'active' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-danger hover:bg-danger-soft hover:text-danger"
-                onClick={onDelete}>
-                Delete
-              </Button>
-            )}
-          </>
-        ) : (
-          row.status === 'active' && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onView}>
-                View members
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-danger hover:bg-danger-soft hover:text-danger"
-                onClick={onLeave}>
-                Leave
-              </Button>
-            </>
-          )
-        )}
-      </div>
+      {actions.length > 0 && (
+        <div
+          className={cx(
+            'grid w-full gap-2 tablet:flex tablet:w-auto tablet:flex-none tablet:items-center',
+            actions.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+          )}>
+          {actions}
+        </div>
+      )}
     </li>
   );
 }
