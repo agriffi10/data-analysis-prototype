@@ -63,7 +63,10 @@ function renderPanel(
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseObjectMetadata.mockReturnValue(loaded());
-  mockGetDownloadUrl.mockResolvedValue({success: true, data: {url: 'https://signed/report.pdf'}});
+  mockGetDownloadUrl.mockResolvedValue({
+    success: true,
+    data: {url: 'https://signed/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
+  });
 });
 
 describe('MetadataPanel', () => {

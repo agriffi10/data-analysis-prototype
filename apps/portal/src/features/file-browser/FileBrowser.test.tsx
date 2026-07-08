@@ -1056,6 +1056,8 @@ describe('rename + move', () => {
     fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
 
     expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'file', key: 'alice/report.pdf'}, 'renamed');
+    // Opening rename closes the details panel.
+    expect(screen.queryByRole('dialog', {name: /details for report\.pdf/i})).not.toBeInTheDocument();
   });
 
   it('renaming a folder from its details panel calls renameItem [SPEC-097]', () => {
@@ -1068,6 +1070,7 @@ describe('rename + move', () => {
     fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
 
     expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'folder', prefix: 'alice/photos/'}, 'renamed');
+    expect(screen.queryByRole('dialog', {name: /details for photos/i})).not.toBeInTheDocument();
   });
 
   it('does not render per-row Rename buttons (Rename lives in the details panel)', () => {

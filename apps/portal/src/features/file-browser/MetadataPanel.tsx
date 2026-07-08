@@ -93,6 +93,7 @@ function PanelActions({
           className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
           onClick={() => void download()}
           disabled={downloading}
+          aria-busy={downloading}
           aria-label={`Download ${file.name}`}>
           <DownloadIcon />
           {downloading ? 'Downloading…' : 'Download'}
