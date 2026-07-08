@@ -62,7 +62,8 @@ describe('Header hamburger (SPEC-095 FR-002)', () => {
     const hamburger = screen.getByRole('button', {name: 'Open navigation'});
     expect(hamburger).toHaveClass('tablet:hidden', 'h-11', 'w-11');
     expect(hamburger).toHaveAttribute('aria-expanded', 'false');
-    expect(hamburger).toHaveAttribute('aria-controls');
+    // aria-controls is only set while the drawer is mounted (see mobile test).
+    expect(hamburger).not.toHaveAttribute('aria-controls');
     // Primary tab strip is present but desktop-only (hidden below tablet).
     expect(screen.getByRole('navigation', {name: 'Primary'}).parentElement).toHaveClass('hidden', 'tablet:flex');
     // Brand + bell remain at all widths.
@@ -81,8 +82,12 @@ describe('Header hamburger (SPEC-095 FR-002)', () => {
 
     expect(screen.queryByRole('dialog', {name: 'Navigation'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Open navigation'}));
-    expect(screen.getByRole('dialog', {name: 'Navigation'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Open navigation'})).toHaveAttribute('aria-expanded', 'true');
+    const drawer = screen.getByRole('dialog', {name: 'Navigation'});
+    expect(drawer).toBeInTheDocument();
+    const hamburger = screen.getByRole('button', {name: 'Open navigation'});
+    expect(hamburger).toHaveAttribute('aria-expanded', 'true');
+    // Linked to the now-mounted drawer.
+    expect(hamburger.getAttribute('aria-controls')).toBe(drawer.id);
   });
 
   it('does not mount the nav drawer at desktop widths', () => {

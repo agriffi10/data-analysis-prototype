@@ -12,12 +12,23 @@ const runAxe = configureAxe({
 });
 
 function trigger(label = 'Open menu') {
-  return ({open, toggle, ref}: {open: boolean; toggle: () => void; ref: React.Ref<HTMLButtonElement>}) => (
+  return ({
+    open,
+    toggle,
+    ref,
+    menuId
+  }: {
+    open: boolean;
+    toggle: () => void;
+    ref: React.Ref<HTMLButtonElement>;
+    menuId: string;
+  }) => (
     <button
       ref={ref}
       type="button"
       aria-haspopup="menu"
       aria-expanded={open}
+      aria-controls={open ? menuId : undefined}
       onClick={toggle}>
       {label}
     </button>
@@ -47,7 +58,10 @@ describe('Menu', () => {
 
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menu', {name: 'Row actions'})).toBeInTheDocument();
+    const menu = screen.getByRole('menu', {name: 'Row actions'});
+    expect(menu).toBeInTheDocument();
+    // Trigger links the open popover for AT.
+    expect(button.getAttribute('aria-controls')).toBe(menu.id);
   });
 
   it('fires the item onSelect and closes', () => {

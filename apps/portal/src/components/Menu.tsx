@@ -15,9 +15,10 @@ export type MenuItem =
 export type MenuProps = {
   /**
    * Render the trigger button. Wire the supplied `ref` and `onClick={toggle}`
-   * onto it, and reflect `open` via `aria-expanded` (+ `aria-haspopup="menu"`).
+   * onto it, reflect `open` via `aria-expanded` (+ `aria-haspopup="menu"`), and
+   * link the popover with `aria-controls={open ? menuId : undefined}`.
    */
-  trigger: (p: {open: boolean; toggle: () => void; ref: Ref<HTMLButtonElement>}) => ReactNode;
+  trigger: (p: {open: boolean; toggle: () => void; ref: Ref<HTMLButtonElement>; menuId: string}) => ReactNode;
   items: MenuItem[];
   /** Accessible name for the `role="menu"` popover. */
   ariaLabel: string;
@@ -95,7 +96,7 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
     <div
       ref={containerRef}
       className={cx('relative', className)}>
-      {trigger({open, toggle: () => setOpen((o) => !o), ref: triggerRef})}
+      {trigger({open, toggle: () => setOpen((o) => !o), ref: triggerRef, menuId})}
 
       {open && (
         <div

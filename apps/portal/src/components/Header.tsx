@@ -40,7 +40,7 @@ export function Header() {
             type="button"
             aria-label="Open navigation"
             aria-expanded={navOpen}
-            aria-controls={navDrawerId}
+            aria-controls={navOpen ? navDrawerId : undefined}
             onClick={() => setNavOpen(true)}
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent tablet:hidden">
             <svg

@@ -36,13 +36,14 @@ export function TableActionsMenu({tableName, items}: Props) {
       ariaLabel={`${tableName} actions`}
       className="flex-none"
       items={menuItems}
-      trigger={({open, toggle, ref}) => (
+      trigger={({open, toggle, ref, menuId}) => (
         <button
           ref={ref}
           type="button"
           aria-label={`Options for ${tableName}`}
           aria-haspopup="menu"
           aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
           onClick={(e) => {
             e.stopPropagation();
             toggle();
