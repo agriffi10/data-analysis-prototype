@@ -44,7 +44,7 @@ export function lastSegment(keyOrPrefix: string): string {
  * `{username}/`, a shared space's root prefix, or `''` when unclamped).
  */
 export function isAtRoot(currentPrefix: string, rootPrefix: string): boolean {
-  return currentPrefix === rootPrefix || (currentPrefix === '' && rootPrefix === '');
+  return currentPrefix === rootPrefix;
 }
 
 /**
@@ -56,8 +56,8 @@ export function parentPrefix(currentPrefix: string, rootPrefix: string): string 
   const trimmed = currentPrefix.replace(/\/$/, '');
   const i = trimmed.lastIndexOf('/');
   const parent = i === -1 ? '' : trimmed.slice(0, i + 1);
-  // Clamp: never step above the space root.
-  if (rootPrefix && parent.length < rootPrefix.length) return rootPrefix;
+  // Clamp: never step above the space root (ancestry-aware, not just length).
+  if (rootPrefix && (parent.length < rootPrefix.length || !parent.startsWith(rootPrefix))) return rootPrefix;
   return parent;
 }
 

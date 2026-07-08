@@ -1,6 +1,7 @@
 import {render, screen, fireEvent} from '@testing-library/react';
 import {describe, it, expect, vi} from 'vitest';
 import {ParentFolderRow} from './ParentFolderRow';
+import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
 
 function renderRow(over: {selectable?: boolean; onNavigateUp?: () => void} = {}) {
   const onNavigateUp = over.onNavigateUp ?? vi.fn();
@@ -23,10 +24,11 @@ describe('ParentFolderRow', () => {
     expect(button).toHaveTextContent('..');
   });
 
-  it('navigates up on click and on keyboard activation', () => {
+  it('navigates up on activation via a native, keyboard-operable button', () => {
     const onNavigateUp = renderRow();
     const button = screen.getByRole('button', {name: /go up to parent folder/i});
-    // A <button> is natively keyboard-activatable (Enter/Space fire click).
+    // A native <button> is Enter/Space-activatable and takes tab focus by default.
+    expect(button.tagName).toBe('BUTTON');
     fireEvent.click(button);
     expect(onNavigateUp).toHaveBeenCalledTimes(1);
   });
@@ -41,5 +43,17 @@ describe('ParentFolderRow', () => {
   it('shows a — in the size cell', () => {
     renderRow();
     expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('has no a11y violations', async () => {
+    await expectNoA11yViolations(
+      <ul>
+        <ParentFolderRow
+          selectable
+          onNavigateUp={vi.fn()}
+        />
+      </ul>,
+      COMPONENT_AXE_OPTIONS
+    );
   });
 });
