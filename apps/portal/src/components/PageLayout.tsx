@@ -54,12 +54,12 @@ export function PageLayout({
       className="flex flex-1 flex-col overflow-auto">
       <div
         className={cx(
-          'gap-4 border-b border-border px-6 py-5',
+          'border-b border-border px-6 py-5',
           // Opt-in: stack the actions under the title below tablet; inline row at
           // ≥ tablet. Default: the shipped single inline row at every width.
           stackActionsOnMobile
             ? 'flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:gap-4'
-            : 'flex items-center'
+            : 'flex items-center gap-4'
         )}>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-text">{title}</h1>
