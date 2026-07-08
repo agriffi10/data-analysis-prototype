@@ -8,7 +8,6 @@ import {cx} from '../../lib/cx';
 import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, parseS3Url, isTerminalState} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
-import {TABLE_PREVIEW_ROW_LIMIT} from './query.constants';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
@@ -815,9 +814,11 @@ export function QueryWorkspace() {
         else editorRef.current?.focus();
       })();
     },
-    // Open a "{table}" tab pre-filled with a fully-qualified SELECT * LIMIT N + auto-run.
+    // Open a "{table}" tab pre-filled with an unbounded, fully-qualified SELECT *
+    // + auto-run — the results pager (at the user's page size) walks the whole
+    // table; the workgroup bytes-scanned cutoff is the cost guard (SPEC-105).
     onViewData: (database: string, table: GlueTableSummary) => {
-      const sql = `SELECT * FROM ${database}.${table.name} LIMIT ${TABLE_PREVIEW_ROW_LIMIT}`;
+      const sql = `SELECT * FROM ${database}.${table.name}`;
       const id = tabs.openTab({label: table.name, sql});
       if (id === null) {
         setLimitOpen(true);

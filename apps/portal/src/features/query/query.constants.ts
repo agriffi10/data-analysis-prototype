@@ -63,9 +63,6 @@ export const QUERY_HISTORY_MAX = 100;
  */
 export const QUERY_HISTORY_PAGE_SIZE = 7;
 
-/** The "View data" table preview opens SELECT * … LIMIT this. */
-export const TABLE_PREVIEW_ROW_LIMIT = 10;
-
 /**
  * Catalog-safe identifier rule — lowercase, leading letter, then [a-z0-9_],
  * 3–63 chars total. The same rule the pre-signup Lambda enforces for usernames

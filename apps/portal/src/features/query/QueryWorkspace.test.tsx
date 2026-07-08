@@ -689,7 +689,7 @@ describe('QueryWorkspace', () => {
     expect(mockRunQuery).not.toHaveBeenCalled();
   });
 
-  it('View data opens a "{table}" tab and auto-runs SELECT * LIMIT 10', async () => {
+  it('View data opens a "{table}" tab and auto-runs an unbounded SELECT * (no LIMIT) [SPEC-105]', async () => {
     mockRunQuery.mockResolvedValue({
       success: true,
       data: {queryExecutionId: 'q-1'}
@@ -700,10 +700,11 @@ describe('QueryWorkspace', () => {
     fireEvent.click(screen.getByRole('button', {name: 'data'}));
 
     expect(await screen.findByRole('tab', {name: /sales_2026/})).toBeInTheDocument();
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT * FROM alice.sales_2026 LIMIT 10');
-    expect(mockRunQuery).toHaveBeenCalledWith(
-      expect.objectContaining({sql: 'SELECT * FROM alice.sales_2026 LIMIT 10'})
-    );
+    // Fully-qualified SELECT *, no LIMIT — the results pager walks the whole table.
+    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT * FROM alice.sales_2026');
+    expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT * FROM alice.sales_2026'}));
+    const runSql = mockRunQuery.mock.calls.at(-1)?.[0]?.sql ?? '';
+    expect(runSql).not.toMatch(/limit/i);
   });
 
   it('Drop table confirms, runs in the background, records history + success toast', async () => {

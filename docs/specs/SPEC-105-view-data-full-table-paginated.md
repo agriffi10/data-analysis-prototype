@@ -1,7 +1,7 @@
 # Spec: View Data — Full Table, Paginated (drop the 10-row preview limit)
 
 **ID:** SPEC-105
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** None
 
