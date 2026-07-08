@@ -272,7 +272,7 @@ export default function LandingPage() {
         {/* Hero */}
         <section className="py-16 text-center">
           <div className="mx-auto max-w-[1080px] px-6">
-            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#e0e3ff] bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
+            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-accent-border bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
               <ShieldIcon />
               Secure, per-user file storage on AWS
             </span>

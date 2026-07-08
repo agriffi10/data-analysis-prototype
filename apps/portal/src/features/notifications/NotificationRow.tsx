@@ -26,7 +26,7 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
     <li
       className={cx(
         'flex items-start gap-3 rounded-md border p-4',
-        read ? 'border-border bg-surface' : 'border-[#dfe3fb] bg-accent-soft'
+        read ? 'border-border bg-surface' : 'border-accent-border bg-accent-soft'
       )}>
       {/* Unread marker — decorative. Read rows keep a same-width empty slot so the
           message column stays aligned with unread rows. */}
