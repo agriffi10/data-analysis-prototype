@@ -1336,3 +1336,69 @@ describe('parent-folder (`..`) row', () => {
     expect(screen.getByText('2 selected')).toBeInTheDocument();
   });
 });
+
+// ─── Responsive layout (SPEC-099) ───────────────────────────────────────────────
+
+function setViewportWidth(w: number) {
+  Object.defineProperty(window, 'innerWidth', {value: w, writable: true, configurable: true});
+}
+
+describe('responsive layout (mobile)', () => {
+  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
+
+  beforeEach(() => setViewportWidth(400)); // < tablet → useIsMobile() true
+  afterEach(() => setViewportWidth(1024));
+
+  it('renders the mobile card list (two-line meta), not the desktop table', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
+    render(<FileBrowser {...authProps} />);
+    // Mobile two-line meta lines (file "TYPE · date", folder "Folder").
+    expect(screen.getByText(/PDF ·/)).toBeInTheDocument();
+    expect(screen.getByText('Folder')).toBeInTheDocument();
+    // The table's column header is not rendered on mobile.
+    expect(screen.queryByText('Modified')).not.toBeInTheDocument();
+  });
+
+  it('mounts the MobileActionBar (New folder + Upload) instead of the top-toolbar group', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(<FileBrowser {...authProps} />);
+    const bar = screen.getByRole('toolbar', {name: 'File actions'});
+    expect(within(bar).getByRole('button', {name: 'New folder'})).toBeInTheDocument();
+    expect(within(bar).getByRole('button', {name: /^upload$/i})).toBeInTheDocument();
+  });
+
+  it('does not render the MobileActionBar in read-only browse', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(<FileBrowser bucket="my-bucket" />); // read-only (no writable/username)
+    expect(screen.queryByRole('toolbar', {name: 'File actions'})).not.toBeInTheDocument();
+  });
+
+  it('shows icon-bearing bulk actions with accessible labels', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(<FileBrowser {...authProps} />);
+    const copy = screen.getByRole('button', {name: 'Copy selected items'});
+    expect(copy.querySelector('svg')).toBeInTheDocument(); // icon present
+    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeInTheDocument();
+  });
+
+  it('renders the `..` row mobile variant first when below root', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(
+      <FileBrowser
+        {...authProps}
+        prefix="alice/docs/"
+        rootPrefix="alice/"
+      />
+    );
+    expect(screen.getByRole('button', {name: /go up to parent folder/i})).toBeInTheDocument();
+    expect(screen.getByText('Up one level')).toBeInTheDocument();
+  });
+
+  it('renders no header overflow (⋯) menu and no selection-mode toggle', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(<FileBrowser {...authProps} />);
+    expect(screen.queryByRole('button', {name: /more actions|overflow|select mode/i})).not.toBeInTheDocument();
+    // Selection is via always-visible per-row checkboxes.
+    expect(screen.getByRole('checkbox', {name: 'Select report.pdf'})).toBeInTheDocument();
+  });
+});

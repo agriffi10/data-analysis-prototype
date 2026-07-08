@@ -9,7 +9,7 @@ import {useMove} from './useMove';
 import {useCopy} from './useCopy';
 import {getDownloadUrl} from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
-import {formatSize} from './fileBrowser.format';
+import {formatSize, formatDate} from './fileBrowser.format';
 import {lastSegment, fileExtension, isAtRoot, parentPrefix} from './fileBrowser.paths';
 import {UploadDropzone} from './UploadDropzone';
 import {UploadDrawer} from './UploadDrawer';
@@ -20,6 +20,8 @@ import {CollisionPrompt} from './CollisionPrompt';
 import {MetadataPanel} from './MetadataPanel';
 import {FolderDetailsPanel} from './FolderDetailsPanel';
 import {ParentFolderRow} from './ParentFolderRow';
+import {FileListRowMobile} from './FileListRowMobile';
+import {MobileActionBar} from '../../components/MobileActionBar';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed} from './protectedFolders';
 import {DeleteConfirmDialog} from './DeleteConfirmDialog';
 import {OperationSummaryBanner} from './OperationSummaryBanner';
@@ -32,6 +34,7 @@ import {CreateTableButton} from '../table-builder';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {getSessionCredentials} from '../../lib/awsCredentials';
+import {useIsMobile} from '../../lib/useBreakpoint';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -100,14 +103,6 @@ function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string, rootLa
   });
 
   return crumbs;
-}
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
 }
 
 // ─── Icons (inline, no icon library — SPEC-024) ───────────────────────────────
@@ -198,7 +193,7 @@ function FolderRow({
       </button>
       <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-3`}>—</span>
       <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`} />
-      <span className={`${COL_TYPE} pr-4 text-right`}>
+      <span className={`hidden ${COL_TYPE} pr-4 text-right desktop:block`}>
         <Badge>Folder</Badge>
       </span>
       {/* Always-visible Details (mirrors file rows). Rename/Delete/Move/Copy
@@ -272,7 +267,7 @@ function FileRow({
       </span>
       <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-2`}>{formatSize(file.size)}</span>
       <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`}>{formatDate(file.lastModified)}</span>
-      <span className={`${COL_TYPE} pr-4 text-right`}>
+      <span className={`hidden ${COL_TYPE} pr-4 text-right desktop:block`}>
         <Badge>{fileExtension(file.name)}</Badge>
       </span>
       {/* Always-visible Details (no hover menu). Download appears here only in
@@ -303,6 +298,62 @@ function FileRow({
 
 // ─── Selection toolbar (SPEC-018 FR-001 UI / FR-004) ──────────────────────────
 
+// Bulk-action glyphs (icon-only on mobile, SPEC-099 FR-006).
+function BulkCopyIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className="h-[15px] w-[15px]"
+      aria-hidden="true">
+      <rect
+        x="9"
+        y="9"
+        width="11"
+        height="11"
+        rx="2"
+      />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function BulkMoveIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-[15px] w-[15px]"
+      aria-hidden="true">
+      <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
+      <path d="M10 8l4 4-4 4" />
+      <path d="M14 12H3" />
+    </svg>
+  );
+}
+
+function BulkTrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-[15px] w-[15px]"
+      aria-hidden="true">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  );
+}
+
 function SelectionToolbar({
   allItems,
   onRequestDelete,
@@ -324,11 +375,11 @@ function SelectionToolbar({
   const active = count > 0;
 
   // A focused bulk-action bar (SPEC-096): whole-selection Copy / Move / Delete
-  // only. Single-item Download + Rename live in the per-object details panel
-  // (SPEC-097).
+  // only (Download + Rename live in the details panel, SPEC-097). Labelled at
+  // ≥ tablet, icon-only on mobile (SPEC-099 FR-006).
   return (
     <div
-      className={`mb-4 flex h-11 items-center gap-3 rounded-lg border px-4 ${
+      className={`mb-4 flex h-11 items-center gap-2 rounded-lg border px-3 tablet:gap-3 tablet:px-4 ${
         active ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
       }`}>
       <input
@@ -353,29 +404,34 @@ function SelectionToolbar({
       <Button
         variant="ghost"
         size="sm"
+        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
         onClick={onRequestCopy}
         disabled={count === 0 || isBusy}
         aria-label="Copy selected items">
-        Copy
+        <BulkCopyIcon />
+        <span className="hidden tablet:inline">Copy</span>
       </Button>
 
       <Button
         variant="ghost"
         size="sm"
+        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
         aria-label="Move selected items">
-        Move
+        <BulkMoveIcon />
+        <span className="hidden tablet:inline">Move</span>
       </Button>
 
       <Button
         variant="ghost"
         size="sm"
-        className="!text-danger hover:!bg-danger-soft hover:!text-danger"
+        className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-3"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
         aria-label="Delete selected items">
-        Delete
+        <BulkTrashIcon />
+        <span className="hidden tablet:inline">Delete</span>
       </Button>
     </div>
   );
@@ -454,6 +510,9 @@ function FileBrowserContent({
   // SelectionProvider; delete is only offered in the authenticated, writable flow
   // (a username is required for the marker guard).
   const selection = useSelection();
+  // Mount-gate the table-vs-card list swap (SPEC-099); matchMedia reads correctly
+  // on first paint in the browser, so no flash and only one markup ever mounts.
+  const isMobile = useIsMobile();
   const del = useDelete(bucket, currentPrefix, username);
   const move = useMove(bucket, currentPrefix, username);
   const copy = useCopy(bucket, currentPrefix, username);
@@ -553,7 +612,9 @@ function FileBrowserContent({
   const selectedItems = [...selection.selected.values()];
 
   return (
-    <div>
+    // Writable mobile flows get bottom padding so the fixed MobileActionBar never
+    // occludes the last list row (SPEC-099 FR-005).
+    <div className={writable ? 'pb-24 tablet:pb-0' : undefined}>
       {/* Toolbar row — breadcrumbs (left) + primary actions (right). FR-002/003 */}
       <div className="mb-4 flex items-center gap-3">
         <nav
@@ -592,8 +653,11 @@ function FileBrowserContent({
           </ol>
         </nav>
 
-        {writable && (
-          <>
+        {/* Primary actions on the top toolbar at ≥ tablet; on mobile they move to
+            the fixed MobileActionBar below (SPEC-099 FR-005). Mount-gated (not
+            CSS-hidden) so the two never both live in the DOM. */}
+        {writable && !isMobile && (
+          <div className="flex items-center gap-3">
             {/* SPEC-071: turn the current folder into a Glue/Athena table. Needs the
                 space's database (= the marker owner: username | shared name), so it's
                 gated on `username` like the other space-scoped actions. */}
@@ -618,9 +682,29 @@ function FileBrowserContent({
               onClick={() => setUploadOpen(true)}>
               Upload
             </Button>
-          </>
+          </div>
         )}
       </div>
+
+      {/* Mobile bottom action bar (writable only) — New folder + Upload, ≥44px
+          (SPEC-099 FR-005). Same handlers as the top-toolbar buttons. */}
+      {writable && isMobile && (
+        <MobileActionBar ariaLabel="File actions">
+          <Button
+            variant="default"
+            className="!h-11 flex-1"
+            onClick={() => setCreatingFolder((v) => !v)}
+            disabled={isBusy}>
+            New folder
+          </Button>
+          <Button
+            variant="primary"
+            className="!h-11 flex-1"
+            onClick={() => setUploadOpen(true)}>
+            Upload
+          </Button>
+        </MobileActionBar>
+      )}
 
       {/* Write controls — create folder (modal dialog, SPEC-016); file uploads go
           to the SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
@@ -878,37 +962,30 @@ function FileBrowserContent({
       )}
 
       {/* File and folder list. Also renders for an empty non-root folder so the
-          `..` row stays reachable (SPEC-098). */}
-      {(hasContent || (isEmpty && !atRoot)) && (
-        <div className="overflow-hidden rounded-lg border border-border bg-surface">
-          {/* Column header — visual only; the labels are not programmatically
-              tied to the list rows below, so hide this decorative row from AT
-              (each row already exposes its own values as text). */}
-          <div
-            aria-hidden="true"
-            className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
-            {canModify && <span className="w-10 shrink-0" />}
-            <span className="min-w-0 flex-1 px-4">Name</span>
-            <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>
-            <span className={`${COL_MODIFIED} pr-4 text-right`}>Modified</span>
-            <span className={`${COL_TYPE} pr-4 text-right`}>Type</span>
-            <span className={`${COL_ACTIONS} pr-4`} />
-          </div>
-          <ul aria-label="File list">
-            {/* Parent-folder (`..`) row — first row when below the space root
-                (SPEC-098). Navigation only: non-selectable, excluded from
-                select-all (it's never in `allItems`). */}
+          `..` row stays reachable (SPEC-098). Structural markup swap (SPEC-099
+          FR-002/003): a data table at ≥ tablet, a compact two-line card list on
+          mobile — same data + handlers. */}
+      {(hasContent || (isEmpty && !atRoot)) &&
+        (isMobile ? (
+          // Mobile (< tablet): compact two-line card list — same data + handlers
+          // as the table (SPEC-099 FR-003). Mount-gated (not CSS-hidden) so the
+          // two structurally-distinct markups never both live in the DOM.
+          <ul
+            aria-label="File list"
+            className="overflow-hidden rounded-lg border border-border bg-surface">
             {!atRoot && (
               <ParentFolderRow
+                variant="mobile"
                 selectable={canModify}
                 onNavigateUp={() => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined)}
               />
             )}
             {folders.map((folder) => (
-              <FolderRow
+              <FileListRowMobile
                 key={folder.prefix}
+                kind="folder"
                 folder={folder}
-                onClick={() => setPrefix(folder.prefix)}
+                onOpen={() => setPrefix(folder.prefix)}
                 onDetails={setDetailsFolder}
                 selectable={canModify}
                 isSelected={selection.isSelected(folder.prefix)}
@@ -916,24 +993,75 @@ function FileBrowserContent({
               />
             ))}
             {files.map((file) => (
-              <FileRow
+              <FileListRowMobile
                 key={file.key}
+                kind="file"
                 file={file}
-                // Read-only browse has no selection toolbar, so keep a per-row
-                // Download there; the authenticated flow downloads from the toolbar.
-                onDownload={canModify ? undefined : handleDownload}
-                // SPEC-081: double-click downloads in both flows.
                 onActivate={() => void handleDownload(file)}
                 onDetails={setDetailsFile}
-                isDownloading={downloadingKey === file.key}
                 selectable={canModify}
                 isSelected={selection.isSelected(file.key)}
                 onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}
               />
             ))}
           </ul>
-        </div>
-      )}
+        ) : (
+          // Desktop/tablet: data table. Type column sheds at tablet (`hidden
+          // desktop:block`); columns stay aligned (SPEC-099 FR-002).
+          <div className="overflow-hidden rounded-lg border border-border bg-surface">
+            {/* Column header — visual only; the labels are not programmatically
+                tied to the list rows below, so hide this decorative row from AT
+                (each row already exposes its own values as text). */}
+            <div
+              aria-hidden="true"
+              className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+              {canModify && <span className="w-10 shrink-0" />}
+              <span className="min-w-0 flex-1 px-4">Name</span>
+              <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>
+              <span className={`${COL_MODIFIED} pr-4 text-right`}>Modified</span>
+              <span className={`hidden ${COL_TYPE} pr-4 text-right desktop:block`}>Type</span>
+              <span className={`${COL_ACTIONS} pr-4`} />
+            </div>
+            <ul aria-label="File list">
+              {/* Parent-folder (`..`) row — first row when below the space root
+                  (SPEC-098). Navigation only: non-selectable, excluded from
+                  select-all (it's never in `allItems`). */}
+              {!atRoot && (
+                <ParentFolderRow
+                  selectable={canModify}
+                  onNavigateUp={() => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined)}
+                />
+              )}
+              {folders.map((folder) => (
+                <FolderRow
+                  key={folder.prefix}
+                  folder={folder}
+                  onClick={() => setPrefix(folder.prefix)}
+                  onDetails={setDetailsFolder}
+                  selectable={canModify}
+                  isSelected={selection.isSelected(folder.prefix)}
+                  onToggleSelect={() => selection.toggle({type: 'folder', prefix: folder.prefix})}
+                />
+              ))}
+              {files.map((file) => (
+                <FileRow
+                  key={file.key}
+                  file={file}
+                  // Read-only browse has no selection toolbar, so keep a per-row
+                  // Download there; the authenticated flow downloads from the toolbar.
+                  onDownload={canModify ? undefined : handleDownload}
+                  // SPEC-081: double-click downloads in both flows.
+                  onActivate={() => void handleDownload(file)}
+                  onDetails={setDetailsFile}
+                  isDownloading={downloadingKey === file.key}
+                  selectable={canModify}
+                  isSelected={selection.isSelected(file.key)}
+                  onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}
+                />
+              ))}
+            </ul>
+          </div>
+        ))}
 
       {/* Metadata drawer (SPEC-017) — shared Drawer; closes via button, Escape, or backdrop */}
       {detailsFile && (

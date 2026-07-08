@@ -1,7 +1,7 @@
 # Spec: Files — Responsive Layout
 
 **ID:** SPEC-099
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** SPEC-095, SPEC-096, SPEC-097, SPEC-098
 
