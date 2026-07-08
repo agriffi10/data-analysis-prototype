@@ -1273,3 +1273,66 @@ describe('authenticated download', () => {
     clickSpy.mockRestore();
   });
 });
+
+// ─── Parent-folder (`..`) row (SPEC-098) ────────────────────────────────────────
+
+describe('parent-folder (`..`) row', () => {
+  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
+
+  it('shows a `..` row below the root and navigates up on click', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(
+      <FileBrowser
+        {...authProps}
+        prefix="alice/docs/"
+        rootPrefix="alice/"
+      />
+    );
+    const up = screen.getByRole('button', {name: /go up to parent folder/i});
+    expect(up).toBeInTheDocument();
+
+    fireEvent.click(up);
+    // Navigated to the root ('alice/') → the `..` row disappears.
+    expect(screen.queryByRole('button', {name: /go up to parent folder/i})).not.toBeInTheDocument();
+    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined);
+  });
+
+  it('does not show a `..` row at the space root', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(
+      <FileBrowser
+        {...authProps}
+        prefix="alice/"
+        rootPrefix="alice/"
+      />
+    );
+    expect(screen.queryByRole('button', {name: /go up to parent folder/i})).not.toBeInTheDocument();
+  });
+
+  it('shows the `..` row even in an empty non-root folder (no empty-state message)', () => {
+    mockUseFileBrowser.mockReturnValue({...base}); // empty listing
+    render(
+      <FileBrowser
+        {...authProps}
+        prefix="alice/docs/"
+        rootPrefix="alice/"
+      />
+    );
+    expect(screen.getByRole('button', {name: /go up to parent folder/i})).toBeInTheDocument();
+    expect(screen.queryByText(/this folder is empty/i)).not.toBeInTheDocument();
+  });
+
+  it('excludes the `..` row from select-all', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
+    render(
+      <FileBrowser
+        {...authProps}
+        prefix="alice/docs/"
+        rootPrefix="alice/"
+      />
+    );
+    fireEvent.click(screen.getByRole('checkbox', {name: 'Select all'}));
+    // Only the two real items are selected — the `..` row is not counted.
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+  });
+});

@@ -39,6 +39,29 @@ export function lastSegment(keyOrPrefix: string): string {
 }
 
 /**
+ * Whether `currentPrefix` is the space root — the point at which the parent-folder
+ * (`..`) row is hidden (SPEC-098). `rootPrefix` is the navigation floor (personal
+ * `{username}/`, a shared space's root prefix, or `''` when unclamped).
+ */
+export function isAtRoot(currentPrefix: string, rootPrefix: string): boolean {
+  return currentPrefix === rootPrefix;
+}
+
+/**
+ * Immediate parent of `currentPrefix` (its last path segment dropped), never above
+ * the space root: `alice/docs/reports/` → `alice/docs/`, and one level below root →
+ * `rootPrefix`. Used to navigate up from the `..` row (SPEC-098).
+ */
+export function parentPrefix(currentPrefix: string, rootPrefix: string): string {
+  const trimmed = currentPrefix.replace(/\/$/, '');
+  const i = trimmed.lastIndexOf('/');
+  const parent = i === -1 ? '' : trimmed.slice(0, i + 1);
+  // Clamp: never step above the space root (ancestry-aware, not just length).
+  if (rootPrefix && (parent.length < rootPrefix.length || !parent.startsWith(rootPrefix))) return rootPrefix;
+  return parent;
+}
+
+/**
  * Uppercased file extension for a type chip, e.g. `report.pdf` → `PDF`. Returns
  * `fallback` when there's no extension; `maxLen` caps the chip width.
  */
