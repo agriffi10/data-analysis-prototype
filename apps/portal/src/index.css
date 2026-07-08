@@ -25,6 +25,11 @@
   --color-accent-hover: #4338ca;
   --color-accent-soft: #eef2ff;
   --color-accent-text: #4338ca;
+  /* A light indigo border tint — sits between accent-soft (fill) and accent, for
+     the visible edge of accent-soft-filled surfaces (open help card, active chip,
+     unread notification, hero badge). Decorative reinforcement, never the sole
+     state signal, so a soft tint is fine. */
+  --color-accent-border: #dfe3fb;
 
   /* Colors — status. The strong shades double as text on white AND on their
      -soft backgrounds, so each is darkened to clear 4.5:1 in both:
