@@ -11,7 +11,14 @@ const note = (over: Partial<Notification> = {}): Notification => ({
   ...over
 });
 
-afterEach(cleanup);
+function setWidth(w: number) {
+  Object.defineProperty(window, 'innerWidth', {value: w, writable: true, configurable: true});
+}
+
+afterEach(() => {
+  cleanup();
+  setWidth(1024);
+});
 
 describe('NotificationRow (SPEC-060 FR-003/005)', () => {
   it('renders message, a relative timestamp, and a Mark-read control on unread rows', () => {
@@ -65,5 +72,40 @@ describe('NotificationRow (SPEC-060 FR-003/005)', () => {
     );
     fireEvent.click(screen.getByRole('button', {name: 'Mark read'}));
     expect(onMarkRead).toHaveBeenCalledWith('abc');
+  });
+
+  // ── SPEC-102: responsive Mark-read placement ───────────────────────────────
+
+  it('renders Mark-read as a compact trailing control at ≥ tablet', () => {
+    setWidth(1024);
+    render(
+      <ul>
+        <NotificationRow
+          notification={note()}
+          onMarkRead={vi.fn()}
+        />
+      </ul>
+    );
+    const button = screen.getByRole('button', {name: 'Mark read'});
+    expect(button).toHaveClass('flex-none');
+    expect(button).not.toHaveClass('w-full');
+  });
+
+  it('renders Mark-read as a full-width 34px button below the message on mobile', () => {
+    setWidth(400);
+    render(
+      <ul>
+        <NotificationRow
+          notification={note()}
+          onMarkRead={vi.fn()}
+        />
+      </ul>
+    );
+    const button = screen.getByRole('button', {name: 'Mark read'});
+    expect(button).toHaveClass('w-full', 'h-[34px]');
+    // It sits inside the message column, after the timestamp.
+    expect(button.previousElementSibling).toHaveTextContent(/min ago/);
+    // Only one Mark-read control exists (mount-gated, not duplicated).
+    expect(screen.getAllByRole('button', {name: 'Mark read'})).toHaveLength(1);
   });
 });

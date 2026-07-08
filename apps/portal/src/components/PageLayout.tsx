@@ -12,6 +12,14 @@ type PageLayoutProps = {
    * (e.g. `max-w-[920px] gap-3`). The base padding/flex is always applied.
    */
   contentClassName?: string;
+  /**
+   * When true, the header stacks below `tablet`: title (+ subtitle) on the first
+   * line, then the `actions` cluster on its own full-width row beneath it. At
+   * `≥ tablet` the header is the usual single inline row (title left, actions
+   * right). Default false — other hosts (Connections/Help) are unaffected unless
+   * they opt in (SPEC-102).
+   */
+  stackActionsOnMobile?: boolean;
   children: ReactNode;
 };
 
@@ -32,17 +40,40 @@ type PageLayoutProps = {
  *   <NotificationsList />
  * </PageLayout>
  */
-export function PageLayout({title, subtitle, actions, contentClassName, children}: PageLayoutProps) {
+export function PageLayout({
+  title,
+  subtitle,
+  actions,
+  contentClassName,
+  stackActionsOnMobile = false,
+  children
+}: PageLayoutProps) {
   return (
     <main
       id="main"
       className="flex flex-1 flex-col overflow-auto">
-      <div className="flex items-center gap-4 border-b border-border px-6 py-5">
+      <div
+        className={cx(
+          'gap-4 border-b border-border px-6 py-5',
+          // Opt-in: stack the actions under the title below tablet; inline row at
+          // ≥ tablet. Default: the shipped single inline row at every width.
+          stackActionsOnMobile
+            ? 'flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:gap-4'
+            : 'flex items-center'
+        )}>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-text">{title}</h1>
           {subtitle && <p className="mt-0.5 text-sm text-text-2">{subtitle}</p>}
         </div>
-        {actions && <div className="flex flex-none items-center gap-2">{actions}</div>}
+        {actions && (
+          <div
+            className={cx(
+              'flex items-center gap-2',
+              stackActionsOnMobile ? 'flex-wrap tablet:flex-none' : 'flex-none'
+            )}>
+            {actions}
+          </div>
+        )}
       </div>
 
       <div className={cx('flex flex-col px-6 py-6', contentClassName)}>{children}</div>

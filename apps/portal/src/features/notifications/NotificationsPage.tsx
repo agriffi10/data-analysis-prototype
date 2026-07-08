@@ -72,6 +72,7 @@ export function NotificationsPage() {
       <PageLayout
         title="Notifications"
         contentClassName="max-w-[760px] gap-2"
+        stackActionsOnMobile
         actions={
           <>
             <FilterTabs

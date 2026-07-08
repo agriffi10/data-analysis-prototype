@@ -107,7 +107,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 099 — Files Responsive Layout | Completed |
 | 100 — Query Workspace Responsive | Draft |
 | 101 — Connections Responsive | Draft |
-| 102 — Notifications Responsive | Draft |
+| 102 — Notifications Responsive | Completed |
 | 103 — Help & Guides Responsive | Draft |
 | 104 — Landing / Sign-In Responsive | Completed |
 | 105 — View Data: Full Table, Paginated (drop 10-row preview limit) | Draft |

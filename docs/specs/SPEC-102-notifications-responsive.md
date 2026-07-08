@@ -1,7 +1,7 @@
 # Spec: Notifications page — responsive layout
 
 **ID:** SPEC-102
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** SPEC-095
 
