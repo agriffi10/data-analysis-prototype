@@ -10,6 +10,7 @@ export type FileListRowMobileProps =
       file: S3FileItem;
       onActivate: () => void; // existing download-on-activate handler
       onDetails: (file: S3FileItem) => void;
+      isDownloading?: boolean; // trailing "…" while a download is being signed
       selectable: boolean;
       isSelected: boolean;
       onToggleSelect: () => void;
@@ -118,13 +119,19 @@ export function FileListRowMobile(props: FileListRowMobileProps) {
 
       {isFolder ? (
         <ChevronRightIcon className="h-4 w-4 shrink-0 text-text-3" />
+      ) : props.isDownloading ? (
+        <span
+          className="shrink-0 text-sm text-text-3"
+          aria-label="Downloading">
+          …
+        </span>
       ) : (
         <span className="shrink-0 text-sm text-text-2">{formatSize(props.file.size)}</span>
       )}
 
       <button
         type="button"
-        className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         onClick={() => (isFolder ? props.onDetails(props.folder) : props.onDetails(props.file))}
         aria-label={`Details for ${name}`}>
         <InfoIcon className="h-5 w-5" />

@@ -999,6 +999,7 @@ function FileBrowserContent({
                 file={file}
                 onActivate={() => void handleDownload(file)}
                 onDetails={setDetailsFile}
+                isDownloading={downloadingKey === file.key}
                 selectable={canModify}
                 isSelected={selection.isSelected(file.key)}
                 onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}

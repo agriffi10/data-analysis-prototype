@@ -1365,6 +1365,18 @@ describe('responsive layout (mobile)', () => {
     const bar = screen.getByRole('toolbar', {name: 'File actions'});
     expect(within(bar).getByRole('button', {name: 'New folder'})).toBeInTheDocument();
     expect(within(bar).getByRole('button', {name: /^upload$/i})).toBeInTheDocument();
+    // Mount-gate: exactly one Upload exists (the top-toolbar group is not mounted).
+    expect(screen.getAllByRole('button', {name: /^upload$/i})).toHaveLength(1);
+  });
+
+  it('desktop mounts the top-toolbar actions, not the MobileActionBar (mount-gate)', () => {
+    setViewportWidth(1024);
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
+    render(<FileBrowser {...authProps} />);
+    expect(screen.queryByRole('toolbar', {name: 'File actions'})).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', {name: /^upload$/i})).toHaveLength(1);
+    // The desktop table header renders (mobile card list does not own it).
+    expect(screen.getByText('Modified')).toBeInTheDocument();
   });
 
   it('does not render the MobileActionBar in read-only browse', () => {

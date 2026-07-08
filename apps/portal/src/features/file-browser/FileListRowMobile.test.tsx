@@ -60,6 +60,12 @@ describe('FileListRowMobile', () => {
     expect(checkbox.closest('li')).toHaveClass('bg-accent-soft');
   });
 
+  it('shows a downloading indicator in place of the size while a download is signing', () => {
+    renderFile({isDownloading: true});
+    expect(screen.getByLabelText('Downloading')).toBeInTheDocument();
+    expect(screen.queryByText('2.0 KB')).not.toBeInTheDocument();
+  });
+
   it('omits the checkbox when not selectable (read-only browse)', () => {
     renderFile({selectable: false});
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
