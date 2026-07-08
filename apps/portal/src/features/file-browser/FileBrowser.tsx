@@ -10,7 +10,7 @@ import {useCopy} from './useCopy';
 import {getDownloadUrl} from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {formatSize} from './fileBrowser.format';
-import {lastSegment, fileExtension} from './fileBrowser.paths';
+import {lastSegment, fileExtension, isAtRoot, parentPrefix} from './fileBrowser.paths';
 import {UploadDropzone} from './UploadDropzone';
 import {UploadDrawer} from './UploadDrawer';
 import {UploadList} from './UploadList';
@@ -19,6 +19,7 @@ import {CreateFolderDialog} from './CreateFolderDialog';
 import {CollisionPrompt} from './CollisionPrompt';
 import {MetadataPanel} from './MetadataPanel';
 import {FolderDetailsPanel} from './FolderDetailsPanel';
+import {ParentFolderRow} from './ParentFolderRow';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed} from './protectedFolders';
 import {DeleteConfirmDialog} from './DeleteConfirmDialog';
 import {OperationSummaryBanner} from './OperationSummaryBanner';
@@ -539,6 +540,8 @@ function FileBrowserContent({
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
+  // The `..` row shows below the space root only (SPEC-098).
+  const atRoot = isAtRoot(currentPrefix, rootPrefix);
   const isEmpty = !isLoading && error === null && files.length === 0 && folders.length === 0;
   const hasContent = !isLoading && error === null && (files.length > 0 || folders.length > 0);
 
@@ -848,8 +851,9 @@ function FileBrowserContent({
         </div>
       )}
 
-      {/* Empty state */}
-      {isEmpty && (
+      {/* Empty state — at the space root only; a non-root empty folder still
+          renders the list so its `..` row is reachable (SPEC-098). */}
+      {isEmpty && atRoot && (
         <div className="py-16 text-center">
           <svg
             viewBox="0 0 40 40"
@@ -873,8 +877,9 @@ function FileBrowserContent({
         </div>
       )}
 
-      {/* File and folder list */}
-      {hasContent && (
+      {/* File and folder list. Also renders for an empty non-root folder so the
+          `..` row stays reachable (SPEC-098). */}
+      {(hasContent || (isEmpty && !atRoot)) && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
           {/* Column header — visual only; the labels are not programmatically
               tied to the list rows below, so hide this decorative row from AT
@@ -890,6 +895,15 @@ function FileBrowserContent({
             <span className={`${COL_ACTIONS} pr-4`} />
           </div>
           <ul aria-label="File list">
+            {/* Parent-folder (`..`) row — first row when below the space root
+                (SPEC-098). Navigation only: non-selectable, excluded from
+                select-all (it's never in `allItems`). */}
+            {!atRoot && (
+              <ParentFolderRow
+                selectable={canModify}
+                onNavigateUp={() => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined)}
+              />
+            )}
             {folders.map((folder) => (
               <FolderRow
                 key={folder.prefix}

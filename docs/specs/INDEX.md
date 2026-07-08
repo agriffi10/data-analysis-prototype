@@ -103,7 +103,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 095 — Responsive Foundation & App Shell | Completed |
 | 096 — Files: Selection Toolbar → Copy/Move/Delete | Completed |
 | 097 — Files: Object Details Panel Gains Download & Rename | Completed |
-| 098 — Files: Parent-Folder (`..`) Row | Draft |
+| 098 — Files: Parent-Folder (`..`) Row | Completed |
 | 099 — Files Responsive Layout | Draft |
 | 100 — Query Workspace Responsive | Draft |
 | 101 — Connections Responsive | Draft |

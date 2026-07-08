@@ -1,5 +1,13 @@
 import {describe, it, expect} from 'vitest';
-import {leafName, fileParent, folderParts, lastSegment, fileExtension} from './fileBrowser.paths';
+import {
+  leafName,
+  fileParent,
+  folderParts,
+  lastSegment,
+  fileExtension,
+  isAtRoot,
+  parentPrefix
+} from './fileBrowser.paths';
 
 describe('fileBrowser.paths', () => {
   it('leafName returns the last segment of a file key', () => {
@@ -28,5 +36,23 @@ describe('fileBrowser.paths', () => {
     expect(fileExtension('noext', {fallback: 'FILE'})).toBe('FILE');
     expect(fileExtension('archive.tarball', {maxLen: 4})).toBe('TARB');
     expect(fileExtension('.gitignore')).toBe('File'); // leading dot → no ext
+  });
+
+  it('isAtRoot recognizes the space root (clamped and unclamped)', () => {
+    expect(isAtRoot('alice/', 'alice/')).toBe(true);
+    expect(isAtRoot('alice/docs/', 'alice/')).toBe(false);
+    expect(isAtRoot('', '')).toBe(true); // unclamped (dev-unauth)
+    expect(isAtRoot('sub/', '')).toBe(false);
+  });
+
+  it('parentPrefix drops the last segment and clamps to the root', () => {
+    expect(parentPrefix('alice/docs/reports/', 'alice/')).toBe('alice/docs/');
+    // One level below root → exactly the root.
+    expect(parentPrefix('alice/docs/', 'alice/')).toBe('alice/');
+    // Never steps above the root.
+    expect(parentPrefix('alice/', 'alice/')).toBe('alice/');
+    // Unclamped: up from a top-level folder → empty (root).
+    expect(parentPrefix('docs/', '')).toBe('');
+    expect(parentPrefix('docs/sub/', '')).toBe('docs/');
   });
 });

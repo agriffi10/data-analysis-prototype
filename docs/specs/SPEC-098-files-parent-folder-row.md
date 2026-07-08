@@ -1,7 +1,7 @@
 # Spec: Files — Parent-Folder (`..`) Row
 
 **ID:** SPEC-098
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** None
 

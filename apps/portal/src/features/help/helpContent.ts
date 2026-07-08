@@ -45,7 +45,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'In the <b>Files</b> tab, click <b>New folder</b>.',
           'Enter a <b>Folder name</b> — no slashes, and no leading or trailing spaces.',
           'Click <b>Create</b>, and the new folder appears in the list.',
-          'Open a folder by clicking its row; use the breadcrumbs above the list to step back up the tree.'
+          'Open a folder by clicking its row; use the breadcrumbs above the list — or the <b>..</b> row at the top of a subfolder — to step back up the tree.'
         ]
       },
       {
