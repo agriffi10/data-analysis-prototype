@@ -2,8 +2,10 @@ import {useEffect} from 'react';
 import {useLocation, useNavigate} from 'react-router-dom';
 import {PageLayout} from '../../components/PageLayout';
 import {usePageTitle} from '../../hooks/usePageTitle';
+import {useIsMobile} from '../../lib/useBreakpoint';
 import {HelpGuideCard} from './HelpGuideCard';
 import {HelpSidebar} from './HelpSidebar';
+import {HelpSectionChips} from './HelpSectionChips';
 import {HELP_SECTIONS} from './helpContent';
 import type {HelpSectionId} from './help.types';
 
@@ -40,17 +42,30 @@ export function HelpPage() {
     if (id !== activeId) navigate(`#${id}`);
   };
 
+  // Rail at ≥ tablet, horizontal chips on mobile — mount-gated so exactly one
+  // section selector exists in the layout at a time (SPEC-103 FR-004).
+  const isMobile = useIsMobile();
+
   return (
     <div className="flex min-h-0 flex-1">
-      <HelpSidebar
-        sections={HELP_SECTIONS}
-        activeId={activeId}
-        onSelect={selectSection}
-      />
+      {!isMobile && (
+        <HelpSidebar
+          sections={HELP_SECTIONS}
+          activeId={activeId}
+          onSelect={selectSection}
+        />
+      )}
       <PageLayout
         title={section.label}
         subtitle={section.subtitle}
         contentClassName="max-w-[820px] gap-2.5">
+        {isMobile && (
+          <HelpSectionChips
+            sections={HELP_SECTIONS}
+            activeId={activeId}
+            onSelect={selectSection}
+          />
+        )}
         {section.guides.length === 0 ? (
           <p className="py-12 text-center text-sm text-text-3">No guides in this section yet.</p>
         ) : (

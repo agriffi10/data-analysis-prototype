@@ -68,7 +68,9 @@ export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideC
           open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
         )}>
         <div className="overflow-hidden">
-          <div className="px-[18px] pb-5 pl-[68px] pt-1">
+          {/* Steps indent under the header icon at ≥ tablet; on mobile they use
+              the card's own gutter so narrow widths aren't over-indented. */}
+          <div className="px-[18px] pb-5 pt-1 tablet:pl-[68px]">
             {guide.intro && <p className="mb-4 text-sm leading-[1.55] text-text-2">{renderInline(guide.intro)}</p>}
             <ol className="flex list-none flex-col gap-3">
               {guide.steps.map((step, i) => (

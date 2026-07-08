@@ -1,4 +1,4 @@
-import {describe, it, expect, vi} from 'vitest';
+import {describe, it, expect, vi, afterEach} from 'vitest';
 import {render, screen, fireEvent} from '@testing-library/react';
 import {HelpSidebar} from './HelpSidebar';
 import type {HelpSection} from './help.types';
@@ -22,6 +22,23 @@ const sections: HelpSection[] = [
     guides: [{id: 'c', title: 'C', subtitle: '', steps: ['x']}]
   }
 ];
+
+// A section whose short label differs from its full label (SPEC-103 FR-002).
+const sharedSection: HelpSection[] = [
+  {
+    id: 'shared-connections',
+    label: 'Shared connections',
+    subtitle: 'shared sub',
+    icon: 'connections',
+    guides: [{id: 'd', title: 'D', subtitle: '', steps: ['x']}]
+  }
+];
+
+function setWidth(w: number) {
+  Object.defineProperty(window, 'innerWidth', {value: w, writable: true, configurable: true});
+}
+
+afterEach(() => setWidth(1024));
 
 describe('HelpSidebar (SPEC-074 FR-003)', () => {
   it('renders one item per section with a guide count derived from content', () => {
@@ -63,5 +80,32 @@ describe('HelpSidebar (SPEC-074 FR-003)', () => {
     );
     fireEvent.click(screen.getByRole('button', {name: /Query/}));
     expect(onSelect).toHaveBeenCalledWith('query');
+  });
+
+  // ── SPEC-103 FR-002: narrowed tablet rail with short labels ────────────────
+
+  it('renders the short section label at tablet width', () => {
+    setWidth(1000); // tablet band (< desktop)
+    render(
+      <HelpSidebar
+        sections={sharedSection}
+        activeId="shared-connections"
+        onSelect={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Shared')).toBeInTheDocument();
+    expect(screen.queryByText('Shared connections')).not.toBeInTheDocument();
+  });
+
+  it('renders the full section label at desktop width', () => {
+    setWidth(1400); // desktop
+    render(
+      <HelpSidebar
+        sections={sharedSection}
+        activeId="shared-connections"
+        onSelect={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Shared connections')).toBeInTheDocument();
   });
 });
