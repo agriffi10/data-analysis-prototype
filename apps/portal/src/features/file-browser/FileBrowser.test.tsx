@@ -102,20 +102,38 @@ vi.mock('./RenameDialog', () => ({
 // Stub the metadata drawer so these tests don't pull in its TanStack Query hook
 // (covered by MetadataPanel.test.tsx). The stub echoes the file it was opened for.
 vi.mock('./MetadataPanel', () => ({
-  MetadataPanel: ({file, onClose}: {file: {name: string}; onClose: () => void}) => (
+  MetadataPanel: ({
+    file,
+    onRequestRename,
+    onClose
+  }: {
+    file: {name: string};
+    onRequestRename: (f: unknown) => void;
+    onClose: () => void;
+  }) => (
     <div
       role="dialog"
       aria-label={`Details for ${file.name}`}>
+      <button onClick={() => onRequestRename(file)}>rename-file-stub</button>
       <button onClick={onClose}>close-stub</button>
     </div>
   )
 }));
 // Folder details drawer stub — echoes the folder it was opened for.
 vi.mock('./FolderDetailsPanel', () => ({
-  FolderDetailsPanel: ({folder, onClose}: {folder: {name: string}; onClose: () => void}) => (
+  FolderDetailsPanel: ({
+    folder,
+    onRequestRename,
+    onClose
+  }: {
+    folder: {name: string};
+    onRequestRename: (f: unknown) => void;
+    onClose: () => void;
+  }) => (
     <div
       role="dialog"
       aria-label={`Details for ${folder.name}`}>
+      <button onClick={() => onRequestRename(folder)}>rename-folder-stub</button>
       <button onClick={onClose}>close-folder-stub</button>
     </div>
   )
@@ -1017,47 +1035,45 @@ describe('selection + delete', () => {
 describe('rename + move', () => {
   const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
 
-  it('shows no Rename action when read-only', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByRole('button', {name: /rename/i})).not.toBeInTheDocument();
-  });
-
-  it('enables toolbar Rename only for a single selected item (file or folder)', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
+  it('the selection toolbar holds only Copy / Move / Delete (no Download or Rename) [SPEC-096]', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
     render(<FileBrowser {...authProps} />);
-
-    expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeEnabled();
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select folder photos/i}));
-    expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Copy selected items'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Move selected items'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Rename selected item'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Download selected items'})).not.toBeInTheDocument();
   });
 
-  it('toolbar Rename opens the dialog and calls renameItem on submit', () => {
+  it('renaming a file from its details panel opens the dialog and calls renameItem [SPEC-097]', () => {
     mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
     render(<FileBrowser {...authProps} />);
 
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Rename selected item'}));
+    // Open the file details panel (per-row Details button), then Rename from there.
+    fireEvent.click(screen.getByRole('button', {name: /details for report\.pdf/i}));
+    fireEvent.click(screen.getByRole('button', {name: 'rename-file-stub'}));
     const dialog = screen.getByRole('dialog', {name: /rename/i});
     fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
 
     expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'file', key: 'alice/report.pdf'}, 'renamed');
-
-    // The renamed item's key changes, so a stale selection would linger as a ghost;
-    // rename clears the selection, leaving Rename disabled and the box unchecked.
-    expect(screen.getByRole('button', {name: 'Rename selected item'})).toBeDisabled();
-    expect(screen.getByRole('checkbox', {name: /select report\.pdf/i})).not.toBeChecked();
+    // Opening rename closes the details panel.
+    expect(screen.queryByRole('dialog', {name: /details for report\.pdf/i})).not.toBeInTheDocument();
   });
 
-  it('does not render per-row Rename buttons (actions live in the toolbar)', () => {
+  it('renaming a folder from its details panel calls renameItem [SPEC-097]', () => {
+    mockUseFileBrowser.mockReturnValue({...base, folders: [oneFolder]});
+    render(<FileBrowser {...authProps} />);
+
+    fireEvent.click(screen.getByRole('button', {name: /details for photos/i}));
+    fireEvent.click(screen.getByRole('button', {name: 'rename-folder-stub'}));
+    const dialog = screen.getByRole('dialog', {name: /rename/i});
+    fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
+
+    expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'folder', prefix: 'alice/photos/'}, 'renamed');
+    expect(screen.queryByRole('dialog', {name: /details for photos/i})).not.toBeInTheDocument();
+  });
+
+  it('does not render per-row Rename buttons (Rename lives in the details panel)', () => {
     mockUseFileBrowser.mockReturnValue({
       ...base,
       files: [oneFile],
@@ -1225,27 +1241,19 @@ describe('copy', () => {
   });
 });
 
-// ─── Toolbar download (authenticated) ───────────────────────────────────────────
+// ─── Authenticated download (via double-click + details panel) ──────────────────
 
-describe('toolbar download', () => {
+describe('authenticated download', () => {
   const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
 
-  it('enables Download only for a single selected file', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
+  it('does not show a per-row Download in the authenticated flow (Details only)', () => {
+    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
     render(<FileBrowser {...authProps} />);
-
-    expect(screen.getByRole('button', {name: 'Download selected items'})).toBeDisabled();
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    expect(screen.getByRole('button', {name: 'Download selected items'})).toBeEnabled();
-    fireEvent.click(screen.getByRole('checkbox', {name: /select folder photos/i}));
-    expect(screen.getByRole('button', {name: 'Download selected items'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: /details for report\.pdf/i})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /download report\.pdf/i})).not.toBeInTheDocument();
   });
 
-  it('downloads the selected file from the toolbar', async () => {
+  it('double-clicking a file row downloads it (SPEC-081)', async () => {
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     mockGetDownloadUrl.mockResolvedValue({
       success: true,
@@ -1254,8 +1262,7 @@ describe('toolbar download', () => {
     mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
     render(<FileBrowser {...authProps} />);
 
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Download selected items'}));
+    fireEvent.doubleClick(screen.getByText('report.pdf'));
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
     expect(mockGetDownloadUrl).toHaveBeenCalledWith({
@@ -1264,12 +1271,5 @@ describe('toolbar download', () => {
       fileName: 'report.pdf'
     });
     clickSpy.mockRestore();
-  });
-
-  it('does not show a per-row Download in the authenticated flow (Details only)', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', {name: /details for report\.pdf/i})).toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: /download report\.pdf/i})).not.toBeInTheDocument();
   });
 });

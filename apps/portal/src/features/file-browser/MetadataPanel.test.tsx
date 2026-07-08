@@ -1,13 +1,22 @@
-import {render, screen, fireEvent} from '@testing-library/react';
+import {render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {MetadataPanel} from './MetadataPanel';
 import {useObjectMetadata} from './useObjectMetadata';
 import type {UseObjectMetadataResult} from './useObjectMetadata';
+import {getDownloadUrl} from './fileBrowser.service';
+import {triggerBrowserDownload} from './fileBrowser.download';
 import type {ObjectMetadata} from './fileBrowser.types';
 import type {S3FileItem} from '../../types/s3.types';
 
 vi.mock('./useObjectMetadata');
+vi.mock('./fileBrowser.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./fileBrowser.service')>()),
+  getDownloadUrl: vi.fn()
+}));
+vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
 const mockUseObjectMetadata = vi.mocked(useObjectMetadata);
+const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
+const mockTriggerDownload = vi.mocked(triggerBrowserDownload);
 
 const file: S3FileItem = {
   type: 'file',
@@ -33,21 +42,31 @@ const loaded = (over: Partial<ObjectMetadata> = {}): UseObjectMetadataResult => 
   error: null
 });
 
-function renderPanel(onClose = vi.fn()) {
+function renderPanel(
+  over: {canModify?: boolean; onClose?: () => void; onRequestRename?: (f: S3FileItem) => void} = {}
+) {
+  const onClose = over.onClose ?? vi.fn();
+  const onRequestRename = over.onRequestRename ?? vi.fn();
   render(
     <MetadataPanel
       bucket="us"
       file={file}
       rootPrefix="alice/"
+      canModify={over.canModify ?? true}
+      onRequestRename={onRequestRename}
       onClose={onClose}
     />
   );
-  return onClose;
+  return {onClose, onRequestRename};
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseObjectMetadata.mockReturnValue(loaded());
+  mockGetDownloadUrl.mockResolvedValue({
+    success: true,
+    data: {url: 'https://signed/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
+  });
 });
 
 describe('MetadataPanel', () => {
@@ -116,13 +135,13 @@ describe('MetadataPanel', () => {
   });
 
   it('closes via the close button', () => {
-    const onClose = renderPanel();
+    const {onClose} = renderPanel();
     fireEvent.click(screen.getByRole('button', {name: /close details/i}));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('closes when Escape is pressed', () => {
-    const onClose = renderPanel();
+    const {onClose} = renderPanel();
     fireEvent.keyDown(document, {key: 'Escape'});
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -131,5 +150,46 @@ describe('MetadataPanel', () => {
     renderPanel();
     const dialog = screen.getByRole('dialog', {name: /details for report\.pdf/i});
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  // ── SPEC-097: Download + Rename actions ─────────────────────────────────────
+
+  it('renders Download and Rename actions when canModify', () => {
+    renderPanel({canModify: true});
+    expect(screen.getByRole('button', {name: 'Download report.pdf'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Rename report.pdf'})).toBeInTheDocument();
+  });
+
+  it('downloads via a presigned URL (getDownloadUrl → triggerBrowserDownload)', async () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', {name: 'Download report.pdf'}));
+    await waitFor(() =>
+      expect(mockGetDownloadUrl).toHaveBeenCalledWith({
+        bucket: 'us',
+        key: 'alice/docs/report.pdf',
+        fileName: 'report.pdf'
+      })
+    );
+    expect(mockTriggerDownload).toHaveBeenCalledWith('https://signed/report.pdf');
+  });
+
+  it('surfaces a download failure inline instead of failing silently', async () => {
+    mockGetDownloadUrl.mockResolvedValue({success: false, error: {message: 'gone'}});
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', {name: 'Download report.pdf'}));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/could not download report\.pdf/i));
+    expect(mockTriggerDownload).not.toHaveBeenCalled();
+  });
+
+  it('opens the rename flow via onRequestRename', () => {
+    const {onRequestRename} = renderPanel({canModify: true});
+    fireEvent.click(screen.getByRole('button', {name: 'Rename report.pdf'}));
+    expect(onRequestRename).toHaveBeenCalledWith(file);
+  });
+
+  it('hides Rename in read-only mode but keeps Download', () => {
+    renderPanel({canModify: false});
+    expect(screen.getByRole('button', {name: 'Download report.pdf'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Rename report.pdf'})).not.toBeInTheDocument();
   });
 });

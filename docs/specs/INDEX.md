@@ -101,8 +101,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 093 — Table Share: "Share table" UI (Query Schema Rail) | Completed |
 | 094 — Table Share: Notification Producer (sender + recipients) | Completed |
 | 095 — Responsive Foundation & App Shell | Completed |
-| 096 — Files: Selection Toolbar → Copy/Move/Delete | Draft |
-| 097 — Files: Object Details Panel Gains Download & Rename | Draft |
+| 096 — Files: Selection Toolbar → Copy/Move/Delete | Completed |
+| 097 — Files: Object Details Panel Gains Download & Rename | Completed |
 | 098 — Files: Parent-Folder (`..`) Row | Draft |
 | 099 — Files Responsive Layout | Draft |
 | 100 — Query Workspace Responsive | Draft |

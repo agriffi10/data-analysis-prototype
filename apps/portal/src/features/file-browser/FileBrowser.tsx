@@ -8,6 +8,7 @@ import {useDelete} from './useDelete';
 import {useMove} from './useMove';
 import {useCopy} from './useCopy';
 import {getDownloadUrl} from './fileBrowser.service';
+import {triggerBrowserDownload} from './fileBrowser.download';
 import {formatSize} from './fileBrowser.format';
 import {lastSegment, fileExtension} from './fileBrowser.paths';
 import {UploadDropzone} from './UploadDropzone';
@@ -31,19 +32,6 @@ import {useSelection, itemId, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {getSessionCredentials} from '../../lib/awsCredentials';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
-
-// Open a presigned URL so the browser saves the file. `ResponseContentDisposition`
-// (set on the URL) makes S3 return it as an attachment with the real filename, so
-// a plain anchor click downloads rather than navigates. Survives the await before
-// it because it's a programmatic download, not a popup.
-function triggerBrowserDownload(url: string): void {
-  const a = document.createElement('a');
-  a.href = url;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -319,31 +307,24 @@ function SelectionToolbar({
   onRequestDelete,
   onRequestMove,
   onRequestCopy,
-  onRequestRename,
-  onRequestDownload,
   isBusy
 }: {
   allItems: SelectableItem[];
   onRequestDelete: () => void;
   onRequestMove: () => void;
   onRequestCopy: () => void;
-  onRequestRename: () => void;
-  onRequestDownload: () => void;
   isBusy: boolean;
 }) {
-  const {count, selected, isSelected, selectAll, clear} = useSelection();
+  const {count, isSelected, selectAll, clear} = useSelection();
 
   const allSelected = allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
   const someSelected = allItems.some((i) => isSelected(itemId(i)));
 
   const active = count > 0;
 
-  // Single-item actions: Rename targets one item (you can't rename many to one
-  // name); Download is a single file at a time (folders aren't downloadable).
-  const single = count === 1 ? [...selected.values()][0] : null;
-  const canRename = single !== null;
-  const canDownload = single?.type === 'file';
-
+  // A focused bulk-action bar (SPEC-096): whole-selection Copy / Move / Delete
+  // only. Single-item Download + Rename live in the per-object details panel
+  // (SPEC-097).
   return (
     <div
       className={`mb-4 flex h-11 items-center gap-3 rounded-lg border px-4 ${
@@ -371,15 +352,6 @@ function SelectionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        onClick={onRequestDownload}
-        disabled={!canDownload || isBusy}
-        aria-label="Download selected items">
-        Download
-      </Button>
-
-      <Button
-        variant="ghost"
-        size="sm"
         onClick={onRequestCopy}
         disabled={count === 0 || isBusy}
         aria-label="Copy selected items">
@@ -393,15 +365,6 @@ function SelectionToolbar({
         disabled={count === 0 || isBusy}
         aria-label="Move selected items">
         Move
-      </Button>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onRequestRename}
-        disabled={!canRename || isBusy}
-        aria-label="Rename selected item">
-        Rename
       </Button>
 
       <Button
@@ -562,32 +525,16 @@ function FileBrowserContent({
     copy.copyItems(items, destPrefix, destBucket);
   }
 
-  // Toolbar Rename (single selection): resolve the selected item's display name
-  // so the dialog can pre-fill it, then open the rename dialog.
-  function handleRequestRename() {
-    const items = [...selection.selected.values()];
-    if (items.length !== 1) return;
-    const item = items[0];
-    if (item.type === 'file') {
-      const f = files.find((x) => x.key === item.key);
-      setRenaming({item, name: f?.name ?? lastSegment(item.key), kind: 'file'});
-    } else {
-      const f = folders.find((x) => x.prefix === item.prefix);
-      setRenaming({
-        item,
-        name: f?.name ?? lastSegment(item.prefix),
-        kind: 'folder'
-      });
-    }
+  // Rename from a details panel (SPEC-097): open the rename dialog pre-scoped to
+  // that object and close the panel. Rename = move within the same parent.
+  function openRenameFile(file: S3FileItem) {
+    setRenaming({item: {type: 'file', key: file.key}, name: file.name, kind: 'file'});
+    setDetailsFile(null);
   }
 
-  // Toolbar Download (single file): look up the selected file and download it.
-  function handleRequestDownload() {
-    const items = [...selection.selected.values()];
-    if (items.length !== 1 || items[0].type !== 'file') return;
-    const item = items[0];
-    const f = files.find((x) => x.key === item.key);
-    if (f) void handleDownload(f);
+  function openRenameFolder(folder: S3FolderItem) {
+    setRenaming({item: {type: 'folder', prefix: folder.prefix}, name: folder.name, kind: 'folder'});
+    setDetailsFolder(null);
   }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
@@ -857,8 +804,6 @@ function FileBrowserContent({
           onRequestDelete={() => setConfirmOpen(true)}
           onRequestMove={() => setMoving([...selection.selected.values()])}
           onRequestCopy={() => setCopying([...selection.selected.values()])}
-          onRequestRename={handleRequestRename}
-          onRequestDownload={handleRequestDownload}
           isBusy={del.isDeleting || move.isBusy || copy.isBusy || downloadingKey !== null}
         />
       )}
@@ -982,6 +927,8 @@ function FileBrowserContent({
           bucket={bucket}
           file={detailsFile}
           rootPrefix={rootPrefix}
+          canModify={canModify}
+          onRequestRename={openRenameFile}
           onClose={() => setDetailsFile(null)}
         />
       )}
@@ -992,6 +939,8 @@ function FileBrowserContent({
           bucket={bucket}
           folder={detailsFolder}
           rootPrefix={rootPrefix}
+          canModify={canModify}
+          onRequestRename={openRenameFolder}
           onClose={() => setDetailsFolder(null)}
         />
       )}

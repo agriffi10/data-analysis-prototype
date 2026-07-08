@@ -1,7 +1,7 @@
 # Spec: Files — Object Details Panel Gains Download & Rename
 
 **ID:** SPEC-097
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** SPEC-096
 
