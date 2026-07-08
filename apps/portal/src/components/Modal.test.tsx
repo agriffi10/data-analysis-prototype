@@ -57,6 +57,35 @@ describe('Modal', () => {
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
+  it('caps the panel to the viewport (scrolls a long body) and keeps edge gutters', () => {
+    render(
+      <Modal
+        ariaLabel="M"
+        onDismiss={vi.fn()}>
+        x
+      </Modal>
+    );
+    const scrim = screen.getByRole('dialog').parentElement!;
+    // Outer p-4 keeps the panel off the screen edges on mobile.
+    expect(scrim).toHaveClass('p-4');
+    const panel = screen.getByRole('dialog');
+    expect(panel).toHaveClass('overflow-y-auto', 'max-h-[calc(100dvh-2rem)]', 'max-w-md');
+  });
+
+  it('applies a passed width class instead of the default', () => {
+    render(
+      <Modal
+        ariaLabel="M"
+        className="max-w-lg"
+        onDismiss={vi.fn()}>
+        x
+      </Modal>
+    );
+    const panel = screen.getByRole('dialog');
+    expect(panel).toHaveClass('max-w-lg');
+    expect(panel).not.toHaveClass('max-w-md');
+  });
+
   it('blurs the content behind via the scrim', () => {
     render(
       <Modal

@@ -39,6 +39,19 @@
   --color-danger: #b91c1c;
   --color-danger-soft: #fdeceb;
 
+  /* Breakpoints (SPEC-095). Reset Tailwind's defaults to `initial` so only the
+     two project breakpoints compile — a self-documenting `tablet:` / `desktop:`
+     vocabulary rather than a `md:` that secretly means 900px. Build mobile-first:
+     unprefixed = mobile (<900px), then layer `tablet:` (≥900) / `desktop:` (≥1300).
+     See best-practices/react.md → "Responsive design". */
+  --breakpoint-sm: initial;
+  --breakpoint-md: initial;
+  --breakpoint-lg: initial;
+  --breakpoint-xl: initial;
+  --breakpoint-2xl: initial;
+  --breakpoint-tablet: 900px;
+  --breakpoint-desktop: 1300px;
+
   /* Typography */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 

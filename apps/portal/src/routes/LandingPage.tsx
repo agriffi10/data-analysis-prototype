@@ -122,9 +122,9 @@ function AppPreview() {
       </div>
 
       {/* Body */}
-      <div className="grid min-h-[320px] grid-cols-1 sm:grid-cols-[200px_1fr]">
+      <div className="grid min-h-[320px] grid-cols-1 tablet:grid-cols-[200px_1fr]">
         {/* Sidebar */}
-        <div className="hidden border-r border-border-2 bg-surface p-4 sm:block">
+        <div className="hidden border-r border-border-2 bg-surface p-4 tablet:block">
           <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">My Files</p>
           <div className="flex items-center gap-2 rounded-sm bg-accent-soft px-2 py-[7px] text-sm font-semibold text-accent-text">
             <span className="h-[7px] w-[7px] rounded-full bg-current opacity-50" />
@@ -221,7 +221,7 @@ export default function LandingPage() {
             aria-label="S3 File Portal home">
             <BrandMark />
           </a>
-          <div className="ml-8 hidden items-center gap-5 md:flex">
+          <div className="ml-8 hidden items-center gap-5 tablet:flex">
             <a
               href="#features"
               className="text-base font-medium text-text-2 hover:text-text">
@@ -326,7 +326,7 @@ export default function LandingPage() {
                 A focused workspace — no clutter, just your files where you expect them.
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 tablet:grid-cols-3">
               {FEATURES.map((feature) => (
                 <div
                   key={feature.title}

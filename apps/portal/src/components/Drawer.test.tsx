@@ -89,6 +89,35 @@ describe('Drawer', () => {
     expect(scrim).toHaveClass('backdrop-blur-sm');
   });
 
+  it('presents as a docked bottom sheet on mobile by default', () => {
+    render(
+      <Drawer
+        open
+        onClose={vi.fn()}
+        title="History">
+        body
+      </Drawer>
+    );
+    const scrim = screen.getByRole('dialog').parentElement!;
+    expect(scrim).toHaveClass('items-end', 'tablet:items-stretch');
+    expect(screen.getByRole('dialog')).toHaveClass('rounded-t-xl', 'tablet:max-w-[440px]');
+  });
+
+  it('presents as a full-height sheet on mobile when mobileVariant="full-height"', () => {
+    render(
+      <Drawer
+        open
+        onClose={vi.fn()}
+        title="Members"
+        mobileVariant="full-height">
+        body
+      </Drawer>
+    );
+    const scrim = screen.getByRole('dialog').parentElement!;
+    expect(scrim).not.toHaveClass('items-end');
+    expect(screen.getByRole('dialog')).toHaveClass('h-full', 'tablet:max-w-[440px]');
+  });
+
   it('restores focus to the trigger when it closes (focus trap)', async () => {
     function Harness({open}: {open: boolean}) {
       return (

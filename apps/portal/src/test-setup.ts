@@ -9,6 +9,30 @@ import {memoryStorage} from './test/storage';
 
 expect.extend(axeMatchers);
 
+// jsdom has no `matchMedia`; the responsive hook (`useBreakpoint`, SPEC-095)
+// needs it. Back it by `window.innerWidth` so a test can set the viewport width
+// before render to drive breakpoint-gated mounts. Default jsdom width is 1024
+// (≥ tablet, < desktop) → non-mobile, so existing tests keep desktop behavior.
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = (query: string): MediaQueryList => {
+    const min = Number(/\(min-width:\s*(\d+)px\)/.exec(query)?.[1] ?? 0);
+    return {
+      get matches() {
+        return window.innerWidth >= min;
+      },
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent() {
+        return false;
+      }
+    } as unknown as MediaQueryList;
+  };
+}
+
 // Baseline working `localStorage` for every test (Node's experimental one is broken
 // here). Defined ONCE (redefining the global property before every test can destabilise
 // the jsdom global proxy), then cleared before each test so page-level specs that read
