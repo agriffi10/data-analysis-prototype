@@ -54,8 +54,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         subtitle: 'Save a file back to your computer.',
         intro: 'When you need a file back on your own machine, downloading takes just a click — or a double-click.',
         steps: [
-          'In the <b>Files</b> tab, select the file you want.',
-          'Click <b>Download</b> to save it locally.',
+          'In the <b>Files</b> tab, click <b>Details</b> on the file, then <b>Download</b> to save it locally.',
           'In a hurry? Just <b>double-click the file row</b> and it downloads right away.'
         ]
       },
@@ -64,12 +63,11 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Rename, move, copy, or delete',
         subtitle: 'Reorganize files and folders after uploading.',
         intro:
-          'Plans change, and so does how you want your files arranged. Tick one or more items and a toolbar of actions appears, so you can shuffle things around whenever you like. These actions work on whole folders too, not just single files.',
+          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. These actions work on whole folders too, not just single files.',
         steps: [
-          'Tick the checkbox on one or more items — a toolbar of actions appears.',
-          'Choose <b>Rename</b>, <b>Move</b>, <b>Copy</b>, or <b>Delete</b>.',
+          'Tick the checkbox on one or more items — a toolbar with <b>Copy</b>, <b>Move</b>, and <b>Delete</b> appears.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
-          'For <b>Rename</b>, type a <b>New name</b> — a file keeps its original extension automatically.'
+          'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.'
         ],
         callout: {
           kind: 'warning',
@@ -85,6 +83,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Click <b>Details</b> on any file or folder row.',
           'The panel shows its name and paths, and — for files — size, type, last modified, and any custom metadata.',
+          'From here you can also <b>Download</b> a file or <b>Rename</b> the item.',
           'Use the copy buttons to grab a path, and close the panel with <b>Escape</b> or the close button.'
         ]
       }

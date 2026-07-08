@@ -9,16 +9,22 @@ const folder: S3FolderItem = {
   name: 'docs'
 };
 
-function renderPanel(onClose = vi.fn()) {
+function renderPanel(
+  over: {canModify?: boolean; onClose?: () => void; onRequestRename?: (f: S3FolderItem) => void} = {}
+) {
+  const onClose = over.onClose ?? vi.fn();
+  const onRequestRename = over.onRequestRename ?? vi.fn();
   render(
     <FolderDetailsPanel
       bucket="my-bucket"
       folder={folder}
       rootPrefix="alice/"
+      canModify={over.canModify ?? true}
+      onRequestRename={onRequestRename}
       onClose={onClose}
     />
   );
-  return onClose;
+  return {onClose, onRequestRename};
 }
 
 describe('FolderDetailsPanel', () => {
@@ -37,7 +43,7 @@ describe('FolderDetailsPanel', () => {
   });
 
   it('closes via the close button', () => {
-    const onClose = renderPanel();
+    const {onClose} = renderPanel();
     fireEvent.click(screen.getByRole('button', {name: /close details/i}));
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -46,5 +52,20 @@ describe('FolderDetailsPanel', () => {
     renderPanel();
     const dialog = screen.getByRole('dialog', {name: /details for docs/i});
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  // ── SPEC-097: Rename action (folders aren't downloadable) ───────────────────
+
+  it('renders a Rename action when canModify and invokes onRequestRename', () => {
+    const {onRequestRename} = renderPanel({canModify: true});
+    const rename = screen.getByRole('button', {name: 'Rename docs'});
+    expect(rename).toBeInTheDocument();
+    fireEvent.click(rename);
+    expect(onRequestRename).toHaveBeenCalledWith(folder);
+  });
+
+  it('shows no Rename action in read-only mode', () => {
+    renderPanel({canModify: false});
+    expect(screen.queryByRole('button', {name: 'Rename docs'})).not.toBeInTheDocument();
   });
 });

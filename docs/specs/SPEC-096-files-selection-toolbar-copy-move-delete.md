@@ -1,7 +1,7 @@
 # Spec: Files — Selection Toolbar Narrowed to Copy / Move / Delete
 
 **ID:** SPEC-096
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** None
 

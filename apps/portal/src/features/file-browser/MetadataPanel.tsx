@@ -1,7 +1,11 @@
+import {useState} from 'react';
 import {useObjectMetadata} from './useObjectMetadata';
 import type {ObjectMetadata} from './fileBrowser.types';
 import type {S3FileItem} from '../../types/s3.types';
+import {Button} from '../../components/Button';
 import {Drawer} from '../../components/Drawer';
+import {getDownloadUrl} from './fileBrowser.service';
+import {triggerBrowserDownload} from './fileBrowser.download';
 import {formatSize} from './fileBrowser.format';
 import {relativePath} from './fileBrowser.paths';
 import {DetailField} from './DetailField';
@@ -10,8 +14,110 @@ type Props = {
   bucket: string;
   file: S3FileItem;
   rootPrefix?: string; // stripped from the key to show a user-relative path
+  /** Gates Rename — false in read-only (dev-unauth) browse. Download always shows. */
+  canModify: boolean;
+  /** Opens RenameDialog for this file (SPEC-097). */
+  onRequestRename: (file: S3FileItem) => void;
   onClose: () => void;
 };
+
+function DownloadIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      className="h-4 w-4"
+      aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 3v9m0 0l-3.5-3.5M10 12l3.5-3.5M4 15.5h12"
+      />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      className="h-4 w-4"
+      aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 3.5l3 3L7 16l-3.5.5L4 13z"
+      />
+    </svg>
+  );
+}
+
+// The Download + Rename action pair (SPEC-097). Download resolves a presigned URL
+// and downloads with attachment disposition (both authenticated + read-only);
+// Rename opens the shared RenameDialog and is hidden in read-only mode. Desktop =
+// side-by-side 50/50; mobile sheet = stacked full-width (≥44px).
+function PanelActions({
+  bucket,
+  file,
+  canModify,
+  onRequestRename
+}: {
+  bucket: string;
+  file: S3FileItem;
+  canModify: boolean;
+  onRequestRename: (file: S3FileItem) => void;
+}) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function download() {
+    if (downloading) return;
+    setDownloading(true);
+    setError(null);
+    const result = await getDownloadUrl({bucket, key: file.key, fileName: file.name});
+    setDownloading(false);
+    if (result.success) triggerBrowserDownload(result.data.url);
+    else setError(`Could not download ${file.name}: ${result.error.message}`);
+  }
+
+  return (
+    <div className="mb-5 flex flex-col gap-2">
+      <div className="flex flex-col gap-2 tablet:flex-row">
+        <Button
+          variant="primary"
+          className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
+          onClick={() => void download()}
+          disabled={downloading}
+          aria-label={`Download ${file.name}`}>
+          <DownloadIcon />
+          {downloading ? 'Downloading…' : 'Download'}
+        </Button>
+        {canModify && (
+          <Button
+            variant="default"
+            className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
+            onClick={() => onRequestRename(file)}
+            aria-label={`Rename ${file.name}`}>
+            <PencilIcon />
+            Rename
+          </Button>
+        )}
+      </div>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function MetadataFields({
   metadata,
@@ -88,10 +194,10 @@ function MetadataFields({
 // SPEC-017 FR-002: a read-only drawer showing a single file's metadata, rendered
 // in the shared Drawer primitive (blur backdrop + focus trap; dismissible via the
 // close button, Escape, or backdrop click — focus returns to the trigger on
-// close). The fetch state (loading / inline error / data) comes from
-// useObjectMetadata; reopening after an error refetches because a fresh observer
-// mounts on the same query key.
-export function MetadataPanel({bucket, file, rootPrefix, onClose}: Props) {
+// close). SPEC-097 adds a Download + Rename action pair at the top. The fetch
+// state (loading / inline error / data) comes from useObjectMetadata; reopening
+// after an error refetches because a fresh observer mounts on the same query key.
+export function MetadataPanel({bucket, file, rootPrefix, canModify, onRequestRename, onClose}: Props) {
   const {metadata, isLoading, error} = useObjectMetadata(bucket, file.key);
 
   return (
@@ -101,6 +207,13 @@ export function MetadataPanel({bucket, file, rootPrefix, onClose}: Props) {
       title={file.name}
       ariaLabel={`Details for ${file.name}`}
       closeLabel="Close details">
+      <PanelActions
+        bucket={bucket}
+        file={file}
+        canModify={canModify}
+        onRequestRename={onRequestRename}
+      />
+
       {isLoading && (
         <div
           role="status"

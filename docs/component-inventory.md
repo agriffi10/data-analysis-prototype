@@ -143,8 +143,10 @@ Public barrel: `features/file-browser/index.ts`.
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `FileBrowser` | `FileBrowser.tsx` | Top-level browser: breadcrumbs, listing, upload/create-folder (when `writable`). Rows carry only an always-visible Details button (no hover menu); bulk/single actions (download/copy/move/rename/delete) live in the selection toolbar. Read-only rows keep a Download button (no toolbar there). |
-| `MetadataPanel` | `MetadataPanel.tsx` | Read-only, non-blocking metadata drawer (close button + Escape). |
+| `FileBrowser` | `FileBrowser.tsx` | Top-level browser: breadcrumbs, listing, upload/create-folder (when `writable`). Rows carry only an always-visible Details button (no hover menu). Bulk **Copy / Move / Delete** live in the selection toolbar (SPEC-096); single-item **Download / Rename** live in the details panel (SPEC-097). Read-only rows keep a per-row Download (no toolbar there); double-click a row to download (SPEC-081). |
+| `MetadataPanel` | `MetadataPanel.tsx` | File details drawer (close button + Escape): read-only metadata + a **Download** (primary) + **Rename** (secondary, `canModify`) action pair — 50/50 desktop, stacked mobile. Download is internal (presigned URL + in-drawer error); Rename via `onRequestRename` (SPEC-097). |
+| `FolderDetailsPanel` | `FolderDetailsPanel.tsx` | Folder details drawer (synchronous, no HeadObject): name/paths + a full-width **Rename** action (`canModify`; folders aren't downloadable) via `onRequestRename` (SPEC-097). |
+| `triggerBrowserDownload` | `fileBrowser.download.ts` | Programmatic attachment download of a presigned URL (anchor click). Shared by `FileBrowser` (rows/double-click) + `MetadataPanel` (SPEC-097). |
 | `UploadDropzone`, `CreateFolderDialog`, `CollisionPrompt` | (same folder) | Upload picker/drag-drop + progress, folder-name dialog, overwrite/rename prompt. (Used by `FileBrowser`; not barrel-exported.) |
 | `SelectionProvider` | `SelectionProvider.tsx` | Multi-select state provider (SPEC-018); clears selection on prefix change. Wrap a view, consume via `useSelection`. |
 | `UploadQueueProvider` | `UploadQueueProvider.tsx` | Upload-queue state + concurrency gate (≤`UPLOAD_CONCURRENCY` in flight) calling SPEC-016 `uploadFile`; per-file cancel via `AbortController`, listing invalidation per completion (SPEC-020). Wrap a view, consume via `useUploadQueue`. |
