@@ -3,6 +3,8 @@ import {useAuth} from '../features/auth';
 import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
 import {Button} from '../components/Button';
+import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
+import {cx} from '../lib/cx';
 import {UploadIcon, FolderIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
 
@@ -167,6 +169,11 @@ function AppPreview() {
 
 // ─── Features ─────────────────────────────────────────────────────────────────
 
+const NAV_LINKS: LandingNavLink[] = [
+  {label: 'Features', href: '#features'},
+  {label: 'Security', href: '#security'}
+];
+
 const FEATURES = [
   {
     icon: <UploadFeatureIcon />,
@@ -215,30 +222,29 @@ export default function LandingPage() {
       <nav
         aria-label="Primary"
         className="sticky top-0 z-20 h-16 border-b border-border bg-white/80 backdrop-blur-sm backdrop-saturate-150">
-        <div className="mx-auto flex h-full max-w-[1080px] items-center gap-4 px-6">
+        <div className="mx-auto flex h-full max-w-[1080px] items-center gap-3 px-4 tablet:gap-4 tablet:px-6">
+          <LandingNavMenu links={NAV_LINKS} />
           <a
             href="/"
             aria-label="S3 File Portal home">
             <BrandMark />
           </a>
           <div className="ml-8 hidden items-center gap-5 tablet:flex">
-            <a
-              href="#features"
-              className="text-base font-medium text-text-2 hover:text-text">
-              Features
-            </a>
-            <a
-              href="#security"
-              className="text-base font-medium text-text-2 hover:text-text">
-              Security
-            </a>
+            {NAV_LINKS.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className="text-base font-medium text-text-2 hover:text-text">
+                {link.label}
+              </a>
+            ))}
           </div>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             {isAuthed ? (
               <Button
                 variant="primary"
-                className="!h-10 !px-5"
+                className="!h-10 !px-3 tablet:!px-5"
                 onClick={() => navigate('/files')}>
                 Go to Dashboard
               </Button>
@@ -246,13 +252,13 @@ export default function LandingPage() {
               <>
                 <Button
                   variant="ghost"
-                  className="!h-10 !px-5"
+                  className="!h-10 !px-3 tablet:!px-5"
                   onClick={() => void signIn()}>
                   Sign in
                 </Button>
                 <Button
                   variant="primary"
-                  className="!h-10 !px-5"
+                  className="!h-10 !px-3 tablet:!px-5"
                   onClick={() => void signUp()}>
                   Create account
                 </Button>
@@ -270,18 +276,19 @@ export default function LandingPage() {
               <ShieldIcon />
               Secure, per-user file storage on AWS
             </span>
-            <h1 className="mx-auto mb-5 max-w-[760px] text-[46px] font-bold leading-tight tracking-[-0.02em]">
+            <h1 className="mx-auto mb-5 max-w-[760px] text-[32px] font-bold leading-tight tracking-[-0.02em] tablet:text-[40px] desktop:text-[46px]">
               Your files in the cloud, <span className="text-accent">scoped to you</span>.
             </h1>
             <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
               Upload, organize, and share files in your own private space — and connect to shared project data when you
               need it. Backed by AWS, with isolation enforced at the infrastructure layer.
             </p>
-            <div className="flex flex-wrap justify-center gap-3">
+            <div className="flex flex-col gap-3 tablet:flex-row tablet:flex-wrap tablet:justify-center">
               {isAuthed ? (
                 <Button
                   variant="primary"
                   size="lg"
+                  className="w-full tablet:w-auto"
                   onClick={() => navigate('/files')}>
                   Go to Dashboard
                 </Button>
@@ -290,12 +297,14 @@ export default function LandingPage() {
                   <Button
                     variant="primary"
                     size="lg"
+                    className="w-full tablet:w-auto"
                     onClick={() => void signUp()}>
                     Create your account
                   </Button>
                   <Button
                     variant="default"
                     size="lg"
+                    className="w-full tablet:w-auto"
                     onClick={() => void signIn()}>
                     Sign in
                   </Button>
@@ -326,11 +335,15 @@ export default function LandingPage() {
                 A focused workspace — no clutter, just your files where you expect them.
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-5 tablet:grid-cols-3">
-              {FEATURES.map((feature) => (
+            {/* 1-col mobile → 2-up at tablet (3rd card spans) → 3-up at desktop. */}
+            <div className="grid grid-cols-1 gap-5 tablet:grid-cols-2 desktop:grid-cols-3">
+              {FEATURES.map((feature, i) => (
                 <div
                   key={feature.title}
-                  className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+                  className={cx(
+                    'rounded-lg border border-border bg-surface p-6 shadow-sm',
+                    i === 2 && 'tablet:col-span-2 desktop:col-span-1'
+                  )}>
                   <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent">
                     {feature.icon}
                   </div>
@@ -355,12 +368,12 @@ export default function LandingPage() {
                 Authentication runs on AWS Cognito and every user is scoped to their own storage by AWS IAM — not by
                 application code. Get started in under a minute.
               </p>
-              <div className="flex flex-wrap justify-center gap-3">
+              <div className="flex flex-col justify-center gap-3 tablet:flex-row tablet:flex-wrap">
                 {isAuthed ? (
                   <button
                     type="button"
                     onClick={() => navigate('/files')}
-                    className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]">
+                    className="h-[46px] w-full rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff] tablet:w-auto">
                     Go to Dashboard
                   </button>
                 ) : (
@@ -368,13 +381,13 @@ export default function LandingPage() {
                     <button
                       type="button"
                       onClick={() => void signUp()}
-                      className="h-[46px] rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff]">
+                      className="h-[46px] w-full rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff] tablet:w-auto">
                       Create account
                     </button>
                     <button
                       type="button"
                       onClick={() => void signIn()}
-                      className="h-[46px] rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20">
+                      className="h-[46px] w-full rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20 tablet:w-auto">
                       Sign in
                     </button>
                   </>

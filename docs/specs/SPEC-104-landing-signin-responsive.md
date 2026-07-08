@@ -1,7 +1,7 @@
 # Spec: Landing / Sign-in Page — Responsive Reflow
 
 **ID:** SPEC-104
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** None
 <!-- May optionally reuse the SPEC-095 shared `Menu` primitive (`src/components/Menu.tsx`) if present; a lightweight local disclosure is an acceptable fallback. -->
