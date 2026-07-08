@@ -100,6 +100,17 @@ Add a row when a spec is created; update its status on completion (status only �
 | 092 — Table Share: Recipient Table Creation & Terminal States (create-table) | Completed |
 | 093 — Table Share: "Share table" UI (Query Schema Rail) | Completed |
 | 094 — Table Share: Notification Producer (sender + recipients) | Completed |
+| 095 — Responsive Foundation & App Shell | Draft |
+| 096 — Files: Selection Toolbar → Copy/Move/Delete | Draft |
+| 097 — Files: Object Details Panel Gains Download & Rename | Draft |
+| 098 — Files: Parent-Folder (`..`) Row | Draft |
+| 099 — Files Responsive Layout | Draft |
+| 100 — Query Workspace Responsive | Draft |
+| 101 — Connections Responsive | Draft |
+| 102 — Notifications Responsive | Draft |
+| 103 — Help & Guides Responsive | Draft |
+| 104 — Landing / Sign-In Responsive | Draft |
+| 105 — View Data: Full Table, Paginated (drop 10-row preview limit) | Draft |
 
 ## Arcs
 
@@ -280,7 +291,7 @@ stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but r
 **085** adds a **collapsible side nav**: the Files spaces `Sidebar` and the Query `SchemaBrowser` share the same 248px rail
 chrome, so it's factored into one **`CollapsibleRail`** base component with a collapse control; collapsed = **fully hidden +
 a reopen handle** (not a slim icon rail), and the state is **persisted per browser in `localStorage` under one shared key**
-so the choice carries across both rails. Below-`md` behavior (rail hidden) and the top-bar tabs are untouched. **086** adds a
+so the choice carries across both rails. Below-`tablet` behavior (rail hidden) and the top-bar tabs are untouched. **086** adds a
 **per-database Refresh** control to each schema-rail `DatabaseNode` (SPEC-063) that re-reads only that database's tables/views
 (`queryKeys.schema(database)` invalidate/refetch via the existing `useSchema`/`invalidateSchema`) — manual, per-node, error
 non-destructive; mirrors the SPEC-046 history-refresh pattern. Both are independent of each other and of everything else.
@@ -295,3 +306,32 @@ FRs** (memoize unstable context/hook identities + `QueryWorkspace` derived struc
 timer cleanup; fix the query submit de-dupe guard's stale read; resolve `QueryResultsTable` index keys). **084** makes
 the query editor's Monaco completion-provider registration/disposal remount-safe
 (tab switches / StrictMode) so autocomplete can't silently die. All three are independent of each other.
+
+**Responsive & Files-UX arc (095 → 099, then 100/101/102/103, + 104)** — filed 2026-07-08 from the Claude Design
+responsive mockups (`docs/design/Responsive Breakpoints.dc.html` + `README.md` + `design-system.md`); makes the whole
+app responsive across mobile (base, `< 900px`) / tablet (`tablet:`, 900–1299px) / desktop (`desktop:`, ≥1300px) — **two
+custom `@theme` breakpoints** in `App.css` (`--breakpoint-tablet: 900px`, `--breakpoint-desktop: 1300px`; the Tailwind
+default `sm`/`md`/`lg`/`xl`/`2xl` prefixes are **reset to `initial`** so only `tablet:`/`desktop:` compile, and existing
+`md:`/`sm:` code is migrated) — plus three Files feature changes. **All presentation-only** — no data-layer, service, IAM, or infra changes anywhere in the
+arc. Reflows are responsive utilities on one component by default; a separate component/markup branch is allowed only when
+the two presentations are genuinely structurally different (e.g. the Files **data table vs mobile card list**, SPEC-099).
+**095** = the shared foundation everything else consumes: the custom breakpoint convention + a shared `useBreakpoint` hook
+(mount-gating only), an off-canvas **`AppNavDrawer`** (300px,
+hamburger, primary tabs + a contextual rail slot) + responsive `Header`, a **`MobileActionBar`** primitive, a reusable
+**`Menu`** primitive (extracted from the query `TableActionsMenu`), and responsive `Modal`/`Drawer` (`mobileVariant`
+bottom-sheet/full-height). The three **Files feature changes** are independent of responsiveness and each other: **096**
+narrows the multi-select toolbar to **Copy/Move/Delete** (Download+Rename leave it); **097** adds **Download + Rename**
+to the button-opened **object details panel** (**user decision: the panel stays opened by the per-object Details button,
+visible at all breakpoints, NOT selection-gated** — the mockup's `count===1` inline-column model is not adopted; file
+panel = Download+Rename, folder panel = Rename); **098** adds the **`..` parent-folder row** (non-selectable, hidden at
+root). **099** lays the Files browser out responsively (5-col desktop → drop Type at `tablet` → 56px two-line card list on
+mobile; `MobileActionBar` = New folder + Upload; icon-only bulk bar; **decision: no header `⋯` overflow menu and no mobile
+selection mode — checkboxes stay always-visible; net-new Sort/Select excluded**) and depends on 095–098. Then the
+per-surface reflows, each depending on 095: **100** Query (tablet rail ~220px + icon toolbar; **mobile browse-first — no
+Monaco editor on phones**, Saved/History home, read-only results + Prev/Next); **101** Connections (cards horizontal →
+stacked, pills wrap, full-width actions, "New" label; member drawers → full-height sheet); **102** Notifications (mobile
+header stacks via an opt-in `PageLayout` prop; per-row Mark-read below the message; full-touch pager); **103** Help
+(248px guides rail → horizontal chip section selector on mobile; **in-page search excluded — not shipped today**). **104**
+Landing/sign-in (nav → hamburger menu; hero 46→40→32px; CTAs full-width stacked; feature grid 3→2→1) is independent
+(public page; optionally reuses the 095 `Menu`). Build order **095 → 096/097/098 → 099 → 100/101/102/103 → 104**. No new
+env vars, deps, or IAM.
