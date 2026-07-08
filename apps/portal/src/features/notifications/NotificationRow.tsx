@@ -1,5 +1,6 @@
 import {formatRelativeTime} from '../query/query.format';
 import {cx} from '../../lib/cx';
+import {useIsMobile} from '../../lib/useBreakpoint';
 import type {Notification} from './notifications.types';
 
 type NotificationRowProps = {
@@ -16,6 +17,10 @@ type NotificationRowProps = {
  */
 export function NotificationRow({notification, onMarkRead}: NotificationRowProps) {
   const {id, message, read, timestamp} = notification;
+  // Mark-read is a compact trailing control at ≥ tablet; below the message as a
+  // full-width touch target on mobile (SPEC-102 FR-003). Mount-gated so exactly
+  // one button exists (a CSS swap would duplicate it in the DOM).
+  const isMobile = useIsMobile();
 
   return (
     <li
@@ -43,9 +48,20 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
           {message}
         </p>
         <p className="mt-1 text-xs text-text-3">{formatRelativeTime(timestamp)}</p>
+
+        {/* Mobile: full-width 34px button below the message + timestamp. */}
+        {!read && isMobile && (
+          <button
+            type="button"
+            onClick={() => onMarkRead(id)}
+            className="mt-2 h-[34px] w-full rounded-md border border-border text-xs font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            Mark read
+          </button>
+        )}
       </div>
 
-      {!read && (
+      {/* ≥ tablet: compact trailing control. */}
+      {!read && !isMobile && (
         <button
           type="button"
           onClick={() => onMarkRead(id)}

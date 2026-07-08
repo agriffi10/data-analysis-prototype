@@ -55,6 +55,19 @@ describe('NotificationsPage accessibility (SPEC-060 FR-006)', () => {
     await expectNoA11yViolations(ui, ROUTE_AXE_OPTIONS);
   });
 
+  it('has no axe violations at a mobile width (stacked header + full-width Mark-read) [SPEC-102 FR-005]', async () => {
+    Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
+    try {
+      const ui = withProviders(<NotificationsPage />);
+      render(ui);
+      await waitFor(() => expect(screen.getByText('Shared space “sales” created')).toBeInTheDocument());
+      cleanup();
+      await expectNoA11yViolations(ui, ROUTE_AXE_OPTIONS);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
+    }
+  });
+
   it('exposes exactly one <h1> and a <main> landmark', async () => {
     render(withProviders(<NotificationsPage />));
     await waitFor(() => expect(screen.getByText('Shared space “sales” created')).toBeInTheDocument());

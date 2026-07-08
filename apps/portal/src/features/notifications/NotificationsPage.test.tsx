@@ -64,6 +64,15 @@ describe('NotificationsPage (SPEC-060)', () => {
     await waitFor(() => expect(screen.getByText('You’re all caught up')).toBeInTheDocument());
   });
 
+  it('opts into the stacked mobile page header (SPEC-102 FR-002)', async () => {
+    mockGet.mockResolvedValue({success: true, data: list(1)});
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Message 0')).toBeInTheDocument());
+    // The PageLayout header stacks below tablet, inline at ≥ tablet.
+    const header = screen.getByRole('heading', {level: 1, name: 'Notifications'}).closest('div')!.parentElement!;
+    expect(header).toHaveClass('flex-col', 'tablet:flex-row');
+  });
+
   it('shows an error state with a retry that re-reads', async () => {
     mockGet.mockResolvedValueOnce({success: false, error: {message: 'boom'}});
     renderPage();

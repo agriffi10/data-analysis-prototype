@@ -48,4 +48,34 @@ describe('PageLayout', () => {
     expect(content.className).toContain('max-w-[760px]');
     expect(content.className).toContain('gap-2');
   });
+
+  // ── SPEC-102: opt-in stacked mobile header ─────────────────────────────────
+
+  it('keeps the inline single-row header by default (Connections/Help unaffected)', () => {
+    render(
+      <PageLayout
+        title="Connections"
+        actions={<button type="button">New</button>}>
+        body
+      </PageLayout>
+    );
+    const header = screen.getByRole('heading', {level: 1}).closest('div')!.parentElement!;
+    expect(header).toHaveClass('flex', 'items-center');
+    expect(header).not.toHaveClass('flex-col');
+  });
+
+  it('stacks the header below tablet when stackActionsOnMobile is set', () => {
+    render(
+      <PageLayout
+        title="Notifications"
+        stackActionsOnMobile
+        actions={<button type="button">Mark all read</button>}>
+        body
+      </PageLayout>
+    );
+    const header = screen.getByRole('heading', {level: 1}).closest('div')!.parentElement!;
+    expect(header).toHaveClass('flex-col', 'tablet:flex-row', 'tablet:items-center');
+    const actions = screen.getByRole('button', {name: 'Mark all read'}).parentElement!;
+    expect(actions).toHaveClass('flex-wrap', 'tablet:flex-none');
+  });
 });
