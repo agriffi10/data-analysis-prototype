@@ -1,9 +1,6 @@
-import {cx} from '../lib/cx';
 import {CollapsibleRail} from './CollapsibleRail';
-import {FolderIcon} from './icons';
-import {isConnectionUsable} from '../features/query/query.types';
+import {SpacesList} from './SpacesList';
 import type {Connection} from '../features/query/query.types';
-import {connectionStatusLabel} from '../features/shared-spaces/connectionStatus';
 
 type Props = {
   /**
@@ -18,10 +15,9 @@ type Props = {
 
 /**
  * Left navigation sidebar for the authenticated app shell — a 248px panel
- * listing the user's spaces: their personal space (labelled with the username)
- * plus each shared connection. Selecting one points the file browser at that
- * space; provisioning/failed connections are shown disabled with their status.
- * Hidden below the md breakpoint so the browser fills narrow viewports.
+ * listing the user's spaces (the shared `SpacesList`) inside `CollapsibleRail`.
+ * Hidden below the `tablet` breakpoint so the browser fills narrow viewports;
+ * on mobile the same `SpacesList` is fed into the `AppNavDrawer` (SPEC-099).
  *
  * @example
  * <Sidebar connections={connections} activeSpaceId={spaceId} onSelectSpace={setSpaceId} />
@@ -31,48 +27,11 @@ export function Sidebar({connections, activeSpaceId, onSelectSpace}: Props) {
     <CollapsibleRail
       ariaLabel="Your spaces navigation"
       title="Spaces">
-      <ul
-        role="list"
-        className="flex flex-col gap-0.5"
-        aria-label="Spaces">
-        {connections.map((conn) => {
-          const active = conn.id === activeSpaceId;
-          // Provisioning/failed/leaving shared connections appear but are not
-          // selectable — disabled, with their status shown.
-          const usable = isConnectionUsable(conn);
-          return (
-            <li key={conn.id}>
-              <button
-                type="button"
-                disabled={!usable}
-                aria-current={active ? 'true' : undefined}
-                onClick={usable ? () => onSelectSpace(conn.id) : undefined}
-                className={cx(
-                  'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-base font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                  !usable
-                    ? 'cursor-not-allowed text-text-3'
-                    : active
-                      ? 'bg-accent-soft text-accent-text'
-                      : 'text-text-2 hover:bg-surface-2 hover:text-text'
-                )}>
-                <FolderIcon className="h-[18px] w-[18px] flex-none" />
-                <span className="min-w-0 truncate">{conn.label}</span>
-                {active && <span className="sr-only">(current space)</span>}
-                {conn.kind === 'personal' ? (
-                  <span className="ml-auto flex-none text-xs text-text-3">user space</span>
-                ) : (
-                  conn.status &&
-                  conn.status !== 'active' && (
-                    <span className="ml-auto flex-none text-xs font-medium text-text-3">
-                      {connectionStatusLabel(conn.status)}
-                    </span>
-                  )
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <SpacesList
+        connections={connections}
+        activeSpaceId={activeSpaceId}
+        onSelectSpace={onSelectSpace}
+      />
     </CollapsibleRail>
   );
 }

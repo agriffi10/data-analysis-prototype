@@ -9,3 +9,8 @@ export function formatSize(bytes: number): string {
   if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
   return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
 }
+
+/** Short last-modified date, e.g. "Mar 3, 2026". */
+export function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'});
+}

@@ -1,4 +1,4 @@
-import {useEffect} from 'react';
+import {useEffect, useMemo} from 'react';
 import {useSearchParams} from 'react-router-dom';
 import {
   FileBrowser,
@@ -9,6 +9,8 @@ import {
   type FileSpaceTarget
 } from '../features/file-browser';
 import {Sidebar} from '../components/Sidebar';
+import {SpacesList} from '../components/SpacesList';
+import {useProvideNavRail} from '../components/navRailContext';
 import {Banner} from '../components/Banner';
 import {useAuth} from '../features/auth';
 import {useConnections} from '../features/query/useConnections';
@@ -30,6 +32,10 @@ const sharedSpaceBucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string 
 // A single synthetic space for the dev-unauth path — the spaces concept doesn't
 // apply without auth, but the Sidebar still renders one entry for layout parity.
 const devConnections: Connection[] = [{id: 'personal', label: 'Files', database: '', kind: 'personal'}];
+
+// Stable no-op for the dev-unauth space selector, so the memoized mobile nav rail
+// (useProvideNavRail) keeps a stable identity and doesn't churn the drawer content.
+const noopSelect = () => {};
 
 /** The file browser page (`/files`) — browses the active space (personal by default, or a shared space picked in the Sidebar / `?space=`). */
 export default function FilesPage() {
@@ -71,43 +77,53 @@ export default function FilesPage() {
 
   // Authenticated flow: the file-browser target comes from the active space. A
   // null space means the user-space (or shared) bucket env is missing.
-  let target: {
+  // Sidebar/rail values as `const` (not branch-reassigned `let`) so the memoized
+  // mobile nav rail below keeps a stable identity the React Compiler can preserve.
+  const sidebarConnections = devUnauthenticated ? devConnections : connections;
+  const sidebarActiveId = devUnauthenticated ? 'personal' : activeSpaceId;
+  const onSelectSpace = devUnauthenticated ? noopSelect : selectSpace;
+
+  const target: {
     bucket: string | undefined;
     rootPrefix: string;
     rootLabel: string | undefined;
     markerOwner: string | undefined;
     writable: boolean;
-  };
-  let sidebarConnections: Connection[];
-  let sidebarActiveId: string;
-  let onSelectSpace: (id: string) => void;
+  } = devUnauthenticated
+    ? {bucket: devBucket, rootPrefix: devPrefix, rootLabel: undefined, markerOwner: undefined, writable: false}
+    : {
+        bucket: space?.bucket,
+        rootPrefix: space?.rootPrefix ?? '',
+        // The space name (incl. the username for the personal space) is the root
+        // breadcrumb crumb.
+        rootLabel: space?.label,
+        // The marker owner = the space's root segment, so the delete/move/copy
+        // marker guard protects `{root}/DO_NOT_DELETE.txt`.
+        markerOwner: space?.label,
+        writable: !!user
+      };
   // Spaces move/copy can target: personal + active shared spaces. Undefined in
   // dev-unauth (read-only — the dialogs never open).
-  let destinations: FileSpaceTarget[] | undefined;
+  const destinations: FileSpaceTarget[] | undefined = devUnauthenticated
+    ? undefined
+    : usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket);
 
-  if (devUnauthenticated) {
-    target = {bucket: devBucket, rootPrefix: devPrefix, rootLabel: undefined, markerOwner: undefined, writable: false};
-    sidebarConnections = devConnections;
-    sidebarActiveId = 'personal';
-    onSelectSpace = () => {};
-    destinations = undefined;
-  } else {
-    target = {
-      bucket: space?.bucket,
-      rootPrefix: space?.rootPrefix ?? '',
-      // The space name (incl. the username for the personal space) is the root
-      // breadcrumb crumb.
-      rootLabel: space?.label,
-      // The marker owner = the space's root segment, so the delete/move/copy
-      // marker guard protects `{root}/DO_NOT_DELETE.txt`.
-      markerOwner: space?.label,
-      writable: !!user
-    };
-    sidebarConnections = connections;
-    sidebarActiveId = activeSpaceId;
-    onSelectSpace = selectSpace;
-    destinations = usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket);
-  }
+  // Below `tablet` the on-page Spaces rail is hidden; feed the same list into the
+  // mobile AppNavDrawer's contextual slot so it stays reachable (SPEC-099 FR-001).
+  const navRail = useMemo(
+    () => (
+      <div className="p-3">
+        <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
+        <SpacesList
+          connections={sidebarConnections}
+          activeSpaceId={sidebarActiveId}
+          onSelectSpace={onSelectSpace}
+        />
+      </div>
+    ),
+    [sidebarConnections, sidebarActiveId, onSelectSpace]
+  );
+  useProvideNavRail(navRail);
 
   const markerKey = target.markerOwner ? prefixMarkerKey(target.markerOwner) : undefined;
   const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
