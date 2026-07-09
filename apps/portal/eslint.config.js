@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 import {defineConfig, globalIgnores} from 'eslint/config';
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'coverage']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -18,5 +18,11 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser
     }
+  },
+  {
+    // Test files and the shared test harness legitimately export non-component
+    // helpers (render utilities, fixtures) — the Fast Refresh rule doesn't apply.
+    files: ['**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    rules: {'react-refresh/only-export-components': 'off'}
   }
 ]);

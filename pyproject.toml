@@ -1,0 +1,22 @@
+# Python tooling config for the Lambda suites under `lambdas/`.
+# (The repo is an npm monorepo; this file is Python-only — Node tooling ignores it.)
+#
+# Coverage is wired into pytest's default args, so `pytest lambdas/` prints a
+# per-file coverage table + total. Requires pytest-cov (see lambdas/requirements-dev.txt).
+
+[tool.pytest.ini_options]
+addopts = "--cov=lambdas --cov-report=term-missing --cov-report=html"
+
+[tool.coverage.run]
+# Report every source file under lambdas/, including ones no test imports (0%),
+# so the summary reflects true coverage across all Lambda code.
+source = ["lambdas"]
+omit = [
+    "*/test_*.py",
+    "*/conftest.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

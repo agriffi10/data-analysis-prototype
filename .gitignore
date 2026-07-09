@@ -29,3 +29,10 @@ dist-ssr
 # Python (Lambda sources under lambdas/)
 __pycache__/
 *.pyc
+
+# Test coverage output
+coverage
+htmlcov
+.coverage
+.coverage.*
+coverage.xml

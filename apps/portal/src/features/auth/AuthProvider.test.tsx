@@ -1,8 +1,12 @@
 import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
 import {render, screen, waitFor, act, cleanup} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {AuthProvider} from './AuthProvider';
 import {useAuth} from './useAuth';
 
+// AuthProvider's OWN test: render the REAL provider + a real consumer and mock only
+// the boundary it synchronizes with — the auth service (getCurrentAuthUser/startSign*),
+// the Amplify config flag, the return-path helper, and the Amplify `Hub` event bus.
 vi.mock('./auth.service', () => ({
   getCurrentAuthUser: vi.fn(),
   startSignIn: vi.fn(),
@@ -45,11 +49,18 @@ const renderProvider = () =>
     </AuthProvider>
   );
 
+const status = () => screen.getByTestId('status').textContent;
+const username = () => screen.getByTestId('username').textContent;
+const errorText = () => screen.getByTestId('error').textContent;
+
 // Fire the captured Hub auth handler as Amplify would.
 const fireHub = (event: string) =>
   act(() => {
     mockHubListen.mock.calls[0][1]({payload: {event}});
   });
+
+const ok = <T,>(data: T) => ({success: true as const, data});
+const fail = (message: string) => ({success: false as const, error: {message}});
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -61,153 +72,98 @@ afterEach(() => {
 });
 
 describe('AuthProvider', () => {
-  it('restores an existing session: loading -> authenticated with username', async () => {
-    mockGetUser.mockResolvedValue({
-      success: true,
-      data: {username: 'alice', email: 'alice@example.com'}
-    });
+  it('restores an existing session: loading → authenticated with the username', async () => {
+    mockGetUser.mockResolvedValue(ok({username: 'alice', email: 'alice@example.com'}));
 
     renderProvider();
-    expect(screen.getByTestId('status').textContent).toBe('loading');
+    expect(status()).toBe('loading');
 
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
-    expect(screen.getByTestId('username').textContent).toBe('alice');
+    await waitFor(() => expect(status()).toBe('authenticated'));
+    expect(username()).toBe('alice');
   });
 
-  it('lands unauthenticated when there is no session', async () => {
-    mockGetUser.mockResolvedValue({success: false, error: {message: 'none'}});
+  it('lands unauthenticated (no user) when there is no session', async () => {
+    mockGetUser.mockResolvedValue(fail('none'));
 
     renderProvider();
 
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
-    expect(screen.getByTestId('username').textContent).toBe('');
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
+    expect(username()).toBe('');
   });
 
-  it('signIn() delegates to the sign-in service', async () => {
-    mockGetUser.mockResolvedValue({success: false, error: {message: 'none'}});
-    mockStartSignIn.mockResolvedValue({success: true, data: undefined});
+  it('sign-in / sign-up / sign-out each delegate to their service', async () => {
+    const user = userEvent.setup();
+    mockGetUser.mockResolvedValue(ok({username: 'dave'}));
+    mockStartSignIn.mockResolvedValue(ok(undefined));
+    mockStartSignUp.mockResolvedValue(ok(undefined));
+    mockStartSignOut.mockResolvedValue(ok(undefined));
 
     renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
+    await waitFor(() => expect(status()).toBe('authenticated'));
 
-    await act(async () => {
-      screen.getByText('signin').click();
-    });
+    await user.click(screen.getByText('signin'));
+    await user.click(screen.getByText('signup'));
+    await user.click(screen.getByText('signout'));
+
     expect(mockStartSignIn).toHaveBeenCalledOnce();
-  });
-
-  it('signUp() delegates to the sign-up service', async () => {
-    mockGetUser.mockResolvedValue({success: false, error: {message: 'none'}});
-    mockStartSignUp.mockResolvedValue({success: true, data: undefined});
-
-    renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
-
-    await act(async () => {
-      screen.getByText('signup').click();
-    });
     expect(mockStartSignUp).toHaveBeenCalledOnce();
-  });
-
-  it('surfaces an error when sign-up fails, without throwing', async () => {
-    mockGetUser.mockResolvedValue({success: false, error: {message: 'none'}});
-    mockStartSignUp.mockResolvedValue({
-      success: false,
-      error: {message: 'Sign-up is not configured.'}
-    });
-
-    renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
-
-    await act(async () => {
-      screen.getByText('signup').click();
-    });
-    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('Sign-up is not configured.'));
-  });
-
-  it('surfaces an error when sign-in fails, without throwing', async () => {
-    mockGetUser.mockResolvedValue({success: false, error: {message: 'none'}});
-    mockStartSignIn.mockResolvedValue({
-      success: false,
-      error: {message: 'popup blocked'}
-    });
-
-    renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
-
-    await act(async () => {
-      screen.getByText('signin').click();
-    });
-    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('popup blocked'));
-  });
-
-  it('signOut() delegates to the sign-out service', async () => {
-    mockGetUser.mockResolvedValue({success: true, data: {username: 'dave'}});
-    mockStartSignOut.mockResolvedValue({success: true, data: undefined});
-
-    renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
-
-    await act(async () => {
-      screen.getByText('signout').click();
-    });
     expect(mockStartSignOut).toHaveBeenCalledOnce();
   });
 
-  it('Hub "signedIn" re-derives the session to authenticated', async () => {
-    mockGetUser
-      .mockResolvedValueOnce({success: false, error: {message: 'none'}})
-      .mockResolvedValueOnce({success: true, data: {username: 'bob'}});
+  it('surfaces a failed sign-up or sign-in as a non-blocking error (never throws)', async () => {
+    const user = userEvent.setup();
+    mockGetUser.mockResolvedValue(fail('none'));
+    mockStartSignUp.mockResolvedValue(fail('Sign-up is not configured.'));
+    mockStartSignIn.mockResolvedValue(fail('popup blocked'));
 
     renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
 
-    await fireHub('signedIn');
+    await user.click(screen.getByText('signup'));
+    await waitFor(() => expect(errorText()).toBe('Sign-up is not configured.'));
 
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
-    expect(screen.getByTestId('username').textContent).toBe('bob');
+    await user.click(screen.getByText('signin'));
+    await waitFor(() => expect(errorText()).toBe('popup blocked'));
+
+    // A surfaced error never tips the provider out of a usable state.
+    expect(status()).toBe('unauthenticated');
   });
 
-  it('Hub "signInWithRedirect" re-derives the session to authenticated', async () => {
-    // Mirrors the post-OAuth-redirect callback: the mount refresh runs before the
-    // code exchange completes (unauthenticated), then the redirect event fires.
-    mockGetUser
-      .mockResolvedValueOnce({success: false, error: {message: 'none'}})
-      .mockResolvedValueOnce({success: true, data: {username: 'dave'}});
+  it.each(['signedIn', 'signInWithRedirect'])('Hub "%s" re-derives the session to authenticated', async (event) => {
+    // Mirrors the post-OAuth callback: the mount refresh runs before the code
+    // exchange completes (unauthenticated), then the Hub event fires.
+    mockGetUser.mockResolvedValueOnce(fail('none')).mockResolvedValueOnce(ok({username: 'bob'}));
 
     renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
 
-    await fireHub('signInWithRedirect');
+    await fireHub(event);
 
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
-    expect(screen.getByTestId('username').textContent).toBe('dave');
+    await waitFor(() => expect(status()).toBe('authenticated'));
+    expect(username()).toBe('bob');
   });
 
   it('Hub "signedOut" clears the user and returns to unauthenticated', async () => {
-    mockGetUser.mockResolvedValue({
-      success: true,
-      data: {username: 'carol'}
-    });
+    mockGetUser.mockResolvedValue(ok({username: 'carol'}));
 
     renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
+    await waitFor(() => expect(status()).toBe('authenticated'));
 
     await fireHub('signedOut');
 
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
-    expect(screen.getByTestId('username').textContent).toBe('');
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
+    expect(username()).toBe('');
   });
 
   it('Hub "signInWithRedirect_failure" surfaces a non-blocking error', async () => {
-    mockGetUser.mockResolvedValue({success: false, error: {message: 'none'}});
+    mockGetUser.mockResolvedValue(fail('none'));
 
     renderProvider();
-    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unauthenticated'));
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
 
     await fireHub('signInWithRedirect_failure');
 
-    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('Sign-in failed or was cancelled.'));
+    await waitFor(() => expect(errorText()).toBe('Sign-in failed or was cancelled.'));
   });
 });
 

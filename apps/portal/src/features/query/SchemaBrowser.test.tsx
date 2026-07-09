@@ -1,27 +1,32 @@
-import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent, within, type RenderOptions} from '@testing-library/react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import type {ReactElement, ReactNode} from 'react';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {screen, within, waitFor} from '@testing-library/react';
+import {QueryClientProvider} from '@tanstack/react-query';
+import {renderWithProviders, createTestQueryClient} from '../../test/renderWithProviders';
 import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
-
-vi.mock('./useSchema', () => ({useSchema: vi.fn(), invalidateSchema: vi.fn()}));
-
-import {useSchema} from './useSchema';
 import {SchemaBrowser, type TableActions} from './SchemaBrowser';
-import type {Connection} from './query.types';
+import * as glue from './glue.service';
+import type {Connection, GlueTableSummary} from './query.types';
 
-const mockUseSchema = vi.mocked(useSchema);
-type SchemaState = ReturnType<typeof useSchema>;
+// Integration style (react.md §21): render the REAL SchemaBrowser → real
+// DatabaseNode → real useSchema tree and mock ONLY the AWS boundary (the Glue
+// service). Nothing about the rail (disclosure, per-node fetch, action menus)
+// is stubbed.
+vi.mock('./glue.service', async (importActual) => {
+  const actual = await importActual<typeof glue>();
+  return {...actual, getDatabase: vi.fn(), listTables: vi.fn()};
+});
 
-// DatabaseNode (rendered per usable connection) uses useQueryClient for its per-node
-// Refresh (SPEC-086), so every render needs a QueryClient in context.
-function Providers({children}: {children: ReactNode}) {
-  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
-function renderBrowser(ui: ReactElement, options?: RenderOptions) {
-  return render(ui, {wrapper: Providers, ...options});
-}
+const mock = vi.mocked(glue);
+const ok = <T,>(data: T) => ({success: true as const, data});
+
+const salesTable: GlueTableSummary = {
+  name: 'sales_2026',
+  location: 's3://bucket/alice/sales/',
+  columns: [
+    {name: 'order_id', type: 'bigint'},
+    {name: 'region', type: 'string'}
+  ]
+};
 
 function makeActions(over: Partial<TableActions> = {}): TableActions {
   return {
@@ -35,24 +40,6 @@ function makeActions(over: Partial<TableActions> = {}): TableActions {
   };
 }
 
-const tableSchema = {
-  isPending: false,
-  isError: false,
-  data: {
-    database: {name: 'alice'},
-    tables: [
-      {
-        name: 'sales_2026',
-        location: 's3://bucket/alice/sales/',
-        columns: [
-          {name: 'order_id', type: 'bigint'},
-          {name: 'region', type: 'string'}
-        ]
-      }
-    ]
-  }
-} as unknown as SchemaState;
-
 const connections: Connection[] = [
   {id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal'},
   {id: 's1', label: 'Project Alpha', database: 'project_alpha', kind: 'shared', status: 'active', role: 'member'}
@@ -60,80 +47,64 @@ const connections: Connection[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUseSchema.mockReturnValue(tableSchema);
+  mock.getDatabase.mockImplementation(async (db) => ok({name: db}));
+  mock.listTables.mockResolvedValue(ok([salesTable]));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('SchemaBrowser', () => {
-  // --- single-database default (the common case) ---
-
-  it('renders a single database expanded by default with its Tables group', () => {
-    renderBrowser(
+  it('expands a lone database by default, showing its tables and non-interactive columns', async () => {
+    const {user} = renderWithProviders(
       <SchemaBrowser
         connections={[connections[0]]}
         actions={makeActions()}
       />
     );
     expect(screen.getByRole('button', {name: /Collapse My workspace/})).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
-  });
-
-  it('shows columns as non-interactive rows (browse-only, no click-to-insert)', () => {
-    renderBrowser(
-      <SchemaBrowser
-        connections={[connections[0]]}
-        actions={makeActions()}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', {name: 'sales_2026'}));
+    await user.click(await screen.findByRole('button', {name: 'sales_2026'}));
+    // Columns show for inspection only — no click-to-insert affordance.
     expect(screen.getByText('region')).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: /region/})).not.toBeInTheDocument();
   });
 
-  it('opens the options menu and fires an action with the node database, without toggling expand', () => {
+  it('fires a table action with the node database, without toggling the row', async () => {
     const actions = makeActions();
-    renderBrowser(
+    const {user} = renderWithProviders(
       <SchemaBrowser
         connections={[connections[0]]}
         actions={actions}
       />
     );
-    fireEvent.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+    // Opening the menu doesn't expand the table row.
     expect(screen.getByRole('button', {name: 'sales_2026'})).toHaveAttribute('aria-expanded', 'false');
-    const menu = screen.getByRole('menu');
-    fireEvent.click(within(menu).getByRole('menuitem', {name: 'View data'}));
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'View data'}));
     expect(actions.onViewData).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'sales_2026'}));
   });
 
-  // --- multiple databases (browse-only, no active selection) ---
-
-  it('expands the first (personal) database by default and fetches its schema', () => {
-    renderBrowser(
+  it('expands the first database by default and browses another on demand (no active-database radio)', async () => {
+    const {user} = renderWithProviders(
       <SchemaBrowser
         connections={connections}
         actions={makeActions()}
       />
     );
-    // First node expanded by default → fetches its own schema; the rest collapsed.
-    expect(mockUseSchema).toHaveBeenCalledWith('alice');
+    // First node expanded → fetches its own schema; the rest collapsed.
+    await waitFor(() => expect(mock.listTables).toHaveBeenCalledWith('alice'));
     expect(screen.getByRole('button', {name: /Collapse My workspace/})).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', {name: /Expand Project Alpha/})).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('expands another database to browse it (no active-database radio)', () => {
-    renderBrowser(
-      <SchemaBrowser
-        connections={connections}
-        actions={makeActions()}
-      />
-    );
-    // No active-database selection affordance at all.
+    // Browse-only: no active-database selection affordance.
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: /Expand Project Alpha/}));
-    expect(mockUseSchema).toHaveBeenCalledWith('project_alpha');
+
+    await user.click(screen.getByRole('button', {name: /Expand Project Alpha/}));
+    await waitFor(() => expect(mock.listTables).toHaveBeenCalledWith('project_alpha'));
   });
 
   it('shows an unusable shared connection but not expandable or selectable (SPEC-052 FR-004)', () => {
-    renderBrowser(
+    renderWithProviders(
       <SchemaBrowser
         connections={[
           connections[0],
@@ -155,16 +126,14 @@ describe('SchemaBrowser', () => {
     expect(screen.queryByRole('button', {name: /Project Beta/})).not.toBeInTheDocument();
   });
 
-  // --- accessibility ---
-
   it('has no axe violations', async () => {
     await expectNoA11yViolations(
-      <Providers>
+      <QueryClientProvider client={createTestQueryClient()}>
         <SchemaBrowser
           connections={connections}
           actions={makeActions()}
         />
-      </Providers>,
+      </QueryClientProvider>,
       COMPONENT_AXE_OPTIONS
     );
   });

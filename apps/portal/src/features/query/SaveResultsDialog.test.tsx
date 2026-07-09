@@ -1,29 +1,25 @@
-import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent} from '@testing-library/react';
-
-// The DestinationPicker inside the dialog browses folders via useFileBrowser.
-vi.mock('../file-browser/useFileBrowser');
-
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {screen} from '@testing-library/react';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {SaveResultsDialog} from './SaveResultsDialog';
 import {normalizeCsvName} from './query.format';
-import {useFileBrowser} from '../file-browser/useFileBrowser';
-import type {UseFileBrowserResult} from '../file-browser/useFileBrowser';
+import * as fileService from '../file-browser/fileBrowser.service';
+import type {FileListPage, S3FolderItem} from '../../types/s3.types';
 
-const base: UseFileBrowserResult = {
-  files: [],
-  folders: [{type: 'folder', prefix: 'alice/reports/', name: 'reports'}],
-  isLoading: false,
-  error: null,
-  refresh: vi.fn(),
-  hasMore: false,
-  loadMore: vi.fn(),
-  isLoadingMore: false
-};
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.mocked(useFileBrowser).mockReturnValue(base);
+// Integration style (react.md §21): render the REAL SaveResultsDialog → real
+// Modal + real DestinationPicker → real useFileBrowser, and mock ONLY the AWS
+// boundary — the file-browser listing service. The picker's folder browsing runs
+// for real against the mocked listing.
+vi.mock('../file-browser/fileBrowser.service', async (importActual) => {
+  const actual = await importActual<typeof fileService>();
+  return {...actual, listFiles: vi.fn()};
 });
+
+const mock = vi.mocked(fileService);
+const ok = <T,>(data: T) => ({success: true as const, data});
+
+const folder = (name: string, prefix: string): S3FolderItem => ({type: 'folder', prefix, name});
+const listing = (folders: S3FolderItem[]): FileListPage => ({files: [], folders, isTruncated: false});
 
 const personalSpace = {
   id: 'personal',
@@ -43,7 +39,7 @@ const sharedSpace = {
 function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDialog>>) {
   const onSave = vi.fn();
   const onCancel = vi.fn();
-  render(
+  const result = renderWithProviders(
     <SaveResultsDialog
       spaces={[personalSpace]}
       defaultName="query-results-20260622-1430"
@@ -52,8 +48,17 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDia
       {...props}
     />
   );
-  return {onSave, onCancel};
+  return {...result, onSave, onCancel};
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mock.listFiles.mockResolvedValue(ok(listing([folder('reports', 'alice/reports/')])));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('normalizeCsvName (SPEC-049)', () => {
   it('appends .csv when missing and does not double it', () => {
@@ -65,9 +70,9 @@ describe('normalizeCsvName (SPEC-049)', () => {
 });
 
 describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
-  it('saves the .csv-normalized name into the chosen destination (root)', () => {
-    const {onSave} = renderDialog();
-    fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
+  it('saves the .csv-normalized name into the chosen root folder', async () => {
+    const {user, onSave} = renderDialog();
+    await user.click(await screen.findByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'user-bucket',
       destPrefix: 'alice/',
@@ -75,10 +80,10 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     });
   });
 
-  it('saves into a navigated subfolder', () => {
-    const {onSave} = renderDialog();
-    fireEvent.click(screen.getByRole('button', {name: /open folder reports/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
+  it('saves into a navigated subfolder', async () => {
+    const {user, onSave} = renderDialog();
+    await user.click(await screen.findByRole('button', {name: /open folder reports/i}));
+    await user.click(screen.getByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'user-bucket',
       destPrefix: 'alice/reports/',
@@ -86,10 +91,16 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     });
   });
 
-  it('offers a space selector and saves into the chosen shared space', () => {
-    const {onSave} = renderDialog({spaces: [personalSpace, sharedSpace]});
-    fireEvent.change(screen.getByLabelText('Save to'), {target: {value: 'salesdata'}});
-    fireEvent.click(screen.getByRole('button', {name: 'Save here'}));
+  it('offers a space selector for shared spaces and hides it with only the personal space', async () => {
+    // Personal-only: no selector.
+    const {unmount} = renderDialog();
+    expect(screen.queryByLabelText('Save to')).not.toBeInTheDocument();
+    unmount();
+
+    // With a shared space: pick it and save into it.
+    const {user, onSave} = renderDialog({spaces: [personalSpace, sharedSpace]});
+    await user.selectOptions(screen.getByLabelText('Save to'), 'salesdata');
+    await user.click(await screen.findByRole('button', {name: 'Save here'}));
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'shared-bucket',
       destPrefix: 'salesdata/',
@@ -97,30 +108,21 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     });
   });
 
-  it('shows no space selector when only the personal space is available', () => {
-    renderDialog();
-    expect(screen.queryByLabelText('Save to')).not.toBeInTheDocument();
-  });
-
-  it('disables Save while the name is invalid', () => {
-    renderDialog();
-    fireEvent.change(screen.getByLabelText('File name'), {
-      target: {value: 'bad/name'}
-    });
+  it('disables Save while the name is invalid', async () => {
+    const {user} = renderDialog();
+    const name = screen.getByLabelText('File name');
+    await user.clear(name);
+    await user.type(name, 'bad/name');
     expect(screen.getByRole('button', {name: 'Save here'})).toBeDisabled();
     expect(screen.getByText(/cannot contain/i)).toBeInTheDocument();
   });
 
-  it('excludes the protected athenaresults folder from the picker', () => {
-    vi.mocked(useFileBrowser).mockReturnValue({
-      ...base,
-      folders: [
-        {type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults'},
-        {type: 'folder', prefix: 'alice/reports/', name: 'reports'}
-      ]
-    });
+  it('excludes the protected athenaresults folder from the picker', async () => {
+    mock.listFiles.mockResolvedValue(
+      ok(listing([folder('athenaresults', 'alice/athenaresults/'), folder('reports', 'alice/reports/')]))
+    );
     renderDialog();
+    expect(await screen.findByRole('button', {name: /open folder reports/i})).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: /open folder athenaresults/i})).not.toBeInTheDocument();
-    expect(screen.getByRole('button', {name: /open folder reports/i})).toBeInTheDocument();
   });
 });

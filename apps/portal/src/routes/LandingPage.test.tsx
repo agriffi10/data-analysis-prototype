@@ -1,101 +1,99 @@
-import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent} from '@testing-library/react';
-import {MemoryRouter, Routes, Route} from 'react-router-dom';
+import {describe, it, expect, beforeEach} from 'vitest';
+import {screen} from '@testing-library/react';
+import {Routes, Route} from 'react-router-dom';
+import {renderWithProviders} from '../test/renderWithProviders';
+import {authenticated, unauthenticated} from '../test/authFixtures';
+import {setReturnPath} from '../lib/returnPath';
+import type {AuthContextValue} from '../features/auth/auth.types';
+import LandingPage from './LandingPage';
 
-// A signed-in visitor who opens "/" stays on the marketing page but sees
-// "Go to Dashboard" entry points instead of sign-in/sign-up, unless a pending
-// return path redirects them.
-const {takeReturnPath} = vi.hoisted(() => ({takeReturnPath: vi.fn()}));
-
-vi.mock('../features/auth', () => ({
-  useAuth: () => ({status: 'authenticated', signIn: vi.fn(), signUp: vi.fn()})
-}));
-vi.mock('../lib/returnPath', () => ({takeReturnPath}));
-vi.mock('../hooks/usePageTitle', () => ({usePageTitle: vi.fn()}));
-
-const {default: LandingPage} = await import('./LandingPage');
-
-function renderAt() {
-  return render(
-    <MemoryRouter initialEntries={['/']}>
-      <Routes>
-        <Route
-          path="/"
-          element={<LandingPage />}
-        />
-        <Route
-          path="/files"
-          element={<div>files-page</div>}
-        />
-      </Routes>
-    </MemoryRouter>
+// Integration style (react.md §21): render the REAL LandingPage — it makes no AWS
+// calls, so nothing is mocked. Auth state is injected via `renderWithProviders`
+// (real `useAuth`), and the return-path branch is driven through the real
+// `takeReturnPath` (backed by jsdom sessionStorage). A sibling `/files` route lets
+// us observe navigation/redirects as rendered output.
+function renderApp(auth: AuthContextValue) {
+  return renderWithProviders(
+    <Routes>
+      <Route
+        path="/"
+        element={<LandingPage />}
+      />
+      <Route
+        path="/files"
+        element={<div>files-page</div>}
+      />
+    </Routes>,
+    {route: '/', auth}
   );
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  sessionStorage.clear();
 });
 
 describe('LandingPage when authenticated', () => {
-  it('shows Go to Dashboard instead of sign-in/sign-up when no return path is pending', () => {
-    takeReturnPath.mockReturnValue(null);
-    renderAt();
+  it('shows Go to Dashboard (not sign-in/up) and navigates to /files on click', async () => {
+    const {user} = renderApp(authenticated('alice'));
 
-    expect(screen.getAllByRole('button', {name: /go to dashboard/i}).length).toBeGreaterThan(0);
+    const cta = screen.getAllByRole('button', {name: /go to dashboard/i});
+    expect(cta.length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', {name: /^sign in$/i})).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: /create account/i})).not.toBeInTheDocument();
-  });
 
-  it('navigates to /files when Go to Dashboard is clicked', () => {
-    takeReturnPath.mockReturnValue(null);
-    renderAt();
-
-    fireEvent.click(screen.getAllByRole('button', {name: /go to dashboard/i})[0]);
-
+    await user.click(cta[0]);
     expect(screen.getByText('files-page')).toBeInTheDocument();
   });
 
-  it('redirects to the pending return path instead of rendering the page', () => {
-    takeReturnPath.mockReturnValue('/files');
-    renderAt();
+  it('redirects to a pending return path instead of rendering the page', () => {
+    setReturnPath('/files');
+    renderApp(authenticated('alice'));
 
     expect(screen.getByText('files-page')).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: /go to dashboard/i})).not.toBeInTheDocument();
   });
 });
 
-describe('LandingPage responsive markers (SPEC-104)', () => {
-  beforeEach(() => takeReturnPath.mockReturnValue(null));
+describe('LandingPage when unauthenticated', () => {
+  it('shows Sign in and Create account entry points for a signed-out visitor', () => {
+    renderApp(unauthenticated());
 
-  it('renders the mobile nav hamburger and hides the inline links below tablet', () => {
-    renderAt();
+    expect(screen.getAllByRole('button', {name: /^sign in$/i}).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', {name: /create( your)? account/i}).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', {name: /go to dashboard/i})).not.toBeInTheDocument();
+  });
+});
+
+describe('LandingPage responsive markers (SPEC-104)', () => {
+  it('hides the inline nav links behind a hamburger below tablet', () => {
+    renderApp(authenticated('alice'));
     expect(screen.getByRole('button', {name: 'Open menu'})).toBeInTheDocument();
-    // Inline anchor group is desktop/tablet-only.
+    // The inline anchor group is desktop/tablet-only.
     const inline = screen.getByRole('link', {name: 'Features'}).closest('div');
     expect(inline).toHaveClass('hidden', 'tablet:flex');
   });
 
-  it('scales the hero headline fluidly across the three tiers', () => {
-    renderAt();
-    const h1 = screen.getByRole('heading', {level: 1});
-    expect(h1).toHaveClass('text-[32px]', 'tablet:text-[40px]', 'desktop:text-[46px]');
-  });
+  it('scales the hero, CTAs, and feature grid fluidly across the three tiers', () => {
+    renderApp(authenticated('alice'));
 
-  it('stacks the hero/strip CTAs full-width on mobile', () => {
-    renderAt();
-    // The nav "Go to Dashboard" is icon-sized; the hero + CTA-strip ones are w-full.
+    // Hero headline steps 32 → 40 → 46px.
+    expect(screen.getByRole('heading', {level: 1})).toHaveClass(
+      'text-[32px]',
+      'tablet:text-[40px]',
+      'desktop:text-[46px]'
+    );
+
+    // Hero + CTA-strip buttons are full-width on mobile, auto from tablet.
     const fullWidth = screen
       .getAllByRole('button', {name: /go to dashboard/i})
       .filter((b) => b.className.includes('w-full'));
     expect(fullWidth.length).toBeGreaterThan(0);
-    for (const cta of fullWidth) {
-      expect(cta).toHaveClass('w-full', 'tablet:w-auto');
-      expect(cta.parentElement).toHaveClass('flex-col', 'tablet:flex-row');
+    for (const btn of fullWidth) {
+      expect(btn).toHaveClass('w-full', 'tablet:w-auto');
+      expect(btn.parentElement).toHaveClass('flex-col', 'tablet:flex-row');
     }
-  });
 
-  it('steps the feature grid 1 → 2 (3rd spans) → 3', () => {
-    renderAt();
+    // Feature grid steps 1 → 2 (3rd card spans) → 3.
     const grid = document.querySelector('#features .grid')!;
     expect(grid).toHaveClass('grid-cols-1', 'tablet:grid-cols-2', 'desktop:grid-cols-3');
     expect(grid.children[2]).toHaveClass('tablet:col-span-2', 'desktop:col-span-1');

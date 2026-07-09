@@ -13,6 +13,21 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['./src/test-setup.ts']
+    setupFiles: ['./src/test-setup.ts'],
+    coverage: {
+      provider: 'v8',
+      // `all` defaults to true in Vitest 4 with `include` set, so every source
+      // file is reported — not just the ones a test happens to import.
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.types.ts',
+        'src/**/*.d.ts',
+        'src/test/**',
+        'src/test-setup.ts',
+        'src/main.tsx'
+      ],
+      reporter: ['text', 'text-summary', 'html', 'lcov']
+    }
   }
 });

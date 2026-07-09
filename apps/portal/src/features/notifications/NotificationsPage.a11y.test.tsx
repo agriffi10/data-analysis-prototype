@@ -2,23 +2,24 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {render, screen, cleanup, waitFor} from '@testing-library/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {MemoryRouter} from 'react-router-dom';
-import type {ReactNode} from 'react';
+import type {ReactElement, ReactNode} from 'react';
+import {AuthContext} from '../auth/authContext';
+import {authValue} from '../../test/authFixtures';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../../test/axe';
 
-vi.mock('../auth', () => ({useAuth: vi.fn()}));
-vi.mock('../../hooks/usePageTitle', () => ({usePageTitle: vi.fn()}));
+// Integration style: render the REAL page/bell with real hooks + children; mock only
+// the AWS boundary (the notifications service). Auth is provided via the real
+// AuthContext (never mocked), matching the rest of the suite.
 vi.mock('./notifications.service', () => ({
   getNotifications: vi.fn(),
   enqueueNotificationAction: vi.fn()
 }));
 
-import {useAuth} from '../auth';
 import {getNotifications} from './notifications.service';
 import {NotificationsPage} from './NotificationsPage';
 import {NotificationsBell} from './NotificationsBell';
 import type {Notification} from './notifications.types';
 
-const mockUseAuth = vi.mocked(useAuth);
 const mockGet = vi.mocked(getNotifications);
 
 const data: Notification[] = [
@@ -26,18 +27,21 @@ const data: Notification[] = [
   {id: 'b', message: 'You were added to “ops”', read: true, timestamp: '2026-06-28T00:01:00.000Z'}
 ];
 
-function withProviders(ui: ReactNode) {
+// One QueryClient per element (default gcTime) so the render inside
+// `expectNoA11yViolations` reuses the cache warmed by the preceding render — axe then
+// runs against the populated list, not the loading state.
+function withProviders(ui: ReactNode): ReactElement {
   const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
   return (
     <QueryClientProvider client={client}>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <AuthContext.Provider value={authValue()}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </AuthContext.Provider>
     </QueryClientProvider>
   );
 }
 
 beforeEach(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mockUseAuth.mockReturnValue({user: {username: 'alice'}, status: 'authenticated'} as any);
   mockGet.mockResolvedValue({success: true, data});
 });
 

@@ -32,7 +32,7 @@ jobs:
 
       - name: Test
         working-directory: apps/portal
-        run: npm run test
+        run: npm run test:coverage
 
       - name: Build
         working-directory: apps/portal
@@ -54,7 +54,7 @@ jobs:
         # polars (from the infer-schema layer requirements) so the table-builder
         # type-mapping + infer-schema handler tests run for real in CI (SPEC-069).
         run: |
-          pip install -r lambdas/requirements.txt "ruff>=0.6" "pytest>=8"
+          pip install -r lambdas/requirements.txt -r lambdas/requirements-dev.txt
           pip install -r lambdas/table-builder-infer-schema/requirements.txt
 
       - name: Lint (ruff)
