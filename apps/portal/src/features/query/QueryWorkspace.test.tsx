@@ -1015,6 +1015,17 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     });
   }
 
+  // The two whole-script scopes live behind the Run Statement split-button's
+  // dropdown; open it, then pick the item.
+  function runScriptSingle() {
+    fireEvent.click(screen.getByRole('button', {name: 'More run options'}));
+    fireEvent.click(screen.getByRole('menuitem', {name: 'Run Query Tab'}));
+  }
+  function runScriptTabs() {
+    fireEvent.click(screen.getByRole('button', {name: 'More run options'}));
+    fireEvent.click(screen.getByRole('menuitem', {name: 'Run Multiple Queries'}));
+  }
+
   it('runs a script sequentially and records one history entry per statement (FR-002/FR-003)', async () => {
     queueExecutions('q-1', 'q-2', 'q-3');
     mockExecutionMap({
@@ -1027,7 +1038,7 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, single result'}));
+    runScriptSingle();
 
     await screen.findByText('Succeeded');
     expect(mockRunQuery).toHaveBeenCalledTimes(3);
@@ -1059,7 +1070,7 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, single result'}));
+    runScriptSingle();
 
     expect(await screen.findByText(/Statement 2 of 3 failed: SYNTAX_ERROR: line 1/)).toBeInTheDocument();
     expect(screen.getByText(/Statement 3 did not run/)).toBeInTheDocument();
@@ -1075,7 +1086,7 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, single result'}));
+    runScriptSingle();
     const stop = await screen.findByRole('button', {name: /Stop/});
 
     // The statement outruns the cancel: it reaches SUCCEEDED, but Stop already
@@ -1103,7 +1114,7 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, tab per statement'}));
+    runScriptTabs();
 
     const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
     const resultTabs = within(strip).getAllByRole('tab');
@@ -1129,10 +1140,10 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, tab per statement'}));
+    runScriptTabs();
     await screen.findByRole('tablist', {name: 'Result tabs'});
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, tab per statement'}));
+    runScriptTabs();
     await screen.findByRole('button', {name: /Stop/});
     expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
   });
@@ -1147,7 +1158,7 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
     renderWorkspace();
     await screen.findByTestId('sql-editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run script, single result'}));
+    runScriptSingle();
 
     await screen.findByRole('button', {name: /Stop/});
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Statement 2 of 3'));

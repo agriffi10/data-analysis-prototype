@@ -86,9 +86,9 @@ type SqlEditorProps = {
   onChange: (value: string) => void;
   /** ⌘/Ctrl+Enter in the editor triggers Run Statement; optional so the shell can mount the editor before the run handler is wired. */
   onRun?: () => void;
-  /** ⌘/Ctrl+Shift+Enter — Run Script, single result (SPEC-078 FR-005). */
+  /** ⌘/Ctrl+Shift+Enter — Run Query Tab: every statement, single result (SPEC-078 FR-005). */
   onRunScriptSingle?: () => void;
-  /** ⌘/Ctrl+Alt+Enter — Run Script, tab per statement (SPEC-078 FR-005). */
+  /** ⌘/Ctrl+Alt+Enter — Run Multiple Queries: every statement, one result tab each (SPEC-078 FR-005). */
   onRunScriptTabs?: () => void;
   /**
    * The accessible databases' schemas feeding the schema-aware completion

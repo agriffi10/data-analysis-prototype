@@ -4,7 +4,7 @@ import {createElement, type ReactNode} from 'react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useResultRowCount} from './useResultRowCount';
 import {getQueryResults} from './query.service';
-import {ROW_COUNT_CEILING, ROW_COUNT_PAGE_SIZE} from './query.constants';
+import {ROW_COUNT_PAGE_SIZE} from './query.constants';
 import type {QueryResultPage} from './query.types';
 
 vi.mock('./query.service');
@@ -45,7 +45,6 @@ describe('useResultRowCount', () => {
     expect(result.current.isCounting).toBe(true);
     await waitFor(() => expect(result.current.isCounting).toBe(false));
     expect(result.current.total).toBe(2384);
-    expect(result.current.atCeiling).toBe(false);
     expect(mockGetQueryResults).toHaveBeenCalledWith(
       expect.objectContaining({queryExecutionId: 'q-1', maxRows: ROW_COUNT_PAGE_SIZE})
     );
@@ -68,20 +67,21 @@ describe('useResultRowCount', () => {
 
     await waitFor(() => expect(result.current.isCounting).toBe(false));
     expect(result.current.total).toBe(0);
-    expect(result.current.atCeiling).toBe(false);
   });
 
-  it('stops at the safety ceiling and flags atCeiling', async () => {
-    // Every page is full and always has a next token → would page forever.
-    mockGetQueryResults.mockResolvedValue(page(ROW_COUNT_PAGE_SIZE, 'MORE'));
+  it('walks every page to the exact total with no ceiling', async () => {
+    // Five full pages, then a short final page — the walk sums them all.
+    mockGetQueryResults.mockImplementation(async ({nextToken}) => {
+      const seen = nextToken ? Number(nextToken) : 0;
+      if (seen < 5) return page(ROW_COUNT_PAGE_SIZE, String(seen + 1));
+      return page(42);
+    });
 
     const {result} = renderHook(() => useResultRowCount('q-1'), {wrapper: wrapper()});
 
     await waitFor(() => expect(result.current.isCounting).toBe(false));
-    expect(result.current.total).toBe(ROW_COUNT_CEILING);
-    expect(result.current.atCeiling).toBe(true);
-    // Walked exactly ceiling/pageSize pages, then stopped.
-    expect(mockGetQueryResults).toHaveBeenCalledTimes(ROW_COUNT_CEILING / ROW_COUNT_PAGE_SIZE);
+    expect(result.current.total).toBe(ROW_COUNT_PAGE_SIZE * 5 + 42);
+    expect(mockGetQueryResults).toHaveBeenCalledTimes(6);
   });
 
   it('is disabled (no walk) when the execution id is null', () => {
@@ -102,7 +102,6 @@ describe('useResultRowCount', () => {
 
     await waitFor(() => expect(mockGetQueryResults).toHaveBeenCalled());
     expect(result.current.total).toBeNull();
-    expect(result.current.atCeiling).toBe(false);
   });
 
   it('recomputes for a new execution id and abandons the prior count', async () => {
