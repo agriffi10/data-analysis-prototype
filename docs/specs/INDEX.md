@@ -111,6 +111,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 103 — Help & Guides Responsive | Completed |
 | 104 — Landing / Sign-In Responsive | Completed |
 | 105 — View Data: Full Table, Paginated (drop 10-row preview limit) | Completed |
+| 106 — User-Facing Error Messaging (friendly, no AWS leaks) | Draft |
 
 ## Arcs
 
