@@ -4,7 +4,8 @@ import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
 import {Button} from '../components/Button';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
-import {UploadIcon, FolderIcon, DatabaseIcon, TableIcon, ConnectionsIcon, CopyIcon} from '../components/icons';
+import {cx} from '../lib/cx';
+import {FolderIcon, DatabaseIcon, ConnectionsIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
 
 // ─── Inline icons ──────────────────────────────────────────────────────────────
@@ -39,11 +40,7 @@ function CheckIcon() {
   );
 }
 
-function UploadFeatureIcon() {
-  return <UploadIcon className="h-5 w-5" />;
-}
-
-function FolderFeatureIcon() {
+function FilesFeatureIcon() {
   return (
     <FolderIcon
       filled
@@ -56,16 +53,8 @@ function QueryFeatureIcon() {
   return <DatabaseIcon className="h-5 w-5" />;
 }
 
-function TableFeatureIcon() {
-  return <TableIcon className="h-5 w-5" />;
-}
-
-function ConnectFeatureIcon() {
+function SharedFeatureIcon() {
   return <ConnectionsIcon className="h-5 w-5" />;
-}
-
-function ShareFeatureIcon() {
-  return <CopyIcon className="h-5 w-5" />;
 }
 
 // ─── Static app-preview illustration (decorative) ─────────────────────────────
@@ -173,34 +162,19 @@ const NAV_LINKS: LandingNavLink[] = [
 
 const FEATURES = [
   {
-    icon: <UploadFeatureIcon />,
-    title: 'Fast, resilient uploads',
-    body: 'Drag and drop files up to several gigabytes. Large files switch to multipart upload automatically, with live progress for every file.'
-  },
-  {
-    icon: <FolderFeatureIcon />,
-    title: "A space that's yours",
-    body: 'Browse, organize into folders, rename, move, and download. Your space is private to you — no one else can see or touch it.'
+    icon: <FilesFeatureIcon />,
+    title: 'Files & uploads',
+    body: 'Drag-and-drop uploads, folders, and bulk move / copy / rename — then turn any folder into a queryable table.'
   },
   {
     icon: <QueryFeatureIcon />,
-    title: 'Query your data with SQL',
-    body: 'Run Athena SQL right in the browser — multi-statement scripts, cross-database joins, and results you can save back to your space.'
+    title: 'SQL query workspace',
+    body: 'A full SQL editor with saved queries, history, and paginated results you can save straight back into Files.'
   },
   {
-    icon: <TableFeatureIcon />,
-    title: 'Turn folders into tables',
-    body: 'Point the table builder at a folder of CSV, JSON, or Parquet and it infers the schema and registers a queryable table for you.'
-  },
-  {
-    icon: <ConnectFeatureIcon />,
-    title: 'Collaborate in shared spaces',
-    body: 'Create shared spaces, add teammates, and work the same data together — with access enforced by AWS IAM, per space.'
-  },
-  {
-    icon: <ShareFeatureIcon />,
-    title: 'Share tables across databases',
-    body: 'Push a table to a teammate or a shared space and they get a ready-to-query copy in their own database — no exporting required.'
+    icon: <SharedFeatureIcon />,
+    title: 'Shared spaces',
+    body: 'Create shared connections, invite members, and share tables — with notifications when a space is ready.'
   }
 ] as const;
 
@@ -286,14 +260,14 @@ export default function LandingPage() {
           <div className="mx-auto max-w-[1080px] px-6">
             <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-accent-border bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
               <ShieldIcon />
-              Secure, per-user data workspace on AWS
+              Private storage · SQL query · shared spaces — on your own AWS
             </span>
             <h1 className="mx-auto mb-5 max-w-[760px] text-[32px] font-bold leading-tight tracking-[-0.02em] tablet:text-[40px] desktop:text-[46px]">
               Your data workspace, <span className="text-accent">scoped to you</span>.
             </h1>
             <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
-              Store files, query them with SQL, build tables from your folders, and collaborate in shared spaces — all
-              in one place. Backed by AWS, with isolation enforced at the infrastructure layer.
+              Upload files to a private space, turn folders into queryable tables, run SQL right in the browser, and
+              share spaces with your team — all backed by your own AWS account.
             </p>
             <div className="flex flex-col gap-3 tablet:flex-row tablet:flex-wrap tablet:justify-center">
               {isAuthed ? (
@@ -347,12 +321,15 @@ export default function LandingPage() {
                 From raw files to queryable tables to shared collaboration — one focused workspace.
               </p>
             </div>
-            {/* 1-col mobile → 2-up at tablet → 3-up at desktop; six cards fill each tier evenly. */}
+            {/* 1-col mobile → 2-up at tablet (3rd card spans) → 3-up at desktop. */}
             <div className="grid grid-cols-1 gap-5 tablet:grid-cols-2 desktop:grid-cols-3">
-              {FEATURES.map((feature) => (
+              {FEATURES.map((feature, i) => (
                 <div
                   key={feature.title}
-                  className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+                  className={cx(
+                    'rounded-lg border border-border bg-surface p-6 shadow-sm',
+                    i === 2 && 'tablet:col-span-2 desktop:col-span-1'
+                  )}>
                   <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent">
                     {feature.icon}
                   </div>
