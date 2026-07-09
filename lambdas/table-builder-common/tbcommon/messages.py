@@ -8,8 +8,10 @@ actor, so every verb + its tests agree on the wording. Kept ASCII (no smart quot
 # even have got far enough to trust one).
 _ACCESS_DENIED = frozenset({"unauthorized", "forbidden"})
 
-# reason -> the clause after 'Couldn't create table "{name}": '. {database} and
-# {detail} are filled per-call where relevant.
+# reason -> the clause after 'Couldn't create table "{name}": '. {database} is
+# filled per-call where relevant. The DDL-failure reasons carry NO raw Athena
+# StateChangeReason (SPEC-106 FR-008) — that detail stays in logs + the SFN
+# terminal record for operators, never in the actor's notification.
 _BODIES = {
     "invalid_table_name": "the name isn't a valid table name.",
     "invalid_partition_keys": "the partition keys aren't valid (check names, types, and ranges).",
@@ -21,8 +23,8 @@ _BODIES = {
     "partition_layout_mismatch": "the partition keys don't match the folder layout (check names and order).",
     "schema_inference_failed": "the data schema couldn't be read.",
     "unmappable_type": "the data schema couldn't be read.",
-    "ddl_execution_failed": "creating the table failed{detail}.",
-    "ddl_timeout": "creating the table failed{detail}.",
+    "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",
+    "ddl_timeout": "creating the table failed. Please try again or contact the Administrator.",
     "malformed_event": "the request was malformed. Please try again.",
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the actor.
@@ -30,21 +32,19 @@ _BODIES = {
 }
 
 
-def failure_message(reason: str, table_name: str = "", database: str = "", detail: str = "") -> str:
+def failure_message(reason: str, table_name: str = "", database: str = "") -> str:
     """Map a terminal reason (+ context) to the message the actor sees.
 
     An unknown reason falls back to a generic couldn't-create line rather than
-    leaking the code.
+    leaking the code. No raw AWS/Athena text is ever interpolated (SPEC-106 FR-008).
     """
     if reason in _ACCESS_DENIED:
         return "You don't have access to create a table here."
     name = table_name or "your table"
     body = _BODIES.get(reason, "something went wrong.")
-    # Only the DDL reasons interpolate a detail; keep it short + parenthesized.
-    detail_frag = f" ({detail})" if detail else ""
-    # Substitute the two known placeholders directly (never str.format) so a body that
+    # Substitute the one known placeholder directly (never str.format) so a body that
     # ever contains a literal brace can't raise KeyError/ValueError (SPEC-083 FR-005).
-    body = body.replace("{database}", database).replace("{detail}", detail_frag)
+    body = body.replace("{database}", database)
     return f'Couldn\'t create table "{name}": {body}'
 
 

@@ -140,7 +140,9 @@ def test_delete_failure_notifies_owner_with_reason():
     body = json.loads(msg["MessageBody"])
     assert body["username"] == "alice"
     assert body["message"].startswith('We couldn\'t delete the shared workspace "sales":')
-    assert "throttled" in body["message"]
+    # SPEC-106 FR-009: the notification carries friendly text, never the raw AWS error.
+    assert "throttled" not in body["message"]
+    assert "contact the Administrator" in body["message"]
 
 
 def test_delete_swallows_emit_failure_and_still_succeeds():

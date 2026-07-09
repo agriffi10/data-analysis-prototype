@@ -12,7 +12,9 @@ quotes), mirroring tbcommon.messages.
 _ACCESS_DENIED = frozenset({"unauthorized", "forbidden"})
 
 # reason -> the clause after "Couldn't share "{source}" [to {recipient}]: ".
-# {tableName} and {detail} are substituted per-call where relevant.
+# {tableName} is substituted per-call where relevant. The create-failure reasons
+# carry NO raw Athena StateChangeReason (SPEC-106 FR-008) — that detail stays in
+# logs + the SFN terminal record for operators, never in a notification.
 _BODIES = {
     # Whole-request failures (validate-authorize / inspect-source).
     "invalid_table_name": "the result name isn't a valid table name.",
@@ -33,8 +35,8 @@ _BODIES = {
     "conflict": 'a table named "{tableName}" already exists there.',
     "target_not_readable": "the recipient's database couldn't be checked.",
     "copy_failed": "copying the data failed.",
-    "create_failed": "creating the table failed{detail}.",
-    "create_timeout": "creating the table failed{detail}.",
+    "create_failed": "creating the table failed. Please try again or contact the Administrator.",
+    "create_timeout": "creating the table failed. Please try again or contact the Administrator.",
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the sender.
     "unexpected_error": "something went wrong. Please try again.",
@@ -52,22 +54,21 @@ def failure_message(
     kind: str = "",
     name: str = "",
     table_name: str = "",
-    detail: str = "",
 ) -> str:
     """The sender-facing failure text for a terminal reason (+ context).
 
     With ``kind``/``name`` it reads as a per-recipient outcome; without them it is
     a whole-request failure. An unknown reason falls back to a generic clause
-    rather than leaking the code.
+    rather than leaking the code. No raw AWS/Athena text is ever interpolated
+    (SPEC-106 FR-008).
     """
     if reason in _ACCESS_DENIED:
         return "You don't have access to share that table."
     src = source_table or "your table"
     body = _BODIES.get(reason, "something went wrong.")
-    detail_frag = f" ({detail})" if detail else ""
-    # Substitute the known placeholders directly (never str.format) so a body that
+    # Substitute the known placeholder directly (never str.format) so a body that
     # ever contains a literal brace can't raise (the SPEC-083 FR-005 rule).
-    body = body.replace("{tableName}", table_name or "").replace("{detail}", detail_frag)
+    body = body.replace("{tableName}", table_name or "")
     if kind and name:
         return f'Couldn\'t share "{src}" to {_recipient_phrase(kind, name)}: {body}'
     return f'Couldn\'t share "{src}": {body}'

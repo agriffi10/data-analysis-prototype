@@ -51,11 +51,11 @@ def test_schema_reasons_share_the_read_message():
         assert msg == 'Couldn\'t create table "orders": the data schema couldn\'t be read.'
 
 
-def test_ddl_failure_folds_in_the_detail():
-    with_detail = messages.failure_message("ddl_execution_failed", table_name="orders", detail="SYNTAX_ERROR")
-    assert with_detail == 'Couldn\'t create table "orders": creating the table failed (SYNTAX_ERROR).'
-    without = messages.failure_message("ddl_timeout", table_name="orders")
-    assert without == 'Couldn\'t create table "orders": creating the table failed.'
+def test_ddl_failure_carries_no_raw_detail():
+    # SPEC-106 FR-008: the DDL-failure bodies never interpolate the raw Athena reason.
+    expected = 'Couldn\'t create table "orders": creating the table failed. Please try again or contact the Administrator.'
+    assert messages.failure_message("ddl_execution_failed", table_name="orders") == expected
+    assert messages.failure_message("ddl_timeout", table_name="orders") == expected
 
 
 def test_unknown_reason_falls_back_without_leaking_the_code():

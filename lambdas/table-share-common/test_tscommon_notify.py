@@ -99,11 +99,13 @@ def test_whole_request_failure_names_only_the_source():
     assert message == 'Couldn\'t share "orders": views can\'t be shared - only tables with data files.'
 
 
-def test_create_failed_carries_athenas_reason_detail():
+def test_create_failed_omits_raw_athena_detail():
+    # SPEC-106 FR-008: the raw Athena StateChangeReason must not reach the inbox.
     fake = _install()
     notify.emit_failure(_map_event(), TerminalError("create_failed", "SYNTAX_ERROR: line 1"), "create")
     [(_, message)] = _sent(fake)
-    assert "(SYNTAX_ERROR: line 1)" in message
+    assert "SYNTAX_ERROR" not in message
+    assert message.endswith("creating the table failed. Please try again or contact the Administrator.")
 
 
 def test_access_denied_reasons_surface_no_table_detail():

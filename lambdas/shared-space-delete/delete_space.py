@@ -35,7 +35,10 @@ def delete_space(space, actor, request_id, registry):
             cache.remove_entry(member, space)
         reg.delete(space)  # LAST — the name is now free to reuse
     except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
-        reason = str(exc)
+        reason = str(exc)  # raw — kept in logs + the registry `failed` record
+        # SPEC-106 FR-009: teardown failures are all raw AWS/boto text, so the
+        # user-facing reason (cache + notification) is a generic friendly clause.
+        friendly = "please try again or contact the Administrator"
         logger.error("delete %s failed: %s", space, reason)
         try:
             reg.set_status(registry, "failed", request_id, reason)
@@ -43,7 +46,7 @@ def delete_space(space, actor, request_id, registry):
             logger.exception("failed to record registry delete failure for %s", space)
         try:
             cache.upsert_entry(
-                owner, {"name": space, "role": "owner", "status": "failed", "reason": reason}
+                owner, {"name": space, "role": "owner", "status": "failed", "reason": friendly}
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to record cache delete failure for %s", space)
@@ -51,7 +54,7 @@ def delete_space(space, actor, request_id, registry):
         # failed cache entry, and the success fan-out below is never reached.
         emit_notification(
             owner,
-            f'We couldn\'t delete the shared workspace "{space}": {reason}.',
+            f'We couldn\'t delete the shared workspace "{space}": {friendly}.',
             dedup_id=f"{request_id}:delete-failed:{owner}",
         )
         raise

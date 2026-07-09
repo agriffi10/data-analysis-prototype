@@ -60,6 +60,8 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     """
     actor, source_table, table_name, recipient = _context(event)
     recipient = recipient or {}
+    # err.detail (raw Athena StateChangeReason) is deliberately NOT forwarded to the
+    # user message — it stays on the TerminalError for logs + the SFN record (FR-008).
     emit_notification(
         actor,
         failure_message(
@@ -68,7 +70,6 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
             kind=recipient.get("kind") or "",
             name=recipient.get("name") or "",
             table_name=table_name,
-            detail=err.detail if err.reason in ("create_failed", "create_timeout") else "",
         ),
     )
 
