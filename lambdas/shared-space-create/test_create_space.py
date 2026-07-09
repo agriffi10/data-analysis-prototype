@@ -145,6 +145,27 @@ def test_create_failure_notifies_creator_with_reason():
     assert "membership limit reached" in body["message"]
 
 
+def test_create_failure_scrubs_raw_aws_error_from_notification_and_cache():
+    # SPEC-106 FR-009: a raw AWS/boto failure (not a deliberate ProvisioningError)
+    # must NOT leak into the actor's notification or the cache `reason` the
+    # Connections card shows — but the registry `failed` record keeps it for operators.
+    s3, *_ = install()
+    import clients
+
+    clients._lf.grant_permissions = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("AccessDenied on glue:xyz"))
+    sqs = _enable_notifications()
+    raises(lambda: c.create_space("sales", "alice", "req-1"), RuntimeError, "AccessDenied")
+
+    body = json.loads(sqs.sent[0]["MessageBody"])
+    assert "AccessDenied" not in body["message"]
+    assert "contact the Administrator" in body["message"]
+    entry = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])["connections"][0]
+    assert entry["status"] == "failed" and "AccessDenied" not in entry["reason"]
+    # The registry keeps the raw reason for operators.
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["status"] == "failed" and "AccessDenied" in rec["reason"]
+
+
 def test_create_collision_notifies_creator_and_leaves_record():
     s3, *_ = install()
     sqs = _enable_notifications()

@@ -40,9 +40,11 @@ def emit_failure(event: dict, err: TerminalError, step: str) -> None:
     the emit is a no-op, not a lost message.
     """
     space = event.get("space") or {}
+    # err.detail (raw Athena StateChangeReason) is deliberately NOT forwarded to the
+    # user message — it stays on the TerminalError for logs + the SFN record (FR-008).
     emit_notification(
         event.get("actor", ""),
-        failure_message(err.reason, event.get("tableName", ""), space.get("database", ""), err.detail),
+        failure_message(err.reason, event.get("tableName", ""), space.get("database", "")),
         dedup_id=_dedup(event.get("requestId"), step),
     )
 

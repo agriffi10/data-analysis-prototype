@@ -81,11 +81,13 @@ def test_emit_failure_maps_the_reason_and_dedups_by_step():
     assert body["message"] == 'Couldn\'t create table "orders": a table with that name already exists in "sales".'
 
 
-def test_emit_failure_folds_ddl_detail():
+def test_emit_failure_omits_raw_ddl_detail():
+    # SPEC-106 FR-008: the raw Athena StateChangeReason must not reach the inbox.
     fake = _install()
     notify.emit_failure(_event(), TerminalError("ddl_execution_failed", "SYNTAX_ERROR near LOCATION"), "execute")
     body = json.loads(fake.calls[0]["MessageBody"])
-    assert body["message"].endswith("(SYNTAX_ERROR near LOCATION).")
+    assert "SYNTAX_ERROR" not in body["message"]
+    assert body["message"].endswith("creating the table failed. Please try again or contact the Administrator.")
 
 
 def test_emit_created_sends_the_ready_message():

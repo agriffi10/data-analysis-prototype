@@ -22,6 +22,21 @@ from notify import emit_notification
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Generic user-facing clause for an unexpected AWS/boto failure — the raw str(exc)
+# is kept in logs + the registry `failed` record for operators, never shown.
+_GENERIC_REASON = "please try again or contact the Administrator"
+
+
+def _user_reason(exc):
+    """The user-facing failure reason (SPEC-106 FR-009).
+
+    Keep the deliberate, already-friendly ProvisioningError text ("name already
+    taken", "membership limit reached"); replace any raw AWS/boto ``str(exc)`` with
+    a generic clause so no raw cloud text reaches the notification or the cache
+    `reason` the Connections card shows.
+    """
+    return str(exc) if isinstance(exc, reg.ProvisioningError) else _GENERIC_REASON
+
 
 def _ensure_marker(name):
     """Create the space's DO_NOT_DELETE.txt marker. Idempotent."""
@@ -74,17 +89,18 @@ def create_space(name, actor, request_id):
         # owner. The actor's OWN cache is theirs to correct: the validator wrote a
         # `provisioning` entry, so mark it `failed` (best-effort) or the actor is left
         # with a stuck phantom they can't clear. Then notify and re-raise.
-        reason = str(exc)
+        reason = str(exc)  # raw — logs only (registry is untouched on a collision)
+        friendly = _user_reason(exc)
         logger.error("create %s reserve failed for %s: %s", name, actor, reason)
         try:
             cache.upsert_entry(
-                actor, {"name": name, "role": "owner", "status": "failed", "reason": reason}
+                actor, {"name": name, "role": "owner", "status": "failed", "reason": friendly}
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to mark reserve-collision failure in cache for %s", name)
         emit_notification(
             actor,
-            f'We couldn\'t create shared workspace "{name}": {reason}.',
+            f'We couldn\'t create shared workspace "{name}": {friendly}.',
             dedup_id=f"{request_id}:create-failed:{actor}",
         )
         raise
@@ -101,7 +117,8 @@ def create_space(name, actor, request_id):
         cache.write_owner_projection(actor, name, [actor], [], created_at)
         reg.finalize(name, actor, request_id, "active")
     except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
-        reason = str(exc)
+        reason = str(exc)  # raw — kept in logs + the registry `failed` record
+        friendly = _user_reason(exc)
         logger.error("create %s failed for %s: %s", name, actor, reason)
         # Record the failure in three INDEPENDENT best-effort steps: a failure in one
         # (e.g. slot rollback) must not skip the others — the cache `failed` write is
@@ -119,15 +136,15 @@ def create_space(name, actor, request_id):
             logger.exception("failed to record registry failure for %s", name)
         try:
             cache.upsert_entry(
-                actor, {"name": name, "role": "owner", "status": "failed", "reason": reason}
+                actor, {"name": name, "role": "owner", "status": "failed", "reason": friendly}
             )
         except Exception:  # noqa: BLE001 - best-effort failure recording
             logger.exception("failed to record cache failure for %s", name)
         # Emitted after the terminal `failed` status is recorded; best-effort — never
-        # changes the Fail outcome.
+        # changes the Fail outcome. Friendly reason only (raw stays in log + registry).
         emit_notification(
             actor,
-            f'We couldn\'t create shared workspace "{name}": {reason}.',
+            f'We couldn\'t create shared workspace "{name}": {friendly}.',
             dedup_id=f"{request_id}:create-failed:{actor}",
         )
         raise

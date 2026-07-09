@@ -222,7 +222,7 @@ def test_notifies_actor_on_success_ready_message():
     }
 
 
-def test_notifies_actor_on_ddl_failure_with_reason():
+def test_notifies_actor_on_ddl_failure_without_leaking_athena_reason():
     _install(_FakeAthena([{"State": "FAILED", "StateChangeReason": "SYNTAX_ERROR: line 1"}]))
     q = _arm_notifications()
     try:
@@ -232,8 +232,12 @@ def test_notifies_actor_on_ddl_failure_with_reason():
     assert len(q.calls) == 1
     assert q.calls[0]["MessageDeduplicationId"] == "r1:execute"
     body = json.loads(q.calls[0]["MessageBody"])
-    assert body["message"].startswith('Couldn\'t create table "sales_2026": creating the table failed (')
-    assert "SYNTAX_ERROR" in body["message"]
+    # SPEC-106 FR-008: friendly text only — the raw Athena reason never reaches the inbox.
+    assert body["message"] == (
+        'Couldn\'t create table "sales_2026": creating the table failed. '
+        "Please try again or contact the Administrator."
+    )
+    assert "SYNTAX_ERROR" not in body["message"]
 
 
 def test_no_notification_on_transient_error():
