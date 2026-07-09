@@ -29,6 +29,7 @@ before relying on them. Paths are relative to the repo root.
 | `isAmplifyConfigured` | `lib/amplify.ts` | Boolean — whether Cognito/Amplify env is configured. |
 | `setReturnPath(path)` / `setReturnPathIfAbsent(path)` / `takeReturnPath()` | `lib/returnPath.ts` | Stash (always / only-if-empty) + consume a post-login return path. `IfAbsent` seeds a default (e.g. `/files`) at sign-in/up without clobbering an auth-gate-captured path. |
 | `useCopyToClipboard(resetMs?)` | `lib/useCopyToClipboard.ts` | `{copied, copy(text)}` — writes to the clipboard and flags a transient confirm; never throws (insecure-context/denied = silent no-op). |
+| `toUserMessage(error)` | `lib/errorMessages.ts` | Maps any caught value / `ServiceResult` error `{message, code}` → friendly `{title?, message}` (app code → AWS/Cognito name → Athena pattern → generic "Contact the Administrator"). **The single source of error wording** — never surface `error.message` directly; route it here. Dev-only original-error console log (SPEC-106). |
 
 ## Shared types (`apps/portal/src/types/`)
 
@@ -59,6 +60,9 @@ before relying on them. Paths are relative to the repo root.
 | `Input` | `components/Input.tsx` | Text input with `label` + `error` state, aria wiring, `forwardRef` (SPEC-028). |
 | `Badge` | `components/Badge.tsx` | Neutral type pill (file/folder labels) (SPEC-028). |
 | `Banner` (+ `BannerVariant`) | `components/Banner.tsx` | Dismissible status banner — success/warning/danger/info, optional `title`/`onDismiss` (SPEC-028). |
+| `ErrorBanner` | `components/ErrorBanner.tsx` | `Banner` wrapper that renders `toUserMessage(error)` mapped text for a caught/`ServiceResult` error; defaults to `danger` (SPEC-106). |
+| `ToastProvider` / `useToast()` | `components/ToastProvider.tsx` / `components/toastContext.ts` | App-level toast host (mounted once in `main.tsx`); `useToast()` → `{push({variant,message,action?}), dismiss()}`. Single-toast semantics; reuses the `Toast` view. Replaces per-page toast state (SPEC-106). |
+| `CATALOG_IDENTIFIER_RULE` | `features/query/query.constants.ts` | Human-readable form of `CATALOG_IDENTIFIER_RE` (the "Use 3–63 characters…" hint); one source of truth for the view/table/connection/partition dialogs (SPEC-106). |
 | `BrandMark` | `components/BrandMark.tsx` | Accent-square upload-arrow icon + wordmark; `size` sm/md, `showWordmark` (SPEC-028; used by Header + LandingPage). |
 | `PrimaryNav` | `components/PrimaryNav.tsx` | Topbar Files \| Query underline tabs (`NavLink`-driven); rendered by `Header` only when authenticated (SPEC-035); wrapped `hidden tablet:flex` on mobile (SPEC-095). |
 | `useBreakpoint()` / `useIsMobile()` | `lib/useBreakpoint.ts` | `matchMedia`-backed viewport tier (`{isMobile, isTablet, isDesktop}`; thresholds 900/1300), `useSyncExternalStore`, SSR-safe. **Mount-gating only** — never styling (that's `tablet:`/`desktop:` variants) (SPEC-095). |

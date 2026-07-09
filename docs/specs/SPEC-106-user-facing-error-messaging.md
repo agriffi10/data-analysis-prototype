@@ -1,7 +1,7 @@
 # Spec: User-Facing Error Messaging — Friendly, Consistent, No AWS Leaks
 
 **ID:** SPEC-106
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-08
 **Depends On:** None (touches existing SPA services/UI + Lambda notification producers; no infra/IAM change)
 
