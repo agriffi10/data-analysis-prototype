@@ -67,7 +67,7 @@ describe('Header hamburger (SPEC-095 FR-002)', () => {
     // Primary tab strip is present but desktop-only (hidden below tablet).
     expect(screen.getByRole('navigation', {name: 'Primary'}).parentElement).toHaveClass('hidden', 'tablet:flex');
     // Brand + bell remain at all widths.
-    expect(screen.getByText('S3 File Portal')).toBeInTheDocument();
+    expect(screen.getByText('Data Workspace')).toBeInTheDocument();
   });
 
   it('does not render the hamburger for unauthenticated users', () => {

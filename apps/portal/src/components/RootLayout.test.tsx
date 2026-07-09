@@ -55,8 +55,8 @@ describe('RootLayout', () => {
       )
     );
 
-    // "S3 File Portal" comes from the Header's BrandMark.
-    expect(screen.getByText('S3 File Portal')).toBeInTheDocument();
+    // "Data Workspace" comes from the Header's BrandMark.
+    expect(screen.getByText('Data Workspace')).toBeInTheDocument();
     expect(screen.getByText('CHILD CONTENT')).toBeInTheDocument();
   });
 
@@ -77,8 +77,8 @@ describe('RootLayout', () => {
     );
 
     // The stub landing route renders no brand mark, so the only source of
-    // "S3 File Portal" (the Header) must be absent.
-    expect(screen.queryByText('S3 File Portal')).not.toBeInTheDocument();
+    // "Data Workspace" (the Header) must be absent.
+    expect(screen.queryByText('Data Workspace')).not.toBeInTheDocument();
     expect(screen.getByText('LANDING CONTENT')).toBeInTheDocument();
   });
 });
