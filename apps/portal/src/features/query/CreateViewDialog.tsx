@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
-import {CATALOG_IDENTIFIER_RE} from './query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from './query.constants';
 
 type Props = {
   /** In-flight while the CREATE VIEW runs in the background — locks Create + dismiss. */
@@ -31,10 +31,7 @@ export function CreateViewDialog({busy = false, targetDatabase, onCreate, onCanc
   const trimmed = name.trim();
   const valid = CATALOG_IDENTIFIER_RE.test(trimmed);
   // Surface why Create is unavailable in text (WCAG 3.3.1), not just via disabling.
-  const error =
-    touched && !valid && trimmed.length > 0
-      ? 'Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter.'
-      : undefined;
+  const error = touched && !valid && trimmed.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
 
   const attempt = () => {
     if (valid && !busy) onCreate(trimmed);

@@ -7,6 +7,7 @@ import {authenticated} from '../test/authFixtures';
 import {createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../test/axe';
 import {UploadQueueProvider} from '../features/file-browser';
+import {ToastProvider} from '../components/ToastProvider';
 import {fileBrowserKeys} from '../features/file-browser/fileBrowserKeys';
 import * as fileService from '../features/file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.service';
@@ -72,9 +73,11 @@ const tree = (
   <QueryClientProvider client={seededClient()}>
     <AuthContext.Provider value={authenticated('alice')}>
       <MemoryRouter initialEntries={['/files']}>
-        <UploadQueueProvider>
-          <FilesPage />
-        </UploadQueueProvider>
+        <ToastProvider>
+          <UploadQueueProvider>
+            <FilesPage />
+          </UploadQueueProvider>
+        </ToastProvider>
       </MemoryRouter>
     </AuthContext.Provider>
   </QueryClientProvider>

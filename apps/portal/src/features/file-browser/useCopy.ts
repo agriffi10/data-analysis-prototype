@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
+import {toUserMessage} from '../../lib/errorMessages';
 import {copyObject, copyFolder, objectExists, uploadPercent, validateFolderName} from './fileBrowser.service';
 import {leafName, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
@@ -11,7 +12,8 @@ import type {SelectableItem} from './selectionContext';
  */
 export type CopySummary = {
   copiedCount: number;
-  errors: {item: string; message: string}[];
+  /** `message` is technical; the summary banner maps `code` (SPEC-106). */
+  errors: {item: string; message: string; code?: string}[];
 };
 
 // A copy into a different folder hit existing destination objects. One
@@ -104,7 +106,9 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     setError(null);
     setSummary(null);
 
-    let outcome: {ok: true; copied: number; errors: CopySummary['errors']} | {ok: false; message: string};
+    let outcome:
+      | {ok: true; copied: number; errors: CopySummary['errors']}
+      | {ok: false; code?: string; message: string};
 
     if (item.type === 'file') {
       const r = await copyObject({
@@ -116,7 +120,9 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         // collision still gets a clear failure rather than a silent clobber.
         overwrite: false
       });
-      outcome = r.success ? {ok: true, copied: 1, errors: []} : {ok: false, message: r.error.message};
+      outcome = r.success
+        ? {ok: true, copied: 1, errors: []}
+        : {ok: false, code: r.error.code, message: r.error.message};
     } else {
       const r = await copyFolder({
         bucket,
@@ -131,16 +137,17 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
             copied: r.data.copied.length,
             errors: r.data.errors.map((e) => ({
               item: e.key,
-              message: e.message
+              message: e.message,
+              code: e.code
             }))
           }
-        : {ok: false, message: r.error.message};
+        : {ok: false, code: r.error.code, message: r.error.message};
     }
 
     setProgress(null);
 
     if (!outcome.ok) {
-      setError(outcome.message);
+      setError(toUserMessage({code: outcome.code, message: outcome.message}).message);
       setIsBusy(false);
       return;
     }
@@ -210,7 +217,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         });
         if (r.success) acc.copied += 1;
         else if (r.error.code === 'Collision') collided.push(item);
-        else acc.errors.push({item: item.key, message: r.error.message});
+        else acc.errors.push({item: item.key, message: r.error.message, code: r.error.code});
       } else {
         const {leaf} = folderParts(item.prefix);
         const r = await copyFolder({
@@ -224,11 +231,11 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         });
         if (r.success) {
           acc.copied += r.data.copied.length;
-          acc.errors.push(...r.data.errors.map((e) => ({item: e.key, message: e.message})));
+          acc.errors.push(...r.data.errors.map((e) => ({item: e.key, message: e.message, code: e.code})));
         } else if (r.error.code === 'Collision') {
           collided.push(item);
         } else {
-          acc.errors.push({item: item.prefix, message: r.error.message});
+          acc.errors.push({item: item.prefix, message: r.error.message, code: r.error.code});
         }
       }
     }

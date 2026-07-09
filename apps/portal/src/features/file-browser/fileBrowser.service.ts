@@ -333,9 +333,12 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
       }
       for (const e of response.Errors ?? []) {
         if (e.Key) {
+          // e.Message/e.Code are raw S3 fields (technical); the surface maps
+          // the code (e.g. AccessDenied) to friendly text (SPEC-106 FR-002).
           errors.push({
             key: e.Key,
-            message: e.Message ?? e.Code ?? 'Failed to delete object'
+            message: e.Message ?? e.Code ?? 'Failed to delete object',
+            code: e.Code
           });
         }
       }
@@ -345,7 +348,7 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
       if (isExpiryError(e.name)) return toServiceError(err, 'Failed to delete objects');
       // Other whole-batch failure: record each key and keep going.
       for (const key of batch) {
-        errors.push({key, message: e.message ?? 'Failed to delete object'});
+        errors.push({key, message: e.message ?? 'Failed to delete object', code: e.name});
       }
     }
   }
@@ -603,7 +606,7 @@ export async function moveFolder(params: {
     if (result.success) {
       moved.push(sourceKey);
     } else {
-      errors.push({key: sourceKey, message: result.error.message});
+      errors.push({key: sourceKey, message: result.error.message, code: result.error.code});
     }
     onProgress?.(++processed, total);
   }
@@ -699,7 +702,7 @@ export async function copyFolder(params: {
     if (result.success) {
       copied.push(sourceKey);
     } else {
-      errors.push({key: sourceKey, message: result.error.message});
+      errors.push({key: sourceKey, message: result.error.message, code: result.error.code});
     }
     onProgress?.(++processed, total);
   }

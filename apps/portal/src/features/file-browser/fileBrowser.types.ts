@@ -17,7 +17,8 @@ export type CreateFolderResult = {prefix: string};
 export type DeleteResult = {
   /** Keys S3 confirmed removed. */
   deleted: string[];
-  errors: {key: string; message: string}[];
+  /** Per-key failures. `message` is technical (logged); the surface maps `code`. */
+  errors: {key: string; message: string; code?: string}[];
 };
 
 /**
@@ -27,7 +28,8 @@ export type DeleteResult = {
 export type MoveResult = {
   /** Source keys copied to the destination and then deleted. */
   moved: string[];
-  errors: {key: string; message: string}[];
+  /** Per-key failures. `message` is technical (logged); the surface maps `code`. */
+  errors: {key: string; message: string; code?: string}[];
 };
 
 /**
@@ -38,7 +40,8 @@ export type MoveResult = {
 export type CopyResult = {
   /** Source keys duplicated to the destination. */
   copied: string[];
-  errors: {key: string; message: string}[];
+  /** Per-key failures. `message` is technical (logged); the surface maps `code`. */
+  errors: {key: string; message: string; code?: string}[];
 };
 
 /** The fields a single HeadObject call exposes for the read-only metadata panel. */

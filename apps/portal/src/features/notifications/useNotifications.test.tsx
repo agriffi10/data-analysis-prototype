@@ -94,7 +94,8 @@ describe('useNotifications — optimistic mutations', () => {
     // optimistic flip, then rollback once the enqueue rejects.
     await waitFor(() => expect(result.current.unreadCount).toBe(1));
     expect(result.current.notifications[0].read).toBe(false);
-    expect(onMutationError).toHaveBeenCalledWith('queue down');
+    // Now receives the error object (with code) so the page can map it (SPEC-106).
+    expect(onMutationError).toHaveBeenCalledWith(expect.objectContaining({message: 'queue down'}));
   });
 
   it('composes mark-one-read then mark-all-read', async () => {

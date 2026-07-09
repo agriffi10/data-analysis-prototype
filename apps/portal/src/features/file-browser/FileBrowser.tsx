@@ -34,6 +34,7 @@ import {CreateTableButton} from '../table-builder';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {getSessionCredentials} from '../../lib/awsCredentials';
+import {toUserMessage} from '../../lib/errorMessages';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
@@ -553,7 +554,7 @@ function FileBrowserContent({
     if (result.success) {
       triggerBrowserDownload(result.data.url);
     } else {
-      setDownloadError(`Could not download ${file.name}: ${result.error.message}`);
+      setDownloadError(`Could not download ${file.name}. ${toUserMessage(result.error).message}`);
     }
   }
 
@@ -783,7 +784,8 @@ function FileBrowserContent({
           count={del.summary.deletedCount}
           errors={del.summary.errors.map((e) => ({
             label: lastSegment(e.key),
-            message: e.message
+            message: e.message,
+            code: e.code
           }))}
           onDismiss={del.dismissSummary}
         />
@@ -807,7 +809,8 @@ function FileBrowserContent({
           count={move.summary.movedCount}
           errors={move.summary.errors.map((e) => ({
             label: lastSegment(e.key),
-            message: e.message
+            message: e.message,
+            code: e.code
           }))}
           onDismiss={move.dismissSummary}
         />
@@ -860,7 +863,8 @@ function FileBrowserContent({
           count={copy.summary.copiedCount}
           errors={copy.summary.errors.map((e) => ({
             label: lastSegment(e.item),
-            message: e.message
+            message: e.message,
+            code: e.code
           }))}
           onDismiss={copy.dismissSummary}
         />

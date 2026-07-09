@@ -1,4 +1,4 @@
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
 import type {PartitionKey} from './tableBuild.types';
 
 export type PartitionType = 'integer' | 'date' | 'string';
@@ -36,7 +36,7 @@ export type PartitionKeyErrors = {
   values?: string;
 };
 
-const NAME_RULE = 'Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter.';
+const NAME_RULE = CATALOG_IDENTIFIER_RULE;
 const INT_RE = /^-?\d+$/;
 
 let seq = 0;

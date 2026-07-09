@@ -7,6 +7,7 @@ import {MemoryRouter} from 'react-router-dom';
 import type {ReactElement, ReactNode} from 'react';
 import {AuthContext} from '../features/auth/authContext';
 import type {AuthContextValue} from '../features/auth/auth.types';
+import {ToastProvider} from '../components/ToastProvider';
 import {authValue} from './authFixtures';
 
 /**
@@ -43,7 +44,9 @@ function Providers({
 }: ProviderOptions & {children: ReactNode; queryClient: QueryClient}): ReactElement {
   const tree = (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+      <MemoryRouter initialEntries={[route]}>
+        <ToastProvider>{children}</ToastProvider>
+      </MemoryRouter>
     </QueryClientProvider>
   );
   return auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree;

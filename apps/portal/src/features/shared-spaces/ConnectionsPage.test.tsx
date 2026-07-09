@@ -72,7 +72,9 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
   it('shows a Banner on a read error without crashing (create stays available)', async () => {
     mockRead.mockResolvedValue({success: false, error: {message: 'boom'}});
     renderPage();
-    expect(await screen.findByText(/Couldn.t load/)).toHaveTextContent('boom');
+    // Friendly, actionable text — never the raw service message (SPEC-106).
+    const banner = await screen.findByText(/Couldn.t load your shared connections/);
+    expect(banner).not.toHaveTextContent('boom');
     expect(screen.getByRole('button', {name: 'New shared connection'})).toBeInTheDocument();
   });
 

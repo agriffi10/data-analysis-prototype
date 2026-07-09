@@ -39,7 +39,8 @@ import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
-import {Toast, type ToastState} from './Toast';
+import {useToast} from '../../components/toastContext';
+import {toUserMessage} from '../../lib/errorMessages';
 import {QueryStatusBar} from './QueryStatusBar';
 import {QueryResultsTable} from './QueryResultsTable';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
@@ -247,9 +248,9 @@ export function QueryWorkspace() {
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
   const [dropInFlight, setDropInFlight] = useState(false);
-  const [toast, setToast] = useState<(ToastState & {action?: {label: string; onClick: () => void}}) | null>(null);
-  // SPEC-093: "Share table" dialog + enqueue state (toasts route through setToast).
-  const share = useTableShare(setToast);
+  const toast = useToast();
+  // SPEC-093: "Share table" dialog + enqueue state (toasts route through the host).
+  const share = useTableShare(toast.push);
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
@@ -415,9 +416,11 @@ export function QueryWorkspace() {
           ...cur,
           done: true,
           ...(status.state === 'FAILED' && {
+            // Store friendly text for display; the raw stateChangeReason stays in
+            // the QueryStatus/history record for developers (SPEC-106 FR-004).
             failure: {
               statementIndex: cur.currentIndex,
-              reason: status.stateChangeReason ?? 'The query failed.'
+              reason: toUserMessage({code: status.state, message: status.stateChangeReason}).message
             }
           })
         }));
@@ -433,7 +436,7 @@ export function QueryWorkspace() {
           patchRun((cur) => ({
             ...cur,
             done: true,
-            failure: {statementIndex: next.index, reason: started.error.message}
+            failure: {statementIndex: next.index, reason: toUserMessage(started.error).message}
           }));
           return;
         }
@@ -510,7 +513,7 @@ export function QueryWorkspace() {
           username
         });
         if (!result.success) {
-          setRunErrors((e) => ({...e, [tabId]: result.error.message}));
+          setRunErrors((e) => ({...e, [tabId]: toUserMessage(result.error).message}));
           return;
         }
         const id = result.data.queryExecutionId;
@@ -637,9 +640,9 @@ export function QueryWorkspace() {
           });
           return;
         }
-        setToast({
+        toast.push({
           variant: 'danger',
-          message: `Couldn’t save results: ${result.error.message}`
+          message: `Couldn’t save results. ${toUserMessage(result.error).message}`
         });
         return;
       }
@@ -649,14 +652,14 @@ export function QueryWorkspace() {
       // SPEC-055: the Files browser only renders the personal space until SPEC-057,
       // so the "View in Files" deep-link is offered only for a personal-space save.
       const isPersonalDest = args.destBucket === userSpaceBucket;
-      setToast({
+      toast.push({
         variant: 'success',
         message: `Saved to ${args.destPrefix}${args.filename}`,
         ...(isPersonalDest && {
           action: {
             label: 'View in Files',
             onClick: () => {
-              setToast(null);
+              toast.dismiss();
               navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
             }
           }
@@ -672,7 +675,7 @@ export function QueryWorkspace() {
     if (!outputLocation) return;
     const parsed = parseS3Url(outputLocation);
     if (!parsed) {
-      setToast({
+      toast.push({
         variant: 'danger',
         message: 'Couldn’t read the query result location.'
       });
@@ -791,7 +794,7 @@ export function QueryWorkspace() {
     },
     // SHOW CREATE TABLE against the node's database → a new, non-run "DDL: {table}" tab.
     onViewDdl: (database: string, table: GlueTableSummary) => {
-      setToast({variant: 'info', message: `Loading DDL for ${table.name}…`});
+      toast.push({variant: 'info', message: `Loading DDL for ${table.name}…`});
       void (async () => {
         const result = await getTableDdl({
           database,
@@ -800,13 +803,13 @@ export function QueryWorkspace() {
           isView: table.tableType === 'VIRTUAL_VIEW'
         });
         if (!result.success) {
-          setToast({
+          toast.push({
             variant: 'danger',
-            message: `Couldn’t load DDL: ${result.error.message}`
+            message: `Couldn’t load DDL for ${table.name}. ${toUserMessage(result.error).message}`
           });
           return;
         }
-        setToast(null);
+        toast.dismiss();
         const id = tabs.openTab({
           label: `DDL: ${table.name}`,
           sql: result.data
@@ -850,9 +853,9 @@ export function QueryWorkspace() {
       setCreateViewInFlight(false);
       setCreateViewOpen(false);
       if (!result.success) {
-        setToast({
+        toast.push({
           variant: 'danger',
-          message: `Couldn’t create view ${name}: ${result.error.message}`
+          message: `Couldn’t create view ${name}. ${toUserMessage(result.error).message}`
         });
         return;
       }
@@ -870,11 +873,11 @@ export function QueryWorkspace() {
 
       if (status.state === 'SUCCEEDED') {
         void invalidateSchema(queryClient, database);
-        setToast({variant: 'success', message: `Created view ${name}`});
+        toast.push({variant: 'success', message: `Created view ${name}`});
       } else {
-        setToast({
+        toast.push({
           variant: 'danger',
-          message: `Couldn’t create view ${name}: ${status.stateChangeReason ?? 'Create view failed'}`
+          message: `Couldn’t create view ${name}. ${toUserMessage({code: status.state, message: status.stateChangeReason}).message}`
         });
       }
     })();
@@ -895,9 +898,9 @@ export function QueryWorkspace() {
       setDropInFlight(false);
       setDropping(null);
       if (!result.success) {
-        setToast({
+        toast.push({
           variant: 'danger',
-          message: `Couldn’t drop ${table.name}: ${result.error.message}`
+          message: `Couldn’t drop ${table.name}. ${toUserMessage(result.error).message}`
         });
         return;
       }
@@ -915,11 +918,11 @@ export function QueryWorkspace() {
 
       if (status.state === 'SUCCEEDED') {
         void invalidateSchema(queryClient, database);
-        setToast({variant: 'success', message: `Dropped ${table.name}`});
+        toast.push({variant: 'success', message: `Dropped ${table.name}`});
       } else {
-        setToast({
+        toast.push({
           variant: 'danger',
-          message: `Couldn’t drop ${table.name}: ${status.stateChangeReason ?? 'Drop failed'}`
+          message: `Couldn’t drop ${table.name}. ${toUserMessage({code: status.state, message: status.stateChangeReason}).message}`
         });
       }
     })();
@@ -940,12 +943,14 @@ export function QueryWorkspace() {
         : skipped === 1
           ? ` Statement ${total} did not run.`
           : ` Statements ${at + 1}–${total} did not run.`;
-    return `Statement ${at} of ${total} failed: ${run.failure.reason}.${skippedNote}`;
+    return `Statement ${at} of ${total} failed. ${run.failure.reason}${skippedNote}`;
   })();
   const errorMessage =
     runErrors[activeTabId] ??
     batchFailureMessage ??
-    (activeStatus?.state === 'FAILED' ? (activeStatus.stateChangeReason ?? 'The query failed.') : null);
+    (activeStatus?.state === 'FAILED'
+      ? toUserMessage({code: activeStatus.state, message: activeStatus.stateChangeReason}).message
+      : null);
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
@@ -1066,7 +1071,7 @@ export function QueryWorkspace() {
                 // and never silently picks a database.
                 const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
                 if ('error' in target) {
-                  setToast({variant: 'danger', message: target.error});
+                  toast.push({variant: 'danger', message: target.error});
                   return;
                 }
                 setCreateViewDb(target.database);
@@ -1277,7 +1282,9 @@ export function QueryWorkspace() {
                     setRunErrors((e) => ({...e, [activeTabId]: null}));
                     setDismissed((d) => ({...d, [activeTabId]: true}));
                   }}>
-                  <code className="font-mono text-xs">{errorMessage}</code>
+                  {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
+                      engine text (the raw reason is dev-logged + kept in history). */}
+                  <p className="text-sm">{errorMessage}</p>
                 </Banner>
               </div>
             )}
@@ -1453,14 +1460,6 @@ export function QueryWorkspace() {
             A file named “{overwritePrompt.filename}” already exists in that folder. Saving will replace it.
           </p>
         </ConfirmDialog>
-      )}
-      {toast && (
-        <Toast
-          variant={toast.variant}
-          message={toast.message}
-          action={toast.action}
-          onDismiss={() => setToast(null)}
-        />
       )}
     </div>
   );

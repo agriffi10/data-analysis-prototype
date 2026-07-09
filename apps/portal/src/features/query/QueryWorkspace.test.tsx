@@ -286,7 +286,9 @@ describe('QueryWorkspace', () => {
 
     await user.click(screen.getByRole('button', {name: 'Run statement'}));
 
-    expect(await screen.findByText(/COLUMN_NOT_FOUND/)).toBeInTheDocument();
+    // SPEC-106: friendly, mapped guidance — never the raw Athena engine text.
+    expect(await screen.findByText(/A column in your query wasn’t found/)).toBeInTheDocument();
+    expect(screen.queryByText(/COLUMN_NOT_FOUND/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
   });
 
@@ -607,7 +609,9 @@ describe('QueryWorkspace', () => {
     await user.click(
       within(screen.getByRole('alertdialog', {name: /confirm drop table/i})).getByRole('button', {name: 'Drop table'})
     );
-    expect(await screen.findByText(/table locked/)).toBeInTheDocument();
+    // SPEC-106: the toast shows friendly, mapped text — not the raw Athena reason.
+    expect(await screen.findByText(/Couldn’t drop sales_2026/)).toBeInTheDocument();
+    expect(screen.queryByText(/table locked/)).not.toBeInTheDocument();
   });
 
   it('Drop on a view confirms and runs DROP VIEW', async () => {
@@ -745,8 +749,10 @@ describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
 
     await runScriptSingle(user);
 
-    expect(await screen.findByText(/Statement 2 of 3 failed: SYNTAX_ERROR: line 1/)).toBeInTheDocument();
+    // SPEC-106: the position is named; the reason is friendly, mapped text.
+    expect(await screen.findByText(/Statement 2 of 3 failed\. There’s a syntax error/)).toBeInTheDocument();
     expect(screen.getByText(/Statement 3 did not run/)).toBeInTheDocument();
+    expect(screen.queryByText(/SYNTAX_ERROR/)).not.toBeInTheDocument();
     expect(mockRunQuery).toHaveBeenCalledTimes(2);
     expect(mockAppend).toHaveBeenCalledTimes(2);
   });
