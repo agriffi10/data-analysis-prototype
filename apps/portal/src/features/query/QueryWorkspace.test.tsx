@@ -1,21 +1,24 @@
-import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent, waitFor, within} from '@testing-library/react';
-import {MemoryRouter} from 'react-router-dom';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {screen, within, waitFor} from '@testing-library/react';
+import {useLocation} from 'react-router-dom';
+import {renderWithProviders} from '../../test/renderWithProviders';
+import {authenticated} from '../../test/authFixtures';
 
-// Auth + the lazy editor + the data hooks are mocked so the workspace can be
-// exercised without Amplify, Monaco workers, or live AWS calls. useQueryTabs is
-// NOT mocked — it's a pure state hook and we want real tab behavior under test.
-vi.mock('../auth', () => ({
-  useAuth: () => ({user: {username: 'alice'}, status: 'authenticated'})
-}));
+// Integration style (react.md §21): render the REAL QueryWorkspace tree — real
+// hooks (useQueryTabs/useConnections/useSchema/useQueryExecution/useQueryResults/
+// useQueryHistory/useSavedQueries/useResultsPageSize/useResultRowCount/…) and real
+// child components (SchemaBrowser/DatabaseNode/TableActionsMenu/QueryTabStrip/
+// QueryStatusBar/QueryResultsTable/SaveResultsDialog/DestinationPicker/dialogs/
+// drawers) — mocking ONLY the AWS service boundary. Pure helpers in
+// query.service (parseS3Url/isTerminalState) and query.sql stay real via
+// importActual so the real hooks and split/resolve logic behave normally.
+
+// The Monaco editor is heavy/global (its own SqlEditor.test covers it) — stub the
+// lazy wrapper with a textarea that still drives value/onChange and forwards the
+// SPEC-078 selection handle so statement-resolution tests can position a cursor.
 vi.mock('./SqlEditor', async () => {
   const {forwardRef, useImperativeHandle, useRef} = await import('react');
   return {
-    // A textarea wired to value/onChange so per-tab text + switching is
-    // observable. Forwards the SPEC-078 handle backed by the textarea's native
-    // selection, so statement-resolution tests can position the cursor/selection
-    // with setSelectionRange.
     SqlEditor: forwardRef<import('./SqlEditor').SqlEditorHandle, {value: string; onChange: (v: string) => void}>(
       function MockSqlEditor({value, onChange}, ref) {
         const taRef = useRef<HTMLTextAreaElement>(null);
@@ -31,7 +34,7 @@ vi.mock('./SqlEditor', async () => {
         return (
           <textarea
             ref={taRef}
-            data-testid="sql-editor"
+            aria-label="SQL editor"
             value={value}
             onChange={(e) => onChange(e.target.value)}
           />
@@ -40,296 +43,264 @@ vi.mock('./SqlEditor', async () => {
     )
   };
 });
-// Expose the table-action callbacks as buttons so they can be driven from tests
-// (the real menu/popover is covered in SchemaBrowser.test.tsx).
-const inSpace = {
-  name: 'sales_2026',
-  location: 's3://b/alice/sales/',
-  columns: []
-};
-const outOfSpace = {name: 'foreign', location: 's3://b/bob/x/', columns: []};
-const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
-vi.mock('./SchemaBrowser', () => ({
-  // SPEC-077: the rail is browse-only — no active-database selection. Per-table
-  // actions now carry the node's database (the personal db = 'alice' here).
-  SchemaBrowser: ({actions}: {actions: import('./SchemaBrowser').TableActions}) => (
-    <div data-testid="schema-browser">
-      <button onClick={() => actions.onViewSourceFiles('alice', inSpace)}>src:in</button>
-      <button onClick={() => actions.onViewSourceFiles('alice', outOfSpace)}>src:out</button>
-      <button onClick={() => actions.onViewDdl('alice', inSpace)}>ddl</button>
-      <button onClick={() => actions.onViewData('alice', inSpace)}>data</button>
-      <button onClick={() => actions.onDropTable('alice', inSpace)}>drop</button>
-      <button onClick={() => actions.onViewDdl('alice', viewObj)}>ddl:view</button>
-      <button onClick={() => actions.onDropTable('alice', viewObj)}>drop:view</button>
-      <span>cansrc-in:{String(actions.canViewSourceFiles(inSpace))}</span>
-      <span>cansrc-out:{String(actions.canViewSourceFiles(outOfSpace))}</span>
-      <span>cansrc-view:{String(actions.canViewSourceFiles(viewObj))}</span>
-    </div>
-  )
-}));
-vi.mock('./useConnections', () => ({useConnections: vi.fn()}));
-const navigateMock = vi.fn();
-vi.mock('react-router-dom', async (orig) => ({
-  ...(await orig<typeof import('react-router-dom')>()),
-  useNavigate: () => navigateMock
-}));
+
+// ── AWS service boundary (the only real seam) ────────────────────────────────
 vi.mock('./query.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./query.service')>()),
   runQuery: vi.fn(),
   stopQuery: vi.fn(),
   getTableDdl: vi.fn(),
-  runStatementToCompletion: vi.fn()
+  runStatementToCompletion: vi.fn(),
+  getQueryStatus: vi.fn(),
+  getQueryResults: vi.fn()
 }));
-// Save-results uses the file-browser copy + listing invalidation.
+vi.mock('./glue.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./glue.service')>()),
+  getDatabase: vi.fn(),
+  listTables: vi.fn()
+}));
+vi.mock('./queryHistory.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./queryHistory.service')>()),
+  getQueryHistory: vi.fn(),
+  appendQueryHistory: vi.fn(),
+  updateQueryHistoryEntry: vi.fn()
+}));
+vi.mock('./savedQueries.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./savedQueries.service')>()),
+  getSavedQueries: vi.fn(),
+  upsertSavedQuery: vi.fn(),
+  removeSavedQuery: vi.fn()
+}));
+vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared-spaces/sharedSpaces.service')>()),
+  readSharedConnectionsCache: vi.fn()
+}));
+// copyObject = Save-results copy; listFiles = the SaveResultsDialog's real
+// DestinationPicker folder listing.
 vi.mock('../file-browser/fileBrowser.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../file-browser/fileBrowser.service')>()),
-  copyObject: vi.fn()
+  copyObject: vi.fn(),
+  listFiles: vi.fn()
 }));
-vi.mock('../../lib/queryClient', () => ({invalidateListing: vi.fn()}));
-// The Save-results modal's folder picker (DestinationPicker) has its own data
-// layer + test; here stub it to a Save button that returns a fixed destination so
-// the workspace's copy/collision/toast wiring is what's exercised.
-vi.mock('./SaveResultsDialog', () => ({
-  SaveResultsDialog: ({
-    spaces,
-    defaultName,
-    onSave,
-    onCancel
-  }: {
-    spaces: {id: string; label: string; bucket: string; rootPrefix: string; rootLabel: string}[];
-    defaultName: string;
-    onSave: (a: {destBucket: string; destPrefix: string; filename: string}) => void;
-    onCancel: () => void;
-  }) => (
-    <div
-      role="dialog"
-      aria-label="Save results to my files">
-      <span>default:{defaultName}</span>
-      <span>spaces:{spaces.map((s) => s.id).join(',')}</span>
-      {/* One save button per destination space, saving into that space's
-          bucket; the first space is personal. */}
-      {spaces.map((s) => (
-        <button
-          key={s.id}
-          onClick={() => onSave({destBucket: s.bucket, destPrefix: `${s.rootPrefix}reports/`, filename: 'out.csv'})}>
-          save-to-{s.id}
-        </button>
-      ))}
-      {/* Alias used by the personal-save tests. */}
-      <button onClick={() => onSave({destBucket: spaces[0].bucket, destPrefix: 'alice/reports/', filename: 'out.csv'})}>
-        save-here-stub
-      </button>
-      <button onClick={onCancel}>save-cancel-stub</button>
-    </div>
-  )
+vi.mock('../table-share/tableShare.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../table-share/tableShare.service')>()),
+  enqueueTableShare: vi.fn()
 }));
-vi.mock('./useQueryExecution', () => ({useQueryExecution: vi.fn()}));
-vi.mock('./useQueryResults', () => ({useQueryResults: vi.fn()}));
-vi.mock('./useQueryHistory', () => ({useQueryHistory: vi.fn()}));
-vi.mock('./useSavedQueries', () => ({useSavedQueries: vi.fn()}));
+vi.mock('../../lib/awsCredentials', () => ({
+  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
+  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
+}));
 
-import {runQuery, getTableDdl, runStatementToCompletion} from './query.service';
-import {copyObject} from '../file-browser/fileBrowser.service';
-import {useQueryExecution} from './useQueryExecution';
-import {useQueryResults} from './useQueryResults';
-import {useQueryHistory} from './useQueryHistory';
-import {useSavedQueries} from './useSavedQueries';
-import {useConnections} from './useConnections';
+import {
+  runQuery,
+  stopQuery,
+  getTableDdl,
+  runStatementToCompletion,
+  getQueryStatus,
+  getQueryResults
+} from './query.service';
+import {getDatabase, listTables} from './glue.service';
+import {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
+import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
+import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {QueryWorkspace} from './QueryWorkspace';
 import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
-import type {QueryTabsState, SavedQuery} from './query.types';
+import type {QueryTabsState, QueryState} from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
+const mockStopQuery = vi.mocked(stopQuery);
 const mockGetTableDdl = vi.mocked(getTableDdl);
 const mockRunToCompletion = vi.mocked(runStatementToCompletion);
-const mockUseExecution = vi.mocked(useQueryExecution);
-const mockUseResults = vi.mocked(useQueryResults);
-const mockUseHistory = vi.mocked(useQueryHistory);
-const mockUseSaved = vi.mocked(useSavedQueries);
-const mockUseConnections = vi.mocked(useConnections);
+const mockGetStatus = vi.mocked(getQueryStatus);
+const mockGetResults = vi.mocked(getQueryResults);
+const mockListTables = vi.mocked(listTables);
+const mockGetHistory = vi.mocked(getQueryHistory);
+const mockAppend = vi.mocked(appendQueryHistory);
+const mockUpdate = vi.mocked(updateQueryHistoryEntry);
+const mockGetSaved = vi.mocked(getSavedQueries);
+const mockUpsert = vi.mocked(upsertSavedQuery);
+const mockRemove = vi.mocked(removeSavedQuery);
+const mockReadCache = vi.mocked(readSharedConnectionsCache);
 const mockCopyObject = vi.mocked(copyObject);
+const mockListFiles = vi.mocked(listFiles);
 
-// SaveResultsDialog/handler read VITE_S3_USER_SPACE_BUCKET at module load.
+// SaveResultsDialog / runQuery outputLocation read these at render/module time.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
-// Shared-space routing/save reads the shared bucket.
 vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
+vi.stubEnv('VITE_ATHENA_WORKGROUP', 'primary');
 
-const personalConnection = {
-  id: 'personal',
-  label: 'My workspace',
-  database: 'alice',
-  kind: 'personal' as const
-};
+const ok = <T,>(data: T) => ({success: true as const, data});
+const fail = (message: string, code?: string) => ({success: false as const, error: {message, ...(code ? {code} : {})}});
 
-const appendEntry = vi.fn().mockResolvedValue({version: 1, entries: []});
-const updateEntry = vi.fn().mockResolvedValue({version: 1, entries: []});
-const upsert = vi.fn().mockResolvedValue({version: 1, queries: []});
-const remove = vi.fn().mockResolvedValue({version: 1, queries: []});
+// ── Builders ────────────────────────────────────────────────────────────────
+const salesTable = {name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]};
+const foreignTable = {name: 'foreign', location: 's3://b/bob/x/', columns: []};
+const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
 
-function renderWorkspace() {
-  const client = new QueryClient({
-    defaultOptions: {queries: {retry: false}}
-  });
-  return render(
-    <MemoryRouter>
-      <QueryClientProvider client={client}>
-        <QueryWorkspace />
-      </QueryClientProvider>
-    </MemoryRouter>
-  );
-}
+/** Per-execution status overrides consulted by the getQueryStatus mock (live). */
+let statusMap: Record<string, {state?: QueryState; stateChangeReason?: string}> = {};
+const succeeded = (id: string, over: {state?: QueryState; stateChangeReason?: string} = {}) => ({
+  queryExecutionId: id,
+  state: 'SUCCEEDED' as QueryState,
+  dataScannedBytes: 2048,
+  engineExecutionTimeMillis: 800,
+  outputLocation: `s3://user-bucket/alice/athenaresults/${id}.csv`,
+  ...over
+});
+
+const rowsPage = {columns: [{name: 'region', type: 'string'}], rows: [['us-east'], ['eu-west']], nextToken: undefined};
 
 function seedTabs(state: QueryTabsState) {
   sessionStorage.setItem(`${QUERY_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
 }
+function seedSingle(sql: string) {
+  seedTabs({version: 1, tabs: [{id: 'a', label: 'Query 1', sql}], activeTabId: 'a', nextQueryNumber: 2});
+}
 
-const succeededStatus = {
-  data: {
-    queryExecutionId: 'q-1',
-    state: 'SUCCEEDED',
-    dataScannedBytes: 2048,
-    engineExecutionTimeMillis: 800,
-    outputLocation: 's3://b/alice/athenaresults/q-1.csv'
-  }
-} as unknown as ReturnType<typeof useQueryExecution>;
+/** runQuery returns a distinct execution id per statement in a batch. */
+function queueRuns(...ids: string[]) {
+  mockRunQuery.mockReset();
+  for (const id of ids) mockRunQuery.mockResolvedValueOnce(ok({queryExecutionId: id}));
+}
 
-const rowsResult = {
-  columns: [{name: 'region', type: 'string'}],
-  rows: [['us-east'], ['eu-west']],
-  pageIndex: 0,
-  rangeStart: 1,
-  rangeEnd: 2,
-  loadedRowCount: 2,
-  totalRowCount: 2,
-  hasPrev: false,
-  hasNext: false,
-  hasMoreServer: false,
-  isPending: false,
-  isFetchingNext: false,
-  isError: false,
-  error: null,
-  goPrev: vi.fn(),
-  goNext: vi.fn()
-} as unknown as ReturnType<typeof useQueryResults>;
+/** A probe that surfaces the router location so navigation is observable without
+ *  mocking react-router (everything stays real). */
+function LocationProbe() {
+  const loc = useLocation();
+  return <span aria-label="probe-location">{`${loc.pathname}${loc.search}`}</span>;
+}
+
+function renderWorkspace() {
+  return renderWithProviders(
+    <>
+      <QueryWorkspace />
+      <LocationProbe />
+    </>,
+    {auth: authenticated('alice')}
+  );
+}
+
+const editor = () => screen.getByLabelText('SQL editor') as HTMLTextAreaElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
-  mockUseConnections.mockReturnValue({
-    connections: [personalConnection],
-    isLoading: false,
-    error: null,
-    refresh: vi.fn(),
-    isRefreshing: false,
-    reconcile: vi.fn()
-  });
-  mockUseExecution.mockReturnValue({data: undefined} as unknown as ReturnType<typeof useQueryExecution>);
-  mockUseResults.mockReturnValue({
-    ...rowsResult,
-    columns: [],
-    rows: [],
-    rangeStart: 0,
-    rangeEnd: 0,
-    loadedRowCount: 0,
-    totalRowCount: 0
-  } as unknown as ReturnType<typeof useQueryResults>);
-  mockUseHistory.mockReturnValue({
-    history: [],
-    isLoading: false,
-    error: null,
-    appendEntry,
-    updateEntry,
-    refresh: vi.fn().mockResolvedValue(undefined),
-    isRefreshing: false
-  });
-  mockUseSaved.mockReturnValue({
-    queries: [],
-    isLoading: false,
-    error: null,
-    upsert,
-    remove
-  });
+  localStorage.clear();
+  statusMap = {};
+
+  mockReadCache.mockResolvedValue(ok({version: 1, connections: []}));
+  mockGetDatabase();
+  mockListTables.mockResolvedValue(ok([salesTable, foreignTable, viewObj]));
+  mockGetHistory.mockResolvedValue(ok({version: 1, entries: []}));
+  mockGetSaved.mockResolvedValue(ok({version: 1, queries: []}));
+  mockAppend.mockResolvedValue(ok({version: 1, entries: []}));
+  mockUpdate.mockResolvedValue(ok({version: 1, entries: []}));
+  mockUpsert.mockResolvedValue(ok({version: 1, queries: []}));
+  mockRemove.mockResolvedValue(ok({version: 1, queries: []}));
+  mockRunQuery.mockResolvedValue(ok({queryExecutionId: 'q-1'}));
+  mockStopQuery.mockResolvedValue(ok(undefined));
+  mockGetStatus.mockImplementation(async (id: string) => ok(succeeded(id, statusMap[id] ?? {})));
+  mockGetResults.mockResolvedValue(ok(rowsPage));
+  mockRunToCompletion.mockResolvedValue(ok(succeeded('q-run')));
+  mockGetTableDdl.mockResolvedValue(ok('CREATE EXTERNAL TABLE ...'));
+  mockCopyObject.mockResolvedValue(ok({destKey: 'alice/out.csv'}));
+  mockListFiles.mockResolvedValue(ok({files: [], folders: [], isTruncated: false}));
+
+  window.innerWidth = 1024;
 });
 
+afterEach(() => {
+  window.innerWidth = 1024;
+});
+
+// getDatabase varies rarely — a helper so tests can override.
+function mockGetDatabase() {
+  vi.mocked(getDatabase).mockImplementation(async (name: string) => ok({name}));
+}
+
+// Open the "More run options" split dropdown and pick a whole-script scope.
+async function runScriptSingle(user: ReturnType<typeof renderWorkspace>['user']) {
+  await user.click(screen.getByRole('button', {name: 'More run options'}));
+  await user.click(await screen.findByRole('menuitem', {name: 'Run Query Tab'}));
+}
+async function runScriptTabs(user: ReturnType<typeof renderWorkspace>['user']) {
+  await user.click(screen.getByRole('button', {name: 'More run options'}));
+  await user.click(await screen.findByRole('menuitem', {name: 'Run Multiple Queries'}));
+}
+
+// Open a rail table's kebab menu (the rail auto-expands the personal db).
+async function openTableMenu(user: ReturnType<typeof renderWorkspace>['user'], table: string) {
+  await user.click(await screen.findByRole('button', {name: `Options for ${table}`}));
+}
+
 describe('QueryWorkspace', () => {
-  it('renders the workspace with a Query 1 tab and enabled Run', async () => {
-    renderWorkspace();
+  it('renders the real schema rail + tabs and runs the active statement to a result set (SPEC-077 shape)', async () => {
+    seedSingle('SELECT 1');
+    const {user} = renderWorkspace();
 
-    expect(screen.getByTestId('schema-browser')).toBeInTheDocument();
-    expect(await screen.findByTestId('sql-editor')).toBeInTheDocument(); // lazy
+    // Real SchemaBrowser → DatabaseNode fetched sales_2026 from the mocked glue boundary.
+    expect(await screen.findByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
+    await screen.findByLabelText('SQL editor');
     expect(screen.getByRole('tab', {name: /Query 1/})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Run statement'})).toBeEnabled();
-  });
+    // History + Saved queries hoisted to the global bar; Save stays per-tab.
+    expect(screen.getByRole('button', {name: 'Saved queries'})).toBeInTheDocument();
+    expect(screen.getAllByRole('button', {name: /History/})).toHaveLength(1);
+    expect(screen.getByRole('button', {name: 'Save query'})).toBeInTheDocument();
 
-  it('runs the active tab and records history on submit', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    renderWorkspace();
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-
-    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
+    expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+    expect(await screen.findByText('us-east')).toBeInTheDocument();
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
-    // SPEC-077: the workspace runs with no execution-database context.
-    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: expect.any(String), username: 'alice'});
+    // No execution-database context — just sql + username (fully-qualified tables).
+    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 1', username: 'alice'});
     expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
-    expect(appendEntry).toHaveBeenCalledTimes(1);
+    expect(mockAppend).toHaveBeenCalledWith('alice', expect.objectContaining({sql: 'SELECT 1'}));
   });
 
-  it('de-dupes a rapid double-submit for the same tab — at most one execution [SPEC-083 FR-009]', async () => {
+  it('de-dupes a rapid double-submit and keeps Clear/Run disabled while in flight [SPEC-083 FR-009]', async () => {
+    seedSingle('SELECT 1');
+    statusMap['q-1'] = {state: 'RUNNING'}; // stays in flight
     let resolveRun: (v: Awaited<ReturnType<typeof runQuery>>) => void = () => {};
-    mockRunQuery.mockReturnValue(
-      new Promise((resolve) => {
-        resolveRun = resolve;
-      })
-    );
-    renderWorkspace();
+    mockRunQuery.mockReturnValue(new Promise((resolve) => (resolveRun = resolve)));
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    const runBtn = screen.getByRole('button', {name: 'Run statement'});
-    fireEvent.click(runBtn);
-    fireEvent.click(runBtn); // second trigger before the first run is recorded in `runs`
-
+    const run = screen.getByRole('button', {name: 'Run statement'});
+    await user.click(run);
+    await user.click(run); // second trigger before the run is recorded
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
 
-    resolveRun({success: true, data: {queryExecutionId: 'q-1'}});
+    resolveRun(ok({queryExecutionId: 'q-1'}));
     expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
   });
 
-  it('surfaces a runQuery error in a danger banner', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: false,
-      error: {message: 'COLUMN_NOT_FOUND: amont', code: 'InvalidRequest'}
-    });
-    renderWorkspace();
+  it('surfaces a runQuery error in a danger banner and keeps Run available', async () => {
+    seedSingle('SELECT bad');
+    mockRunQuery.mockResolvedValue(fail('COLUMN_NOT_FOUND: amont', 'InvalidRequest'));
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
 
     expect(await screen.findByText(/COLUMN_NOT_FOUND/)).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
   });
 
-  it('shows the results table once the active execution has succeeded', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    mockUseExecution.mockReturnValue(succeededStatus);
-    mockUseResults.mockReturnValue(rowsResult);
-
+  it('disables Run/Clear/Save/Create view when the buffer is empty', async () => {
+    seedSingle(''); // an empty tab (a fresh tab is seeded with boilerplate)
     renderWorkspace();
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-
-    expect(await screen.findByText('Succeeded')).toBeInTheDocument();
-    expect(screen.getByText('region')).toBeInTheDocument();
-    expect(screen.getByText('us-east')).toBeInTheDocument();
+    await screen.findByLabelText('SQL editor');
+    expect(screen.getByRole('button', {name: 'Run statement'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Save query'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Create view'})).toBeDisabled();
   });
 
-  // --- persistence + migration ---
-
-  it('restores tabs from persisted state on mount, showing the active tab text', async () => {
+  it('restores tabs from persisted state on mount, showing the active tab', async () => {
     seedTabs({
       version: 1,
       tabs: [
@@ -341,7 +312,7 @@ describe('QueryWorkspace', () => {
     });
     renderWorkspace();
 
-    expect(await screen.findByTestId('sql-editor')).toHaveValue('SELECT two;');
+    expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT two;');
     expect(screen.getByRole('tab', {name: /Scratch/})).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -349,29 +320,25 @@ describe('QueryWorkspace', () => {
     sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'SELECT migrated;');
     renderWorkspace();
 
-    expect(await screen.findByTestId('sql-editor')).toHaveValue('SELECT migrated;');
+    expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT migrated;');
     expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
   });
 
-  // --- tabs behavior ---
-
   it('opens a new blank Query 2 tab and isolates text per tab', async () => {
-    renderWorkspace();
-    const editor = await screen.findByTestId('sql-editor');
+    seedSingle('SELECT a');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
+    expect(editor()).toHaveValue('SELECT a');
 
-    fireEvent.change(editor, {target: {value: 'SELECT a;'}});
-    fireEvent.click(screen.getByRole('button', {name: 'New query tab'}));
-
+    await user.click(screen.getByRole('button', {name: 'New query tab'}));
     expect(screen.getByRole('tab', {name: /Query 2/})).toBeInTheDocument();
-    expect(screen.getByTestId('sql-editor')).toHaveValue('');
-    fireEvent.change(screen.getByTestId('sql-editor'), {
-      target: {value: 'SELECT b;'}
-    });
+    expect(editor()).toHaveValue(''); // a blank second tab
+    await user.type(editor(), 'SELECT b');
 
-    fireEvent.click(screen.getByRole('tab', {name: /Query 1/}));
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT a;');
-    fireEvent.click(screen.getByRole('tab', {name: /Query 2/}));
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT b;');
+    await user.click(screen.getByRole('tab', {name: /Query 1/}));
+    expect(editor()).toHaveValue('SELECT a');
+    await user.click(screen.getByRole('tab', {name: /Query 2/}));
+    expect(editor()).toHaveValue('SELECT b');
   });
 
   it('closes an empty tab immediately but confirms a non-empty one', async () => {
@@ -379,441 +346,294 @@ describe('QueryWorkspace', () => {
       version: 1,
       tabs: [
         {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
-        {id: 'b', label: 'Query 2', sql: ''}
+        {id: 'b', label: 'Query 2', sql: ''},
+        {id: 'c', label: 'Query 3', sql: 'SELECT bye;'}
       ],
       activeTabId: 'a',
-      nextQueryNumber: 3
+      nextQueryNumber: 4
     });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    fireEvent.click(screen.getByTitle('Close Query 2'));
+    await user.click(screen.getByTitle('Close Query 2'));
     expect(screen.queryByRole('tab', {name: /Query 2/})).not.toBeInTheDocument();
 
-    // Query 1 is now the only tab → its close control is hidden.
-    expect(screen.queryByTitle('Close Query 1')).not.toBeInTheDocument();
-  });
-
-  it('confirms before closing a tab with non-empty SQL', async () => {
-    seedTabs({
-      version: 1,
-      tabs: [
-        {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
-        {id: 'b', label: 'Query 2', sql: 'SELECT bye;'}
-      ],
-      activeTabId: 'a',
-      nextQueryNumber: 3
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByTitle('Close Query 2'));
-    const dialog = screen.getByRole('alertdialog', {name: /confirm close tab/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Close tab'}));
-
-    expect(screen.queryByRole('tab', {name: /Query 2/})).not.toBeInTheDocument();
+    await user.click(screen.getByTitle('Close Query 3'));
+    const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+    await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+    expect(screen.queryByRole('tab', {name: /Query 3/})).not.toBeInTheDocument();
   });
 
   it('shows the tab-limit dialog at the cap and opens no further tab', async () => {
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    const newTabBtn = screen.getByRole('button', {name: 'New query tab'});
-    // One tab exists already; open 9 more to reach the cap of 10.
-    for (let i = 0; i < 9; i++) fireEvent.click(newTabBtn);
+    const newTab = screen.getByRole('button', {name: 'New query tab'});
+    for (let i = 0; i < 9; i++) await user.click(newTab);
     expect(screen.getAllByRole('tab')).toHaveLength(10);
 
-    fireEvent.click(newTabBtn);
+    await user.click(newTab);
     expect(screen.getByRole('alertdialog', {name: /query tab limit reached/i})).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(10);
   });
 
-  // --- Clear (scoped to the active tab) ---
+  it('Clear cancel leaves the tab untouched; confirm empties it and disables Run', async () => {
+    seedSingle('SELECT * FROM persisted;');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-  it('Clear confirms, empties the active tab, and disables Run', async () => {
-    seedTabs({
-      version: 1,
-      tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT * FROM persisted;'}],
-      activeTabId: 'a',
-      nextQueryNumber: 2
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    await user.click(screen.getByRole('button', {name: 'Clear query'}));
+    await user.click(
+      within(screen.getByRole('alertdialog', {name: /confirm clear query/i})).getByRole('button', {name: 'Cancel'})
+    );
+    expect(editor()).toHaveValue('SELECT * FROM persisted;');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Clear query'}));
-    const dialog = screen.getByRole('alertdialog', {
-      name: /confirm clear query/i
-    });
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Clear'}));
-
-    expect(screen.getByTestId('sql-editor')).toHaveValue('');
+    await user.click(screen.getByRole('button', {name: 'Clear query'}));
+    await user.click(
+      within(screen.getByRole('alertdialog', {name: /confirm clear query/i})).getByRole('button', {name: 'Clear'})
+    );
+    expect(editor()).toHaveValue('');
     expect(screen.getByRole('button', {name: 'Run statement'})).toBeDisabled();
-    expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
   });
-
-  it('Clear cancel leaves the active tab untouched', async () => {
-    seedTabs({
-      version: 1,
-      tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT keep;'}],
-      activeTabId: 'a',
-      nextQueryNumber: 2
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'Clear query'}));
-    const dialog = screen.getByRole('alertdialog', {
-      name: /confirm clear query/i
-    });
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}));
-
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT keep;');
-  });
-
-  it('disables Clear while a query is in flight', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    mockUseExecution.mockReturnValue({
-      data: {queryExecutionId: 'q-1', state: 'RUNNING'}
-    } as unknown as ReturnType<typeof useQueryExecution>);
-
-    renderWorkspace();
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-
-    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
-  });
-
-  // --- concurrent background polling ---
 
   it('finalizes a backgrounded running tab while another tab is active', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    // Every poller observes SUCCEEDED — stands in for the background query
-    // finishing while the user is elsewhere.
-    mockUseExecution.mockReturnValue(succeededStatus);
-    mockUseResults.mockReturnValue(rowsResult);
+    seedSingle('SELECT 1');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    expect(await screen.findByText('us-east')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-    expect(await screen.findByText('region')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', {name: 'New query tab'}));
-
-    // Query 2 is active with no run of its own…
+    await user.click(screen.getByRole('button', {name: 'New query tab'}));
     expect(screen.getByText('Run a query to see results.')).toBeInTheDocument();
-    // …yet Query 1's execution finalized in the background.
-    expect(updateEntry).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-1'}));
+    // Query 1's execution finalized its history in the background.
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith('alice', 'q-1', expect.objectContaining({status: 'SUCCEEDED'}))
+    );
 
-    fireEvent.click(screen.getByRole('tab', {name: /Query 1/}));
-    expect(screen.getByText('region')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', {name: /Query 1/}));
+    expect(screen.getByText('us-east')).toBeInTheDocument();
   });
 
   // --- saved queries ---
 
-  function savedState(queries: SavedQuery[]) {
-    return {queries, isLoading: false, error: null, upsert, remove};
-  }
-
   it('saves a new query: prompts, upserts, links + relabels the active tab', async () => {
-    upsert.mockResolvedValue({version: 1, queries: []});
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    seedSingle('SELECT r;');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Save query'}));
+    await user.click(screen.getByRole('button', {name: 'Save query'}));
     const dialog = screen.getByRole('dialog', {name: 'Save query'});
-    fireEvent.change(within(dialog).getByLabelText('Name'), {
-      target: {value: 'My report'}
-    });
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Save'}));
+    await user.type(within(dialog).getByLabelText('Name'), 'My report');
+    await user.click(within(dialog).getByRole('button', {name: 'Save'}));
 
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({name: 'My report'}));
+    expect(mockUpsert).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'My report', sql: 'SELECT r;'}));
     expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
   });
 
-  it('shows a dirty marker on a linked tab whose SQL diverged', async () => {
+  it('shows a dirty marker on a linked tab whose SQL diverged from the saved query', async () => {
     seedTabs({
       version: 1,
       tabs: [{id: 't1', label: 'Revenue', sql: 'SELECT edited;', savedQueryId: 'sq1'}],
       activeTabId: 't1',
       nextQueryNumber: 2
     });
-    mockUseSaved.mockReturnValue(
-      savedState([
-        {
-          id: 'sq1',
-          name: 'Revenue',
-          sql: 'SELECT original;',
-          database: 'alice',
-          createdAt: '2026-06-01T00:00:00.000Z',
-          updatedAt: '2026-06-01T00:00:00.000Z'
-        }
-      ])
+    mockGetSaved.mockResolvedValue(
+      ok({
+        version: 1,
+        queries: [
+          {
+            id: 'sq1',
+            name: 'Revenue',
+            sql: 'SELECT original;',
+            database: 'alice',
+            createdAt: '2026-06-01T00:00:00.000Z',
+            updatedAt: '2026-06-01T00:00:00.000Z'
+          }
+        ]
+      })
     );
     renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Unsaved changes')).toBeInTheDocument();
   });
 
-  it('records the saved-query name in history when running a linked tab', async () => {
-    seedTabs({
-      version: 1,
-      tabs: [{id: 't1', label: 'Revenue', sql: 'SELECT 1;', savedQueryId: 'sq1'}],
-      activeTabId: 't1',
-      nextQueryNumber: 2
-    });
-    mockUseSaved.mockReturnValue(
-      savedState([
-        {
-          id: 'sq1',
-          name: 'Revenue',
-          sql: 'SELECT 1;',
-          database: 'alice',
-          createdAt: '2026-06-01T00:00:00.000Z',
-          updatedAt: '2026-06-01T00:00:00.000Z'
-        }
-      ])
+  it('opens a saved query into a new linked tab and records its name in history on run', async () => {
+    mockGetSaved.mockResolvedValue(
+      ok({
+        version: 1,
+        queries: [
+          {
+            id: 'sq1',
+            name: 'Revenue',
+            sql: 'SELECT 1;',
+            database: 'alice',
+            createdAt: '2026-06-01T00:00:00.000Z',
+            updatedAt: '2026-06-01T00:00:00.000Z'
+          }
+        ]
+      })
     );
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-    await screen.findByRole('button', {name: /Stop/});
-    expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({savedQueryId: 'sq1', savedQueryName: 'Revenue'}));
-  });
-
-  it('opens a saved query into a new linked tab from the drawer', async () => {
-    mockUseSaved.mockReturnValue(
-      savedState([
-        {
-          id: 'sq1',
-          name: 'Revenue',
-          sql: 'SELECT r;',
-          database: 'alice',
-          createdAt: '2026-06-01T00:00:00.000Z',
-          updatedAt: '2026-06-01T00:00:00.000Z'
-        }
-      ])
-    );
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'Saved queries'}));
-    fireEvent.click(await screen.findByRole('button', {name: /open saved query/i}));
-
+    await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+    await user.click(await screen.findByRole('button', {name: /open saved query/i}));
     expect(screen.getByRole('tab', {name: /Revenue/})).toBeInTheDocument();
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT r;');
+    expect(editor()).toHaveValue('SELECT 1;');
+
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await screen.findByText('Succeeded');
+    expect(mockAppend).toHaveBeenCalledWith(
+      'alice',
+      expect.objectContaining({savedQueryId: 'sq1', savedQueryName: 'Revenue'})
+    );
   });
 
   it('deletes a saved query (confirm) and calls remove', async () => {
-    remove.mockResolvedValue({version: 1, queries: []});
-    mockUseSaved.mockReturnValue(
-      savedState([
-        {
-          id: 'sq1',
-          name: 'Revenue',
-          sql: 'SELECT r;',
-          database: 'alice',
-          createdAt: '2026-06-01T00:00:00.000Z',
-          updatedAt: '2026-06-01T00:00:00.000Z'
-        }
-      ])
-    );
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'Saved queries'}));
-    fireEvent.click(await screen.findByRole('button', {name: /delete saved query/i}));
-    const dialog = screen.getByRole('alertdialog', {
-      name: /confirm delete saved query/i
-    });
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
-
-    expect(remove).toHaveBeenCalledWith('sq1');
-  });
-
-  it('hoists History + Saved queries to the global bar (Save stays per-tab)', async () => {
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    expect(screen.getByRole('button', {name: 'Saved queries'})).toBeInTheDocument();
-    expect(screen.getAllByRole('button', {name: /History/})).toHaveLength(1);
-    expect(screen.getByRole('button', {name: 'Save query'})).toBeInTheDocument();
-  });
-
-  // --- table actions ---
-
-  it('View source files navigates to /files?prefix= for an in-space table', async () => {
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    expect(screen.getByText('cansrc-in:true')).toBeInTheDocument();
-    expect(screen.getByText('cansrc-out:false')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', {name: 'src:in'}));
-    expect(navigateMock).toHaveBeenCalledWith('/files?prefix=alice%2Fsales%2F');
-  });
-
-  it('View source files does not navigate for an out-of-space table', async () => {
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'src:out'}));
-    expect(navigateMock).not.toHaveBeenCalled();
-  });
-
-  it('View DDL opens a non-run "DDL: {table}" tab with the fetched DDL', async () => {
-    mockGetTableDdl.mockResolvedValue({
-      success: true,
-      data: 'CREATE EXTERNAL TABLE sales_2026 (...)'
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'ddl'}));
-
-    expect(await screen.findByRole('tab', {name: /DDL: sales_2026/})).toBeInTheDocument();
-    expect(screen.getByTestId('sql-editor')).toHaveValue('CREATE EXTERNAL TABLE sales_2026 (...)');
-    // A DDL fetch is not a user run — no query is started for it.
-    expect(mockRunQuery).not.toHaveBeenCalled();
-  });
-
-  it('View data opens a "{table}" tab and auto-runs an unbounded SELECT * (no LIMIT) [SPEC-105]', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'data'}));
-
-    expect(await screen.findByRole('tab', {name: /sales_2026/})).toBeInTheDocument();
-    // Fully-qualified SELECT *, no LIMIT — the results pager walks the whole table.
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT * FROM alice.sales_2026');
-    expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT * FROM alice.sales_2026'}));
-    const runSql = mockRunQuery.mock.calls.at(-1)?.[0]?.sql ?? '';
-    expect(runSql).not.toMatch(/limit/i);
-  });
-
-  it('Drop table confirms, runs in the background, records history + success toast', async () => {
-    mockRunToCompletion.mockResolvedValue({
-      success: true,
-      data: {
-        queryExecutionId: 'q-drop',
-        state: 'SUCCEEDED',
-        dataScannedBytes: 0,
-        engineExecutionTimeMillis: 5
-      }
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'drop'}));
-    const dialog = screen.getByRole('alertdialog', {name: /confirm drop table/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Drop table'}));
-
-    expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
-    expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP TABLE alice.sales_2026'}));
-    expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-drop'}));
-  });
-
-  it('Drop table shows an error toast and leaves the schema on failure', async () => {
-    mockRunToCompletion.mockResolvedValue({
-      success: true,
-      data: {
-        queryExecutionId: 'q-drop',
-        state: 'FAILED',
-        stateChangeReason: 'table locked'
-      }
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'drop'}));
-    fireEvent.click(
-      within(screen.getByRole('alertdialog', {name: /confirm drop table/i})).getByRole('button', {
-        name: 'Drop table'
+    mockGetSaved.mockResolvedValue(
+      ok({
+        version: 1,
+        queries: [
+          {
+            id: 'sq1',
+            name: 'Revenue',
+            sql: 'SELECT r;',
+            database: 'alice',
+            createdAt: '2026-06-01T00:00:00.000Z',
+            updatedAt: '2026-06-01T00:00:00.000Z'
+          }
+        ]
       })
     );
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    expect(await screen.findByText(/table locked/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+    await user.click(await screen.findByRole('button', {name: /delete saved query/i}));
+    await user.click(
+      within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
+        name: 'Delete'
+      })
+    );
+    expect(mockRemove).toHaveBeenCalledWith('alice', 'sq1');
   });
 
-  it('re-runs a history entry into the active tab', async () => {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-2'}
-    });
-    mockUseHistory.mockReturnValue({
-      history: [
-        {
-          queryExecutionId: 'old',
-          sql: 'SELECT 42',
-          database: 'alice',
-          submittedAt: new Date().toISOString(),
-          status: 'SUCCEEDED'
-        }
-      ],
-      isLoading: false,
-      error: null,
-      appendEntry,
-      updateEntry,
-      refresh: vi.fn().mockResolvedValue(undefined),
-      isRefreshing: false
-    });
+  it('re-runs a history entry into the active tab (no database context)', async () => {
+    mockGetHistory.mockResolvedValue(
+      ok({
+        version: 1,
+        entries: [
+          {
+            queryExecutionId: 'old',
+            sql: 'SELECT 42',
+            database: 'alice',
+            submittedAt: new Date().toISOString(),
+            status: 'SUCCEEDED'
+          }
+        ]
+      })
+    );
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    renderWorkspace();
-    fireEvent.click(screen.getByRole('button', {name: /History/}));
-    fireEvent.click(await screen.findByRole('button', {name: /re-run this query/i}));
+    await user.click(screen.getByRole('button', {name: /History/}));
+    await user.click(await screen.findByRole('button', {name: /re-run this query/i}));
 
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
     expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 42', username: 'alice'});
-    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
   });
 
-  // --- Create view + view-aware schema actions ---
+  // --- table actions (driven through the REAL rail menu) ---
 
-  it('Create view is disabled when the active tab SQL is empty', async () => {
-    renderWorkspace();
-    const editor = await screen.findByTestId('sql-editor');
-    fireEvent.change(editor, {target: {value: '   '}});
-    expect(screen.getByRole('button', {name: 'Create view'})).toBeDisabled();
+  it('View source files navigates for an in-space table and is disabled for an out-of-space one', async () => {
+    const {user} = renderWorkspace();
+    await openTableMenu(user, 'sales_2026');
+    await user.click(await screen.findByRole('menuitem', {name: 'View source files'}));
+    expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?prefix=alice%2Fsales%2F');
+
+    await openTableMenu(user, 'foreign');
+    expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
   });
 
-  it('Create view composes CREATE OR REPLACE VIEW, runs it in the background, records history + success toast', async () => {
-    mockRunToCompletion.mockResolvedValue({
-      success: true,
-      data: {
-        queryExecutionId: 'q-view',
-        state: 'SUCCEEDED',
-        dataScannedBytes: 0,
-        engineExecutionTimeMillis: 5
-      }
-    });
-    renderWorkspace();
-    const editor = await screen.findByTestId('sql-editor');
-    // SPEC-077 FR-008: the target database is derived from the body's qualified
-    // base tables — here alice.sales → the personal database 'alice'.
-    fireEvent.change(editor, {target: {value: 'SELECT region FROM alice.sales;'}});
+  it('View DDL opens non-run DDL tabs for a table (SHOW CREATE TABLE) and a view (isView passthrough)', async () => {
+    mockGetTableDdl.mockResolvedValue(ok('CREATE EXTERNAL TABLE sales_2026 (...)'));
+    const {user} = renderWorkspace();
 
-    fireEvent.click(screen.getByRole('button', {name: 'Create view'}));
+    await openTableMenu(user, 'sales_2026');
+    await user.click(await screen.findByRole('menuitem', {name: 'View DDL'}));
+    expect(await screen.findByRole('tab', {name: /DDL: sales_2026/})).toBeInTheDocument();
+    expect(editor()).toHaveValue('CREATE EXTERNAL TABLE sales_2026 (...)');
+    expect(mockGetTableDdl).toHaveBeenCalledWith(
+      expect.objectContaining({database: 'alice', table: 'sales_2026', isView: false})
+    );
+    expect(mockRunQuery).not.toHaveBeenCalled(); // a DDL fetch is not a run
+
+    mockGetTableDdl.mockResolvedValue(ok('CREATE VIEW revenue_view ...'));
+    await openTableMenu(user, 'revenue_view');
+    await user.click(await screen.findByRole('menuitem', {name: 'View DDL'}));
+    expect(mockGetTableDdl).toHaveBeenLastCalledWith(expect.objectContaining({table: 'revenue_view', isView: true}));
+  });
+
+  it('View data opens a "{table}" tab and auto-runs a fully-qualified unbounded SELECT * (no LIMIT) [SPEC-105]', async () => {
+    const {user} = renderWorkspace();
+    await openTableMenu(user, 'sales_2026');
+    await user.click(await screen.findByRole('menuitem', {name: 'View data'}));
+
+    expect(await screen.findByRole('tab', {name: /sales_2026/})).toBeInTheDocument();
+    expect(editor()).toHaveValue('SELECT * FROM alice.sales_2026');
+    expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT * FROM alice.sales_2026'}));
+    expect(mockRunQuery.mock.calls.at(-1)?.[0].sql).not.toMatch(/limit/i);
+  });
+
+  it('Drop table confirms, runs DROP TABLE in the background (history + toast); a failure shows an error toast', async () => {
+    const {user} = renderWorkspace();
+
+    mockRunToCompletion.mockResolvedValueOnce(ok(succeeded('q-drop')));
+    await openTableMenu(user, 'sales_2026');
+    await user.click(await screen.findByRole('menuitem', {name: 'Drop table'}));
+    await user.click(
+      within(screen.getByRole('alertdialog', {name: /confirm drop table/i})).getByRole('button', {name: 'Drop table'})
+    );
+
+    expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
+    expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP TABLE alice.sales_2026'}));
+    expect(mockAppend).toHaveBeenCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-drop'}));
+
+    mockRunToCompletion.mockResolvedValueOnce(
+      ok(succeeded('q-drop2', {state: 'FAILED', stateChangeReason: 'table locked'}))
+    );
+    await openTableMenu(user, 'sales_2026');
+    await user.click(await screen.findByRole('menuitem', {name: 'Drop table'}));
+    await user.click(
+      within(screen.getByRole('alertdialog', {name: /confirm drop table/i})).getByRole('button', {name: 'Drop table'})
+    );
+    expect(await screen.findByText(/table locked/)).toBeInTheDocument();
+  });
+
+  it('Drop on a view confirms and runs DROP VIEW', async () => {
+    mockRunToCompletion.mockResolvedValue(ok(succeeded('q-dropview')));
+    const {user} = renderWorkspace();
+
+    await openTableMenu(user, 'revenue_view');
+    await user.click(await screen.findByRole('menuitem', {name: 'Drop view'}));
+    await user.click(
+      within(screen.getByRole('alertdialog', {name: /confirm drop view/i})).getByRole('button', {name: 'Drop view'})
+    );
+
+    expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
+    expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP VIEW alice.revenue_view'}));
+  });
+
+  it('Create view composes CREATE OR REPLACE VIEW (target db derived from the body), records history + success toast', async () => {
+    seedSingle('SELECT region FROM alice.sales;');
+    mockRunToCompletion.mockResolvedValue(ok(succeeded('q-view')));
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
+
+    await user.click(screen.getByRole('button', {name: 'Create view'}));
     const dialog = screen.getByRole('dialog', {name: 'Create view'});
-    fireEvent.change(within(dialog).getByLabelText('View name'), {
-      target: {value: 'region_view'}
-    });
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Create'}));
+    await user.type(within(dialog).getByLabelText('View name'), 'region_view');
+    await user.click(within(dialog).getByRole('button', {name: 'Create'}));
 
     expect(await screen.findByText('Created view region_view')).toBeInTheDocument();
     expect(mockRunToCompletion).toHaveBeenCalledWith(
@@ -823,479 +643,228 @@ describe('QueryWorkspace', () => {
         username: 'alice'
       })
     );
-    expect(appendEntry).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-view'}));
-    expect(screen.getByTestId('sql-editor')).toHaveValue('SELECT region FROM alice.sales;');
+    expect(mockAppend).toHaveBeenCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-view'}));
+    expect(editor()).toHaveValue('SELECT region FROM alice.sales;'); // editor keeps the user's SELECT
   });
 
-  it('Create view shows an error toast on failure', async () => {
-    mockRunToCompletion.mockResolvedValue({
-      success: false,
-      error: {message: 'TABLE_ALREADY_EXISTS', code: 'InvalidRequest'}
-    });
-    renderWorkspace();
-    const editor = await screen.findByTestId('sql-editor');
-    fireEvent.change(editor, {target: {value: 'SELECT 1 FROM alice.t;'}});
+  // --- Save results to my files (real SaveResultsDialog + DestinationPicker) ---
 
-    fireEvent.click(screen.getByRole('button', {name: 'Create view'}));
-    fireEvent.change(within(screen.getByRole('dialog', {name: 'Create view'})).getByLabelText('View name'), {
-      target: {value: 'dupe'}
-    });
-    fireEvent.click(within(screen.getByRole('dialog', {name: 'Create view'})).getByRole('button', {name: 'Create'}));
-
-    expect(await screen.findByText(/TABLE_ALREADY_EXISTS/)).toBeInTheDocument();
-  });
-
-  it('View source files is disabled for a view (no S3 location)', async () => {
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-    expect(screen.getByText('cansrc-view:false')).toBeInTheDocument();
-  });
-
-  it('View DDL for a view fetches SHOW CREATE VIEW (isView passed through)', async () => {
-    mockGetTableDdl.mockResolvedValue({success: true, data: 'CREATE VIEW …'});
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'ddl:view'}));
-    expect(mockGetTableDdl).toHaveBeenCalledWith(expect.objectContaining({table: 'revenue_view', isView: true}));
-  });
-
-  it('Drop on a view confirms and runs DROP VIEW', async () => {
-    mockRunToCompletion.mockResolvedValue({
-      success: true,
-      data: {
-        queryExecutionId: 'q-dropview',
-        state: 'SUCCEEDED',
-        dataScannedBytes: 0,
-        engineExecutionTimeMillis: 5
-      }
-    });
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    fireEvent.click(screen.getByRole('button', {name: 'drop:view'}));
-    const dialog = screen.getByRole('alertdialog', {name: /confirm drop view/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Drop view'}));
-
-    expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
-    expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP VIEW alice.revenue_view'}));
-  });
-
-  // --- Save results to my files ---
-
-  async function renderSucceededWithRows() {
-    mockRunQuery.mockResolvedValue({
-      success: true,
-      data: {queryExecutionId: 'q-1'}
-    });
-    mockUseExecution.mockReturnValue(succeededStatus);
-    mockUseResults.mockReturnValue(rowsResult);
-    renderWorkspace();
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
+  async function runToSucceeded(user: ReturnType<typeof renderWorkspace>['user']) {
+    await screen.findByLabelText('SQL editor');
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
     await screen.findByText('Succeeded');
   }
+  async function saveInto(user: ReturnType<typeof renderWorkspace>['user'], filename: string) {
+    await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+    const nameInput = within(dialog).getByLabelText('File name');
+    await user.clear(nameInput);
+    await user.type(nameInput, filename);
+    return dialog;
+  }
 
-  it('offers Save results for a succeeded row-returning query', async () => {
-    await renderSucceededWithRows();
-    expect(screen.getByRole('button', {name: 'Save results to my files'})).toBeInTheDocument();
-  });
+  it('saves a succeeded result to the personal space (cross-checked copy + Files deep-link)', async () => {
+    seedSingle('SELECT 1');
+    mockCopyObject.mockResolvedValue(ok({destKey: 'alice/out.csv'}));
+    const {user} = renderWorkspace();
+    await runToSucceeded(user);
 
-  it('saving copies the full result object to the chosen destination + toast with a Files link', async () => {
-    mockCopyObject.mockResolvedValue({
-      success: true,
-      data: {destKey: 'alice/reports/out.csv'}
-    });
-    await renderSucceededWithRows();
+    const dialog = await saveInto(user, 'out');
+    await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
 
-    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
-    fireEvent.click(screen.getByRole('button', {name: 'save-here-stub'}));
-
-    // Source bucket + key are derived from the result's outputLocation;
-    // dest = the chosen space's bucket + folder + filename.
     expect(mockCopyObject).toHaveBeenCalledWith({
-      bucket: 'b',
+      bucket: 'user-bucket',
       destBucket: 'user-bucket',
       sourceKey: 'alice/athenaresults/q-1.csv',
-      destKey: 'alice/reports/out.csv',
+      destKey: 'alice/out.csv',
       username: 'alice',
       overwrite: false
     });
-
-    const link = await screen.findByRole('button', {name: 'View in Files'});
-    fireEvent.click(link);
-    expect(navigateMock).toHaveBeenCalledWith('/files?prefix=alice%2Freports%2F');
+    await user.click(await screen.findByRole('button', {name: 'View in Files'}));
+    expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?prefix=alice%2F');
   });
 
   it('a destination collision prompts Overwrite, then copies with overwrite', async () => {
+    seedSingle('SELECT 1');
     mockCopyObject
-      .mockResolvedValueOnce({
-        success: false,
-        error: {message: 'exists', code: 'Collision'}
+      .mockResolvedValueOnce(fail('exists', 'Collision'))
+      .mockResolvedValueOnce(ok({destKey: 'alice/out.csv'}));
+    const {user} = renderWorkspace();
+    await runToSucceeded(user);
+
+    const dialog = await saveInto(user, 'out');
+    await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+
+    await user.click(
+      within(await screen.findByRole('alertdialog', {name: /confirm overwrite/i})).getByRole('button', {
+        name: 'Overwrite'
       })
-      .mockResolvedValueOnce({
-        success: true,
-        data: {destKey: 'alice/reports/out.csv'}
-      });
-    await renderSucceededWithRows();
-
-    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
-    fireEvent.click(screen.getByRole('button', {name: 'save-here-stub'}));
-
-    const dialog = await screen.findByRole('alertdialog', {
-      name: /confirm overwrite/i
-    });
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Overwrite'}));
-
+    );
     expect(mockCopyObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
-    expect(await screen.findByText(/Saved to alice\/reports\/out\.csv/)).toBeInTheDocument();
-  });
-
-  it('a copy error shows an error toast and navigates nowhere', async () => {
-    mockCopyObject.mockResolvedValue({
-      success: false,
-      error: {message: 'Access Denied', code: 'AccessDenied'}
-    });
-    await renderSucceededWithRows();
-
-    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
-    fireEvent.click(screen.getByRole('button', {name: 'save-here-stub'}));
-
-    expect(await screen.findByText(/Access Denied/)).toBeInTheDocument();
-    expect(navigateMock).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Saved to alice\/out\.csv/)).toBeInTheDocument();
   });
 });
 
 describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
-  type StatusStub = {state: string; stateChangeReason?: string; outputLocation?: string};
-
-  const idleExecution = {data: undefined};
-
-  // Per-execution-id statuses for the pollers; mutable so a test can flip a
-  // statement's state mid-flight (the next render re-reads the map). Returned
-  // objects are cached per (id, stub) — the real hook returns referentially
-  // stable data, and a fresh object per call would loop the poller's status
-  // effect forever.
-  function mockExecutionMap(map: Record<string, StatusStub>) {
-    const cache = new Map<string, {stub: StatusStub; value: unknown}>();
-    mockUseExecution.mockImplementation(((id: string | null) => {
-      if (id === null || !map[id]) return idleExecution;
-      const cached = cache.get(id);
-      if (cached && cached.stub === map[id]) return cached.value;
-      const value = {
-        data: {
-          queryExecutionId: id,
-          dataScannedBytes: 10,
-          engineExecutionTimeMillis: 5,
-          ...map[id]
-        }
-      };
-      cache.set(id, {stub: map[id], value});
-      return value;
-    }) as unknown as typeof useQueryExecution);
-    return map;
-  }
-
-  function queueExecutions(...ids: string[]) {
-    // clearAllMocks does not drop unconsumed mockResolvedValueOnce values from a
-    // prior test (a batch that stopped early leaves some queued) — reset first.
-    mockRunQuery.mockReset();
-    for (const id of ids) {
-      mockRunQuery.mockResolvedValueOnce({success: true, data: {queryExecutionId: id}});
-    }
-  }
-
-  const THREE_STATEMENTS = 'SELECT 1; CREATE TABLE alice.t (id int); SELECT 2;';
-
-  function seedScript(sql: string = THREE_STATEMENTS) {
-    seedTabs({
-      version: 1,
-      tabs: [{id: 'a', label: 'Query 1', sql}],
-      activeTabId: 'a',
-      nextQueryNumber: 2
-    });
-  }
-
-  // The two whole-script scopes live behind the Run Statement split-button's
-  // dropdown; open it, then pick the item.
-  function runScriptSingle() {
-    fireEvent.click(screen.getByRole('button', {name: 'More run options'}));
-    fireEvent.click(screen.getByRole('menuitem', {name: 'Run Query Tab'}));
-  }
-  function runScriptTabs() {
-    fireEvent.click(screen.getByRole('button', {name: 'More run options'}));
-    fireEvent.click(screen.getByRole('menuitem', {name: 'Run Multiple Queries'}));
+  const THREE = 'SELECT 1; CREATE TABLE alice.t (id int); SELECT 2;';
+  function seedScript(sql: string = THREE) {
+    seedTabs({version: 1, tabs: [{id: 'a', label: 'Query 1', sql}], activeTabId: 'a', nextQueryNumber: 2});
   }
 
   it('runs a script sequentially and records one history entry per statement (FR-002/FR-003)', async () => {
-    queueExecutions('q-1', 'q-2', 'q-3');
-    mockExecutionMap({
-      'q-1': {state: 'SUCCEEDED'},
-      'q-2': {state: 'SUCCEEDED'},
-      'q-3': {state: 'SUCCEEDED'}
-    });
-    mockUseResults.mockReturnValue(rowsResult);
+    queueRuns('q-1', 'q-2', 'q-3');
     seedScript();
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    runScriptSingle();
+    await runScriptSingle(user);
 
-    await screen.findByText('Succeeded');
+    expect(await screen.findByText(/Script finished · 3 statements/)).toBeInTheDocument();
     expect(mockRunQuery).toHaveBeenCalledTimes(3);
     expect(mockRunQuery.mock.calls.map((c) => c[0].sql)).toEqual([
       'SELECT 1',
       'CREATE TABLE alice.t (id int)',
       'SELECT 2'
     ]);
-    // FR-003: one history entry per statement, each with that statement's SQL.
-    expect(appendEntry).toHaveBeenCalledTimes(3);
-    expect(appendEntry.mock.calls.map((c) => c[0].sql)).toEqual([
+    expect(mockAppend).toHaveBeenCalledTimes(3);
+    expect(mockAppend.mock.calls.map((c) => c[1].sql)).toEqual([
       'SELECT 1',
       'CREATE TABLE alice.t (id int)',
       'SELECT 2'
     ]);
-    // Completion summary in the status bar.
-    expect(screen.getByRole('status')).toHaveTextContent('Script finished · 3 statements');
-    // Single-result scope: no result-tab strip.
+    // Single-result scope → no per-statement result-tab strip.
     expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
   });
 
-  it('stops at the first failed statement and names it in the banner (FR-002/FR-004)', async () => {
-    queueExecutions('q-1', 'q-2', 'q-3');
-    mockExecutionMap({
-      'q-1': {state: 'SUCCEEDED'},
-      'q-2': {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'}
-    });
+  it('stops at the first failed statement, names it, and reports the skipped remainder (FR-002/FR-004)', async () => {
+    queueRuns('q-1', 'q-2', 'q-3');
+    statusMap['q-2'] = {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'};
     seedScript();
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    runScriptSingle();
+    await runScriptSingle(user);
 
     expect(await screen.findByText(/Statement 2 of 3 failed: SYNTAX_ERROR: line 1/)).toBeInTheDocument();
     expect(screen.getByText(/Statement 3 did not run/)).toBeInTheDocument();
-    // Statement 3 never started; statements 1–2 each got a history entry.
     expect(mockRunQuery).toHaveBeenCalledTimes(2);
-    expect(appendEntry).toHaveBeenCalledTimes(2);
+    expect(mockAppend).toHaveBeenCalledTimes(2);
   });
 
   it('Stop mid-batch halts the remainder even when the in-flight statement succeeds (FR-002)', async () => {
-    queueExecutions('q-1', 'q-2');
-    const map = mockExecutionMap({'q-1': {state: 'RUNNING'}});
+    queueRuns('q-1', 'q-2');
+    statusMap['q-1'] = {state: 'RUNNING'};
     seedScript('SELECT 1;\nSELECT 2;');
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    runScriptSingle();
+    await runScriptSingle(user);
     const stop = await screen.findByRole('button', {name: /Stop/});
+    statusMap['q-1'] = {state: 'SUCCEEDED'}; // outruns the cancel
+    await user.click(stop);
 
-    // The statement outruns the cancel: it reaches SUCCEEDED, but Stop already
-    // marked the batch halted — statement 2 must never start.
-    map['q-1'] = {state: 'SUCCEEDED'};
-    fireEvent.click(stop);
-
-    const {stopQuery} = await import('./query.service');
-    expect(vi.mocked(stopQuery)).toHaveBeenCalledWith('q-1');
-    await screen.findByText('Succeeded');
+    expect(mockStopQuery).toHaveBeenCalledWith('q-1');
+    await screen.findByText('Succeeded', undefined, {timeout: 3000});
     expect(mockRunQuery).toHaveBeenCalledTimes(1);
-    // Halted early → no "Script finished" summary.
-    expect(screen.getByRole('status')).not.toHaveTextContent('Script finished');
+    expect(screen.queryByText(/Script finished/)).not.toBeInTheDocument();
   });
 
-  it('Run Script (tab per statement) yields one result tab per result-producing statement (FR-007)', async () => {
-    queueExecutions('q-1', 'q-2', 'q-3');
-    mockExecutionMap({
-      'q-1': {state: 'SUCCEEDED'},
-      'q-2': {state: 'SUCCEEDED'},
-      'q-3': {state: 'SUCCEEDED'}
-    });
-    mockUseResults.mockReturnValue(rowsResult);
+  it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
+    queueRuns('q-1', 'q-2', 'q-3');
     seedScript();
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    runScriptTabs();
+    await runScriptTabs(user);
 
     const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
     const resultTabs = within(strip).getAllByRole('tab');
     // The CREATE (statement 2) earns no tab; labels carry statement positions.
     expect(resultTabs.map((t) => t.textContent)).toEqual(['1 · SELECT 1', '3 · SELECT 2']);
-    // The newest result tab is active; switching re-keys the displayed results.
     expect(resultTabs[1]).toHaveAttribute('aria-selected', 'true');
-    fireEvent.click(resultTabs[0]);
+    await user.click(resultTabs[0]);
     expect(within(strip).getAllByRole('tab')[0]).toHaveAttribute('aria-selected', 'true');
-    expect(mockUseResults.mock.lastCall?.[0]).toBe('q-1');
-  });
 
-  it('a new run clears the previous run’s result tabs (FR-007)', async () => {
-    queueExecutions('q-1', 'q-2', 'q-3', 'q-4');
-    mockExecutionMap({
-      'q-1': {state: 'SUCCEEDED'},
-      'q-2': {state: 'SUCCEEDED'},
-      'q-3': {state: 'SUCCEEDED'},
-      'q-4': {state: 'RUNNING'}
-    });
-    mockUseResults.mockReturnValue(rowsResult);
-    seedScript();
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
-
-    runScriptTabs();
-    await screen.findByRole('tablist', {name: 'Result tabs'});
-
-    runScriptTabs();
+    // A fresh run (with an in-flight last statement) clears the previous strip.
+    queueRuns('q-4', 'q-5', 'q-6');
+    statusMap['q-6'] = {state: 'RUNNING'};
+    await runScriptTabs(user);
     await screen.findByRole('button', {name: /Stop/});
     expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
   });
 
   it('shows batch progress in the status bar while running (FR-004)', async () => {
-    queueExecutions('q-1', 'q-2', 'q-3');
-    mockExecutionMap({
-      'q-1': {state: 'SUCCEEDED'},
-      'q-2': {state: 'RUNNING'}
-    });
+    queueRuns('q-1', 'q-2', 'q-3');
+    statusMap['q-2'] = {state: 'RUNNING'};
     seedScript();
-    renderWorkspace();
-    await screen.findByTestId('sql-editor');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
 
-    runScriptSingle();
-
+    await runScriptSingle(user);
     await screen.findByRole('button', {name: /Stop/});
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Statement 2 of 3'));
+    expect(await screen.findByText(/Statement 2 of 3/, undefined, {timeout: 3000})).toBeInTheDocument();
   });
 
-  it('Run Statement executes the statement under the cursor (FR-006)', async () => {
-    queueExecutions('q-1');
+  it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
+    queueRuns('q-1', 'q-2');
     seedScript('SELECT 1;\nSELECT 2;');
-    renderWorkspace();
-    const editor = (await screen.findByTestId('sql-editor')) as HTMLTextAreaElement;
+    const {user} = renderWorkspace();
+    const ta = (await screen.findByLabelText('SQL editor')) as HTMLTextAreaElement;
 
-    const cursor = editor.value.indexOf('SELECT 2') + 3;
-    editor.setSelectionRange(cursor, cursor);
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-
-    await screen.findByRole('button', {name: /Stop/});
-    expect(mockRunQuery).toHaveBeenCalledTimes(1);
-    expect(mockRunQuery.mock.calls[0][0].sql).toBe('SELECT 2');
-  });
-
-  it('Run Statement executes the selection when one exists (FR-006)', async () => {
-    queueExecutions('q-1');
-    seedScript('SELECT 1;\nSELECT 2;');
-    renderWorkspace();
-    const editor = (await screen.findByTestId('sql-editor')) as HTMLTextAreaElement;
-
-    editor.setSelectionRange(0, 'SELECT 1'.length);
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-
-    await screen.findByRole('button', {name: /Stop/});
-    expect(mockRunQuery).toHaveBeenCalledTimes(1);
+    ta.setSelectionRange(0, 'SELECT 1'.length);
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(1));
     expect(mockRunQuery.mock.calls[0][0].sql).toBe('SELECT 1');
+    await screen.findByText('Succeeded');
+
+    const cursor = ta.value.indexOf('SELECT 2') + 3;
+    ta.setSelectionRange(cursor, cursor);
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+    expect(mockRunQuery.mock.calls[1][0].sql).toBe('SELECT 2');
   });
 });
 
-describe('QueryWorkspace — shared-space routing & save (SPEC-055)', () => {
-  const sharedConnection = {
-    id: 'salesdata',
-    label: 'salesdata',
-    database: 'salesdata',
-    kind: 'shared' as const,
-    status: 'active' as const,
-    role: 'member' as const
-  };
+describe('QueryWorkspace — shared-space routing & save (SPEC-055/077)', () => {
+  it('runs with no db/outputLocation and offers personal + shared save destinations', async () => {
+    mockReadCache.mockResolvedValue(
+      ok({version: 1, connections: [{name: 'salesdata', role: 'member', status: 'active'}]})
+    );
+    seedSingle('SELECT 1');
+    mockCopyObject.mockResolvedValue(ok({destKey: 'salesdata/out.csv'}));
+    const {user} = renderWorkspace();
+    await screen.findByRole('button', {name: 'sales_2026'}); // rail loaded
 
-  // SPEC-077: the rail no longer selects an active database; a shared destination
-  // is only chosen at Save time, so shared connections just need to be present.
-  function withSharedActive() {
-    mockUseConnections.mockReturnValue({
-      connections: [personalConnection, sharedConnection],
-      isLoading: false,
-      error: null,
-      refresh: vi.fn(),
-      isRefreshing: false,
-      reconcile: vi.fn()
-    });
-  }
-
-  async function renderSharedSucceeded() {
-    withSharedActive();
-    mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
-    mockUseExecution.mockReturnValue({
-      data: {...succeededStatus.data, outputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/q-1.csv'}
-    } as unknown as ReturnType<typeof useQueryExecution>);
-    mockUseResults.mockReturnValue(rowsResult);
-    renderWorkspace();
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
     await screen.findByText('Succeeded');
-  }
-
-  it('never routes results to a shared prefix at run time — results default to personal (SPEC-077)', async () => {
-    withSharedActive();
-    mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
-    renderWorkspace();
-
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
-    // No database context, no run-time shared outputLocation — just sql + username.
-    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: expect.any(String), username: 'alice'});
+    // The run carries neither a database context nor a shared outputLocation.
+    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 1', username: 'alice'});
     expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('outputLocation');
-    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
-  });
 
-  it('a personal query is run with just sql + username (no outputLocation, no database)', async () => {
-    mockRunQuery.mockResolvedValue({success: true, data: {queryExecutionId: 'q-1'}});
-    renderWorkspace(); // default: only the personal connection
+    await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+    const spaceSelect = within(dialog).getByLabelText('Save to');
+    expect(within(spaceSelect).getByRole('option', {name: 'My files'})).toBeInTheDocument();
+    expect(within(spaceSelect).getByRole('option', {name: 'salesdata'})).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', {name: 'Run statement'}));
-    expect(await screen.findByRole('button', {name: /Stop/})).toBeInTheDocument();
-    expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: expect.any(String), username: 'alice'});
-    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('outputLocation');
-    expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
-  });
+    await user.selectOptions(spaceSelect, 'salesdata');
+    const nameInput = within(dialog).getByLabelText('File name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'out');
+    await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
 
-  it('the Save dialog offers personal + member-of shared destinations (FR-003)', async () => {
-    await renderSharedSucceeded();
-    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
-    expect(screen.getByText('spaces:personal,salesdata')).toBeInTheDocument();
-  });
-
-  it('saving a shared result into the user space is a cross-bucket copy with no Files link (FR-003/FR-004)', async () => {
-    mockCopyObject.mockResolvedValue({success: true, data: {destKey: 'alice/reports/out.csv'}});
-    await renderSharedSucceeded();
-
-    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
-    fireEvent.click(screen.getByRole('button', {name: 'save-to-personal'}));
-
-    expect(mockCopyObject).toHaveBeenCalledWith({
-      bucket: 'shared-bucket',
-      destBucket: 'user-bucket',
-      sourceKey: 'salesdata/athenaresults/alice/q-1.csv',
-      destKey: 'alice/reports/out.csv',
-      username: 'alice',
-      overwrite: false
-    });
-    expect(await screen.findByText(/Saved to alice\/reports\/out\.csv/)).toBeInTheDocument();
-    // Personal-dest save keeps the deep-link.
-    expect(screen.getByRole('button', {name: 'View in Files'})).toBeInTheDocument();
-  });
-
-  it('saving into a shared space copies within that bucket and offers no Files link (FR-003)', async () => {
-    mockCopyObject.mockResolvedValue({success: true, data: {destKey: 'salesdata/reports/out.csv'}});
-    await renderSharedSucceeded();
-
-    fireEvent.click(screen.getByRole('button', {name: 'Save results to my files'}));
-    fireEvent.click(screen.getByRole('button', {name: 'save-to-salesdata'}));
-
-    expect(mockCopyObject).toHaveBeenCalledWith({
-      bucket: 'shared-bucket',
-      destBucket: 'shared-bucket',
-      sourceKey: 'salesdata/athenaresults/alice/q-1.csv',
-      destKey: 'salesdata/reports/out.csv',
-      username: 'alice',
-      overwrite: false
-    });
-    expect(await screen.findByText(/Saved to salesdata\/reports\/out\.csv/)).toBeInTheDocument();
-    // The Files browser cannot render shared spaces, so no deep-link is offered.
+    // Cross-bucket copy from the personal results prefix into the shared space.
+    expect(mockCopyObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: 'user-bucket',
+        destBucket: 'shared-bucket',
+        sourceKey: 'alice/athenaresults/q-1.csv',
+        destKey: 'salesdata/out.csv',
+        overwrite: false
+      })
+    );
+    expect(await screen.findByText(/Saved to salesdata\/out\.csv/)).toBeInTheDocument();
+    // The Files browser can't render shared spaces → no deep-link.
     expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
   });
 });

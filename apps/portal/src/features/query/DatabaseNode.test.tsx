@@ -1,17 +1,34 @@
-import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent, within} from '@testing-library/react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-
-vi.mock('./useSchema', () => ({useSchema: vi.fn(), invalidateSchema: vi.fn()}));
-
-import {useSchema, invalidateSchema} from './useSchema';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {screen, within, waitFor, act} from '@testing-library/react';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {DatabaseNode} from './DatabaseNode';
+import * as glue from './glue.service';
 import type {TableActions} from './SchemaBrowser';
-import type {Connection} from './query.types';
+import type {Connection, GlueTableSummary} from './query.types';
 
-const mockUseSchema = vi.mocked(useSchema);
-const mockInvalidateSchema = vi.mocked(invalidateSchema);
-type SchemaState = ReturnType<typeof useSchema>;
+// Integration style (react.md §21): render the REAL DatabaseNode + its real
+// useSchema hook + the real TableActionsMenu, and mock ONLY the AWS boundary —
+// the Glue service (getDatabase/listTables). Schema partitioning, disclosure
+// state and per-node refresh all run for real; assertions are on what the user
+// sees, not on hook call args.
+vi.mock('./glue.service', async (importActual) => {
+  const actual = await importActual<typeof glue>();
+  return {...actual, getDatabase: vi.fn(), listTables: vi.fn()};
+});
+
+const mock = vi.mocked(glue);
+const ok = <T,>(data: T) => ({success: true as const, data});
+
+const table = (name: string, over: Partial<GlueTableSummary> = {}): GlueTableSummary => ({
+  name,
+  columns: [{name: 'region', type: 'string'}],
+  ...over
+});
+const view = (name: string): GlueTableSummary => ({
+  name,
+  tableType: 'VIRTUAL_VIEW',
+  columns: [{name: 'total', type: 'double'}]
+});
 
 function makeActions(over: Partial<TableActions> = {}): TableActions {
   return {
@@ -27,211 +44,154 @@ function makeActions(over: Partial<TableActions> = {}): TableActions {
 
 const personal: Connection = {id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal'};
 
-const mixedSchema = {
-  isPending: false,
-  isError: false,
-  data: {
-    database: {name: 'alice'},
-    tables: [
-      {name: 'sales_2026', columns: [{name: 'region', type: 'string'}]},
-      {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: [{name: 'total', type: 'double'}]}
-    ]
-  }
-} as unknown as SchemaState;
-
 function renderNode(props: Partial<React.ComponentProps<typeof DatabaseNode>> = {}) {
-  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  return render(
-    <QueryClientProvider client={client}>
-      <DatabaseNode
-        connection={personal}
-        defaultExpanded
-        actions={makeActions()}
-        {...props}
-      />
-    </QueryClientProvider>
+  return renderWithProviders(
+    <DatabaseNode
+      connection={personal}
+      defaultExpanded
+      actions={makeActions()}
+      {...props}
+    />
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUseSchema.mockReturnValue(mixedSchema);
-  mockInvalidateSchema.mockResolvedValue(undefined);
+  mock.getDatabase.mockResolvedValue(ok({name: 'alice'}));
+  mock.listTables.mockResolvedValue(ok([table('sales_2026'), view('revenue_view')]));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('DatabaseNode', () => {
-  it('partitions objects into Tables and Views groups by tableType', () => {
+  it('groups objects into Tables and Views, with no "View" badge on the view row', async () => {
     renderNode();
-    expect(screen.getByRole('button', {name: /Tables \(1\)/})).toBeInTheDocument();
+    expect(await screen.findByRole('button', {name: /Tables \(1\)/})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: /Views \(1\)/})).toBeInTheDocument();
-    // The table sits in the Tables group; the view in the Views group — no "View" badge.
     expect(screen.getByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'revenue_view'})).toBeInTheDocument();
     expect(screen.queryByText('View')).not.toBeInTheDocument();
   });
 
-  it('does not fetch schema while collapsed; fetches on expand', () => {
-    mockUseSchema.mockReturnValue(mixedSchema);
-    renderNode({defaultExpanded: false});
-    // Collapsed: useSchema disabled (null).
-    expect(mockUseSchema).toHaveBeenCalledWith(null);
-    expect(mockUseSchema).not.toHaveBeenCalledWith('alice');
+  it('fetches schema only when expanded (not while collapsed)', async () => {
+    const {user} = renderNode({defaultExpanded: false});
+    // Collapsed: the schema query is disabled, so no Glue call and no Refresh.
+    expect(mock.getDatabase).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', {name: /refresh tables/i})).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', {name: /Expand My workspace/}));
-    expect(mockUseSchema).toHaveBeenCalledWith('alice');
+    await user.click(screen.getByRole('button', {name: /Expand My workspace/}));
+    expect(await screen.findByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
+    expect(mock.getDatabase).toHaveBeenCalledWith('alice');
+    expect(mock.listTables).toHaveBeenCalledWith('alice');
   });
 
-  it('collapsing the database hides both the Tables and Views groups', () => {
-    renderNode();
-    expect(screen.getByRole('button', {name: /Tables \(1\)/})).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: /Collapse My workspace/}));
+  it('collapsing hides the groups, and toggling one group hides only it', async () => {
+    const {user} = renderNode();
+    await screen.findByRole('button', {name: /Tables \(1\)/});
+
+    // Toggling the Tables group hides only its rows.
+    await user.click(screen.getByRole('button', {name: /Tables \(1\)/}));
+    expect(screen.queryByRole('button', {name: 'sales_2026'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'revenue_view'})).toBeInTheDocument();
+
+    // Collapsing the database hides both groups.
+    await user.click(screen.getByRole('button', {name: /Collapse My workspace/}));
     expect(screen.queryByRole('button', {name: /Tables \(1\)/})).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: /Views \(1\)/})).not.toBeInTheDocument();
   });
 
-  it('toggling a group hides only that group', () => {
-    renderNode();
-    fireEvent.click(screen.getByRole('button', {name: /Tables \(1\)/}));
-    expect(screen.queryByRole('button', {name: 'sales_2026'})).not.toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'revenue_view'})).toBeInTheDocument();
-  });
-
-  it('shows "No tables." for an empty Tables group and "No views." for empty views', () => {
-    mockUseSchema.mockReturnValue({
-      isPending: false,
-      isError: false,
-      data: {database: {name: 'alice'}, tables: []}
-    } as unknown as SchemaState);
-    renderNode();
-    expect(screen.getByText('No tables.')).toBeInTheDocument();
-    // Views (0) defaults collapsed; expanding it reveals the empty state.
-    fireEvent.click(screen.getByRole('button', {name: /Views \(0\)/}));
+  it('shows "No tables." / "No views." for an empty database, Views collapsed by default', async () => {
+    mock.listTables.mockResolvedValue(ok([]));
+    const {user} = renderNode();
+    expect(await screen.findByText('No tables.')).toBeInTheDocument();
+    // With no views, the Views group defaults collapsed — its empty state is hidden.
+    const views = screen.getByRole('button', {name: /Views \(0\)/});
+    expect(views).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('No views.')).not.toBeInTheDocument();
+    await user.click(views);
     expect(screen.getByText('No views.')).toBeInTheDocument();
   });
 
-  it('defaults Views collapsed when the database has no views', () => {
-    mockUseSchema.mockReturnValue({
-      isPending: false,
-      isError: false,
-      data: {database: {name: 'alice'}, tables: [{name: 'sales_2026', columns: []}]}
-    } as unknown as SchemaState);
-    renderNode();
-    // Views (0) header present but its empty state is collapsed by default.
-    expect(screen.getByRole('button', {name: /Views \(0\)/})).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('No views.')).not.toBeInTheDocument();
-  });
-
-  it('expanding a table reveals its columns as non-interactive rows (no click-to-insert)', () => {
-    renderNode();
-    fireEvent.click(screen.getByRole('button', {name: 'sales_2026'}));
-    // The column name + type show for inspection, but there is no button/insert affordance.
+  it('expands a table to show its columns for inspection only (no click-to-insert)', async () => {
+    const {user} = renderNode();
+    await user.click(await screen.findByRole('button', {name: 'sales_2026'}));
     expect(screen.getByText('region')).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: /region/})).not.toBeInTheDocument();
   });
 
-  it('offers view-aware actions for a view row and invokes them with (database, table)', () => {
+  it('offers view-aware actions for a view row and invokes them with (database, table)', async () => {
     const onViewDdl = vi.fn();
-    const actions = makeActions({
-      canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW',
-      onViewDdl
-    });
-    renderNode({actions});
-    fireEvent.click(screen.getByRole('button', {name: 'Options for revenue_view'}));
+    const actions = makeActions({canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW', onViewDdl});
+    const {user} = renderNode({actions});
+    await user.click(await screen.findByRole('button', {name: 'Options for revenue_view'}));
     const menu = screen.getByRole('menu');
     expect(within(menu).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
     expect(within(menu).getByRole('menuitem', {name: 'View source files'})).toBeDisabled();
     // SPEC-093: views can't be shared — the item is absent, not disabled.
     expect(within(menu).queryByRole('menuitem', {name: 'Share table'})).not.toBeInTheDocument();
 
-    fireEvent.click(within(menu).getByRole('menuitem', {name: 'View DDL'}));
+    await user.click(within(menu).getByRole('menuitem', {name: 'View DDL'}));
     expect(onViewDdl).toHaveBeenCalledWith(
       'alice',
       expect.objectContaining({name: 'revenue_view', tableType: 'VIRTUAL_VIEW'})
     );
   });
 
-  // SPEC-093: Share table on base tables, invoked with the rail node's database.
-  it('offers Share table on a base table and invokes it with (database, table)', () => {
+  it('offers Share table on a base table and invokes it with (database, table)', async () => {
     const onShareTable = vi.fn();
-    renderNode({actions: makeActions({onShareTable})});
-    fireEvent.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
-    const menu = screen.getByRole('menu');
-    fireEvent.click(within(menu).getByRole('menuitem', {name: 'Share table'}));
+    const {user} = renderNode({actions: makeActions({onShareTable})});
+    await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Share table'}));
     expect(onShareTable).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'sales_2026'}));
   });
 
-  it('renders a per-node "setting up" state on a NotFound error', () => {
-    mockUseSchema.mockReturnValue({
-      isPending: false,
-      isError: true,
-      error: new Error('Database "alice" does not exist yet.'),
-      data: undefined
-    } as unknown as SchemaState);
+  it('renders a per-node "setting up" state on a NotFound error', async () => {
+    mock.getDatabase.mockResolvedValue({
+      success: false,
+      error: {message: 'Database "alice" does not exist yet.', code: 'NotFound'}
+    });
     renderNode();
-    expect(screen.getByText(/Setting up your database/)).toBeInTheDocument();
+    expect(await screen.findByText(/Setting up your database/)).toBeInTheDocument();
   });
 
-  // SPEC-086: per-database Refresh.
-  it('shows a Refresh control on an expanded node', () => {
-    renderNode();
-    expect(screen.getByRole('button', {name: /refresh tables in My workspace/i})).toBeInTheDocument();
-  });
+  // SPEC-086: per-database Refresh re-reads only this node's schema.
+  it('re-reads this database on Refresh, reflecting the new table set', async () => {
+    mock.listTables.mockResolvedValue(ok([table('old_table', {columns: []})]));
+    const {user} = renderNode();
+    expect(await screen.findByRole('button', {name: 'old_table'})).toBeInTheDocument();
+    expect(mock.listTables).toHaveBeenCalledTimes(1);
 
-  it('shows no Refresh control while the node is collapsed (nothing loaded to refresh)', () => {
-    renderNode({defaultExpanded: false});
-    expect(screen.queryByRole('button', {name: /refresh tables/i})).not.toBeInTheDocument();
-  });
-
-  it('refreshing invalidates only this database’s schema (scoped)', () => {
-    renderNode();
-    fireEvent.click(screen.getByRole('button', {name: /refresh tables in My workspace/i}));
-    expect(mockInvalidateSchema).toHaveBeenCalledTimes(1);
-    expect(mockInvalidateSchema).toHaveBeenCalledWith(expect.anything(), 'alice');
-  });
-
-  it('disables + spins the Refresh control while the node’s refetch is in flight', () => {
-    mockUseSchema.mockReturnValue({...mixedSchema, isFetching: true} as unknown as SchemaState);
-    renderNode();
-    const refresh = screen.getByRole('button', {name: /refresh tables in My workspace/i});
-    expect(refresh).toBeDisabled();
-    expect(refresh.querySelector('svg')).toHaveClass('animate-spin');
-  });
-
-  it('re-enables the Refresh control once the refetch settles', () => {
-    mockUseSchema.mockReturnValue({...mixedSchema, isFetching: false} as unknown as SchemaState);
-    renderNode();
-    const refresh = screen.getByRole('button', {name: /refresh tables in My workspace/i});
-    expect(refresh).toBeEnabled();
-    expect(refresh.querySelector('svg')).not.toHaveClass('animate-spin');
-  });
-
-  it('surfaces a freshly-read table after a refresh (drops a removed one)', () => {
-    mockUseSchema.mockReturnValue({
-      isPending: false,
-      isError: false,
-      isFetching: false,
-      data: {database: {name: 'alice'}, tables: [{name: 'old_table', columns: []}]}
-    } as unknown as SchemaState);
-    const {rerender} = renderNode();
-    expect(screen.getByRole('button', {name: 'old_table'})).toBeInTheDocument();
-
-    // Simulate the refetch returning a new object set (new table in, old table out).
-    mockUseSchema.mockReturnValue({
-      isPending: false,
-      isError: false,
-      isFetching: false,
-      data: {database: {name: 'alice'}, tables: [{name: 'new_table', columns: []}]}
-    } as unknown as SchemaState);
-    rerender(
-      <QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>
-        <DatabaseNode
-          connection={personal}
-          defaultExpanded
-          actions={makeActions()}
-        />
-      </QueryClientProvider>
-    );
-    expect(screen.getByRole('button', {name: 'new_table'})).toBeInTheDocument();
+    // A refresh picks up a freshly-read table (and drops a removed one).
+    mock.listTables.mockResolvedValue(ok([table('new_table', {columns: []})]));
+    await user.click(screen.getByRole('button', {name: /refresh tables in My workspace/i}));
+    expect(await screen.findByRole('button', {name: 'new_table'})).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'old_table'})).not.toBeInTheDocument();
+    expect(mock.listTables.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('disables + spins the Refresh control while a refetch is in flight, re-enabling when it settles', async () => {
+    const {user} = renderNode();
+    await screen.findByRole('button', {name: 'sales_2026'});
+
+    // Hang the refetch so the in-flight state is observable, then release it.
+    let release: (() => void) | undefined;
+    mock.getDatabase.mockImplementationOnce(
+      () => new Promise((resolve) => (release = () => resolve(ok({name: 'alice'}))))
+    );
+    await user.click(screen.getByRole('button', {name: /refresh tables in My workspace/i}));
+    await waitFor(() => {
+      const btn = screen.getByRole('button', {name: /refresh tables in My workspace/i});
+      expect(btn).toBeDisabled();
+      expect(btn.querySelector('svg')).toHaveClass('animate-spin');
+    });
+
+    act(() => release?.());
+    await waitFor(() => {
+      const btn = screen.getByRole('button', {name: /refresh tables in My workspace/i});
+      expect(btn).toBeEnabled();
+      expect(btn.querySelector('svg')).not.toHaveClass('animate-spin');
+    });
   });
 });

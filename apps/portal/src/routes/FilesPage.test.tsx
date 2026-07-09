@@ -1,55 +1,71 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen} from '@testing-library/react';
-import {MemoryRouter} from 'react-router-dom';
-import type {Connection} from '../features/query/query.types';
+import {screen, within, waitFor} from '@testing-library/react';
+import {renderWithProviders} from '../test/renderWithProviders';
+import {authenticated} from '../test/authFixtures';
+import {UploadQueueProvider} from '../features/file-browser';
+import * as fileService from '../features/file-browser/fileBrowser.service';
+import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.service';
+import type {FileListPage} from '../types/s3.types';
+import type {SharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.types';
 
-// Capture the props FileBrowser is rendered with so we can assert the target space.
-const fileBrowserProps = vi.fn();
-vi.mock('../features/file-browser', async () => {
-  // Exercise the real useFileSpace + usableSpaceTargets (light deps) while stubbing
-  // the heavy browser.
-  const {useFileSpace, usableSpaceTargets} = await vi.importActual<
-    typeof import('../features/file-browser/useFileSpace')
-  >('../features/file-browser/useFileSpace');
+// Integration style (react.md §21): render the REAL FilesPage — real useAuth
+// (injected via renderWithProviders), real useConnections/useFileSpace, the real
+// Sidebar, and the real FileBrowser subtree — and mock ONLY the AWS boundary the
+// page's tree hits: the file-browser + shared-spaces service modules, the download
+// side-effect, and the credentials client. The routing behavior (which bucket +
+// prefix the browser targets, the vanished-space fallback) is asserted through what
+// the real FileBrowser observably does (its `listFiles` call + rendered breadcrumb).
+vi.mock('../features/file-browser/fileBrowser.service', async (importActual) => {
+  const actual = await importActual<typeof fileService>();
   return {
-    FileBrowser: (props: Record<string, unknown>) => {
-      fileBrowserProps(props);
-      return <div data-testid="file-browser" />;
-    },
+    ...actual,
     ensurePrefixMarker: vi.fn().mockResolvedValue({success: true}),
-    prefixMarkerKey: (u: string) => `${u}/DO_NOT_DELETE.txt`,
-    useFileSpace,
-    usableSpaceTargets
+    listFiles: vi.fn(),
+    getObjectMetadata: vi.fn(),
+    getDownloadUrl: vi.fn(),
+    deleteObjects: vi.fn(),
+    deleteFolder: vi.fn(),
+    moveObject: vi.fn(),
+    moveFolder: vi.fn(),
+    copyObject: vi.fn(),
+    copyFolder: vi.fn(),
+    objectExists: vi.fn(),
+    uploadFile: vi.fn(),
+    createFolder: vi.fn()
   };
 });
-vi.mock('../features/auth', () => ({
-  useAuth: () => ({user: {username: 'alice'}, status: 'authenticated'})
+vi.mock('../features/file-browser/fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
+vi.mock('../features/shared-spaces/sharedSpaces.service', () => ({
+  readSharedConnectionsCache: vi.fn(),
+  enqueueSharedSpaceRequest: vi.fn().mockResolvedValue({success: true, data: {requestId: 'r1'}})
 }));
-vi.mock('../hooks/usePageTitle', () => ({usePageTitle: vi.fn()}));
-vi.mock('../components/Sidebar', () => ({Sidebar: () => <nav aria-label="Your spaces" />}));
-
-// useConnections is mocked so the page needs no QueryClient / live AWS.
-const connectionsValue = vi.fn();
-vi.mock('../features/query/useConnections', () => ({
-  useConnections: () => connectionsValue()
+vi.mock('../lib/awsCredentials', () => ({
+  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
+  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
 }));
 
-const personal: Connection = {id: 'personal', label: 'alice', database: 'alice', kind: 'personal'};
-const marketing: Connection = {
-  id: 'marketing_data',
-  label: 'marketing_data',
-  database: 'marketing_data',
-  kind: 'shared',
-  status: 'active',
-  role: 'member'
-};
-const provisioning: Connection = {
-  id: 'sales_2026',
-  label: 'sales_2026',
-  database: 'sales_2026',
-  kind: 'shared',
-  status: 'provisioning',
-  role: 'owner'
+const listFiles = vi.mocked(fileService.listFiles);
+const mockReadCache = vi.mocked(readSharedConnectionsCache);
+
+const ok = <T,>(data: T) => ({success: true as const, data});
+
+const page = (over: Partial<FileListPage> = {}): FileListPage => ({
+  files: [
+    {type: 'file', key: 'alice/report.pdf', name: 'report.pdf', size: 2048, lastModified: new Date('2026-03-04')}
+  ],
+  folders: [{type: 'folder', prefix: 'alice/docs/', name: 'docs'}],
+  isTruncated: false,
+  ...over
+});
+
+// The per-user cache the pipeline writes: one active shared space (member) and one
+// still-provisioning space (owner) → useConnections yields personal + both shared.
+const cache: SharedConnectionsCache = {
+  version: 1,
+  connections: [
+    {name: 'marketing_data', role: 'member', status: 'active'},
+    {name: 'sales_2026', role: 'owner', status: 'provisioning'}
+  ]
 };
 
 // FilesPage reads the bucket env in module-level consts (evaluated at import), so
@@ -58,80 +74,69 @@ vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
 vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 const {default: FilesPage} = await import('./FilesPage');
 
-function renderAt(path: string) {
-  render(
-    <MemoryRouter initialEntries={[path]}>
+// The UploadQueueProvider lives in the authenticated app layout above the route in
+// production; supply it here so the real FileBrowser subtree mounts.
+function renderAt(route: string) {
+  return renderWithProviders(
+    <UploadQueueProvider>
       <FilesPage />
-    </MemoryRouter>
+    </UploadQueueProvider>,
+    {route, auth: authenticated('alice')}
   );
+}
+
+/** The breadcrumb root crumb (the space name) — scoped to the breadcrumb nav so it
+ *  doesn't collide with the sidebar's space list. */
+function rootCrumb() {
+  return within(screen.getByRole('navigation', {name: 'breadcrumb'}));
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  connectionsValue.mockReturnValue({connections: [personal, marketing, provisioning], isLoading: false});
+  window.innerWidth = 1024;
+  listFiles.mockResolvedValue(ok(page()));
+  mockReadCache.mockResolvedValue(ok(cache));
 });
 
-describe('FilesPage personal space (SPEC-013/044)', () => {
-  it('defaults to the personal space rooted at {username}/', () => {
+describe('FilesPage — personal space (SPEC-013/044)', () => {
+  it('defaults to the personal space: lists {username}/ in the user bucket, writable', async () => {
     renderAt('/files');
-    expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bucket: 'user-bucket',
-        prefix: 'alice/',
-        rootPrefix: 'alice/',
-        rootLabel: 'alice',
-        markerKey: 'alice/DO_NOT_DELETE.txt',
-        username: 'alice',
-        writable: true
-      })
-    );
+    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined));
+    // The username is the root breadcrumb crumb, and write controls are present.
+    expect(rootCrumb().getByText('alice')).toBeInTheDocument();
+    expect(await screen.findByRole('button', {name: 'New folder'})).toBeInTheDocument();
   });
 
-  it('seeds the browser at an in-space ?prefix=', () => {
+  it('seeds the browser at an in-space ?prefix= deep link', async () => {
     renderAt('/files?prefix=alice%2Fsales%2F');
-    expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({prefix: 'alice/sales/', rootPrefix: 'alice/'})
-    );
+    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/sales/', undefined));
   });
 
-  it('ignores an out-of-space ?prefix= and falls back to the space root', () => {
+  it('ignores an out-of-space ?prefix= and falls back to the space root', async () => {
     renderAt('/files?prefix=bob%2Fsecret%2F');
-    expect(fileBrowserProps).toHaveBeenCalledWith(expect.objectContaining({prefix: 'alice/'}));
+    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined));
   });
 });
 
-describe('FilesPage shared space (SPEC-057 FR-002/FR-004)', () => {
-  it('targets the shared bucket + space root for ?space=', () => {
+describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
+  it('targets the shared bucket + space root for an active ?space=', async () => {
     renderAt('/files?space=marketing_data');
-    expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bucket: 'shared-bucket',
-        prefix: 'marketing_data/',
-        rootPrefix: 'marketing_data/',
-        rootLabel: 'marketing_data',
-        markerKey: 'marketing_data/DO_NOT_DELETE.txt',
-        username: 'marketing_data',
-        writable: true
-      })
-    );
+    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('shared-bucket', 'marketing_data/', undefined));
+    expect(rootCrumb().getByText('marketing_data')).toBeInTheDocument();
   });
 
-  it('seeds an in-space ?prefix= within the shared space', () => {
-    renderAt('/files?space=marketing_data&prefix=marketing_data%2Fq1%2F');
-    expect(fileBrowserProps).toHaveBeenCalledWith(
-      expect.objectContaining({rootPrefix: 'marketing_data/', prefix: 'marketing_data/q1/'})
-    );
-  });
+  it('falls back to the personal space with a notice for a ?space= that is gone or not yet usable', async () => {
+    // Unknown space → fallback; the browser targets the personal space and a
+    // non-blocking status notice explains the switch.
+    const unknown = renderAt('/files?space=ghost');
+    await waitFor(() => expect(listFiles).toHaveBeenLastCalledWith('user-bucket', 'alice/', undefined));
+    expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
+    unknown.unmount();
 
-  it('falls back to personal with a notice for an unknown ?space=', () => {
-    renderAt('/files?space=ghost');
-    expect(screen.getByRole('status')).toHaveTextContent(/no longer available/i);
-    expect(fileBrowserProps).toHaveBeenCalledWith(expect.objectContaining({rootPrefix: 'alice/'}));
-  });
-
-  it('falls back to personal for a not-yet-usable (provisioning) ?space=', () => {
+    // A provisioning (not-yet-usable) space resolves the same way.
+    listFiles.mockClear();
     renderAt('/files?space=sales_2026');
-    expect(screen.getByRole('status')).toHaveTextContent(/no longer available/i);
-    expect(fileBrowserProps).toHaveBeenCalledWith(expect.objectContaining({rootPrefix: 'alice/'}));
+    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined));
+    expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
   });
 });

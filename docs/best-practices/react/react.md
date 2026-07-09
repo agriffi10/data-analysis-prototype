@@ -28,6 +28,7 @@
 - **§18 Tooling** — StrictMode + eslint-plugin-react-hooks; never suppress the linter.
 - **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference; JSDoc (not inline comments) is the primary source of context.
 - **§20 Responsive design** — mobile-first; the project's `tablet:`/`desktop:` breakpoint vocabulary; responsive-by-default (utilities on one tree) vs. a justified separate-markup branch; the one viewport hook (`useBreakpoint`) is mount-gating only.
+- **§21 Testing** — integration-style tests; render real hooks/children, mock only the AWS service boundary; one test per user-observable behavior (not per assertion); the shared `renderWithProviders` + `userEvent`; what belongs in a service unit test vs. a component test.
 
 ---
 
@@ -237,3 +238,24 @@ The app targets three widths with **project-custom breakpoints** (SPEC-095), not
 - ✅ Two cases CSS alone can't express, which always justify a branch: **mounting cost / distinct interaction** (e.g. not mounting Monaco on phones — `hidden` still instantiates it) and **mobile-only chrome** (the `MobileActionBar`, the hamburger — `tablet:hidden`).
 - ✅ Where a viewport hook is genuinely needed (**mount-gating only**, never for styling), use the one shared `useBreakpoint()` / `useIsMobile()` in `src/lib/` — not ad-hoc `matchMedia` per feature.
 - 🔴 No `*Mobile`/`*Desktop` twin for a layout that is only a restyle of the same DOM.
+
+## §21 Testing
+Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior**, not implementation. The goal is few, high-value tests — coverage comes from exercising real code paths, not from many shallow tests.
+
+**The boundary: mock only AWS, nothing else.** Services (`*.service.ts`) and `src/lib` AWS clients are the app's only real seam. A component/feature/hook test mocks *those* and lets the **real** hooks and **real** child components render.
+- ✅ `vi.mock('./x.service')` (or the `src/lib/*Client` / `awsCredentials` / `aws-amplify/auth` module it calls) and drive the returned `ServiceResult`. Render the real tree.
+- 🔴 Don't `vi.mock` the feature's own hooks (`useFileBrowser`, `useDelete`, …) or stub its child components (`MoveDialog`, `MetadataPanel`, …). Mocking the internals is what makes tests brittle *and* fragments coverage (the mocked-out code only gets covered by its own file). One integration render covers the hook, the children, and the wiring at once.
+- ✅ A child that is genuinely heavy/global and covered elsewhere may be stubbed **by exception**, with a one-line `//` why (Monaco editor, the upload dropzone). Default is: don't.
+
+**One test per behavior, not per assertion.** A single `it` may make several assertions about one user-visible outcome. 🔴 Five `it`s for "renders name / size / date / order / icon" → ✅ one `it('renders a populated folder')`. Split only when the *scenario* differs (empty vs error vs populated), not when the field differs.
+
+**Use the shared harness** (`src/test/renderWithProviders.tsx`): `renderWithProviders(ui, {route, auth})` wires QueryClient (retries off) + MemoryRouter + AuthContext and returns `{user, queryClient}`; `renderHookWithProviders` does the same for hooks. Inject auth with the `authFixtures` builders (`authenticated()`, `unauthenticated()`).
+- 🔴 Don't hand-roll a `QueryClientProvider` + `MemoryRouter` wrapper per file — use the harness.
+- ✅ Interact with `userEvent` (`await user.click(...)`), not `fireEvent`, in new/reworked tests — it models real focus/typing.
+- ✅ Query by role/label/text (`getByRole`, `findByRole`); assert what the user sees. 🔴 No `data-testid` unless there's no accessible handle.
+
+**Where a test belongs.**
+- **Service unit test** (`*.service.test.ts`) — pure logic: request shaping, response parsing, `ServiceResult` wrapping, error mapping. Mock the SDK client here; keep these — they're cheap and exhaustive.
+- **Component/feature test** — behavior a user drives through the UI, with services mocked at the boundary. Don't re-assert service parsing here.
+- **Hook test** (`renderHookWithProviders`) — only for hooks with non-trivial state/derivation not better exercised through a component.
+- 🔴 Don't test the same logic at two levels. If the service test covers a parse branch, the component test asserts the *rendered outcome*, not the parse.

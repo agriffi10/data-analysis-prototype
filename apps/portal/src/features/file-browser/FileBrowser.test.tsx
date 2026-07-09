@@ -1,1416 +1,407 @@
-import {render, screen, fireEvent, within, waitFor} from '@testing-library/react';
-import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {screen, within, waitFor} from '@testing-library/react';
+import type {ReactElement} from 'react';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {FileBrowser} from './FileBrowser';
-import {useFileBrowser} from './useFileBrowser';
-import type {UseFileBrowserResult} from './useFileBrowser';
-import {getDownloadUrl} from './fileBrowser.service';
-import {useFileUpload} from './useFileUpload';
-import type {UseFileUploadResult} from './useFileUpload';
-import {useUploadQueue} from './uploadQueueContext';
-import type {UploadQueueContextValue} from './uploadQueueContext';
-import {useDelete} from './useDelete';
-import type {UseDeleteResult} from './useDelete';
-import {useMove} from './useMove';
-import type {UseMoveResult} from './useMove';
-import {useCopy} from './useCopy';
-import type {UseCopyResult} from './useCopy';
+import {UploadQueueProvider} from './UploadQueueProvider';
+import * as service from './fileBrowser.service';
+import {triggerBrowserDownload} from './fileBrowser.download';
+import {getSessionCredentials} from '../../lib/awsCredentials';
+import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 
-vi.mock('./useFileBrowser');
-vi.mock('./fileBrowser.service');
-vi.mock('./useFileUpload');
-vi.mock('./useDelete');
-vi.mock('./useMove');
-vi.mock('./useCopy');
+// Integration style (react.md §21): render the REAL FileBrowser tree — real
+// hooks (useFileBrowser/useDelete/useMove/useCopy/useFileUpload), real child
+// dialogs (Create/Delete/Rename/Move/Copy/Metadata) — and mock ONLY the AWS
+// service boundary. The pure helpers (validateFolderName/uploadPercent/…) stay
+// real via importActual so the hooks behave normally.
+vi.mock('./fileBrowser.service', async (importActual) => {
+  const actual = await importActual<typeof service>();
+  return {
+    ...actual,
+    listFiles: vi.fn(),
+    getObjectMetadata: vi.fn(),
+    deleteObjects: vi.fn(),
+    deleteFolder: vi.fn(),
+    moveObject: vi.fn(),
+    moveFolder: vi.fn(),
+    copyObject: vi.fn(),
+    copyFolder: vi.fn(),
+    objectExists: vi.fn(),
+    getDownloadUrl: vi.fn(),
+    uploadFile: vi.fn(),
+    createFolder: vi.fn()
+  };
+});
+// triggerBrowserDownload navigates the browser — stub the side effect (its own
+// unit test covers the anchor mechanics).
+vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn(() => Promise.resolve({success: true, data: {}}))
-}));
-// The upload queue is exercised in UploadQueueProvider.test.tsx; here the hook is
-// stubbed and the in-drawer uploads list is a no-op so these tests stay focused on
-// FileBrowser wiring (and don't need a QueryClient). The provider lives at the app
-// shell, so FileBrowser does not render it.
-vi.mock('./uploadQueueContext', () => ({useUploadQueue: vi.fn()}));
-vi.mock('./UploadList', () => ({UploadList: () => null}));
-// Stub the move dialog's folder picker so these tests don't pull in useFileBrowser
-// twice; MoveDialog itself is covered by MoveDialog.test.tsx.
-vi.mock('./MoveDialog', () => ({
-  MoveDialog: ({
-    items,
-    onMove,
-    onCancel
-  }: {
-    items: {type: string}[];
-    onMove: (destPrefix: string, destBucket: string) => void;
-    onCancel: () => void;
-  }) => (
-    <div
-      role="dialog"
-      aria-label="Move to folder">
-      <span>moving {items.length}</span>
-      <button onClick={() => onMove('alice/dest/', 'my-bucket')}>move-here-stub</button>
-      <button onClick={onCancel}>move-cancel-stub</button>
-    </div>
-  )
-}));
-// Stub the copy dialog's folder picker (the real picker + same-folder prompt are
-// covered by CopyDialog.test.tsx / DestinationPicker reuse). The stub exposes a
-// different-folder copy and a same-folder copy (current parent) so the wiring to
-// useCopy is exercised here.
-vi.mock('./CopyDialog', () => ({
-  CopyDialog: ({
-    items,
-    currentPrefix,
-    onCopy,
-    onCancel
-  }: {
-    items: {type: string}[];
-    currentPrefix: string;
-    onCopy: (destPrefix: string, destBucket: string) => void;
-    onCancel: () => void;
-  }) => (
-    <div
-      role="dialog"
-      aria-label="Copy to folder">
-      <span>copying {items.length}</span>
-      <button onClick={() => onCopy('alice/dest/', 'my-bucket')}>copy-here-stub</button>
-      <button onClick={() => onCopy(currentPrefix, 'my-bucket')}>copy-same-folder-stub</button>
-      <button onClick={onCancel}>copy-cancel-stub</button>
-    </div>
-  )
-}));
-// Stub the rename dialog — its validation uses validateFolderName, which is
-// auto-mocked by the wholesale ./fileBrowser.service mock below. The real dialog
-// (and its validation) is covered by RenameDialog.test.tsx.
-vi.mock('./RenameDialog', () => ({
-  RenameDialog: ({
-    currentName,
-    onRename,
-    onCancel
-  }: {
-    currentName: string;
-    onRename: (newName: string) => void;
-    onCancel: () => void;
-  }) => (
-    <div
-      role="dialog"
-      aria-label="Rename">
-      <span>renaming {currentName}</span>
-      <button onClick={() => onRename('renamed')}>rename-submit-stub</button>
-      <button onClick={onCancel}>rename-cancel-stub</button>
-    </div>
-  )
-}));
-// Stub the metadata drawer so these tests don't pull in its TanStack Query hook
-// (covered by MetadataPanel.test.tsx). The stub echoes the file it was opened for.
-vi.mock('./MetadataPanel', () => ({
-  MetadataPanel: ({
-    file,
-    onRequestRename,
-    onClose
-  }: {
-    file: {name: string};
-    onRequestRename: (f: unknown) => void;
-    onClose: () => void;
-  }) => (
-    <div
-      role="dialog"
-      aria-label={`Details for ${file.name}`}>
-      <button onClick={() => onRequestRename(file)}>rename-file-stub</button>
-      <button onClick={onClose}>close-stub</button>
-    </div>
-  )
-}));
-// Folder details drawer stub — echoes the folder it was opened for.
-vi.mock('./FolderDetailsPanel', () => ({
-  FolderDetailsPanel: ({
-    folder,
-    onRequestRename,
-    onClose
-  }: {
-    folder: {name: string};
-    onRequestRename: (f: unknown) => void;
-    onClose: () => void;
-  }) => (
-    <div
-      role="dialog"
-      aria-label={`Details for ${folder.name}`}>
-      <button onClick={() => onRequestRename(folder)}>rename-folder-stub</button>
-      <button onClick={onClose}>close-folder-stub</button>
-    </div>
-  )
+  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
 }));
 
-const mockUseFileBrowser = vi.mocked(useFileBrowser);
-const mockGetDownloadUrl = vi.mocked(getDownloadUrl);
-const mockUseFileUpload = vi.mocked(useFileUpload);
-const mockUseUploadQueue = vi.mocked(useUploadQueue);
-const mockUseDelete = vi.mocked(useDelete);
-const mockUseMove = vi.mocked(useMove);
-const mockUseCopy = vi.mocked(useCopy);
+const mock = vi.mocked(service);
 
-const base: UseFileBrowserResult = {
-  files: [],
-  folders: [],
-  isLoading: false,
-  error: null,
-  refresh: vi.fn(),
-  hasMore: false,
-  loadMore: vi.fn(),
-  isLoadingMore: false
-};
+// ── Builders ────────────────────────────────────────────────────────────────
+const file = (name: string, over: Partial<S3FileItem> = {}): S3FileItem => ({
+  type: 'file',
+  key: `alice/${name}`,
+  name,
+  size: 2048,
+  lastModified: new Date('2026-03-04T00:00:00Z'),
+  ...over
+});
+const folder = (name: string, over: Partial<S3FolderItem> = {}): S3FolderItem => ({
+  type: 'folder',
+  prefix: `alice/${name}/`,
+  name,
+  ...over
+});
+const page = (over: Partial<FileListPage> = {}): FileListPage => ({
+  files: [file('report.csv'), file('notes.txt')],
+  folders: [folder('docs')],
+  isTruncated: false,
+  ...over
+});
+const ok = <T,>(data: T) => ({success: true as const, data});
+const fail = (message: string) => ({success: false as const, error: {message}});
 
-const uploadBase: UseFileUploadResult = {
-  progress: null,
-  pendingCollision: null,
-  error: null,
-  isBusy: false,
-  uploadOne: vi.fn(),
-  createNewFolder: vi.fn(),
-  cancelCollision: vi.fn(),
-  dismissError: vi.fn()
-};
-
-const uploadQueueBase: UploadQueueContextValue = {
-  items: [],
-  enqueue: vi.fn(),
-  cancel: vi.fn(),
-  dismiss: vi.fn(),
-  resolveOverwrite: vi.fn(),
-  resolveRename: vi.fn(),
-  clearFinished: vi.fn()
-};
-
-const deleteBase: UseDeleteResult = {
-  isDeleting: false,
-  summary: null,
-  error: null,
-  runDelete: vi.fn().mockResolvedValue({deletedCount: 0, errors: []}),
-  dismissSummary: vi.fn(),
-  dismissError: vi.fn()
-};
-
-const moveBase: UseMoveResult = {
-  isBusy: false,
-  progress: null,
-  error: null,
-  summary: null,
-  renameCollision: null,
-  moveCollision: null,
-  renameItem: vi.fn(),
-  moveItems: vi.fn(),
-  dismissError: vi.fn(),
-  dismissSummary: vi.fn(),
-  cancelCollision: vi.fn()
-};
-
-const copyBase: UseCopyResult = {
-  isBusy: false,
-  progress: null,
-  error: null,
-  summary: null,
-  copyCollision: null,
-  sameFolderPrompt: null,
-  copyItems: vi.fn(),
-  dismissError: vi.fn(),
-  dismissSummary: vi.fn(),
-  cancelCollision: vi.fn()
-};
-
-// A file + folder fixture used by the selection/delete tests. The delete UI is
-// only offered when both `writable` and `username` are set (authenticated flow).
-const oneFile = {
-  type: 'file' as const,
-  key: 'alice/report.pdf',
-  name: 'report.pdf',
-  size: 1024,
-  lastModified: new Date('2024-01-01')
-};
-const oneFolder = {type: 'folder' as const, prefix: 'alice/photos/', name: 'photos'};
+/** Renders the browser inside the app provider stack + the real upload queue.
+ *  Authenticated/writable personal space by default. */
+function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}): ReturnType<typeof renderWithProviders> {
+  const ui: ReactElement = (
+    <UploadQueueProvider>
+      <FileBrowser
+        bucket="my-bucket"
+        prefix="alice/"
+        rootPrefix="alice/"
+        rootLabel="My Files"
+        markerKey="alice/DO_NOT_DELETE.txt"
+        writable
+        username="alice"
+        {...props}
+      />
+    </UploadQueueProvider>
+  );
+  return renderWithProviders(ui);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUseFileBrowser.mockReturnValue(base);
-  mockUseFileUpload.mockReturnValue(uploadBase);
-  mockUseUploadQueue.mockReturnValue(uploadQueueBase);
-  mockUseDelete.mockReturnValue(deleteBase);
-  mockUseMove.mockReturnValue(moveBase);
-  mockUseCopy.mockReturnValue(copyBase);
+  window.innerWidth = 1024; // ≥900 → desktop table (not the mobile card list)
+  mock.listFiles.mockResolvedValue(ok(page()));
+  mock.getObjectMetadata.mockResolvedValue(
+    ok({
+      key: 'alice/report.csv',
+      contentType: 'text/csv',
+      size: 2048,
+      lastModified: new Date('2026-03-04T00:00:00Z'),
+      etag: '"abc"',
+      storageClass: 'STANDARD',
+      userMetadata: {}
+    })
+  );
+  mock.getDownloadUrl.mockResolvedValue(ok({url: 'https://signed/report.csv', expiresAt: '2026-03-04T01:00:00Z'}));
+  mock.deleteObjects.mockResolvedValue(ok({deleted: ['alice/report.csv'], errors: []}));
+  mock.deleteFolder.mockResolvedValue(ok({deleted: ['alice/docs/x'], errors: []}));
+  mock.moveObject.mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}));
+  mock.moveFolder.mockResolvedValue(ok({moved: ['alice/docs/x'], errors: []}));
+  mock.copyObject.mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}));
+  mock.copyFolder.mockResolvedValue(ok({copied: ['alice/docs/x'], errors: []}));
+  mock.objectExists.mockResolvedValue(ok(false));
+  mock.createFolder.mockResolvedValue(ok({prefix: 'alice/new/'}));
+  mock.uploadFile.mockResolvedValue(ok({key: 'alice/up.txt'}));
 });
 
-// ─── Loading ──────────────────────────────────────────────────────────────────
-
-describe('loading state', () => {
-  it('shows a loading indicator when isLoading is true', () => {
-    mockUseFileBrowser.mockReturnValue({...base, isLoading: true});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByRole('status', {name: /loading/i})).toBeInTheDocument();
-  });
-
-  it('hides file content while loading', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      isLoading: true,
-      files: [
-        {
-          type: 'file',
-          key: 'secret.txt',
-          name: 'secret.txt',
-          size: 100,
-          lastModified: new Date()
-        }
-      ]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByText('secret.txt')).not.toBeInTheDocument();
-  });
+afterEach(() => {
+  window.innerWidth = 1024;
 });
 
-// ─── Error ────────────────────────────────────────────────────────────────────
-
-describe('error state', () => {
-  it('shows an alert with the error message', () => {
-    mockUseFileBrowser.mockReturnValue({...base, error: 'Access Denied'});
-    render(<FileBrowser bucket="my-bucket" />);
-    const alert = screen.getByRole('alert');
-    expect(alert).toBeInTheDocument();
-    expect(alert).toHaveTextContent('Access Denied');
+describe('FileBrowser — listing states', () => {
+  it('shows a loading indicator until the listing resolves', () => {
+    mock.listFiles.mockReturnValue(new Promise(() => {})); // never resolves
+    renderBrowser();
+    expect(screen.getByRole('status', {name: 'Loading'})).toBeInTheDocument();
+    expect(screen.queryByText('report.csv')).not.toBeInTheDocument();
   });
 
-  it('offers a "Refresh access" affordance for a just-added shared space (list-denied)', async () => {
-    const refresh = vi.fn();
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      error: 'User ... is not authorized to perform: s3:ListBucket on dat-prod-shared-space',
-      refresh
-    });
-    const {getSessionCredentials} = await import('../../lib/awsCredentials');
-    render(
-      <FileBrowser
-        bucket="dat-prod-shared-space"
-        spaceKind="shared"
-      />
-    );
-    // The raw IAM error is replaced by the "applying access" affordance, not a dead end.
-    expect(screen.getByText(/you were just added to this space/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: /refresh access/i}));
+  it('renders a populated folder: folders before files, with size and modified date', async () => {
+    renderBrowser();
+    const list = await screen.findByRole('list', {name: 'File list'});
+    const names = within(list)
+      .getAllByText(/^(docs|report\.csv|notes\.txt)$/)
+      .map((el) => el.textContent);
+    // Folder first, then files sorted alphabetically (notes before report).
+    expect(names).toEqual(['docs', 'notes.txt', 'report.csv']);
+    expect(screen.getAllByText('2.0 KB')).toHaveLength(2); // both files, 2048 B
+    expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
+  });
+
+  it('shows an empty-folder message when the listing is empty', async () => {
+    mock.listFiles.mockResolvedValue(ok(page({files: [], folders: []})));
+    renderBrowser();
+    expect(await screen.findByText('This folder is empty')).toBeInTheDocument();
+  });
+
+  it('surfaces a listing error as an alert', async () => {
+    mock.listFiles.mockResolvedValue(fail('Bucket is on fire'));
+    renderBrowser();
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('Bucket is on fire')).toBeInTheDocument();
+  });
+
+  it('offers "Refresh access" for a just-added shared space and re-lists on click', async () => {
+    mock.listFiles.mockResolvedValue(fail('User is not authorized to perform s3:ListBucket'));
+    const {user} = renderBrowser({spaceKind: 'shared'});
+    const refresh = await screen.findByRole('button', {name: 'Refresh access'});
+    mock.listFiles.mockResolvedValue(ok(page()));
+    await user.click(refresh);
     expect(getSessionCredentials).toHaveBeenCalledWith(true);
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(await screen.findByText('report.csv')).toBeInTheDocument();
   });
 
-  it('shows the raw error (no affordance) for a personal-space failure', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      error: 'User ... is not authorized to perform: s3:ListBucket'
-    });
-    render(
-      <FileBrowser
-        bucket="dat-prod-user-space"
-        spaceKind="personal"
-      />
-    );
-    expect(screen.getByText(/failed to load files/i)).toBeInTheDocument();
-    expect(screen.queryByText(/you were just added/i)).not.toBeInTheDocument();
-  });
-});
-
-// ─── Empty ────────────────────────────────────────────────────────────────────
-
-describe('empty state', () => {
-  it('shows an empty-folder message when there are no files or folders', () => {
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByText(/this folder is empty/i)).toBeInTheDocument();
+  it('paginates with "Load more"', async () => {
+    mock.listFiles
+      .mockResolvedValueOnce(
+        ok(page({files: [file('page1.csv')], folders: [], isTruncated: true, nextContinuationToken: 't1'}))
+      )
+      .mockResolvedValueOnce(ok(page({files: [file('page2.csv')], folders: [], isTruncated: false})));
+    const {user} = renderBrowser();
+    await screen.findByText('page1.csv');
+    await user.click(screen.getByRole('button', {name: 'Load more'}));
+    expect(await screen.findByText('page2.csv')).toBeInTheDocument();
+    expect(mock.listFiles).toHaveBeenCalledTimes(2);
+    expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', 't1');
   });
 });
 
-// ─── Populated ───────────────────────────────────────────────────────────────
-
-describe('populated state', () => {
-  it('renders folder names', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      folders: [{type: 'folder', prefix: 'docs/', name: 'docs'}]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByText('docs')).toBeInTheDocument();
+describe('FileBrowser — navigation', () => {
+  it('drills into a folder and back out via the breadcrumb', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Open folder docs'}));
+    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/docs/', undefined));
+    expect(screen.getByText('docs', {selector: '[aria-current="page"]'})).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'My Files'}));
+    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined));
   });
 
-  it('renders file names', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [
-        {
-          type: 'file',
-          key: 'readme.md',
-          name: 'readme.md',
-          size: 512,
-          lastModified: new Date()
-        }
-      ]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByText('readme.md')).toBeInTheDocument();
+  it('hides the raw username segment behind rootLabel and never shows Home', async () => {
+    renderBrowser();
+    await screen.findByText('report.csv');
+    expect(screen.getByText('My Files')).toBeInTheDocument();
+    expect(screen.queryByText('Home')).not.toBeInTheDocument();
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
   });
 
-  it('formats file size as human-readable', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [
-        {
-          type: 'file',
-          key: 'data.bin',
-          name: 'data.bin',
-          size: 1_536,
-          lastModified: new Date()
-        }
-      ]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByText('1.5 KB')).toBeInTheDocument();
+  it('shows a parent-folder (..) row below the root and navigates up on click', async () => {
+    const {user} = renderBrowser({prefix: 'alice/docs/'});
+    const up = await screen.findByRole('button', {name: /parent folder/i});
+    await user.click(up);
+    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined));
   });
 
-  it('shows the file last-modified year', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [
-        {
-          type: 'file',
-          key: 'report.pdf',
-          name: 'report.pdf',
-          size: 0,
-          lastModified: new Date('2024-06-15T00:00:00Z')
-        }
-      ]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByText(/2024/)).toBeInTheDocument();
-  });
-
-  it('renders folders before files', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      folders: [{type: 'folder', prefix: 'archive/', name: 'archive'}],
-      files: [
-        {
-          type: 'file',
-          key: 'notes.txt',
-          name: 'notes.txt',
-          size: 10,
-          lastModified: new Date()
-        }
-      ]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    const list = screen.getByRole('list', {name: /file list/i});
-    const items = within(list).getAllByRole('listitem');
-    expect(items[0]).toHaveTextContent('archive');
-    expect(items[1]).toHaveTextContent('notes.txt');
+  it('does not show a .. row at the space root', async () => {
+    renderBrowser();
+    await screen.findByText('report.csv');
+    expect(screen.queryByRole('button', {name: /parent folder/i})).not.toBeInTheDocument();
   });
 });
 
-// ─── Navigation ───────────────────────────────────────────────────────────────
+describe('FileBrowser — download', () => {
+  it('downloads a file on double-click', async () => {
+    const {user} = renderBrowser();
+    await user.dblClick(await screen.findByText('report.csv'));
+    await waitFor(() => expect(mock.getDownloadUrl).toHaveBeenCalled());
+    expect(triggerBrowserDownload).toHaveBeenCalledWith('https://signed/report.csv');
+  });
 
-describe('folder drill-down', () => {
-  it('clicking a folder passes its prefix to the hook', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      folders: [{type: 'folder', prefix: 'photos/', name: 'photos'}]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
+  it('surfaces a download failure inline', async () => {
+    mock.getDownloadUrl.mockResolvedValue(fail('gone'));
+    const {user} = renderBrowser();
+    await user.dblClick(await screen.findByText('report.csv'));
+    expect(await screen.findByText(/Could not download report\.csv/)).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole('button', {name: /open folder photos/i}));
+  it('exposes a per-row Download button only in read-only browse', async () => {
+    renderBrowser({writable: false, username: undefined});
+    expect(await screen.findByRole('button', {name: 'Download report.csv'})).toBeInTheDocument();
+  });
 
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'photos/', undefined);
+  it('has no per-row Download in the authenticated flow (toolbar only)', async () => {
+    renderBrowser();
+    await screen.findByText('report.csv');
+    expect(screen.queryByRole('button', {name: 'Download report.csv'})).not.toBeInTheDocument();
   });
 });
 
-// ─── Root prefix clamping ─────────────────────────────────────────────────────
-
-describe('root prefix clamping', () => {
-  it('shows the root prefix folder name instead of Home when rootPrefix is set', () => {
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="project-alpha/"
-        rootPrefix="project-alpha/"
-      />
-    );
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(nav).toHaveTextContent('project-alpha');
-    expect(within(nav).queryByText('Home')).not.toBeInTheDocument();
-    // At root prefix the root crumb is aria-current="page", not a button
-    expect(within(nav).queryByRole('button', {name: 'project-alpha'})).not.toBeInTheDocument();
+describe('FileBrowser — details drawer', () => {
+  it('opens the file metadata drawer from its Details action', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Details for report.csv'}));
+    expect(await screen.findByRole('dialog', {name: 'Details for report.csv'})).toBeInTheDocument();
+    await waitFor(() => expect(mock.getObjectMetadata).toHaveBeenCalled());
   });
 
-  it('uses rootLabel for the root crumb, hiding the raw prefix segment (SPEC-013)', () => {
-    // The username is the navigation floor but must never be shown to the user.
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="alice/"
-        rootPrefix="alice/"
-        rootLabel="My Files"
-      />
-    );
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(within(nav).getByText('My Files')).toBeInTheDocument();
-    expect(within(nav).queryByText('alice')).not.toBeInTheDocument();
-  });
-
-  it('keeps showing the username segment as the floor label when browsing deeper, still hidden', () => {
-    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
-      ...base,
-      folders: prefix === 'alice/' ? [{type: 'folder', prefix: 'alice/docs/', name: 'docs'}] : []
-    }));
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="alice/"
-        rootPrefix="alice/"
-        rootLabel="My Files"
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', {name: /open folder docs/i}));
-
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(within(nav).getByRole('button', {name: 'My Files'})).toBeInTheDocument();
-    expect(within(nav).queryByText('alice')).not.toBeInTheDocument();
-    expect(within(nav).getByText('docs')).toHaveAttribute('aria-current', 'page');
-  });
-
-  it('does not show path segments above rootPrefix when browsing deeper', () => {
-    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
-      ...base,
-      folders: prefix === 'project-alpha/' ? [{type: 'folder', prefix: 'project-alpha/docs/', name: 'docs'}] : []
-    }));
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="project-alpha/"
-        rootPrefix="project-alpha/"
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', {name: /open folder docs/i}));
-
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(within(nav).queryByText('Home')).not.toBeInTheDocument();
-    expect(within(nav).getByRole('button', {name: 'project-alpha'})).toBeInTheDocument();
-    expect(within(nav).getByText('docs')).toHaveAttribute('aria-current', 'page');
-  });
-
-  it('clicking the root prefix crumb navigates to rootPrefix not bucket root', () => {
-    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
-      ...base,
-      folders: prefix === 'project-alpha/' ? [{type: 'folder', prefix: 'project-alpha/docs/', name: 'docs'}] : []
-    }));
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="project-alpha/"
-        rootPrefix="project-alpha/"
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', {name: /open folder docs/i}));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/docs/', undefined);
-
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    fireEvent.click(within(nav).getByRole('button', {name: 'project-alpha'}));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'project-alpha/', undefined);
+  it('opens the folder details drawer from its Details action', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Details for docs'}));
+    expect(await screen.findByRole('dialog', {name: 'Details for docs'})).toBeInTheDocument();
   });
 });
 
-// ─── Breadcrumb ───────────────────────────────────────────────────────────────
-
-describe('breadcrumb', () => {
-  it('shows only "Home" at the root level', () => {
-    render(<FileBrowser bucket="my-bucket" />);
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(nav).toHaveTextContent('Home');
-    // Home is aria-current="page" at root, not a button
-    expect(within(nav).queryByRole('button', {name: 'Home'})).not.toBeInTheDocument();
+describe('FileBrowser — write controls', () => {
+  it('hides New folder + Upload in read-only browse', async () => {
+    renderBrowser({writable: false, username: undefined});
+    await screen.findByText('report.csv');
+    expect(screen.queryByRole('button', {name: 'New folder'})).not.toBeInTheDocument();
   });
 
-  it('updates to show the folder name after drilling in', () => {
-    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
-      ...base,
-      folders: prefix === undefined ? [{type: 'folder', prefix: 'reports/', name: 'reports'}] : []
-    }));
-    render(<FileBrowser bucket="my-bucket" />);
-
-    fireEvent.click(screen.getByRole('button', {name: /open folder reports/i}));
-
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(nav).toHaveTextContent('Home');
-    expect(within(nav).getByText('reports')).toHaveAttribute('aria-current', 'page');
-    expect(within(nav).getByRole('button', {name: 'Home'})).toBeInTheDocument();
+  it('shows New folder + Upload when writable', async () => {
+    renderBrowser();
+    expect(await screen.findByRole('button', {name: 'New folder'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Upload'})).toBeInTheDocument();
   });
 
-  it('clicking an ancestor crumb navigates back up', () => {
-    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
-      ...base,
-      folders: prefix === undefined ? [{type: 'folder', prefix: 'archive/', name: 'archive'}] : []
-    }));
-    render(<FileBrowser bucket="my-bucket" />);
-
-    fireEvent.click(screen.getByRole('button', {name: /open folder archive/i}));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'archive/', undefined);
-
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    fireEvent.click(within(nav).getByRole('button', {name: 'Home'}));
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', undefined, undefined);
-  });
-
-  it('builds multi-level breadcrumbs for nested prefixes', () => {
-    mockUseFileBrowser.mockImplementation((_bucket, prefix) => ({
-      ...base,
-      folders:
-        prefix === 'docs/'
-          ? [{type: 'folder', prefix: 'docs/2024/', name: '2024'}]
-          : prefix === undefined
-            ? [{type: 'folder', prefix: 'docs/', name: 'docs'}]
-            : []
-    }));
-    render(<FileBrowser bucket="my-bucket" />);
-
-    fireEvent.click(screen.getByRole('button', {name: /open folder docs/i}));
-    fireEvent.click(screen.getByRole('button', {name: /open folder 2024/i}));
-
-    const nav = screen.getByRole('navigation', {name: /breadcrumb/i});
-    expect(nav).toHaveTextContent('Home');
-    expect(nav).toHaveTextContent('docs');
-    expect(within(nav).getByText('2024')).toHaveAttribute('aria-current', 'page');
+  it('creates a folder through the New folder dialog', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'photos');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+    await waitFor(() =>
+      expect(mock.createFolder).toHaveBeenCalledWith(expect.objectContaining({name: 'photos', prefix: 'alice/'}))
+    );
   });
 });
 
-// ─── Load more (pagination) ────────────────────────────────────────────────────
-
-describe('load more', () => {
-  const withFile = {
-    ...base,
-    files: [
-      {
-        type: 'file' as const,
-        key: 'a.txt',
-        name: 'a.txt',
-        size: 1,
-        lastModified: new Date('2024-01-01')
-      }
-    ]
-  };
-
-  it('shows "Load more" only when hasMore is true', () => {
-    mockUseFileBrowser.mockReturnValue({...withFile, hasMore: true});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByRole('button', {name: /load more/i})).toBeInTheDocument();
+describe('FileBrowser — selection + delete', () => {
+  it('has no selection checkboxes in read-only browse', async () => {
+    renderBrowser({writable: false, username: undefined});
+    await screen.findByText('report.csv');
+    expect(screen.queryByRole('checkbox', {name: 'Select all'})).not.toBeInTheDocument();
   });
 
-  it('hides "Load more" when fully loaded', () => {
-    mockUseFileBrowser.mockReturnValue({...withFile, hasMore: false});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByRole('button', {name: /load more/i})).not.toBeInTheDocument();
+  it('deletes the selected items after confirmation and reports the count', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
+    // Nothing deleted until the confirm dialog is accepted.
+    expect(mock.deleteObjects).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await waitFor(() =>
+      expect(mock.deleteObjects).toHaveBeenCalledWith(expect.objectContaining({keys: ['alice/report.csv']}))
+    );
+    expect(await screen.findByText(/Deleted 1/)).toBeInTheDocument();
   });
 
-  it('calls loadMore when clicked', () => {
-    const loadMore = vi.fn();
-    mockUseFileBrowser.mockReturnValue({...withFile, hasMore: true, loadMore});
-    render(<FileBrowser bucket="my-bucket" />);
-    fireEvent.click(screen.getByRole('button', {name: /load more/i}));
-    expect(loadMore).toHaveBeenCalledOnce();
+  it('select-all toggles every row and Delete is disabled with nothing selected', async () => {
+    const {user} = renderBrowser();
+    const del = await screen.findByRole('button', {name: 'Delete selected items'});
+    expect(del).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', {name: 'Select all'}));
+    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
+    expect(screen.getByRole('checkbox', {name: 'Select folder docs'})).toBeChecked();
+    expect(del).toBeEnabled();
   });
 
-  it('disables the control while a page is loading', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...withFile,
-      hasMore: true,
-      isLoadingMore: true
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByRole('button', {name: /loading/i})).toBeDisabled();
+  it('reports a partial delete failure', async () => {
+    mock.deleteObjects.mockResolvedValue(ok({deleted: [], errors: [{key: 'alice/report.csv', message: 'denied'}]}));
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    expect(await screen.findByText(/denied/)).toBeInTheDocument();
   });
 });
 
-// ─── Download ─────────────────────────────────────────────────────────────────
-
-describe('download', () => {
-  const fileItem = {
-    type: 'file' as const,
-    key: 'alice/docs/report.pdf',
-    name: 'report.pdf',
-    size: 1024,
-    lastModified: new Date('2024-01-01')
-  };
-
-  beforeEach(() => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [fileItem]});
+describe('FileBrowser — move / copy / rename', () => {
+  it('moves selected items into a chosen folder', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    // Real MoveDialog + DestinationPicker (scoped to the modal — the list behind
+    // it also has an "Open folder docs" button): descend into docs/, then confirm.
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(await within(dialog).findByRole('button', {name: 'Move here'}));
+    await waitFor(() =>
+      expect(mock.moveObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/notes.txt', destKey: 'alice/docs/notes.txt'})
+      )
+    );
+    expect(await screen.findByText(/Moved 1/)).toBeInTheDocument();
   });
 
-  it('exposes a Download action per file', () => {
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByRole('button', {name: /download report\.pdf/i})).toBeInTheDocument();
+  it('copies selected items into a chosen folder', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Copy selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(await within(dialog).findByRole('button', {name: 'Copy here'}));
+    await waitFor(() => expect(mock.copyObject).toHaveBeenCalled());
+    expect(await screen.findByText(/Copied 1/)).toBeInTheDocument();
   });
 
-  it('folders expose no Download action', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      folders: [{type: 'folder', prefix: 'docs/', name: 'docs'}]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByRole('button', {name: /download/i})).not.toBeInTheDocument();
+  it('renames a file from its details panel', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Details for report.csv'}));
+    await user.click(await screen.findByRole('button', {name: 'Rename report.csv'}));
+    const dialog = await screen.findByRole('dialog', {name: /rename/i});
+    const input = within(dialog).getByRole('textbox');
+    await user.clear(input);
+    await user.type(input, 'renamed.csv');
+    await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
+    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
   });
 
-  it('requests a presigned URL and triggers the browser download on success', async () => {
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    mockGetDownloadUrl.mockResolvedValue({
-      success: true,
-      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
-    });
-
-    render(<FileBrowser bucket="my-bucket" />);
-    fireEvent.click(screen.getByRole('button', {name: /download report\.pdf/i}));
-
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
-    expect(mockGetDownloadUrl).toHaveBeenCalledWith({
-      bucket: 'my-bucket',
-      key: 'alice/docs/report.pdf',
-      fileName: 'report.pdf'
-    });
-    clickSpy.mockRestore();
+  it('renames a folder from its details panel', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Details for docs'}));
+    await user.click(await screen.findByRole('button', {name: 'Rename docs'}));
+    const dialog = await screen.findByRole('dialog', {name: /rename/i});
+    const input = within(dialog).getByRole('textbox');
+    await user.clear(input);
+    await user.type(input, 'archive');
+    await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
+    await waitFor(() => expect(mock.moveFolder).toHaveBeenCalled());
   });
 
-  it('surfaces a download error inline without throwing', async () => {
-    mockGetDownloadUrl.mockResolvedValue({
-      success: false,
-      error: {message: 'No AWS credentials — sign in required'}
-    });
-
-    render(<FileBrowser bucket="my-bucket" />);
-    fireEvent.click(screen.getByRole('button', {name: /download report\.pdf/i}));
-
-    expect(await screen.findByText(/could not download report\.pdf/i)).toBeInTheDocument();
+  it('shows the same-folder auto-number prompt for a copy into the current folder', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Copy selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    // "Copy here" at the current folder (allowed for copy) → same-folder prompt.
+    await user.click(within(dialog).getByRole('button', {name: 'Copy here'}));
+    expect(await screen.findByText(/Copying into the same folder/)).toBeInTheDocument();
   });
 });
 
-// ─── Double-click to download (SPEC-081) ─────────────────────────────────────────
-
-describe('double-click download', () => {
-  const fileItem = {
-    type: 'file' as const,
-    key: 'alice/docs/report.pdf',
-    name: 'report.pdf',
-    size: 1024,
-    lastModified: new Date('2024-01-01')
-  };
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-  const row = () => screen.getByTitle(/double-click to download report\.pdf/i);
-
-  beforeEach(() => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [fileItem]});
-  });
-
-  it('downloads on double-click in the authenticated flow (no inline Download button)', async () => {
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    mockGetDownloadUrl.mockResolvedValue({
-      success: true,
-      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
-    });
-
-    render(<FileBrowser {...authProps} />);
-    // The authenticated flow has no row Download button — the gesture is the only inline route.
-    expect(screen.queryByRole('button', {name: /download report\.pdf/i})).not.toBeInTheDocument();
-    fireEvent.doubleClick(row());
-
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
-    expect(mockGetDownloadUrl).toHaveBeenCalledWith({
-      bucket: 'my-bucket',
-      key: 'alice/docs/report.pdf',
-      fileName: 'report.pdf'
-    });
-    clickSpy.mockRestore();
-  });
-
-  it('downloads on double-click in read-only browse as well', async () => {
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    mockGetDownloadUrl.mockResolvedValue({
-      success: true,
-      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
-    });
-
-    render(<FileBrowser bucket="my-bucket" />);
-    fireEvent.doubleClick(row());
-
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
-    expect(mockGetDownloadUrl).toHaveBeenCalledOnce();
-    clickSpy.mockRestore();
-  });
-
-  it('does not download when the selection checkbox is double-clicked', () => {
-    render(<FileBrowser {...authProps} />);
-    fireEvent.doubleClick(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    expect(mockGetDownloadUrl).not.toHaveBeenCalled();
-  });
-
-  it('does not download when an action button is double-clicked', () => {
-    render(<FileBrowser {...authProps} />);
-    fireEvent.doubleClick(screen.getByRole('button', {name: /details for report\.pdf/i}));
-    expect(mockGetDownloadUrl).not.toHaveBeenCalled();
-  });
-
-  it('does not start a duplicate download while one is already in flight for the key', async () => {
-    let resolveUrl: (v: Awaited<ReturnType<typeof getDownloadUrl>>) => void = () => {};
-    mockGetDownloadUrl.mockReturnValue(
-      new Promise((resolve) => {
-        resolveUrl = resolve;
-      })
-    );
-
-    render(<FileBrowser {...authProps} />);
-    fireEvent.doubleClick(row());
-    fireEvent.doubleClick(row()); // second double-click while the first is pending
-
-    expect(mockGetDownloadUrl).toHaveBeenCalledOnce();
-    resolveUrl({
-      success: true,
-      data: {url: 'https://signed.example/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
-    });
-    await waitFor(() => expect(mockGetDownloadUrl).toHaveBeenCalledOnce());
-  });
-
-  it('surfaces the download error banner on a failed double-click download', async () => {
-    mockGetDownloadUrl.mockResolvedValue({
-      success: false,
-      error: {message: 'No AWS credentials — sign in required'}
-    });
-
-    render(<FileBrowser {...authProps} />);
-    fireEvent.doubleClick(row());
-
-    expect(await screen.findByText(/could not download report\.pdf/i)).toBeInTheDocument();
+describe('FileBrowser — upload', () => {
+  it('enqueues chosen files onto the upload queue from the drawer', async () => {
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    const input = await screen.findByLabelText('Choose files');
+    await user.upload(input, new File(['data'], 'up.txt', {type: 'text/plain'}));
+    // The real UploadQueueProvider starts the queued item via uploadFile.
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalled());
   });
 });
 
-// ─── Details / metadata panel ───────────────────────────────────────────────────
-
-describe('details panel', () => {
-  const fileItem = {
-    type: 'file' as const,
-    key: 'alice/docs/report.pdf',
-    name: 'report.pdf',
-    size: 1024,
-    lastModified: new Date('2024-01-01')
-  };
-
-  it('exposes a Details action per file', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [fileItem]});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByRole('button', {name: /details for report\.pdf/i})).toBeInTheDocument();
-  });
-
-  it('exposes a Details action per folder', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      folders: [{type: 'folder', prefix: 'docs/', name: 'docs'}]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.getByRole('button', {name: /details for docs/i})).toBeInTheDocument();
-  });
-
-  it('opens the folder details drawer when a folder Details is clicked', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      folders: [{type: 'folder', prefix: 'docs/', name: 'docs'}]
-    });
-    render(<FileBrowser bucket="my-bucket" />);
-
-    expect(screen.queryByRole('dialog', {name: /details for docs/i})).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', {name: /details for docs/i}));
-
-    expect(screen.getByRole('dialog', {name: /details for docs/i})).toBeInTheDocument();
-  });
-
-  it('opens the metadata drawer for the file when Details is clicked', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [fileItem]});
-    render(<FileBrowser bucket="my-bucket" />);
-
-    expect(screen.queryByRole('dialog', {name: /details for report\.pdf/i})).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', {name: /details for report\.pdf/i}));
-
-    expect(screen.getByRole('dialog', {name: /details for report\.pdf/i})).toBeInTheDocument();
-  });
-
-  it('closes the drawer when the panel requests close', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [fileItem]});
-    render(<FileBrowser bucket="my-bucket" />);
-
-    fireEvent.click(screen.getByRole('button', {name: /details for report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: /close-stub/i}));
-
-    expect(screen.queryByRole('dialog', {name: /details for report\.pdf/i})).not.toBeInTheDocument();
-  });
-});
-
-// ─── Write controls gating ──────────────────────────────────────────────────────
-
-describe('write controls', () => {
-  it('are hidden when not writable (read-only / dev-unauth)', () => {
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByRole('button', {name: /new folder/i})).not.toBeInTheDocument();
-    expect(screen.queryByText(/choose files/i)).not.toBeInTheDocument();
-  });
-
-  it('shows New folder + Upload buttons when writable; the dropzone opens in a drawer', () => {
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        writable
-      />
-    );
-    expect(screen.getByRole('button', {name: /new folder/i})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: /^upload$/i})).toBeInTheDocument();
-
-    // The dropzone lives in a drawer that is closed until Upload is clicked.
-    expect(screen.queryByText(/choose files/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: /^upload$/i}));
-    expect(screen.getByText(/choose files/i)).toBeInTheDocument();
-  });
-
-  it('enqueues selected files onto the upload queue (SPEC-020)', () => {
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        writable
-      />
-    );
-    fireEvent.click(screen.getByRole('button', {name: /^upload$/i}));
-
-    const input = screen.getByLabelText(/choose files/i);
-    const f1 = new File(['a'], 'a.txt');
-    const f2 = new File(['b'], 'b.txt');
-    fireEvent.change(input, {target: {files: [f1, f2]}});
-
-    expect(uploadQueueBase.enqueue).toHaveBeenCalledWith([f1, f2], {bucket: 'my-bucket', prefix: ''});
-  });
-});
-
-// ─── Selection + delete ─────────────────────────────────────────────────────────
-
-describe('selection + delete', () => {
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-
-  it('shows no selection checkboxes when not writable (read-only)', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-  });
-
-  it('shows no selection checkboxes when writable but unauthenticated (no username)', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(
-      <FileBrowser
-        bucket="my-bucket"
-        writable
-      />
-    );
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-  });
-
-  it('renders per-row + select-all checkboxes in the authenticated writable flow', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('checkbox', {name: /select all/i})).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', {name: /select report\.pdf/i})).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', {name: /select folder photos/i})).toBeInTheDocument();
-  });
-
-  it('disables Delete until something is selected', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-
-    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeDisabled();
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeEnabled();
-  });
-
-  it('select-all toggles every row', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select all/i}));
-    expect(screen.getByRole('checkbox', {name: /select report\.pdf/i})).toBeChecked();
-    expect(screen.getByRole('checkbox', {name: /select folder photos/i})).toBeChecked();
-  });
-
-  it('opens a confirmation naming the item and deletes nothing until confirmed', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Delete selected items'}));
-
-    const dialog = screen.getByRole('alertdialog', {name: /confirm delete/i});
-    expect(dialog).toHaveTextContent(/report\.pdf/);
-    expect(dialog).toHaveTextContent(/can.t be undone/i);
-    expect(deleteBase.runDelete).not.toHaveBeenCalled();
-  });
-
-  it('confirming deletes exactly the selected files and folders', async () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('checkbox', {name: /select folder photos/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Delete selected items'}));
-
-    const dialog = screen.getByRole('alertdialog', {name: /confirm delete/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: /^delete$/i}));
-
-    await waitFor(() => expect(deleteBase.runDelete).toHaveBeenCalledTimes(1));
-    const items = vi.mocked(deleteBase.runDelete).mock.calls[0][0];
-    expect(items).toEqual(
-      expect.arrayContaining([
-        {type: 'file', key: 'alice/report.pdf'},
-        {type: 'folder', prefix: 'alice/photos/'}
-      ])
-    );
-    expect(items).toHaveLength(2);
-  });
-
-  it('cancelling the confirmation deletes nothing and closes the dialog', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Delete selected items'}));
-
-    const dialog = screen.getByRole('alertdialog', {name: /confirm delete/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: /cancel/i}));
-
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(deleteBase.runDelete).not.toHaveBeenCalled();
-  });
-
-  it('shows a success summary with the deleted count', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseDelete.mockReturnValue({
-      ...deleteBase,
-      summary: {deletedCount: 3, errors: []}
-    });
-    render(<FileBrowser {...authProps} />);
-
-    expect(screen.getByRole('status')).toHaveTextContent(/deleted 3 items/i);
-  });
-
-  it('shows a partial-failure summary listing what failed and why', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseDelete.mockReturnValue({
-      ...deleteBase,
-      summary: {
-        deletedCount: 1,
-        errors: [{key: 'alice/locked.txt', message: 'Access Denied'}]
-      }
-    });
-    render(<FileBrowser {...authProps} />);
-
-    expect(screen.getByText(/could not delete 1/i)).toBeInTheDocument();
-    expect(screen.getByText(/locked\.txt — access denied/i)).toBeInTheDocument();
-  });
-});
-
-// ─── Rename + move ──────────────────────────────────────────────────────────────
-
-describe('rename + move', () => {
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-
-  it('the selection toolbar holds only Copy / Move / Delete (no Download or Rename) [SPEC-096]', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', {name: 'Copy selected items'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Move selected items'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Rename selected item'})).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Download selected items'})).not.toBeInTheDocument();
-  });
-
-  it('renaming a file from its details panel opens the dialog and calls renameItem [SPEC-097]', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-
-    // Open the file details panel (per-row Details button), then Rename from there.
-    fireEvent.click(screen.getByRole('button', {name: /details for report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'rename-file-stub'}));
-    const dialog = screen.getByRole('dialog', {name: /rename/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
-
-    expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'file', key: 'alice/report.pdf'}, 'renamed');
-    // Opening rename closes the details panel.
-    expect(screen.queryByRole('dialog', {name: /details for report\.pdf/i})).not.toBeInTheDocument();
-  });
-
-  it('renaming a folder from its details panel calls renameItem [SPEC-097]', () => {
-    mockUseFileBrowser.mockReturnValue({...base, folders: [oneFolder]});
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('button', {name: /details for photos/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'rename-folder-stub'}));
-    const dialog = screen.getByRole('dialog', {name: /rename/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: /rename-submit-stub/i}));
-
-    expect(moveBase.renameItem).toHaveBeenCalledWith({type: 'folder', prefix: 'alice/photos/'}, 'renamed');
-    expect(screen.queryByRole('dialog', {name: /details for photos/i})).not.toBeInTheDocument();
-  });
-
-  it('does not render per-row Rename buttons (Rename lives in the details panel)', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.queryByRole('button', {name: /rename report\.pdf/i})).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: /rename folder photos/i})).not.toBeInTheDocument();
-  });
-
-  it('disables Move until something is selected', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', {name: 'Move selected items'})).toBeDisabled();
-  });
-
-  it('Move opens the destination picker and calls moveItems on confirm', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Move selected items'}));
-
-    const dialog = screen.getByRole('dialog', {name: /move to folder/i});
-    expect(dialog).toHaveTextContent(/moving 1/i);
-    fireEvent.click(within(dialog).getByRole('button', {name: /move-here-stub/i}));
-
-    expect(moveBase.moveItems).toHaveBeenCalledWith(
-      [{type: 'file', key: 'alice/report.pdf'}],
-      'alice/dest/',
-      'my-bucket'
-    );
-  });
-
-  it('shows a move result summary with the moved count', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseMove.mockReturnValue({
-      ...moveBase,
-      summary: {movedCount: 2, errors: []}
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByText(/moved 2 items/i)).toBeInTheDocument();
-  });
-
-  it('renders the rename-collision prompt from the move hook', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseMove.mockReturnValue({
-      ...moveBase,
-      renameCollision: {
-        kind: 'file',
-        label: 'taken.pdf',
-        onOverwrite: vi.fn(),
-        onRename: vi.fn(),
-        onCancel: vi.fn()
-      }
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('alertdialog', {name: /already exists/i})).toBeInTheDocument();
-  });
-});
-
-// ─── Copy ───────────────────────────────────────────────────────────────────────
-
-describe('copy', () => {
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-
-  it('shows no Copy action when read-only', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser bucket="my-bucket" />);
-    expect(screen.queryByRole('button', {name: /copy/i})).not.toBeInTheDocument();
-  });
-
-  it('disables the selection-bar Copy until something is selected', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', {name: 'Copy selected items'})).toBeDisabled();
-  });
-
-  it('does not render per-row Copy buttons (actions live in the toolbar)', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.queryByRole('button', {name: /copy report\.pdf/i})).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: /copy folder photos/i})).not.toBeInTheDocument();
-  });
-
-  it('selection-bar Copy copies the selected items', () => {
-    mockUseFileBrowser.mockReturnValue({
-      ...base,
-      files: [oneFile],
-      folders: [oneFolder]
-    });
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Copy selected items'}));
-
-    const dialog = screen.getByRole('dialog', {name: /copy to folder/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: /copy-here-stub/i}));
-
-    expect(copyBase.copyItems).toHaveBeenCalledWith(
-      [{type: 'file', key: 'alice/report.pdf'}],
-      'alice/dest/',
-      'my-bucket'
-    );
-  });
-
-  it('keeps the copy dialog open for a same-folder copy (auto-number flow)', () => {
-    // Current parent is "alice/"; a same-folder copy passes that current parent.
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(
-      <FileBrowser
-        {...authProps}
-        prefix="alice/"
-      />
-    );
-
-    fireEvent.click(screen.getByRole('checkbox', {name: /select report\.pdf/i}));
-    fireEvent.click(screen.getByRole('button', {name: 'Copy selected items'}));
-    const dialog = screen.getByRole('dialog', {name: /copy to folder/i});
-    fireEvent.click(within(dialog).getByRole('button', {name: /copy-same-folder-stub/i}));
-
-    // copyItems is called with the current parent, and the dialog stays open so the
-    // same-folder editable-name prompt (rendered by the real CopyDialog) can show.
-    expect(copyBase.copyItems).toHaveBeenCalledWith([{type: 'file', key: 'alice/report.pdf'}], 'alice/', 'my-bucket');
-    expect(screen.getByRole('dialog', {name: /copy to folder/i})).toBeInTheDocument();
-  });
-
-  it('shows a copy result summary with the copied count', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseCopy.mockReturnValue({
-      ...copyBase,
-      summary: {copiedCount: 2, errors: []}
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByText(/copied 2 items/i)).toBeInTheDocument();
-  });
-
-  it('shows a partial-failure copy summary listing what failed', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseCopy.mockReturnValue({
-      ...copyBase,
-      summary: {
-        copiedCount: 1,
-        errors: [{item: 'alice/locked.txt', message: 'Access Denied'}]
-      }
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByText(/could not copy 1/i)).toBeInTheDocument();
-    expect(screen.getByText(/locked\.txt — access denied/i)).toBeInTheDocument();
-  });
-
-  it('renders the copy-collision overwrite-all prompt from the copy hook', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    mockUseCopy.mockReturnValue({
-      ...copyBase,
-      copyCollision: {count: 2, onOverwriteAll: vi.fn(), onCancel: vi.fn()}
-    });
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('alertdialog', {name: /destination already has items/i})).toBeInTheDocument();
-    expect(screen.getByText(/2 item\(s\) already exist/i)).toBeInTheDocument();
-  });
-});
-
-// ─── Authenticated download (via double-click + details panel) ──────────────────
-
-describe('authenticated download', () => {
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-
-  it('does not show a per-row Download in the authenticated flow (Details only)', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.getByRole('button', {name: /details for report\.pdf/i})).toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: /download report\.pdf/i})).not.toBeInTheDocument();
-  });
-
-  it('double-clicking a file row downloads it (SPEC-081)', async () => {
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    mockGetDownloadUrl.mockResolvedValue({
-      success: true,
-      data: {url: 'https://signed/report.pdf', expiresAt: '2026-01-01T00:00:00Z'}
-    });
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-
-    fireEvent.doubleClick(screen.getByText('report.pdf'));
-
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
-    expect(mockGetDownloadUrl).toHaveBeenCalledWith({
-      bucket: 'my-bucket',
-      key: 'alice/report.pdf',
-      fileName: 'report.pdf'
-    });
-    clickSpy.mockRestore();
-  });
-});
-
-// ─── Parent-folder (`..`) row (SPEC-098) ────────────────────────────────────────
-
-describe('parent-folder (`..`) row', () => {
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-
-  it('shows a `..` row below the root and navigates up on click', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(
-      <FileBrowser
-        {...authProps}
-        prefix="alice/docs/"
-        rootPrefix="alice/"
-      />
-    );
-    const up = screen.getByRole('button', {name: /go up to parent folder/i});
-    expect(up).toBeInTheDocument();
-
-    fireEvent.click(up);
-    // Navigated to the root ('alice/') → the `..` row disappears.
-    expect(screen.queryByRole('button', {name: /go up to parent folder/i})).not.toBeInTheDocument();
-    expect(mockUseFileBrowser).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined);
-  });
-
-  it('does not show a `..` row at the space root', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(
-      <FileBrowser
-        {...authProps}
-        prefix="alice/"
-        rootPrefix="alice/"
-      />
-    );
-    expect(screen.queryByRole('button', {name: /go up to parent folder/i})).not.toBeInTheDocument();
-  });
-
-  it('shows the `..` row even in an empty non-root folder (no empty-state message)', () => {
-    mockUseFileBrowser.mockReturnValue({...base}); // empty listing
-    render(
-      <FileBrowser
-        {...authProps}
-        prefix="alice/docs/"
-        rootPrefix="alice/"
-      />
-    );
-    expect(screen.getByRole('button', {name: /go up to parent folder/i})).toBeInTheDocument();
-    expect(screen.queryByText(/this folder is empty/i)).not.toBeInTheDocument();
-  });
-
-  it('excludes the `..` row from select-all', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
-    render(
-      <FileBrowser
-        {...authProps}
-        prefix="alice/docs/"
-        rootPrefix="alice/"
-      />
-    );
-    fireEvent.click(screen.getByRole('checkbox', {name: 'Select all'}));
-    // Only the two real items are selected — the `..` row is not counted.
-    expect(screen.getByText('2 selected')).toBeInTheDocument();
-  });
-});
-
-// ─── Responsive layout (SPEC-099) ───────────────────────────────────────────────
-
-function setViewportWidth(w: number) {
-  Object.defineProperty(window, 'innerWidth', {value: w, writable: true, configurable: true});
-}
-
-describe('responsive layout (mobile)', () => {
-  const authProps = {bucket: 'my-bucket', writable: true, username: 'alice'} as const;
-
-  beforeEach(() => setViewportWidth(400)); // < tablet → useIsMobile() true
-  afterEach(() => setViewportWidth(1024));
-
-  it('renders the mobile card list (two-line meta), not the desktop table', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile], folders: [oneFolder]});
-    render(<FileBrowser {...authProps} />);
-    // Mobile two-line meta lines (file "TYPE · date", folder "Folder").
-    expect(screen.getByText(/PDF ·/)).toBeInTheDocument();
-    expect(screen.getByText('Folder')).toBeInTheDocument();
-    // The table's column header is not rendered on mobile.
+describe('FileBrowser — responsive', () => {
+  it('renders the mobile card list and action bar below the tablet breakpoint', async () => {
+    window.innerWidth = 500;
+    renderBrowser();
+    await screen.findByText('report.csv');
+    // Card list has no desktop column header.
     expect(screen.queryByText('Modified')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('File actions')).toBeInTheDocument();
   });
 
-  it('mounts the MobileActionBar (New folder + Upload) instead of the top-toolbar group', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    const bar = screen.getByRole('toolbar', {name: 'File actions'});
-    expect(within(bar).getByRole('button', {name: 'New folder'})).toBeInTheDocument();
-    expect(within(bar).getByRole('button', {name: /^upload$/i})).toBeInTheDocument();
-    // Mount-gate: exactly one Upload exists (the top-toolbar group is not mounted).
-    expect(screen.getAllByRole('button', {name: /^upload$/i})).toHaveLength(1);
-  });
-
-  it('desktop mounts the top-toolbar actions, not the MobileActionBar (mount-gate)', () => {
-    setViewportWidth(1024);
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.queryByRole('toolbar', {name: 'File actions'})).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', {name: /^upload$/i})).toHaveLength(1);
-    // The desktop table header renders (mobile card list does not own it).
-    expect(screen.getByText('Modified')).toBeInTheDocument();
-  });
-
-  it('does not render the MobileActionBar in read-only browse', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser bucket="my-bucket" />); // read-only (no writable/username)
-    expect(screen.queryByRole('toolbar', {name: 'File actions'})).not.toBeInTheDocument();
-  });
-
-  it('shows icon-bearing bulk actions with accessible labels', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    const copy = screen.getByRole('button', {name: 'Copy selected items'});
-    expect(copy.querySelector('svg')).toBeInTheDocument(); // icon present
-    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeInTheDocument();
-  });
-
-  it('renders the `..` row mobile variant first when below root', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(
-      <FileBrowser
-        {...authProps}
-        prefix="alice/docs/"
-        rootPrefix="alice/"
-      />
-    );
-    expect(screen.getByRole('button', {name: /go up to parent folder/i})).toBeInTheDocument();
-    expect(screen.getByText('Up one level')).toBeInTheDocument();
-  });
-
-  it('renders no header overflow (⋯) menu and no selection-mode toggle', () => {
-    mockUseFileBrowser.mockReturnValue({...base, files: [oneFile]});
-    render(<FileBrowser {...authProps} />);
-    expect(screen.queryByRole('button', {name: /more actions|overflow|select mode/i})).not.toBeInTheDocument();
-    // Selection is via always-visible per-row checkboxes.
-    expect(screen.getByRole('checkbox', {name: 'Select report.pdf'})).toBeInTheDocument();
+  it('does not render the mobile action bar in read-only browse', async () => {
+    window.innerWidth = 500;
+    renderBrowser({writable: false, username: undefined});
+    await screen.findByText('report.csv');
+    expect(screen.queryByLabelText('File actions')).not.toBeInTheDocument();
   });
 });
