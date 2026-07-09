@@ -4,8 +4,7 @@ import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
 import {Button} from '../components/Button';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
-import {cx} from '../lib/cx';
-import {UploadIcon, FolderIcon} from '../components/icons';
+import {UploadIcon, FolderIcon, DatabaseIcon, TableIcon, ConnectionsIcon, CopyIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
 
 // ─── Inline icons ──────────────────────────────────────────────────────────────
@@ -53,22 +52,20 @@ function FolderFeatureIcon() {
   );
 }
 
-function LinkFeatureIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true">
-      <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
-      <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
-    </svg>
-  );
+function QueryFeatureIcon() {
+  return <DatabaseIcon className="h-5 w-5" />;
+}
+
+function TableFeatureIcon() {
+  return <TableIcon className="h-5 w-5" />;
+}
+
+function ConnectFeatureIcon() {
+  return <ConnectionsIcon className="h-5 w-5" />;
+}
+
+function ShareFeatureIcon() {
+  return <CopyIcon className="h-5 w-5" />;
 }
 
 // ─── Static app-preview illustration (decorative) ─────────────────────────────
@@ -186,9 +183,24 @@ const FEATURES = [
     body: 'Browse, organize into folders, rename, move, and download. Your space is private to you — no one else can see or touch it.'
   },
   {
-    icon: <LinkFeatureIcon />,
-    title: 'Connect to shared data',
-    body: 'Link the shared project prefixes you have access to and work with them alongside your own files, all from one place.'
+    icon: <QueryFeatureIcon />,
+    title: 'Query your data with SQL',
+    body: 'Run Athena SQL right in the browser — multi-statement scripts, cross-database joins, and results you can save back to your space.'
+  },
+  {
+    icon: <TableFeatureIcon />,
+    title: 'Turn folders into tables',
+    body: 'Point the table builder at a folder of CSV, JSON, or Parquet and it infers the schema and registers a queryable table for you.'
+  },
+  {
+    icon: <ConnectFeatureIcon />,
+    title: 'Collaborate in shared spaces',
+    body: 'Create shared spaces, add teammates, and work the same data together — with access enforced by AWS IAM, per space.'
+  },
+  {
+    icon: <ShareFeatureIcon />,
+    title: 'Share tables across databases',
+    body: 'Push a table to a teammate or a shared space and they get a ready-to-query copy in their own database — no exporting required.'
   }
 ] as const;
 
@@ -226,7 +238,7 @@ export default function LandingPage() {
           <LandingNavMenu links={NAV_LINKS} />
           <a
             href="/"
-            aria-label="S3 File Portal home">
+            aria-label="Data Workspace home">
             <BrandMark />
           </a>
           <div className="ml-8 hidden items-center gap-5 tablet:flex">
@@ -274,14 +286,14 @@ export default function LandingPage() {
           <div className="mx-auto max-w-[1080px] px-6">
             <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-accent-border bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
               <ShieldIcon />
-              Secure, per-user file storage on AWS
+              Secure, per-user data workspace on AWS
             </span>
             <h1 className="mx-auto mb-5 max-w-[760px] text-[32px] font-bold leading-tight tracking-[-0.02em] tablet:text-[40px] desktop:text-[46px]">
-              Your files in the cloud, <span className="text-accent">scoped to you</span>.
+              Your data workspace, <span className="text-accent">scoped to you</span>.
             </h1>
             <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
-              Upload, organize, and share files in your own private space — and connect to shared project data when you
-              need it. Backed by AWS, with isolation enforced at the infrastructure layer.
+              Store files, query them with SQL, build tables from your folders, and collaborate in shared spaces — all
+              in one place. Backed by AWS, with isolation enforced at the infrastructure layer.
             </p>
             <div className="flex flex-col gap-3 tablet:flex-row tablet:flex-wrap tablet:justify-center">
               {isAuthed ? (
@@ -330,20 +342,17 @@ export default function LandingPage() {
           className="py-10">
           <div className="mx-auto max-w-[1080px] px-6">
             <div className="mb-8 text-center">
-              <h2 className="text-[30px] font-bold tracking-[-0.01em]">Everything you need to manage your files</h2>
+              <h2 className="text-[30px] font-bold tracking-[-0.01em]">Everything you need to work with your data</h2>
               <p className="mt-3 text-md text-text-2">
-                A focused workspace — no clutter, just your files where you expect them.
+                From raw files to queryable tables to shared collaboration — one focused workspace.
               </p>
             </div>
-            {/* 1-col mobile → 2-up at tablet (3rd card spans) → 3-up at desktop. */}
+            {/* 1-col mobile → 2-up at tablet → 3-up at desktop; six cards fill each tier evenly. */}
             <div className="grid grid-cols-1 gap-5 tablet:grid-cols-2 desktop:grid-cols-3">
-              {FEATURES.map((feature, i) => (
+              {FEATURES.map((feature) => (
                 <div
                   key={feature.title}
-                  className={cx(
-                    'rounded-lg border border-border bg-surface p-6 shadow-sm',
-                    i === 2 && 'tablet:col-span-2 desktop:col-span-1'
-                  )}>
+                  className="rounded-lg border border-border bg-surface p-6 shadow-sm">
                   <div className="mb-4 grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent">
                     {feature.icon}
                   </div>
@@ -403,12 +412,12 @@ export default function LandingPage() {
         <div className="mx-auto flex h-16 max-w-[1080px] items-center gap-4 px-6">
           <a
             href="/"
-            aria-label="S3 File Portal home">
+            aria-label="Data Workspace home">
             <BrandMark size="sm" />
           </a>
           <div className="flex-1" />
           <p className="text-sm text-text-3">
-            © 2026 FilePortal ·{' '}
+            © 2026 Data Workspace ·{' '}
             <a
               href="#"
               className="text-text-2 hover:text-text">

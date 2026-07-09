@@ -93,9 +93,9 @@ describe('LandingPage responsive markers (SPEC-104)', () => {
       expect(btn.parentElement).toHaveClass('flex-col', 'tablet:flex-row');
     }
 
-    // Feature grid steps 1 → 2 (3rd card spans) → 3.
+    // Feature grid steps 1 → 2 → 3; the six cards fill each tier evenly.
     const grid = document.querySelector('#features .grid')!;
     expect(grid).toHaveClass('grid-cols-1', 'tablet:grid-cols-2', 'desktop:grid-cols-3');
-    expect(grid.children[2]).toHaveClass('tablet:col-span-2', 'desktop:col-span-1');
+    expect(grid.children).toHaveLength(6);
   });
 });

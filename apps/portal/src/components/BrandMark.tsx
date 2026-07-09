@@ -1,17 +1,17 @@
 import {cx} from '../lib/cx';
-import {UploadIcon} from './icons';
+import {DatabaseIcon} from './icons';
 
 type BrandMarkProps = {
   /** 'sm' = 24px square + text-base; 'md' (default) = 32px square + text-md. */
   size?: 'sm' | 'md';
-  /** Render the "S3 File Portal" text next to the square; default true. */
+  /** Render the "Data Workspace" text next to the square; default true. */
   showWordmark?: boolean;
   className?: string;
 };
 
 /**
- * App brand mark — rounded accent square with an upload-arrow icon plus the
- * "S3 File Portal" wordmark. Shared by the Header and the landing page.
+ * App brand mark — rounded accent square with a database icon plus the
+ * "Data Workspace" wordmark. Shared by the Header and the landing page.
  *
  * @example
  * <BrandMark size="sm" showWordmark={false} />
@@ -24,9 +24,9 @@ export function BrandMark({size = 'md', showWordmark = true, className}: BrandMa
   return (
     <div className={cx('flex items-center gap-2', className)}>
       <div className={cx('flex shrink-0 items-center justify-center rounded-md bg-accent', square)}>
-        <UploadIcon className={cx(icon, 'text-white')} />
+        <DatabaseIcon className={cx(icon, 'text-white')} />
       </div>
-      {showWordmark && <span className={cx(wordmark, 'font-semibold text-text')}>S3 File Portal</span>}
+      {showWordmark && <span className={cx(wordmark, 'font-semibold text-text')}>Data Workspace</span>}
     </div>
   );
 }
