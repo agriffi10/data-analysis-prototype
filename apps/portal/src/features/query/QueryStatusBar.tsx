@@ -1,6 +1,5 @@
 import {useEffect, useState} from 'react';
 import {formatBytes, formatCount, formatDurationMs} from './query.format';
-import {ROW_COUNT_CEILING} from './query.constants';
 import type {QueryStatus} from './query.types';
 
 type QueryStatusBarProps = {
@@ -22,8 +21,6 @@ type QueryStatusBarProps = {
   hasResultSet?: boolean;
   /** Exact total from the background page-walk; null while still counting (SPEC-080). */
   totalRowCount?: number | null;
-  /** The count walk stopped at ROW_COUNT_CEILING → show "{ceiling}+ rows". */
-  atRowCeiling?: boolean;
   /** Shown only when the succeeded query produced a savable result (row-returning, not pure DDL). */
   canSaveResults?: boolean;
   onSaveResults: () => void;
@@ -37,10 +34,8 @@ type QueryStatusBarProps = {
 function rowCountLabel({
   rowCount,
   hasMoreRows,
-  totalRowCount,
-  atRowCeiling
-}: Pick<QueryStatusBarProps, 'rowCount' | 'hasMoreRows' | 'totalRowCount' | 'atRowCeiling'>): string {
-  if (atRowCeiling) return `${formatCount(ROW_COUNT_CEILING)}+ rows`;
+  totalRowCount
+}: Pick<QueryStatusBarProps, 'rowCount' | 'hasMoreRows' | 'totalRowCount'>): string {
   if (totalRowCount !== null && totalRowCount !== undefined) return `${formatCount(totalRowCount)} rows`;
   return `${formatCount(rowCount ?? 0)}${hasMoreRows ? '+' : ''} rows`;
 }
@@ -59,7 +54,6 @@ export function QueryStatusBar({
   hasMoreRows,
   hasResultSet = true,
   totalRowCount = null,
-  atRowCeiling = false,
   canSaveResults = false,
   onSaveResults
 }: QueryStatusBarProps) {
@@ -119,7 +113,7 @@ export function QueryStatusBar({
           </span>
           <span className="text-text-2">
             {batch && batch.current === batch.total && `Script finished · ${batch.total} statements · `}
-            {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount, atRowCeiling})} · `}
+            {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount})} · `}
             {formatBytes(status?.dataScannedBytes)} scanned · {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
           {canSaveResults && (

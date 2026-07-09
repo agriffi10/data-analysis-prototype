@@ -47,13 +47,6 @@ export const QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX = 's3portal.query.resultsPag
  */
 export const ROW_COUNT_PAGE_SIZE = 1000;
 
-/**
- * Safety ceiling for the count walk: stop paging once this many rows are seen so
- * a pathologically large result can't page forever. Beyond it the stat shows
- * "{ceiling}+ rows".
- */
-export const ROW_COUNT_CEILING = 100_000;
-
 /** Cap on the per-user query-history JSON; the oldest entries beyond this are dropped. */
 export const QUERY_HISTORY_MAX = 100;
 

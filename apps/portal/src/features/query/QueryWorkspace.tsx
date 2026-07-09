@@ -3,6 +3,7 @@ import {useNavigate} from 'react-router-dom';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {Button} from '../../components/Button';
+import {Menu} from '../../components/Menu';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
 import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, parseS3Url, isTerminalState} from './query.service';
@@ -1113,65 +1114,18 @@ export function QueryWorkspace() {
                 Stop
               </Button>
             ) : (
-              // SPEC-078 FR-005: three distinct run scopes. Run Statement stays
-              // the primary action on ⌘⏎; the two whole-script scopes differ
-              // only in how results are shown (single view vs tab per statement).
-              <>
-                <Button
-                  variant="ghost"
-                  onClick={() => handleRunScript('script-single')}
-                  disabled={!canRun}
-                  title="Run every statement; show the last result (⌘⇧⏎)"
-                  aria-label="Run script, single result">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="h-4 w-4"
-                    aria-hidden="true">
-                    <path d="M5 4l8 8-8 8" />
-                    <path d="M14 20h6" />
-                  </svg>
-                  Run Script (single result)
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => handleRunScript('script-tabs')}
-                  disabled={!canRun}
-                  title="Run every statement; one result tab per statement (⌘⌥⏎)"
-                  aria-label="Run script, tab per statement">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="h-4 w-4"
-                    aria-hidden="true">
-                    <path d="M4 4l6 8-6 8" />
-                    <rect
-                      x="13"
-                      y="5"
-                      width="7"
-                      height="5"
-                      rx="1"
-                    />
-                    <rect
-                      x="13"
-                      y="14"
-                      width="7"
-                      height="5"
-                      rx="1"
-                    />
-                  </svg>
-                  Run Script (tab per statement)
-                </Button>
+              // SPEC-078 FR-005: three distinct run scopes as a split button.
+              // Run Statement stays the primary action (⌘⏎); the two whole-script
+              // scopes — which differ only in how results are shown — live in an
+              // attached dropdown so the toolbar stays compact.
+              <div className="inline-flex items-stretch">
                 <Button
                   variant="primary"
                   onClick={handleRunStatement}
                   disabled={!canRun}
                   title="Run the selection or the statement under the cursor (⌘⏎)"
-                  aria-label="Run statement">
+                  aria-label="Run statement"
+                  className="rounded-r-none">
                   <svg
                     viewBox="0 0 24 24"
                     fill="currentColor"
@@ -1182,7 +1136,83 @@ export function QueryWorkspace() {
                   </svg>
                   Run Statement
                 </Button>
-              </>
+                <Menu
+                  ariaLabel="More run options"
+                  align="right"
+                  trigger={({open, toggle, ref, menuId}) => (
+                    <Button
+                      ref={ref}
+                      variant="primary"
+                      onClick={toggle}
+                      disabled={!canRun}
+                      aria-haspopup="menu"
+                      aria-expanded={open}
+                      aria-controls={open ? menuId : undefined}
+                      aria-label="More run options"
+                      title="More run options"
+                      className="rounded-l-none border-l border-white/25 px-2">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className={cx('h-4 w-4 transition-transform', open && 'rotate-180')}
+                        aria-hidden="true">
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </Button>
+                  )}
+                  items={[
+                    {
+                      kind: 'action',
+                      label: 'Run Query Tab',
+                      icon: (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="h-4 w-4"
+                          aria-hidden="true">
+                          <path d="M5 4l8 8-8 8" />
+                          <path d="M14 20h6" />
+                        </svg>
+                      ),
+                      onSelect: () => handleRunScript('script-single')
+                    },
+                    {
+                      kind: 'action',
+                      label: 'Run Multiple Queries',
+                      icon: (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="h-4 w-4"
+                          aria-hidden="true">
+                          <path d="M4 4l6 8-6 8" />
+                          <rect
+                            x="13"
+                            y="5"
+                            width="7"
+                            height="5"
+                            rx="1"
+                          />
+                          <rect
+                            x="13"
+                            y="14"
+                            width="7"
+                            height="5"
+                            rx="1"
+                          />
+                        </svg>
+                      ),
+                      onSelect: () => handleRunScript('script-tabs')
+                    }
+                  ]}
+                />
+              </div>
             )}
           </div>
 
@@ -1233,7 +1263,6 @@ export function QueryWorkspace() {
                 hasMoreRows={results.hasMoreServer}
                 hasResultSet={hasResultSet}
                 totalRowCount={rowCount.total}
-                atRowCeiling={rowCount.atCeiling}
                 canSaveResults={canSaveResults}
                 onSaveResults={() => setSaveResultsOpen(true)}
               />

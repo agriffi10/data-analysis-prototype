@@ -116,8 +116,9 @@ export const HELP_SECTIONS: HelpSection[] = [
           'You don’t have to run statements one at a time. Put several in the editor separated by semicolons — say, a <b>CREATE TABLE</b> followed by a <b>SELECT</b> — and the portal runs them in order, one after another. Each gets its own history entry, and you pick whether you want a single final result or one result per statement.',
         steps: [
           'Write multiple statements in one editor, separated by semicolons.',
-          'Click <b>Run Script (single result)</b> (<kbd>Ctrl/Cmd + Shift + Enter</kbd>) to run every statement in order and show the last result set.',
-          'Or click <b>Run Script (tab per statement)</b> (<kbd>Ctrl/Cmd + Alt + Enter</kbd>) to keep every statement’s result in its own tab above the results table.',
+          'Open the dropdown next to <b>Run Statement</b> to reach the two whole-script options.',
+          'Choose <b>Run Query Tab</b> (<kbd>Ctrl/Cmd + Shift + Enter</kbd>) to run every statement in order and show the last result set.',
+          'Or choose <b>Run Multiple Queries</b> (<kbd>Ctrl/Cmd + Alt + Enter</kbd>) to keep every statement’s result in its own tab above the results table.',
           'Statements run one at a time, in order. The status bar shows which one is running (for example “Statement 2 of 4”), and each gets its own history entry.',
           'If a statement fails, the script stops there — the error names the statement that failed, and the ones after it don’t run.'
         ],
@@ -179,7 +180,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Drag a column’s edge to resize it — your widths are remembered as you switch tabs.',
           'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
           'Choose how many rows show at once with <b>Rows per page</b> above the table — any number from 1 to 1000 (the default is 100). One setting covers every result tab, and it sticks for the session.',
-          'Ran a script with <b>Run Script (tab per statement)</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
+          'Ran a script with <b>Run Multiple Queries</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
           'Want more room? The <b>Default / Query Editor / Results</b> control in the toolbar snaps the split between the editor and the results — grow whichever you’re working in. Your choice sticks for the session.'
         ]
       },

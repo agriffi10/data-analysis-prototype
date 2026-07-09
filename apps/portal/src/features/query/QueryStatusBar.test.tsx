@@ -90,7 +90,7 @@ describe('QueryStatusBar', () => {
     expect(screen.queryByText(/20\+ rows/)).not.toBeInTheDocument();
   });
 
-  it('shows "{ceiling}+ rows" when the count walk hit the safety ceiling (SPEC-080)', () => {
+  it('shows the exact total (no "+") for a large result set (SPEC-080)', () => {
     render(
       <QueryStatusBar
         status={status({})}
@@ -98,12 +98,12 @@ describe('QueryStatusBar', () => {
         startedAt={null}
         rowCount={20}
         hasMoreRows
-        totalRowCount={100_000}
-        atRowCeiling
+        totalRowCount={2_450_991}
         onSaveResults={vi.fn()}
       />
     );
-    expect(screen.getByText(/100,000\+ rows/)).toBeInTheDocument();
+    expect(screen.getByText(/2,450,991 rows/)).toBeInTheDocument();
+    expect(screen.queryByText(/\+ rows/)).not.toBeInTheDocument();
   });
 
   it('shows no row-count stat for a DDL/no-result statement (SPEC-080 FR-004)', () => {

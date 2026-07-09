@@ -66,8 +66,11 @@ export function QueryResultsTable({
               `collapse`) so per-cell borders travel with the sticky header/column
               instead of detaching. The header row sticks to the top (survives
               vertical scroll) and the row-number column sticks to the left
-              (survives horizontal scroll); the top-left corner outranks both. */}
-          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+              (survives horizontal scroll); the top-left corner outranks both.
+              The box hugs its content (no `flex-1`) so a short result doesn't
+              leave an empty bordered gap below the rows; when the rows overflow
+              the available height, `min-h-0` lets it shrink and scroll instead. */}
+          <div className="min-h-0 overflow-auto rounded-lg border border-border bg-surface">
             <table className="w-full table-fixed border-separate border-spacing-0 text-left">
               <colgroup>
                 <col style={{width: ROW_NUMBER_COLUMN_WIDTH}} />

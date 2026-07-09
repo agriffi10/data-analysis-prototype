@@ -19,9 +19,10 @@ const barButton =
 
 // SPEC-041 FR-001/002/005: the query-tab strip above the editor toolbar. "Card"
 // tabs (design-system.md §6) — distinct from the topbar Files|Query underline and
-// the sidebar fill. Active tab: surface + border + leading accent dot (never
-// color-only). The last remaining tab hides its close control; the `+` is never
-// disabled (the cap is enforced by a dialog upstream — FR-008).
+// the sidebar fill. Active tab: an elevated card (surface fill + border + shadow +
+// bold label) — never color-only, and no leading dot so it can't be confused with
+// the dirty-state marker. The last remaining tab hides its close control; the `+`
+// is never disabled (the cap is enforced by a dialog upstream — FR-008).
 export function QueryTabStrip({
   tabs,
   activeTabId,
@@ -109,15 +110,11 @@ export function QueryTabStrip({
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm font-medium',
+                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
                 active
-                  ? 'border-border bg-surface text-text shadow-sm'
-                  : 'border-transparent text-text-2 hover:bg-surface hover:text-text'
+                  ? 'border-border bg-surface font-semibold text-text shadow-sm'
+                  : 'border-transparent font-medium text-text-2 hover:bg-surface hover:text-text'
               )}>
-              <span
-                className={cx('h-1.5 w-1.5 flex-none rounded-full bg-accent', active ? 'opacity-100' : 'opacity-0')}
-                aria-hidden="true"
-              />
               {dirtyTabIds.has(tab.id) && (
                 <span
                   role="img"
