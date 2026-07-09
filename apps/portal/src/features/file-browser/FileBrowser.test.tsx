@@ -303,13 +303,17 @@ describe('FileBrowser — selection + delete', () => {
     expect(del).toBeEnabled();
   });
 
-  it('reports a partial delete failure', async () => {
-    mock.deleteObjects.mockResolvedValue(ok({deleted: [], errors: [{key: 'alice/report.csv', message: 'denied'}]}));
+  it('reports a partial delete failure with friendly, mapped text (SPEC-106)', async () => {
+    mock.deleteObjects.mockResolvedValue(
+      ok({deleted: [], errors: [{key: 'alice/report.csv', message: 'Access Denied', code: 'AccessDenied'}]})
+    );
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    expect(await screen.findByText(/denied/)).toBeInTheDocument();
+    // The reason is the mapped message, not raw S3 text.
+    expect(await screen.findByText(/report\.csv — You don't have permission/)).toBeInTheDocument();
+    expect(screen.queryByText(/report\.csv — Access Denied/)).not.toBeInTheDocument();
   });
 });
 

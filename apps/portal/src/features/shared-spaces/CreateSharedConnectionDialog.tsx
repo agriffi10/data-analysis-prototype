@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
 
 type Props = {
   /** In-flight while the create request is being enqueued — locks Create + dismiss. */
@@ -28,10 +28,7 @@ export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}:
 
   const trimmed = name.trim();
   const valid = CATALOG_IDENTIFIER_RE.test(trimmed);
-  const error =
-    touched && !valid && trimmed.length > 0
-      ? 'Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter.'
-      : undefined;
+  const error = touched && !valid && trimmed.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
 
   const attempt = () => {
     if (valid && !busy) onCreate(trimmed);

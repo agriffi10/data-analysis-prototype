@@ -3,7 +3,7 @@ import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {Banner} from '../../components/Banner';
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
 import {parseMemberInput} from '../shared-spaces';
 import type {ShareRecipient} from './tableShare.types';
 import type {ShareTarget} from './useTableShare';
@@ -44,10 +44,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
 
   const trimmedName = name.trim();
   const nameValid = CATALOG_IDENTIFIER_RE.test(trimmedName);
-  const nameError =
-    nameTouched && !nameValid && trimmedName.length > 0
-      ? 'Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter.'
-      : undefined;
+  const nameError = nameTouched && !nameValid && trimmedName.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
 
   // Valid catalog-safe names in the entry box (comma/space separated), tagged with
   // the selected kind and deduped against what's already listed.

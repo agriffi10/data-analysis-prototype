@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
+import {toUserMessage} from '../../lib/errorMessages';
 import {uploadFile} from './fileBrowser.service';
 import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
 import {UPLOAD_CONCURRENCY, type UploadItem} from './upload.types';
@@ -72,7 +73,9 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
       } else if (result.error.code === 'Collision') {
         dispatch({type: 'collision', id: item.id});
       } else {
-        dispatch({type: 'fail', id: item.id, error: result.error.message});
+        // Map to friendly text here (the code is in scope) so UploadList never
+        // renders the raw AWS message (SPEC-106 FR-003).
+        dispatch({type: 'fail', id: item.id, error: toUserMessage(result.error).message});
       }
     },
     [queryClient]

@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
+import {toUserMessage} from '../../lib/errorMessages';
 import {deleteObjects, deleteFolder} from './fileBrowser.service';
 import type {SelectableItem} from './selectionContext';
 
@@ -10,7 +11,8 @@ import type {SelectableItem} from './selectionContext';
  */
 export type DeleteSummary = {
   deletedCount: number;
-  errors: {key: string; message: string}[];
+  /** `message` is technical; the summary banner maps `code` (SPEC-106). */
+  errors: {key: string; message: string; code?: string}[];
 };
 
 export type UseDeleteResult = {
@@ -61,7 +63,7 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
     if (fileKeys.length > 0) {
       const result = await deleteObjects({bucket, keys: fileKeys, username});
       if (!result.success) {
-        setError(result.error.message);
+        setError(toUserMessage(result.error).message);
         setIsDeleting(false);
         return null;
       }
@@ -78,7 +80,7 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
         username
       });
       if (!result.success) {
-        errors.push({key: folder.prefix, message: result.error.message});
+        errors.push({key: folder.prefix, message: result.error.message, code: result.error.code});
         continue;
       }
       deleted.push(...result.data.deleted);

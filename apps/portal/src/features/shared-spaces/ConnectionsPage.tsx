@@ -5,7 +5,8 @@ import {PageLayout} from '../../components/PageLayout';
 import {cx} from '../../lib/cx';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
-import {Toast, type ToastState} from '../query/Toast';
+import {useToast} from '../../components/toastContext';
+import {toUserMessage} from '../../lib/errorMessages';
 import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 import {useCreateSharedConnection} from './useCreateSharedConnection';
 import {useManageMembers} from './useManageMembers';
@@ -60,7 +61,7 @@ export function ConnectionsPage() {
   const [viewingName, setViewingName] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<ConnectionRow | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRow | null>(null);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const toast = useToast();
   // Connections the user has just left/deleted, shown optimistically as
   // leaving/deleting until a Refresh reconciles them away (mirrors `retrying`).
   const [transitioning, setTransitioning] = useState<Map<string, 'leaving' | 'deleting'>>(new Map());
@@ -128,10 +129,10 @@ export function ConnectionsPage() {
     setDialogOpen(false);
     const result = await create(name);
     if (result.success) {
-      setToast({variant: 'success', message: `Creating “${name}”…`});
+      toast.push({variant: 'success', message: `Creating “${name}”…`});
       void reconcile(); // auto-poll until the pipeline writes the cache
     } else {
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
@@ -139,26 +140,26 @@ export function ConnectionsPage() {
     const result = await addMembers(space, toAdd);
     if (result.success) {
       const n = toAdd.length;
-      setToast({
+      toast.push({
         variant: 'success',
         message: `Adding ${n} member${n === 1 ? '' : 's'} to “${space}”…`
       });
       void reconcile();
     } else {
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
   const handleRemoveMembers = async (space: string, toRemove: string[]) => {
     const result = await removeMembers(space, toRemove);
     if (result.success) {
-      setToast({
+      toast.push({
         variant: 'success',
         message: `Removing ${toRemove.join(', ')} from “${space}”…`
       });
       void reconcile();
     } else {
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
@@ -167,10 +168,10 @@ export function ConnectionsPage() {
     setLeaving(null);
     if (result.success) {
       setTransitioning((prev) => new Map(prev).set(space, 'leaving'));
-      setToast({variant: 'success', message: `Leaving “${space}”…`});
+      toast.push({variant: 'success', message: `Leaving “${space}”…`});
       void reconcile();
     } else {
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
@@ -179,10 +180,10 @@ export function ConnectionsPage() {
     setDeleting(null);
     if (result.success) {
       setTransitioning((prev) => new Map(prev).set(space, 'deleting'));
-      setToast({variant: 'success', message: `Deleting “${space}”…`});
+      toast.push({variant: 'success', message: `Deleting “${space}”…`});
       void reconcile();
     } else {
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
@@ -200,7 +201,7 @@ export function ConnectionsPage() {
         next.delete(name);
         return next;
       });
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
@@ -208,7 +209,7 @@ export function ConnectionsPage() {
     setRetrying((prev) => new Set(prev).add(name));
     const result = await create(name);
     if (result.success) {
-      setToast({variant: 'success', message: `Retrying “${name}”…`});
+      toast.push({variant: 'success', message: `Retrying “${name}”…`});
       void reconcile();
     } else {
       setRetrying((prev) => {
@@ -216,7 +217,7 @@ export function ConnectionsPage() {
         next.delete(name);
         return next;
       });
-      setToast({variant: 'danger', message: result.error.message});
+      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
     }
   };
 
@@ -255,7 +256,11 @@ export function ConnectionsPage() {
             </Button>
           </>
         }>
-        {error && <Banner variant="danger">Couldn&apos;t load your shared connections: {error}</Banner>}
+        {error && (
+          <Banner variant="danger">
+            Couldn&apos;t load your shared connections. Try Refresh, or contact the Administrator.
+          </Banner>
+        )}
 
         {isLoading ? (
           <p
@@ -333,12 +338,6 @@ export function ConnectionsPage() {
           busy={lifecycleBusy}
           onConfirm={() => void handleDelete(deleting.name)}
           onCancel={() => setDeleting(null)}
-        />
-      )}
-      {toast && (
-        <Toast
-          {...toast}
-          onDismiss={() => setToast(null)}
         />
       )}
     </>

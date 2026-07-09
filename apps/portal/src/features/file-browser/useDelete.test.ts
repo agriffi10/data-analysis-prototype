@@ -98,7 +98,7 @@ describe('useDelete', () => {
   it('aborts on a systemic files failure — no folder deletes, no invalidation', async () => {
     mockDeleteObjects.mockResolvedValue({
       success: false,
-      error: {message: 'No AWS credentials — sign in required'}
+      error: {message: 'No AWS credentials — sign in required', code: 'NotAuthenticated'}
     });
 
     const {result} = render();
@@ -110,7 +110,8 @@ describe('useDelete', () => {
     expect(summary).toBeNull();
     expect(mockDeleteFolder).not.toHaveBeenCalled();
     expect(mockInvalidate).not.toHaveBeenCalled();
-    expect(result.current.error).toMatch(/no aws credentials/i);
+    // Mapped to friendly text (SPEC-106), not the raw credential message.
+    expect(result.current.error).toBe('Sign in to continue.');
   });
 
   it('records a folder failure and continues with the remaining folders', async () => {
@@ -133,7 +134,7 @@ describe('useDelete', () => {
     expect(mockDeleteFolder).toHaveBeenCalledTimes(2);
     expect(summary).toEqual({
       deletedCount: 1,
-      errors: [{key: 'alice/p/', message: 'Access Denied'}]
+      errors: [{key: 'alice/p/', message: 'Access Denied', code: 'AccessDenied'}]
     });
     expect(mockInvalidate).toHaveBeenCalled();
   });

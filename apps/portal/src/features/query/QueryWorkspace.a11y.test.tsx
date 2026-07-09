@@ -6,6 +6,7 @@ import type {ReactElement} from 'react';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../../test/axe';
 import {createTestQueryClient} from '../../test/renderWithProviders';
 import {authValue} from '../../test/authFixtures';
+import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
 
 // Integration a11y (react.md §21): render the REAL workspace — real SchemaBrowser
@@ -75,7 +76,9 @@ function workspace(): ReactElement {
     <AuthContext.Provider value={authValue()}>
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <QueryWorkspace />
+          <ToastProvider>
+            <QueryWorkspace />
+          </ToastProvider>
         </MemoryRouter>
       </QueryClientProvider>
     </AuthContext.Provider>

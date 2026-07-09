@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
+import {toUserMessage} from '../../lib/errorMessages';
 import {moveObject, moveFolder, uploadPercent} from './fileBrowser.service';
 import {leafName, fileParent, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
@@ -9,7 +10,8 @@ import type {SelectableItem} from './selectionContext';
 // how many objects S3 relocated, and any per-item/per-key failures (FR-004).
 export type MoveSummary = {
   movedCount: number;
-  errors: {key: string; message: string}[];
+  /** `message` is technical; the summary banner maps `code` (SPEC-106). */
+  errors: {key: string; message: string; code?: string}[];
 };
 
 // A rename hit an existing destination (FR-005). The user picks Overwrite or a
@@ -140,7 +142,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         });
         return;
       }
-      setError(outcome.message);
+      setError(toUserMessage({code: outcome.code, message: outcome.message}).message);
       setIsBusy(false);
       return;
     }
@@ -182,7 +184,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         });
         if (r.success) acc.moved += 1;
         else if (r.error.code === 'Collision') collided.push(item);
-        else acc.errors.push({key: item.key, message: r.error.message});
+        else acc.errors.push({key: item.key, message: r.error.message, code: r.error.code});
       } else {
         const {leaf} = folderParts(item.prefix);
         const r = await moveFolder({
@@ -200,7 +202,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string)
         } else if (r.error.code === 'Collision') {
           collided.push(item);
         } else {
-          acc.errors.push({key: item.prefix, message: r.error.message});
+          acc.errors.push({key: item.prefix, message: r.error.message, code: r.error.code});
         }
       }
     }

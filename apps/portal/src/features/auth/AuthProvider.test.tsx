@@ -113,17 +113,19 @@ describe('AuthProvider', () => {
   it('surfaces a failed sign-up or sign-in as a non-blocking error (never throws)', async () => {
     const user = userEvent.setup();
     mockGetUser.mockResolvedValue(fail('none'));
+    // Raw Amplify messages with no app code → the mapped generic fallback is
+    // shown, never the raw text (SPEC-106 FR-001).
     mockStartSignUp.mockResolvedValue(fail('Sign-up is not configured.'));
-    mockStartSignIn.mockResolvedValue(fail('popup blocked'));
+    mockStartSignIn.mockResolvedValue({success: false, error: {message: 'popup blocked', code: 'NetworkError'}});
 
     renderProvider();
     await waitFor(() => expect(status()).toBe('unauthenticated'));
 
     await user.click(screen.getByText('signup'));
-    await waitFor(() => expect(errorText()).toBe('Sign-up is not configured.'));
+    await waitFor(() => expect(errorText()).toBe('Something went wrong. Contact the Administrator.'));
 
     await user.click(screen.getByText('signin'));
-    await waitFor(() => expect(errorText()).toBe('popup blocked'));
+    await waitFor(() => expect(errorText()).toBe('Can’t reach the server. Check your connection and try again.'));
 
     // A surfaced error never tips the provider out of a usable state.
     expect(status()).toBe('unauthenticated');

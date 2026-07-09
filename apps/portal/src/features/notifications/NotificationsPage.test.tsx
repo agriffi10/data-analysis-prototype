@@ -107,13 +107,15 @@ describe('NotificationsPage (SPEC-060)', () => {
 
   it('rolls back and shows a danger toast when an action fails', async () => {
     mockGet.mockResolvedValue({success: true, data: list(1)});
-    mockEnqueue.mockResolvedValue({success: false, error: {message: 'queue down'}});
+    mockEnqueue.mockResolvedValue({success: false, error: {message: 'queue down', code: 'NetworkError'}});
     const {user} = renderPage();
     await waitFor(() => expect(screen.getByRole('button', {name: 'Mark read'})).toBeInTheDocument());
 
     await user.click(screen.getByRole('button', {name: 'Mark read'}));
 
-    await waitFor(() => expect(screen.getByText('queue down')).toBeInTheDocument());
+    // The danger toast shows FR-001-mapped text, not the raw 'queue down'.
+    await waitFor(() => expect(screen.getByText(/Check your connection/)).toBeInTheDocument());
+    expect(screen.queryByText('queue down')).not.toBeInTheDocument();
     // rolled back — the unread row (and its Mark read control) is still present.
     expect(screen.getByRole('button', {name: 'Mark read'})).toBeInTheDocument();
   });

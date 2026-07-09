@@ -120,12 +120,15 @@ describe('useFileUpload', () => {
   });
 
   it('surfaces a non-collision error and clears it on dismiss', async () => {
-    mockUpload.mockResolvedValue({success: false, error: {message: 'Access Denied'}});
+    mockUpload.mockResolvedValue({success: false, error: {message: 'Access Denied', code: 'AccessDenied'}});
 
     const {result} = render();
     act(() => result.current.uploadOne(file));
 
-    await waitFor(() => expect(result.current.error).toBe('Access Denied'));
+    // Mapped to friendly text (SPEC-106), not the raw 'Access Denied'.
+    await waitFor(() =>
+      expect(result.current.error).toBe("You don't have permission to do that. Contact the Administrator.")
+    );
     expect(mockInvalidate).not.toHaveBeenCalled();
 
     act(() => result.current.dismissError());

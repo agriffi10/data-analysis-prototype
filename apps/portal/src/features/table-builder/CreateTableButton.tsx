@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {Button} from '../../components/Button';
-import {Toast, type ToastState} from '../query/Toast';
+import {useToast} from '../../components/toastContext';
+import {toUserMessage} from '../../lib/errorMessages';
 import {lastSegment} from '../file-browser/fileBrowser.paths';
 import {CreateTableDialog} from './CreateTableDialog';
 import {enqueueTableBuild} from './tableBuild.service';
@@ -24,7 +25,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const toast = useToast();
 
   // Suggestion base: the folder's own name, or the space name at the space root.
   const folderName = lastSegment(prefix) || database;
@@ -45,13 +46,13 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
     setBusy(false);
     if (result.success) {
       setOpen(false);
-      setToast({
+      toast.push({
         variant: 'success',
         message: `Creating table “${tableName}”… you’ll be notified when it’s ready.`
       });
     } else {
       // Keep the dialog open so the user can retry (FR-004 — no silent failure).
-      setSubmitError(result.error.message);
+      setSubmitError(toUserMessage(result.error).message);
     }
   };
 
@@ -72,14 +73,6 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
           submitError={submitError}
           onSubmit={handleSubmit}
           onCancel={() => setOpen(false)}
-        />
-      )}
-
-      {toast && (
-        <Toast
-          variant={toast.variant}
-          message={toast.message}
-          onDismiss={() => setToast(null)}
         />
       )}
     </>

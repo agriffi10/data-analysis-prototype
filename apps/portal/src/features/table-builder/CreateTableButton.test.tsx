@@ -9,19 +9,22 @@ vi.mock('./tableBuild.service', async (orig) => ({
 }));
 
 import {CreateTableButton} from './CreateTableButton';
+import {ToastProvider} from '../../components/ToastProvider';
 import {enqueueTableBuild} from './tableBuild.service';
 
 const mockEnqueue = enqueueTableBuild as unknown as MockedFunction<typeof enqueueTableBuild>;
 
 function renderButton(props?: Partial<React.ComponentProps<typeof CreateTableButton>>) {
   render(
-    <CreateTableButton
-      spaceKind="personal"
-      bucket="dat-prod-user-space"
-      database="alice"
-      prefix="alice/sales/"
-      {...props}
-    />
+    <ToastProvider>
+      <CreateTableButton
+        spaceKind="personal"
+        bucket="dat-prod-user-space"
+        database="alice"
+        prefix="alice/sales/"
+        {...props}
+      />
+    </ToastProvider>
   );
 }
 
@@ -63,12 +66,14 @@ describe('CreateTableButton', () => {
     await screen.findByText(/Creating table/);
   });
 
-  it('keeps the dialog open and shows the error on a send failure', async () => {
-    mockEnqueue.mockResolvedValue({success: false, error: {message: 'SQS unavailable'}});
+  it('keeps the dialog open and shows friendly, mapped error text on a send failure', async () => {
+    // Raw AWS message + code; the dialog shows the FR-001-mapped text, not 'SQS unavailable'.
+    mockEnqueue.mockResolvedValue({success: false, error: {message: 'SQS unavailable', code: 'NetworkError'}});
     renderButton();
     fireEvent.click(screen.getByRole('button', {name: 'Create table'}));
     fireEvent.click(screen.getAllByRole('button', {name: 'Create table'})[1]);
-    expect(await screen.findByText('SQS unavailable')).toBeInTheDocument();
+    expect(await screen.findByText(/Check your connection/)).toBeInTheDocument();
+    expect(screen.queryByText('SQS unavailable')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Table name')).toBeInTheDocument();
   });
 });

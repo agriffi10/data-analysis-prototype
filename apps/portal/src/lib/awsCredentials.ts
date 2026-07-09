@@ -16,7 +16,7 @@ export async function getSessionCredentials(forceRefresh = false): Promise<Servi
     if (!session.credentials) {
       return {
         success: false,
-        error: {message: 'No AWS credentials — sign in required'}
+        error: {message: 'No AWS credentials — sign in required', code: 'NotAuthenticated'}
       };
     }
     return {success: true, data: session.credentials};
@@ -46,7 +46,7 @@ export async function getIdToken(forceRefresh = false): Promise<ServiceResult<st
     if (!idToken) {
       return {
         success: false,
-        error: {message: 'No ID token — sign in required'}
+        error: {message: 'No ID token — sign in required', code: 'NotAuthenticated'}
       };
     }
     return {success: true, data: idToken};

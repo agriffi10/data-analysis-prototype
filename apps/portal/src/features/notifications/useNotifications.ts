@@ -17,7 +17,8 @@ const RECONCILE_DELAYS_MS = [2_500, 9_000, 18_000];
 
 export type UseNotificationsOptions = {
   /** Called on enqueue failure, after the optimistic change is rolled back (e.g. to show a toast). */
-  onMutationError?: (message: string) => void;
+  /** Receives the failed mutation's error (mapped to friendly text by the caller). */
+  onMutationError?: (error: unknown) => void;
   /**
    * Suspend the 60s background poll (the /notifications page sets this so a poll
    * doesn't fight in-page mark-read actions — the writer is the async source of
@@ -116,7 +117,7 @@ export function useNotifications(
   const markReadMutation = useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       const result = await enqueueNotificationAction({action: 'markRead', username: username as string, id});
-      if (!result.success) throw new Error(result.error.message);
+      if (!result.success) throw Object.assign(new Error(result.error.message), {code: result.error.code});
     },
     onMutate: (id: string) =>
       setPendingRead((p) => {
@@ -130,7 +131,7 @@ export function useNotifications(
         next.delete(id);
         return next;
       });
-      onMutationError?.(err instanceof Error ? err.message : 'Failed to update notifications');
+      onMutationError?.(err);
     },
     onSuccess: scheduleReconcile
   });
@@ -138,12 +139,12 @@ export function useNotifications(
   const markAllReadMutation = useMutation<void, Error, void>({
     mutationFn: async (): Promise<void> => {
       const result = await enqueueNotificationAction({action: 'markAllRead', username: username as string});
-      if (!result.success) throw new Error(result.error.message);
+      if (!result.success) throw Object.assign(new Error(result.error.message), {code: result.error.code});
     },
     onMutate: () => setPendingAll(true),
     onError: (err) => {
       setPendingAll(false);
-      onMutationError?.(err instanceof Error ? err.message : 'Failed to update notifications');
+      onMutationError?.(err);
     },
     onSuccess: scheduleReconcile
   });

@@ -520,7 +520,7 @@ describe('deleteObjects', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.deleted).toEqual(['alice/a.txt']);
-    expect(result.data.errors).toEqual([{key: 'alice/locked.txt', message: 'Access Denied'}]);
+    expect(result.data.errors).toEqual([{key: 'alice/locked.txt', message: 'Access Denied', code: 'AccessDenied'}]);
   });
 
   it('records a non-expiry whole-batch failure as per-key errors, no retry', async () => {
@@ -536,8 +536,8 @@ describe('deleteObjects', () => {
     if (!result.success) return;
     expect(result.data.deleted).toEqual([]);
     expect(result.data.errors).toEqual([
-      {key: 'alice/a.txt', message: 'Service Unavailable'},
-      {key: 'alice/b.txt', message: 'Service Unavailable'}
+      {key: 'alice/a.txt', message: 'Service Unavailable', code: 'ServiceUnavailable'},
+      {key: 'alice/b.txt', message: 'Service Unavailable', code: 'ServiceUnavailable'}
     ]);
     expect(mockGetS3Client).toHaveBeenCalledTimes(1); // no credential refresh
   });
@@ -1011,7 +1011,7 @@ describe('moveFolder', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.moved).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied'}]);
+    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied', code: 'AccessDenied'}]);
 
     // The failed key's source must not be deleted.
     const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
@@ -1160,7 +1160,7 @@ describe('copyFolder', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.copied).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied'}]);
+    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied', code: 'AccessDenied'}]);
 
     const deletes = mockSend.mock.calls
       .map((c) => c[0])

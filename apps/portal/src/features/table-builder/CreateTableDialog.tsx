@@ -6,6 +6,7 @@ import {Banner} from '../../components/Banner';
 import {PartitionKeysField} from './PartitionKeysField';
 import {buildPartitionKeys, type DraftPartitionKey} from './partitionKeys';
 import {isValidTableName, suggestTableName} from './tableBuild.service';
+import {CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
 import type {PartitionKey} from './tableBuild.types';
 
 type Props = {
@@ -40,10 +41,7 @@ export function CreateTableDialog({folderName, folderPath, busy = false, submitE
 
   const trimmed = name.trim();
   const nameValid = isValidTableName(trimmed);
-  const nameError =
-    touched && !nameValid && trimmed.length > 0
-      ? 'Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter.'
-      : undefined;
+  const nameError = touched && !nameValid && trimmed.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
 
   const partition = useMemo(() => buildPartitionKeys(keys), [keys]);
   const canSubmit = nameValid && partition.valid && !busy;

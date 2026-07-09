@@ -3,6 +3,7 @@ import {Hub} from 'aws-amplify/utils';
 import {AuthContext} from './authContext';
 import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
 import {isAmplifyConfigured} from '../../lib/amplify';
+import {toUserMessage} from '../../lib/errorMessages';
 import {setReturnPathIfAbsent} from '../../lib/returnPath';
 import type {AuthStatus, AuthUser} from './auth.types';
 
@@ -75,20 +76,22 @@ export function AuthProvider({children}: {children: ReactNode}) {
     // protected path the auth gate may have captured.
     setReturnPathIfAbsent('/files');
     const result = await startSignIn();
-    if (!result.success) setError(result.error.message);
+    // Map to friendly text here (the code is in scope) so the Header banner
+    // never shows the raw Cognito message (SPEC-106 FR-003).
+    if (!result.success) setError(toUserMessage(result.error).message);
   }, []);
 
   const signUp = useCallback(async () => {
     setError(null);
     setReturnPathIfAbsent('/files');
     const result = await startSignUp();
-    if (!result.success) setError(result.error.message);
+    if (!result.success) setError(toUserMessage(result.error).message);
   }, []);
 
   const signOut = useCallback(async () => {
     setError(null);
     const result = await startSignOut();
-    if (!result.success) setError(result.error.message);
+    if (!result.success) setError(toUserMessage(result.error).message);
   }, []);
 
   const value = useMemo(

@@ -1,6 +1,8 @@
 import {Banner} from '../../components/Banner';
+import {toUserMessage} from '../../lib/errorMessages';
 
-export type OperationError = {label: string; message: string};
+/** `code` is the stable app/AWS code; the banner maps it to friendly text (SPEC-106). */
+export type OperationError = {label: string; message?: string; code?: string};
 
 type Props = {
   count: number; // how many items succeeded
@@ -31,7 +33,7 @@ export function OperationSummaryBanner({count, pastVerb, failVerb, errors, onDis
           <ul className="mt-1 list-disc pl-5">
             {errors.map((e, i) => (
               <li key={`${e.label}-${i}`}>
-                {e.label} — {e.message}
+                {e.label} — {toUserMessage({code: e.code, message: e.message}).message}
               </li>
             ))}
           </ul>

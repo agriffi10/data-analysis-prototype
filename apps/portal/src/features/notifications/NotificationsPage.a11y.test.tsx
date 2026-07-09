@@ -5,6 +5,7 @@ import {MemoryRouter} from 'react-router-dom';
 import type {ReactElement, ReactNode} from 'react';
 import {AuthContext} from '../auth/authContext';
 import {authValue} from '../../test/authFixtures';
+import {ToastProvider} from '../../components/ToastProvider';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../../test/axe';
 
 // Integration style: render the REAL page/bell with real hooks + children; mock only
@@ -35,7 +36,9 @@ function withProviders(ui: ReactNode): ReactElement {
   return (
     <QueryClientProvider client={client}>
       <AuthContext.Provider value={authValue()}>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <MemoryRouter>
+          <ToastProvider>{ui}</ToastProvider>
+        </MemoryRouter>
       </AuthContext.Provider>
     </QueryClientProvider>
   );
