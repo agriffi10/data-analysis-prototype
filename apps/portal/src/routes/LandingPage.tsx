@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react';
 import {Navigate, useNavigate} from 'react-router-dom';
 import {useAuth} from '../features/auth';
 import {takeReturnPath} from '../lib/returnPath';
@@ -150,6 +151,190 @@ function AppPreview() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Feature showcases (decorative — mirror the shipped Upload + Query UIs) ──────
+
+/** Browser-chrome frame shared by the two feature showcases. `aria-hidden` — the
+ *  meaningful copy lives in each figure's caption, not the illustration. */
+function ShowcaseFrame({title, children}: {title: string; children: ReactNode}) {
+  return (
+    <div
+      aria-hidden="true"
+      className="overflow-hidden rounded-lg border border-border bg-surface shadow-md">
+      <div className="flex h-[34px] items-center gap-[7px] border-b border-border bg-surface-2 px-4">
+        <span className="h-[10px] w-[10px] rounded-full bg-border" />
+        <span className="h-[10px] w-[10px] rounded-full bg-border" />
+        <span className="h-[10px] w-[10px] rounded-full bg-border" />
+        <span className="ml-2 truncate text-xs font-medium text-text-3">{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+type UploadShowcaseRow = {ext: string; name: string; status: 'uploading' | 'done'; detail: string; percent?: number};
+
+const UPLOAD_ROWS: UploadShowcaseRow[] = [
+  {ext: 'CSV', name: 'dataset-export.csv', status: 'uploading', detail: '8.4 MB of 14.7 MB', percent: 57},
+  {ext: 'XLSX', name: 'revenue-model.xlsx', status: 'uploading', detail: '512 KB of 812 KB', percent: 63},
+  {ext: 'PDF', name: 'annual-summary.pdf', status: 'done', detail: '2.4 MB'}
+];
+
+// Mirrors UploadList's StatusChip: amber pulsing while uploading, green when done.
+function UploadShowcaseChip({status}: {status: 'uploading' | 'done'}) {
+  const cfg =
+    status === 'uploading'
+      ? {label: 'Uploading', tone: 'bg-warning-soft text-warning', pulse: true}
+      : {label: 'Uploaded', tone: 'bg-success-soft text-success', pulse: false};
+  return (
+    <span
+      className={cx(
+        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
+        cfg.tone
+      )}>
+      <span className={cx('h-[7px] w-[7px] rounded-full bg-current', cfg.pulse && 'animate-pulse')} />
+      {cfg.label}
+    </span>
+  );
+}
+
+/** Uploads-in-flight panel — reproduces the in-app Upload drawer's UploadList. */
+function UploadShowcase() {
+  return (
+    <ShowcaseFrame title="Uploads">
+      <div className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-text-3">Uploads</span>
+          <span className="text-sm text-text-2">2 in progress</span>
+        </div>
+        <ul className="space-y-3.5">
+          {UPLOAD_ROWS.map((row) => (
+            <li
+              key={row.name}
+              className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-[10px] font-semibold text-text-2">
+                {row.ext}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{row.name}</span>
+                  <UploadShowcaseChip status={row.status} />
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="inline-flex flex-none items-center gap-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-text-2">
+                    <FolderIcon
+                      filled
+                      className="h-3 w-3 text-text-3"
+                    />
+                    alice
+                  </span>
+                  <span className="truncate text-xs text-text-2">{row.detail}</span>
+                </div>
+                {row.status === 'uploading' && (
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-accent"
+                      style={{width: `${row.percent}%`}}
+                    />
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </ShowcaseFrame>
+  );
+}
+
+const QUERY_RESULT_ROWS = [
+  {n: '1', region: 'us-east', revenue: '1,284,300.00', orders: '4,021'},
+  {n: '2', region: 'eu-west', revenue: '902,145.50', orders: '2,884'},
+  {n: '3', region: 'ap-south', revenue: '655,980.25', orders: '1,902'}
+];
+
+/** Query workspace panel — editor + run bar, status line, and a results table. */
+function QueryShowcase() {
+  return (
+    <ShowcaseFrame title="Query">
+      {/* Editor toolbar */}
+      <div className="flex h-11 items-center gap-2 border-b border-border px-4">
+        <span className="inline-flex h-6 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2 text-xs text-text-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+          <code className="font-mono text-text">alice</code>
+        </span>
+        <div className="flex-1" />
+        <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-white">
+          <svg
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="h-3 w-3">
+            <path d="M7 5v14l11-7z" />
+          </svg>
+          Run
+        </span>
+      </div>
+
+      {/* SQL editor */}
+      <div className="flex border-b border-border font-mono text-xs leading-[1.7]">
+        <div className="shrink-0 border-r border-border-2 bg-surface-2 py-3 pr-2 text-right text-text-3">
+          <div>1</div>
+          <div>2</div>
+          <div>3</div>
+          <div>4</div>
+        </div>
+        <pre className="min-w-0 flex-1 overflow-hidden px-4 py-3 text-text">
+          <div>
+            <span className="italic text-text-3">-- Top regions by revenue</span>
+          </div>
+          <div>
+            <span className="font-semibold text-accent">SELECT</span> region, <span className="text-accent">SUM</span>
+            (amount) <span className="font-semibold text-accent">AS</span> revenue
+          </div>
+          <div>
+            <span className="font-semibold text-accent">FROM</span> sales_2026
+          </div>
+          <div>
+            <span className="font-semibold text-accent">GROUP BY</span> region{' '}
+            <span className="font-semibold text-accent">ORDER BY</span> revenue{' '}
+            <span className="font-semibold text-accent">DESC</span>;
+          </div>
+        </pre>
+      </div>
+
+      {/* Status bar */}
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          Succeeded
+        </span>
+        <span className="truncate text-text-2">3 rows · 1.2 MB scanned · 0.8s</span>
+      </div>
+
+      {/* Results table */}
+      <div className="p-4">
+        <div className="overflow-hidden rounded-md border border-border">
+          <div className="grid grid-cols-[28px_1fr_1fr_60px] bg-surface-2 text-[10px] font-semibold uppercase tracking-wide text-text-3">
+            <div className="px-2 py-1.5">#</div>
+            <div className="px-2 py-1.5">region</div>
+            <div className="px-2 py-1.5">revenue</div>
+            <div className="px-2 py-1.5">orders</div>
+          </div>
+          {QUERY_RESULT_ROWS.map((r) => (
+            <div
+              key={r.n}
+              className="grid grid-cols-[28px_1fr_1fr_60px] border-t border-border-2 font-mono text-xs">
+              <div className="px-2 py-1.5 text-text-3">{r.n}</div>
+              <div className="px-2 py-1.5 text-text">{r.region}</div>
+              <div className="truncate px-2 py-1.5 text-text">{r.revenue}</div>
+              <div className="px-2 py-1.5 text-text">{r.orders}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ShowcaseFrame>
   );
 }
 
@@ -337,6 +522,22 @@ export default function LandingPage() {
                   <p className="text-sm text-text-2">{feature.body}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Showcase graphics — the real Upload + Query surfaces, side-by-side. */}
+            <div className="mt-10 grid grid-cols-1 gap-6 tablet:mt-12 tablet:grid-cols-2">
+              <figure className="m-0">
+                <UploadShowcase />
+                <figcaption className="mt-3 text-center text-sm text-text-2">
+                  Live progress for every upload — large files switch to multipart automatically.
+                </figcaption>
+              </figure>
+              <figure className="m-0">
+                <QueryShowcase />
+                <figcaption className="mt-3 text-center text-sm text-text-2">
+                  Write SQL, run it, and page through results — then save them straight back to your files.
+                </figcaption>
+              </figure>
             </div>
           </div>
         </section>
