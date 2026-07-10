@@ -3,6 +3,7 @@ import {Navigate, useNavigate} from 'react-router-dom';
 import {useAuth} from '../features/auth';
 import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
+import {Badge} from '../components/Badge';
 import {Button} from '../components/Button';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
 import {cx} from '../lib/cx';
@@ -84,20 +85,25 @@ function PreviewFileIcon() {
   );
 }
 
-type PreviewRow = {
-  icon: 'folder' | 'file';
-  name: string;
-  size: string;
-  date: string;
-};
+type PreviewSpace = {name: string; active?: boolean; tag?: string};
 
-const PREVIEW_ROWS: PreviewRow[] = [
-  {icon: 'folder', name: '2026-q1', size: '—', date: 'Mar 3'},
-  {icon: 'file', name: 'annual-summary.pdf', size: '2.4 MB', date: 'Mar 2'},
-  {icon: 'file', name: 'revenue-model.xlsx', size: '847 KB', date: 'Feb 27'},
-  {icon: 'file', name: 'dataset-export.csv', size: '12.1 MB', date: 'Feb 24'}
+const PREVIEW_SPACES: PreviewSpace[] = [
+  {name: 'alice', active: true, tag: 'user space'},
+  {name: 'marketing_data'},
+  {name: 'sales_2026'}
 ];
 
+type PreviewRow = {icon: 'folder' | 'file'; name: string; size: string; modified: string; type: string};
+
+const PREVIEW_ROWS: PreviewRow[] = [
+  {icon: 'folder', name: '2026-q1', size: '—', modified: 'Apr 2', type: 'Folder'},
+  {icon: 'file', name: 'annual-summary.pdf', size: '2.4 MB', modified: 'Apr 12', type: 'PDF'},
+  {icon: 'file', name: 'revenue-model.xlsx', size: '812 KB', modified: 'Apr 11', type: 'XLSX'},
+  {icon: 'file', name: 'dataset-export.csv', size: '14.7 MB', modified: 'Apr 9', type: 'CSV'}
+];
+
+/** Static Files-page illustration (decorative) — Spaces rail + toolbar + file table,
+ *  mirroring the shipped FileBrowser (Type column, Create table / New folder / Upload). */
 function AppPreview() {
   return (
     <div
@@ -111,43 +117,74 @@ function AppPreview() {
       </div>
 
       {/* Body */}
-      <div className="grid min-h-[320px] grid-cols-1 tablet:grid-cols-[200px_1fr]">
-        {/* Sidebar */}
-        <div className="hidden border-r border-border-2 bg-surface p-4 tablet:block">
-          <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">My Files</p>
-          <div className="flex items-center gap-2 rounded-sm bg-accent-soft px-2 py-[7px] text-sm font-semibold text-accent-text">
-            <span className="h-[7px] w-[7px] rounded-full bg-current opacity-50" />
-            alice
-          </div>
-          <p className="px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Shared</p>
-          <div className="flex items-center gap-2 rounded-sm px-2 py-[7px] text-sm text-text-2">
-            <span className="h-[7px] w-[7px] rounded-full bg-current opacity-50" />
-            Project Alpha
-          </div>
-          <div className="flex items-center gap-2 rounded-sm px-2 py-[7px] text-sm text-text-2">
-            <span className="h-[7px] w-[7px] rounded-full bg-current opacity-50" />
-            Project Beta
-          </div>
+      <div className="grid min-h-[320px] grid-cols-1 tablet:grid-cols-[210px_1fr]">
+        {/* Spaces rail */}
+        <div className="hidden border-r border-border-2 bg-surface p-3 tablet:block">
+          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
+          {PREVIEW_SPACES.map((space) => (
+            <div
+              key={space.name}
+              className={cx(
+                'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium',
+                space.active ? 'bg-accent-soft text-accent-text' : 'text-text-2'
+              )}>
+              <FolderIcon className="h-[18px] w-[18px] flex-none" />
+              <span className="min-w-0 truncate">{space.name}</span>
+              {space.tag && <span className="ml-auto flex-none text-xs text-text-3">{space.tag}</span>}
+            </div>
+          ))}
         </div>
 
         {/* Main content */}
-        <div className="p-4 pl-5">
-          <div className="grid h-[42px] grid-cols-[22px_1fr_80px_90px] items-center gap-3 border-b border-border-2 text-xs font-semibold uppercase tracking-[.03em] text-text-3">
-            <span />
-            <span>Name</span>
-            <span>Size</span>
-            <span>Modified</span>
-          </div>
-          {PREVIEW_ROWS.map((row) => (
-            <div
-              key={row.name}
-              className="grid h-[42px] grid-cols-[22px_1fr_80px_90px] items-center gap-3 border-b border-border-2 text-sm">
-              {row.icon === 'folder' ? <PreviewFolderIcon /> : <PreviewFileIcon />}
-              <span className="font-medium text-text">{row.name}</span>
-              <span className="text-text-3">{row.size}</span>
-              <span className="text-text-3">{row.date}</span>
+        <div className="min-w-0 p-4 tablet:p-5">
+          {/* Toolbar — breadcrumb + primary actions (actions ≥ tablet, as shipped) */}
+          <div className="mb-3 flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-1 text-sm">
+              <span className="text-text-2">alice</span>
+              <span className="text-text-3">/</span>
+              <span className="font-semibold text-text">reports</span>
             </div>
-          ))}
+            <div className="hidden items-center gap-2 tablet:flex">
+              <span className="inline-flex h-8 items-center rounded-md border border-border bg-surface px-3 text-sm font-medium text-text-2">
+                Create table
+              </span>
+              <span className="inline-flex h-8 items-center rounded-md border border-border bg-surface px-3 text-sm font-medium text-text-2">
+                New folder
+              </span>
+              <span className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-sm font-medium text-white">
+                Upload
+              </span>
+            </div>
+          </div>
+
+          {/* File table */}
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="flex h-9 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+              <span className="w-9 flex-none" />
+              <span className="min-w-0 flex-1 px-2">Name</span>
+              <span className="hidden w-20 flex-none pr-3 text-right tablet:block">Size</span>
+              <span className="hidden w-20 flex-none pr-3 text-right tablet:block">Modified</span>
+              <span className="hidden w-20 flex-none pr-3 text-right desktop:block">Type</span>
+            </div>
+            {PREVIEW_ROWS.map((row) => (
+              <div
+                key={row.name}
+                className="flex h-11 items-center border-b border-border-2 text-sm last:border-0">
+                <span className="flex w-9 flex-none items-center justify-center">
+                  <span className="h-4 w-4 rounded-sm border border-border" />
+                </span>
+                <span className="flex min-w-0 flex-1 items-center gap-2.5 px-2">
+                  {row.icon === 'folder' ? <PreviewFolderIcon /> : <PreviewFileIcon />}
+                  <span className="truncate font-medium text-text">{row.name}</span>
+                </span>
+                <span className="hidden w-20 flex-none pr-3 text-right text-text-3 tablet:block">{row.size}</span>
+                <span className="hidden w-20 flex-none pr-3 text-right text-text-3 tablet:block">{row.modified}</span>
+                <span className="hidden w-20 flex-none pr-3 text-right desktop:block">
+                  <Badge>{row.type}</Badge>
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
