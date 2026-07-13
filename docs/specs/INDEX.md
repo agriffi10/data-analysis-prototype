@@ -112,6 +112,23 @@ Add a row when a spec is created; update its status on completion (status only �
 | 104 — Landing / Sign-In Responsive | Completed |
 | 105 — View Data: Full Table, Paginated (drop 10-row preview limit) | Completed |
 | 106 — User-Facing Error Messaging (friendly, no AWS leaks) | Completed |
+| 107 — Shared `control-plane-common` Lambda Layer | Draft |
+| 108 — Data Quality: Foundation Infrastructure + Common Layer + Athena Workgroup | Draft |
+| 109 — Data Quality: Request Contract, Enqueue & validate-authorize | Draft |
+| 110 — Data Quality: Source Inspection | Draft |
+| 111 — Data Quality: Temp Tables + the Athena Profile Query | Draft |
+| 112 — Data Quality: byte-scan + Report Assembly | Draft |
+| 113 — Data Quality: File-Browser UI + Report View | Draft |
+| 114 — Data Quality: Notification Producer | Draft |
+| 115 — File Converter: Foundation Infrastructure + Layers + Athena Workgroup | Draft |
+| 116 — File Converter: Request Contract, Enqueue & validate-authorize | Draft |
+| 117 — File Converter: Source Inspection + Schema Reconciliation | Draft |
+| 118 — File Converter: The Athena UNLOAD Path | Draft |
+| 119 — File Converter: finalize + Terminal States | Draft |
+| 120 — File Converter: File-Browser UI | Draft |
+| 121 — File Converter: Notification Producer | Draft |
+| 122 — File Converter: Create Table From Converted Files (chain to Table Builder) | Draft |
+| 123 — Data Quality: Runs Dashboard (`/data-quality` list + nav + runs index) | Draft |
 
 ## Arcs
 
@@ -336,3 +353,118 @@ header stacks via an opt-in `PageLayout` prop; per-row Mark-read below the messa
 Landing/sign-in (nav → hamburger menu; hero 46→40→32px; CTAs full-width stacked; feature grid 3→2→1) is independent
 (public page; optionally reuses the 095 `Menu`). Build order **095 → 096/097/098 → 099 → 100/101/102/103 → 104**. No new
 env vars, deps, or IAM.
+
+**Control-plane-common prerequisite (107)** — filed 2026-07-11. `tbcommon/auth.py` and `tscommon/auth.py` are already
+**near-identical twins** (same logic; they differ only in an import order and one error string); the two arcs below would take
+that to **four independent copies of the JWT verification path**. **107** extracts the shared surface
+(auth/clients/errors/registry/s3_listing/notify/messages/events) into one **`cpcommon` layer** that every control-plane verb
+attaches alongside its domain layer, deletes the duplicates from `tbcommon`/`tscommon`, and ships **no behaviour change** (a
+test whose *assertions* have to change is a spec violation; the two domains' differing error strings are parameterized, not
+merged). It also closes two latent gaps the new arcs would otherwise walk into: the **basename-only hidden-path rule** becomes
+**segment-level** (today `alice/_reports/x.json` is *not* ignored — the `_` is in a path segment, so Table Builder would ingest
+data-quality reports as source data), and the **CI layer-size guard** becomes a **combined per-function** measurement (Lambda's
+250 MB ceiling counts all layers *plus* function code; today's guard measures one layer in isolation and cannot see an
+overflow). `shared-space-common` is deliberately **not** folded in. **107 ships as two PRs** (the layer is a new resource; the
+deploy-role grant must apply first). **Build 107 before either arc below.**
+
+**Data-quality arc (108 → 114)** and **file-converter arc (115 → 121)** — filed 2026-07-11 from
+`docs/data-quality-architecture.md` and `docs/file-converter-architecture.md`, both **re-architected (v3)** after the review in
+`docs/architecture-review-2026-07-11.md` **and** the 250 GB source-file requirement. Two **independent** dedicated async control
+planes (FIFO SQS + DLQ → EventBridge Pipe → Standard Step Function → single-task verb Lambdas on **one shared execution role**).
+Either may go first; both depend on **107**. **Data quality** = *diagnose* a file or folder (per-column type consistency, null
+ratios, duplicates, row counts, ragged rows, encoding, cross-file column agreement) and write a report — read-only, never
+modifies a source; inputs CSV/TXT, JSON/NDJSON **and Parquet** (so you can verify what the converter just produced). **File
+converter** = *fix* it: CSV/TXT and JSON/NDJSON → typed Parquet, doing the **multi-file schema reconciliation Table
+Builder skips** (Table Builder infers from a single sample file and silently drops columns absent from it).
+
+**The engine is Athena, not Lambda — this is the v3 decision and it drives everything.** Lambda's hard ceiling is **900 s**;
+a full pass over 250 GB is 30–80 minutes for conversion and *hours* for a Python scan. Polars lazy/streaming reads fix the
+*memory* problem but not the *time* problem — the bytes still have to move. **Fargate was considered and rejected**: its only
+network mode is `awsvpc`, so every task needs a subnet, meaning a **VPC in a project that has none**, plus ECR, a Docker
+pipeline and an ECS cluster — all to get a *single big box* doing serially what Athena parallelizes. So: the converter runs
+**Athena `UNLOAD`** (deliberately `UNLOAD`, not `CTAS` — both write real Parquet files, but `CTAS` also registers a Glue table
+that must then be dropped; files are the deliverable), and data quality runs **one Athena profile query** over a temp external
+table. **The consequence, stated plainly: both execution roles now need Glue + Athena + Lake Formation admin** (target DBs are
+dynamic per-user/per-space so can't be statically LF-granted — same reasoning as SPEC-070). The earlier design's "zero catalog
+access, tiny blast radius" property is **deliberately surrendered**; it was a real virtue and 250 GB is worth more.
+
+Cross-cutting decisions that shape both arcs: **(1) the Athena poll lives in the STATE MACHINE** (`Wait → check-query →
+Choice`), not inside a Lambda — table-builder's `execute-ddl` polls in a 300 s Lambda, which is fine for a `CREATE TABLE` and
+**fatal** for a 20-minute query; SFN Standard executions run for up to a year, so the time ceiling disappears. The per-file
+`Map` of the earlier design is **gone** — Athena fans out internally. **(2) the `Catch` always reaches cleanup** — both
+pipelines create temp Glue tables in the *user's own* database, and the converter can leave partial Parquet in the destination
+(over which a later Table Builder run would build a table full of **partial data with no error**). **(3) an S3 manifest between
+SFN states**, never inline arrays — a large file list blows the **256 KB state-payload limit**, and `States.DataLimitExceeded`
+escapes every `Catch`, so the user gets *no notification at all*. **(4) a hashed `MessageGroupId`** (SHA-256 of the location) —
+SQS caps it at **128 chars** while S3 keys reach 1024. **(5) an explicit IAM `Deny s3:PutObject` on `*/user_settings/*` and
+`*/DO_NOT_DELETE.txt`** — the user-space policy denies *delete* there but leaves *put* wide open, so any space-scoped writer
+could overwrite `notifications.json` and destroy the inbox **unrecoverably** (the user can't delete the corrupt file either).
+
+Two capabilities are **deliberately given up**, and both are stated loudly in the specs so nobody "fixes" them back.
+**Heterogeneous CSV headers are REJECTED** (SPEC-117): an Athena external table has one schema for the whole folder and reads
+CSV *positionally*, so mismatched files would be **silently misaligned** — a conversion that reports success and produces
+garbage. Type widening still works fully; only column *union* is lost, and only for CSV (JSON's serde matches by key name and
+is unaffected). And **two data-quality checks are approximate** (SPEC-112): a SQL engine never sees raw bytes, so **encoding**
+is a sampled byte-scan (with its coverage percentage) and **ragged rows** are counted via a single-column raw-line table
+(quoted delimiters over-count). Everything else is **exact** — and exactness is an *upgrade*: duplicate rows are now counted
+exactly via `GROUP BY … HAVING`, where the Lambda design had to sample them to avoid a memory bomb.
+
+**Excel is deferred entirely (user decision 2026-07-13)** — `.xlsx` is unsupported in both arcs; the `convert-excel` branch +
+`fastexcel` layer were removed from the drafts. **The converter's destination stays user-chosen** (user decision; a locked reserved namespace was rejected). The
+accepted residual risk — output nested **under** an existing table's folder is picked up by that table's queries — is mitigated
+by the empty-destination rule (a live table's location is never empty, so the *direct* case is blocked with zero catalog calls),
+the reserved-prefix blocklist, the IAM `Deny`, and a **SPEC-120 dialog warning that must name that specific case**.
+
+**Corrections in v3.1** (an adversarial review checked every Athena claim against AWS docs; four were wrong and load-bearing).
+**(a) There is NO workgroup query-timeout setting** — it's an **account Service Quota**, 30 min default, 240 max, raised only by
+a **support ticket**. That, not Lambda and not Athena's throughput, is the **real ceiling on both features**, and it is a
+**ship-blocking prerequisite**. **(b) `bytes_scanned_cutoff_per_query` must be unset** — the existing portal workgroup's 10 GiB
+cutoff (`analytics/athena.tf:36`) is 25× under a 250 GB scan, so copying that shape would make every real query fail; removing
+it removes the project's only cost guardrail on its most expensive operation. **(c) `UNLOAD` does NOT enforce an empty
+destination when partitioning**, so our pre-check is the *only* guard — and **`StartQueryExecution` needs a
+`ClientRequestToken`**, or an SFN `Retry` after a post-submission error starts a *second* UNLOAD and the output **silently
+doubles**. **(d) Temp-table names must be safe identifiers** (`dq_tmp_{hex32}` / `fc_tmp_{hex32}`) — a leading underscore needs
+backticks and a raw UUID's hyphens parse as subtraction, so the original DDL simply would not run. Also: the **Hive** JSON SerDe,
+not OpenX (AWS warns OpenX invents nulls — which would poison the "a null means the key was missing" story these arcs rest on);
+Athena needs an **explicit column list** (it does not auto-detect Parquet schemas), so `inspect-source` carries a polars layer in
+**both** arcs; and **compressed text is not splittable**, so a single large `.csv.gz` is one worker and is rejected up front.
+
+**Security fix (v3.1):** the file-converter's `Cleanup` state — which deleted "partial output under the destination" — was an
+**authenticated cross-user file-delete primitive**. The delete could not be scoped in IAM (the destination is body-supplied, so
+the resource can only be `{bucket}/*`), and the `Catch` reached cleanup from **every** state including `validate-authorize` — so
+a message with a garbage token and someone else's path would fail validation and *then delete their files*. **`s3:DeleteObject`
+is now granted nowhere in either arc.** `drop-temp-table` touches **Glue only**, which is what makes it safe on every path.
+Partial output after a failed conversion is left for the user to delete, and the empty-destination rule turns that into a
+**safety interlock** against re-running into a half-populated folder.
+
+**SPEC-122 — the optional chain to Table Builder** (user request, 2026-07-12). A **"Create a table from the converted files"**
+checkbox on the convert dialog; ticked, the converter **enqueues a Table Builder request** once the conversion succeeds. Table
+building **stays in Table Builder** — the converter enqueues and gets out of the way, so there is still exactly one implementation
+of "create a table from a folder." The hard part is the **trust boundary**: Table Builder never trusts a body-supplied actor, a
+Lambda cannot mint a user's token, and a forgeable assertion would let someone create a table **in another user's database over
+another user's data**. So Table Builder gains an **internal FIFO queue the portal role cannot write to**, fed into the same state
+machine by a **second Pipe whose input transformer stamps the trust marker** (the public Pipe stamps it `null`) — the marker is
+**infrastructure-set and cannot be smuggled in a body**, and a trusted producer asserts **identity only**, never entitlement.
+**Note:** the shipped notifications pipeline is *not* a safe model to copy — `notifications_writer.py::_resolve_username` takes
+`username` straight from the body for `create` while the portal role can write to that queue, so a browser can inject a
+notification into any other user's inbox today. **Real, shipped, low-severity, and tracked separately.** SPEC-122 is **additive and
+last**; nothing else depends on it.
+
+**SPEC-123 — the data-quality runs dashboard** (user request, 2026-07-12). The arc already stored **one JSON per run in a hidden
+folder** (`{space}/_data-quality-reports/{requestId}/report.json`) with a drill-down view — but had **no parent page and no nav
+entry**, so a report was reachable *only* from its notification and **dismissing the notification lost it**. **123** adds a
+`/data-quality` list page (a **primary nav** entry + an `AppNavDrawer` destination), aggregating runs across the user's personal
+space and their shared spaces, newest first, 10/page, with verdict and `Sampled` chips — drilling into the SPEC-113 report view.
+**The mechanism that makes it possible is a per-space `index.json`**: listing the reports prefix and GETting every report would be
+one round-trip per row *and* return them in **UUID order — no chronology at all**, so "recent checks" would be randomly sorted and
+would get slower the more the feature is used. `assemble-report` therefore appends a small entry (location, verdict, timestamp,
+file count, sampled-flag) under **optimistic ETag CAS** — the same lost-update fix SPEC-082 already applied to the shared-space
+registry, needed here because checks of *different* locations run in parallel. **The index is a convenience, never a dependency:**
+an exhausted CAS is logged and swallowed, the report still lands, the notification still fires. v1 lists **completed checks only** —
+failures live in notifications, and the page says so rather than lying by omission.
+
+Build order **107 → (108→114) → 123 and/or (115→121) → 122**. New env vars `VITE_DATA_QUALITY_QUEUE_URL` and
+`VITE_FILE_CONVERTER_QUEUE_URL` (each needs **four** wiring points incl. a **hand-set GitHub repo variable**). Each foundation
+spec ships as **two PRs** — deploy-role IAM applies *before* the module's resources. Both arcs add their execution role to
+`aws_lakeformation_data_lake_settings.admins` as a **constructed string in root `locals`**, never a module output (an unknown
+element in that `compact()` silently drops the change).
