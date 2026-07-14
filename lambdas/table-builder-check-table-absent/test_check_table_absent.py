@@ -13,8 +13,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
 import check_table_absent as c  # noqa: E402
-from tbcommon import clients, config  # noqa: E402
-from tbcommon.errors import TerminalError  # noqa: E402
+from cpcommon import clients, config  # noqa: E402
+from cpcommon.errors import TerminalError  # noqa: E402
 
 
 class _FakeSqs:

@@ -17,10 +17,12 @@ Emits the validated, normalized request the next states consume:
 import json
 import logging
 
-from tscommon import auth, config, notify
+from cpcommon import auth, config
+from cpcommon import registry as reg
+from cpcommon.errors import TerminalError
 from tscommon import cognito as cog
-from tscommon import registry as reg
-from tscommon.errors import TerminalError
+from tscommon import notify
+from tscommon.config import RECIPIENT_KINDS
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -92,7 +94,7 @@ def _normalize_recipients(recipients) -> list:
         if not isinstance(entry, dict):
             raise TerminalError("invalid_recipients", "each recipient must be an object")
         kind = entry.get("kind")
-        if kind not in config.RECIPIENT_KINDS:
+        if kind not in RECIPIENT_KINDS:
             raise TerminalError("invalid_recipients", f"unknown recipient kind {kind!r}")
         name = entry.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -141,7 +143,7 @@ def _validate_and_authorize(event) -> dict:
 
     # The actor comes from the verified token (the envelope's `actor` field), never
     # from a body username.
-    actor = auth.verified_username(req.get("actor"))
+    actor = auth.verified_username(req.get("actor"), missing_token_detail="missing actor token")
 
     # From here the sender is KNOWN, so a whole-request rejection notifies them
     # before the Catch records it (SPEC-094 FR-003, best-effort). Pre-verification

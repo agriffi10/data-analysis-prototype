@@ -19,8 +19,8 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 from tscommon import athena as athena_mod  # noqa: E402
-from tscommon import clients  # noqa: E402
-from tscommon.errors import TerminalError, TransientError  # noqa: E402
+from cpcommon import clients  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 
 class _BotoError(Exception):

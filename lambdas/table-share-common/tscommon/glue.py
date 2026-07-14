@@ -7,8 +7,8 @@ TBLPROPERTIES — with LOCATION and catalog identity stripped (the recipient ste
 sets its own, docs/table-share-architecture.md §4).
 """
 
-from . import clients, config
-from .errors import TerminalError, TransientError
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
 
 # Source-only parameters never carried into the clone: Hive bookkeeping and the
 # implicit EXTERNAL flag (the recipient CREATE re-establishes it).

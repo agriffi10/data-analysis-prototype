@@ -2,7 +2,13 @@
 
 One place maps each stable terminal reason code to friendly text addressed to the
 actor, so every verb + its tests agree on the wording. Kept ASCII (no smart quotes).
+
+This module keeps its own bespoke ``failure_message`` wording (SPEC-107 FR-002 —
+unchanged); it registers the table-builder domain reason codes with cpcommon at import
+so they pass ``TerminalError``'s raise-time validation (SPEC-107 FR-005).
 """
+
+from cpcommon import messages as _cpmessages
 
 # Reasons that mean "not allowed" — no table name is surfaced (the request may not
 # even have got far enough to trust one).
@@ -51,3 +57,9 @@ def failure_message(reason: str, table_name: str = "", database: str = "") -> st
 def success_message(table_name: str, database: str) -> str:
     """Return the ready-to-query message emitted on execute-ddl success."""
     return f'Table "{table_name}" is ready to query in "{database}".'
+
+
+# Register the domain reason codes (incl. the base codes redundantly — idempotent) so a
+# TerminalError raised with any of them passes cpcommon's raise-time check (FR-005).
+_cpmessages.register_reasons(_BODIES)
+

@@ -11,8 +11,8 @@ transient failure.
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from . import clients
-from .errors import TerminalError, TransientError
+from cpcommon import clients
+from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger(__name__)
 

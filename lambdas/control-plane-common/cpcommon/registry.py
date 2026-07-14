@@ -1,10 +1,9 @@
-"""Read-only access to the shared-spaces registry.
+"""Read-only access to the shared-spaces registry (SPEC-107 — the union of the twins).
 
-The registry is one S3 control object per space at shared-spaces/{name}.json in the
-analytics admin bucket, owned by the shared-spaces control plane. Table-share only
-reads it: source authorization (the actor must be an active member of a shared
-source's space) and recipient-space existence (any ACTIVE space is a valid target —
-membership not required, docs/table-share-architecture.md §3).
+The registry is one S3 control object per space at ``shared-spaces/{name}.json`` in the
+analytics admin bucket, owned by the shared-spaces control plane. Every control-plane
+verb only ever READS it — to authorize that the actor is an active member of a shared
+space, and (table-share) that a target space exists.
 """
 
 import json
@@ -28,5 +27,10 @@ def is_active(record: dict | None) -> bool:
 
 
 def is_active_member(record: dict | None, actor: str) -> bool:
-    """True iff ``record`` is an active space and ``actor`` is in its members."""
+    """True iff ``record`` is an active space and ``actor`` is in its members.
+
+    NOTE: "active" here is the SPACE's provisioning status, NOT SPEC-073's per-member
+    Pending/Active join chip. Access is granted at add time (SPEC-073), so a member with
+    a Pending join chip still passes this check.
+    """
     return is_active(record) and actor in (record.get("members") or [])

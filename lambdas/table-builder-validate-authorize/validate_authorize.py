@@ -13,9 +13,11 @@ Emits the validated, normalized request the next states consume:
 import json
 import logging
 
-from tbcommon import auth, config, notify
-from tbcommon import registry as reg
-from tbcommon.errors import TerminalError
+from cpcommon import auth, config
+from cpcommon import registry as reg
+from cpcommon.errors import TerminalError
+from tbcommon import notify
+from tbcommon.config import PARTITION_TYPES
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -72,7 +74,7 @@ def _validate_partition_keys(keys):
             raise TerminalError("invalid_partition_keys", f"duplicate key name {name!r}")
         seen.add(name)
         ptype = key.get("type")
-        if ptype not in config.PARTITION_TYPES:
+        if ptype not in PARTITION_TYPES:
             raise TerminalError("invalid_partition_keys", f"{name}: invalid type {ptype!r}")
         if ptype in ("integer", "date"):
             rng = key.get("range")

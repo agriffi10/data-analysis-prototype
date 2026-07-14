@@ -19,8 +19,8 @@ sleeping); prod uses ``time.monotonic`` / ``time.sleep``.
 import logging
 import time
 
-from tbcommon import clients
-from tbcommon.errors import TerminalError, TransientError
+from cpcommon import clients
+from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger()
 

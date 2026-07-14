@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import json  # noqa: E402
 import inspect_source as i  # noqa: E402
-from tbcommon import clients, config, s3_listing  # noqa: E402
-from tbcommon.errors import TerminalError  # noqa: E402
+from cpcommon import clients, config, s3_listing  # noqa: E402
+from cpcommon.errors import TerminalError  # noqa: E402
 
 
 class _FakeSqs:

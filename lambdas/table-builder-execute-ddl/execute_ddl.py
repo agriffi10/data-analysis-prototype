@@ -20,8 +20,9 @@ A throttling / 5xx Athena error is raised as ``TransientError`` for the SFN ``Re
 
 import logging
 
-from tbcommon import config, notify
-from tbcommon.errors import TerminalError
+from cpcommon import config
+from tbcommon import notify
+from cpcommon.errors import TerminalError
 
 import athena_run
 

@@ -7,8 +7,10 @@
 #
 # Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
-# (lambdas/table-builder-<suffix>/) AND publishes + attaches the polars layer to
-# infer-schema. `ignore_changes` keeps `tofu apply` from reverting CI's code OR layer.
+# (lambdas/table-builder-<suffix>/) AND publishes + attaches the layers: the shared
+# cpcommon layer + the tbcommon domain layer on all five, plus the polars layer on
+# infer-schema (SPEC-107). `ignore_changes` keeps `tofu apply` from reverting CI's code
+# OR layers.
 
 # One placeholder package per function so each is valid at create time. CI replaces
 # the code (and attaches the polars layer to infer-schema); these stubs only ever run

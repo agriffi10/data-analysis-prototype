@@ -14,8 +14,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import json  # noqa: E402
 import athena_run  # noqa: E402
 import execute_ddl as e  # noqa: E402
-from tbcommon import clients, config  # noqa: E402
-from tbcommon.errors import TerminalError, TransientError  # noqa: E402
+from cpcommon import clients, config  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"

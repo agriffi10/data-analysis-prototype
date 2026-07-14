@@ -6,8 +6,8 @@ a normal False (annotated per-recipient, not fatal); anything else is transient 
 the Step Function retries rather than mis-reporting a throttle as "no such user".
 """
 
-from . import clients, config
-from .errors import TransientError
+from cpcommon import clients, config
+from cpcommon.errors import TransientError
 
 
 def user_exists(username: str) -> bool:

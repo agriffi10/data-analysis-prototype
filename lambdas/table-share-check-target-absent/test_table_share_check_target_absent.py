@@ -19,8 +19,8 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import table_share_check_target_absent as m  # noqa: E402
-from tscommon import clients, config  # noqa: E402
-from tscommon.errors import TerminalError, TransientError  # noqa: E402
+from cpcommon import clients, config  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 
 class _FakeS3:

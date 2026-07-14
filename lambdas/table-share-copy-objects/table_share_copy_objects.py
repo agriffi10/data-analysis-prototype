@@ -13,7 +13,7 @@ import logging
 
 from tscommon import copy as copy_mod
 from tscommon import notify
-from tscommon.errors import TerminalError
+from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

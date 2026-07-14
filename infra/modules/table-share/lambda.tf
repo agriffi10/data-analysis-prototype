@@ -8,8 +8,9 @@
 #
 # Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python
-# code (lambdas/table-share-<suffix>/) AND publishes + attaches the tscommon layer
-# to all five. `ignore_changes` keeps `tofu apply` from reverting CI's code OR layer.
+# code (lambdas/table-share-<suffix>/) AND publishes + attaches the layers to all
+# five: the tscommon domain layer PLUS the shared cpcommon layer (SPEC-107).
+# `ignore_changes` keeps `tofu apply` from reverting CI's code OR layers.
 
 # One placeholder package per function so each is valid at create time. CI replaces
 # the code (and attaches the tscommon layer); these stubs only ever run pre-deploy.

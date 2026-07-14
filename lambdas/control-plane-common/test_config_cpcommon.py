@@ -1,13 +1,15 @@
-"""SPEC-083 FR-001: tbcommon config validates required env vars at import.
+"""SPEC-083 FR-001 / SPEC-107: cpcommon config validates required env vars at import.
 
-Reloads tbcommon.config with a var removed/added to assert the fail-fast on required
-vars and the graceful path on optional ones; restores the conftest baseline afterward.
+The shared config core moved from tbcommon to cpcommon (SPEC-107); this fail-fast test
+moved with it. Reloads cpcommon.config with a var removed/added to assert the fail-fast
+on required vars and the graceful path on the optional notifications queue; restores the
+conftest baseline afterward.
 """
 
 import importlib
 import os
 
-from tbcommon import config
+from cpcommon import config
 
 
 def test_required_var_fails_fast_naming_the_var():

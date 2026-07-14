@@ -19,9 +19,9 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import table_share_copy_objects as m  # noqa: E402
-from tscommon import clients  # noqa: E402
+from cpcommon import clients  # noqa: E402
 from tscommon import copy as copy_mod  # noqa: E402
-from tscommon.errors import TerminalError, TransientError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 GIB = 1024**3
 
