@@ -161,6 +161,36 @@ resource "aws_iam_role_policy_attachment" "deploy_table_share" {
   policy_arn = aws_iam_policy.deploy_table_share.arn
 }
 
+# SPEC-107 control-plane-common layer grant — a SEPARATE customer-managed policy,
+# same rationale + shape as deploy_table_builder / deploy_table_share above (off the
+# role's inline-policy aggregate, separate 6,144-char budget). This grant is
+# deliberately NARROW: publish/delete/get/list versions of the shared `cpcommon`
+# Lambda LAYER only (no functions, roles, or other resources — those already have
+# their per-arc function-manage grants). It is scoped to the layer ARN, not to any
+# function, so every control-plane verb that later attaches cpcommon
+# (table-builder-*, table-share-*, and the future data-quality / file-converter
+# verbs) is covered by its OWN policy's function-manage grant + this one layer grant.
+# Granted FIRST (this PR) and applied before the layer is published + attached in a
+# later PR — every existing layer grant is name-scoped to -table-builder-* /
+# -table-share-* and none matches control-plane-common, so CI cannot publish the
+# layer until this applies (the deploy-perms-before-resources rule).
+resource "aws_iam_policy" "deploy_control_plane_common" {
+  name        = "${var.project_name}-deploy-control-plane-common"
+  description = "Deploy-role grant to publish/attach the shared SPEC-107 control-plane-common (cpcommon) Lambda layer, kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-common.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_control_plane_common.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
