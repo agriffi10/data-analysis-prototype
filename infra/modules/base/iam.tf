@@ -191,6 +191,40 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
   policy_arn = aws_iam_policy.deploy_control_plane_common.arn
 }
 
+# SPEC-108 data-quality control-plane grants — a SEPARATE customer-managed policy, same
+# rationale + shape as deploy_table_builder / deploy_table_share above (off the role's
+# inline-policy aggregate, separate 6,144-char budget). Covers the data-quality module's
+# resource types: the FIFO request queue + DLQ, the EventBridge Pipe, the Standard Step
+# Function (+ its role), the nine single-task verb Lambdas + their ONE shared execution
+# role (incl. scoped iam:PassRole), the dqcommon + data-quality-polars Lambda layers, and
+# the Lambda + Step-Function log groups — all scoped by {project_name}-*-data-quality-*
+# name patterns. The module creates no S3 buckets (reports write to the existing
+# user/shared-space buckets), so there is no S3-bucket-manage statement.
+# states:ValidateStateMachineDefinition is not resource-scopable, so it is isolated to
+# its own "*" statement per the architecture.md "new resource type" traps.
+# NOTE: the dedicated Athena workgroup ({project_name}-{env}-data-quality-wg) needs NO new
+# grant here — the main deploy policy's AthenaWorkgroupManage already covers
+# workgroup/${project_name}-* (github-actions-deploy.json.tftpl). The cpcommon layer that
+# every DQ verb attaches is likewise covered by deploy_control_plane_common (SPEC-107).
+# Granted FIRST (this PR) and applied before the data-quality module's resources land in a
+# later PR (the deploy-perms-before-resources rule), so no self-grant race.
+resource "aws_iam_policy" "deploy_data_quality" {
+  name        = "${var.project_name}-deploy-data-quality"
+  description = "Deploy-role grants for the SPEC-108 data-quality control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, nine verb Lambdas + shared execution role, dqcommon + polars layers, log groups), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-data-quality.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_data_quality" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_data_quality.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
