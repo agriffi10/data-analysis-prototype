@@ -19,8 +19,8 @@ import polars as pl  # noqa: E402
 
 import json  # noqa: E402
 import infer_schema as i  # noqa: E402
-from tbcommon import clients, config  # noqa: E402
-from tbcommon.errors import TerminalError  # noqa: E402
+from cpcommon import clients, config  # noqa: E402
+from cpcommon.errors import TerminalError  # noqa: E402
 
 
 class _FakeSqs:

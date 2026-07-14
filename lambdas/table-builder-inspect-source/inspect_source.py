@@ -12,8 +12,9 @@ are terminal with a specific reason; transient S3 errors propagate for the SFN R
 
 import logging
 
-from tbcommon import s3_listing, events, notify
-from tbcommon.errors import TerminalError
+from cpcommon import s3_listing, events
+from tbcommon import notify
+from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

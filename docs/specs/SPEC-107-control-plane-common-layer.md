@@ -1,7 +1,7 @@
 # Spec: Shared `control-plane-common` Lambda Layer
 
 **ID:** SPEC-107
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-062 (shared-space verb decomposition), SPEC-066 (`tbcommon`), SPEC-088 (`tscommon`), SPEC-106 (error messaging)
 

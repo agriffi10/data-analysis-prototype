@@ -16,8 +16,9 @@ failing silently, and re-raised for the SFN Catch.
 
 import logging
 
-from tbcommon import clients, events, notify
-from tbcommon.errors import TerminalError
+from cpcommon import clients, events
+from tbcommon import notify
+from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

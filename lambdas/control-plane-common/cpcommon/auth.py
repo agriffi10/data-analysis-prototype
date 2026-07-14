@@ -1,9 +1,13 @@
-"""Cognito ID-token verification — the control plane's security boundary.
+"""Cognito ID-token verification — every control plane's security boundary (SPEC-107).
 
-verified_username derives the actor from a verified Cognito ID token
-(issuer/audience/expiry/signature checked offline against the pool JWKS) — never from
-a body-asserted username. Any failure is a terminal unauthorized: never retried, no
+``verified_username`` derives the actor from a verified Cognito ID token
+(issuer/audience/expiry/signature checked offline against the pool JWKS) — never from a
+body-asserted username. Any failure is a terminal ``unauthorized``: never retried, no
 side effects.
+
+The only difference between the old tbcommon/tscommon copies was the "no token" detail
+string ("missing idToken" vs "missing actor token"); it is a parameter here so each
+domain keeps its exact wording (SPEC-107 FR-002).
 """
 
 import jwt
@@ -12,10 +16,15 @@ from . import clients, config
 from .errors import TerminalError
 
 
-def verified_username(id_token: str) -> str:
-    """Verify a Cognito ID token and return the trusted ``cognito:username``."""
+def verified_username(id_token: str, *, missing_token_detail: str = "missing idToken") -> str:
+    """Verify a Cognito ID token and return the trusted ``cognito:username``.
+
+    ``missing_token_detail`` is the ``TerminalError`` detail raised when no token is
+    supplied — the caller's domain wording ("missing idToken" for table-builder,
+    "missing actor token" for table-share).
+    """
     if not id_token:
-        raise TerminalError("unauthorized", "missing actor token")
+        raise TerminalError("unauthorized", missing_token_detail)
     issuer = f"https://cognito-idp.{config.REGION}.amazonaws.com/{config.USER_POOL_ID}"
     jwks_url = f"{issuer}/.well-known/jwks.json"
     try:

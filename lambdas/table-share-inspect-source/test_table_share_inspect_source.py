@@ -19,8 +19,8 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import table_share_inspect_source as m  # noqa: E402
-from tscommon import clients, config  # noqa: E402
-from tscommon.errors import TerminalError, TransientError  # noqa: E402
+from cpcommon import clients, config  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 USER_BUCKET = config.USER_SPACE_BUCKET
 
@@ -228,23 +228,23 @@ def test_empty_source_is_terminal():
 
 
 def test_object_count_cap():
-    original = config.SHARE_MAX_OBJECTS
-    config.SHARE_MAX_OBJECTS = 2
+    original = m.config.SHARE_MAX_OBJECTS
+    m.config.SHARE_MAX_OBJECTS = 2
     try:
         _setup(table=_table(), objects=[(f"alice/sales/p{i}.parquet", 1) for i in range(3)])
         _expect_reason("source_too_large")
     finally:
-        config.SHARE_MAX_OBJECTS = original
+        m.config.SHARE_MAX_OBJECTS = original
 
 
 def test_total_bytes_cap():
-    original = config.SHARE_MAX_TOTAL_BYTES
-    config.SHARE_MAX_TOTAL_BYTES = 120
+    original = m.config.SHARE_MAX_TOTAL_BYTES
+    m.config.SHARE_MAX_TOTAL_BYTES = 120
     try:
         _setup(table=_table(), objects=[("alice/sales/a.parquet", 100), ("alice/sales/b.parquet", 100)])
         _expect_reason("source_too_large")
     finally:
-        config.SHARE_MAX_TOTAL_BYTES = original
+        m.config.SHARE_MAX_TOTAL_BYTES = original
 
 
 if __name__ == "__main__":

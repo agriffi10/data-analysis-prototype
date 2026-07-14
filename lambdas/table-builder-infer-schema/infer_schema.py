@@ -17,8 +17,9 @@ wrong format) is terminal schema_inference_failed.
 import logging
 import re
 
-from tbcommon import clients, events, notify
-from tbcommon.errors import TerminalError
+from cpcommon import clients, events
+from tbcommon import notify
+from cpcommon.errors import TerminalError
 
 from ddl import build_create_table_ddl
 from type_mapping import UnmappableTypeError, map_dtype

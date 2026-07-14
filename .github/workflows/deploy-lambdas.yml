@@ -37,6 +37,7 @@ jobs:
       contents: read
     outputs:
       layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
 
     steps:
       - name: Checkout
@@ -48,6 +49,7 @@ jobs:
           python-version: '3.12'
 
       - name: Build layer package
+        id: build
         run: |
           set -euo pipefail
           LAYER_DIR="build/layer/python"
@@ -60,6 +62,7 @@ jobs:
           for m in config clients casio auth registry membership cache notify teardown; do
             cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
           done
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
           (cd build/layer && zip --quiet --recurse-paths ../shared-space-common-layer.zip .)
 
       - name: Configure AWS credentials
@@ -96,6 +99,7 @@ jobs:
       contents: read
     outputs:
       layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
 
     steps:
       - name: Checkout
@@ -107,6 +111,7 @@ jobs:
           python-version: '3.12'
 
       - name: Build polars layer package
+        id: build
         run: |
           set -euo pipefail
           LAYER_DIR="build/polars-layer/python"
@@ -120,8 +125,12 @@ jobs:
             --target "$LAYER_DIR"
           UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
           echo "table-builder-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
+          echo "unzipped_kb=${UNZIPPED_KB}" >> "$GITHUB_OUTPUT"
           # Lambda's hard limit is 250 MB unzipped (layers + function); fail early with
           # headroom (240 MB) if a future polars bump blows past it (SPEC-066 FR-003).
+          # NOTE: this per-layer check is NOT sufficient on its own — the 250 MB ceiling
+          # is per-FUNCTION across ALL attached layers plus code, so the deploy job below
+          # also runs a COMBINED per-function guard (SPEC-107 FR-004).
           if [ "$UNZIPPED_KB" -gt 245760 ]; then
             echo "::error::table-builder-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
             exit 1
@@ -161,6 +170,7 @@ jobs:
       contents: read
     outputs:
       layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
 
     steps:
       - name: Checkout
@@ -172,15 +182,17 @@ jobs:
           python-version: '3.12'
 
       - name: Build layer package
+        id: build
         run: |
           set -euo pipefail
           LAYER_DIR="build/tbcommon-layer/python"
           rm -rf build/tbcommon-layer && mkdir -p "$LAYER_DIR"
-          # External deps (manylinux wheels, python3.12-compatible) — PyJWT[crypto].
-          pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
-          # The shared package — production code only (no __pycache__).
+          # No external deps here — PyJWT[crypto] is declared ONCE in the cpcommon layer
+          # (SPEC-107 FR-001), which every table-builder verb also attaches. This layer
+          # carries only the domain package (production code, no __pycache__).
           cp -r lambdas/table-builder-common/tbcommon "$LAYER_DIR"/tbcommon
           find "$LAYER_DIR"/tbcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
           (cd build/tbcommon-layer && zip --quiet --recurse-paths ../table-builder-common-layer.zip .)
 
       - name: Configure AWS credentials
@@ -217,6 +229,7 @@ jobs:
       contents: read
     outputs:
       layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
 
     steps:
       - name: Checkout
@@ -228,15 +241,17 @@ jobs:
           python-version: '3.12'
 
       - name: Build layer package
+        id: build
         run: |
           set -euo pipefail
           LAYER_DIR="build/tscommon-layer/python"
           rm -rf build/tscommon-layer && mkdir -p "$LAYER_DIR"
-          # External deps (manylinux wheels, python3.12-compatible) — PyJWT[crypto].
-          pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
-          # The shared package — production code only (no __pycache__).
+          # No external deps here — PyJWT[crypto] is declared ONCE in the cpcommon layer
+          # (SPEC-107 FR-001), which every table-share verb also attaches. This layer
+          # carries only the domain package (production code, no __pycache__).
           cp -r lambdas/table-share-common/tscommon "$LAYER_DIR"/tscommon
           find "$LAYER_DIR"/tscommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
           (cd build/tscommon-layer && zip --quiet --recurse-paths ../table-share-common-layer.zip .)
 
       - name: Configure AWS credentials
@@ -259,8 +274,68 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── control-plane-common layer (SPEC-107) ──────────────────────────────────
+  # Publishes the `control-plane-common` layer = external deps (PyJWT[crypto],
+  # declared ONCE here) + the `cpcommon` package (shared auth/clients/config/errors/
+  # registry/s3_listing/notify/messages/events for EVERY control-plane verb). All ten
+  # table-builder + table-share verbs attach it alongside their domain layer; the future
+  # data-quality / file-converter verbs will too. A PACKAGE (python/cpcommon/), not flat
+  # modules, so its names don't collide with the domain layers' under pytest.
+  cpcommon_layer:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        id: build
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/cpcommon-layer/python"
+          rm -rf build/cpcommon-layer && mkdir -p "$LAYER_DIR"
+          # External deps (manylinux wheels, python3.12-compatible) — PyJWT[crypto],
+          # declared once for all control planes (SPEC-107 FR-001).
+          pip install --quiet --requirement lambdas/control-plane-common/requirements.txt --target "$LAYER_DIR"
+          # The shared package — production code only (no __pycache__).
+          cp -r lambdas/control-plane-common/cpcommon "$LAYER_DIR"/cpcommon
+          find "$LAYER_DIR"/cpcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
+          (cd build/cpcommon-layer && zip --quiet --recurse-paths ../control-plane-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-control-plane-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared cpcommon package + deps (PyJWT) for every control-plane verb Lambda (SPEC-107)." \
+            --zip-file "fileb://build/control-plane-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer]
+    needs: [layer, polars_layer, table_builder_layer, table_share_layer, cpcommon_layer]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -290,19 +365,19 @@ jobs:
           # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer
           # (both layers, SPEC-069). execute-ddl imports `from tbcommon import config`
           # (SPEC-070) + `notify` (SPEC-072), so it needs the layer too.
-          - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true }
-          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true }
-          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true }
-          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true }
-          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true }
+          - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true, cpcommon: true }
+          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true, cpcommon: true }
+          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true, cpcommon: true }
+          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true, cpcommon: true }
+          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
           # Table-share verbs (SPEC-088). `tscommon: true` attaches the table-share-common
           # layer — all five verbs share the tscommon package (stub namespaces now; real
           # helpers land with SPEC-089→094).
-          - { name: table-share-validate-authorize, layer: false, polars: false, tbcommon: false, tscommon: true }
-          - { name: table-share-inspect-source, layer: false, polars: false, tbcommon: false, tscommon: true }
-          - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true }
-          - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: true }
-          - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true }
+          - { name: table-share-validate-authorize, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-inspect-source, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
 
     steps:
       - name: Checkout
@@ -328,6 +403,32 @@ jobs:
           # Never ship tests.
           rm -f "$BUILD_DIR"/test_*.py
           (cd "$BUILD_DIR" && zip --quiet --recurse-paths "../${{ matrix.lambda.name }}.zip" .)
+
+      # ── Combined per-function size guard (SPEC-107 FR-004) ────────────────────
+      # Lambda's 250 MB unzipped ceiling is per FUNCTION — the function package PLUS
+      # every attached layer, combined. The per-LAYER guards (polars job, etc.) measure
+      # one layer in isolation and CANNOT see a combined overflow (e.g. cpcommon +
+      # fccommon + polars on one function). This sums the package + the layers THIS
+      # function attaches and fails above 240 MB, naming the function, its layers, and
+      # the measured total — BEFORE anything publishes or attaches.
+      - name: Combined layer + package size guard
+        run: |
+          set -euo pipefail
+          BUILD_DIR="build/${{ matrix.lambda.name }}"
+          PKG_KB=$(du -sk "$BUILD_DIR" | cut -f1)
+          TOTAL_KB=$PKG_KB
+          NAMES="package(${PKG_KB}KB)"
+          add() { TOTAL_KB=$((TOTAL_KB + $1)); NAMES="${NAMES} + $2(${1}KB)"; }
+          [ "${{ matrix.lambda.layer }}" = "true" ]    && add "${{ needs.layer.outputs.unzipped_kb }}" shared-space-common
+          [ "${{ matrix.lambda.polars }}" = "true" ]   && add "${{ needs.polars_layer.outputs.unzipped_kb }}" table-builder-polars
+          [ "${{ matrix.lambda.tbcommon }}" = "true" ] && add "${{ needs.table_builder_layer.outputs.unzipped_kb }}" table-builder-common
+          [ "${{ matrix.lambda.tscommon }}" = "true" ] && add "${{ needs.table_share_layer.outputs.unzipped_kb }}" table-share-common
+          [ "${{ matrix.lambda.cpcommon }}" = "true" ] && add "${{ needs.cpcommon_layer.outputs.unzipped_kb }}" control-plane-common
+          echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
+          if [ "$TOTAL_KB" -gt 245760 ]; then
+            echo "::error::${{ matrix.lambda.name }} exceeds 240 MB unzipped: $((TOTAL_KB / 1024)) MB across ${NAMES} (Lambda's hard limit is 250 MB per function, package + all layers)."
+            exit 1
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -377,8 +478,11 @@ jobs:
 
           # Attach the function's layers. update-function-configuration --layers REPLACES
           # the whole list, so a function needing more than one layer (infer-schema =
-          # polars + table-builder-common, SPEC-069) must pass them together in one call.
+          # cpcommon + table-builder-common + polars, SPEC-069/107) must pass them
+          # together in one call. Every table-builder / table-share verb now also attaches
+          # the cpcommon layer (SPEC-107).
           LAYERS=()
+          [ "${{ matrix.lambda.cpcommon }}" = "true" ] && LAYERS+=("${{ needs.cpcommon_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.layer }}" = "true" ]    && LAYERS+=("${{ needs.layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.polars }}" = "true" ]   && LAYERS+=("${{ needs.polars_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.tbcommon }}" = "true" ] && LAYERS+=("${{ needs.table_builder_layer.outputs.layer_arn }}")

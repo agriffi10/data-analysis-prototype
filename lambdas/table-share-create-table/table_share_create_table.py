@@ -18,8 +18,9 @@ consistent with the SPEC-055/070 routing.
 import logging
 
 from tscommon import athena as athena_mod
-from tscommon import config, ddl, notify
-from tscommon.errors import TerminalError
+from cpcommon import config
+from tscommon import ddl, notify
+from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

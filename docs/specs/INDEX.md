@@ -112,7 +112,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 104 — Landing / Sign-In Responsive | Completed |
 | 105 — View Data: Full Table, Paginated (drop 10-row preview limit) | Completed |
 | 106 — User-Facing Error Messaging (friendly, no AWS leaks) | Completed |
-| 107 — Shared `control-plane-common` Lambda Layer | Draft |
+| 107 — Shared `control-plane-common` Lambda Layer | Completed |
 | 108 — Data Quality: Foundation Infrastructure + Common Layer + Athena Workgroup | Draft |
 | 109 — Data Quality: Request Contract, Enqueue & validate-authorize | Draft |
 | 110 — Data Quality: Source Inspection | Draft |

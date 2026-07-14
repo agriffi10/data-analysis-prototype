@@ -11,8 +11,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tbcommon import clients, config, notify  # noqa: E402
-from tbcommon.errors import TerminalError  # noqa: E402
+from cpcommon import clients, config  # noqa: E402
+from tbcommon import notify  # noqa: E402
+from cpcommon.errors import TerminalError  # noqa: E402
 
 QUEUE = "https://sqs.us-east-1.amazonaws.com/123/dat-prod-notifications-requests.fifo"
 
@@ -106,7 +107,7 @@ def test_emit_failure_without_actor_is_a_noop():
 
 
 # ── notifies_on_failure wrapper ──────────────────────────────────────────────
-from tbcommon.errors import TransientError  # noqa: E402
+from cpcommon.errors import TransientError  # noqa: E402
 
 
 def test_wrapper_passes_result_through_on_success():

@@ -22,14 +22,14 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import table_share_validate_authorize as v  # noqa: E402
-from tscommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError  # noqa: E402
 
 
 def _setup(actor="alice", spaces=None, users=None):
     """Stub the boundary helpers: known registry spaces + known Cognito users."""
     spaces = spaces or {}
     users = users if users is not None else {"alice", "bob"}
-    v.auth.verified_username = lambda token: actor
+    v.auth.verified_username = lambda token, **kw: actor
     v.reg.load = lambda name: spaces.get(name)
     v.cog.user_exists = lambda name: name in users
 
@@ -95,7 +95,7 @@ def test_malformed_source_is_forbidden():
     _expect_reason(_event(source="alice.orders"), "forbidden")
 
 
-def _raise_unauthorized(token):
+def _raise_unauthorized(token, **kw):
     raise TerminalError("unauthorized", "stub")
 
 

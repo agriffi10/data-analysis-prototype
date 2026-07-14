@@ -1,0 +1,8 @@
+# External dependencies for the control-plane-common (cpcommon) Lambda LAYER (SPEC-107).
+#
+# PyJWT[crypto] — every control-plane verb verifies Cognito ID tokens against the User
+# Pool JWKS (cpcommon.auth). It is declared HERE, once, for the cpcommon layer that all
+# control-plane verbs attach; the domain layers (tbcommon / tscommon / dqcommon /
+# fccommon) no longer declare it (SPEC-107 FR-001). deploy-lambdas.yml's cpcommon layer
+# job installs this into the layer, so the verbs don't bundle it.
+PyJWT[crypto]>=2.8,<3

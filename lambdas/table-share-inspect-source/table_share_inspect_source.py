@@ -13,9 +13,11 @@ Emits the copy plan merged over the threaded request:
 
 import logging
 
-from tscommon import config, notify, s3_listing
+from cpcommon import s3_listing
+from cpcommon.errors import TerminalError
+from tscommon import config
 from tscommon import glue as glue_mod
-from tscommon.errors import TerminalError
+from tscommon import notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -41,7 +43,7 @@ def _inspect_source(event) -> dict:
 
     objects = []
     total_bytes = 0
-    for rel_key, size in s3_listing.list_data_objects(location["bucket"], location["prefix"]):
+    for rel_key, size in s3_listing.list_data_objects(location["bucket"], location["prefix"], relative=True):
         objects.append({"relKey": rel_key, "size": size})
         total_bytes += size
         if len(objects) > config.SHARE_MAX_OBJECTS:

@@ -5,7 +5,13 @@ its tests agree on the wording. Sender messages name the recipient (per-recipien
 outcomes) or just the source (whole-request failures); success-target messages
 address the recipient user or the recipient space's owner. Kept ASCII (no smart
 quotes), mirroring tbcommon.messages.
+
+This module keeps its own bespoke ``failure_message`` wording (SPEC-107 FR-002 —
+unchanged); it registers the table-share domain reason codes with cpcommon at import so
+they pass ``TerminalError``'s raise-time validation (SPEC-107 FR-005).
 """
+
+from cpcommon import messages as _cpmessages
 
 # Reasons that mean "not allowed" — no table detail is surfaced (the request may
 # not even have got far enough to trust one).
@@ -87,3 +93,8 @@ def recipient_user_message(actor: str, table_name: str, database: str) -> str:
 def space_owner_message(actor: str, table_name: str, space: str) -> str:
     """The text a recipient SPACE's owner sees (owner only — never the members)."""
     return f'{actor} shared table "{table_name}" into your space "{space}".'
+
+
+# Register the domain reason codes (incl. the base codes redundantly — idempotent) so a
+# TerminalError raised with any of them passes cpcommon's raise-time check (FR-005).
+_cpmessages.register_reasons(_BODIES)

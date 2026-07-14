@@ -15,9 +15,10 @@ Emits the item state with the recipient enriched:
 
 import logging
 
-from tscommon import clients, config, notify
+from cpcommon import clients, config
+from tscommon import notify
 from tscommon import glue as glue_mod
-from tscommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
