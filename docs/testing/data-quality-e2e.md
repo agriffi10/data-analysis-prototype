@@ -62,11 +62,20 @@ placeholders pass it through). A representative body:
 ```json
 {
   "requestId": "smoke-dq-0001",
-  "idToken": "<not verified yet — placeholder>",
+  "actor": "<cognito ID token — not verified yet at SPEC-108>",
   "space": { "kind": "personal", "bucket": "dat-prod-user-space", "prefix": "alice/" },
   "location": "alice/sales/"
 }
 ```
+
+**The identity contract.** From `ValidateAuthorize` onward the threaded object must carry
+`requestId` and `actor` **keys** — the terminal `RecordSuccess`/`RecordFailure` `Pass`
+states read `$.requestId`/`$.actor`, and a Pass state's JSONPath **hard-fails on an absent
+key** (`States.Runtime`). That failure is **uncatchable** (a Pass state has no `Catch`), so
+it escapes to `ExecutionFailed`, skipping `NotifyFailure` — the user gets no notification
+at all. A null *value* is fine; a missing *key* is fatal. The stub `validate-authorize`
+therefore `setdefault`s both keys (SPEC-109 binds `actor` from the verified token claim).
+The first run of this smoke test found exactly this, with a body that had no `actor`.
 
 ### Steps
 

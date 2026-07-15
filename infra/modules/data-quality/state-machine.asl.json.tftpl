@@ -282,7 +282,7 @@
     },
     "RecordSuccess": {
       "Type": "Pass",
-      "Comment": "Shape the terminal SUCCESS outcome SPEC-114 notifies from. SPEC-112 fills in the verdict/summary fields. Nothing durable is written by a terminal state — the report object is the artefact.",
+      "Comment": "Shape the terminal SUCCESS outcome SPEC-114 notifies from. SPEC-112 fills in the verdict/summary fields. Nothing durable is written by a terminal state — the report object is the artefact. THE IDENTITY CONTRACT: $.requestId and $.actor must EXIST as keys by here — ValidateAuthorize guarantees it. A Pass state's JSONPath HARD-FAILS on an ABSENT key (States.Runtime) and a Pass state has NO Catch, so that failure escapes straight to ExecutionFailed, skipping NotifyFailure and leaving the user with no notification at all. A null VALUE is fine; a missing key is fatal. (Caught by the SPEC-108 live smoke test.)",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
