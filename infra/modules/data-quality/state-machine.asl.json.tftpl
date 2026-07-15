@@ -1,0 +1,395 @@
+{
+  "Comment": "Data-quality control plane (SPEC-108 skeleton — the canonical state list; later specs WIRE these states, none adds one). validate-authorize -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
+  "StartAt": "ValidateAuthorize",
+  "States": {
+    "ValidateAuthorize": {
+      "Type": "Task",
+      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared failure path is uniform. Wired real in SPEC-109.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${validate_authorize_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ValidateFailureSeed"
+        }
+      ],
+      "Next": "InspectSource"
+    },
+    "InspectSource": {
+      "Type": "Task",
+      "Comment": "List + classify by extension, probe every file's header, write the S3 MANIFEST and pass its key onward. States pass a manifest POINTER, never an inline file list: Step Functions caps a state payload at 256 KB and States.DataLimitExceeded is thrown OUTSIDE any Catch — so an inline list would give the user NO notification at all, the worst failure mode in the pipeline. Wired in SPEC-110.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${inspect_source_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "CreateTempTables"
+    },
+    "CreateTempTables": {
+      "Type": "Task",
+      "Comment": "Create the temp external table over the SOURCE (+ for CSV, the single-column RAW-LINE table the ragged check needs). Temp tables live in the USER'S OWN database, which is exactly why every failure path below must reach DropTempTables. Wired in SPEC-111.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${create_temp_tables_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "StartProfileQuery"
+    },
+    "StartProfileQuery": {
+      "Type": "Task",
+      "Comment": "START the Athena profile query and return its QueryExecutionId — it does NOT wait. StartQueryExecution carries a ClientRequestToken (= requestId), or a Retry after a post-submission transient error would start a SECOND query. Wired in SPEC-111.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${start_profile_query_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "WaitForQuery"
+    },
+    "WaitForQuery": {
+      "Type": "Wait",
+      "Comment": "THE POLL LIVES HERE, IN THE STATE MACHINE — not inside a Lambda. table-builder's execute-ddl polls Athena inside a 300 s Lambda, which is fine for a CREATE TABLE that returns in seconds and FATAL for a profiling query over 250 GB that runs for minutes to tens of minutes: Lambda's hard ceiling is 900 s. A Standard Step Functions execution runs for up to a year, so waiting here removes the time ceiling entirely. This is the whole reason the arc works; do not move this poll into a Lambda.",
+      "Seconds": 30,
+      "Next": "CheckQuery"
+    },
+    "CheckQuery": {
+      "Type": "Task",
+      "Comment": "One GetQueryExecution. Returns the request object plus queryStatus. A FAILED/CANCELLED query raises TerminalError inside the verb (SPEC-111), so the Choice below only ever sees QUEUED / RUNNING / SUCCEEDED.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${check_query_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "QueryComplete"
+    },
+    "QueryComplete": {
+      "Type": "Choice",
+      "Comment": "Loop back to WaitForQuery while the query is still QUEUED/RUNNING; otherwise (SUCCEEDED) proceed. There is no unbounded-loop risk: the account's DML query-timeout quota terminates a runaway query, which CheckQuery surfaces as a terminal error.",
+      "Choices": [
+        {
+          "Variable": "$.queryStatus",
+          "StringEquals": "QUEUED",
+          "Next": "WaitForQuery"
+        },
+        {
+          "Variable": "$.queryStatus",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForQuery"
+        }
+      ],
+      "Default": "ByteScan"
+    },
+    "ByteScan": {
+      "Type": "Task",
+      "Comment": "The ONE thing SQL cannot see: a bounded, SAMPLED raw-byte encoding check. Its budget is PER REQUEST (DQ_SCAN_TOTAL_BYTES, default 2 GiB), divided across the manifest's files — never per file. Wired in SPEC-112.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${byte_scan_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "AssembleReport"
+    },
+    "AssembleReport": {
+      "Type": "Task",
+      "Comment": "Join the Athena results + the byte scan + the cross-file column agreement (computed from inspect-source's per-file probe, NOT in SQL — an external table has one schema for the whole folder and would HIDE exactly that disagreement) into report.json. Wired in SPEC-112.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${assemble_report_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "DropTempTables"
+    },
+    "DropTempTables": {
+      "Type": "Task",
+      "Comment": "Success-path cleanup. Idempotent by design — it must tolerate being reached before any table was created. Touches GLUE ONLY (no s3:DeleteObject is granted anywhere in this arc), which is what makes it safe to reach from every path. Wired in SPEC-111.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${drop_temp_tables_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ParseError"
+        }
+      ],
+      "Next": "RecordSuccess"
+    },
+    "RecordSuccess": {
+      "Type": "Pass",
+      "Comment": "Shape the terminal SUCCESS outcome SPEC-114 notifies from. SPEC-112 fills in the verdict/summary fields. Nothing durable is written by a terminal state — the report object is the artefact.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "status": "completed"
+      },
+      "Next": "Succeeded"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared ParseError/cleanup/RecordFailure path is uniform for every verb.",
+      "Parameters": {
+        "requestId": null,
+        "actor": null,
+        "error.$": "$"
+      },
+      "Next": "ParseError"
+    },
+    "ParseError": {
+      "Type": "Pass",
+      "Comment": "Decode the Lambda error Cause (a JSON string) so RecordFailure can read the errorMessage — the 'reason: detail' string TerminalError raised.",
+      "Parameters": {
+        "cause.$": "States.StringToJson($.error.Cause)"
+      },
+      "ResultPath": "$.parsed",
+      "Next": "DropTempTablesOnFailure"
+    },
+    "DropTempTablesOnFailure": {
+      "Type": "Task",
+      "Comment": "THE CATCH ALWAYS REACHES CLEANUP. The failure-path twin of DropTempTables, invoking the SAME Lambda (a state can have only one Next, hence the twin). Without it, every failed request would LEAK a temp table into the user's own Glue database — visible in the Query workspace's schema rail and eventually colliding with their real table names. ResultPath parks the result on a scratch field so $.parsed (the decoded error) survives for RecordFailure. Its OWN Catch goes straight to RecordFailure: cleanup is best-effort on the failure path and must NEVER mask the original error, and this is what stops the failure path looping back into itself.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${drop_temp_tables_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.cleanup",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.cleanupError",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every verb's Catch reaches (after cleanup). Shapes the structured outcome { requestId, actor, status:'failed', reason } (identity is null for a pre-identity validate failure). SPEC-112 shapes it further; SPEC-114 notifies from it.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "status": "failed",
+        "reason.$": "$.parsed.cause.errorMessage"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "Emit the friendly failure notification to the actor. PLACEHOLDER here — SPEC-114 FR-004 wires the real handler. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_failure_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "DataQualityCheckFailed",
+      "Cause": "The data-quality control plane recorded an unrecoverable error (see the RecordFailure state output for the structured { status:'failed', reason } outcome)."
+    }
+  }
+}

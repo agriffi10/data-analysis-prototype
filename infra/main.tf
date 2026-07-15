@@ -458,3 +458,56 @@ module "table_share" {
   # to. Settle both first.
   depends_on = [module.base, module.data]
 }
+
+# Data-quality control plane (SPEC-108): a DEDICATED FIFO SQS → EventBridge Pipe →
+# Standard Step Function pipeline orchestrating nine single-task verb Lambdas around ONE
+# Athena profile query (validate-authorize → inspect-source → create-temp-tables →
+# start-profile-query → [Wait → check-query → Choice] → byte-scan → assemble-report →
+# drop-temp-tables). Diagnoses a file or folder and writes a report; it NEVER modifies a
+# source. Mirrors the table-builder/table-share control-plane PATTERN with ONE shared
+# execution role — logs-only at this stage (S3 lands in SPEC-109; Glue/Athena/LF admin in
+# SPEC-111). Foundation only here (plumbing + Lambda stubs); decision record:
+# docs/data-quality-architecture.md.
+#
+# The engine is ATHENA, not Lambda: a full pass over a 250 GB source is impossible inside
+# Lambda's 900 s ceiling, so a short Lambda STARTS the query and the STATE MACHINE waits
+# (Standard executions run for up to a year). It brings its OWN Athena workgroup with
+# bytes_scanned_cutoff_per_query UNSET — the shared portal workgroup's 10 GiB cutoff is
+# 25x under a 250 GB check and would fail every real one.
+#
+# Standalone-deployable: names derive from {project}-{environment} inside the module. The
+# deploy-role grants this module needs landed + applied in SPEC-108 PR1, so no in-module
+# time_sleep guard is required. SPEC-111 adds the shared execution role to the analytics
+# LF admins list (module.analytics will depend_on this module for the role-exists
+# ordering, exactly as it does for table_builder / table_share).
+module "data_quality" {
+  source = "./modules/data-quality"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # Source + report buckets, and the admin bucket (shared-spaces registry for shared
+  # authorization in SPEC-109; this workgroup's FALLBACK Athena result location).
+  # Constructed names (not module outputs) so this module plans standalone.
+  #
+  # These are wired now — before any verb uses them — because every verb attaches the
+  # cpcommon layer, whose config _require()s them at import: a verb missing one crashes at
+  # COLD START (PR #196). Same reason the Cognito pair is passed here.
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+  admin_bucket_name        = local.athena_admin_bucket_name
+
+  user_pool_id  = module.auth.user_pool_id
+  app_client_id = module.auth.user_pool_client_id
+
+  # SPEC-114: the SPEC-058 notifications queue the verbs emit outcomes to. Constructed-
+  # string locals (known at plan, cycle-free — same as the other control planes).
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
+  # base grants the deploy role its data-quality perms (SPEC-108 PR1, already applied).
+  # data creates the user-space bucket the reports land in. Settle both first.
+  depends_on = [module.base, module.data]
+}

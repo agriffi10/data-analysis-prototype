@@ -1,0 +1,92 @@
+# ── Control-plane Lambdas (SPEC-108 skeleton) ────────────────────────────────
+# Nine single-task verb Lambdas — validate-authorize / inspect-source /
+# create-temp-tables / start-profile-query / check-query / byte-scan / assemble-report /
+# drop-temp-tables / notify-failure — orchestrated by the Step Function
+# (stepfunction.tf). All nine share ONE execution role (iam.tf; matching table-builder
+# and table-share) and each gets its task's real timeout AND memory (locals.tf — see the
+# shared-spaces implicit-128 MB precedent recorded there).
+#
+# notify-failure is a PLACEHOLDER here: SPEC-114 FR-004 wires its real handler and the
+# NotifyFailure state. Provisioning it in the foundation (function + log group +
+# deploy-lambdas matrix entry) is the notify-failure-Lambda pattern — the foundation
+# spec provisions the placeholder, the producer spec wires it.
+#
+# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
+# (lambdas/data-quality-<suffix>/) AND publishes + attaches the layers: cpcommon +
+# dqcommon on all nine, plus the polars layer on inspect-source. `ignore_changes` keeps
+# `tofu apply` from reverting CI's code OR layers.
+
+# One placeholder package per function so each is valid at create time. CI replaces the
+# code (and attaches the layers); these stubs only ever run pre-deploy.
+data "archive_file" "placeholder" {
+  for_each = local.data_quality_functions
+
+  type        = "zip"
+  output_path = "${path.module}/build/data-quality-${each.key}-placeholder.zip"
+
+  source {
+    content  = "def handler(event, context):\n    raise Exception('data-quality-${each.key} Lambda code not yet deployed by CI')\n"
+    filename = "${split(".", each.value.handler)[0]}.py"
+  }
+}
+
+# Explicit log group per function so retention is managed (14 days; matches the other
+# control planes). Lambda would otherwise create one with infinite retention on first
+# invoke.
+resource "aws_cloudwatch_log_group" "functions" {
+  for_each = local.data_quality_functions
+
+  name              = local.data_quality_log_group_names[each.key]
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function" "functions" {
+  for_each = local.data_quality_functions
+
+  function_name = local.data_quality_function_names[each.key]
+  role          = aws_iam_role.execution.arn
+  runtime       = "python3.12"
+  handler       = each.value.handler
+  timeout       = each.value.timeout
+  memory_size   = each.value.memory
+
+  # EVERY variable cpcommon/config.py _require()s at import must be COMMON to all nine
+  # verbs: every verb attaches the cpcommon layer, and that layer's config runs its
+  # fail-fast (SPEC-083 FR-001) on ANY `from cpcommon import …` chain — so a verb missing
+  # ANY required var crashes at COLD START (the table-builder production break, PR #196:
+  # check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset). The per-verb map
+  # (local.data_quality_verb_env) is reserved for OPTIONAL action env only.
+  # NOTIFICATIONS_QUEUE_URL stays optional by design (emit is a no-op when unset).
+  #
+  # ATHENA_WORKGROUP is THIS module's dedicated workgroup (athena.tf) — never the shared
+  # portal workgroup, whose 10 GiB scan cutoff would fail every real check.
+  environment {
+    variables = merge(
+      {
+        USER_SPACE_BUCKET       = var.user_space_bucket_name
+        SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
+        ADMIN_BUCKET            = var.admin_bucket_name
+        COGNITO_USER_POOL_ID    = var.user_pool_id
+        COGNITO_APP_CLIENT_ID   = var.app_client_id
+        ATHENA_WORKGROUP        = aws_athena_workgroup.data_quality.name
+        NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
+      },
+      lookup(local.data_quality_verb_env, each.key, {}),
+    )
+  }
+
+  # Bootstrap with the placeholder; CI replaces code + attaches the layers.
+  filename         = data.archive_file.placeholder[each.key].output_path
+  source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
+
+  lifecycle {
+    # CI owns the code AND the layer attachment — never revert them on apply.
+    ignore_changes = [filename, source_code_hash, layers]
+  }
+
+  depends_on = [
+    aws_iam_role_policy.execution,
+    aws_cloudwatch_log_group.functions,
+  ]
+}
