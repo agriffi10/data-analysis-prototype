@@ -129,6 +129,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 121 — File Converter: Notification Producer | Draft |
 | 122 — File Converter: Create Table From Converted Files (chain to Table Builder) | Draft |
 | 123 — Data Quality: Runs Dashboard (`/data-quality` list + nav + runs index) | Draft |
+| 124 — Data Quality: Start a Check from the Dashboard (space + folder/file target picker) | Draft |
 
 ## Arcs
 
@@ -463,7 +464,18 @@ registry, needed here because checks of *different* locations run in parallel. *
 an exhausted CAS is logged and swallowed, the report still lands, the notification still fires. v1 lists **completed checks only** —
 failures live in notifications, and the page says so rather than lying by omission.
 
-Build order **107 → (108→114) → 123 and/or (115→121) → 122**. New env vars `VITE_DATA_QUALITY_QUEUE_URL` and
+**SPEC-124 — starting a check *from* the dashboard** (user request, 2026-07-14). 123 gives checks a home page but **no way to start
+one from it**: the only entry point is the Files browser, which is the right place when you are looking at your files and the wrong
+one when you are looking at your history. **124** adds a **"New quality check"** action (header + empty-state CTA) opening a modal
+that asks the only question the pipeline needs — *which data?* — as a **space selector over `DestinationPicker`**, the exact
+`SaveResultsDialog` composition (SPEC-055/039). **Both entry points enqueue through the same `useDataQualityCheck` hook** — there is
+one enqueue path in the SPA, not two. The one real change is that the picker renders files as **deliberately non-interactive** rows
+(a file is never a move/copy/save destination), so it gains an **opt-in `selectableFiles`** mode — opt-in because three shipped
+callers depend on the current behaviour. And because the arc persists nothing until `assemble-report` runs, a just-started check is
+**not in the list**: 124 pays that off with a dismissible "check started — it will appear here when it finishes" banner rather than
+leaving the user to conclude the button did nothing. **Browser-side only: no new IAM, env var, AWS call, or Lambda change.**
+
+Build order **107 → (108→114) → 123 → 124 and/or (115→121) → 122**. New env vars `VITE_DATA_QUALITY_QUEUE_URL` and
 `VITE_FILE_CONVERTER_QUEUE_URL` (each needs **four** wiring points incl. a **hand-set GitHub repo variable**). Each foundation
 spec ships as **two PRs** — deploy-role IAM applies *before* the module's resources. Both arcs add their execution role to
 `aws_lakeformation_data_lake_settings.admins` as a **constructed string in root `locals`**, never a module output (an unknown
