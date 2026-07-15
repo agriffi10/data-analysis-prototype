@@ -1,0 +1,20 @@
+# polars for the data-quality inspect-source verb's Parquet/CSV/JSON header probe
+# (SPEC-108 FR-003), packaged as the data-quality-polars Lambda LAYER
+# (deploy-lambdas.yml builds + publishes it) and attached to inspect-source — and to NO
+# other function.
+#
+# Why this layer is unavoidable: Athena requires an EXPLICIT COLUMN LIST for a Parquet or
+# JSON external table and does NOT auto-detect a Parquet schema. That column list comes
+# from inspect-source's per-file probe, and reading a Parquet footer needs a Parquet
+# reader. Claiming "this arc needs no polars" would make its own Parquet support
+# (SPEC-110 FR-002) impossible to build.
+#
+# NO fastexcel: this arc does not support Excel (convert it first, then check the
+# resulting Parquet). polars' Rust-native readers need no pyarrow, keeping the layer well
+# inside Lambda's 250 MB unzipped limit — which the SPEC-107 FR-004 COMBINED per-function
+# guard checks for inspect-source (cpcommon + dqcommon + polars, the one function the
+# guard actually has to work for).
+#
+# Exact pin, matching the table-builder polars layer (lambdas/table-builder-infer-schema/
+# requirements.txt) so both layers move together in one reviewed change.
+polars==1.12.0

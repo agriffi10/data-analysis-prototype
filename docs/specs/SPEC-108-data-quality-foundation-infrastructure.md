@@ -1,7 +1,7 @@
 # Spec: Data Quality — Foundation Infrastructure + `dqcommon` Layer + Athena Workgroup
 
 **ID:** SPEC-108
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon` layer), SPEC-032 (Athena/Glue/Lake Formation foundation), SPEC-088 (the mirrored control-plane precedent)
 

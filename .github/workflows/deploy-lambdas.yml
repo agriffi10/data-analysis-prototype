@@ -334,8 +334,130 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── data-quality-common layer (SPEC-108) ───────────────────────────────────
+  # Publishes the `data-quality-common` layer = the `dqcommon` package (the DOMAIN
+  # surface: config caps, sql, report, messages, index_store). NO external deps: PyJWT
+  # lives once in cpcommon (SPEC-107 FR-001), polars is its own layer below (attached to
+  # inspect-source only), and this arc has no Excel engine. All nine data-quality verbs
+  # attach this alongside cpcommon.
+  dqcommon_layer:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        id: build
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/dqcommon-layer/python"
+          rm -rf build/dqcommon-layer && mkdir -p "$LAYER_DIR"
+          # No pip install — dqcommon declares no external dependencies (see above).
+          cp -r lambdas/data-quality-common/dqcommon "$LAYER_DIR"/dqcommon
+          find "$LAYER_DIR"/dqcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
+          (cd build/dqcommon-layer && zip --quiet --recurse-paths ../data-quality-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-data-quality-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared dqcommon domain package for the data-quality verb Lambdas (SPEC-108)." \
+            --zip-file "fileb://build/data-quality-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
+  # ── data-quality polars layer (SPEC-108 FR-003) ────────────────────────────
+  # polars for the data-quality inspect-source verb ONLY. Unavoidable: Athena requires an
+  # explicit column list for Parquet/JSON external tables and does not auto-detect a
+  # Parquet schema, so inspect-source must read Parquet footers itself. No fastexcel —
+  # this arc does not support Excel. A SEPARATE layer from the table-builder polars layer
+  # so each arc's deploy-role grant stays name-scoped to its own arc.
+  dq_polars_layer:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build polars layer package
+        id: build
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/dq-polars-layer/python"
+          rm -rf build/dq-polars-layer && mkdir -p "$LAYER_DIR"
+          pip install --quiet \
+            --requirement lambdas/data-quality-polars/requirements.txt \
+            --target "$LAYER_DIR"
+          UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
+          echo "data-quality-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
+          echo "unzipped_kb=${UNZIPPED_KB}" >> "$GITHUB_OUTPUT"
+          # Per-layer sanity cap. NOT sufficient on its own — the 250 MB ceiling is per
+          # FUNCTION across all layers plus code, which the combined guard in the deploy
+          # job checks (SPEC-107 FR-004). inspect-source (cpcommon + dqcommon + polars) is
+          # the function that guard actually has to work for.
+          if [ "$UNZIPPED_KB" -gt 245760 ]; then
+            echo "::error::data-quality-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
+            exit 1
+          fi
+          (cd build/dq-polars-layer && zip --quiet --recurse-paths ../data-quality-polars-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-data-quality-polars"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "polars (Parquet footer / CSV / JSON probe) for the data-quality inspect-source verb (SPEC-108/110)." \
+            --zip-file "fileb://build/data-quality-polars-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer, cpcommon_layer]
+    needs: [layer, polars_layer, table_builder_layer, table_share_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -378,6 +500,19 @@ jobs:
           - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
+          # inspect-source also attaches the data-quality polars layer (it must read
+          # Parquet footers — Athena needs an explicit column list). Stub handlers now;
+          # real logic lands with SPEC-109→112/114.
+          - { name: data-quality-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true, dqpolars: true }
+          - { name: data-quality-create-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-start-profile-query, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-check-query, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-byte-scan, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-assemble-report, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-drop-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          - { name: data-quality-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
 
     steps:
       - name: Checkout
@@ -393,10 +528,15 @@ jobs:
           set -euo pipefail
           BUILD_DIR="build/${{ matrix.lambda.name }}"
           rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-          # Layer functions (shared-space-common, table-builder-common, or
-          # table-share-common) get their deps from the layer; others bundle the
-          # shared requirements.
-          if [ "${{ matrix.lambda.layer }}" != "true" ] && [ "${{ matrix.lambda.tbcommon }}" != "true" ] && [ "${{ matrix.lambda.tscommon }}" != "true" ]; then
+          # Layer functions get their deps from a layer; others bundle the shared
+          # requirements. `cpcommon: true` is part of this test because cpcommon is where
+          # PyJWT[crypto] is declared now (SPEC-107 FR-001) — a function attaching it must
+          # NOT also bundle a second copy (it would double-count against the combined
+          # size guard below, and drift).
+          if [ "${{ matrix.lambda.layer }}" != "true" ] \
+             && [ "${{ matrix.lambda.tbcommon }}" != "true" ] \
+             && [ "${{ matrix.lambda.tscommon }}" != "true" ] \
+             && [ "${{ matrix.lambda.cpcommon }}" != "true" ]; then
             pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
           fi
           cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
@@ -424,6 +564,8 @@ jobs:
           [ "${{ matrix.lambda.tbcommon }}" = "true" ] && add "${{ needs.table_builder_layer.outputs.unzipped_kb }}" table-builder-common
           [ "${{ matrix.lambda.tscommon }}" = "true" ] && add "${{ needs.table_share_layer.outputs.unzipped_kb }}" table-share-common
           [ "${{ matrix.lambda.cpcommon }}" = "true" ] && add "${{ needs.cpcommon_layer.outputs.unzipped_kb }}" control-plane-common
+          [ "${{ matrix.lambda.dqcommon }}" = "true" ] && add "${{ needs.dqcommon_layer.outputs.unzipped_kb }}" data-quality-common
+          [ "${{ matrix.lambda.dqpolars }}" = "true" ] && add "${{ needs.dq_polars_layer.outputs.unzipped_kb }}" data-quality-polars
           echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
           if [ "$TOTAL_KB" -gt 245760 ]; then
             echo "::error::${{ matrix.lambda.name }} exceeds 240 MB unzipped: $((TOTAL_KB / 1024)) MB across ${NAMES} (Lambda's hard limit is 250 MB per function, package + all layers)."
@@ -487,6 +629,8 @@ jobs:
           [ "${{ matrix.lambda.polars }}" = "true" ]   && LAYERS+=("${{ needs.polars_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.tbcommon }}" = "true" ] && LAYERS+=("${{ needs.table_builder_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.tscommon }}" = "true" ] && LAYERS+=("${{ needs.table_share_layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.dqcommon }}" = "true" ] && LAYERS+=("${{ needs.dqcommon_layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.dqpolars }}" = "true" ] && LAYERS+=("${{ needs.dq_polars_layer.outputs.layer_arn }}")
           if [ "${#LAYERS[@]}" -gt 0 ]; then
             aws lambda update-function-configuration \
               --function-name "$FUNCTION" \
