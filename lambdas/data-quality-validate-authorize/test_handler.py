@@ -1,0 +1,194 @@
+"""Unit tests for the data-quality validate-authorize Lambda (SPEC-109).
+
+Pure logic, AWS stubbed: auth.verified_username and registry.load are replaced on the
+verb module, so no token is minted and no S3 is touched. Runnable under pytest or
+directly: python3 test_handler.py.
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
+
+import handler as v  # noqa: E402
+from cpcommon.errors import TerminalError  # noqa: E402
+
+USER_BUCKET = "dq-user-bkt"
+SHARED_BUCKET = "dq-shared-bkt"
+
+
+def _setup(actor="alice", spaces=None):
+    spaces = spaces or {}
+    v.config.USER_SPACE_BUCKET = USER_BUCKET
+    v.config.SHARED_SPACE_BUCKET = SHARED_BUCKET
+    v.auth.verified_username = lambda token, **kw: actor
+    v.reg.load = lambda name: spaces.get(name)
+
+
+def _event(**over):
+    body = {
+        "requestId": "11111111-2222-4333-8444-555555555555",
+        "idToken": "stub-token",
+        "space": {"kind": "personal", "bucket": USER_BUCKET, "prefix": "alice/"},
+        "location": "alice/sales/",
+    }
+    body.update(over)
+    return [{"body": json.dumps(body)}]
+
+
+def _expect_reason(event, reason):
+    try:
+        v.handler(event, None)
+    except TerminalError as exc:
+        assert exc.reason == reason, f"expected {reason!r}, got {exc.reason!r} ({exc.detail})"
+        return exc
+    raise AssertionError(f"expected TerminalError({reason!r}), but the handler succeeded")
+
+
+# ── identity (FR-004) ────────────────────────────────────────────────────────
+
+
+def test_valid_personal_request_binds_the_verified_actor():
+    _setup(actor="alice")
+    out = v.handler(_event(), None)
+    assert out["actor"] == "alice"
+    assert out["requestId"] == "11111111-2222-4333-8444-555555555555"
+    assert out["location"] == "alice/sales"
+    assert out["reportPrefix"] == "alice/_data-quality-reports/11111111-2222-4333-8444-555555555555/"
+
+
+def test_actor_is_never_read_from_the_body():
+    # A body that tries to assert an identity must be ignored — the actor comes from the
+    # verified token claim only.
+    _setup(actor="alice")
+    out = v.handler(_event(actor="mallory", username="mallory"), None)
+    assert out["actor"] == "alice"
+
+
+def test_token_failure_is_unauthorized():
+    _setup()
+
+    def _raise(token, **kw):
+        raise TerminalError("unauthorized", "token verification failed: expired")
+
+    v.auth.verified_username = _raise
+    _expect_reason(_event(), "unauthorized")
+
+
+def test_unparseable_body_is_unauthorized():
+    _setup()
+    _expect_reason([{"body": "not json"}], "unauthorized")
+
+
+def test_missing_request_id_is_invalid_request():
+    _setup()
+    body = json.loads(_event()[0]["body"])
+    del body["requestId"]
+    _expect_reason([{"body": json.dumps(body)}], "invalid_request")
+
+
+def test_missing_space_is_invalid_request():
+    _setup()
+    body = json.loads(_event()[0]["body"])
+    del body["space"]
+    _expect_reason([{"body": json.dumps(body)}], "invalid_request")
+
+
+# ── personal authorization (FR-005) ──────────────────────────────────────────
+
+
+def test_personal_space_of_another_user_is_forbidden():
+    _setup(actor="alice")
+    _expect_reason(_event(space={"kind": "personal", "bucket": USER_BUCKET, "prefix": "bob/"}), "forbidden")
+
+
+def test_personal_location_outside_the_space_is_forbidden():
+    _setup(actor="alice")
+    _expect_reason(_event(location="bob/secrets/"), "forbidden")
+
+
+def test_personal_wrong_bucket_is_forbidden():
+    _setup(actor="alice")
+    _expect_reason(_event(space={"kind": "personal", "bucket": SHARED_BUCKET, "prefix": "alice/"}), "forbidden")
+
+
+def test_path_traversal_cannot_escape_the_space():
+    _setup(actor="alice")
+    # Normalizes to "bob/secrets" — outside alice/ — so it fails the space-prefix check.
+    _expect_reason(_event(location="alice/../bob/secrets"), "forbidden")
+
+
+def test_reserved_prefix_cannot_be_checked():
+    _setup(actor="alice")
+    for reserved in ("alice/user_settings/x.json", "alice/athenaresults/q.csv", "alice/shared_tables/t/"):
+        _expect_reason(_event(location=reserved), "forbidden")
+
+
+# ── shared authorization (FR-005) ────────────────────────────────────────────
+
+
+def _shared_event(**over):
+    return _event(space={"kind": "shared", "bucket": SHARED_BUCKET, "prefix": "salesteam/"}, location="salesteam/raw/", **over)
+
+
+def test_shared_active_member_is_authorized():
+    _setup(actor="alice", spaces={"salesteam": {"status": "active", "members": ["alice", "bob"]}})
+    out = v.handler(_shared_event(), None)
+    assert out["actor"] == "alice"
+    assert out["location"] == "salesteam/raw"
+
+
+def test_shared_PENDING_member_is_authorized():
+    """SPEC-073 grants access at ADD time, so a member whose join chip is still Pending
+    must pass. 'active' here is the SPACE's provisioning status, not the member's chip.
+    Pinned so nobody 'fixes' this into a membership check later."""
+    _setup(
+        actor="alice",
+        spaces={"salesteam": {"status": "active", "members": ["alice", "bob"], "acknowledged": ["bob"]}},
+    )
+    out = v.handler(_shared_event(), None)
+    assert out["actor"] == "alice"
+
+
+def test_shared_non_member_is_forbidden():
+    _setup(actor="mallory", spaces={"salesteam": {"status": "active", "members": ["alice"]}})
+    _expect_reason(_shared_event(), "forbidden")
+
+
+def test_shared_inactive_space_is_forbidden():
+    _setup(actor="alice", spaces={"salesteam": {"status": "pending", "members": ["alice"]}})
+    _expect_reason(_shared_event(), "forbidden")
+
+
+def test_shared_unknown_space_is_forbidden():
+    _setup(actor="alice", spaces={})
+    _expect_reason(_shared_event(), "forbidden")
+
+
+def test_shared_wrong_bucket_is_forbidden():
+    _setup(actor="alice", spaces={"salesteam": {"status": "active", "members": ["alice"]}})
+    _expect_reason(
+        _event(space={"kind": "shared", "bucket": USER_BUCKET, "prefix": "salesteam/"}, location="salesteam/raw/"),
+        "forbidden",
+    )
+
+
+def test_unknown_space_kind_is_forbidden():
+    _setup(actor="alice")
+    _expect_reason(_event(space={"kind": "hybrid", "bucket": USER_BUCKET, "prefix": "alice/"}), "forbidden")
+
+
+if __name__ == "__main__":
+    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
+    failed = 0
+    for fn in tests:
+        try:
+            fn()
+            print(f"PASS {fn.__name__}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL {fn.__name__}: {exc}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)

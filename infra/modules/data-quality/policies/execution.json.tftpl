@@ -12,6 +12,53 @@
         "${log_group_arn}",
         "${log_group_arn}:*"
       ]
+    },
+    {
+      "Sid": "ReadSourceObjects",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "ListSourceBuckets",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": [
+        "${user_space_bucket_arn}",
+        "${shared_space_bucket_arn}"
+      ]
+    },
+    {
+      "Sid": "ReadRegistry",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
+    },
+    {
+      "Sid": "ReadWriteReports",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*/_data-quality-reports/*",
+        "${shared_space_bucket_arn}/*/_data-quality-reports/*"
+      ]
+    },
+    {
+      "Sid": "NoWriteToProtectedObjects",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*/user_settings/*",
+        "${shared_space_bucket_arn}/*/user_settings/*",
+        "${user_space_bucket_arn}/*/DO_NOT_DELETE.txt",
+        "${shared_space_bucket_arn}/*/DO_NOT_DELETE.txt"
+      ]
     }
   ]
 }

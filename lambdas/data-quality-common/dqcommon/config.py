@@ -14,6 +14,29 @@ The constants below are declared in the foundation so the later specs share one 
 each is consumed by the spec named against it.
 """
 
+# SPEC-109 — where a report may NOT be written, and where a check may not target.
+#
+# The report destination ({space}/_data-quality-reports/{requestId}/) must resolve inside
+# the requesting space and must not collide with any of these first-path-segment prefixes.
+#
+# KEEP IN SYNC with the file-converter arc's reserved-prefix blocklist (SPEC-116). The two
+# lists exist separately because the arcs are independent, and they must not drift apart —
+# if you add a prefix here, add it there. `_fc-work/` is the file-converter's scratch
+# prefix, included here DEFENSIVELY: this arc never writes it, but a check must not treat
+# the sibling pipeline's scratch space as a valid destination either.
+RESERVED_PREFIXES = frozenset(
+    {
+        "athenaresults",          # Athena query output (SPEC-032)
+        "user_settings",          # the notification inbox + saved queries (SPEC-058/043)
+        "shared_tables",          # table-share copy destinations (SPEC-088)
+        "_data-quality-reports",  # this arc's own reports
+        "_fc-work",               # the file-converter's scratch prefix (SPEC-116)
+    }
+)
+
+#: The space prefix marker that must never be overwritten (SPEC-014).
+MARKER_BASENAME = "DO_NOT_DELETE.txt"
+
 # SPEC-110 — source inspection caps.
 # Max objects under the target location. Mirrors tscommon's SHARE_MAX_OBJECTS. There is
 # deliberately NO max total size: that ceiling was a Lambda artefact, and Athena — not a

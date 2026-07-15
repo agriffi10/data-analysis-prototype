@@ -100,6 +100,11 @@ locals {
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
   state_machine_arn  = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"
 
+  # Bucket ARNs for the execution role's S3 statements (SPEC-109 FR-006).
+  user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
+  shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
+  admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
+
   # The dedicated Athena workgroup this pipeline's queries run in (athena.tf).
   athena_workgroup_name = "${var.project_name}-${var.environment}-data-quality-wg"
   athena_workgroup_arn  = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${local.athena_workgroup_name}"

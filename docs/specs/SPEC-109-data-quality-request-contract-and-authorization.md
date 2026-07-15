@@ -1,7 +1,7 @@
 # Spec: Data Quality — Request Contract, Browser Enqueue & `validate-authorize`
 
 **ID:** SPEC-109
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (data-quality foundation), SPEC-056 (shared-space access model), SPEC-011 (Cognito identity)
 

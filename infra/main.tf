@@ -502,12 +502,17 @@ module "data_quality" {
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
+  # SPEC-109: the portal role this module attaches the sqs:SendMessage enqueue policy to
+  # (by name) — the browser's ONLY data-quality privilege.
+  portal_role_name = local.portal_role_name
+
   # SPEC-114: the SPEC-058 notifications queue the verbs emit outcomes to. Constructed-
   # string locals (known at plan, cycle-free — same as the other control planes).
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # base grants the deploy role its data-quality perms (SPEC-108 PR1, already applied).
-  # data creates the user-space bucket the reports land in. Settle both first.
+  # base grants the deploy role its data-quality perms (SPEC-108 PR1, already applied);
+  # data creates the portal role this module attaches the enqueue policy to, and the
+  # user-space bucket the reports land in. Settle both first.
   depends_on = [module.base, module.data]
 }
