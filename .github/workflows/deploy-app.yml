@@ -41,6 +41,7 @@ jobs:
           VITE_NOTIFICATIONS_QUEUE_URL: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
           VITE_TABLE_BUILD_QUEUE_URL: ${{ vars.VITE_TABLE_BUILD_QUEUE_URL }}
           VITE_TABLE_SHARE_QUEUE_URL: ${{ vars.VITE_TABLE_SHARE_QUEUE_URL }}
+          VITE_DATA_QUALITY_QUEUE_URL: ${{ vars.VITE_DATA_QUALITY_QUEUE_URL }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

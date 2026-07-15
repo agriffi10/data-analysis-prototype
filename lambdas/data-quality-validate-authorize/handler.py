@@ -1,39 +1,180 @@
-"""data-quality validate-authorize — SPEC-108 SKELETON STUB.
+"""data-quality validate-authorize — the control plane's security boundary (SPEC-109).
 
-Pass-through only: no token verification, no authorization, no destination validation —
-all of that is SPEC-109. This stub exists so the foundation's control-plane path runs end
-to end (message -> Pipe -> execution -> terminal state) and the smoke test can prove the
-plumbing before any logic lands.
+The first verb. It is the ONLY place the actor is established: the request's ID token is
+verified offline against the User Pool JWKS and the actor comes from the verified
+``cognito:username`` claim — NEVER from a body field (the envelope carries no username at
+all, SPEC-109 FR-001).
 
-Its input is the RAW SQS batch the Pipe forwards (a JSON array); it returns the parsed
-request body as the object every later state threads.
+It then authorizes read access to the requested location and validates the report
+destination:
 
-IT MUST GUARANTEE THE IDENTITY CONTRACT. From this state onward the threaded object has
-to carry ``requestId`` and ``actor`` KEYS, because the terminal ``RecordSuccess`` /
-``RecordFailure`` Pass states read ``$.requestId`` / ``$.actor``. A Pass state's JSONPath
-resolution HARD-FAILS on an ABSENT key (States.Runtime) — and that failure is
-UNCATCHABLE: a Pass state has no Catch, so it escapes straight to ExecutionFailed,
-skipping NotifyFailure and leaving the user with no notification at all. A null VALUE is
-fine (the key exists); a missing key is fatal. SPEC-109 binds ``actor`` from the verified
-token claim; this stub only guarantees the keys are present.
+- **personal** — the bucket must be the user-space bucket and the normalized location must
+  sit under ``{actor}/``;
+- **shared** — the registry record must be an ACTIVE space with the actor in ``members``
+  (``cpcommon.registry.is_active_member``), the bucket must be the shared-space bucket, and
+  the location must sit under ``{spaceName}/``.
+
+"Active" is the SPACE's provisioning status, NOT SPEC-073's per-member Pending/Active join
+chip: SPEC-073 grants access at add time, so a **Pending member passes** (a test pins this
+so nobody "fixes" it later).
+
+The identity contract: from this state onward the threaded object carries ``requestId`` and
+``actor`` KEYS. The terminal ``RecordSuccess``/``RecordFailure`` Pass states read
+``$.requestId``/``$.actor``, and a Pass state's JSONPath hard-fails on an ABSENT key
+(``States.Runtime``) — uncatchable, so it would skip ``NotifyFailure`` and leave the user
+with no notification at all. A null value is fine; a missing key is fatal.
 """
 
 import json
 import logging
+import posixpath
+
+from cpcommon import auth, config, events
+from cpcommon import registry as reg
+from cpcommon.errors import TerminalError
+from dqcommon import messages
+from dqcommon.config import MARKER_BASENAME, RESERVED_PREFIXES
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+#: Where this arc writes its reports, relative to the space root.
+REPORTS_PREFIX = "_data-quality-reports"
+
+
+def _extract_record(event):
+    """The Pipe forwards the raw SQS batch (a JSON array); take the single record."""
+    if isinstance(event, list):
+        if not event:
+            raise TerminalError(messages.UNAUTHORIZED, "empty event")
+        return event[0]
+    if isinstance(event, dict):
+        return event
+    raise TerminalError(messages.UNAUTHORIZED, "unrecognised event shape")
+
+
+def _parse_request(record) -> dict:
+    """Return the JSON body of the SQS record."""
+    body = record.get("body") if isinstance(record, dict) else None
+    if not body:
+        raise TerminalError(messages.UNAUTHORIZED, "missing message body")
+    try:
+        return json.loads(body)
+    except Exception as exc:  # noqa: BLE001 - an unparseable body is terminal, never retried
+        raise TerminalError(messages.UNAUTHORIZED, f"body is not valid JSON: {exc}") from exc
+
+
+def _normalize(location: str) -> str:
+    """Collapse a key to its canonical form, neutralizing traversal.
+
+    ``posixpath.normpath`` resolves ``.``/``..`` segments, so a location that tries to
+    climb out of its space (``alice/../bob/secrets``) normalizes to a path that simply
+    fails the space-prefix check below — traversal can't sneak past a string comparison
+    on the raw input. A leading ``/`` is stripped (S3 keys never start with one).
+    """
+    collapsed = posixpath.normpath(location.strip().lstrip("/"))
+    # normpath turns "" and "." into "."; treat both as empty (an unusable location).
+    return "" if collapsed == "." else collapsed
+
+
+def _authorize(actor: str, space: dict, location: str) -> str:
+    """Return the normalized location, or raise a terminal ``forbidden``."""
+    kind = space.get("kind")
+    bucket = space.get("bucket")
+    prefix = (space.get("prefix") or "").strip("/")
+    normalized = _normalize(location)
+    if not normalized:
+        raise TerminalError(messages.FORBIDDEN, "empty location")
+
+    if kind == "personal":
+        if bucket != config.USER_SPACE_BUCKET:
+            raise TerminalError(messages.FORBIDDEN, "personal space must be the user-space bucket")
+        if prefix != actor:
+            raise TerminalError(messages.FORBIDDEN, "personal space must be the actor's own")
+        if not _within(normalized, actor):
+            raise TerminalError(messages.FORBIDDEN, "location escapes the personal space")
+        return normalized
+
+    if kind == "shared":
+        if bucket != config.SHARED_SPACE_BUCKET:
+            raise TerminalError(messages.FORBIDDEN, "shared space must be the shared-space bucket")
+        if not reg.is_active_member(reg.load(prefix), actor):
+            # Deliberately one reason for "no such space" and "not a member": telling the
+            # caller which is a membership oracle.
+            raise TerminalError(messages.FORBIDDEN, f"{actor!r} is not an active member of {prefix!r}")
+        if not _within(normalized, prefix):
+            raise TerminalError(messages.FORBIDDEN, "location escapes the shared space")
+        return normalized
+
+    raise TerminalError(messages.FORBIDDEN, f"unknown space kind {kind!r}")
+
+
+def _within(normalized: str, space_root: str) -> bool:
+    """True iff ``normalized`` is the space root itself or sits under it."""
+    return normalized == space_root or normalized.startswith(f"{space_root}/")
+
+
+def _validate_destination(space_root: str, request_id: str) -> str:
+    """Return the report destination prefix, or raise if it isn't safe to write.
+
+    Defence in depth behind the execution role's explicit Deny (SPEC-109 FR-006): the
+    destination is derived here, not supplied, so this mostly guards against a future
+    caller-supplied destination and against the reserved prefixes drifting.
+    """
+    destination = f"{space_root}/{REPORTS_PREFIX}/{request_id}/"
+    first_segment = destination.split("/")[1] if "/" in destination else ""
+    # The reports prefix is itself reserved (it is ours), so only a NON-reports collision
+    # is a problem — i.e. the derived destination must land in our own reserved folder.
+    if first_segment != REPORTS_PREFIX:
+        raise TerminalError(messages.FORBIDDEN, f"report destination {destination!r} is not the reports prefix")
+    return destination
+
+
+def _check_source_not_reserved(normalized: str, space_root: str) -> None:
+    """A check may not target a reserved sub-tree or the space marker."""
+    rel = normalized[len(space_root) :].strip("/") if normalized.startswith(space_root) else normalized
+    if not rel:
+        return  # the space root itself is a legitimate (if broad) folder target
+    first = rel.split("/")[0]
+    if first in RESERVED_PREFIXES:
+        raise TerminalError(messages.FORBIDDEN, f"{first!r} is a reserved prefix and cannot be checked")
+    if rel == MARKER_BASENAME:
+        raise TerminalError(messages.FORBIDDEN, "the space marker is not data")
+
+
+def _validate_and_authorize(event) -> dict:
+    record = _extract_record(event)
+    req = _parse_request(record)
+
+    # Shape first, so a malformed envelope is a typed terminal rather than a bare KeyError
+    # the SFN records as an opaque failure with no notification (SPEC-083 FR-002).
+    request_id = events.require(req, "requestId", reason=messages.INVALID_REQUEST)
+    space = req.get("space")
+    if not isinstance(space, dict):
+        raise TerminalError(messages.INVALID_REQUEST, "missing space")
+    events.require(req, "space", "kind", reason=messages.INVALID_REQUEST)
+    events.require(req, "space", "bucket", reason=messages.INVALID_REQUEST)
+    events.require(req, "space", "prefix", reason=messages.INVALID_REQUEST)
+    location = events.require(req, "location", reason=messages.INVALID_REQUEST)
+
+    # The actor comes from the VERIFIED token, never from the body.
+    actor = auth.verified_username(req.get("idToken"))
+
+    normalized = _authorize(actor, space, location)
+    space_root = (space.get("prefix") or "").strip("/")
+    _check_source_not_reserved(normalized, space_root)
+    destination = _validate_destination(space_root, request_id)
+
+    logger.info("authorized %s for %s/%s", actor, space.get("bucket"), normalized)
+    return {
+        "requestId": request_id,
+        "actor": actor,
+        "space": {"kind": space["kind"], "bucket": space["bucket"], "prefix": f"{space_root}/"},
+        "location": normalized,
+        "reportPrefix": destination,
+    }
+
 
 def handler(event, context) -> dict:
-    """Return the request body from the SQS record as the threaded request object."""
-    record = event[0] if isinstance(event, list) and event else event
-    body = record.get("body") if isinstance(record, dict) else None
-    request = json.loads(body) if isinstance(body, str) else (record if isinstance(record, dict) else {})
-
-    # The identity contract the terminal Pass states depend on (see the module docstring).
-    request.setdefault("requestId", None)
-    request.setdefault("actor", None)
-
-    logger.info("validate-authorize stub: requestId=%s", request.get("requestId"))
-    return request
+    """Verify the caller, authorize the location, and emit the threaded request object."""
+    return _validate_and_authorize(event)

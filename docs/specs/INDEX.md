@@ -114,7 +114,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 106 — User-Facing Error Messaging (friendly, no AWS leaks) | Completed |
 | 107 — Shared `control-plane-common` Lambda Layer | Completed |
 | 108 — Data Quality: Foundation Infrastructure + Common Layer + Athena Workgroup | Completed |
-| 109 — Data Quality: Request Contract, Enqueue & validate-authorize | Draft |
+| 109 — Data Quality: Request Contract, Enqueue & validate-authorize | Completed |
 | 110 — Data Quality: Source Inspection | Draft |
 | 111 — Data Quality: Temp Tables + the Athena Profile Query | Draft |
 | 112 — Data Quality: byte-scan + Report Assembly | Draft |

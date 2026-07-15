@@ -85,3 +85,10 @@ variable "dlq_max_receive_count" {
   type        = number
   default     = 3
 }
+
+# ── SPEC-109: the browser's enqueue grant ────────────────────────────────────
+
+variable "portal_role_name" {
+  description = "SPEC-109 FR-003: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
+  type        = string
+}

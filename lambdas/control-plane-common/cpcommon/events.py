@@ -21,18 +21,24 @@ from .errors import TerminalError
 MALFORMED = "malformed_event"
 
 
-def require(event: Any, *path: str) -> Any:
-    """Return ``event[path...]`` or raise ``TerminalError(MALFORMED)``.
+def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:
+    """Return ``event[path...]`` or raise ``TerminalError(reason)``.
 
     Every segment must be a present key on a dict; the resolved value must be non-empty
     when it's a string (buckets/prefixes/names/formats are all non-empty strings). The
     dotted path is included in the detail for the log/SFN record.
+
+    ``reason`` lets a domain surface its OWN terminal code for a bad task input while
+    still using this one shape-check (the data-quality arc raises ``invalid_request``,
+    SPEC-109 FR-001/FR-004). It defaults to the shared ``malformed_event`` base code, so
+    every existing caller is unaffected. Whatever is passed must be a registered reason —
+    ``TerminalError`` validates it at the raise site (SPEC-107 FR-005).
     """
     node = event
     for key in path:
         if not isinstance(node, dict) or key not in node:
-            raise TerminalError(MALFORMED, f"missing required field {'.'.join(path)!r}")
+            raise TerminalError(reason, f"missing required field {'.'.join(path)!r}")
         node = node[key]
     if node is None or (isinstance(node, str) and not node.strip()):
-        raise TerminalError(MALFORMED, f"empty required field {'.'.join(path)!r}")
+        raise TerminalError(reason, f"empty required field {'.'.join(path)!r}")
     return node

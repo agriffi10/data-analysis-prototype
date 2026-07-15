@@ -4,20 +4,34 @@
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
 # per architecture.md Lambda code/infra split).
 #
-# AT SPEC-108 THE EXECUTION POLICY IS LOGS ONLY. This is deliberate and staged:
-#   - S3 (source read; report read+write) + the protected-object Deny → SPEC-109
-#   - Glue / Athena / Lake Formation admin                            → SPEC-111
-# Each grant lands in the spec that first needs it, so the blast radius grows only with
-# a reviewed reason. Two boundaries are permanent and must survive every later spec:
+# The execution policy is STAGED — each grant lands in the spec that first needs it, so
+# the blast radius grows only with a reviewed reason:
+#   - logs                                                → SPEC-108
+#   - S3 (source read; registry read; report read+write)
+#     + the protected-object Deny                         → SPEC-109 (here)
+#   - Glue / Athena / Lake Formation admin                → SPEC-111
+# It carries NO glue:/athena:/lakeformation: action yet (SPEC-109 FR-006).
+#
+# Two boundaries are permanent and must survive every later spec:
 #   1. s3:DeleteObject is granted NOWHERE in this arc. drop-temp-tables touches GLUE
 #      ONLY, which is what makes it safe to reach from EVERY failure path — including a
 #      validator failure, where the body-supplied location is still untrusted. (The
 #      sibling file-converter arc had to REMOVE a delete grant for exactly this reason:
 #      its cleanup was an authenticated cross-user file-delete primitive.)
-#   2. An explicit Deny on s3:PutObject to */user_settings/* and */DO_NOT_DELETE.txt
-#      (SPEC-109). The user-space policy denies DELETE there but leaves PUT wide open, so
-#      any space-scoped writer could overwrite notifications.json and destroy the inbox
-#      UNRECOVERABLY — the user cannot delete the corrupt file either.
+#   2. The explicit Deny on s3:PutObject to */user_settings/* and */DO_NOT_DELETE.txt.
+#
+# WHY THAT DENY IS NOT OPTIONAL (SPEC-109 FR-006): the user-space policy denies
+# s3:DeleteObject on user_settings/* (analytics/policies/portal-role-analytics.json.tftpl)
+# but leaves s3:PutObject WIDE OPEN. So any role that can write in a user's space can
+# overwrite user_settings/notifications.json and PERMANENTLY DESTROY the notification
+# inbox — the user cannot even delete the corrupt file to recover, because deleting it is
+# itself IAM-denied. The Deny is what makes the guarantee; validate-authorize's
+# destination validation is defence in depth. Shape copied from
+# table-share/policies/execution.json.tftpl's cross-bucket deny.
+#
+# Note ReadWriteReports grants GetObject as well as PutObject: assemble-report (SPEC-112)
+# READS BACK the intermediate results it wrote, so a write-only grant would fail at the
+# very last verb, after all the work was done.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {
@@ -30,7 +44,24 @@ resource "aws_iam_role_policy" "execution" {
   role = aws_iam_role.execution.id
 
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
-    log_group_arn = local.data_quality_log_group_wildcard_arn
+    log_group_arn           = local.data_quality_log_group_wildcard_arn
+    user_space_bucket_arn   = local.user_space_bucket_arn
+    shared_space_bucket_arn = local.shared_space_bucket_arn
+    admin_bucket_arn        = local.admin_bucket_arn
+  })
+}
+
+# ── Portal role — data-quality enqueue policy (SPEC-109 FR-003) ──────────────
+# The browser's ONLY data-quality privilege: sqs:SendMessage to the request queue. A small
+# inline policy on the shared portal role (SPEC-011), attached BY NAME like the other
+# control planes do (the role is created in module.data; the root module-level depends_on
+# guarantees it exists first). No Lambda invoke, no DLQ, no Step Function — just enqueue.
+resource "aws_iam_role_policy" "portal_data_quality" {
+  name = "data-quality-enqueue"
+  role = var.portal_role_name
+
+  policy = templatefile("${path.module}/policies/portal-role-data-quality.json.tftpl", {
+    request_queue_arn = aws_sqs_queue.requests.arn
   })
 }
 
