@@ -1,7 +1,9 @@
 # Dev/test tooling for the Lambda suites (not shipped to any function).
 # Install alongside lambdas/requirements.txt to run lint + tests + coverage:
 #   pip install -r lambdas/requirements.txt -r lambdas/requirements-dev.txt
-#   pip install -r lambdas/table-builder-infer-schema/requirements.txt   # polars, for infer-schema tests
+#   pip install -r lambdas/table-builder-infer-schema/requirements.txt   # polars: infer-schema,
+#                                                                       # cpcommon.type_mapping +
+#                                                                       # data-quality inspect-source
 ruff>=0.6
 pytest>=8
 pytest-cov>=5

@@ -6,3 +6,16 @@
 # fccommon) no longer declare it (SPEC-107 FR-001). deploy-lambdas.yml's cpcommon layer
 # job installs this into the layer, so the verbs don't bundle it.
 PyJWT[crypto]>=2.8,<3
+
+# polars is DELIBERATELY NOT HERE, even though cpcommon/type_mapping.py imports it.
+#
+# This layer attaches to EVERY control-plane verb (15+), and polars is ~100 MB unzipped
+# against Lambda's 250 MB per-function ceiling (package + all layers). Adding it here
+# would spend that ceiling on every verb to serve the two that actually read Parquet
+# footers — table-builder-infer-schema and data-quality-inspect-source — each of which
+# already attaches its own polars layer in deploy-lambdas.yml's matrix.
+#
+# type_mapping.py is safe to live in this layer because cpcommon/__init__.py imports no
+# submodules, so the polars import only runs for a verb that explicitly imports
+# type_mapping — and those are exactly the two carrying a polars layer. That module's
+# docstring has the full constraint; test_type_mapping_cpcommon.py pins the __init__ rule.
