@@ -57,6 +57,15 @@ DQ_MAX_GZIP_OBJECT_BYTES = 1 * 1024**3  # 1 GiB
 # Max OBSERVED values per detected partition key. Bounds two things at once: the manifest
 # (which records the values) and SPEC-111's partition-projection DDL (whose enum lists
 # them).
+#
+# NOTE, and check this before tuning either cap: at these defaults this guard is
+# UNREACHABLE. A partition value only exists because at least one object sits under it,
+# so N distinct values imply >= N objects — and with this cap equal to DQ_MAX_OBJECTS,
+# breaching it means breaching the object cap first, which raises too_many_files. The
+# guard goes LIVE the moment DQ_MAX_OBJECTS is raised above it (or this is lowered), which
+# is exactly why it is kept rather than deleted: the projection enum needs a ceiling that
+# does not depend on a sibling constant nobody remembered to look at.
+# test_the_object_cap_dominates_the_partition_value_cap_at_the_defaults pins the relationship.
 DQ_MAX_PARTITION_VALUES = 1000
 
 # Extension → canonical format (SPEC-110 FR-002).
