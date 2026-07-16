@@ -23,7 +23,6 @@ import io
 import logging
 import zlib
 
-from botocore.exceptions import ClientError
 from cpcommon import clients, events, s3_listing
 from cpcommon.errors import TerminalError
 from dq_type_mapping import UnmappableTypeError, map_dtype
@@ -57,6 +56,17 @@ _GZIP_WBITS = 16 + zlib.MAX_WBITS
 # so all three are matched: a wrong guess here would misread a real folder as an access
 # error, or an access error as a folder.
 _NOT_FOUND_CODES = frozenset({"404", "NotFound", "NoSuchKey"})
+
+
+def _error_code(exc) -> str:
+    """The S3 error code from a botocore ClientError, or "" if it has none.
+
+    Duck-typed rather than `except ClientError`, matching casio.error_code (shared-space)
+    and the table-builder verbs: botocore ships in the Lambda RUNTIME but is not a test
+    dependency of this repo, so importing it at module scope makes the verb unimportable
+    under `pytest lambdas/` — which is exactly how this was caught in CI.
+    """
+    return str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
 
 
 def _classify(key: str) -> str | None:
@@ -106,8 +116,8 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     """
     try:
         clients.s3().head_object(Bucket=bucket, Key=location)
-    except ClientError as err:
-        if err.response.get("Error", {}).get("Code") in _NOT_FOUND_CODES:
+    except Exception as err:  # noqa: BLE001 - re-raised unless it is a plain "no such key"
+        if _error_code(err) in _NOT_FOUND_CODES:
             return f"{location}/"
         raise
     return location

@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
 import pytest  # noqa: E402
-from botocore.exceptions import ClientError  # noqa: E402
 from cpcommon.errors import TerminalError  # noqa: E402
 from dqcommon import config, messages  # noqa: E402
 
@@ -19,6 +18,20 @@ import dq_inspect_source as v  # noqa: E402
 
 BUCKET = "dq-user-bkt"
 LOCATION = "alice/sales"
+
+
+class _FakeClientError(Exception):
+    """Mimics botocore.exceptions.ClientError enough for dq_inspect_source._error_code.
+
+    botocore ships in the Lambda RUNTIME but is NOT a test dependency of this repo, so
+    the suites fake it rather than import it (see table-builder-execute-ddl's
+    _FakeClientError and shared-space-common's fakes.FakeClientError). Importing the real
+    one passes locally, where botocore is usually present transitively, and fails in CI.
+    """
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": code}}
 
 
 class _FakeS3:
@@ -36,7 +49,7 @@ class _FakeS3:
         self.head_calls.append(Key)
         if Key in self.keys:
             return {"ContentLength": 1}
-        raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+        raise _FakeClientError("404")
 
 
 @pytest.fixture(autouse=True)
@@ -150,11 +163,11 @@ def test_a_transient_head_error_propagates_for_the_sfn_retry():
     fake = _FakeS3()
 
     def _boom(Bucket, Key):  # noqa: N803
-        raise ClientError({"Error": {"Code": "503", "Message": "Slow Down"}}, "HeadObject")
+        raise _FakeClientError("503")
 
     fake.head_object = _boom
     v.clients.s3 = lambda: fake
-    with pytest.raises(ClientError):
+    with pytest.raises(_FakeClientError):
         v.handler(_event(), None)
 
 
@@ -399,10 +412,10 @@ def test_the_access_probe_runs_before_the_read(tmp_path, monkeypatch):
 
     def _denied(bucket, key):
         calls.append(key)
-        raise ClientError({"Error": {"Code": "503", "Message": "Slow Down"}}, "HeadObject")
+        raise _FakeClientError("503")
 
     monkeypatch.setattr(v, "_check_access", _denied)
-    with pytest.raises(ClientError):
+    with pytest.raises(_FakeClientError):
         v._probe_columns("bkt", "alice/sales/a.csv", "csv")
     assert calls == ["alice/sales/a.csv"]
 
