@@ -2,7 +2,7 @@
 
 **ID:** SPEC-110
 **Status:** Draft
-**Last Updated:** 2026-07-13
+**Last Updated:** 2026-07-16
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (request contract + authorization)
 
 > **Read `docs/data-quality-architecture.md` §4 first.**
@@ -83,25 +83,47 @@ Two things here are new relative to the earlier Lambda-based design, and both ma
 
 #### Acceptance Criteria:
 
-- [ ] **Every** object is probed for its column names (and, for Parquet, dtypes) — not one sample file. The probe is a **bounded** read: a Parquet footer, or the header line of a CSV, or the first line of an NDJSON file.
+- [ ] **Every** object is probed for its columns as ordered `{ name, type }` pairs — not one sample file. The probe is a **bounded** read: a Parquet footer, or the header line of a CSV, or the first line of an NDJSON file.
+- [ ] The `{ name, type }` shape is **uniform across all three formats**; CSV emits `"string"` for every column. A comment records why this is not a fudge: SPEC-111 FR-002 builds the CSV temp table with **OpenCSVSerde and all-string columns**, so `"string"` IS the CSV type, and reading everything as string is what makes SPEC-111's `TRY_CAST` checks possible. A names-only-for-CSV variant would make the manifest polymorphic by format and force every consumer to branch.
 - [ ] The probe uses **polars** (`scan_parquet` / `scan_ndjson` / `scan_csv` → `collect_schema()`), which is why `inspect-source` — and only `inspect-source` — carries the polars layer (SPEC-108 FR-003). A comment records why the layer is not optional: **Athena requires an explicit column list for a Parquet or JSON external table and does not auto-detect a Parquet schema**, so SPEC-111's DDL is built from *this* probe. Without a Parquet reader here, this arc's Parquet support (FR-002) cannot exist.
-- [ ] The union of the per-file probes is what SPEC-111 turns into the `CREATE EXTERNAL TABLE` column list; the manifest is therefore a contract with SPEC-111, not just an input to SPEC-112's cross-file check.
+- [ ] The union of the per-file probes is what SPEC-111 turns into the `CREATE EXTERNAL TABLE` column list; the manifest is therefore a contract with SPEC-111, not just an input to SPEC-112's cross-file check. SPEC-111 FR-002 needs a **name AND a type** per column (Athena does not auto-detect a Parquet schema) — which is why `columns` carries pairs and not bare names.
 - [ ] The probe never downloads the whole object; it reads from `s3://` with a bounded range, following the pattern at `lambdas/table-builder-infer-schema/infer_schema.py:38-41`.
 - [ ] **`.gz` sources cannot be range-read** — gzip is not seekable, so "bounded range" is false for compressed objects. For a `.gz` source the probe **streams and decompresses only until the header/schema is available**, then abandons the stream. A test asserts the bytes read from a large `.gz` object stay **under a stated bound** (the first compressed chunk(s), not the object).
 - [ ] A `head_object` access probe runs before each read, so a transient S3 error surfaces as a retryable boto error rather than a terminal failure (mirroring `infer_schema.py:44-52`).
 - [ ] **Partition detection:** if object keys under the location contain Hive-style `key=value/` segments, the ordered partition keys and their observed values are recorded in the manifest, so SPEC-111 can declare them with partition projection.
-- [ ] **Observed partition values are capped per key at `DQ_MAX_PARTITION_VALUES` (default 1000)**; exceeding it is a terminal **`too_many_partition_values`** (registered in SPEC-114 FR-002) naming the key, the count and the limit — the cap is what keeps the manifest and SPEC-111's projection-enum DDL bounded.
-- [ ] A file whose header/schema cannot be read is a terminal **`unreadable_header`** for the whole request (not a silent skip) — checking a folder while ignoring a file we cannot parse would produce a report that quietly omits the worst file in it. The reason code is **registered** in SPEC-114 FR-002 — registered codes are exported constants, and an unregistered code raises at raise-time (SPEC-107 FR-005) — so a bare "terminal with no code" cannot ship silently.
+- [ ] **Every data object must yield the SAME ordered partition keys.** A folder whose objects disagree — a stray file at the root next to `region=us/`, or one object under `region=us/` and another under `region=us/dt=2024-01/` — is a terminal **`partition_layout_mismatch`** naming a disagreeing object. A flat folder (every object yields zero keys) is the common case and stays free.
+  A comment records the disaster this prevents: SPEC-111 builds the temp table with `LOCATION` at the folder root and **projection** over the detected keys, so Athena only ever resolves `LOCATION/{key}={value}/` paths. An object outside those paths belongs to **no partition**, is never scanned, and is **silently omitted from the report** — the user gets a clean verdict over a folder we did not fully read. That is the same harm `unreadable_header` (below) already refuses to accept, so it is refused here for the same reason.
+  The code name is **reused from table-builder** (`table-builder-inspect-source/inspect_source.py:60-69`) for the same condition — but the mechanism differs and a comment says so: table-builder validates each object against **user-declared** keys, while this arc **auto-detects** them, so consistency must be derived from the data itself.
+- [ ] **Observed partition values are capped per key at `DQ_MAX_PARTITION_VALUES` (default 1000)**; exceeding it is a terminal **`too_many_partition_values`** naming the key, the count and the limit — the cap is what keeps the manifest and SPEC-111's projection-enum DDL bounded.
+- [ ] A file whose header/schema cannot be read is a terminal **`unreadable_header`** for the whole request (not a silent skip) — checking a folder while ignoring a file we cannot parse would produce a report that quietly omits the worst file in it. Registered per FR-007, so a bare "terminal with no code" cannot ship silently.
 
 ### FR-006: The manifest and the bounded state output
 
 #### Acceptance Criteria:
 
-- [ ] `inspect-source` writes `{space}/_data-quality-reports/{requestId}/manifest.json` containing `{ requestId, format, fileCount, files: [{ key, size, columns }], partitionKeys }`.
+- [ ] `inspect-source` writes `{space}/_data-quality-reports/{requestId}/manifest.json` containing `{ requestId, format, fileCount, files: [{ key, size, columns }], partitionKeys }`, where each entry of `columns` is `{ name, type }` (see the Data Model).
 - [ ] The manifest key is a **pure function of `requestId`** — a retry overwrites it byte-identically, which is how this pipeline is replay-safe (no verb in this codebase does request-id idempotency checking).
 - [ ] The state output contains **only** the manifest key, the format, the file count, and the partition keys — **never** the file list or the column lists inline.
 - [ ] A test builds a manifest for `DQ_MAX_OBJECTS` (1000) files with 1024-character keys and asserts the **state payload is under 8 KB** (the 256 KB Step Functions limit with three orders of magnitude of headroom).
 - [ ] A comment records the disaster this prevents: `States.DataLimitExceeded` is thrown **outside** every `Catch`, so the execution dies without a notification and the user is never told anything at all.
+
+### FR-007: Terminal reason codes are registered HERE, not in SPEC-114
+
+#### Description
+
+Earlier drafts of FR-004/FR-005 deferred registration of this verb's reason codes to SPEC-114 FR-002. **That cannot work, and it fails in the worst possible way** — green CI, broken production.
+
+`TerminalError.__init__` (`cpcommon/errors.py:28`) validates its reason **at construction time** against `cpcommon.messages._known_reasons`. An unregistered code does not degrade to a generic message: it raises `ValueError` **instead of** the terminal. `_known_reasons` is a single **global set**, seeded with the base codes and extended by each domain layer **at import**. In production `inspect-source` attaches cpcommon + dqcommon + polars and **never imports tbcommon**; under `pytest lambdas/` all four domain layers import into one process. So tbcommon's registration of `no_data_files` / `unsupported_format` / `mixed_formats` (`tbcommon/messages.py:25-27`) makes those three codes valid **in tests only** — the three most common failure paths in this verb would pass CI and raise `ValueError` in production.
+
+The user-visible damage: `RecordFailure` sets `reason.$: "$.parsed.cause.errorMessage"`, so the recorded reason becomes the raw `ValueError` text — exactly the raw-Python leak SPEC-106 FR-008 forbids.
+
+This is the PR #196 failure shape (a shared layer's import-time requirement satisfied by the test process but not by a deployed function). SPEC-114 FR-002 keeps the arc-wide exhaustive registry; its job is to **verify exhaustiveness and own the verdict wording**, not to be the first registration.
+
+#### Acceptance Criteria:
+
+- [ ] Every reason code this verb raises is registered in **`dqcommon.messages`** with its wording, as an **exported constant** (no bare literals at raise sites), matching SPEC-109's pattern: `no_data_files`, `unsupported_format`, `mixed_formats`, `too_many_files`, `compressed_source_too_large`, `unreadable_header`, `too_many_partition_values`, `partition_layout_mismatch`.
+- [ ] A test asserts each of those codes is present in **dqcommon's own domain table**, NOT merely `is_known_reason(code)` — the global set is polluted by tbcommon/tscommon under pytest, so an `is_known_reason` assertion would pass for a code this arc never registered. This test is the guard against the whole failure mode above, and a comment says so.
+- [ ] A comment at the registration site records why the codes live here and not in SPEC-114.
 
 ---
 
@@ -109,7 +131,7 @@ Two things here are new relative to the earlier Lambda-based design, and both ma
 
 ```python
 # lambdas/data-quality-common/dqcommon/config.py
-DQ_MAX_OBJECTS: int = 1000                        # mirrors tscommon SHARE_MAX_OBJECTS
+DQ_MAX_OBJECTS: int = 1000                        # mirrors tscommon SHARE_MAX_OBJECTS (already shipped by SPEC-108)
 DQ_MAX_GZIP_OBJECT_BYTES: int = 1 * 1024**3       # gzip is NOT splittable → one worker → query_timeout
 DQ_MAX_PARTITION_VALUES: int = 1000               # per key; keeps manifest + projection enums bounded
 # No size cap on UNCOMPRESSED objects — Athena reads the data, and it splits them.
@@ -132,9 +154,28 @@ _EXT_FORMAT = {
   "fileCount": 3,
   "partitionKeys": [{ "name": "region", "values": ["us", "eu"] }],
   "files": [
-    { "key": "alice/sales/region=us/part-0.csv", "size": 4096, "columns": ["id", "amount", "note"] },
-    { "key": "alice/sales/region=eu/part-0.csv", "size": 8192, "columns": ["id", "amount"] }
-    // NOTE: `note` is absent from the second file → SPEC-112's cross-file agreement check reports it
+    {
+      "key": "alice/sales/region=us/part-0.csv",
+      "size": 4096,
+      // {name, type} pairs for EVERY format — SPEC-111's DDL needs a type per column and
+      // Athena does not auto-detect a Parquet schema. CSV is all-"string": that IS the CSV
+      // type (SPEC-111 FR-002's OpenCSVSerde), not a placeholder.
+      "columns": [
+        { "name": "id", "type": "string" },
+        { "name": "amount", "type": "string" },
+        { "name": "note", "type": "string" }
+      ]
+    },
+    {
+      "key": "alice/sales/region=eu/part-0.csv",
+      "size": 8192,
+      "columns": [
+        { "name": "id", "type": "string" },
+        { "name": "amount", "type": "string" }
+      ]
+      // NOTE: `note` is absent from the second file → SPEC-112's cross-file agreement check
+      // reports it. That check compares `name` and ignores `type`.
+    }
   ]
 }
 ```
@@ -147,23 +188,39 @@ _EXT_FORMAT = {
 ## File & Folder Structure
 
 ```
-lambdas/data-quality-inspect-source/inspect_source.py      (+ tests)
-lambdas/data-quality-common/dqcommon/config.py             # cap + extension map
+lambdas/data-quality-inspect-source/dq_inspect_source.py   (+ test_dq_inspect_source.py)
+lambdas/data-quality-common/dqcommon/config.py             # caps + extension map
+lambdas/data-quality-common/dqcommon/messages.py           # this verb's reason codes (FR-007)
+infra/modules/data-quality/locals.tf                       # the nine handler entries (see below)
 infra/modules/data-quality/state-machine.asl.json.tftpl    # InspectSource → real Lambda
 ```
 
+**Module naming (user decision, 2026-07-16).** All nine DQ verbs were renamed from a uniform
+`handler.py` to `dq_<verb>.py` as in-scope work here. SPEC-108 chose the uniform name because
+"the verb directory already disambiguates" — true for Lambda, where each function is its own
+zip, and **false for pytest**, which flattens every verb dir into ONE module namespace: the
+first `import handler` wins for the whole session, so SPEC-109's tests silently imported this
+verb's handler. It surfaced the moment this arc had a second tested verb. The `dq_` prefix is
+required on top of that because table-builder already owns the bare `inspect_source` /
+`validate_authorize` module names — table-share prefixes for exactly the same reason. The
+`handler` string in `locals.tf` also drives the placeholder filename, so that map and the
+module files move together.
+
 ## Implementation Phases
 
-### Phase 1: Listing, classification, caps
+Shipped as **two PRs**: phases 1+2 (the verb's logic), then phase 3 (the manifest + state-output contract).
 
-- The extension map (incl. `.parquet` and the **strip-one-`.gz`** rule), single-format enforcement, the object-count cap and the **`.gz` size cap** in `dqcommon.config` with validate-at-import.
+### Phase 1: Reason codes, listing, classification, caps
+
+- **FR-007 first**: register this verb's eight reason codes in `dqcommon.messages` with wording + exported constants, and the domain-table test. Everything below raises them, so nothing else can be tested until they exist.
+- The extension map (incl. `.parquet` and the **strip-one-`.gz`** rule), single-format enforcement, the object-count cap and the **`.gz` size cap** in `dqcommon.config` with validate-at-import (`DQ_MAX_OBJECTS` already shipped in SPEC-108).
 - Tests: single file; folder; mixed formats; unsupported extension; **`.xlsx` producing the plain `unsupported_format` message (no convert-first guidance)**; **`.csv.gz` classifying as csv, a bare `.gz` rejected, `.parquet.gz` rejected**; the object-count cap breach; **an oversized `.gz` producing `compressed_source_too_large` with the decompress-or-split guidance**; an empty location; a `_`-segment object being excluded; a `user_settings/` object being excluded.
 
 ### Phase 2: Header probe + partition detection
 
-- Bounded per-file polars probes with the `head_object` access probe; the **streaming `.gz` probe with its byte bound**; Hive-style partition-key detection with the per-key value cap.
-- Tests: a folder whose files disagree on columns (the input SPEC-112 must report); **a Parquet folder whose footer probe yields the dtypes SPEC-111's DDL needs**; **a large `.gz` whose probe stays under the stated byte bound**; a partitioned folder; a key exceeding `DQ_MAX_PARTITION_VALUES` producing **`too_many_partition_values`**; an unreadable header failing the request with **`unreadable_header`**.
+- Bounded per-file polars probes with the `head_object` access probe, yielding uniform `{name, type}` columns; the **streaming `.gz` probe with its byte bound**; Hive-style partition-key detection with the per-key value cap and the **layout-consistency check**.
+- Tests: a folder whose files disagree on columns (the input SPEC-112 must report); **a Parquet folder whose footer probe yields the dtypes SPEC-111's DDL needs**; **a CSV folder whose columns are all-`"string"`**; **a large `.gz` whose probe stays under the stated byte bound**; a partitioned folder; **a stray root file beside `key=value/` producing `partition_layout_mismatch`**; **objects nested to differing depths producing `partition_layout_mismatch`**; a key exceeding `DQ_MAX_PARTITION_VALUES` producing **`too_many_partition_values`**; an unreadable header failing the request with **`unreadable_header`**.
 
 ### Phase 3: Manifest + SFN wiring
 
-- Write the manifest; emit the bounded state output; wire `InspectSource`. Test the payload bound at 1000 files with maximal keys. Completion ritual.
+- Write the manifest; emit the bounded state output; confirm `InspectSource` is wired (SPEC-108 already points the state at this function's ARN with its `Retry`/`Catch` — verify rather than assume, and change nothing if it is correct). Test the payload bound at 1000 files with maximal keys. Completion ritual.

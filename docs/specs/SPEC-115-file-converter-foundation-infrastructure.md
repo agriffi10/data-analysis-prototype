@@ -158,7 +158,17 @@ lambdas/file-converter-common/fccommon/            # stubbed namespaces
 lambdas/file-converter-polars/requirements.txt     # polars only → the dedicated layer
 lambdas/file-converter-{validate-authorize,inspect-source,reconcile-schema,
                         create-temp-table,start-unload,check-query,
-                        finalize,drop-temp-table,notify-failure}/handler.py     # placeholders
+                        finalize,drop-temp-table,notify-failure}/fc_<verb>.py   # placeholders
+# ^ Each verb's module is named fc_<verb>.py, NOT a uniform handler.py, and NOT the bare
+#   verb name. Two collisions to avoid, both learned the hard way in SPEC-110:
+#   (1) pytest flattens every verb dir into ONE module namespace, so nine handler.py files
+#       mean the first `import handler` wins for the whole session and a verb's tests
+#       silently assert against another verb's module (SPEC-108 shipped that; SPEC-110
+#       reversed it — user decision, 2026-07-16);
+#   (2) table-builder already owns the bare `inspect_source` / `validate_authorize` module
+#       names, so an arc prefix is required (table-share and data-quality both prefix).
+#   NOTE: SPEC-116's File & Folder Structure says `validate_authorize.py` — that is the
+#   bare name and would collide with table-builder's; it must read `fc_validate_authorize.py`.
 .github/workflows/deploy-lambdas.yml                                           # both layers + nine zips
 ```
 

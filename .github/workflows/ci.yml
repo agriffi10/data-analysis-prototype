@@ -51,11 +51,17 @@ jobs:
           python-version: '3.12'
 
       - name: Install lint + test tools
-        # polars (from the infer-schema layer requirements) so the table-builder
-        # type-mapping + infer-schema handler tests run for real in CI (SPEC-069).
+        # polars (from the two polars layer requirements) so the table-builder
+        # type-mapping + infer-schema tests (SPEC-069) and the data-quality
+        # inspect-source probe tests (SPEC-110) run for real in CI rather than being
+        # skipped. Both files pin the SAME polars version deliberately, so the second
+        # install is a no-op — it is listed because the DQ tests genuinely depend on it,
+        # and a future version split must surface here rather than silently resolving to
+        # whichever was installed last.
         run: |
           pip install -r lambdas/requirements.txt -r lambdas/requirements-dev.txt
           pip install -r lambdas/table-builder-infer-schema/requirements.txt
+          pip install -r lambdas/data-quality-polars/requirements.txt
 
       - name: Lint (ruff)
         run: ruff check lambdas/
