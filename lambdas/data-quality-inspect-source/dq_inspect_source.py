@@ -25,7 +25,7 @@ import zlib
 
 from cpcommon import clients, events, s3_listing
 from cpcommon.errors import TerminalError
-from dq_type_mapping import UnmappableTypeError, map_dtype
+from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 from dqcommon import config, messages
 
 logger = logging.getLogger()

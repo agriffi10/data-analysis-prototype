@@ -20,9 +20,9 @@ import re
 from cpcommon import clients, events
 from tbcommon import notify
 from cpcommon.errors import TerminalError
+from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 
 from ddl import build_create_table_ddl
-from type_mapping import UnmappableTypeError, map_dtype
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
