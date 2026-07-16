@@ -1,6 +1,6 @@
 """Unit tests for dqcommon.messages — the reason-code registry (SPEC-110 FR-007).
 
-Runnable under pytest or directly: python3 test_messages.py.
+Runnable under pytest or directly: python3 test_messages_dqcommon.py.
 """
 
 import os

@@ -6,6 +6,7 @@ the verb module, so no bucket is touched.
 
 import os
 import sys
+import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
@@ -140,21 +141,81 @@ def test_empty_location_is_terminal_no_data_files():
 
 
 def test_exclusions_come_from_cpcommon_not_reimplemented_here():
-    """The verb must delegate the ignore rules; anything cpcommon drops never arrives.
+    """The verb must delegate the ignore rules — driven through the REAL s3_listing.
 
-    cpcommon's segment-level rule (SPEC-107 FR-003) is what stops this pipeline reading
-    back its own _data-quality-reports/ folder, and it also drops user_settings/, the
-    marker, and zero-byte placeholders. Asserting the verb passes the real function
-    through is the contract; s3_listing has its own tests for the rules themselves.
+    Only the S3 paginator is faked, so cpcommon's rules actually run: the segment-level
+    hidden-path rule (SPEC-107 FR-003) is what stops this pipeline reading back its own
+    _data-quality-reports/ folder as source data, and it also drops user_settings/, the
+    marker and zero-byte placeholders. An earlier version asserted on
+    s3_listing.is_ignored directly, which is s3_listing's own test territory and would
+    have passed even if this verb had bypassed it entirely.
     """
-    import cpcommon.s3_listing as real
+    page = {
+        "Contents": [
+            {"Key": "alice/sales/real.csv", "Size": 10},
+            {"Key": "alice/sales/_data-quality-reports/req-1/report.json", "Size": 10},
+            {"Key": "alice/sales/.hidden/tmp.csv", "Size": 10},
+            {"Key": "alice/sales/DO_NOT_DELETE.txt", "Size": 10},
+            {"Key": "alice/sales/placeholder/", "Size": 0},
+            {"Key": "alice/sales/empty.csv", "Size": 0},
+        ]
+    }
+    fake = _FakeS3()
+    fake.get_paginator = lambda op: type("P", (), {"paginate": staticmethod(lambda **kw: [page])})()
+    v.clients.s3 = lambda: fake
+    v._probe_columns = lambda bucket, key, fmt: list(_DEFAULT_COLUMNS)
 
-    hidden = "alice/sales/_data-quality-reports/x/report.json"
-    settings = "alice/user_settings/notifications.json"
-    marker = "alice/sales/DO_NOT_DELETE.txt"
-    placeholder = "alice/sales/folder/"
-    for key, size in ((hidden, 10), (settings, 10), (marker, 10), (placeholder, 0)):
-        assert real.is_ignored(key, size, "alice/sales/") or real.is_ignored(key, size, "alice/")
+    out = v.handler(_event(), None)
+
+    assert [f["key"] for f in out["files"]] == ["alice/sales/real.csv"]
+
+
+def test_user_settings_is_excluded_at_a_space_root_scan():
+    """A check pointed at the space root must not treat the notification inbox as data."""
+    page = {
+        "Contents": [
+            {"Key": "alice/data.csv", "Size": 10},
+            {"Key": "alice/user_settings/notifications.json", "Size": 10},
+            {"Key": "alice/athenaresults/q.csv", "Size": 10},
+        ]
+    }
+    fake = _FakeS3()
+    fake.get_paginator = lambda op: type("P", (), {"paginate": staticmethod(lambda **kw: [page])})()
+    v.clients.s3 = lambda: fake
+    v._probe_columns = lambda bucket, key, fmt: list(_DEFAULT_COLUMNS)
+
+    out = v.handler(_event(location="alice"), None)
+
+    assert [f["key"] for f in out["files"]] == ["alice/data.csv"]
+
+
+def test_a_zero_byte_object_at_the_location_is_a_folder_not_a_file():
+    """S3 has no directories — a folder IS a zero-byte placeholder object (SPEC-016).
+
+    With a placeholder at 'alice/sales', head_object SUCCEEDS, so a size-blind probe would
+    read the location as a file and list the slash-less prefix 'alice/sales' — silently
+    pulling in 'alice/sales-archive/' and 'alice/sales2/'. The placeholder itself is then
+    dropped by s3_listing (size 0), so nothing fails and the user gets a report over files
+    they never selected.
+    """
+    fake = _FakeS3()
+    fake.head_object = lambda Bucket, Key: {"ContentLength": 0}  # noqa: N803
+    v.clients.s3 = lambda: fake
+    listed = []
+    v.s3_listing.list_data_objects = lambda bucket, prefix: (
+        listed.append((bucket, prefix)) or iter([("alice/sales/a.csv", 10)])
+    )
+    v._probe_columns = lambda bucket, key, fmt: list(_DEFAULT_COLUMNS)
+
+    v.handler(_event(), None)
+
+    assert listed == [(BUCKET, "alice/sales/")], "a zero-byte hit must not become a file"
+
+
+def test_a_real_file_at_the_location_is_still_a_file():
+    listed, _ = _setup([("alice/sales/a.csv", 10)], exact_keys=["alice/sales/a.csv"])
+    v.handler(_event(location="alice/sales/a.csv"), None)
+    assert listed == [(BUCKET, "alice/sales/a.csv")]
 
 
 def test_a_transient_head_error_propagates_for_the_sfn_retry():
@@ -360,8 +421,10 @@ def test_json_probe_infers_types(tmp_path, monkeypatch):
     ]
 
 
-def test_the_probe_reads_s3_directly_never_downloading():
-    """polars' object_store fetches only the ranges the scan needs; no /tmp, no download."""
+def test_the_probe_hands_polars_an_s3_uri_rather_than_a_local_path():
+    """Named for what it actually proves. The no-download guarantee on this path is
+    polars/object_store's (it range-fetches the footer), which a unit test can't observe —
+    only that we never route the read through /tmp. The gz path's bound IS asserted, below."""
     assert v._object_uri("bkt", "alice/sales/a.parquet") == "s3://bkt/alice/sales/a.parquet"
 
 
@@ -448,6 +511,10 @@ def test_files_disagreeing_on_columns_is_recorded_not_rejected():
 # ── FR-005: the gzip probe's byte bound ──────────────────────────────────────
 
 
+# The probe checks its bounds after each chunk, so it can overshoot by at most one chunk.
+_CHUNK_SLACK = 256 * 1024
+
+
 class _CountingBody:
     """A GetObject body that records how many COMPRESSED bytes were actually pulled."""
 
@@ -474,20 +541,40 @@ def _gzip_source(rows=400_000):
     return gzip.compress(raw.encode()), len(raw)
 
 
-def test_gzip_probe_reads_far_less_than_the_object(monkeypatch):
-    """gzip is not seekable, so "bounded range" is false — the probe streams and ABANDONS.
-
-    Pins the FR-005 byte bound: what is read stays under GZIP_PROBE_MAX_BYTES and is a
-    small fraction of the object, so a 1 GiB .gz costs a few MB to probe, not 1 GiB.
-    """
-    blob, uncompressed_len = _gzip_source()
+def _install_body(blob):
     counter = {"read": 0}
     body = _CountingBody(blob, counter)
     v.clients.s3 = lambda: type("S3", (), {"get_object": staticmethod(lambda **kw: {"Body": body})})()
+    return body, counter
+
+
+def _streaming_gzip(blocks, block_bytes, *, newline_free=False, seed=0):
+    """Build a gzip stream incrementally, never materialising the raw body.
+
+    Compressing ``blocks * block_bytes`` up front would put hundreds of MB in the test
+    process — the very thing under test. compressobj lets each block be fed and dropped.
+    ``newline_free`` yields near-incompressible blocks with no newlines, so the LINE stop
+    can't fire and the byte bounds are what the probe actually hits.
+    """
+    import random
+
+    rnd = random.Random(seed)
+    compressor = zlib.compressobj(1, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    parts = [compressor.compress(b"id,amount,note\n")]
+    for _ in range(blocks):
+        block = rnd.randbytes(block_bytes).replace(b"\n", b"x") if newline_free else b"x" * block_bytes
+        parts.append(compressor.compress(block))
+    parts.append(compressor.flush())
+    return b"".join(parts)
+
+
+def test_gzip_probe_stops_at_the_line_count_on_an_ordinary_file():
+    """gzip is not seekable, so "bounded range" is false — the probe streams and ABANDONS."""
+    blob, uncompressed_len = _gzip_source()
+    body, counter = _install_body(blob)
 
     head = v._read_gzip_head("bkt", "alice/sales/big.csv.gz")
 
-    assert counter["read"] <= v.GZIP_PROBE_MAX_BYTES
     assert counter["read"] < len(blob), "the probe drained the whole compressed object"
     assert len(head) < uncompressed_len, "the probe decompressed the whole object"
     assert body.closed, "the stream must be abandoned, not left open"
@@ -495,14 +582,124 @@ def test_gzip_probe_reads_far_less_than_the_object(monkeypatch):
     assert head.endswith(b"\n"), "a partial trailing line would break the parse"
 
 
+def test_gzip_probe_stops_at_the_compressed_byte_bound(monkeypatch):
+    """FR-005's stated bound, pinned on an object that can ONLY stop via that bound.
+
+    The earlier version of this test used a 2.8 MB fixture with a newline every few bytes,
+    so the probe always stopped on the line count and the byte bound was never reached —
+    deleting the bound entirely left every test green. This fixture has ONE newline and is
+    incompressible, so the line stop cannot fire: if the `consumed >= GZIP_PROBE_MAX_BYTES`
+    check is removed, the probe reads the whole object and this fails.
+    """
+    monkeypatch.setattr(v, "GZIP_PROBE_MAX_BYTES", 512 * 1024)
+    blob = _streaming_gzip(4, 1024 * 1024, newline_free=True)
+    assert len(blob) > 2 * v.GZIP_PROBE_MAX_BYTES, "fixture must be able to exceed the bound"
+    body, counter = _install_body(blob)
+
+    v._read_gzip_head("bkt", "alice/sales/opaque.csv.gz")
+
+    assert counter["read"] <= v.GZIP_PROBE_MAX_BYTES + _CHUNK_SLACK
+    assert counter["read"] < len(blob), "the probe drained the whole compressed object"
+    assert body.closed
+
+
+def test_gzip_probe_stops_at_the_decompressed_byte_bound(monkeypatch):
+    """A compression bomb must not OOM the function — bounding the COMPRESSED side is not enough.
+
+    deflate reaches ~1032:1, so the 8 MiB compressed bound alone permits ~8 GB in memory
+    against a 1024 MB function. An OOM is not a TerminalError: the actor would get no
+    notification and no reason at all. Here ~64 MiB of 'x' with a single newline compresses
+    to a few KB — far under DQ_MAX_GZIP_OBJECT_BYTES and under the compressed bound, so the
+    DECOMPRESSED bound is the only thing that can stop it.
+
+    Asserts on _stream_gzip_head's BUFFER, never on _read_gzip_head's truncated result: the
+    truncation drops everything after the last newline, so on this exact fixture the result
+    is 15 bytes no matter how many gigabytes the buffer reached. An earlier version of this
+    test made that mistake and passed with every bound deleted.
+    """
+    monkeypatch.setattr(v, "GZIP_PROBE_MAX_DECOMPRESSED_BYTES", 1024 * 1024)
+    blob = _streaming_gzip(64, 1024 * 1024)  # ~64 MiB of 'x', one newline, tiny compressed
+    assert len(blob) < v.GZIP_PROBE_MAX_BYTES, "fixture must not trip the compressed bound"
+    body, _ = _install_body(blob)
+
+    out = v._stream_gzip_head("bkt", "alice/sales/bomb.csv.gz")
+
+    assert len(out) <= v.GZIP_PROBE_MAX_DECOMPRESSED_BYTES, "the probe held an unbounded buffer"
+    assert body.closed
+
+
+def test_one_chunk_cannot_blow_past_the_decompressed_bound(monkeypatch):
+    """The per-call max_length is the real guard, not the post-hoc length check.
+
+    ~8 MiB of 'x' compresses to ~8 KB — a SINGLE 256 KiB chunk. Checking len(out) only
+    after an unbounded decompress() would already have allocated all of it, so this pins
+    that the cap is applied inside the call.
+    """
+    monkeypatch.setattr(v, "GZIP_PROBE_MAX_DECOMPRESSED_BYTES", 64 * 1024)
+    blob = _streaming_gzip(8, 1024 * 1024)
+    assert len(blob) < 256 * 1024, "fixture must fit in one chunk for this to prove anything"
+    _install_body(blob)
+
+    out = v._stream_gzip_head("bkt", "alice/sales/bomb.csv.gz")
+
+    assert len(out) <= v.GZIP_PROBE_MAX_DECOMPRESSED_BYTES
+
+
+def test_a_compression_bomb_fails_loudly_rather_than_ooming(monkeypatch):
+    """The bound truncates mid-line, so polars gets a header and no complete record —
+    the honest outcome is a reason the user can act on, not a killed container."""
+    monkeypatch.setattr(v, "GZIP_PROBE_MAX_DECOMPRESSED_BYTES", 64 * 1024)
+    monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
+    _install_body(_streaming_gzip(8, 1024 * 1024))
+    with pytest.raises(TerminalError) as err:
+        v._probe_columns("bkt", "alice/sales/bomb.json.gz", "json")
+    assert err.value.reason == messages.UNREADABLE_HEADER
+
+
+def test_the_shipped_decompressed_bound_fits_the_function_memory():
+    """1024 MB (locals.tf). The bound is what keeps the probe's peak allocation nowhere
+    near it, so a bump to either number should be a deliberate, paired change."""
+    assert v.GZIP_PROBE_MAX_DECOMPRESSED_BYTES <= 64 * 1024**2
+
+
 def test_gzip_probe_yields_the_same_columns_as_the_plain_file(monkeypatch):
     blob, _ = _gzip_source(rows=5)
-    body = _CountingBody(blob, {"read": 0})
-    v.clients.s3 = lambda: type("S3", (), {"get_object": staticmethod(lambda **kw: {"Body": body})})()
+    _install_body(blob)
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
     columns = v._probe_columns("bkt", "alice/sales/big.csv.gz", "csv")
     assert [c["name"] for c in columns] == ["id", "amount", "note"]
     assert {c["type"] for c in columns} == {"string"}
+
+
+def test_a_gzipped_ndjson_probe_infers_types(monkeypatch):
+    """The .json.gz path: decompressed head -> BytesIO -> scan_ndjson."""
+    import gzip
+
+    raw = b'{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n'
+    _install_body(gzip.compress(raw))
+    monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
+    assert v._probe_columns("bkt", "alice/sales/a.ndjson.gz", "json") == [
+        {"name": "id", "type": "bigint"},
+        {"name": "name", "type": "string"},
+    ]
+
+
+def test_a_gz_whose_last_line_is_incomplete_drops_the_partial_record(monkeypatch):
+    """A truncated final row would give polars a phantom column or a parse error."""
+    import gzip
+
+    _install_body(gzip.compress(b"id,amount\n1,2\n3,4"))  # no trailing newline
+    monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
+    assert v._read_gzip_head("bkt", "alice/sales/a.csv.gz") == b"id,amount\n1,2\n"
+
+
+def test_a_gz_object_that_is_not_actually_gzip_is_a_terminal(monkeypatch):
+    """The extension is a claim, not a guarantee — this arc never sniffs content."""
+    _install_body(b"id,amount\n1,2\n")  # plain bytes behind a .gz name
+    monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
+    with pytest.raises(TerminalError) as err:
+        v._probe_columns("bkt", "alice/sales/liar.csv.gz", "csv")
+    assert err.value.reason == messages.UNREADABLE_HEADER
 
 
 # ── FR-005: partition detection ──────────────────────────────────────────────
@@ -562,6 +759,35 @@ def test_a_plain_segment_inside_a_partitioned_source_is_a_mismatch():
         _partition_event([("alice/sales/region=us/a.csv", 10), ("alice/sales/region=eu/extra/b.csv", 10)])
     assert err.value.reason == messages.PARTITION_LAYOUT_MISMATCH
     assert "extra" in err.value.detail
+
+
+def test_a_plain_segment_shared_by_EVERY_object_is_still_a_mismatch():
+    """The case the plain-segment guard exists for, and the only one that needs it.
+
+    When the objects DISAGREE the consistency check already catches them ('extra' reads as
+    a phantom key name). When they all share the segment, the signatures match and nothing
+    upstream fires — so without the guard this reaches `seg.split("=", 1)` unpacking a
+    one-element list and dies with a ValueError, which is not a TerminalError and so
+    reaches the user as an unexplained failure rather than a reason.
+    """
+    with pytest.raises(TerminalError) as err:
+        _partition_event(
+            [("alice/sales/region=us/extra/a.csv", 10), ("alice/sales/region=eu/extra/b.csv", 10)]
+        )
+    assert err.value.reason == messages.PARTITION_LAYOUT_MISMATCH
+    assert "extra" in err.value.detail
+
+
+@pytest.mark.parametrize(
+    "stray", ["alice/sales/region=/a.csv", "alice/sales/=us/a.csv"]
+)
+def test_an_empty_partition_key_or_value_is_a_mismatch(stray):
+    """Hive spells an absent value __HIVE_DEFAULT_PARTITION__, so SPEC-111 would emit a
+    projection enum containing "" — a partition resolving to nothing, whose files are then
+    silently missing from the report. Same harm as a layout mismatch, so same terminal."""
+    with pytest.raises(TerminalError) as err:
+        _partition_event([("alice/sales/region=us/a.csv", 10), (stray, 10)])
+    assert err.value.reason == messages.PARTITION_LAYOUT_MISMATCH
 
 
 def test_too_many_partition_values_is_terminal_naming_key_count_and_limit(monkeypatch):

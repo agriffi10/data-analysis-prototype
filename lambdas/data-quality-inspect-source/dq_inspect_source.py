@@ -45,6 +45,18 @@ _GZIP_PROBE_LINES = JSON_SAMPLE_ROWS + 1
 # enough to hold a header line of any realistic width after decompression.
 GZIP_PROBE_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB
 
+# The SECOND bound, and the one that actually protects the function: DECOMPRESSED bytes
+# held in memory. Bounding the compressed side alone is not enough — that is the whole
+# point of a compression bomb. deflate reaches ~1032:1, so ONE 256 KiB chunk can expand to
+# ~264 MB and the 8 MiB compressed bound to ~8 GB, against this verb's 1024 MB
+# (locals.tf). A .json.gz that is one long single-line array, or a .csv.gz of repetitive
+# padded rows, sits far under DQ_MAX_GZIP_OBJECT_BYTES and so passes _enforce_caps — then
+# OOM-kills the Lambda. An OOM is not a TerminalError: the actor gets NO notification and
+# no reason, which is the silent-failure class this arc exists to eliminate. 32 MiB is
+# orders of magnitude more than a header plus JSON_SAMPLE_ROWS rows needs, and a source
+# whose first rows genuinely exceed it fails as unreadable_header — loudly, with a reason.
+GZIP_PROBE_MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024  # 32 MiB
+
 # Chunk size for that streaming read.
 _GZIP_CHUNK_BYTES = 256 * 1024
 
@@ -113,13 +125,23 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     A ``head_object`` decides which it is, and doubles as the access probe: anything that
     is not a plain "no such key" propagates as a boto error for the SFN's Retry rather
     than being mistaken for a folder.
+
+    A ZERO-BYTE hit is treated as a folder, not a file. S3 has no directories: a folder is
+    a zero-byte placeholder object (SPEC-016 writes them), so an object AT the location key
+    with no bytes IS the folder. Without this, a placeholder at ``alice/sales`` would make
+    the head succeed, the prefix would stay slash-less, and the listing would quietly pull
+    in ``alice/sales-archive/`` and ``alice/sales2/`` — the placeholder itself is dropped by
+    s3_listing (size 0), so nothing would fail and the user would get a report over files
+    they never selected.
     """
     try:
-        clients.s3().head_object(Bucket=bucket, Key=location)
+        head = clients.s3().head_object(Bucket=bucket, Key=location)
     except Exception as err:  # noqa: BLE001 - re-raised unless it is a plain "no such key"
         if _error_code(err) in _NOT_FOUND_CODES:
             return f"{location}/"
         raise
+    if not head.get("ContentLength"):
+        return f"{location}/"
     return location
 
 
@@ -190,26 +212,36 @@ def _object_uri(bucket: str, key: str) -> str:
 def _check_access(bucket: str, key: str) -> None:
     """Cheap access probe run before each read (mirrors infer_schema.py:44-52).
 
-    Surfaces an S3 error (missing / denied / throttled object) as a plain boto error the
-    SFN's Retry can act on, keeping it distinct from the probe's OWN errors below, which
-    are terminal `unreadable_header`. Without it a throttled read would be reported to
-    the user as "the columns couldn't be read" — a permanent-sounding verdict on a
-    transient fault.
+    Surfaces the COMMON S3 faults — object missing, access denied, bucket throttling the
+    caller — as a plain boto error the SFN's Retry can act on, keeping them distinct from
+    the probe's own errors below, which are terminal ``unreadable_header``.
+
+    It does NOT close the gap, and the limit is worth stating plainly: this is a
+    check-then-act, and the polars scan afterwards is what actually pulls the footer. If
+    S3 throttles THAT read, polars raises its own ComputeError, which ``_probe_columns``
+    cannot tell apart from a corrupt file and so terminalizes as unreadable_header — a
+    permanent-sounding verdict on a transient fault. Narrowing it would mean pattern-
+    matching AWS text out of a polars exception, which is fragile in a different way.
+    table-builder's infer-schema carries the same shape (infer_schema.py:44-52); if this
+    is ever fixed, fix it in both.
     """
     clients.s3().head_object(Bucket=bucket, Key=key)
 
 
-def _read_gzip_head(bucket: str, key: str) -> bytes:
-    """Return the leading decompressed bytes of a gzip object, reading as little as possible.
+def _stream_gzip_head(bucket: str, key: str) -> bytearray:
+    """Stream a gzip object from byte 0 and return the bounded, decompressed head.
 
     FR-005's "bounded range" is FALSE for gzip: the format is not seekable, so there is no
     byte range that yields the header. The only way in is to stream from byte 0 and
     decompress until the header/sample is in hand — then ABANDON the stream, which is what
-    keeps this bounded on a 1 GiB .gz. Stops at the first of: enough lines, or
-    GZIP_PROBE_MAX_BYTES of COMPRESSED input consumed.
+    keeps this bounded on a 1 GiB .gz. Stops at the first of: enough lines, enough
+    COMPRESSED input consumed, or enough DECOMPRESSED output held.
 
-    The tail after the last newline is dropped: it is a partial line, and handing polars a
-    truncated final record would produce a phantom column or a parse error.
+    Split out from _read_gzip_head so the buffer this returns — the one that would OOM the
+    function — is directly assertable. The truncation below is not: it drops everything
+    after the last newline, so on a compression bomb (one newline, then gigabytes) the
+    truncated result is 15 bytes however large this buffer grew. A test asserting on that
+    passes whether or not any bound exists, which is precisely the bug review caught.
     """
     body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
     decompressor = zlib.decompressobj(_GZIP_WBITS)
@@ -218,12 +250,30 @@ def _read_gzip_head(bucket: str, key: str) -> bytes:
     try:
         for chunk in body.iter_chunks(_GZIP_CHUNK_BYTES):
             consumed += len(chunk)
-            out += decompressor.decompress(chunk)
-            if out.count(b"\n") >= _GZIP_PROBE_LINES or consumed >= GZIP_PROBE_MAX_BYTES:
+            # max_length caps THIS call's output, and is the guard that matters: checking
+            # len(out) after an unbounded decompress() is too late, because the allocation
+            # that kills the function already happened inside the call. One 256 KiB chunk
+            # of deflate can expand to ~264 MB.
+            headroom = GZIP_PROBE_MAX_DECOMPRESSED_BYTES - len(out)
+            out += decompressor.decompress(chunk, headroom)
+            if (
+                out.count(b"\n") >= _GZIP_PROBE_LINES
+                or consumed >= GZIP_PROBE_MAX_BYTES
+                or len(out) >= GZIP_PROBE_MAX_DECOMPRESSED_BYTES
+            ):
                 break
     finally:
         body.close()  # abandon the rest of the object; do not drain it
+    return out
 
+
+def _read_gzip_head(bucket: str, key: str) -> bytes:
+    """The bounded gzip head, trimmed to whole lines.
+
+    The tail after the last newline is dropped: it is a partial record, and handing polars
+    a truncated final row would produce a phantom column or a parse error.
+    """
+    out = _stream_gzip_head(bucket, key)
     end = out.rfind(b"\n")
     return bytes(out[: end + 1]) if end != -1 else bytes(out)
 
@@ -331,6 +381,15 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
             )
         for seg in dirs:
             name, value = seg.split("=", 1)
+            if not name or not value:
+                # An empty key or value is the same harm as a layout mismatch: Hive spells
+                # an absent value __HIVE_DEFAULT_PARTITION__, so SPEC-111 would emit a
+                # projection enum containing "" — a partition that resolves to nothing,
+                # whose files are then silently missing from the report.
+                raise TerminalError(
+                    messages.PARTITION_LAYOUT_MISMATCH,
+                    f"{key} has an empty partition key or value in segment {seg!r}",
+                )
             seen = values.setdefault(name, [])
             if value not in seen:
                 seen.append(value)
