@@ -174,7 +174,9 @@ apps/portal/src/features/file-converter/
 ├── fileConverter.service.ts
 ├── fileConverter.service.test.ts
 └── index.ts
-lambdas/file-converter-validate-authorize/validate_authorize.py   (+ tests)
+lambdas/file-converter-validate-authorize/fc_validate_authorize.py   (+ tests)
+# ^ fc_-prefixed: the bare `validate_authorize` module name is already table-builder's, and
+#   pytest shares ONE module namespace across every verb dir (see SPEC-115's structure note).
 lambdas/file-converter-common/fccommon/destination.py             # the three rules (reserved-prefix
                                                                    #   constant lives in fccommon/config.py,
                                                                    #   cross-referenced with the DQ arc's)

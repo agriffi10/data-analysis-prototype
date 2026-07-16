@@ -58,9 +58,19 @@ applied in SPEC-108 PR1.
 
 ## Deviations / notes
 
-- The verb file is `data-quality-validate-authorize/handler.py` (handler
+- ~~The verb file is `data-quality-validate-authorize/handler.py` (handler
   `handler.handler`), not the spec's `validate_authorize.py`: SPEC-108 established one
   uniform `handler.py` across all nine DQ verbs, and the verb directory already
-  disambiguates. No FR depends on the filename.
+  disambiguates. No FR depends on the filename.~~
+  **REVERSED by SPEC-110 (user decision, 2026-07-16).** "The verb directory already
+  disambiguates" is true for Lambda (each function is its own zip) but **false for
+  pytest**, which flattens every verb dir into ONE module namespace: with nine
+  `handler.py` files the first `import handler` wins for the whole session, and this
+  file's tests silently imported SPEC-110's handler and asserted against the wrong
+  module. It went unnoticed only because validate-authorize was the arc's sole tested
+  verb. The verb file is now `data-quality-validate-authorize/dq_validate_authorize.py`
+  (handler `dq_validate_authorize.handler`), arc-prefixed like table-share's
+  `table_share_validate_authorize.py` because table-builder already owns the bare
+  `validate_authorize` module name. No FR depends on the filename.
 - The SFN `ValidateAuthorize` state needed no change — SPEC-108's skeleton already points
   it at this function's ARN with the `Catch` → cleanup → failure path wired.

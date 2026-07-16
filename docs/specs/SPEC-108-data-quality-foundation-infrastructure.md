@@ -160,7 +160,13 @@ lambdas/data-quality-common/dqcommon/                                          #
 lambdas/data-quality-polars/requirements.txt                                   # polars only (no fastexcel) → inspect-source's layer
 lambdas/data-quality-{validate-authorize,inspect-source,create-temp-tables,
                       start-profile-query,check-query,byte-scan,
-                      assemble-report,drop-temp-tables,notify-failure}/handler.py  # placeholders (notify-failure wired in SPEC-114)
+                      assemble-report,drop-temp-tables,notify-failure}/dq_<verb>.py  # placeholders (notify-failure wired in SPEC-114)
+# ^ Each verb's module is named dq_<verb>.py, NOT a uniform handler.py (SPEC-110 reversed
+#   that — user decision, 2026-07-16). pytest flattens every verb dir into ONE module
+#   namespace, so nine handler.py files mean the first `import handler` wins for the whole
+#   session and a verb's tests silently assert against another verb's module. The dq_
+#   prefix is needed because table-builder already owns the bare `inspect_source` /
+#   `validate_authorize` names (table-share prefixes for the same reason).
 .github/workflows/deploy-lambdas.yml                                           # build/publish dqcommon + the polars layer + the nine zips
 ```
 

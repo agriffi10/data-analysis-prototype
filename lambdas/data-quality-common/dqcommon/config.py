@@ -43,6 +43,66 @@ MARKER_BASENAME = "DO_NOT_DELETE.txt"
 # Lambda — reads the data now.
 DQ_MAX_OBJECTS = 1000
 
+# Max size of a single COMPRESSED (.gz) source object.
+#
+# The one place a byte count still matters on the Athena path, and it is not about memory:
+# gzip is NOT SPLITTABLE. A single large .csv.gz is processed by EXACTLY ONE Athena worker
+# no matter how much the engine parallelizes, so it simply runs until the 30-minute DML
+# query timeout (an account quota — architecture §7.2) kills it. Failing here, in seconds,
+# telling the user to decompress or split the file, is strictly better than failing at
+# minute 30 with query_timeout. There is deliberately NO equivalent cap on UNCOMPRESSED
+# objects: Athena splits those across workers, which is the whole point of this design.
+DQ_MAX_GZIP_OBJECT_BYTES = 1 * 1024**3  # 1 GiB
+
+# Max OBSERVED values per detected partition key. Bounds two things at once: the manifest
+# (which records the values) and SPEC-111's partition-projection DDL (whose enum lists
+# them).
+DQ_MAX_PARTITION_VALUES = 1000
+
+# Extension → canonical format (SPEC-110 FR-002).
+#
+# DELIBERATELY DIFFERENT from table-builder's map (table-builder-inspect-source/
+# inspect_source.py:22-28) in two ways — both new decisions for this arc, not inherited
+# behaviour, so neither should be "corrected" back into line:
+#
+#   .txt   — absent from table-builder's map; treated as CSV here.
+#   .parquet — the convert-then-verify workflow is the natural one (run the file converter
+#              on a messy CSV, then check the resulting Parquet). Rejecting Parquet as
+#              "out of scope for a quality checker" would leave the two arcs unable to
+#              talk to each other, so this must not be dropped.
+EXT_FORMAT = {
+    ".csv": "csv",
+    ".txt": "csv",
+    ".json": "json",
+    ".ndjson": "json",
+    ".jsonl": "json",
+    ".parquet": "parquet",
+}
+
+#: Extensions that are never readable through a gzip wrapper (see ``classify`` in the verb).
+#: .parquet.gz is unreadable by Athena AND un-probeable by polars (the footer can't be
+#: range-read through gzip), so it is rejected rather than half-supported.
+GZIP_SUFFIX = ".gz"
+
+
+def _validate_caps() -> None:
+    """Fail fast at import if a cap was edited into something meaningless.
+
+    The DQ_* caps are module constants rather than env vars (see the header): they are
+    product decisions, so they change by reviewed code edit. This guards that edit —
+    lambdas.md §6 wants caps validated at init, and a cap of 0 or -1 would otherwise
+    surface as an inexplicable terminal on every request instead of a cold-start error.
+    """
+    for name, value in (
+        ("DQ_MAX_OBJECTS", DQ_MAX_OBJECTS),
+        ("DQ_MAX_GZIP_OBJECT_BYTES", DQ_MAX_GZIP_OBJECT_BYTES),
+        ("DQ_MAX_PARTITION_VALUES", DQ_MAX_PARTITION_VALUES),
+        ("DQ_MAX_COLUMNS", DQ_MAX_COLUMNS),
+        ("DQ_SCAN_TOTAL_BYTES", DQ_SCAN_TOTAL_BYTES),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise RuntimeError(f"dqcommon.config.{name} must be a positive int, got {value!r}")
+
 # SPEC-111 — the profile query's column ceiling.
 # Athena caps a query STRING at 262,144 bytes. Four TRY_CASTs plus a null-ratio and a
 # sample aggregate per column approaches that on a very wide table, so a source wider
@@ -57,3 +117,8 @@ DQ_MAX_COLUMNS = 200
 # in production. That is the exact error class this arc's re-architecture exists to
 # eliminate, so the budget is per REQUEST.
 DQ_SCAN_TOTAL_BYTES = 2 * 1024**3  # 2 GiB
+
+
+# Called at the BOTTOM: it reads every cap above, including the two declared after its
+# own def.
+_validate_caps()
