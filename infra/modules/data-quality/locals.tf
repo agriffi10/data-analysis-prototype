@@ -40,16 +40,33 @@ locals {
   # PER-FILE budget (v3's design: 256 MiB × up to 1000 files ≈ 276 GB) would need
   # ~920 MB/s sustained through one Lambda and is impossible — it would pass on a
   # three-file fixture and time out in production.
+  # Each verb's module is named dq_<verb>.py, never a uniform handler.py. SPEC-108 chose
+  # the uniform name on the grounds that "the verb directory already disambiguates"; that
+  # is true for Lambda (each function is its own zip) and FALSE for pytest, which flattens
+  # every verb dir into ONE module namespace. With nine `handler.py` files the first
+  # `import handler` wins for the whole session, so SPEC-109's tests silently imported
+  # SPEC-110's handler and asserted against the wrong module. Reversed in SPEC-110 (user
+  # decision, 2026-07-16) before the remaining seven verbs — and the file-converter arc's
+  # eight — inherited it.
+  #
+  # The dq_ PREFIX is required on top of that: table-builder already owns the bare
+  # `inspect_source` / `validate_authorize` module names, and table-share prefixes its own
+  # (table_share_inspect_source.py) for exactly the same reason.
+  #
+  # The `handler` string here also drives the placeholder's filename (lambda.tf derives
+  # it via split(".", handler)[0]), so this map and lambdas/data-quality-<verb>/dq_<verb>.py
+  # MUST move together — a mismatch deploys a function whose entrypoint does not exist,
+  # and nothing but a live invoke would catch it.
   data_quality_functions = {
-    "validate-authorize"  = { handler = "handler.handler", timeout = 15, memory = 256 }
-    "inspect-source"      = { handler = "handler.handler", timeout = 120, memory = 1024 }
-    "create-temp-tables"  = { handler = "handler.handler", timeout = 60, memory = 512 }
-    "start-profile-query" = { handler = "handler.handler", timeout = 30, memory = 512 }
-    "check-query"         = { handler = "handler.handler", timeout = 15, memory = 256 }
-    "byte-scan"           = { handler = "handler.handler", timeout = 300, memory = 1024 }
-    "assemble-report"     = { handler = "handler.handler", timeout = 120, memory = 1024 }
-    "drop-temp-tables"    = { handler = "handler.handler", timeout = 60, memory = 512 }
-    "notify-failure"      = { handler = "handler.handler", timeout = 15, memory = 256 }
+    "validate-authorize"  = { handler = "dq_validate_authorize.handler", timeout = 15, memory = 256 }
+    "inspect-source"      = { handler = "dq_inspect_source.handler", timeout = 120, memory = 1024 }
+    "create-temp-tables"  = { handler = "dq_create_temp_tables.handler", timeout = 60, memory = 512 }
+    "start-profile-query" = { handler = "dq_start_profile_query.handler", timeout = 30, memory = 512 }
+    "check-query"         = { handler = "dq_check_query.handler", timeout = 15, memory = 256 }
+    "byte-scan"           = { handler = "dq_byte_scan.handler", timeout = 300, memory = 1024 }
+    "assemble-report"     = { handler = "dq_assemble_report.handler", timeout = 120, memory = 1024 }
+    "drop-temp-tables"    = { handler = "dq_drop_temp_tables.handler", timeout = 60, memory = 512 }
+    "notify-failure"      = { handler = "dq_notify_failure.handler", timeout = 15, memory = 256 }
   }
 
   data_quality_function_names = {

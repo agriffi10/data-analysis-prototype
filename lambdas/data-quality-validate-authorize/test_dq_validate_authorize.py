@@ -2,7 +2,7 @@
 
 Pure logic, AWS stubbed: auth.verified_username and registry.load are replaced on the
 verb module, so no token is minted and no S3 is touched. Runnable under pytest or
-directly: python3 test_handler.py.
+directly: python3 test_dq_validate_authorize.py.
 """
 
 import json
@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import handler as v  # noqa: E402
+import dq_validate_authorize as v  # noqa: E402
 from cpcommon.errors import TerminalError  # noqa: E402
 
 USER_BUCKET = "dq-user-bkt"
