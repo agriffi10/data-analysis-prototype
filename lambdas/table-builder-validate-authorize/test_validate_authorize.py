@@ -14,7 +14,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import validate_authorize as v  # noqa: E402
 from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+
+
+class _FakeClientError(Exception):
+    """A botocore-SHAPED error carrying ``.response["Error"]["Code"]`` — what the verb's
+    transient classifier actually reads (a code-in-the-message exception would be a no-op)."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": code}}
 
 # Capture the REAL verified_username before any test patches the shared module attr.
 _REAL_VERIFIED = v.auth.verified_username
@@ -256,6 +265,52 @@ def test_no_notification_on_success():
     q = _arm_notifications()
     v.handler(_event(_personal()), None)
     assert q.calls == []
+
+
+def test_transient_registry_error_is_raised_as_TransientError():
+    """The registry read (S3 GetObject) can throttle. It must reach the SFN as
+    TransientError — the name ValidateAuthorize's Retry list now recognizes — not a bare
+    ClientError that would permanently fail the request."""
+    _setup()
+    v.reg.load = lambda name: (_ for _ in ()).throw(_FakeClientError("SlowDown"))
+    try:
+        v.handler(_event(_shared()), None)
+    except TransientError:
+        return
+    except TerminalError:
+        raise AssertionError("a throttle must not be terminalized")
+    raise AssertionError("expected TransientError from a throttled registry read")
+
+
+def test_non_transient_registry_error_propagates_unchanged():
+    """AccessDenied is deterministic — mapping it to TransientError would waste retries."""
+    _setup()
+    v.reg.load = lambda name: (_ for _ in ()).throw(_FakeClientError("AccessDenied"))
+    try:
+        v.handler(_event(_shared()), None)
+    except TransientError:
+        raise AssertionError("a deterministic fault must NOT become TransientError")
+    except _FakeClientError as err:
+        assert err.response["Error"]["Code"] == "AccessDenied"
+        return
+    raise AssertionError("expected the original ClientError to propagate")
+
+
+def test_validate_authorize_state_retries_TransientError():
+    """Pin the infra half: ValidateAuthorize's Retry must name TransientError, and its
+    Catch must still route to ValidateFailureSeed (not disturbed by this change)."""
+    import re
+
+    tftpl = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+    )
+    with open(tftpl) as fh:
+        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", fh.read()))
+    state = asl["States"]["ValidateAuthorize"]
+    named = [e for r in state["Retry"] for e in r["ErrorEquals"]]
+    assert "TransientError" in named, f"ValidateAuthorize Retry must name TransientError; got {named}"
+    assert state["Catch"][0]["Next"] == "ValidateFailureSeed"
 
 
 if __name__ == "__main__":

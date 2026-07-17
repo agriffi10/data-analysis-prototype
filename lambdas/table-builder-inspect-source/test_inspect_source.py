@@ -14,7 +14,27 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import json  # noqa: E402
 import inspect_source as i  # noqa: E402
 from cpcommon import clients, config, s3_listing  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+
+
+class _FakeClientError(Exception):
+    """A botocore-SHAPED error carrying ``.response["Error"]["Code"]``."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": code}}
+
+
+def _list_raises(err):
+    """Stub list_data_objects with a generator that raises ``err`` mid-pagination — what a
+    throttle actually looks like: the paginator faults while the listing is CONSUMED, not
+    when it is called."""
+
+    def _gen(bucket, prefix):
+        raise err
+        yield  # pragma: no cover - unreachable; makes this a generator
+
+    s3_listing.list_data_objects = _gen
 
 
 class _FakeSqs:
@@ -207,6 +227,51 @@ class _FakePaginatedS3:
     def get_paginator(self, name):
         assert name == "list_objects_v2"
         return _FakePaginator(self._pages)
+
+
+
+def test_transient_listing_error_is_raised_as_TransientError():
+    """A throttle while paginating the listing must reach the SFN as TransientError — the
+    name InspectSource's Retry list now recognizes."""
+    _list_raises(_FakeClientError("SlowDown"))
+    try:
+        i.handler(_event(), None)
+    except TransientError:
+        return
+    except TerminalError:
+        raise AssertionError("a throttle must not be terminalized")
+    finally:
+        s3_listing.list_data_objects = _REAL_LIST
+    raise AssertionError("expected TransientError from a throttled listing")
+
+
+def test_non_transient_listing_error_propagates_unchanged():
+    """AccessDenied is deterministic — mapping it to TransientError would waste retries."""
+    _list_raises(_FakeClientError("AccessDenied"))
+    try:
+        i.handler(_event(), None)
+    except TransientError:
+        raise AssertionError("a deterministic fault must NOT become TransientError")
+    except _FakeClientError as err:
+        assert err.response["Error"]["Code"] == "AccessDenied"
+        return
+    finally:
+        s3_listing.list_data_objects = _REAL_LIST
+    raise AssertionError("expected the original ClientError to propagate")
+
+
+def test_inspect_source_state_retries_TransientError():
+    """Pin the infra half: InspectSource's Retry must name TransientError."""
+    import re
+
+    tftpl = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+    )
+    with open(tftpl) as fh:
+        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", fh.read()))
+    named = [e for r in asl["States"]["InspectSource"]["Retry"] for e in r["ErrorEquals"]]
+    assert "TransientError" in named, f"InspectSource Retry must name TransientError; got {named}"
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import check_table_absent as c  # noqa: E402
 from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 
 class _FakeSqs:
@@ -38,8 +38,15 @@ class _EntityNotFound(Exception):
     pass
 
 
-class _Throttling(Exception):
-    pass
+class _FakeClientError(Exception):
+    """A botocore-SHAPED error: carries ``.response["Error"]["Code"]`` so the verb's
+    ``raise_if_transient`` classifier can actually read the code. The old ``_Throttling``
+    double had the code in its message only (no ``.response``), so the transient mapping
+    never fired and the transient test passed regardless of the fix."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": code}}
 
 
 class _FakeGlue:
@@ -59,7 +66,9 @@ class _FakeGlue:
         if self._behaviour == "absent":
             raise _EntityNotFound("not found")
         if self._behaviour == "transient":
-            raise _Throttling("ThrottlingException")
+            raise _FakeClientError("ThrottlingException")
+        if self._behaviour == "denied":
+            raise _FakeClientError("AccessDenied")
         raise AssertionError(self._behaviour)
 
 
@@ -90,15 +99,46 @@ def test_existing_table_is_terminal_table_exists():
     raise AssertionError("expected TerminalError(table_exists)")
 
 
-def test_transient_glue_error_propagates_not_terminal():
+def test_transient_glue_throttle_is_raised_as_TransientError():
+    """A Glue throttle must reach the SFN as TransientError — the name CheckTableAbsent's
+    Retry list now recognizes. A bare ClientError matches nothing there and would
+    permanently fail the build."""
     _install("transient")
     try:
         c.handler(_event(), None)
+    except TransientError:
+        return
     except TerminalError:
-        raise AssertionError("transient error must NOT be a TerminalError")
-    except _Throttling:
-        return  # raised for the SFN Retry
-    raise AssertionError("expected the transient error to propagate")
+        raise AssertionError("a throttle must not be terminalized")
+    raise AssertionError("expected TransientError from a throttled get_table")
+
+
+def test_non_transient_glue_error_propagates_unchanged():
+    """AccessDenied is deterministic — mapping it to TransientError would waste retries."""
+    _install("denied")
+    try:
+        c.handler(_event(), None)
+    except TransientError:
+        raise AssertionError("a deterministic fault must NOT become TransientError")
+    except _FakeClientError as err:
+        assert err.response["Error"]["Code"] == "AccessDenied"
+        return
+    raise AssertionError("expected the original ClientError to propagate")
+
+
+def test_check_table_absent_state_retries_TransientError():
+    """The code half is useless without the infra half — pin that CheckTableAbsent's
+    Retry names TransientError."""
+    import re
+
+    tftpl = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+    )
+    with open(tftpl) as fh:
+        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", fh.read()))
+    named = [e for r in asl["States"]["CheckTableAbsent"]["Retry"] for e in r["ErrorEquals"]]
+    assert "TransientError" in named, f"CheckTableAbsent Retry must name TransientError; got {named}"
 
 
 def test_targets_the_declared_database_and_table():
@@ -139,15 +179,16 @@ def test_no_notification_when_absent():
 
 
 def test_notifies_actor_on_unexpected_glue_error():
-    # An unexpected error that escapes the handler (not a TerminalError) — e.g. an
-    # AccessDenied or a throttle boto's own retries couldn't clear — is a terminal
-    # failure the SFN records; the @notifies_on_failure wrapper tells the actor rather
-    # than failing silently. The original exception still propagates unchanged.
-    _install("transient")
+    # A DETERMINISTIC error that escapes the handler (not a TerminalError, not transient) —
+    # e.g. AccessDenied — is a terminal failure the SFN records; @notifies_on_failure tells
+    # the actor rather than failing silently, and the original exception propagates
+    # unchanged. NOTE: a *transient* throttle is now mapped to TransientError and passes
+    # through un-notified (it will be retried) — so this deliberately uses "denied".
+    _install("denied")
     q = _arm_notifications()
     try:
         c.handler(_actor_event(), None)
-    except _Throttling:
+    except _FakeClientError:
         pass
     assert len(q.calls) == 1
     assert q.calls[0]["MessageGroupId"] == "alice"
