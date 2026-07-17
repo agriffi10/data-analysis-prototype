@@ -109,9 +109,13 @@ def _infer_columns(source, fmt):
 
 @notify.notifies_on_failure("infer")
 def handler(event: dict, context) -> dict:
-    # Notify the actor on a terminal schema failure (best-effort). Any other error that
-    # escapes _infer (e.g. an S3 access probe failure) is an unexpected terminal failure
-    # that @notifies_on_failure surfaces to the actor before the SFN Catch records it.
+    """SFN entry point: infer the schema and build the ``CREATE EXTERNAL TABLE`` DDL.
+
+    Delegates to ``_infer`` and notifies the actor on a terminal schema failure
+    (best-effort). Any other error escaping ``_infer`` (e.g. an S3 access-probe failure)
+    is surfaced to the actor by ``@notifies_on_failure`` before the SFN ``Catch`` records
+    it.
+    """
     try:
         return _infer(event)
     except TerminalError as err:

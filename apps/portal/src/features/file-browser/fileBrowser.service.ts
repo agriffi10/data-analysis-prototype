@@ -12,6 +12,8 @@ import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
 import {Upload} from '@aws-sdk/lib-storage';
 import {getS3Client, s3Client} from '../../lib/s3Client';
 import {isExpiryError, withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
+import {isNotFound} from '../../lib/s3Errors';
 import type {FileListPage} from '../../types/s3.types';
 import type {ServiceResult} from '../../types/service.types';
 import type {
@@ -137,20 +139,6 @@ async function withAuthenticatedClient<T>(
   op: (client: S3Client) => Promise<ServiceResult<T>>
 ): Promise<ServiceResult<T>> {
   return withCredentialRetry(getS3Client, op);
-}
-
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {
-    success: false as const,
-    error: {message: e.message ?? fallback, code: e.name}
-  };
-}
-
-function isNotFound(err: unknown): boolean {
-  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
-  // HeadObject on a missing key surfaces as `NotFound` (404) in the v3 SDK.
-  return e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // Once-per-session guard: at most one HEAD per bucket/marker no matter how many

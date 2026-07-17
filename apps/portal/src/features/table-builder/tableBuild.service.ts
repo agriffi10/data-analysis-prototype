@@ -2,14 +2,10 @@ import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
 import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableBuildRequest} from './tableBuild.types';
-
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {success: false as const, error: {message: e.message ?? fallback, code: e.name}};
-}
 
 /**
  * Enqueue a create-table request onto the table-builder FIFO queue — the browser's

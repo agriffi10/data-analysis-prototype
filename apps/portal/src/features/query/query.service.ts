@@ -6,6 +6,7 @@ import {
 } from '@aws-sdk/client-athena';
 import {getAthenaClient} from '../../lib/athenaClient';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './query.constants';
 import {normalizeColumnType} from './query.format';
@@ -24,22 +25,17 @@ function outputLocation(username: string): string {
 // Athena terminal execution states — polling stops once one is reached (FR-003).
 const TERMINAL_STATES: ReadonlySet<QueryState> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
+/** Whether an Athena execution state is terminal — polling stops once reached (FR-003). */
 export function isTerminalState(state: QueryState): boolean {
   return TERMINAL_STATES.has(state);
 }
 
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {
-    success: false as const,
-    error: {message: e.message ?? fallback, code: e.name}
-  };
-}
-
-// FR-002: start an Athena query for the signed-in user. The same path runs both
-// `SELECT` and DDL (`CREATE TABLE`, `DROP TABLE`, CTAS, `INSERT`) — it does not
-// inspect the query type. Results always land in the caller's own
-// `{username}/athenaresults/` prefix (the IAM-enforced isolation boundary).
+/**
+ * Start an Athena query for the signed-in user (FR-002). The same path runs both
+ * `SELECT` and DDL (`CREATE TABLE`, `DROP TABLE`, CTAS, `INSERT`) — it does not inspect
+ * the query type. Results always land in the caller's own `{username}/athenaresults/`
+ * prefix (the IAM-enforced isolation boundary).
+ */
 export async function runQuery(p: {
   sql: string;
   username: string;
@@ -78,9 +74,11 @@ export async function runQuery(p: {
   });
 }
 
-// FR-003: fetch a query's current execution status, mapped onto QueryStatus. The
-// Athena state strings map 1:1 onto QueryState; a missing status defaults to
-// QUEUED (the query was just submitted).
+/**
+ * Fetch a query's current execution status, mapped onto {@link QueryStatus} (FR-003).
+ * The Athena state strings map 1:1 onto `QueryState`; a missing status defaults to
+ * `QUEUED` (the query was just submitted).
+ */
 export async function getQueryStatus(queryExecutionId: string): Promise<ServiceResult<QueryStatus>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
@@ -104,8 +102,10 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
   });
 }
 
-// FR-005: cancel a running query. StopQueryExecution transitions the execution to
-// CANCELLED, which the FR-003 poller then observes as a terminal state.
+/**
+ * Cancel a running query (FR-005). `StopQueryExecution` transitions the execution to
+ * `CANCELLED`, which the FR-003 poller then observes as a terminal state.
+ */
 export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
     try {
@@ -117,10 +117,12 @@ export async function stopQuery(queryExecutionId: string): Promise<ServiceResult
   });
 }
 
-// FR-004: read one page of a succeeded query's results. Columns come from
-// ResultSetMetadata (name + type); rows are the string cells (Athena returns every
-// value as a string). Pagination threads `nextToken`. A DDL/CTAS query that
-// produced no result set yields empty columns/rows — not an error.
+/**
+ * Read one page of a succeeded query's results (FR-004). Columns come from
+ * `ResultSetMetadata` (name + type); rows are the string cells (Athena returns every
+ * value as a string). Pagination threads `nextToken`. A DDL/CTAS query that produced no
+ * result set yields empty columns/rows — not an error.
+ */
 export async function getQueryResults(p: {
   queryExecutionId: string;
   nextToken?: string;
@@ -177,15 +179,17 @@ export async function getQueryResults(p: {
   });
 }
 
-// SPEC-044: run a statement and poll it to a terminal state, returning the final
-// QueryStatus (success for ANY terminal state — the caller inspects `.state`).
-// Used by internal/background runs (View DDL, Drop table) that aren't driven by
-// the per-tab UI poller. Never throws.
 const STMT_POLL_INTERVAL_MS = 400;
 const STMT_MAX_POLLS = 90; // ~36s ceiling for these short statements
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Run a statement and poll it to a terminal state, returning the final
+ * {@link QueryStatus} (SPEC-044). Succeeds for ANY terminal state — the caller inspects
+ * `.state`. Used by internal/background runs (View DDL, Drop table) that aren't driven
+ * by the per-tab UI poller. Never throws.
+ */
 export async function runStatementToCompletion(p: {
   sql: string;
   database: string;
@@ -211,10 +215,12 @@ export async function runStatementToCompletion(p: {
   return {success: false, error: {message: 'Polling ended unexpectedly'}};
 }
 
-// SPEC-044 FR-003 / SPEC-048 FR-006: fetch a table's (or view's) authoritative DDL
-// via Athena — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise —
-// assembling the single-column result rows into the statement. Internal UI fetch —
-// it does NOT append a query-history entry.
+/**
+ * Fetch a table's (or view's) authoritative DDL via Athena (SPEC-044 FR-003 / SPEC-048
+ * FR-006) — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
+ * the single-column result rows into the statement. Internal UI fetch — it does NOT
+ * append a query-history entry.
+ */
 export async function getTableDdl(p: {
   database: string;
   table: string;
@@ -251,9 +257,11 @@ export async function getTableDdl(p: {
   return {success: true, data: ddl};
 }
 
-// Parse an `s3://bucket/key` URL into its parts; null if it isn't one. Exported
-// (SPEC-049) so the Save-results flow can derive the source key from a query's
-// `outputLocation` (`s3://{bucket}/{username}/athenaresults/{id}.csv`).
+/**
+ * Parse an `s3://bucket/key` URL into its parts; `null` if it isn't one. Exported
+ * (SPEC-049) so the Save-results flow can derive the source key from a query's
+ * `outputLocation` (`s3://{bucket}/{username}/athenaresults/{id}.csv`).
+ */
 export function parseS3Url(url: string): {bucket: string; key: string} | null {
   const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(url);
   if (!match) return null;

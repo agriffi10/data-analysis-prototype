@@ -71,10 +71,12 @@ def _validate_layout(rel_dirs, declared_names):
 
 @notify.notifies_on_failure("inspect")
 def handler(event: dict, context) -> dict:
-    # Notify the actor on any terminal failure (best-effort) before the SFN Catch
-    # records it. A retryable S3 throttle is mapped to TransientError (in _inspect) and
-    # passes through un-notified for the SFN Retry — which now names TransientError on
-    # this state.
+    """SFN entry point: inspect the source folder and emit the bounded listing state.
+
+    Delegates to ``_inspect`` and notifies the actor on a terminal failure (best-effort)
+    before the SFN ``Catch`` records it. A retryable S3 throttle maps to
+    ``TransientError`` and passes through un-notified for the SFN ``Retry``.
+    """
     try:
         return _inspect(event)
     except TerminalError as err:

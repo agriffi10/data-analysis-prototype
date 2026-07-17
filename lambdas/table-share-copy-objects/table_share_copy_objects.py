@@ -21,13 +21,17 @@ logger.setLevel(logging.INFO)
 
 @notify.notifies_on_failure("copy")
 def handler(event, context) -> dict:
+    """Recipient-Map entry point: copy the source objects into the recipient's prefix.
+
+    Server-side ``CopyObject`` (multipart >5 GiB, layout-preserving). A terminal copy
+    failure notifies the sender before the per-recipient ``Catch`` records it (SPEC-094,
+    best-effort); a ``TransientError`` propagates for the SFN ``Retry``.
+    """
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
     location = request.get("location") or {}
     objects = request.get("objects") or []
 
-    # A terminal copy failure notifies the sender before the per-recipient Catch
-    # records it (SPEC-094, best-effort); TransientError propagates for the Retry.
     try:
         copied = copy_mod.copy_prefix(
             src_bucket=location.get("bucket"),

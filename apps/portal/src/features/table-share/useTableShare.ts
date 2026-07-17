@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toUserMessage} from '../../lib/errorMessages';
 import {enqueueTableShare} from './tableShare.service';
 import type {ShareRecipient} from './tableShare.types';
 
@@ -41,7 +42,7 @@ export function useTableShare(notify: (toast: ShareToast) => void) {
     });
     setBusy(false);
     if (!result.success) {
-      setError(result.error.message);
+      setError(toUserMessage(result.error).message);
       return;
     }
     setTarget(null);

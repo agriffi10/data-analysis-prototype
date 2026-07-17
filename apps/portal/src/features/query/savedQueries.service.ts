@@ -1,6 +1,8 @@
 import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {getS3Client} from '../../lib/s3Client';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
+import {isNotFound} from '../../lib/s3Errors';
 import type {ServiceResult} from '../../types/service.types';
 import type {SavedQueriesStore, SavedQuery} from './query.types';
 
@@ -17,19 +19,6 @@ function storeKey(username: string): string {
 
 function bucket(): string {
   return import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
-}
-
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {
-    success: false as const,
-    error: {message: e.message ?? fallback, code: e.name}
-  };
-}
-
-function isNotFound(err: unknown): boolean {
-  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
-  return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // Forgivingly parse the store body: a malformed/legacy file falls back to empty

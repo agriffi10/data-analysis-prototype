@@ -2,13 +2,18 @@ import {useCallback, useMemo, useState} from 'react';
 import {Toast} from '../features/query/Toast';
 import {ToastContext, type ToastApi, type ToastInput} from './toastContext';
 
-// SPEC-106 FR-003 — one app-level toast host, replacing the per-page
-// `useState<ToastState>` + local `<Toast>` render. Reuses the existing Toast
-// view unchanged (variants, auto-dismiss, actionable toast). Single-toast
-// semantics, matching the old per-page behavior: a new push replaces the
-// current toast; `dismiss` clears it. The `useToast` hook lives in
-// `toastContext.ts` (react-refresh/only-export-components).
-
+/**
+ * App-level toast host: mounts a single {@link Toast} and exposes push/dismiss to the
+ * whole tree via {@link ToastContext} (SPEC-106 FR-003, replacing per-page toast state).
+ * Single-toast semantics — a new push replaces the current toast; `dismiss` clears it.
+ * Consume it with the `useToast` hook (in `toastContext.ts`).
+ *
+ * @example
+ * <ToastProvider>
+ *   <App />
+ * </ToastProvider>
+ * // elsewhere: const {push} = useToast(); push({variant: 'success', message: 'Saved'});
+ */
 export function ToastProvider({children}: {children: React.ReactNode}) {
   const [toast, setToast] = useState<ToastInput | null>(null);
   const push = useCallback((t: ToastInput) => setToast(t), []);

@@ -7,7 +7,7 @@ TBLPROPERTIES — with LOCATION and catalog identity stripped (the recipient ste
 sets its own, docs/table-share-architecture.md §4).
 """
 
-from cpcommon import clients, config
+from cpcommon import clients, config, errors
 from cpcommon.errors import TerminalError, TransientError
 
 # Source-only parameters never carried into the clone: Hive bookkeeping and the
@@ -21,7 +21,7 @@ def get_table(database: str, table: str) -> dict:
     try:
         return client.get_table(DatabaseName=database, Name=table)["Table"]
     except Exception as exc:  # noqa: BLE001 - mapped by error code below
-        code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+        code = errors.error_code(exc)
         if code == "EntityNotFoundException":
             raise TerminalError("source_not_found", f"{database}.{table}") from exc
         if code == "AccessDeniedException":
@@ -42,7 +42,7 @@ def table_exists(database: str, table: str) -> bool:
         client.get_table(DatabaseName=database, Name=table)
         return True
     except Exception as exc:  # noqa: BLE001 - mapped by error code below
-        code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+        code = errors.error_code(exc)
         if code == "EntityNotFoundException":
             return False
         if code == "AccessDeniedException":

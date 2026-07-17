@@ -93,6 +93,12 @@ def provision_user(username):
 
 
 def handler(event, context):
+    """Cognito Post-Confirmation trigger: provision the confirmed user's Glue database.
+
+    Returns the event unchanged (the trigger contract). A provisioning failure is logged,
+    not raised, so it never blocks sign-up; the operator re-runs ``backfill.py`` to
+    reconcile.
+    """
     # Only act on a real sign-up confirmation; ignore forgot-password confirmations.
     if event.get("triggerSource") != "PostConfirmation_ConfirmSignUp":
         return event

@@ -1,16 +1,9 @@
 import {GetDatabaseCommand, GetTablesCommand} from '@aws-sdk/client-glue';
 import {getGlueClient} from '../../lib/glueClient';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {GlueTableSummary} from './query.types';
-
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {
-    success: false as const,
-    error: {message: e.message ?? fallback, code: e.name}
-  };
-}
 
 /**
  * Confirms a database the user can access exists. A missing database is

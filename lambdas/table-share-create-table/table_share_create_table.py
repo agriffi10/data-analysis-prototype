@@ -33,6 +33,14 @@ def _results_location(recipient: dict, actor: str) -> str:
 
 @notify.notifies_on_failure("create")
 def handler(event, context) -> dict:
+    """Recipient-Map entry point: create the cloned table in the recipient database.
+
+    Renders the cloned source definition with LOCATION repointed to the recipient's
+    ``shared_tables/`` prefix and runs it via Athena. On success, notifies the sender and
+    the success target (SPEC-094). A failed/timed-out CREATE raises ``TerminalError`` (the
+    sender is notified before the per-recipient ``Catch`` records it); a throttling error
+    raises ``TransientError`` for the SFN ``Retry`` and is not notified.
+    """
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
     table_name = request.get("tableName")
@@ -44,9 +52,6 @@ def handler(event, context) -> dict:
         table_name,
         f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",
     )
-    # A failed/timed-out CREATE notifies the sender before the per-recipient Catch
-    # records it (SPEC-094, best-effort); TransientError isn't caught, so a
-    # retryable error propagates without a (premature) notification.
     try:
         athena_mod.run_ddl(
             query=query,

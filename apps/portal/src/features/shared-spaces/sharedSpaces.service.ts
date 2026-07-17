@@ -4,6 +4,8 @@ import {getSqsClient} from '../../lib/sqsClient';
 import {getS3Client} from '../../lib/s3Client';
 import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
+import {isNotFound} from '../../lib/s3Errors';
 import type {ServiceResult} from '../../types/service.types';
 import type {
   Member,
@@ -67,14 +69,7 @@ export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<Se
       );
       return {success: true, data: {requestId}};
     } catch (err) {
-      const e = err as {message?: string; name?: string};
-      return {
-        success: false,
-        error: {
-          message: e.message ?? 'Failed to submit the request',
-          code: e.name
-        }
-      };
+      return toServiceError(err, 'Failed to submit the request');
     }
   });
 }
@@ -95,11 +90,6 @@ function cacheKey(username: string): string {
 
 function userSpaceBucket(): string {
   return import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
-}
-
-function isNotFound(err: unknown): boolean {
-  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
-  return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // A corrupt/partial entry is dropped, not fatal — degrade to what we can trust.
@@ -171,14 +161,7 @@ export async function readSharedConnectionsCache(username: string): Promise<Serv
       return {success: true, data: parseCache(body)};
     } catch (err) {
       if (isNotFound(err)) return {success: true, data: emptyCache()};
-      const e = err as {message?: string; name?: string};
-      return {
-        success: false,
-        error: {
-          message: e.message ?? 'Failed to load shared connections',
-          code: e.name
-        }
-      };
+      return toServiceError(err, 'Failed to load shared connections');
     }
   });
 }
