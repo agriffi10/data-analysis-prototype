@@ -103,7 +103,8 @@ Two things here are new relative to the earlier Lambda-based design, and both ma
 
 - [ ] `inspect-source` writes `{space}/_data-quality-reports/{requestId}/manifest.json` containing `{ requestId, format, fileCount, files: [{ key, size, columns }], partitionKeys }`, where each entry of `columns` is `{ name, type }` (see the Data Model).
 - [ ] The manifest key is a **pure function of `requestId`** — a retry overwrites it byte-identically, which is how this pipeline is replay-safe (no verb in this codebase does request-id idempotency checking).
-- [ ] The state output contains **only** the manifest key, the format, the file count, and the partition keys — **never** the file list or the column lists inline.
+- [ ] The state output **adds only** the manifest key, the format, the file count, and the partition-key NAMES to the threaded request object — and **never** the file list or the column lists inline. That is what "only" means here, and the distinction is load-bearing: the verb must still thread `requestId` and `actor` through (SPEC-109's identity contract), because `RecordSuccess`/`RecordFailure` read `$.requestId`/`$.actor` and a Pass state's JSONPath **hard-fails on an ABSENT key** with an uncatchable `States.Runtime` — which would skip `NotifyFailure` and leave the user with nothing, the very outcome the next criterion exists to prevent. It also threads `space`/`location`/`reportPrefix`, which SPEC-111 needs. A literal "only these four keys" would break the pipeline; the point is that the payload must not grow with the number of files.
+- [ ] The state output carries partition-key **names only**; the observed VALUES live in the manifest, which SPEC-111 reads via `manifestKey` when it builds the projection enum. Values are unbounded-ish (up to `DQ_MAX_PARTITION_VALUES` per key) and so must not ride in the payload.
 - [ ] A test builds a manifest for `DQ_MAX_OBJECTS` (1000) files with 1024-character keys and asserts the **state payload is under 8 KB** (the 256 KB Step Functions limit with three orders of magnitude of headroom).
 - [ ] A comment records the disaster this prevents: `States.DataLimitExceeded` is thrown **outside** every `Catch`, so the execution dies without a notification and the user is never told anything at all.
 
@@ -181,8 +182,22 @@ _EXT_FORMAT = {
 ```
 
 ```jsonc
-// The SFN state output — bounded by construction (FR-006)
-{ "manifestKey": "…/manifest.json", "format": "csv", "fileCount": 3, "partitionKeys": ["region"] }
+// The SFN state output — bounded by construction (FR-006). The four keys below are what
+// this verb ADDS; the threaded request object (requestId, actor, space, location,
+// reportPrefix) passes through underneath and MUST NOT be dropped — RecordSuccess /
+// RecordFailure read $.requestId/$.actor, and a Pass state's JSONPath hard-fails on an
+// absent key with an uncatchable States.Runtime.
+{
+  "requestId": "…",          // threaded (SPEC-109 identity contract)
+  "actor": "alice",          // threaded
+  "space": { … },            // threaded — SPEC-111 needs the bucket
+  "location": "alice/sales", // threaded
+  "reportPrefix": "alice/_data-quality-reports/…/",  // threaded
+  "manifestKey": "alice/_data-quality-reports/…/manifest.json",
+  "format": "csv",
+  "fileCount": 3,
+  "partitionKeys": ["region"]  // NAMES only; the values live in the manifest
+}
 ```
 
 ## File & Folder Structure

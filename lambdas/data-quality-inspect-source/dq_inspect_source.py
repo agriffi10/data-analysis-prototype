@@ -20,6 +20,7 @@ Athena's job (SPEC-111); byte-level reading is byte-scan's (SPEC-112).
 """
 
 import io
+import json
 import logging
 import zlib
 
@@ -62,6 +63,9 @@ _GZIP_CHUNK_BYTES = 256 * 1024
 
 # zlib wbits for a gzip (not raw-deflate) stream.
 _GZIP_WBITS = 16 + zlib.MAX_WBITS
+
+#: The manifest's filename inside the request's report prefix (FR-006).
+MANIFEST_BASENAME = "manifest.json"
 
 # S3 error codes meaning "no such object" for the single-file probe below. head_object
 # reports a missing key as 404/NotFound rather than NoSuchKey (that one is GetObject's),
@@ -407,9 +411,44 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
     return [{"name": name, "values": sorted(values[name])} for name in expected]
 
 
+def _manifest_key(report_prefix: str) -> str:
+    """Return the manifest's S3 key — a PURE FUNCTION of the request's report prefix.
+
+    validate-authorize derives reportPrefix from requestId alone, so this key is too. That
+    is what makes the pipeline replay-safe: a Retry re-runs the whole verb and overwrites
+    the manifest byte-identically, which is the only idempotency this codebase has — no
+    verb here does request-id bookkeeping.
+    """
+    return f"{report_prefix.rstrip('/')}/{MANIFEST_BASENAME}"
+
+
+def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
+    """Write the manifest to S3, canonically and compactly.
+
+    What each argument is actually for, stated precisely because it is easy to overclaim:
+
+    - ``separators`` drops JSON's default whitespace. At DQ_MAX_OBJECTS files with wide
+      column lists that is a real size saving in the object we write and assemble-report
+      later reads back.
+    - ``sort_keys`` makes the output canonical rather than dependent on how the dict above
+      happened to be built. It is defence against a future edit, NOT what makes a replay
+      byte-identical — that follows from the manifest being a pure function of the request
+      and the listing (mutation-testing this argument away changes nothing today, and the
+      comment should not pretend otherwise).
+    """
+    clients.s3().put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(),
+        ContentType="application/json",
+    )
+
+
 def _inspect(event: dict) -> dict:
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     location = events.require(event, "location", reason=messages.INVALID_REQUEST)
+    request_id = events.require(event, "requestId", reason=messages.INVALID_REQUEST)
+    report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
 
     listing_prefix = _resolve_listing_prefix(bucket, location)
     objects = _list_objects(bucket, listing_prefix)
@@ -424,22 +463,47 @@ def _inspect(event: dict) -> dict:
         for key, size in objects
     ]
 
+    manifest_key = _manifest_key(report_prefix)
+    _write_manifest(
+        bucket,
+        manifest_key,
+        {
+            "requestId": request_id,
+            "format": fmt,
+            "fileCount": len(files),
+            "partitionKeys": partition_keys,
+            "files": files,
+        },
+    )
+
     logger.info(
-        "inspected %s/%s: format=%s, %d files, partitionKeys=%s",
+        "inspected %s/%s: format=%s, %d files, partitionKeys=%s -> %s",
         bucket,
         listing_prefix,
         fmt,
         len(files),
         [k["name"] for k in partition_keys],
+        manifest_key,
     )
+
+    # The state output THREADS the request object and adds four small keys. The file list
+    # and the column lists stay in the manifest and are passed by POINTER (manifestKey);
+    # partition VALUES stay there too, since there can be DQ_MAX_PARTITION_VALUES of them
+    # per key. The disaster this prevents: a state payload over 256 KB raises
+    # States.DataLimitExceeded, which is thrown OUTSIDE every Catch — so the execution dies
+    # without reaching NotifyFailure and the user is never told anything at all, on exactly
+    # the biggest folders. dict(event) is deliberate: dropping requestId/actor would make
+    # RecordSuccess/RecordFailure hard-fail on an absent JSONPath key (States.Runtime,
+    # equally uncatchable), so "only these keys" means "add only these", not "keep only
+    # these" (SPEC-110 FR-006).
     out = dict(event)
+    out["manifestKey"] = manifest_key
     out["format"] = fmt
     out["fileCount"] = len(files)
-    out["files"] = files
-    out["partitionKeys"] = partition_keys
+    out["partitionKeys"] = [k["name"] for k in partition_keys]
     return out
 
 
 def handler(event, context) -> dict:
-    """List + classify the authorized location and carry the request forward."""
+    """Inspect the authorized location, write the manifest, and pass its KEY onward."""
     return _inspect(event)
