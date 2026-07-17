@@ -64,8 +64,15 @@ def list_data_objects(bucket: str, prefix: str, relative: bool = False) -> Itera
 
     Keys are ABSOLUTE by default; pass ``relative=True`` to get keys relative to
     ``prefix`` (table-share re-roots them under each recipient's ``shared_tables/`` path).
-    Paginated (handles > 1000 objects). Transient S3 errors propagate so the Step
-    Function's Retry can handle them — they are never swallowed.
+    Paginated (handles > 1000 objects).
+
+    Errors are NEVER swallowed — a paginator fault propagates raw. But "raw" means a
+    botocore ``ClientError``, which a Step Function sees by its PYTHON CLASS NAME
+    (``errorType: "ClientError"``); a verb's Retry list names ``TransientError``, not
+    ``ClientError``, so a raw fault is NOT retried by default. Mapping a throttle/5xx to
+    ``TransientError`` is the CALLER's job (see ``cpcommon.errors`` +
+    ``table-share-common/tscommon/copy.py`` / ``data-quality-inspect-source`` for the
+    pattern), and only helps under a state whose Retry actually names ``TransientError``.
     """
     paginator = clients.s3().get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):

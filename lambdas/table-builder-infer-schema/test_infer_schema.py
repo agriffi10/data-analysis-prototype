@@ -20,7 +20,21 @@ import polars as pl  # noqa: E402
 import json  # noqa: E402
 import infer_schema as i  # noqa: E402
 from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+
+
+class _FakeClientError(Exception):
+    """A botocore-SHAPED error: carries ``.response["Error"]["Code"]``.
+
+    The distinction matters. The pre-existing tests raised ``RuntimeError("Throttling
+    Exception")`` — a throttle NAME in the message but no ``.response`` — so
+    ``_error_code`` read "" and the transient mapping never fired, i.e. those tests passed
+    whether or not the fix worked. A real botocore fault looks like THIS.
+    """
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": code}}
 
 
 class _FakeSqs:
@@ -132,21 +146,79 @@ def test_scan_error_is_terminal_schema_inference_failed():
     raise AssertionError("expected TerminalError(schema_inference_failed)")
 
 
-def test_transient_s3_error_propagates():
+def test_transient_s3_head_is_raised_as_TransientError():
+    """A throttle/5xx on the head probe must reach the SFN as TransientError — the name
+    InferSchema's Retry list now recognizes. A bare ClientError matches nothing there and
+    would permanently fail the build; this is the bug being fixed."""
     i._check_access = _REAL_CHECK  # exercise the real head_object access probe
 
     class _FakeS3:
         def head_object(self, *a, **k):
-            raise RuntimeError("ThrottlingException")
+            raise _FakeClientError("SlowDown")
 
     clients._s3 = _FakeS3()
     try:
         i.handler(_event("parquet"), None)
-    except TerminalError:
-        raise AssertionError("transient S3 error must NOT be terminalized")
-    except RuntimeError:
+    except TransientError:
         return
-    raise AssertionError("expected the transient error to propagate")
+    except TerminalError:
+        raise AssertionError("a throttle must not be terminalized")
+    raise AssertionError("expected TransientError from a throttled head probe")
+
+
+def test_non_transient_s3_head_propagates_unchanged():
+    """AccessDenied/NoSuchKey is deterministic — mapping it to TransientError would burn
+    the SFN's retry attempts on a fault that cannot resolve. It propagates as-is."""
+    i._check_access = _REAL_CHECK
+
+    class _FakeS3:
+        def head_object(self, *a, **k):
+            raise _FakeClientError("AccessDenied")
+
+    clients._s3 = _FakeS3()
+    try:
+        i.handler(_event("parquet"), None)
+    except TransientError:
+        raise AssertionError("a deterministic S3 fault must NOT become TransientError")
+    except _FakeClientError as err:
+        assert err.response["Error"]["Code"] == "AccessDenied"
+        return
+    raise AssertionError("expected the original ClientError to propagate")
+
+
+def test_a_transient_head_is_not_notified_it_will_be_retried():
+    """TransientError passes through @notifies_on_failure un-notified — otherwise every
+    retry attempt would spam the actor with a premature 'something went wrong'."""
+    i._check_access = _REAL_CHECK
+
+    class _FakeS3:
+        def head_object(self, *a, **k):
+            raise _FakeClientError("SlowDown")
+
+    clients._s3 = _FakeS3()
+    q = _arm_notifications()
+    try:
+        i.handler(_event("parquet"), None)
+    except TransientError:
+        pass
+    assert q.calls == [], "a retryable throttle must not notify the actor"
+
+
+def test_infer_schema_state_retries_TransientError():
+    """The code half is useless without the infra half: InferSchema's Retry list must name
+    TransientError, or the mapping above just renames an error that still fails permanently.
+    This pins the exact bug's second cause so it can't silently regress."""
+    import re
+
+    tftpl = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+    )
+    with open(tftpl) as fh:
+        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", fh.read()))
+    retries = asl["States"]["InferSchema"]["Retry"]
+    named = [e for r in retries for e in r["ErrorEquals"]]
+    assert "TransientError" in named, f"InferSchema Retry must name TransientError; got {named}"
 
 
 def test_notifies_actor_on_schema_inference_failure():
@@ -176,20 +248,22 @@ def test_no_notification_on_success():
 
 
 def test_notifies_actor_on_unexpected_s3_error():
-    # An S3 error that escapes the access probe (not a TerminalError) is a terminal
+    # A DETERMINISTIC S3 error (AccessDenied) escaping the access probe is a terminal
     # failure the SFN records; @notifies_on_failure tells the actor rather than failing
-    # silently. The original exception still propagates unchanged (see the test above).
+    # silently, and the original exception still propagates unchanged (the test above).
+    # Uses a botocore-shaped error so the non-transient branch is genuinely exercised —
+    # not the old RuntimeError, whose missing .response made the transient mapping a no-op.
     i._check_access = _REAL_CHECK
 
     class _FakeS3:
         def head_object(self, *a, **k):
-            raise RuntimeError("ThrottlingException")
+            raise _FakeClientError("AccessDenied")
 
     clients._s3 = _FakeS3()
     q = _arm_notifications()
     try:
         i.handler(_event("parquet"), None)
-    except RuntimeError:
+    except _FakeClientError:
         pass
     assert len(q.calls) == 1
     assert q.calls[0]["MessageDeduplicationId"] == "r1:infer"
