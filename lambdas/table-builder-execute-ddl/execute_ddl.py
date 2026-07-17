@@ -40,15 +40,18 @@ def _results_location(space, actor):
 
 @notify.notifies_on_failure("execute")
 def handler(event: dict, context) -> dict:
+    """SFN entry point: run the CREATE DDL via Athena and shape the success outcome.
+
+    Returns the event with ``status="created"`` on success and notifies the actor the
+    table is ready (SPEC-072). A failed/timed-out query raises ``TerminalError`` (the
+    actor is notified before the SFN ``Catch`` records it); a throttling error raises
+    ``TransientError`` for the SFN ``Retry`` and is not notified.
+    """
     space = event["space"]
     actor = event["actor"]
     database = space["database"]
 
-    # Run the single CREATE (idempotent via IF NOT EXISTS; projection ⇒ no MSCK). A
-    # failed/timed-out query raises TerminalError (Catch → recorded-failure); a
-    # throttling error raises TransientError (SFN Retry). Notify the actor on a terminal
-    # DDL failure before re-raising (SPEC-072, best-effort); TransientError isn't caught,
-    # so a retryable error propagates without a (premature) notification.
+    # One CREATE, idempotent via IF NOT EXISTS; projection ⇒ no MSCK REPAIR.
     try:
         athena_run.run_ddl(
             query=event["ddl"],

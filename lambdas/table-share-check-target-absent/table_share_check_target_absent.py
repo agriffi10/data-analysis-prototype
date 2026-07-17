@@ -50,8 +50,12 @@ def _prefix_is_empty(bucket: str, prefix: str) -> bool:
 
 @notify.notifies_on_failure("check")
 def handler(event, context) -> dict:
-    # A terminal conflict / invalid-recipient failure notifies the sender before
-    # the per-recipient Catch records it (SPEC-094, best-effort).
+    """Recipient-Map entry point: verify the target table is absent in this recipient.
+
+    Delegates to ``_check_target_absent``; a terminal conflict / invalid-recipient
+    failure notifies the sender before the per-recipient ``Catch`` records it (SPEC-094,
+    best-effort).
+    """
     try:
         return _check_target_absent(event)
     except TerminalError as err:

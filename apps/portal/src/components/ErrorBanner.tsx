@@ -1,11 +1,6 @@
 import {Banner, type BannerVariant} from './Banner';
 import {toUserMessage} from '../lib/errorMessages';
 
-// SPEC-106 FR-003 — a thin convenience over Banner that renders FR-001-mapped,
-// user-safe text for a caught error or a ServiceResult error `{message, code}`.
-// Never renders the raw `.message`. Use for danger/error banners so wording
-// stays consistent with toasts and inline surfaces.
-
 type Props = {
   /** A thrown value or a ServiceResult error object; mapped via `toUserMessage`. */
   error: unknown;
@@ -16,6 +11,14 @@ type Props = {
   className?: string;
 };
 
+/**
+ * A {@link Banner} that renders user-safe error text mapped through
+ * {@link toUserMessage} (SPEC-106 FR-003) — never the raw `.message`. Use for
+ * danger/error banners so wording stays consistent with toasts and inline surfaces.
+ *
+ * @example
+ * <ErrorBanner error={result.error} onDismiss={clearError} />
+ */
 export function ErrorBanner({error, variant = 'danger', onDismiss, role, className}: Props) {
   const {title, message} = toUserMessage(error);
   return (

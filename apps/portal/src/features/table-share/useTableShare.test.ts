@@ -41,8 +41,10 @@ describe('useTableShare', () => {
     );
   });
 
-  it('an enqueue failure keeps the dialog open with the error set (values intact)', async () => {
-    mockEnqueue.mockResolvedValue({success: false, error: {message: 'no credentials'}});
+  it('an enqueue failure keeps the dialog open with a user-safe error (values intact)', async () => {
+    // The raw service message is mapped through toUserMessage (SPEC-106) — the code
+    // drives friendly wording and the raw text never reaches the surface.
+    mockEnqueue.mockResolvedValue({success: false, error: {message: 'no credentials', code: 'NotAuthenticated'}});
     const notify = vi.fn();
     const {result} = renderHook(() => useTableShare(notify));
     act(() => result.current.open('alice', 'orders'));
@@ -50,7 +52,7 @@ describe('useTableShare', () => {
     await act(() => result.current.submit({tableName: 'orders_copy', recipients: RECIPIENTS}));
 
     expect(result.current.target).toEqual({database: 'alice', table: 'orders'});
-    expect(result.current.error).toBe('no credentials');
+    expect(result.current.error).toBe('Sign in to continue.');
     expect(notify).not.toHaveBeenCalled();
   });
 

@@ -25,8 +25,12 @@ logger.setLevel(logging.INFO)
 
 @notify.notifies_on_failure("inspect")
 def handler(event, context) -> dict:
-    # A terminal rejection is a WHOLE-REQUEST failure (no recipient runs) —
-    # notify the sender before the Catch records it (SPEC-094 FR-003, best-effort).
+    """SFN entry point: clone the source table definition and cap object count/size.
+
+    Delegates to ``_inspect_source``; a terminal rejection is a whole-request failure (no
+    recipient runs), so the sender is notified before the ``Catch`` records it (SPEC-094
+    FR-003, best-effort).
+    """
     try:
         return _inspect_source(event)
     except TerminalError as err:

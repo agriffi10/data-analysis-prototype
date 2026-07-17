@@ -130,10 +130,12 @@ def _annotate_recipients(recipients) -> list:
 
 @notify.notifies_on_failure("validate")
 def handler(event, context) -> dict:
-    # Thin handler: the parse → verify → authorize → validate → annotate orchestration
-    # lives in the delegated pure function, so it is testable without a Lambda context.
-    # (An UNEXPECTED failure here happens against the raw SQS array — no trusted
-    # actor — so the wrapper's emit is a safe no-op in that window.)
+    """SFN entry point: parse → verify → authorize → validate → annotate the share request.
+
+    A thin shim; the orchestration lives in ``_validate_and_authorize`` so it is testable
+    without a Lambda context. An unexpected failure here happens against the raw SQS array
+    (no trusted actor yet), so the wrapper's failure-emit is a safe no-op in that window.
+    """
     return _validate_and_authorize(event)
 
 

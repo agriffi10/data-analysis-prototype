@@ -136,9 +136,11 @@ def _authorize_space(space, actor):
 
 @notify.notifies_on_failure("validate")
 def handler(event, context) -> dict:
-    # Thin handler: the parse → verify → authorize → validate → assemble orchestration
-    # (incl. the notify-on-failure envelope) lives in the delegated pure function, so it
-    # is testable without a Lambda context.
+    """SFN entry point: parse → verify → authorize → validate → assemble the build state.
+
+    A thin shim; the orchestration (including the notify-on-failure envelope) lives in
+    ``_validate_and_authorize`` so it is testable without a Lambda context.
+    """
     return _validate_and_authorize(event)
 
 

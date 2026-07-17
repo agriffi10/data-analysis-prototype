@@ -933,7 +933,7 @@ function FileBrowserContent({
           ) : (
             <>
               <p className="font-medium">Failed to load files</p>
-              <p className="mt-1 text-sm">{error}</p>
+              <p className="mt-1 text-sm">{toUserMessage(error).message}</p>
             </>
           )}
         </div>

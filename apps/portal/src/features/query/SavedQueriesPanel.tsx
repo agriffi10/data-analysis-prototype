@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toUserMessage} from '../../lib/errorMessages';
 import {Banner} from '../../components/Banner';
 import {Drawer} from '../../components/Drawer';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
@@ -37,7 +38,7 @@ export function SavedQueriesPanel({open, onClose, queries, isLoading, error, onO
           <Banner
             variant="danger"
             title="Couldn’t load saved queries.">
-            {error}
+            {toUserMessage(error).message}
           </Banner>
         ) : isLoading ? (
           <p className="text-sm text-text-3">Loading saved queries&hellip;</p>

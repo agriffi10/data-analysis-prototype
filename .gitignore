@@ -36,3 +36,7 @@ htmlcov
 .coverage
 .coverage.*
 coverage.xml
+
+# macOS/iCloud "conflicted copy" duplicates (e.g. ".coverage 2", "package-lock 2.json")
+*\ [0-9].json
+.coverage\ [0-9]*

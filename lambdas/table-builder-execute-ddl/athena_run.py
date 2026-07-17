@@ -1,88 +1,41 @@
-"""Shared Athena start+poll helper for execute-ddl (SPEC-070).
+"""Per-verb Athena runner for execute-ddl (SPEC-070).
 
-Mirrors the app's Athena polling (SPEC-034 ``query.service``): submit the statement
-via ``StartQueryExecution``, then poll ``GetQueryExecution`` to a terminal state under
-a wall-clock cap. Outcome mapping:
-
-  - ``SUCCEEDED``            → return the queryExecutionId (the caller records success).
-  - ``FAILED`` / ``CANCELLED`` → ``TerminalError("ddl_execution_failed", <reason>)``
-                              carrying Athena's ``StateChangeReason``.
-  - throttling / 5xx        → ``TransientError`` so the Step Function ``Retry`` re-runs
-                              the whole verb (NOT terminal — the create hasn't failed).
-  - cap exceeded            → ``TerminalError("ddl_timeout", …)`` (the query may still
-                              finish in Athena — recorded, not silently lost).
-
-``_now`` / ``_sleep`` are module-level seams so tests can drive a fake clock (no real
-sleeping); prod uses ``time.monotonic`` / ``time.sleep``.
+Thin wrapper over ``cpcommon.athena.run_ddl`` (SPEC-107, where the shared start+poll
+loop lives) that binds the table-builder's terminal reason codes
+(``ddl_execution_failed`` / ``ddl_timeout``) and exposes ``_now`` / ``_sleep`` and the
+poll bounds as module-level seams so tests drive a fake clock with no real sleeping.
+The seams are read at call time, so a test patching ``athena_run._now`` still takes
+effect through the shared runner.
 """
 
-import logging
 import time
 
-from cpcommon import clients, errors
-from cpcommon.errors import TerminalError
+from cpcommon import athena
 
-logger = logging.getLogger()
-
-# Poll cadence + cap. A CREATE EXTERNAL TABLE is fast, but keep generous headroom
-# under the Lambda's 300s timeout (locals.tf) — the query may queue behind others in
-# the shared workgroup. (SPEC-034's app poller uses a similar interval + max-duration.)
 POLL_INTERVAL_SECONDS = 1.0
 MAX_POLL_DURATION_SECONDS = 240
-
-_TERMINAL_OK = "SUCCEEDED"
-_TERMINAL_FAIL = frozenset({"FAILED", "CANCELLED"})
 
 # Patchable clock/sleep seams (tests replace them; prod uses real time).
 _now = time.monotonic
 _sleep = time.sleep
 
 
-def _raise_if_transient(exc):
-    """Re-raise a throttling/5xx boto error as ``TransientError`` (for the SFN Retry);
-    otherwise return so the caller can treat it as a terminal DDL failure.
-
-    Thin wrapper over ``cpcommon.errors.raise_if_transient`` (the canonical classifier),
-    kept so the two call sites read unchanged and carry an Athena-flavoured detail."""
-    errors.raise_if_transient(exc, "Athena")
-
-
 def run_ddl(*, query, database, workgroup, output_location):
-    """Run a DDL statement to a terminal state.
+    """Run the CREATE DDL to a terminal state; see ``cpcommon.athena.run_ddl``.
 
-    Returns the queryExecutionId on ``SUCCEEDED``. Raises ``TerminalError``
+    Returns the ``QueryExecutionId`` on ``SUCCEEDED``. Raises ``TerminalError``
     (``ddl_execution_failed`` / ``ddl_timeout``) on a failed or timed-out query, or
     ``TransientError`` on a throttling/5xx error.
     """
-    athena = clients.athena()
-    try:
-        started = athena.start_query_execution(
-            QueryString=query,
-            QueryExecutionContext={"Database": database},
-            WorkGroup=workgroup,
-            ResultConfiguration={"OutputLocation": output_location},
-        )
-    except Exception as exc:  # noqa: BLE001 - classify: transient → retry, else terminal
-        _raise_if_transient(exc)
-        raise TerminalError("ddl_execution_failed", f"could not start query: {exc}") from exc
-
-    qid = started["QueryExecutionId"]
-    deadline = _now() + MAX_POLL_DURATION_SECONDS
-    while True:
-        try:
-            resp = athena.get_query_execution(QueryExecutionId=qid)
-        except Exception as exc:  # noqa: BLE001 - transient poll error → retry the verb
-            _raise_if_transient(exc)
-            raise TerminalError("ddl_execution_failed", f"could not poll query {qid}: {exc}") from exc
-
-        status = (resp.get("QueryExecution") or {}).get("Status") or {}
-        state = status.get("State")
-        if state == _TERMINAL_OK:
-            logger.info("query %s SUCCEEDED", qid)
-            return qid
-        if state in _TERMINAL_FAIL:
-            reason = status.get("StateChangeReason") or state
-            raise TerminalError("ddl_execution_failed", reason)
-        if _now() >= deadline:
-            raise TerminalError("ddl_timeout", f"query {qid} did not reach a terminal state within {MAX_POLL_DURATION_SECONDS}s")
-        _sleep(POLL_INTERVAL_SECONDS)
+    return athena.run_ddl(
+        query=query,
+        database=database,
+        workgroup=workgroup,
+        output_location=output_location,
+        fail_reason="ddl_execution_failed",
+        timeout_reason="ddl_timeout",
+        now=_now,
+        sleep=_sleep,
+        poll_interval_seconds=POLL_INTERVAL_SECONDS,
+        max_poll_duration_seconds=MAX_POLL_DURATION_SECONDS,
+    )

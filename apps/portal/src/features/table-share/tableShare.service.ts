@@ -2,13 +2,9 @@ import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableShareRequest} from './tableShare.types';
-
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {success: false as const, error: {message: e.message ?? fallback, code: e.name}};
-}
 
 /** Dedup window: double-submits of the identical request inside one bucket collapse. */
 const DEDUP_BUCKET_MS = 60_000;

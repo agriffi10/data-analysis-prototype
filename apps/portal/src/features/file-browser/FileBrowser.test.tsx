@@ -142,11 +142,15 @@ describe('FileBrowser — listing states', () => {
     expect(await screen.findByText('This folder is empty')).toBeInTheDocument();
   });
 
-  it('surfaces a listing error as an alert', async () => {
+  it('surfaces a listing error as a user-safe alert, never the raw AWS text', async () => {
+    // SPEC-106: an unrecognized raw message maps to the generic user-safe fallback;
+    // the raw text ('on fire') never reaches the DOM.
     mock.listFiles.mockResolvedValue(fail('Bucket is on fire'));
     renderBrowser();
     const alert = await screen.findByRole('alert');
-    expect(within(alert).getByText('Bucket is on fire')).toBeInTheDocument();
+    expect(within(alert).getByText('Failed to load files')).toBeInTheDocument();
+    expect(alert).toHaveTextContent(/contact the administrator/i);
+    expect(alert).not.toHaveTextContent(/on fire/i);
   });
 
   it('offers "Refresh access" for a just-added shared space and re-lists on click', async () => {

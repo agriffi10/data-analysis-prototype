@@ -105,12 +105,16 @@ describe('MetadataPanel', () => {
     expect(await screen.findByText(/no custom metadata/i)).toBeInTheDocument();
   });
 
-  it('renders a fetch error inline instead of crashing', async () => {
-    mock.getObjectMetadata.mockResolvedValue(fail('This file no longer exists.'));
+  it('renders a fetch error inline as user-safe text, never the raw AWS detail', async () => {
+    // SPEC-106: the raw service message is mapped via toUserMessage before rendering,
+    // so the raw AWS text (NoSuchKey) never reaches the DOM — an unrecognized message
+    // falls back to the generic user-safe wording.
+    mock.getObjectMetadata.mockResolvedValue(fail('NoSuchKey: the raw S3 detail'));
     renderPanel();
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/couldn.t load details/i);
-    expect(alert).toHaveTextContent(/no longer exists/i);
+    expect(alert).toHaveTextContent(/contact the administrator/i);
+    expect(alert).not.toHaveTextContent(/NoSuchKey/i);
   });
 
   it('is a dismissible modal drawer (close button + Escape both fire onClose)', async () => {

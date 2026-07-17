@@ -4,6 +4,8 @@ import {getS3Client} from '../../lib/s3Client';
 import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
+import {toServiceError} from '../../lib/serviceResult';
+import {isNotFound} from '../../lib/s3Errors';
 import type {ServiceResult} from '../../types/service.types';
 import type {EnqueueNotificationInput, Notification} from './notifications.types';
 
@@ -17,19 +19,6 @@ function bucket(): string {
 
 function inboxKey(username: string): string {
   return `${username}/user_settings/notifications.json`;
-}
-
-function toServiceError(err: unknown, fallback: string) {
-  const e = err as {message?: string; name?: string};
-  return {
-    success: false as const,
-    error: {message: e.message ?? fallback, code: e.name}
-  };
-}
-
-function isNotFound(err: unknown): boolean {
-  const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
-  return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
 
 // A corrupt or partial row is dropped, not fatal — the writer owns the format; the

@@ -26,11 +26,13 @@ logger.setLevel(logging.INFO)
 
 @notify.notifies_on_failure("check")
 def handler(event: dict, context) -> dict:
-    # Thin handler: delegate, and notify the actor on any terminal failure (best-effort)
-    # before the SFN Catch records it. A transient Glue throttle is mapped to
-    # TransientError (in _check_table_absent) and passes through un-notified for the SFN
-    # Retry — which now names TransientError on this state; @notifies_on_failure notifies
-    # genuinely unexpected ones.
+    """SFN entry point: verify the target table doesn't already exist.
+
+    Delegates to ``_check_table_absent`` and notifies the actor on a terminal failure
+    (best-effort) before the SFN ``Catch`` records it. A transient Glue throttle maps to
+    ``TransientError`` and passes through un-notified for the SFN ``Retry``;
+    ``@notifies_on_failure`` surfaces genuinely unexpected errors.
+    """
     try:
         return _check_table_absent(event)
     except TerminalError as err:
