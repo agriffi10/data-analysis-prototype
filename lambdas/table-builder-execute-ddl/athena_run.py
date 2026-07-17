@@ -19,8 +19,8 @@ sleeping); prod uses ``time.monotonic`` / ``time.sleep``.
 import logging
 import time
 
-from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon import clients, errors
+from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 
@@ -33,37 +33,18 @@ MAX_POLL_DURATION_SECONDS = 240
 _TERMINAL_OK = "SUCCEEDED"
 _TERMINAL_FAIL = frozenset({"FAILED", "CANCELLED"})
 
-# Athena/S3 error codes worth a retry (throttling + transient service faults). boto3
-# already retries these a few times internally; this is the backstop that hands a
-# still-failing transient error to the SFN Retry instead of recording it as terminal.
-_TRANSIENT_CODES = frozenset({
-    "ThrottlingException",
-    "TooManyRequestsException",
-    "RequestLimitExceeded",
-    "SlowDown",
-    "InternalServerException",
-    "InternalErrorException",
-    "ServiceUnavailable",
-    "ServiceUnavailableException",
-})
-
 # Patchable clock/sleep seams (tests replace them; prod uses real time).
 _now = time.monotonic
 _sleep = time.sleep
 
 
-def _error_code(exc):
-    resp = getattr(exc, "response", None)
-    if isinstance(resp, dict):
-        return (resp.get("Error") or {}).get("Code")
-    return None
-
-
 def _raise_if_transient(exc):
     """Re-raise a throttling/5xx boto error as ``TransientError`` (for the SFN Retry);
-    otherwise return so the caller can treat it as a terminal DDL failure."""
-    if _error_code(exc) in _TRANSIENT_CODES:
-        raise TransientError(f"transient Athena error {_error_code(exc)}") from exc
+    otherwise return so the caller can treat it as a terminal DDL failure.
+
+    Thin wrapper over ``cpcommon.errors.raise_if_transient`` (the canonical classifier),
+    kept so the two call sites read unchanged and carry an Athena-flavoured detail."""
+    errors.raise_if_transient(exc, "Athena")
 
 
 def run_ddl(*, query, database, workgroup, output_location):

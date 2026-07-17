@@ -23,7 +23,7 @@ LOCATION = "alice/sales"
 
 
 class _FakeClientError(Exception):
-    """Mimics botocore.exceptions.ClientError enough for dq_inspect_source._error_code.
+    """Mimics botocore.exceptions.ClientError enough for cpcommon.errors.error_code.
 
     botocore ships in the Lambda RUNTIME but is NOT a test dependency of this repo, so
     the suites fake it rather than import it (see table-builder-execute-ddl's

@@ -40,7 +40,7 @@ def _arm_notifications():
 # ── Fakes ────────────────────────────────────────────────────────────────────
 
 class _FakeClientError(Exception):
-    """Mimics botocore.exceptions.ClientError enough for athena_run._error_code."""
+    """Mimics botocore.exceptions.ClientError enough for cpcommon.errors.error_code."""
 
     def __init__(self, code):
         super().__init__(code)
