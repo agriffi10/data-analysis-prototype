@@ -47,8 +47,8 @@ def _check_access(bucket, key):
 
     Runs before the scan so an S3 fault is distinct from the scan's own errors (which are
     terminalized as ``schema_inference_failed``). A retryable throttle/5xx becomes a
-    ``TransientError`` for the SFN Retry (``_raise_if_transient``) — a bare ``ClientError``
-    would NOT be retried and would permanently fail the build. A deterministic fault
+    ``TransientError`` for the SFN Retry (``cpcommon.errors.raise_if_transient``) — a bare
+    ``ClientError`` would NOT be retried and would permanently fail the build. A deterministic fault
     (missing/denied) propagates to the handler wrapper, which notifies the actor
     (@notifies_on_failure) so it isn't silent.
     """
