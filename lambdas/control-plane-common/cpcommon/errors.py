@@ -41,3 +41,58 @@ class TransientError(Exception):
     re-runs the whole verb — the opposite of ``TerminalError``, which the Catch records
     as a final outcome.
     """
+
+
+# Retryable AWS fault codes — the canonical superset the per-verb copies converged on
+# (S3 SlowDown/RequestTimeout/500/503, Glue/generic throttles, Athena 5xx). A code NOT in
+# here is deterministic (AccessDenied, NoSuchKey, 403/404): retrying it just burns the
+# SFN's attempts on something that cannot resolve.
+_TRANSIENT_CODES = frozenset({
+    "Throttling",
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "RequestLimitExceeded",
+    "SlowDown",
+    "RequestTimeout",
+    "InternalError",
+    "InternalServerException",
+    "InternalErrorException",
+    "ServiceUnavailable",
+    "ServiceUnavailableException",
+    "500",
+    "503",
+})
+
+
+def _error_code(exc) -> str:
+    """The botocore error code on ``exc``, or "" if it has none.
+
+    Defensive at every level: a non-dict ``response`` or a ``None`` ``Error`` yields ""
+    rather than raising — a classifier must never itself throw while classifying a fault.
+    """
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return ""
+    error = response.get("Error")
+    if not isinstance(error, dict):
+        return ""
+    return str(error.get("Code", ""))
+
+
+def raise_if_transient(exc, detail: str = "") -> None:
+    """Re-raise a retryable AWS fault as ``TransientError``; return ``None`` otherwise.
+
+    WHY VERBS NEED THIS, because the naive read is wrong: an exception raised inside a
+    Lambda reaches Step Functions as its PYTHON CLASS NAME, so a bare botocore fault
+    arrives as ``errorType: "ClientError"`` — a name no verb's Retry list names, so a
+    one-off throttle would fail the whole request PERMANENTLY. Mapping it to
+    ``TransientError`` (which the Retry lists DO name) is what actually gets it retried.
+    A non-transient code falls through and the caller re-raises it unchanged, so a
+    deterministic fault (AccessDenied) stays terminal instead of wasting retries.
+
+    This helps ONLY under a state whose Retry ``ErrorEquals`` names ``TransientError`` —
+    the code half and the state-machine half must move together.
+    """
+    code = _error_code(exc)
+    if code in _TRANSIENT_CODES:
+        raise TransientError(f"{detail}: transient {code}" if detail else f"transient {code}") from exc

@@ -16,7 +16,7 @@ failing silently, and re-raised for the SFN Catch.
 
 import logging
 
-from cpcommon import clients, events
+from cpcommon import clients, errors, events
 from tbcommon import notify
 from cpcommon.errors import TerminalError
 
@@ -27,8 +27,10 @@ logger.setLevel(logging.INFO)
 @notify.notifies_on_failure("check")
 def handler(event: dict, context) -> dict:
     # Thin handler: delegate, and notify the actor on any terminal failure (best-effort)
-    # before the SFN Catch records it. A non-terminal error (transient Glue fault)
-    # propagates for the SFN Retry; @notifies_on_failure notifies unexpected ones.
+    # before the SFN Catch records it. A transient Glue throttle is mapped to
+    # TransientError (in _check_table_absent) and passes through un-notified for the SFN
+    # Retry — which now names TransientError on this state; @notifies_on_failure notifies
+    # genuinely unexpected ones.
     try:
         return _check_table_absent(event)
     except TerminalError as err:
@@ -48,6 +50,13 @@ def _check_table_absent(event: dict) -> dict:
         # The table (or its database) doesn't exist yet — the create can proceed.
         logger.info("table %s absent in %s — proceeding", table, database)
         return event
+    except Exception as err:  # noqa: BLE001 - a throttle is retryable; the rest propagate
+        # A Glue ThrottlingException is NOT EntityNotFoundException, so it would otherwise
+        # propagate as a bare ClientError the CheckTableAbsent Retry list does not name —
+        # permanently failing the build. Map it to TransientError (paired with adding it
+        # to that Retry list) so the SFN retries; a deterministic fault re-raises unchanged.
+        errors.raise_if_transient(err, f"glue get_table {database}.{table}")
+        raise
 
     # A GetTable that returns ⇒ the table already exists.
     raise TerminalError("table_exists", f"table {table!r} already exists in database {database!r}")

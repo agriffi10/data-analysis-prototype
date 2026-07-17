@@ -12,7 +12,7 @@ are terminal with a specific reason; transient S3 errors propagate for the SFN R
 
 import logging
 
-from cpcommon import s3_listing, events
+from cpcommon import errors, s3_listing, events
 from tbcommon import notify
 from cpcommon.errors import TerminalError
 
@@ -72,8 +72,9 @@ def _validate_layout(rel_dirs, declared_names):
 @notify.notifies_on_failure("inspect")
 def handler(event: dict, context) -> dict:
     # Notify the actor on any terminal failure (best-effort) before the SFN Catch
-    # records it; transient S3 errors aren't TerminalError, so they propagate for the
-    # Retry without a notification.
+    # records it. A retryable S3 throttle is mapped to TransientError (in _inspect) and
+    # passes through un-notified for the SFN Retry — which now names TransientError on
+    # this state.
     try:
         return _inspect(event)
     except TerminalError as err:
@@ -91,7 +92,19 @@ def _inspect(event: dict) -> dict:
     sample_by_format = {}
     file_count = 0
 
-    for key, _size in s3_listing.list_data_objects(bucket, prefix):
+    # Materialize the listing inside a mapped try: a throttle during pagination would
+    # otherwise surface (mid-iteration) as a bare ClientError the InspectSource Retry list
+    # does not name, permanently failing the build. Mapping it to TransientError (paired
+    # with adding it to that Retry list) gets it retried. Materializing isolates the
+    # throttle-prone S3 call from the loop-body logic below and matches the data-quality
+    # inspect-source sibling.
+    try:
+        objects = list(s3_listing.list_data_objects(bucket, prefix))
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        errors.raise_if_transient(err, f"list {bucket}/{prefix}")
+        raise
+
+    for key, _size in objects:
         fmt = _format_of(key)
         if fmt is None:
             unsupported = unsupported or key

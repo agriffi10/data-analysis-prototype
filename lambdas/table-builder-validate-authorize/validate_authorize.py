@@ -14,6 +14,7 @@ import json
 import logging
 
 from cpcommon import auth, config
+from cpcommon import errors
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from tbcommon import notify
@@ -21,6 +22,23 @@ from tbcommon.config import PARTITION_TYPES
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def _load_registry(database: str):
+    """Load the shared-space registry record, mapping a throttle to ``TransientError``.
+
+    ``registry.load`` catches only ``NoSuchKey``, so a throttle on the underlying
+    ``get_object`` propagates as a bare ``ClientError`` — which the ValidateAuthorize
+    Retry list does not name, so it would permanently fail the request. Mapping it (paired
+    with adding ``TransientError`` to that Retry list) is what gets it retried. Mapped
+    HERE, at the verb, not in ``cpcommon.registry.load``: that is shared with the
+    shared-space verbs, whose state machine does not retry ``TransientError``.
+    """
+    try:
+        return reg.load(database)
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        errors.raise_if_transient(err, f"registry load {database}")
+        raise
 
 
 def _extract_record(event):
@@ -104,7 +122,7 @@ def _authorize_space(space, actor):
         if not prefix.startswith(f"{actor}/"):
             raise TerminalError("forbidden", "location escapes the personal space")
     elif kind == "shared":
-        record = reg.load(database)
+        record = _load_registry(database)
         if not reg.is_active_member(record, actor):
             raise TerminalError("forbidden", f"{actor!r} is not an active member of {database!r}")
         if bucket != config.SHARED_SPACE_BUCKET:
