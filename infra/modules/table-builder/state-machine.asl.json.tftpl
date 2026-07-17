@@ -1,5 +1,5 @@
 {
-  "Comment": "Table-builder control plane (SPEC-070). A LINEAR pipeline — validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl → RecordSuccess → Succeeded — orchestrated by the Step Function, not in-Lambda code. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Only transient SERVICE errors are retried (Lambda service faults on every verb; execute-ddl also retries the polls' TransientError). Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the status:'created' twin. A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
+  "Comment": "Table-builder control plane (SPEC-070). A LINEAR pipeline — validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl → RecordSuccess → Succeeded — orchestrated by the Step Function, not in-Lambda code. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Only transient SERVICE errors are retried (Lambda service faults on every verb; infer-schema also retries a throttled S3 head probe, and execute-ddl the Athena polls' TransientError — both mapped in-Lambda to the TransientError this Retry names). Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the status:'created' twin. A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -106,7 +106,8 @@
             "Lambda.ServiceException",
             "Lambda.TooManyRequestsException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "TransientError"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
