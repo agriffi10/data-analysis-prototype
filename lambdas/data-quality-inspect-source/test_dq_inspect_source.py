@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
 import pytest  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 from dqcommon import config, messages  # noqa: E402
 
 import dq_inspect_source as v  # noqa: E402
@@ -224,13 +224,30 @@ def test_a_real_file_at_the_location_is_still_a_file():
     assert listed == [(BUCKET, "alice/sales/a.csv")]
 
 
-def test_a_transient_head_error_propagates_for_the_sfn_retry():
-    """Only a real 404 means "folder"; a 503 must not be mistaken for one."""
+def test_a_transient_head_error_is_retryable_not_a_folder():
+    """Only a real 404 means "folder"; a 503 must not be mistaken for one — and must reach
+    the SFN as a TransientError, the ONLY name in InspectSource's Retry list our own code
+    can raise. A bare ClientError matches nothing there and would be recorded as a
+    permanent failure carrying raw AWS text."""
     _setup([])
     fake = _FakeS3()
 
     def _boom(Bucket, Key):  # noqa: N803
-        raise _FakeClientError("503")
+        raise _FakeClientError("SlowDown")
+
+    fake.head_object = _boom
+    v.clients.s3 = lambda: fake
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_non_transient_head_error_is_not_disguised_as_retryable():
+    """AccessDenied is deterministic — retrying it just burns the SFN's attempts."""
+    _setup([])
+    fake = _FakeS3()
+
+    def _boom(Bucket, Key):  # noqa: N803
+        raise _FakeClientError("AccessDenied")
 
     fake.head_object = _boom
     v.clients.s3 = lambda: fake
@@ -916,15 +933,117 @@ def test_the_manifest_carries_the_spec_shape():
     }
 
 
+def test_a_throttled_manifest_write_is_retryable_not_terminal():
+    """The bug this pins: an unmapped put_object fault reaches the SFN as `ClientError`,
+    which InspectSource's Retry list does NOT name — so a one-off SlowDown becomes a
+    permanent failure whose user-facing reason is raw AWS text, after every file has
+    already been probed. The verb is replay-safe, so a Retry simply rewrites the manifest.
+    """
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+
+    def _boom(Bucket, Key, Body, **kw):  # noqa: N803
+        raise _FakeClientError("SlowDown")
+
+    fake.put_object = _boom
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_non_transient_manifest_write_error_is_not_disguised_as_retryable():
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+
+    def _boom(Bucket, Key, Body, **kw):  # noqa: N803
+        raise _FakeClientError("AccessDenied")
+
+    fake.put_object = _boom
+    with pytest.raises(_FakeClientError):
+        v.handler(_event(), None)
+
+
+def test_a_throttled_listing_is_retryable():
+    """A throttled page mid-pagination is retryable; s3_listing lets it propagate raw, so
+    the verb is what has to map it."""
+    _setup([])
+
+    def _boom(bucket, prefix):
+        raise _FakeClientError("SlowDown")
+
+    v.s3_listing.list_data_objects = _boom
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_throttled_access_probe_is_retryable():
+    """The real _check_access, not a stub — a throttle here must not become a permanent
+    'the columns couldn't be read'."""
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+    calls = []
+
+    def _boom(Bucket, Key):  # noqa: N803
+        calls.append(Key)
+        raise _FakeClientError("Throttling")
+
+    fake.head_object = _boom
+    with pytest.raises(TransientError):
+        v._check_access(BUCKET, "alice/sales/a.csv")
+    assert calls == ["alice/sales/a.csv"]
+
+
+def test_a_throttled_gzip_get_is_retryable_not_unreadable_header():
+    """_read_gzip_head runs INSIDE _probe_columns' try, so without an explicit
+    TransientError re-raise the catch-all would swallow it and report the file as
+    permanently unreadable."""
+    fake = _FakeS3()
+    fake.get_object = lambda **kw: (_ for _ in ()).throw(_FakeClientError("SlowDown"))
+    fake.head_object = lambda Bucket, Key: {"ContentLength": 10}  # noqa: N803
+    v.clients.s3 = lambda: fake
+    with pytest.raises(TransientError):
+        v._probe_columns(BUCKET, "alice/sales/a.csv.gz", "csv")
+
+
+def test_non_transient_faults_propagate_unchanged_from_every_read_path():
+    """The other half of the mapping: only the retryable codes become TransientError.
+
+    Disguising AccessDenied as retryable would burn the SFN's attempts on a fault that
+    cannot resolve, and delay the real reason by the full backoff.
+    """
+    denied = _FakeClientError("AccessDenied")
+
+    # listing
+    _setup([])
+    v.s3_listing.list_data_objects = lambda b, p: (_ for _ in ()).throw(denied)
+    with pytest.raises(_FakeClientError):
+        v.handler(_event(), None)
+
+    # access probe
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+    fake.head_object = lambda Bucket, Key: (_ for _ in ()).throw(denied)  # noqa: N803
+    with pytest.raises(_FakeClientError):
+        v._check_access(BUCKET, "alice/sales/a.csv")
+
+    # gzip body read
+    fake2 = _FakeS3()
+    fake2.get_object = lambda **kw: (_ for _ in ()).throw(denied)
+    v.clients.s3 = lambda: fake2
+    with pytest.raises(_FakeClientError):
+        v._read_gzip_head(BUCKET, "alice/sales/a.csv.gz")
+
+
 def test_the_manifest_key_is_a_pure_function_of_the_request_and_a_replay_is_byte_identical():
     """The only idempotency this pipeline has: no verb does request-id bookkeeping, so a
-    Retry must overwrite the manifest with the SAME BYTES rather than a second artefact."""
-    bodies = []
+    Retry must overwrite the SAME KEY with the SAME BYTES rather than leave a second
+    artefact behind.
+
+    Asserts the KEY as well as the body — an earlier version compared bodies only, and so
+    passed even with a uuid4() in the key, i.e. it did not test the first half of its own
+    name.
+    """
+    writes = []
     for _ in range(2):
         _, fake = _setup([("alice/sales/b.csv", 2), ("alice/sales/a.csv", 1)])
         v.handler(_event(), None)
-        bodies.append(fake.puts[0]["Body"])
-    assert bodies[0] == bodies[1]
+        writes.append((fake.puts[0]["Key"], fake.puts[0]["Body"]))
+    assert writes[0] == writes[1], "a replay must rewrite the same key with the same bytes"
 
 
 # ── FR-006: the state payload bound ──────────────────────────────────────────
@@ -948,6 +1067,33 @@ def test_the_state_payload_stays_tiny_at_the_object_cap_with_maximal_keys():
     payload = json.dumps(out).encode()
     assert len(payload) < 8 * 1024, f"state payload is {len(payload)} bytes"
     assert out["fileCount"] == config.DQ_MAX_OBJECTS
+
+
+def test_the_payload_stays_bounded_when_partition_key_NAMES_are_the_worst_case():
+    """The file list rides as a pointer, so partition-key NAMES are the only thing left in
+    the payload that grows with the input — and the test above uses a flat folder, which
+    exercises none of them. Bounded transitively by S3's 1024-byte key limit (a key can
+    hold ~250 `a=1/` segments), but bounded-by-luck is worth pinning.
+    """
+    segments = "/".join(f"k{i:03d}=v" for i in range(120))
+    objects = [(f"alice/sales/{segments}/part-{i}.csv", 10) for i in range(5)]
+    assert len(objects[0][0]) < 1024, "fixture must stay inside S3's key limit"
+    _setup(objects)
+
+    out = v.handler(_event(), None)
+
+    assert len(out["partitionKeys"]) == 120
+    assert len(json.dumps(out).encode()) < 8 * 1024
+
+
+def test_long_partition_VALUES_do_not_reach_the_payload():
+    """Values live in the manifest; only names ride in the state."""
+    long_value = "v" * 900
+    _setup([(f"alice/sales/region={long_value}/a.csv", 10), ("alice/sales/region=eu/b.csv", 10)])
+    out = v.handler(_event(), None)
+    payload = json.dumps(out)
+    assert long_value not in payload
+    assert len(payload.encode()) < 8 * 1024
 
 
 def test_the_state_output_never_inlines_the_file_list_or_columns():
