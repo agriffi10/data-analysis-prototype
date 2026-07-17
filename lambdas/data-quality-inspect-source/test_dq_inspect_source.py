@@ -4,6 +4,7 @@ Pure logic, AWS stubbed: s3_listing.list_data_objects and the S3 client are repl
 the verb module, so no bucket is touched.
 """
 
+import json
 import os
 import sys
 import zlib
@@ -12,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
 import pytest  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 from dqcommon import config, messages  # noqa: E402
 
 import dq_inspect_source as v  # noqa: E402
@@ -45,12 +46,17 @@ class _FakeS3:
     def __init__(self, keys=()):
         self.keys = set(keys)
         self.head_calls = []
+        self.puts = []
 
     def head_object(self, Bucket, Key):  # noqa: N803 - boto3's kwarg casing
         self.head_calls.append(Key)
         if Key in self.keys:
             return {"ContentLength": 1}
         raise _FakeClientError("404")
+
+    def put_object(self, Bucket, Key, Body, **kw):  # noqa: N803
+        self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body, **kw})
+        return {}
 
 
 @pytest.fixture(autouse=True)
@@ -165,9 +171,9 @@ def test_exclusions_come_from_cpcommon_not_reimplemented_here():
     v.clients.s3 = lambda: fake
     v._probe_columns = lambda bucket, key, fmt: list(_DEFAULT_COLUMNS)
 
-    out = v.handler(_event(), None)
+    v.handler(_event(), None)
 
-    assert [f["key"] for f in out["files"]] == ["alice/sales/real.csv"]
+    assert [f["key"] for f in _manifest_of(fake)["files"]] == ["alice/sales/real.csv"]
 
 
 def test_user_settings_is_excluded_at_a_space_root_scan():
@@ -184,9 +190,9 @@ def test_user_settings_is_excluded_at_a_space_root_scan():
     v.clients.s3 = lambda: fake
     v._probe_columns = lambda bucket, key, fmt: list(_DEFAULT_COLUMNS)
 
-    out = v.handler(_event(location="alice"), None)
+    v.handler(_event(location="alice"), None)
 
-    assert [f["key"] for f in out["files"]] == ["alice/data.csv"]
+    assert [f["key"] for f in _manifest_of(fake)["files"]] == ["alice/data.csv"]
 
 
 def test_a_zero_byte_object_at_the_location_is_a_folder_not_a_file():
@@ -218,13 +224,30 @@ def test_a_real_file_at_the_location_is_still_a_file():
     assert listed == [(BUCKET, "alice/sales/a.csv")]
 
 
-def test_a_transient_head_error_propagates_for_the_sfn_retry():
-    """Only a real 404 means "folder"; a 503 must not be mistaken for one."""
+def test_a_transient_head_error_is_retryable_not_a_folder():
+    """Only a real 404 means "folder"; a 503 must not be mistaken for one — and must reach
+    the SFN as a TransientError, the ONLY name in InspectSource's Retry list our own code
+    can raise. A bare ClientError matches nothing there and would be recorded as a
+    permanent failure carrying raw AWS text."""
     _setup([])
     fake = _FakeS3()
 
     def _boom(Bucket, Key):  # noqa: N803
-        raise _FakeClientError("503")
+        raise _FakeClientError("SlowDown")
+
+    fake.head_object = _boom
+    v.clients.s3 = lambda: fake
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_non_transient_head_error_is_not_disguised_as_retryable():
+    """AccessDenied is deterministic — retrying it just burns the SFN's attempts."""
+    _setup([])
+    fake = _FakeS3()
+
+    def _boom(Bucket, Key):  # noqa: N803
+        raise _FakeClientError("AccessDenied")
 
     fake.head_object = _boom
     v.clients.s3 = lambda: fake
@@ -486,26 +509,27 @@ def test_the_access_probe_runs_before_the_read(tmp_path, monkeypatch):
 def test_every_file_is_probed_not_just_a_sample():
     """SPEC-112's cross-file check compares per-file column lists; one sample shows nothing."""
     probed = []
-    _setup([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 10), ("alice/sales/c.csv", 10)])
+    _, fake = _setup([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 10), ("alice/sales/c.csv", 10)])
     real_probe = v._probe_columns
     v._probe_columns = lambda bucket, key, fmt: probed.append(key) or real_probe(bucket, key, fmt)
-    out = v.handler(_event(), None)
+    v.handler(_event(), None)
     assert probed == ["alice/sales/a.csv", "alice/sales/b.csv", "alice/sales/c.csv"]
-    assert len(out["files"]) == 3
+    assert len(_manifest_of(fake)["files"]) == 3
 
 
 def test_files_disagreeing_on_columns_is_recorded_not_rejected():
     """The input SPEC-112 must report on — inspect-source records it and moves on."""
-    _setup(
+    _, fake = _setup(
         [("alice/sales/a.csv", 10), ("alice/sales/b.csv", 10)],
         columns={
             "alice/sales/a.csv": [{"name": "id", "type": "string"}, {"name": "note", "type": "string"}],
             "alice/sales/b.csv": [{"name": "id", "type": "string"}],
         },
     )
-    out = v.handler(_event(), None)
-    assert [len(f["columns"]) for f in out["files"]] == [2, 1]
-    assert [f["key"] for f in out["files"]] == ["alice/sales/a.csv", "alice/sales/b.csv"]
+    v.handler(_event(), None)
+    files = _manifest_of(fake)["files"]
+    assert [len(f["columns"]) for f in files] == [2, 1]
+    assert [f["key"] for f in files] == ["alice/sales/a.csv", "alice/sales/b.csv"]
 
 
 # ── FR-005: the gzip probe's byte bound ──────────────────────────────────────
@@ -706,35 +730,46 @@ def test_a_gz_object_that_is_not_actually_gzip_is_a_terminal(monkeypatch):
 
 
 def _partition_event(objects):
-    _setup(objects)
-    return v.handler(_event(), None)
+    """Run the verb and return (state_output, manifest).
+
+    Partition NAMES ride in the state output; the observed VALUES live in the manifest
+    (FR-006), so a partition assertion generally wants both.
+    """
+    _, fake = _setup(objects)
+    out = v.handler(_event(), None)
+    return out, _manifest_of(fake)
 
 
 def test_a_flat_folder_has_no_partition_keys():
-    out = _partition_event([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 10)])
+    out, manifest = _partition_event([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 10)])
     assert out["partitionKeys"] == []
+    assert manifest["partitionKeys"] == []
 
 
 def test_plain_nested_folders_are_flat_not_a_mismatch():
     """No key=value anywhere, so this is simply an unpartitioned folder — Athena reads
     every file under LOCATION recursively and omits nothing."""
-    out = _partition_event(
+    out, _ = _partition_event(
         [("alice/sales/a.csv", 10), ("alice/sales/2024/b.csv", 10), ("alice/sales/2024/q1/c.csv", 10)]
     )
     assert out["partitionKeys"] == []
 
 
 def test_a_partitioned_folder_records_keys_and_values():
-    out = _partition_event([("alice/sales/region=us/a.csv", 10), ("alice/sales/region=eu/b.csv", 10)])
-    assert out["partitionKeys"] == [{"name": "region", "values": ["eu", "us"]}]
+    out, manifest = _partition_event(
+        [("alice/sales/region=us/a.csv", 10), ("alice/sales/region=eu/b.csv", 10)]
+    )
+    assert out["partitionKeys"] == ["region"]
+    assert manifest["partitionKeys"] == [{"name": "region", "values": ["eu", "us"]}]
 
 
 def test_multiple_keys_keep_their_path_order():
     """Order is the granularity order SPEC-111's projection declares."""
-    out = _partition_event(
+    out, manifest = _partition_event(
         [("alice/sales/region=us/dt=2024-01/a.csv", 10), ("alice/sales/region=eu/dt=2024-02/b.csv", 10)]
     )
-    assert [k["name"] for k in out["partitionKeys"]] == ["region", "dt"]
+    assert out["partitionKeys"] == ["region", "dt"]
+    assert [k["name"] for k in manifest["partitionKeys"]] == ["region", "dt"]
 
 
 def test_a_stray_root_file_beside_partitions_is_a_mismatch():
@@ -825,21 +860,21 @@ def test_the_object_cap_dominates_the_partition_value_cap_at_the_defaults():
 def test_exactly_the_partition_value_cap_is_allowed(monkeypatch):
     monkeypatch.setattr(config, "DQ_MAX_PARTITION_VALUES", 3)
     objects = [(f"alice/sales/dt=2024-{i:02d}/a.csv", 10) for i in range(3)]
-    out = _partition_event(objects)
-    assert len(out["partitionKeys"][0]["values"]) == 3
+    _, manifest = _partition_event(objects)
+    assert len(manifest["partitionKeys"][0]["values"]) == 3
 
 
 def test_partition_values_are_deduped_and_sorted():
     """Deterministic: a retry must produce a byte-identical manifest, and listing order
     is not guaranteed stable."""
-    out = _partition_event(
+    _, manifest = _partition_event(
         [
             ("alice/sales/region=us/a.csv", 10),
             ("alice/sales/region=us/b.csv", 10),
             ("alice/sales/region=eu/c.csv", 10),
         ]
     )
-    assert out["partitionKeys"] == [{"name": "region", "values": ["eu", "us"]}]
+    assert manifest["partitionKeys"] == [{"name": "region", "values": ["eu", "us"]}]
 
 
 def test_a_single_file_location_under_partitions_is_not_a_mismatch():
@@ -848,6 +883,272 @@ def test_a_single_file_location_under_partitions_is_not_a_mismatch():
     out = v.handler(_event(location="alice/sales/region=us/a.csv"), None)
     assert out["partitionKeys"] == []
     assert out["fileCount"] == 1
+
+
+# ── FR-006: the manifest and the bounded state output ────────────────────────
+
+
+def _manifest_of(fake):
+    assert len(fake.puts) == 1, f"expected exactly one manifest write, got {len(fake.puts)}"
+    return json.loads(fake.puts[0]["Body"])
+
+
+def test_the_manifest_is_written_to_the_report_prefix():
+    _, fake = _setup([("alice/sales/a.csv", 4096)])
+    out = v.handler(_event(), None)
+    assert fake.puts[0]["Bucket"] == BUCKET
+    assert fake.puts[0]["Key"] == "alice/_data-quality-reports/req-1/manifest.json"
+    assert out["manifestKey"] == "alice/_data-quality-reports/req-1/manifest.json"
+
+
+def test_the_manifest_carries_the_spec_shape():
+    _, fake = _setup(
+        [("alice/sales/region=us/a.csv", 4096), ("alice/sales/region=eu/b.csv", 8192)],
+        columns={
+            "alice/sales/region=us/a.csv": [
+                {"name": "id", "type": "string"},
+                {"name": "note", "type": "string"},
+            ],
+            "alice/sales/region=eu/b.csv": [{"name": "id", "type": "string"}],
+        },
+    )
+    v.handler(_event(), None)
+    assert _manifest_of(fake) == {
+        "requestId": "req-1",
+        "format": "csv",
+        "fileCount": 2,
+        "partitionKeys": [{"name": "region", "values": ["eu", "us"]}],
+        "files": [
+            {
+                "key": "alice/sales/region=us/a.csv",
+                "size": 4096,
+                "columns": [{"name": "id", "type": "string"}, {"name": "note", "type": "string"}],
+            },
+            {
+                "key": "alice/sales/region=eu/b.csv",
+                "size": 8192,
+                "columns": [{"name": "id", "type": "string"}],
+            },
+        ],
+    }
+
+
+def test_a_throttled_manifest_write_is_retryable_not_terminal():
+    """The bug this pins: an unmapped put_object fault reaches the SFN as `ClientError`,
+    which InspectSource's Retry list does NOT name — so a one-off SlowDown becomes a
+    permanent failure whose user-facing reason is raw AWS text, after every file has
+    already been probed. The verb is replay-safe, so a Retry simply rewrites the manifest.
+    """
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+
+    def _boom(Bucket, Key, Body, **kw):  # noqa: N803
+        raise _FakeClientError("SlowDown")
+
+    fake.put_object = _boom
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_non_transient_manifest_write_error_is_not_disguised_as_retryable():
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+
+    def _boom(Bucket, Key, Body, **kw):  # noqa: N803
+        raise _FakeClientError("AccessDenied")
+
+    fake.put_object = _boom
+    with pytest.raises(_FakeClientError):
+        v.handler(_event(), None)
+
+
+def test_a_throttled_listing_is_retryable():
+    """A throttled page mid-pagination is retryable; s3_listing lets it propagate raw, so
+    the verb is what has to map it."""
+    _setup([])
+
+    def _boom(bucket, prefix):
+        raise _FakeClientError("SlowDown")
+
+    v.s3_listing.list_data_objects = _boom
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_throttled_access_probe_is_retryable():
+    """The real _check_access, not a stub — a throttle here must not become a permanent
+    'the columns couldn't be read'."""
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+    calls = []
+
+    def _boom(Bucket, Key):  # noqa: N803
+        calls.append(Key)
+        raise _FakeClientError("Throttling")
+
+    fake.head_object = _boom
+    with pytest.raises(TransientError):
+        v._check_access(BUCKET, "alice/sales/a.csv")
+    assert calls == ["alice/sales/a.csv"]
+
+
+def test_a_throttled_gzip_get_is_retryable_not_unreadable_header():
+    """_read_gzip_head runs INSIDE _probe_columns' try, so without an explicit
+    TransientError re-raise the catch-all would swallow it and report the file as
+    permanently unreadable."""
+    fake = _FakeS3()
+    fake.get_object = lambda **kw: (_ for _ in ()).throw(_FakeClientError("SlowDown"))
+    fake.head_object = lambda Bucket, Key: {"ContentLength": 10}  # noqa: N803
+    v.clients.s3 = lambda: fake
+    with pytest.raises(TransientError):
+        v._probe_columns(BUCKET, "alice/sales/a.csv.gz", "csv")
+
+
+def test_non_transient_faults_propagate_unchanged_from_every_read_path():
+    """The other half of the mapping: only the retryable codes become TransientError.
+
+    Disguising AccessDenied as retryable would burn the SFN's attempts on a fault that
+    cannot resolve, and delay the real reason by the full backoff.
+    """
+    denied = _FakeClientError("AccessDenied")
+
+    # listing
+    _setup([])
+    v.s3_listing.list_data_objects = lambda b, p: (_ for _ in ()).throw(denied)
+    with pytest.raises(_FakeClientError):
+        v.handler(_event(), None)
+
+    # access probe
+    _, fake = _setup([("alice/sales/a.csv", 10)])
+    fake.head_object = lambda Bucket, Key: (_ for _ in ()).throw(denied)  # noqa: N803
+    with pytest.raises(_FakeClientError):
+        v._check_access(BUCKET, "alice/sales/a.csv")
+
+    # gzip body read
+    fake2 = _FakeS3()
+    fake2.get_object = lambda **kw: (_ for _ in ()).throw(denied)
+    v.clients.s3 = lambda: fake2
+    with pytest.raises(_FakeClientError):
+        v._read_gzip_head(BUCKET, "alice/sales/a.csv.gz")
+
+
+def test_the_manifest_key_is_a_pure_function_of_the_request_and_a_replay_is_byte_identical():
+    """The only idempotency this pipeline has: no verb does request-id bookkeeping, so a
+    Retry must overwrite the SAME KEY with the SAME BYTES rather than leave a second
+    artefact behind.
+
+    Asserts the KEY as well as the body — an earlier version compared bodies only, and so
+    passed even with a uuid4() in the key, i.e. it did not test the first half of its own
+    name.
+    """
+    writes = []
+    for _ in range(2):
+        _, fake = _setup([("alice/sales/b.csv", 2), ("alice/sales/a.csv", 1)])
+        v.handler(_event(), None)
+        writes.append((fake.puts[0]["Key"], fake.puts[0]["Body"]))
+    assert writes[0] == writes[1], "a replay must rewrite the same key with the same bytes"
+
+
+# ── FR-006: the state payload bound ──────────────────────────────────────────
+
+
+def test_the_state_payload_stays_tiny_at_the_object_cap_with_maximal_keys():
+    """DQ_MAX_OBJECTS files with 1024-character keys — the worst case the caps allow.
+
+    The disaster this prevents: a state payload over Step Functions' 256 KB raises
+    States.DataLimitExceeded, which is thrown OUTSIDE every Catch — the execution dies
+    without reaching NotifyFailure, so the user is told NOTHING, and it happens on exactly
+    the biggest folders. Passing the manifest by POINTER is what keeps the payload flat.
+    """
+    long_dir = "d" * 990
+    objects = [(f"alice/sales/{long_dir}/part-{i:04d}.csv", 1024) for i in range(config.DQ_MAX_OBJECTS)]
+    assert len(objects[0][0]) > 1000, "fixture must use maximal-length keys"
+    _setup(objects, columns=[{"name": f"col_{i}", "type": "string"} for i in range(50)])
+
+    out = v.handler(_event(), None)
+
+    payload = json.dumps(out).encode()
+    assert len(payload) < 8 * 1024, f"state payload is {len(payload)} bytes"
+    assert out["fileCount"] == config.DQ_MAX_OBJECTS
+
+
+def test_the_payload_stays_bounded_when_partition_key_NAMES_are_the_worst_case():
+    """The file list rides as a pointer, so partition-key NAMES are the only thing left in
+    the payload that grows with the input — and the test above uses a flat folder, which
+    exercises none of them. Bounded transitively by S3's 1024-byte key limit (a key can
+    hold ~250 `a=1/` segments), but bounded-by-luck is worth pinning.
+    """
+    segments = "/".join(f"k{i:03d}=v" for i in range(120))
+    objects = [(f"alice/sales/{segments}/part-{i}.csv", 10) for i in range(5)]
+    assert len(objects[0][0]) < 1024, "fixture must stay inside S3's key limit"
+    _setup(objects)
+
+    out = v.handler(_event(), None)
+
+    assert len(out["partitionKeys"]) == 120
+    assert len(json.dumps(out).encode()) < 8 * 1024
+
+
+def test_long_partition_VALUES_do_not_reach_the_payload():
+    """Values live in the manifest; only names ride in the state."""
+    long_value = "v" * 900
+    _setup([(f"alice/sales/region={long_value}/a.csv", 10), ("alice/sales/region=eu/b.csv", 10)])
+    out = v.handler(_event(), None)
+    payload = json.dumps(out)
+    assert long_value not in payload
+    assert len(payload.encode()) < 8 * 1024
+
+
+def test_the_state_output_never_inlines_the_file_list_or_columns():
+    _, fake = _setup([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 10)])
+    out = v.handler(_event(), None)
+    assert "files" not in out
+    assert "columns" not in out
+    # The data is in the manifest, not the payload.
+    assert len(_manifest_of(fake)["files"]) == 2
+
+
+def test_the_state_output_carries_partition_key_NAMES_not_values():
+    """Values are capped at DQ_MAX_PARTITION_VALUES per key — far too many to ride in the
+    payload. SPEC-111 reads them from the manifest when it builds the projection enum."""
+    _, fake = _setup([("alice/sales/region=us/a.csv", 10), ("alice/sales/region=eu/b.csv", 10)])
+    out = v.handler(_event(), None)
+    assert out["partitionKeys"] == ["region"]
+    assert _manifest_of(fake)["partitionKeys"] == [{"name": "region", "values": ["eu", "us"]}]
+
+
+def test_the_state_output_threads_the_identity_contract():
+    """SPEC-109's contract, and it is uncatchable if broken: RecordSuccess/RecordFailure
+    read $.requestId/$.actor, and a Pass state's JSONPath hard-fails on an ABSENT key with
+    States.Runtime — skipping NotifyFailure and leaving the user with no notification at
+    all. This is why FR-006's "only" means "add only", not "keep only"."""
+    _setup([("alice/sales/a.csv", 10)])
+    out = v.handler(_event(), None)
+    assert out["requestId"] == "req-1"
+    assert out["actor"] == "alice"
+
+
+def test_the_state_output_threads_what_spec_111_needs():
+    _setup([("alice/sales/a.csv", 10)])
+    out = v.handler(_event(), None)
+    assert out["space"]["bucket"] == BUCKET
+    assert out["location"] == LOCATION
+    assert out["reportPrefix"] == "alice/_data-quality-reports/req-1/"
+
+
+def test_a_missing_report_prefix_is_invalid_request():
+    """Rather than a bare KeyError the SFN records as an opaque failure."""
+    _setup([("alice/sales/a.csv", 10)])
+    event = _event()
+    del event["reportPrefix"]
+    with pytest.raises(TerminalError) as err:
+        v.handler(event, None)
+    assert err.value.reason == messages.INVALID_REQUEST
+
+
+def test_no_manifest_is_written_when_the_request_fails():
+    """A terminal before the write must not leave a half-truth in the report prefix."""
+    _, fake = _setup([("alice/sales/a.csv", 10), ("alice/sales/b.parquet", 10)])
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+    assert fake.puts == []
 
 
 if __name__ == "__main__":
