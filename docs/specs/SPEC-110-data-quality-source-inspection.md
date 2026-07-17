@@ -1,7 +1,7 @@
 # Spec: Data Quality — Source Inspection (`inspect-source`)
 
 **ID:** SPEC-110
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-16
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (request contract + authorization)
 

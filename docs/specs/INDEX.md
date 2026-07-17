@@ -115,7 +115,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 107 — Shared `control-plane-common` Lambda Layer | Completed |
 | 108 — Data Quality: Foundation Infrastructure + Common Layer + Athena Workgroup | Completed |
 | 109 — Data Quality: Request Contract, Enqueue & validate-authorize | Completed |
-| 110 — Data Quality: Source Inspection | Draft |
+| 110 — Data Quality: Source Inspection | Completed |
 | 111 — Data Quality: Temp Tables + the Athena Profile Query | Draft |
 | 112 — Data Quality: byte-scan + Report Assembly | Draft |
 | 113 — Data Quality: File-Browser UI + Report View | Draft |
