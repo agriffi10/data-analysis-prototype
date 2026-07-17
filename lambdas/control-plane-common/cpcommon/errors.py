@@ -64,8 +64,12 @@ _TRANSIENT_CODES = frozenset({
 })
 
 
-def _error_code(exc) -> str:
+def error_code(exc) -> str:
     """The botocore error code on ``exc``, or "" if it has none.
+
+    Public because callers need it beyond transient classification too — e.g. matching a
+    ``NoSuchKey``/404 to distinguish a folder from a file. The single canonical extractor
+    (mirrors ``shared-space-common/casio.error_code``).
 
     Defensive at every level: a non-dict ``response`` or a ``None`` ``Error`` yields ""
     rather than raising — a classifier must never itself throw while classifying a fault.
@@ -93,6 +97,6 @@ def raise_if_transient(exc, detail: str = "") -> None:
     This helps ONLY under a state whose Retry ``ErrorEquals`` names ``TransientError`` —
     the code half and the state-machine half must move together.
     """
-    code = _error_code(exc)
+    code = error_code(exc)
     if code in _TRANSIENT_CODES:
         raise TransientError(f"{detail}: transient {code}" if detail else f"transient {code}") from exc

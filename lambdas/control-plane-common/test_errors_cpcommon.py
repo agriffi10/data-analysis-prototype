@@ -32,6 +32,28 @@ def test_every_transient_code_raises_TransientError(code):
         errors.raise_if_transient(_FakeClientError(code))
 
 
+def test_canonical_set_covers_every_code_the_migrated_copies_needed():
+    """The union the five migrated copies converged on. Pinned so a future trim can't
+    silently re-introduce the incomplete-set bug (each old copy was a partial subset, so
+    each verb previously failed permanently on transient codes it happened not to list)."""
+    required = {
+        # S3 (dq / tscommon-copy / infer-schema head probe / inspect listing)
+        "SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable", "503", "500",
+        # generic / Glue throttles
+        "Throttling", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded",
+        # Athena 5xx (athena_run / tscommon-athena)
+        "InternalServerException", "InternalErrorException", "ServiceUnavailableException",
+    }
+    missing = required - errors._TRANSIENT_CODES
+    assert not missing, f"canonical _TRANSIENT_CODES dropped required codes: {sorted(missing)}"
+
+
+def test_no_deterministic_code_is_transient():
+    """The safety invariant behind the superset: retrying AccessDenied/NoSuchKey/403/404
+    would just burn the SFN's attempts. None may ever leak into the transient set."""
+    assert not (errors._TRANSIENT_CODES & {"AccessDenied", "NoSuchKey", "403", "404", "ValidationException"})
+
+
 @pytest.mark.parametrize("code", ["AccessDenied", "NoSuchKey", "403", "404", "ValidationException"])
 def test_a_deterministic_code_is_not_mapped(code):
     # Returns None (does not raise), so the caller re-raises the original unchanged.
@@ -74,7 +96,7 @@ def test_error_code_is_defensive_against_malformed_responses():
         response = "nope"
 
     for exc in (_NoResponse(), _ResponseNone(), _ErrorNone(), _ResponseNotDict(), RuntimeError("boom")):
-        assert errors._error_code(exc) == ""
+        assert errors.error_code(exc) == ""
         assert errors.raise_if_transient(exc) is None
 
 

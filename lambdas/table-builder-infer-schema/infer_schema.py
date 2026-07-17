@@ -17,59 +17,15 @@ wrong format) is terminal schema_inference_failed.
 import logging
 import re
 
-from cpcommon import clients, events
+from cpcommon import clients, errors, events
 from tbcommon import notify
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 
 from ddl import build_create_table_ddl
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-# Retryable S3 fault codes for the head probe. Mirrors athena_run._TRANSIENT_CODES (the
-# execute-ddl verb's list) so table-builder classifies transient faults one way; the S3
-# throttle/5xx codes (SlowDown, ServiceUnavailable, InternalError, 503/500) are added
-# because this verb hits S3, not Athena.
-#
-# DUPLICATION, KNOWINGLY: this is the fourth copy of a tiny classify-and-raise helper
-# (athena_run.py, tscommon/copy.py, dq_inspect_source.py, here). Consolidating into
-# cpcommon is worthwhile but out of scope for this focused fix — tracked separately.
-_TRANSIENT_CODES = frozenset({
-    "ThrottlingException",
-    "TooManyRequestsException",
-    "RequestLimitExceeded",
-    "Throttling",
-    "SlowDown",
-    "RequestTimeout",
-    "InternalError",
-    "InternalServerException",
-    "InternalErrorException",
-    "ServiceUnavailable",
-    "ServiceUnavailableException",
-    "503",
-    "500",
-})
-
-
-def _error_code(exc) -> str:
-    return str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
-
-
-def _raise_if_transient(exc: Exception) -> None:
-    """Re-raise a retryable S3 fault as ``TransientError``; return otherwise.
-
-    WHY THIS EXISTS, because the naive read is wrong: an exception raised inside the
-    handler reaches Step Functions as its PYTHON CLASS NAME, so a bare botocore fault
-    arrives as ``errorType: "ClientError"`` — which the InferSchema Retry list does NOT
-    name, so a one-off S3 SlowDown on the head probe would fail the whole table build
-    permanently. Raising the repo's ``TransientError`` (which the Retry list DOES name,
-    added alongside this fix) is what actually gets the throttle retried. A non-transient
-    fault (AccessDenied, NoSuchKey) is left to propagate: retrying it would just burn the
-    SFN's attempts on something that cannot resolve.
-    """
-    if _error_code(exc) in _TRANSIENT_CODES:
-        raise TransientError(f"transient S3 error {_error_code(exc)}") from exc
 
 # Bounded row count for JSON inference / date detection (schema only, not the dataset).
 JSON_SAMPLE_ROWS = 1000
@@ -99,7 +55,7 @@ def _check_access(bucket, key):
     try:
         clients.s3().head_object(Bucket=bucket, Key=key)
     except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        _raise_if_transient(err)
+        errors.raise_if_transient(err, "S3 head probe")
         raise
 
 

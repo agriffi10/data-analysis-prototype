@@ -11,7 +11,7 @@ transient failure.
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from cpcommon import clients
+from cpcommon import clients, errors
 from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger(__name__)
@@ -24,17 +24,14 @@ MULTIPART_PART_SIZE = 1024**3  # 1 GiB per UploadPartCopy range
 # parallelism; the SPEC-090 caps bound the total work).
 COPY_CONCURRENCY = 8
 
-# Error codes that are worth a Step Function retry of the whole (idempotent) verb;
-# anything else is a deterministic per-recipient copy failure.
-_TRANSIENT_CODES = frozenset(
-    {"SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable", "Throttling", "503", "500"}
-)
-
-
 def _raise_mapped(exc: Exception, detail: str):
-    code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
-    if code in _TRANSIENT_CODES:
-        raise TransientError(f"{detail}: {exc}") from exc
+    """A transient throttle/5xx retries the whole (idempotent) verb; anything else is a
+    deterministic per-recipient ``copy_failed``.
+
+    Delegates the transient classification to ``cpcommon.errors.raise_if_transient`` (the
+    canonical classifier); if it returns, the fault is deterministic and becomes terminal.
+    """
+    errors.raise_if_transient(exc, detail)
     raise TerminalError("copy_failed", f"{detail}: {exc}") from exc
 
 

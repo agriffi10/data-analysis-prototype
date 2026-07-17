@@ -24,7 +24,7 @@ import json
 import logging
 import zlib
 
-from cpcommon import clients, events, s3_listing
+from cpcommon import clients, errors, events, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 from dqcommon import config, messages
@@ -74,41 +74,10 @@ MANIFEST_BASENAME = "manifest.json"
 _NOT_FOUND_CODES = frozenset({"404", "NotFound", "NoSuchKey"})
 
 
-# Retryable S3 fault codes. Mirrors tscommon/copy.py's list — anything else is a
-# deterministic failure that retrying cannot fix.
-_TRANSIENT_CODES = frozenset(
-    {"SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable", "Throttling",
-     "ThrottlingException", "RequestLimitExceeded", "503", "500"}
-)
-
-
-def _error_code(exc) -> str:
-    """The S3 error code from a botocore ClientError, or "" if it has none.
-
-    Duck-typed rather than `except ClientError`, matching casio.error_code (shared-space)
-    and the table-builder verbs: botocore ships in the Lambda RUNTIME but is not a test
-    dependency of this repo, so importing it at module scope makes the verb unimportable
-    under `pytest lambdas/` — which is exactly how this was caught in CI.
-    """
-    return str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
-
-
-def _raise_if_transient(exc: Exception, detail: str) -> None:
-    """Re-raise a retryable S3 fault as ``TransientError``; return otherwise.
-
-    WHY THIS IS NEEDED, because the obvious mental model is wrong: an exception raised
-    INSIDE the handler reaches Step Functions as its PYTHON CLASS NAME — a botocore fault
-    arrives as ``errorType: "ClientError"``. The InspectSource Retry list matches
-    ``Lambda.ServiceException | Lambda.TooManyRequestsException | Lambda.AWSLambdaException
-    | Lambda.SdkClientException | TransientError``; the ``Lambda.*`` entries are faults of
-    the INVOKE, not of our code. So ``ClientError`` matches NOTHING, falls through to
-    ``Catch(States.ALL)``, and RecordFailure records ``$.parsed.cause.errorMessage`` —
-    i.e. a one-off S3 SlowDown becomes a permanent failure whose user-facing reason is raw
-    AWS text (the leak SPEC-106 FR-008 forbids). Raising the repo's ``TransientError`` is
-    what puts a fault in front of that Retry; that the list names it proves the mechanism.
-    """
-    if _error_code(exc) in _TRANSIENT_CODES:
-        raise TransientError(f"{detail}: {exc}") from exc
+# Transient S3 faults now go through cpcommon.errors.raise_if_transient (the canonical
+# classifier); the folder-vs-file probe below uses cpcommon.errors.error_code for the
+# NoSuchKey/404 check. Both were local copies here until the SPEC-110 follow-up
+# consolidated them.
 
 
 def _classify(key: str) -> str | None:
@@ -153,7 +122,7 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     a report over files they never selected.
 
     A ``head_object`` decides which it is, and doubles as the access probe: a retryable
-    fault becomes a ``TransientError`` for the SFN's Retry (see ``_raise_if_transient`` —
+    fault becomes a ``TransientError`` for the SFN's Retry (see ``errors.raise_if_transient`` —
     a bare boto error would NOT be retried), and nothing but a plain "no such key" is read
     as a folder.
 
@@ -168,9 +137,9 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     try:
         head = clients.s3().head_object(Bucket=bucket, Key=location)
     except Exception as err:  # noqa: BLE001 - re-raised unless it is a plain "no such key"
-        if _error_code(err) in _NOT_FOUND_CODES:
+        if errors.error_code(err) in _NOT_FOUND_CODES:
             return f"{location}/"
-        _raise_if_transient(err, f"head {bucket}/{location}")
+        errors.raise_if_transient(err, f"head {bucket}/{location}")
         raise
     if not head.get("ContentLength"):
         return f"{location}/"
@@ -186,14 +155,14 @@ def _list_objects(bucket: str, prefix: str) -> list[tuple[str, int]]:
     placeholders. Nothing here re-implements those rules.
 
     A throttled page mid-pagination is retryable, so it is mapped rather than left to
-    surface as an unretried ClientError (``_raise_if_transient``). s3_listing's own
+    surface as an unretried ClientError (``errors.raise_if_transient``). s3_listing's own
     docstring says transient errors "propagate so the Step Function's Retry can handle
     them" — that is true only for a verb that maps them, which is why this wraps.
     """
     try:
         return list(s3_listing.list_data_objects(bucket, prefix))
     except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        _raise_if_transient(err, f"list {bucket}/{prefix}")
+        errors.raise_if_transient(err, f"list {bucket}/{prefix}")
         raise
 
 
@@ -257,7 +226,7 @@ def _check_access(bucket: str, key: str) -> None:
     scan, keeping them distinct from the probe's own errors below, which are terminal
     ``unreadable_header``. A throttle here becomes a ``TransientError`` so the SFN retries
     it; without that mapping it would arrive as an unretried ``ClientError`` and be
-    recorded as a permanent failure (see ``_raise_if_transient``).
+    recorded as a permanent failure (see ``errors.raise_if_transient``).
 
     It does NOT close the gap, and the limit is worth stating plainly: this is a
     check-then-act, and the polars scan afterwards is what actually pulls the footer. If
@@ -271,7 +240,7 @@ def _check_access(bucket: str, key: str) -> None:
     try:
         clients.s3().head_object(Bucket=bucket, Key=key)
     except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        _raise_if_transient(err, f"head {bucket}/{key}")
+        errors.raise_if_transient(err, f"head {bucket}/{key}")
         raise
 
 
@@ -293,7 +262,7 @@ def _stream_gzip_head(bucket: str, key: str) -> bytearray:
     try:
         body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
     except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        _raise_if_transient(err, f"get {bucket}/{key}")
+        errors.raise_if_transient(err, f"get {bucket}/{key}")
         raise
     decompressor = zlib.decompressobj(_GZIP_WBITS)
     out = bytearray()
@@ -497,7 +466,7 @@ def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
         # verb is replay-safe (the key is a pure function of the request), so a Retry
         # simply rewrites it. Unmapped, this arrives as an unretried ClientError and the
         # user's reason becomes raw AWS text — after all the probing work is done.
-        _raise_if_transient(err, f"put {bucket}/{key}")
+        errors.raise_if_transient(err, f"put {bucket}/{key}")
         raise
 
 
