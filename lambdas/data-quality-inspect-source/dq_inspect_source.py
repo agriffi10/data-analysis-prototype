@@ -20,12 +20,13 @@ Athena's job (SPEC-111); byte-level reading is byte-scan's (SPEC-112).
 """
 
 import io
+import json
 import logging
 import zlib
 
 from cpcommon import clients, events, s3_listing
-from cpcommon.errors import TerminalError
-from dq_type_mapping import UnmappableTypeError, map_dtype
+from cpcommon.errors import TerminalError, TransientError
+from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 from dqcommon import config, messages
 
 logger = logging.getLogger()
@@ -63,11 +64,22 @@ _GZIP_CHUNK_BYTES = 256 * 1024
 # zlib wbits for a gzip (not raw-deflate) stream.
 _GZIP_WBITS = 16 + zlib.MAX_WBITS
 
+#: The manifest's filename inside the request's report prefix (FR-006).
+MANIFEST_BASENAME = "manifest.json"
+
 # S3 error codes meaning "no such object" for the single-file probe below. head_object
 # reports a missing key as 404/NotFound rather than NoSuchKey (that one is GetObject's),
 # so all three are matched: a wrong guess here would misread a real folder as an access
 # error, or an access error as a folder.
 _NOT_FOUND_CODES = frozenset({"404", "NotFound", "NoSuchKey"})
+
+
+# Retryable S3 fault codes. Mirrors tscommon/copy.py's list — anything else is a
+# deterministic failure that retrying cannot fix.
+_TRANSIENT_CODES = frozenset(
+    {"SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable", "Throttling",
+     "ThrottlingException", "RequestLimitExceeded", "503", "500"}
+)
 
 
 def _error_code(exc) -> str:
@@ -79,6 +91,24 @@ def _error_code(exc) -> str:
     under `pytest lambdas/` — which is exactly how this was caught in CI.
     """
     return str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
+
+
+def _raise_if_transient(exc: Exception, detail: str) -> None:
+    """Re-raise a retryable S3 fault as ``TransientError``; return otherwise.
+
+    WHY THIS IS NEEDED, because the obvious mental model is wrong: an exception raised
+    INSIDE the handler reaches Step Functions as its PYTHON CLASS NAME — a botocore fault
+    arrives as ``errorType: "ClientError"``. The InspectSource Retry list matches
+    ``Lambda.ServiceException | Lambda.TooManyRequestsException | Lambda.AWSLambdaException
+    | Lambda.SdkClientException | TransientError``; the ``Lambda.*`` entries are faults of
+    the INVOKE, not of our code. So ``ClientError`` matches NOTHING, falls through to
+    ``Catch(States.ALL)``, and RecordFailure records ``$.parsed.cause.errorMessage`` —
+    i.e. a one-off S3 SlowDown becomes a permanent failure whose user-facing reason is raw
+    AWS text (the leak SPEC-106 FR-008 forbids). Raising the repo's ``TransientError`` is
+    what puts a fault in front of that Retry; that the list names it proves the mechanism.
+    """
+    if _error_code(exc) in _TRANSIENT_CODES:
+        raise TransientError(f"{detail}: {exc}") from exc
 
 
 def _classify(key: str) -> str | None:
@@ -122,9 +152,10 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     silently swallow ``alice/sales-archive/`` and ``alice/sales2/`` — the user would get
     a report over files they never selected.
 
-    A ``head_object`` decides which it is, and doubles as the access probe: anything that
-    is not a plain "no such key" propagates as a boto error for the SFN's Retry rather
-    than being mistaken for a folder.
+    A ``head_object`` decides which it is, and doubles as the access probe: a retryable
+    fault becomes a ``TransientError`` for the SFN's Retry (see ``_raise_if_transient`` —
+    a bare boto error would NOT be retried), and nothing but a plain "no such key" is read
+    as a folder.
 
     A ZERO-BYTE hit is treated as a folder, not a file. S3 has no directories: a folder is
     a zero-byte placeholder object (SPEC-016 writes them), so an object AT the location key
@@ -139,6 +170,7 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     except Exception as err:  # noqa: BLE001 - re-raised unless it is a plain "no such key"
         if _error_code(err) in _NOT_FOUND_CODES:
             return f"{location}/"
+        _raise_if_transient(err, f"head {bucket}/{location}")
         raise
     if not head.get("ContentLength"):
         return f"{location}/"
@@ -152,8 +184,17 @@ def _list_objects(bucket: str, prefix: str) -> list[tuple[str, int]]:
     pipeline's own ``_data-quality-reports/`` folder from being read back as source data,
     and it also drops the marker, ``athenaresults/``, ``user_settings/`` and zero-byte
     placeholders. Nothing here re-implements those rules.
+
+    A throttled page mid-pagination is retryable, so it is mapped rather than left to
+    surface as an unretried ClientError (``_raise_if_transient``). s3_listing's own
+    docstring says transient errors "propagate so the Step Function's Retry can handle
+    them" — that is true only for a verb that maps them, which is why this wraps.
     """
-    return list(s3_listing.list_data_objects(bucket, prefix))
+    try:
+        return list(s3_listing.list_data_objects(bucket, prefix))
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        _raise_if_transient(err, f"list {bucket}/{prefix}")
+        raise
 
 
 def _enforce_caps(objects: list[tuple[str, int]]) -> None:
@@ -212,9 +253,11 @@ def _object_uri(bucket: str, key: str) -> str:
 def _check_access(bucket: str, key: str) -> None:
     """Cheap access probe run before each read (mirrors infer_schema.py:44-52).
 
-    Surfaces the COMMON S3 faults — object missing, access denied, bucket throttling the
-    caller — as a plain boto error the SFN's Retry can act on, keeping them distinct from
-    the probe's own errors below, which are terminal ``unreadable_header``.
+    Catches the common S3 faults — object missing, access denied, throttling — before the
+    scan, keeping them distinct from the probe's own errors below, which are terminal
+    ``unreadable_header``. A throttle here becomes a ``TransientError`` so the SFN retries
+    it; without that mapping it would arrive as an unretried ``ClientError`` and be
+    recorded as a permanent failure (see ``_raise_if_transient``).
 
     It does NOT close the gap, and the limit is worth stating plainly: this is a
     check-then-act, and the polars scan afterwards is what actually pulls the footer. If
@@ -225,7 +268,11 @@ def _check_access(bucket: str, key: str) -> None:
     table-builder's infer-schema carries the same shape (infer_schema.py:44-52); if this
     is ever fixed, fix it in both.
     """
-    clients.s3().head_object(Bucket=bucket, Key=key)
+    try:
+        clients.s3().head_object(Bucket=bucket, Key=key)
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        _raise_if_transient(err, f"head {bucket}/{key}")
+        raise
 
 
 def _stream_gzip_head(bucket: str, key: str) -> bytearray:
@@ -243,7 +290,11 @@ def _stream_gzip_head(bucket: str, key: str) -> bytearray:
     truncated result is 15 bytes however large this buffer grew. A test asserting on that
     passes whether or not any bound exists, which is precisely the bug review caught.
     """
-    body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
+    try:
+        body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        _raise_if_transient(err, f"get {bucket}/{key}")
+        raise
     decompressor = zlib.decompressobj(_GZIP_WBITS)
     out = bytearray()
     consumed = 0
@@ -329,7 +380,11 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
         if _is_compressed(key):
             return _columns_from(io.BytesIO(_read_gzip_head(bucket, key)), fmt)
         return _columns_from(_object_uri(bucket, key), fmt)
-    except TerminalError:
+    except (TerminalError, TransientError):
+        # TransientError must pass through: _read_gzip_head runs INSIDE this try, so a
+        # throttled GetObject would otherwise be swallowed by the catch-all below and
+        # reported as "the columns couldn't be read" — a permanent verdict on a fault the
+        # SFN would happily have retried.
         raise
     except Exception as exc:  # noqa: BLE001 - a corrupt/mistyped object is terminal, not retryable
         raise TerminalError(
@@ -407,9 +462,50 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
     return [{"name": name, "values": sorted(values[name])} for name in expected]
 
 
+def _manifest_key(report_prefix: str) -> str:
+    """Return the manifest's S3 key — a PURE FUNCTION of the request's report prefix.
+
+    validate-authorize derives reportPrefix from requestId alone, so this key is too. That
+    is what makes the pipeline replay-safe: a Retry re-runs the whole verb and overwrites
+    the manifest byte-identically, which is the only idempotency this codebase has — no
+    verb here does request-id bookkeeping.
+    """
+    return f"{report_prefix.rstrip('/')}/{MANIFEST_BASENAME}"
+
+
+def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
+    """Write the manifest to S3, canonically and compactly.
+
+    What each argument is actually for, stated precisely because it is easy to overclaim:
+
+    - ``separators`` drops JSON's default whitespace. At DQ_MAX_OBJECTS files with wide
+      column lists that is a real size saving in the object we write and assemble-report
+      later reads back.
+    - ``sort_keys`` makes the output canonical rather than dependent on how the dict above
+      happened to be built. It is defence against a future edit, NOT what makes a replay
+      byte-identical — that follows from the manifest being a pure function of the request
+      and the listing (mutation-testing this argument away changes nothing today, and the
+      comment should not pretend otherwise).
+    """
+    body = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=bucket, Key=key, Body=body, ContentType="application/json"
+        )
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        # Losing the manifest to a one-off SlowDown must not fail the request: the whole
+        # verb is replay-safe (the key is a pure function of the request), so a Retry
+        # simply rewrites it. Unmapped, this arrives as an unretried ClientError and the
+        # user's reason becomes raw AWS text — after all the probing work is done.
+        _raise_if_transient(err, f"put {bucket}/{key}")
+        raise
+
+
 def _inspect(event: dict) -> dict:
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     location = events.require(event, "location", reason=messages.INVALID_REQUEST)
+    request_id = events.require(event, "requestId", reason=messages.INVALID_REQUEST)
+    report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
 
     listing_prefix = _resolve_listing_prefix(bucket, location)
     objects = _list_objects(bucket, listing_prefix)
@@ -424,22 +520,47 @@ def _inspect(event: dict) -> dict:
         for key, size in objects
     ]
 
+    manifest_key = _manifest_key(report_prefix)
+    _write_manifest(
+        bucket,
+        manifest_key,
+        {
+            "requestId": request_id,
+            "format": fmt,
+            "fileCount": len(files),
+            "partitionKeys": partition_keys,
+            "files": files,
+        },
+    )
+
     logger.info(
-        "inspected %s/%s: format=%s, %d files, partitionKeys=%s",
+        "inspected %s/%s: format=%s, %d files, partitionKeys=%s -> %s",
         bucket,
         listing_prefix,
         fmt,
         len(files),
         [k["name"] for k in partition_keys],
+        manifest_key,
     )
+
+    # The state output THREADS the request object and adds four small keys. The file list
+    # and the column lists stay in the manifest and are passed by POINTER (manifestKey);
+    # partition VALUES stay there too, since there can be DQ_MAX_PARTITION_VALUES of them
+    # per key. The disaster this prevents: a state payload over 256 KB raises
+    # States.DataLimitExceeded, which is thrown OUTSIDE every Catch — so the execution dies
+    # without reaching NotifyFailure and the user is never told anything at all, on exactly
+    # the biggest folders. dict(event) is deliberate: dropping requestId/actor would make
+    # RecordSuccess/RecordFailure hard-fail on an absent JSONPath key (States.Runtime,
+    # equally uncatchable), so "only these keys" means "add only these", not "keep only
+    # these" (SPEC-110 FR-006).
     out = dict(event)
+    out["manifestKey"] = manifest_key
     out["format"] = fmt
     out["fileCount"] = len(files)
-    out["files"] = files
-    out["partitionKeys"] = partition_keys
+    out["partitionKeys"] = [k["name"] for k in partition_keys]
     return out
 
 
 def handler(event, context) -> dict:
-    """List + classify the authorized location and carry the request forward."""
+    """Inspect the authorized location, write the manifest, and pass its KEY onward."""
     return _inspect(event)
