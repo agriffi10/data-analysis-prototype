@@ -121,7 +121,7 @@ def test_wrapper_passes_result_through_on_success():
     assert fake.calls == []  # success never notifies
 
 
-def test_wrapper_does_not_double_notify_terminal_error():
+def test_wrapper_notifies_actor_on_terminal_error_by_default():
     fake = _install()
 
     @notify.notifies_on_failure("check")
@@ -132,7 +132,27 @@ def test_wrapper_does_not_double_notify_terminal_error():
         h(_event(), None)
     except TerminalError:
         pass
-    # The handler owns the TerminalError notification; the wrapper must stay quiet.
+    # The wrapper now owns the TerminalError notification (verbs dropped their own
+    # try/except): exactly one actor-addressed failure message, deduped by step.
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["MessageDeduplicationId"] == "r1:check"
+    body = json.loads(fake.calls[0]["MessageBody"])
+    assert body["message"] == 'Couldn\'t create table "orders": a table with that name already exists in "sales".'
+
+
+def test_wrapper_stays_quiet_on_terminal_error_when_notify_terminal_false():
+    fake = _install()
+
+    @notify.notifies_on_failure("validate", notify_terminal=False)
+    def h(event, context):
+        raise TerminalError("unauthorized", "no token")
+
+    try:
+        h(_event(), None)
+    except TerminalError:
+        pass
+    # validate-authorize notifies inside its own actor-aware orchestration, so the
+    # wrapper must stay quiet on TerminalError.
     assert fake.calls == []
 
 

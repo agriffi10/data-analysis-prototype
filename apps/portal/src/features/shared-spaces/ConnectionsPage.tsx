@@ -256,7 +256,7 @@ export function ConnectionsPage() {
             </Button>
           </>
         }>
-        {error && (
+        {!!error && (
           <Banner variant="danger">
             Couldn&apos;t load your shared connections. Try Refresh, or contact the Administrator.
           </Banner>

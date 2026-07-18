@@ -58,7 +58,7 @@ describe('useConnections (SPEC-052 FR-001)', () => {
     mockRead.mockResolvedValueOnce({success: false, error: {message: 'boom'}});
     const {result} = renderHookWithProviders(() => useConnections('alice'));
 
-    await waitFor(() => expect(result.current.error).toBe('boom'));
+    await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'boom'})));
   });
 
   it('returns an empty list and never reads the cache when username is null', () => {

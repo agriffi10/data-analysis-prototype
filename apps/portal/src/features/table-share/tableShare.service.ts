@@ -1,8 +1,4 @@
-import {SendMessageCommand} from '@aws-sdk/client-sqs';
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
+import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableShareRequest} from './tableShare.types';
 
@@ -35,37 +31,21 @@ async function dedupId(token: string, req: TableShareRequest): Promise<string> {
  * stable content hash above.
  */
 export async function enqueueTableShare(req: TableShareRequest): Promise<ServiceResult<void>> {
-  // Read at call time (not module load) so tests can stub the env — a module-level
-  // import.meta.env const is read before vi.stubEnv runs.
-  const queueUrl = import.meta.env.VITE_TABLE_SHARE_QUEUE_URL as string | undefined;
-  if (!queueUrl) {
-    return {success: false, error: {message: 'Table sharing is not configured'}};
-  }
-
-  const token = await getIdToken();
-  if (!token.success) return token;
-
-  const body = {
-    actor: token.data,
-    source: req.source,
-    tableName: req.tableName,
-    recipients: req.recipients
-  };
-  const deduplicationId = await dedupId(token.data, req);
-
-  return withCredentialRetry(getSqsClient, async (client) => {
-    try {
-      await client.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify(body),
-          MessageGroupId: `${req.source.database}.${req.source.table}`,
-          MessageDeduplicationId: deduplicationId
-        })
-      );
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, 'Failed to submit the request');
-    }
+  return enqueueFifoRequest<void>({
+    // Read at call time (not module load) so tests can stub the env — a module-level
+    // import.meta.env const is read before vi.stubEnv runs.
+    queueUrl: import.meta.env.VITE_TABLE_SHARE_QUEUE_URL as string | undefined,
+    notConfiguredMessage: 'Table sharing is not configured',
+    build: async (idToken) => ({
+      body: {
+        actor: idToken,
+        source: req.source,
+        tableName: req.tableName,
+        recipients: req.recipients
+      },
+      messageGroupId: `${req.source.database}.${req.source.table}`,
+      deduplicationId: await dedupId(idToken, req),
+      data: undefined
+    })
   });
 }

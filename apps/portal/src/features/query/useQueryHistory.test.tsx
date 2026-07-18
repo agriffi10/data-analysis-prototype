@@ -95,7 +95,7 @@ describe('useQueryHistory (SPEC-046 refresh)', () => {
       await result.current.refresh();
     });
 
-    await waitFor(() => expect(result.current.error).toBe('access denied'));
+    await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'access denied'})));
     // The list is retained despite the failed refetch.
     expect(result.current.history).toHaveLength(2);
   });

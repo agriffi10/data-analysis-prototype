@@ -1,11 +1,10 @@
-import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {getSqsClient} from '../../lib/sqsClient';
 import {getS3Client} from '../../lib/s3Client';
-import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import {isNotFound} from '../../lib/s3Errors';
+import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
 import type {
   Member,
@@ -33,44 +32,26 @@ export type EnqueueInput = {
  * is derived server-side from the verified idToken; the body `actor` is advisory.
  */
 export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{requestId: string}>> {
-  // Read at call time (not module load) so tests can stub the env — a module-level
-  // import.meta.env const is read before vi.stubEnv runs.
-  const queueUrl = import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined;
-  if (!queueUrl) {
-    return {
-      success: false,
-      error: {message: 'Shared connections are not configured'}
-    };
-  }
-
-  const token = await getIdToken();
-  if (!token.success) return token;
-
   const requestId = crypto.randomUUID();
-  const body: SharedSpaceRequest = {
-    schemaVersion: 1,
-    requestId,
-    action: input.action,
-    actor: input.actor,
-    space: input.space,
-    payload: input.payload ?? {},
-    idToken: token.data
-  };
-
-  return withCredentialRetry(getSqsClient, async (client) => {
-    try {
-      await client.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify(body),
-          MessageGroupId: MESSAGE_GROUP_ID,
-          MessageDeduplicationId: requestId
-        })
-      );
-      return {success: true, data: {requestId}};
-    } catch (err) {
-      return toServiceError(err, 'Failed to submit the request');
-    }
+  return enqueueFifoRequest({
+    // Read at call time (not module load) so tests can stub the env — a module-level
+    // import.meta.env const is read before vi.stubEnv runs.
+    queueUrl: import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined,
+    notConfiguredMessage: 'Shared connections are not configured',
+    build: (idToken) => ({
+      body: {
+        schemaVersion: 1,
+        requestId,
+        action: input.action,
+        actor: input.actor,
+        space: input.space,
+        payload: input.payload ?? {},
+        idToken
+      } satisfies SharedSpaceRequest,
+      messageGroupId: MESSAGE_GROUP_ID,
+      deduplicationId: requestId,
+      data: {requestId}
+    })
   });
 }
 
@@ -85,11 +66,7 @@ const emptyCache = (): SharedConnectionsCache => ({
 });
 
 function cacheKey(username: string): string {
-  return `${username}/user_settings/shared-connections.json`;
-}
-
-function userSpaceBucket(): string {
-  return import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
+  return userSettingsKey(username, 'shared-connections.json');
 }
 
 // A corrupt/partial entry is dropped, not fatal — degrade to what we can trust.

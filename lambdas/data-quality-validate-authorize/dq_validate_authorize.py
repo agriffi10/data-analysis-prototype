@@ -25,7 +25,6 @@ The identity contract: from this state onward the threaded object carries ``requ
 with no notification at all. A null value is fine; a missing key is fatal.
 """
 
-import json
 import logging
 import posixpath
 
@@ -40,28 +39,6 @@ logger.setLevel(logging.INFO)
 
 #: Where this arc writes its reports, relative to the space root.
 REPORTS_PREFIX = "_data-quality-reports"
-
-
-def _extract_record(event):
-    """The Pipe forwards the raw SQS batch (a JSON array); take the single record."""
-    if isinstance(event, list):
-        if not event:
-            raise TerminalError(messages.UNAUTHORIZED, "empty event")
-        return event[0]
-    if isinstance(event, dict):
-        return event
-    raise TerminalError(messages.UNAUTHORIZED, "unrecognised event shape")
-
-
-def _parse_request(record) -> dict:
-    """Return the JSON body of the SQS record."""
-    body = record.get("body") if isinstance(record, dict) else None
-    if not body:
-        raise TerminalError(messages.UNAUTHORIZED, "missing message body")
-    try:
-        return json.loads(body)
-    except Exception as exc:  # noqa: BLE001 - an unparseable body is terminal, never retried
-        raise TerminalError(messages.UNAUTHORIZED, f"body is not valid JSON: {exc}") from exc
 
 
 def _normalize(location: str) -> str:
@@ -143,8 +120,7 @@ def _check_source_not_reserved(normalized: str, space_root: str) -> None:
 
 
 def _validate_and_authorize(event) -> dict:
-    record = _extract_record(event)
-    req = _parse_request(record)
+    req = events.parse_sqs_request(event, reason=messages.UNAUTHORIZED)
 
     # Shape first, so a malformed envelope is a typed terminal rather than a bare KeyError
     # the SFN records as an opaque failure with no notification (SPEC-083 FR-002).

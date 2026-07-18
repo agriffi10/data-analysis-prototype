@@ -1,8 +1,4 @@
-import {SendMessageCommand} from '@aws-sdk/client-sqs';
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
+import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableBuildRequest} from './tableBuild.types';
@@ -18,39 +14,24 @@ import type {TableBuildRequest} from './tableBuild.types';
  * is the dedup id.
  */
 export async function enqueueTableBuild(req: TableBuildRequest): Promise<ServiceResult<void>> {
-  // Read at call time (not module load) so tests can stub the env — a module-level
-  // import.meta.env const is read before vi.stubEnv runs.
-  const queueUrl = import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined;
-  if (!queueUrl) {
-    return {success: false, error: {message: 'Table creation is not configured'}};
-  }
-
-  const token = await getIdToken();
-  if (!token.success) return token;
-
   const requestId = crypto.randomUUID();
-  const body = {
-    idToken: token.data,
-    space: req.space,
-    tableName: req.tableName,
-    partitionKeys: req.partitionKeys ?? [],
-    requestId
-  };
-
-  return withCredentialRetry(getSqsClient, async (client) => {
-    try {
-      await client.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify(body),
-          MessageGroupId: req.space.database,
-          MessageDeduplicationId: requestId
-        })
-      );
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, 'Failed to submit the request');
-    }
+  return enqueueFifoRequest<void>({
+    // Read at call time (not module load) so tests can stub the env — a module-level
+    // import.meta.env const is read before vi.stubEnv runs.
+    queueUrl: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
+    notConfiguredMessage: 'Table creation is not configured',
+    build: (idToken) => ({
+      body: {
+        idToken,
+        space: req.space,
+        tableName: req.tableName,
+        partitionKeys: req.partitionKeys ?? [],
+        requestId
+      },
+      messageGroupId: req.space.database,
+      deduplicationId: requestId,
+      data: undefined
+    })
   });
 }
 

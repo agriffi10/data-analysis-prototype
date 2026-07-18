@@ -1,3 +1,28 @@
+import type {ServiceResult} from '../types/service.types';
+
+/**
+ * Return a `ServiceResult`'s data, or throw its error — the queryFn/mutationFn adapter.
+ *
+ * TanStack Query wants a value or a thrown error, but services return a `ServiceResult`.
+ * This is the one place that bridges them: on failure it throws an `Error` carrying the
+ * original `message` and `code` (so `toUserMessage` can still map by code at the render
+ * boundary); on success it returns the data. Replaces the `if (!r.success) throw new
+ * Error(r.error.message); return r.data;` pair repeated across every read/mutation hook.
+ *
+ * @param result - The `ServiceResult` returned by a service call.
+ * @returns The success data.
+ * @throws Error (with `.code`) when `result` is a failure.
+ *
+ * @example
+ * queryFn: async () => unwrap(await listFiles(bucket, prefix))
+ */
+export function unwrap<T>(result: ServiceResult<T>): T {
+  if (!result.success) {
+    throw Object.assign(new Error(result.error.message), {code: result.error.code});
+  }
+  return result.data;
+}
+
 /**
  * Map a thrown value to the failure branch of a `ServiceResult`.
  *

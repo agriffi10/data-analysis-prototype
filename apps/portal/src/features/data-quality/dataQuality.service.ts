@@ -1,8 +1,4 @@
-import {SendMessageCommand} from '@aws-sdk/client-sqs';
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
+import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityRequest} from './dataQuality.types';
 
@@ -44,37 +40,21 @@ async function locationGroupId(bucket: string, location: string): Promise<string
  * explicit id is the only double-submit guard).
  */
 export async function enqueueQualityCheck(req: DataQualityRequest): Promise<ServiceResult<{requestId: string}>> {
-  // Read at call time (not module load) so tests can stub the env — a module-level
-  // import.meta.env const is read before vi.stubEnv runs.
-  const queueUrl = import.meta.env.VITE_DATA_QUALITY_QUEUE_URL as string | undefined;
-  if (!queueUrl) {
-    return {success: false, error: {message: 'Data quality checks are not configured'}};
-  }
-
-  const token = await getIdToken();
-  if (!token.success) return token;
-
-  const body = {
-    requestId: req.requestId,
-    idToken: token.data,
-    space: req.space,
-    location: req.location
-  };
-  const groupId = await locationGroupId(req.space.bucket, req.location);
-
-  return withCredentialRetry(getSqsClient, async (client) => {
-    try {
-      await client.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify(body),
-          MessageGroupId: groupId,
-          MessageDeduplicationId: req.requestId
-        })
-      );
-      return {success: true, data: {requestId: req.requestId}};
-    } catch (err) {
-      return toServiceError(err, 'Failed to submit the request');
-    }
+  return enqueueFifoRequest({
+    // Read at call time (not module load) so tests can stub the env — a module-level
+    // import.meta.env const is read before vi.stubEnv runs.
+    queueUrl: import.meta.env.VITE_DATA_QUALITY_QUEUE_URL as string | undefined,
+    notConfiguredMessage: 'Data quality checks are not configured',
+    build: async (idToken) => ({
+      body: {
+        requestId: req.requestId,
+        idToken,
+        space: req.space,
+        location: req.location
+      },
+      messageGroupId: await locationGroupId(req.space.bucket, req.location),
+      deduplicationId: req.requestId,
+      data: {requestId: req.requestId}
+    })
   });
 }

@@ -472,7 +472,10 @@ function FileBrowserContent({
   // A shared space the user was just added to can list-deny until their session's
   // token is re-minted with the new membership-slot tag (architecture §3). Detect
   // that case so we can offer a one-click "refresh access" instead of a dead error.
-  const isAccessDenied = !!error && /not authorized|access denied|listbucket/i.test(error);
+  const accessError = error as {message?: string; code?: string} | null;
+  const isAccessDenied =
+    !!accessError &&
+    (accessError.code === 'AccessDenied' || /not authorized|access denied|listbucket/i.test(accessError.message ?? ''));
   const justAddedToShared = spaceKind === 'shared' && isAccessDenied;
   const [refreshingAccess, setRefreshingAccess] = useState(false);
   const refreshAccess = async () => {

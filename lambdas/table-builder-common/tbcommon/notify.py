@@ -61,10 +61,16 @@ def emit_unexpected(event, step: str) -> None:
     )
 
 
-def notifies_on_failure(step: str):
-    """table-builder ``notifies_on_failure`` — binds the domain ``emit_unexpected`` into
-    the shared ``cpcommon.notify`` wrapper skeleton (SPEC-107)."""
-    return _notifies_on_failure(step, emit_unexpected)
+def notifies_on_failure(step: str, *, notify_terminal: bool = True):
+    """table-builder ``notifies_on_failure`` — binds the domain emitters into the shared
+    ``cpcommon.notify`` skeleton (SPEC-107).
+
+    By default it also binds ``emit_failure`` so a verb's ``TerminalError`` notifies the
+    actor at the decorator — the worker verbs no longer need their own
+    ``try/except TerminalError``. ``notify_terminal=False`` for validate-authorize, which
+    notifies inside its own actor-aware orchestration (the actor isn't bound until after
+    the token is verified)."""
+    return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
 
 
 def emit_created(event: dict) -> None:

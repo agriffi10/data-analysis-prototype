@@ -2,6 +2,7 @@ import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {getS3Client} from '../../lib/s3Client';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
+import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import {isNotFound} from '../../lib/s3Errors';
 import type {ServiceResult} from '../../types/service.types';
 import type {SavedQueriesStore, SavedQuery} from './query.types';
@@ -14,11 +15,7 @@ import type {SavedQueriesStore, SavedQuery} from './query.types';
 const emptyStore = (): SavedQueriesStore => ({version: 1, queries: []});
 
 function storeKey(username: string): string {
-  return `${username}/user_settings/saved-queries.json`;
-}
-
-function bucket(): string {
-  return import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
+  return userSettingsKey(username, 'saved-queries.json');
 }
 
 // Forgivingly parse the store body: a malformed/legacy file falls back to empty
@@ -38,7 +35,7 @@ function parseStore(body: string | undefined): SavedQueriesStore {
 export async function getSavedQueries(username: string): Promise<ServiceResult<SavedQueriesStore>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket(), Key: storeKey(username)}));
+      const response = await client.send(new GetObjectCommand({Bucket: userSpaceBucket(), Key: storeKey(username)}));
       const body = await response.Body?.transformToString();
       return {success: true, data: parseStore(body)};
     } catch (err) {
@@ -55,7 +52,7 @@ async function writeStore(username: string, store: SavedQueriesStore): Promise<S
     try {
       await client.send(
         new PutObjectCommand({
-          Bucket: bucket(),
+          Bucket: userSpaceBucket(),
           Key: storeKey(username),
           Body: JSON.stringify(store),
           ContentType: 'application/json'

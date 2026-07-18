@@ -1,11 +1,10 @@
 import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {getS3Client} from '../../lib/s3Client';
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import {isNotFound} from '../../lib/s3Errors';
+import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
 import type {EnqueueNotificationInput, Notification} from './notifications.types';
 
@@ -13,12 +12,8 @@ import type {EnqueueNotificationInput, Notification} from './notifications.types
 // notifications.json — the writer Lambda is the sole writer. This service only reads
 // the inbox and enqueues the two user actions (markRead/markAllRead) onto the FIFO queue.
 
-function bucket(): string {
-  return import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
-}
-
 function inboxKey(username: string): string {
-  return `${username}/user_settings/notifications.json`;
+  return userSettingsKey(username, 'notifications.json');
 }
 
 // A corrupt or partial row is dropped, not fatal — the writer owns the format; the
@@ -67,7 +62,7 @@ function parseInbox(body: string | undefined): Notification[] {
 export async function getNotifications(username: string): Promise<ServiceResult<Notification[]>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket(), Key: inboxKey(username)}));
+      const response = await client.send(new GetObjectCommand({Bucket: userSpaceBucket(), Key: inboxKey(username)}));
       const body = await response.Body?.transformToString();
       return {success: true, data: parseInbox(body)};
     } catch (err) {
@@ -91,35 +86,20 @@ export async function enqueueNotificationAction(input: EnqueueNotificationInput)
     return {success: false, error: {message: 'markRead requires a notification id'}};
   }
 
-  // Read at call time (not module load) so tests can stub the env — a module-level
-  // import.meta.env const is read before vi.stubEnv runs.
-  const queueUrl = import.meta.env.VITE_NOTIFICATIONS_QUEUE_URL as string | undefined;
-  if (!queueUrl) {
-    return {success: false, error: {message: 'Notifications are not configured'}};
-  }
-
-  const token = await getIdToken();
-  if (!token.success) return token;
-
-  const body = {
-    action: input.action,
-    idToken: token.data,
-    ...(input.action === 'markRead' ? {id: input.id} : {})
-  };
-
-  return withCredentialRetry(getSqsClient, async (client) => {
-    try {
-      await client.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify(body),
-          MessageGroupId: input.username,
-          MessageDeduplicationId: crypto.randomUUID()
-        })
-      );
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, 'Failed to submit the request');
-    }
+  return enqueueFifoRequest<void>({
+    // Read at call time (not module load) so tests can stub the env — a module-level
+    // import.meta.env const is read before vi.stubEnv runs.
+    queueUrl: import.meta.env.VITE_NOTIFICATIONS_QUEUE_URL as string | undefined,
+    notConfiguredMessage: 'Notifications are not configured',
+    build: (idToken) => ({
+      body: {
+        action: input.action,
+        idToken,
+        ...(input.action === 'markRead' ? {id: input.id} : {})
+      },
+      messageGroupId: input.username,
+      deduplicationId: crypto.randomUUID(),
+      data: undefined
+    })
   });
 }

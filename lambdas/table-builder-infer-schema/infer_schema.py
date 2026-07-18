@@ -116,11 +116,7 @@ def handler(event: dict, context) -> dict:
     is surfaced to the actor by ``@notifies_on_failure`` before the SFN ``Catch`` records
     it.
     """
-    try:
-        return _infer(event)
-    except TerminalError as err:
-        notify.emit_failure(event, err, "infer")
-        raise
+    return _infer(event)
 
 
 def _infer(event: dict) -> dict:

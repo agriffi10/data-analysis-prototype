@@ -2,6 +2,7 @@ import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {getS3Client} from '../../lib/s3Client';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
+import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import {isNotFound} from '../../lib/s3Errors';
 import type {ServiceResult} from '../../types/service.types';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
@@ -21,11 +22,7 @@ import {QUERY_HISTORY_MAX} from './query.constants';
 const emptyHistory = (): QueryHistory => ({version: 1, entries: []});
 
 function historyKey(username: string): string {
-  return `${username}/user_settings/query-history.json`;
-}
-
-function bucket(): string {
-  return import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
+  return userSettingsKey(username, 'query-history.json');
 }
 
 // Forgivingly parse the history file body: a malformed or legacy file falls back
@@ -45,7 +42,7 @@ function parseHistory(body: string | undefined): QueryHistory {
 export async function getQueryHistory(username: string): Promise<ServiceResult<QueryHistory>> {
   return withCredentialRetry(getS3Client, async (client) => {
     try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket(), Key: historyKey(username)}));
+      const response = await client.send(new GetObjectCommand({Bucket: userSpaceBucket(), Key: historyKey(username)}));
       const body = await response.Body?.transformToString();
       return {success: true, data: parseHistory(body)};
     } catch (err) {
@@ -62,7 +59,7 @@ async function writeHistory(username: string, history: QueryHistory): Promise<Se
     try {
       await client.send(
         new PutObjectCommand({
-          Bucket: bucket(),
+          Bucket: userSpaceBucket(),
           Key: historyKey(username),
           Body: JSON.stringify(history),
           ContentType: 'application/json'

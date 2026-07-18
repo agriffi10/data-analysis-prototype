@@ -1,6 +1,7 @@
 import {useEffect, useRef} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {getQueryStatus, isTerminalState} from './query.service';
+import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import {POLL_INTERVAL_MS, MAX_POLL_DURATION_MS} from './query.constants';
 import type {QueryStatus} from './query.types';
@@ -25,8 +26,7 @@ export function useQueryExecution(queryExecutionId: string | null) {
     enabled: queryExecutionId !== null,
     queryFn: async (): Promise<QueryStatus> => {
       const result = await getQueryStatus(queryExecutionId as string);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     refetchInterval: (query) => {
       const data = query.state.data;

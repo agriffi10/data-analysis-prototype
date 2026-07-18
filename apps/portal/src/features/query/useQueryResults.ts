@@ -1,6 +1,7 @@
 import {useCallback, useState} from 'react';
 import {useInfiniteQuery} from '@tanstack/react-query';
 import {getQueryResults} from './query.service';
+import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import type {QueryColumn, QueryResultPage} from './query.types';
 
@@ -26,7 +27,8 @@ export type UseQueryResultsResult = {
   isPending: boolean;
   isFetchingNext: boolean;
   isError: boolean;
-  error: string | null;
+  /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
+  error: unknown;
   goPrev: () => void;
   goNext: () => void;
 };
@@ -80,8 +82,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
         nextToken: pageParam,
         maxRows: pageSize
       });
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: QueryResultPage) => lastPage.nextToken
@@ -137,7 +138,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
     isPending: query.isPending,
     isFetchingNext: query.isFetchingNextPage,
     isError: query.isError,
-    error: query.isError ? (query.error as Error).message : null,
+    error: query.error ?? null,
     goPrev,
     goNext: () => {
       void goNext();

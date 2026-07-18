@@ -53,19 +53,23 @@ def emit_notification(username: str, message: str, dedup_id: str | None = None) 
         logger.exception("emit_notification failed for %s", username)
 
 
-def notifies_on_failure(step: str, emit_unexpected):
-    """Wrap a verb handler so an UNEXPECTED terminal exception notifies the actor before
-    it propagates — closing the silent-failure gap for errors the handler didn't
-    anticipate (an AccessDenied, a bug, a bad response).
+def notifies_on_failure(step: str, emit_unexpected, emit_terminal=None):
+    """Wrap a verb handler so a failure notifies the actor before it propagates.
 
-    ``emit_unexpected(event, step)`` is the DOMAIN's generic-failure emitter. Two
-    exception kinds pass straight through WITHOUT a second notification:
-      - ``TerminalError`` — a deterministic failure the handler already notified at its
-        raise site (re-notifying would double-send);
-      - ``TransientError`` — a retryable throttling/5xx the SFN Retry re-runs; notifying
-        now would be premature.
-    Every other exception is an unexpected terminal failure: emit one generic best-effort
-    notification, then re-raise unchanged for the SFN Catch.
+    ``emit_unexpected(event, step)`` is the DOMAIN's generic-failure emitter for an
+    UNEXPECTED exception (an AccessDenied, a bug, a bad response) — closing the
+    silent-failure gap for errors the handler didn't anticipate.
+
+    ``emit_terminal(event, err, step)`` is the DOMAIN's TerminalError emitter. When
+    provided, a ``TerminalError`` is notified HERE (the actor-addressed failure message)
+    before re-raising, so verb handlers no longer repeat a ``try/except TerminalError``
+    around their work. When ``None`` (the default), a ``TerminalError`` passes straight
+    through un-notified — for a verb that owns its own actor-aware notification
+    (``validate-authorize`` notifies only once the actor is bound).
+
+    A ``TransientError`` always passes through un-notified: it's a retryable throttling/5xx
+    the SFN ``Retry`` re-runs, so notifying now would be premature. Emits are best-effort
+    (each domain emitter catches and logs); the exception always re-raises for the Catch.
     """
 
     def decorate(handler):
@@ -73,7 +77,11 @@ def notifies_on_failure(step: str, emit_unexpected):
         def wrapper(event, context):
             try:
                 return handler(event, context)
-            except (TerminalError, TransientError):
+            except TransientError:
+                raise
+            except TerminalError as err:
+                if emit_terminal is not None:
+                    emit_terminal(event, err, step)
                 raise
             except Exception:  # noqa: BLE001 - notify then re-raise, never swallow
                 logger.exception("unexpected failure in %s step", step)

@@ -75,7 +75,7 @@ describe('useFileBrowser', () => {
     expect(result.current.hasMore).toBe(false);
   });
 
-  it('sets error string on failure and leaves files and folders empty', async () => {
+  it('exposes the error on failure and leaves files and folders empty', async () => {
     mockListFiles.mockResolvedValue({
       success: false,
       error: {message: 'Access Denied', code: 'AccessDenied'}
@@ -85,7 +85,8 @@ describe('useFileBrowser', () => {
       wrapper: wrapper()
     });
 
-    await waitFor(() => expect(result.current.error).toBe('Access Denied'));
+    // The hook exposes the raw error object (SPEC-106 #7) so consumers map by code.
+    await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'Access Denied'})));
     expect(result.current.files).toHaveLength(0);
     expect(result.current.folders).toHaveLength(0);
   });

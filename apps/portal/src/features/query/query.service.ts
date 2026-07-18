@@ -7,6 +7,7 @@ import {
 import {getAthenaClient} from '../../lib/athenaClient';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
+import {userSpaceBucket} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './query.constants';
 import {normalizeColumnType} from './query.format';
@@ -18,8 +19,7 @@ import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './quer
 // query pointed at another user's prefix is denied. The workgroup deliberately
 // does not enforce a fixed output location (SPEC-032).
 function outputLocation(username: string): string {
-  const bucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string;
-  return `s3://${bucket}/${username}/athenaresults/`;
+  return `s3://${userSpaceBucket()}/${username}/athenaresults/`;
 }
 
 // Athena terminal execution states — polling stops once one is reached (FR-003).

@@ -93,6 +93,6 @@ describe('useSavedQueries', () => {
     const {result} = renderHook(() => useSavedQueries('alice'), {
       wrapper: wrapper()
     });
-    await waitFor(() => expect(result.current.error).toBe('access denied'));
+    await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'access denied'})));
   });
 });

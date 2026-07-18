@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useMutation, useQuery, useQueryClient, type QueryClient} from '@tanstack/react-query';
 import {getNotifications, enqueueNotificationAction} from './notifications.service';
+import {unwrap} from '../../lib/serviceResult';
 import {notificationsKeys} from './notificationsKeys';
 import type {Notification} from './notifications.types';
 
@@ -64,8 +65,7 @@ export function useNotifications(
     enabled: username !== null,
     queryFn: async (): Promise<Notification[]> => {
       const result = await getNotifications(username as string);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     refetchInterval: () => (pausePoll ? false : POLL_INTERVAL_MS),
     // Returning to the tab re-checks once regardless of poll state; the interval
@@ -117,7 +117,7 @@ export function useNotifications(
   const markReadMutation = useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       const result = await enqueueNotificationAction({action: 'markRead', username: username as string, id});
-      if (!result.success) throw Object.assign(new Error(result.error.message), {code: result.error.code});
+      unwrap(result);
     },
     onMutate: (id: string) =>
       setPendingRead((p) => {
@@ -139,7 +139,7 @@ export function useNotifications(
   const markAllReadMutation = useMutation<void, Error, void>({
     mutationFn: async (): Promise<void> => {
       const result = await enqueueNotificationAction({action: 'markAllRead', username: username as string});
-      if (!result.success) throw Object.assign(new Error(result.error.message), {code: result.error.code});
+      unwrap(result);
     },
     onMutate: () => setPendingAll(true),
     onError: (err) => {
@@ -187,8 +187,7 @@ export async function prefetchNotifications(queryClient: QueryClient, username: 
     queryKey: notificationsKeys.list(username),
     queryFn: async (): Promise<Notification[]> => {
       const result = await getNotifications(username);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     }
   });
 }

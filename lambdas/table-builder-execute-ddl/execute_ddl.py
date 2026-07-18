@@ -22,7 +22,6 @@ import logging
 
 from cpcommon import config
 from tbcommon import notify
-from cpcommon.errors import TerminalError
 
 import athena_run
 
@@ -51,17 +50,14 @@ def handler(event: dict, context) -> dict:
     actor = event["actor"]
     database = space["database"]
 
-    # One CREATE, idempotent via IF NOT EXISTS; projection ⇒ no MSCK REPAIR.
-    try:
-        athena_run.run_ddl(
-            query=event["ddl"],
-            database=database,
-            workgroup=config.ATHENA_WORKGROUP,
-            output_location=_results_location(space, actor),
-        )
-    except TerminalError as err:
-        notify.emit_failure(event, err, "execute")
-        raise
+    # One CREATE, idempotent via IF NOT EXISTS; projection ⇒ no MSCK REPAIR. A terminal
+    # DDL failure notifies the actor via @notifies_on_failure before the SFN Catch.
+    athena_run.run_ddl(
+        query=event["ddl"],
+        database=database,
+        workgroup=config.ATHENA_WORKGROUP,
+        output_location=_results_location(space, actor),
+    )
 
     logger.info("created table %s.%s for %s", database, event["tableName"], actor)
     out = dict(event)

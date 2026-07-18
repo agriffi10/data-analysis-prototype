@@ -1,5 +1,6 @@
 import {useQuery} from '@tanstack/react-query';
 import {getQueryResults} from './query.service';
+import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import {ROW_COUNT_PAGE_SIZE} from './query.constants';
 
@@ -42,9 +43,9 @@ export function useResultRowCount(queryExecutionId: string | null): UseRowCountR
           nextToken,
           maxRows: ROW_COUNT_PAGE_SIZE
         });
-        if (!result.success) throw new Error(result.error.message);
-        total += result.data.rows.length;
-        nextToken = result.data.nextToken;
+        const page = unwrap(result);
+        total += page.rows.length;
+        nextToken = page.nextToken;
       } while (nextToken);
       return total;
     }
