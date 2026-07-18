@@ -107,7 +107,7 @@ export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, r
       footer={footer}>
       {/* A read/refresh error is shown above the list and never clears it, so
           a failed Refresh is non-destructive. */}
-      {error && (
+      {!!error && (
         <Banner
           variant="danger"
           title="Couldn’t load history.">

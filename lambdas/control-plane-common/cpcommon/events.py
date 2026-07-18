@@ -13,12 +13,43 @@ them would be a behaviour change) — it is available for the data-quality / fil
 arcs.
 """
 
+import json
 from typing import Any
 
 from .errors import TerminalError
 
 # Stable reason code for a bad task input (a cpcommon.messages base code).
 MALFORMED = "malformed_event"
+
+
+def parse_sqs_request(event: Any, *, reason: str) -> dict:
+    """Extract and JSON-parse the single SQS record body an EventBridge Pipe forwards.
+
+    The Pipe forwards the raw SQS batch as a JSON array; this takes the single record and
+    returns its parsed ``body`` dict. Consolidates the identical ``_extract_record`` +
+    ``_parse_request`` pair each control-plane ``validate-authorize`` verb carried.
+
+    Raises ``TerminalError(reason, …)`` on an empty batch, an unrecognised event shape, a
+    missing body, or a non-JSON body — a malformed/replayed queue message is a
+    deterministic failure the SFN Catch records (never retried). ``reason`` is the
+    caller's own registered terminal reason (the validate verbs pass ``unauthorized``),
+    so each domain keeps its wording while sharing the shape-check.
+    """
+    if isinstance(event, list):
+        if not event:
+            raise TerminalError(reason, "empty event")
+        record = event[0]
+    elif isinstance(event, dict):
+        record = event
+    else:
+        raise TerminalError(reason, "unrecognised event shape")
+    body = record.get("body") if isinstance(record, dict) else None
+    if not body:
+        raise TerminalError(reason, "missing message body")
+    try:
+        return json.loads(body)
+    except (TypeError, ValueError) as exc:
+        raise TerminalError(reason, f"body is not valid JSON: {exc}") from exc
 
 
 def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:

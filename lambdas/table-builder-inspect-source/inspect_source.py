@@ -77,11 +77,7 @@ def handler(event: dict, context) -> dict:
     before the SFN ``Catch`` records it. A retryable S3 throttle maps to
     ``TransientError`` and passes through un-notified for the SFN ``Retry``.
     """
-    try:
-        return _inspect(event)
-    except TerminalError as err:
-        notify.emit_failure(event, err, "inspect")
-        raise
+    return _inspect(event)
 
 
 def _inspect(event: dict) -> dict:

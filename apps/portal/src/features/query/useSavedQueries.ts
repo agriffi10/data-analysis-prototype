@@ -1,12 +1,14 @@
 import {useQuery, useMutation, useQueryClient} from '@tanstack/react-query';
 import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import type {SavedQueriesStore, SavedQuery} from './query.types';
 
 export type UseSavedQueriesResult = {
   queries: SavedQuery[];
   isLoading: boolean;
-  error: string | null;
+  /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
+  error: unknown;
   upsert: (query: SavedQuery) => Promise<SavedQueriesStore>;
   remove: (id: string) => Promise<SavedQueriesStore>;
 };
@@ -25,16 +27,14 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
     enabled: username !== null,
     queryFn: async (): Promise<SavedQueriesStore> => {
       const result = await getSavedQueries(username as string);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     }
   });
 
   const upsert = useMutation({
     mutationFn: async (q: SavedQuery): Promise<SavedQueriesStore> => {
       const result = await upsertSavedQuery(username as string, q);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     onSuccess: (data) => queryClient.setQueryData(key, data)
   });
@@ -42,8 +42,7 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
   const remove = useMutation({
     mutationFn: async (id: string): Promise<SavedQueriesStore> => {
       const result = await removeSavedQuery(username as string, id);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     onSuccess: (data) => queryClient.setQueryData(key, data)
   });
@@ -51,7 +50,7 @@ export function useSavedQueries(username: string | null): UseSavedQueriesResult 
   return {
     queries: query.data?.queries ?? [],
     isLoading: query.isPending,
-    error: query.isError ? (query.error as Error).message : null,
+    error: query.error ?? null,
     upsert: upsert.mutateAsync,
     remove: remove.mutateAsync
   };

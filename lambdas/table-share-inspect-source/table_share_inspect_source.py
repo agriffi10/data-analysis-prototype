@@ -31,11 +31,7 @@ def handler(event, context) -> dict:
     recipient runs), so the sender is notified before the ``Catch`` records it (SPEC-094
     FR-003, best-effort).
     """
-    try:
-        return _inspect_source(event)
-    except TerminalError as err:
-        notify.emit_failure(event, err, "inspect")
-        raise
+    return _inspect_source(event)
 
 
 def _inspect_source(event) -> dict:

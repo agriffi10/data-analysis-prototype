@@ -1,12 +1,14 @@
 import {useQuery, useMutation, useQueryClient} from '@tanstack/react-query';
 import {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
+import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
 
 export type UseQueryHistoryResult = {
   history: QueryHistoryEntry[];
   isLoading: boolean;
-  error: string | null;
+  /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
+  error: unknown;
   /** Append at submit time. */
   appendEntry: (entry: QueryHistoryEntry) => Promise<QueryHistory>;
   /** Patch an entry once the execution reaches a terminal state. */
@@ -32,8 +34,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
     enabled: username !== null,
     queryFn: async (): Promise<QueryHistory> => {
       const result = await getQueryHistory(username as string);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     }
   });
 
@@ -48,8 +49,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
   const append = useMutation({
     mutationFn: async (entry: QueryHistoryEntry): Promise<QueryHistory> => {
       const result = await appendQueryHistory(username as string, entry);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     onSuccess: onWriteSuccess
   });
@@ -57,8 +57,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
   const update = useMutation({
     mutationFn: async (vars: {queryExecutionId: string; patch: Partial<QueryHistoryEntry>}): Promise<QueryHistory> => {
       const result = await updateQueryHistoryEntry(username as string, vars.queryExecutionId, vars.patch);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     onSuccess: onWriteSuccess
   });
@@ -66,7 +65,7 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
   return {
     history: query.data?.entries ?? [],
     isLoading: query.isPending,
-    error: query.isError ? (query.error as Error).message : null,
+    error: query.error ?? null,
     appendEntry: append.mutateAsync,
     updateEntry: update.mutateAsync,
     // invalidateQueries re-reads from S3 for the active observer and resolves once

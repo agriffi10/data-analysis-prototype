@@ -56,11 +56,7 @@ def handler(event, context) -> dict:
     failure notifies the sender before the per-recipient ``Catch`` records it (SPEC-094,
     best-effort).
     """
-    try:
-        return _check_target_absent(event)
-    except TerminalError as err:
-        notify.emit_failure(event, err, "check")
-        raise
+    return _check_target_absent(event)
 
 
 def _check_target_absent(event) -> dict:

@@ -20,7 +20,6 @@ import logging
 from tscommon import athena as athena_mod
 from cpcommon import config
 from tscommon import ddl, notify
-from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -52,16 +51,12 @@ def handler(event, context) -> dict:
         table_name,
         f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",
     )
-    try:
-        athena_mod.run_ddl(
-            query=query,
-            database=database,
-            workgroup=config.ATHENA_WORKGROUP,
-            output_location=_results_location(recipient, request.get("actor")),
-        )
-    except TerminalError as err:
-        notify.emit_failure(event, err, "create")
-        raise
+    athena_mod.run_ddl(
+        query=query,
+        database=database,
+        workgroup=config.ATHENA_WORKGROUP,
+        output_location=_results_location(recipient, request.get("actor")),
+    )
 
     logger.info("created table %s.%s for %s", database, table_name, request.get("actor"))
     # Terminal success — tell the sender AND the success target (user recipient

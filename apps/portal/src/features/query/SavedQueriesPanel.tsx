@@ -12,7 +12,8 @@ type Props = {
   onClose: () => void;
   queries: SavedQuery[];
   isLoading: boolean;
-  error: string | null;
+  /** The raw fetch error (or null); rendered via `toUserMessage`. */
+  error: unknown;
   onOpen: (query: SavedQuery) => void;
   /** Parent removes the query and unlinks any open tab. */
   onDelete: (id: string) => void;

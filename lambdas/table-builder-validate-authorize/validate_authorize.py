@@ -10,10 +10,9 @@ Emits the validated, normalized request the next states consume:
 {actor, space, tableName, partitionKeys, location, requestId}.
 """
 
-import json
 import logging
 
-from cpcommon import auth, config
+from cpcommon import auth, config, events
 from cpcommon import errors
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
@@ -39,27 +38,6 @@ def _load_registry(database: str):
     except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"registry load {database}")
         raise
-
-
-def _extract_record(event):
-    """The Pipe forwards the raw SQS batch (a JSON array); take the single record."""
-    if isinstance(event, list):
-        if not event:
-            raise TerminalError("unauthorized", "empty event")
-        return event[0]
-    if isinstance(event, dict):
-        return event
-    raise TerminalError("unauthorized", "unrecognised event shape")
-
-
-def _parse_request(record):
-    body = record.get("body") if isinstance(record, dict) else None
-    if not body:
-        raise TerminalError("unauthorized", "missing message body")
-    try:
-        return json.loads(body)
-    except (TypeError, ValueError) as exc:
-        raise TerminalError("unauthorized", f"body is not valid JSON: {exc}") from exc
 
 
 def _normalize_prefix(prefix):
@@ -134,7 +112,7 @@ def _authorize_space(space, actor):
     return prefix
 
 
-@notify.notifies_on_failure("validate")
+@notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
     """SFN entry point: parse → verify → authorize → validate → assemble the build state.
 
@@ -145,8 +123,7 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    record = _extract_record(event)
-    req = _parse_request(record)
+    req = events.parse_sqs_request(event, reason="unauthorized")
     space = req.get("space") or {}
 
     # The actor comes from the verified token, never the body. An unauthorized failure

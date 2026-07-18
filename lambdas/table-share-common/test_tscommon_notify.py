@@ -142,27 +142,49 @@ def test_unresolvable_owner_skips_the_owner_message_but_keeps_the_senders():
     assert _sent(fake) == [("alice", 'Shared "orders" to space "salesteam" as "orders_copy".')]
 
 
-def test_notifies_on_failure_emits_only_for_unexpected_exceptions():
+def test_wrapper_notifies_sender_on_terminal_error_by_default():
     fake = _install()
 
     @notify.notifies_on_failure("check")
     def terminal(event, context):
         raise TerminalError("conflict", "x")
 
+    # Default: the wrapper owns the TerminalError notification (verbs dropped their own
+    # try/except) — the sender hears exactly one failure message naming the source table.
+    try:
+        terminal(_map_event(), None)
+    except TerminalError:
+        pass
+    [(group, message)] = _sent(fake)
+    assert group == "alice"
+    assert 'Couldn\'t share "orders"' in message
+
+
+def test_wrapper_stays_quiet_on_transient_and_when_notify_terminal_false():
     @notify.notifies_on_failure("check")
     def transient(event, context):
         raise TransientError("throttled")
 
-    @notify.notifies_on_failure("check")
-    def unexpected(event, context):
-        raise RuntimeError("boom")
+    # notify_terminal=False → validate-authorize owns its own actor-aware notification.
+    @notify.notifies_on_failure("validate", notify_terminal=False)
+    def terminal_quiet(event, context):
+        raise TerminalError("unauthorized", "no token")
 
-    for fn, exc in ((terminal, TerminalError), (transient, TransientError)):
+    for fn, exc in ((transient, TransientError), (terminal_quiet, TerminalError)):
+        fake = _install()
         try:
             fn(_map_event(), None)
         except exc:
             pass
-    assert fake.calls == []  # the handler owns Terminal emits; Transient never emits
+        assert fake.calls == []
+
+
+def test_wrapper_notifies_generic_on_unexpected_exception():
+    fake = _install()
+
+    @notify.notifies_on_failure("check")
+    def unexpected(event, context):
+        raise RuntimeError("boom")
 
     try:
         unexpected(_map_event(), None)

@@ -1,6 +1,7 @@
 import {useCallback, useMemo, useRef} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
+import {unwrap} from '../../lib/serviceResult';
 import {getSessionCredentials} from '../../lib/awsCredentials';
 import {queryKeys} from './queryKeys';
 import type {Connection} from './query.types';
@@ -17,7 +18,8 @@ const RECONCILE_POLL_MS = 4_000;
 export type UseConnectionsResult = {
   connections: Connection[];
   isLoading: boolean;
-  error: string | null;
+  /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
+  error: unknown;
   /**
    * Forces a credential/token refresh (so a newly-granted membership
    * principal tag is stamped on the next vend), then re-reads the cache.
@@ -66,8 +68,7 @@ export function useConnections(username: string | null): UseConnectionsResult {
     refetchInterval: () => (Date.now() < reconcileUntil.current ? RECONCILE_POLL_MS : false),
     queryFn: async (): Promise<SharedConnectionsCache> => {
       const result = await readSharedConnectionsCache(username as string);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     }
   });
 
@@ -123,11 +124,11 @@ export function useConnections(username: string | null): UseConnectionsResult {
       // The initial fetch is loading; once we have any data (incl. the empty cache)
       // the list is usable even while a background refetch runs.
       isLoading: query.isPending && username !== null,
-      error: query.isError ? (query.error as Error).message : null,
+      error: query.error ?? null,
       refresh,
       isRefreshing: query.isRefetching,
       reconcile
     }),
-    [connections, username, query.isPending, query.isError, query.error, query.isRefetching, refresh, reconcile]
+    [connections, username, query.isPending, query.error, query.isRefetching, refresh, reconcile]
   );
 }

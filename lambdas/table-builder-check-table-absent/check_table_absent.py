@@ -33,11 +33,7 @@ def handler(event: dict, context) -> dict:
     ``TransientError`` and passes through un-notified for the SFN ``Retry``;
     ``@notifies_on_failure`` surfaces genuinely unexpected errors.
     """
-    try:
-        return _check_table_absent(event)
-    except TerminalError as err:
-        notify.emit_failure(event, err, "check")
-        raise
+    return _check_table_absent(event)
 
 
 def _check_table_absent(event: dict) -> dict:

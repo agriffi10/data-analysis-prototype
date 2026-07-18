@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {useFileBrowser} from './useFileBrowser';
+import {toUserMessage} from '../../lib/errorMessages';
 import type {SelectableItem} from './selectionContext';
 import type {FileSpaceTarget} from './useFileSpace';
 import {Button} from '../../components/Button';
@@ -227,7 +228,7 @@ export function DestinationPicker({
             <p
               role="alert"
               className="p-4 text-sm text-danger">
-              {error}
+              {toUserMessage(error).message}
             </p>
           )}
           {!isLoading && error === null && navigableFolders.length === 0 && files.length === 0 && (

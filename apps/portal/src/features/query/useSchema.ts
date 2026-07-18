@@ -1,5 +1,6 @@
 import {useQueries, useQuery, type QueryClient} from '@tanstack/react-query';
 import {getDatabase, listTables} from './glue.service';
+import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import type {GlueTableSummary} from './query.types';
 import type {DatabaseSchema} from './sqlCompletions';
@@ -10,11 +11,9 @@ export type SchemaData = {
 };
 
 async function fetchSchema(db: string): Promise<SchemaData> {
-  const dbResult = await getDatabase(db);
-  if (!dbResult.success) throw new Error(dbResult.error.message);
-  const tablesResult = await listTables(db);
-  if (!tablesResult.success) throw new Error(tablesResult.error.message);
-  return {database: dbResult.data, tables: tablesResult.data};
+  const database = unwrap(await getDatabase(db));
+  const tables = unwrap(await listTables(db));
+  return {database, tables};
 }
 
 /**

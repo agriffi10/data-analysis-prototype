@@ -1,12 +1,14 @@
 import {useQuery} from '@tanstack/react-query';
 import {getObjectMetadata} from './fileBrowser.service';
+import {unwrap} from '../../lib/serviceResult';
 import {fileBrowserKeys} from './fileBrowserKeys';
 import type {ObjectMetadata} from './fileBrowser.types';
 
 export type UseObjectMetadataResult = {
   metadata: ObjectMetadata | null;
   isLoading: boolean;
-  error: string | null;
+  /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
+  error: unknown;
 };
 
 // SPEC-017 FR-002: fetch a single object's HeadObject metadata via TanStack
@@ -20,8 +22,7 @@ export function useObjectMetadata(bucket: string, key: string | null): UseObject
     queryKey: fileBrowserKeys.metadata(bucket, key ?? ''),
     queryFn: async () => {
       const result = await getObjectMetadata({bucket, key: key!});
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     enabled: key !== null
   });
@@ -29,6 +30,6 @@ export function useObjectMetadata(bucket: string, key: string | null): UseObject
   return {
     metadata: query.data ?? null,
     isLoading: key !== null && query.isPending,
-    error: query.isError ? (query.error as Error).message : null
+    error: query.error ?? null
   };
 }

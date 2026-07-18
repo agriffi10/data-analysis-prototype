@@ -1,6 +1,7 @@
 import {useCallback, useMemo} from 'react';
 import {useInfiniteQuery, useQueryClient} from '@tanstack/react-query';
 import {listFiles} from './fileBrowser.service';
+import {unwrap} from '../../lib/serviceResult';
 import {fileBrowserKeys} from './fileBrowserKeys';
 import {invalidateListing} from '../../lib/queryClient';
 import type {S3FileItem, S3FolderItem, FileListPage} from '../../types/s3.types';
@@ -9,7 +10,8 @@ export type UseFileBrowserResult = {
   files: S3FileItem[];
   folders: S3FolderItem[];
   isLoading: boolean;
-  error: string | null;
+  /** The raw listing error (or null); render via `toUserMessage`/`ErrorBanner`. */
+  error: unknown;
   refresh: () => void;
   /** Whether further pages exist — drives the "Load more" control. */
   hasMore: boolean;
@@ -38,8 +40,7 @@ export function useFileBrowser(bucket: string, prefix?: string, markerKey?: stri
       // The service never throws; unwrap its ServiceResult and throw here so
       // TanStack Query treats a failed listing as a query error.
       const result = await listFiles(bucket, prefix, pageParam);
-      if (!result.success) throw new Error(result.error.message);
-      return result.data;
+      return unwrap(result);
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: FileListPage) => (lastPage.isTruncated ? lastPage.nextContinuationToken : undefined)
@@ -70,7 +71,7 @@ export function useFileBrowser(bucket: string, prefix?: string, markerKey?: stri
     files,
     folders,
     isLoading: query.isPending,
-    error: query.isError ? (query.error as Error).message : null,
+    error: query.error ?? null,
     refresh,
     hasMore: query.hasNextPage,
     loadMore,

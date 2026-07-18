@@ -13,7 +13,6 @@ import logging
 
 from tscommon import copy as copy_mod
 from tscommon import notify
-from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -32,17 +31,13 @@ def handler(event, context) -> dict:
     location = request.get("location") or {}
     objects = request.get("objects") or []
 
-    try:
-        copied = copy_mod.copy_prefix(
-            src_bucket=location.get("bucket"),
-            src_prefix=location.get("prefix"),
-            objects=objects,
-            dest_bucket=recipient.get("destBucket"),
-            dest_prefix=recipient.get("destPrefix"),
-        )
-    except TerminalError as err:
-        notify.emit_failure(event, err, "copy")
-        raise
+    copied = copy_mod.copy_prefix(
+        src_bucket=location.get("bucket"),
+        src_prefix=location.get("prefix"),
+        objects=objects,
+        dest_bucket=recipient.get("destBucket"),
+        dest_prefix=recipient.get("destPrefix"),
+    )
     logger.info(
         "copied %d objects to %s/%s",
         copied,
