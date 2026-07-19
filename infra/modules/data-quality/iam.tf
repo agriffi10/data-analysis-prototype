@@ -8,9 +8,23 @@
 # the blast radius grows only with a reviewed reason:
 #   - logs                                                → SPEC-108
 #   - S3 (source read; registry read; report read+write)
-#     + the protected-object Deny                         → SPEC-109 (here)
-#   - Glue / Athena / Lake Formation admin                → SPEC-111
-# It carries NO glue:/athena:/lakeformation: action yet (SPEC-109 FR-006).
+#     + the protected-object Deny                         → SPEC-109
+#   - Glue / Athena / Lake Formation admin                → SPEC-111 (here)
+#
+# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (SPEC-111 FR-006,
+# data-quality-architecture.md §0/§7) — this is a decision, not drift, and it is the
+# largest privilege the arc spends. Up to SPEC-110 this role could not touch the Glue
+# catalog at all. It now can, because the pipeline's whole design is "let Athena read the
+# 250 GB, not a Lambda", and Athena reads through a Glue external table. The temp tables
+# are created in the ACTOR'S OWN database (personal) or the shared space's (shared) —
+# both DYNAMIC, one per user and one per space — so they cannot be statically LF-granted
+# in Terraform, which is why the role is an LF ADMIN rather than a grantee. Identical
+# reasoning to SPEC-070's table-builder execute-ddl role and SPEC-092's table-share role.
+#
+# What still bounds it: glue is CreateTable/GetTable/DeleteTable/GetDatabase only — no
+# DeleteDatabase, no catalog-wide data grant beyond lakeformation:GetDataAccess (which is
+# not scopable to a resource); athena is scoped to THIS module's dedicated workgroup; and
+# the two permanent boundaries below are untouched.
 #
 # Two boundaries are permanent and must survive every later spec:
 #   1. s3:DeleteObject is granted NOWHERE in this arc. drop-temp-tables touches GLUE
@@ -48,6 +62,10 @@ resource "aws_iam_role_policy" "execution" {
     user_space_bucket_arn   = local.user_space_bucket_arn
     shared_space_bucket_arn = local.shared_space_bucket_arn
     admin_bucket_arn        = local.admin_bucket_arn
+    glue_catalog_arn        = local.glue_catalog_arn
+    glue_database_any       = local.glue_database_any
+    glue_table_any          = local.glue_table_any
+    athena_workgroup_arn    = local.athena_workgroup_arn
   })
 }
 

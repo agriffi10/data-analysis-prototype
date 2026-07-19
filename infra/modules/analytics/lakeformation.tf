@@ -31,7 +31,14 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   #   - table-share execution role (SPEC-092; same model) — reads LF-gated source
   #     tables (inspect-source), Describes recipient DBs (check-target-absent) and
   #     CREATEs the clone tables (create-table) in the dynamic recipient DBs.
-  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn, var.table_builder_execution_role_arn, var.table_share_execution_role_arn])
+  #   - data-quality execution role (SPEC-111; same model, shared by all nine verbs) —
+  #     CREATEs (create-temp-tables) and DELETEs (drop-temp-tables) the THROWAWAY
+  #     dq_tmp_* external tables Athena profiles the source through, in the actor's own
+  #     database or the shared space's. Every table it creates is dropped on both the
+  #     success and the failure path, so this admin leaves no catalog artefact behind.
+  #     Constructed string; the role is created by module.data_quality (which
+  #     module.analytics depends_on), so it exists before LF validates the principal.
+  admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn, var.table_builder_execution_role_arn, var.table_share_execution_role_arn, var.data_quality_execution_role_arn])
 
   # Empty default permissions for the special IAMAllowedPrincipals principal =
   # remove the automatic "Super" grant on newly created databases and tables.
