@@ -131,13 +131,13 @@
     },
     "WaitForQuery": {
       "Type": "Wait",
-      "Comment": "THE POLL LIVES HERE, IN THE STATE MACHINE — not inside a Lambda. table-builder's execute-ddl polls Athena inside a 300 s Lambda, which is fine for a CREATE TABLE that returns in seconds and FATAL for a profiling query over 250 GB that runs for minutes to tens of minutes: Lambda's hard ceiling is 900 s. A Standard Step Functions execution runs for up to a year, so waiting here removes the time ceiling entirely. This is the whole reason the arc works; do not move this poll into a Lambda.",
+      "Comment": "THE POLL LIVES HERE, IN THE STATE MACHINE — not inside a Lambda. table-builder's execute-ddl polls Athena inside a 300 s Lambda, which is fine for a CREATE TABLE that returns in seconds and FATAL for a profiling query over 250 GB that runs for minutes to tens of minutes: Lambda's hard ceiling is 900 s. A Standard Step Functions execution runs for up to a year, so waiting here removes the time ceiling entirely. This is the whole reason the arc works; do not move this poll into a Lambda. Seconds MUST stay in step with dqcommon.config.DQ_QUERY_POLL_SECONDS (SPEC-111).",
       "Seconds": 30,
       "Next": "CheckQuery"
     },
     "CheckQuery": {
       "Type": "Task",
-      "Comment": "One GetQueryExecution. Returns the request object plus queryStatus. A FAILED/CANCELLED query raises TerminalError inside the verb (SPEC-111), so the Choice below only ever sees QUEUED / RUNNING / SUCCEEDED.",
+      "Comment": "One GetQueryExecution PER QUERY (profile + ragged + duplicates), returning a per-query block each plus an AGGREGATE queryStatus the Choice below branches on. The aggregate is computed in the verb, not in the Choice, and that is deliberate: `ragged` is null for JSON/Parquet, and a Choice rule reading $.ragged.status on a null raises States.Runtime — which a Choice CANNOT Catch, so the execution would die without reaching NotifyFailure and the user would be told nothing at all. Only the PROFILE query's FAILED/CANCELLED raises TerminalError; a failed ragged/duplicates degrades to not_computed and the run still succeeds (SPEC-111 FR-004).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${check_query_function_arn}",
@@ -169,13 +169,8 @@
     },
     "QueryComplete": {
       "Type": "Choice",
-      "Comment": "Loop back to WaitForQuery while the query is still QUEUED/RUNNING; otherwise (SUCCEEDED) proceed. There is no unbounded-loop risk: the account's DML query-timeout quota terminates a runaway query, which CheckQuery surfaces as a terminal error.",
+      "Comment": "Loop back to WaitForQuery while ANY of the three queries is still QUEUED/RUNNING; otherwise proceed. CheckQuery collapses the three statuses into this one value (see its Comment for why the aggregation is not done here). There is no unbounded-loop risk: the account's DML query-timeout quota terminates a runaway query, which CheckQuery surfaces as a terminal query_timeout.",
       "Choices": [
-        {
-          "Variable": "$.queryStatus",
-          "StringEquals": "QUEUED",
-          "Next": "WaitForQuery"
-        },
         {
           "Variable": "$.queryStatus",
           "StringEquals": "RUNNING",

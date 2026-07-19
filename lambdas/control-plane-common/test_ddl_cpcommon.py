@@ -1,8 +1,13 @@
-"""Golden-string tests for the pure DDL generator.
+"""Golden-string tests for the pure DDL generator (SPEC-069, moved to cpcommon in SPEC-111).
 
 No AWS / polars — asserts the exact generated CREATE EXTERNAL TABLE for flat
 Parquet, partitioned CSV (integer projection + OpenCSVSerde all-string), partitioned
 JSON, and a string enum partition key. Runnable under pytest or directly.
+
+The first five tests are UNCHANGED from table-builder's ``test_ddl.py``, deliberately:
+they are what proves the module move did not alter that arc's shipped output. Only the
+import line differs. The tests below them cover the ``storage`` override SPEC-111 added
+for the data-quality arc's divergent SerDes.
 """
 
 import os
@@ -10,7 +15,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ddl import build_create_table_ddl  # noqa: E402
+from cpcommon.ddl import (  # noqa: E402
+    Storage,
+    build_create_table_ddl,
+    default_storage,
+    quote,
+    quote_dml,
+)
 
 LOC = "s3://dat-prod-user-space/alice/sales/2026/"
 
@@ -95,6 +106,95 @@ def test_data_column_colliding_with_partition_key_is_dropped():
     assert "(`id` bigint)" in ddl
     assert "`year` bigint" not in ddl
     assert "PARTITIONED BY (`year` int)" in ddl
+
+
+# ── The storage override (SPEC-111) ──────────────────────────────────────────
+
+
+def test_storage_override_replaces_the_clause_and_its_properties():
+    """An injected Storage wins over the format default, properties included."""
+    hive_json = Storage("ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'")
+    ddl = build_create_table_ddl(
+        "alice", "dq_tmp_abc", [{"name": "id", "type": "string"}], [], "json", LOC,
+        storage=hive_json,
+    )
+    assert "org.apache.hive.hcatalog.data.JsonSerDe" in ddl
+    # The default OpenX serde must be GONE, not merely accompanied — data-quality's
+    # whole JSON story depends on the Hive serde being the one that reads the file.
+    assert "openx" not in ddl.lower()
+
+
+def test_storage_override_can_drop_the_csv_header_skip():
+    """A CSV-shaped storage with no properties emits no TBLPROPERTIES at all.
+
+    This is the raw-line table's requirement (SPEC-111 FR-002): it must read EVERY
+    physical line including the header, so inheriting the format default's
+    skip.header.line.count=1 would silently drop a row from the ragged-row count.
+    """
+    raw = Storage(
+        "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' "
+        "WITH SERDEPROPERTIES ('field.delim'='\\001') STORED AS TEXTFILE"
+    )
+    ddl = build_create_table_ddl(
+        "alice", "dq_tmp_raw_abc", [{"name": "line", "type": "string"}], [], "csv", LOC,
+        storage=raw,
+    )
+    assert "skip.header.line.count" not in ddl
+    assert "TBLPROPERTIES" not in ddl
+    assert ddl.endswith("LOCATION 's3://dat-prod-user-space/alice/sales/2026/'")
+
+
+def test_storage_override_still_gets_projection_properties():
+    """An override replaces the FORMAT props, not the partition-projection props."""
+    raw = Storage("STORED AS TEXTFILE")
+    ddl = build_create_table_ddl(
+        "alice", "t", [{"name": "line", "type": "string"}],
+        [{"name": "region", "type": "string", "values": ["eu", "us"]}],
+        "csv", LOC, storage=raw,
+    )
+    assert "'projection.enabled'='true'" in ddl
+    assert "'projection.region.values'='eu,us'" in ddl
+    assert "skip.header.line.count" not in ddl
+
+
+def test_default_storage_rejects_an_unknown_format():
+    """A typo must not yield a table with no storage clause."""
+    try:
+        default_storage("avro")
+    except ValueError as exc:
+        assert "avro" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for an unknown format")
+
+
+def test_unknown_format_still_raises_when_no_storage_is_supplied():
+    """The pre-move behaviour: build_create_table_ddl surfaces the bad format."""
+    try:
+        build_create_table_ddl("alice", "t", [{"name": "id", "type": "bigint"}], [], "avro", LOC)
+    except ValueError as exc:
+        assert "avro" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for an unknown format")
+
+
+def test_quote_backticks_an_identifier():
+    assert quote("dq_tmp_7f3a") == "`dq_tmp_7f3a`"
+
+
+def test_quote_dml_double_quotes_an_identifier():
+    """Athena's two dialects: DDL is Hive (backticks), DML is Trino (double quotes).
+
+    Using the wrong one fails AT QUERY TIME, not at build time — after the temp tables
+    exist and the scan has been paid for.
+    """
+    assert quote_dml("dq_tmp_7f3a") == '"dq_tmp_7f3a"'
+    assert "`" not in quote_dml("dq_tmp_7f3a")
+
+
+def test_quote_dml_escapes_an_embedded_double_quote():
+    """A CSV header can contain anything. Unescaped, this ends the identifier early and
+    the rest of the name is parsed as SQL."""
+    assert quote_dml('he said "hi"') == '"he said ""hi"""'
 
 
 if __name__ == "__main__":
