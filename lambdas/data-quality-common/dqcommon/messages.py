@@ -49,6 +49,20 @@ UNREADABLE_HEADER = "unreadable_header"
 TOO_MANY_PARTITION_VALUES = "too_many_partition_values"
 PARTITION_LAYOUT_MISMATCH = "partition_layout_mismatch"
 
+# ── temp-table + profile-query terminals (SPEC-111 FR-001/FR-004) ────────────
+# Registered here for the same reason as the block above: TerminalError validates its
+# reason at CONSTRUCTION against a process-global set, so a code that isn't in _BODIES
+# raises ValueError at the raise site — in production, on the deployed function, where
+# `pytest lambdas/` would not have caught it.
+#
+# NOTE what is NOT here: there is no reason code for a failed RAGGED or DUPLICATES query.
+# That is the point of FR-003 — those two degrade the report to `not_computed` and the
+# request still SUCCEEDS, so they never become a terminal at all. Only the PROFILE
+# query's failure is terminal.
+TOO_MANY_COLUMNS = "too_many_columns"
+QUERY_FAILED = "query_failed"
+QUERY_TIMEOUT = "query_timeout"
+
 # reason -> the clause after 'Couldn't check data quality[ on "{location}"]: '.
 #
 # Caps are baked in from dqcommon.config at import (an f-string), so a message that
@@ -83,6 +97,23 @@ _BODIES = {
     PARTITION_LAYOUT_MISMATCH: (
         "that folder mixes partitioned and unpartitioned files (for example {object}). "
         "Every file must sit under the same key=value folders."
+    ),
+    TOO_MANY_COLUMNS: (
+        f"that data has more than the {config.DQ_MAX_COLUMNS} columns this check supports "
+        "({count} found). Please check a narrower set of files."
+    ),
+    # NO RAW ATHENA TEXT (SPEC-106 FR-008). The StateChangeReason stays in CloudWatch and
+    # the Step Function execution history, where an operator can read it; the user gets a
+    # sentence they can act on. Athena's failure text routinely names internal serde
+    # classes and byte offsets, which tells a user nothing and leaks implementation.
+    QUERY_FAILED: "the check couldn't be completed. Please contact the Administrator.",
+    # DELIBERATELY not "the check timed out" — that reads as a transient hiccup worth
+    # retrying, and this is not: the DML query timeout is an ACCOUNT-LEVEL Service Quota
+    # (30 minutes by default), so the identical request will time out again. Tell the user
+    # the thing that actually changes the outcome.
+    QUERY_TIMEOUT: (
+        "that source is too large to finish checking in the time available. "
+        "Please check a smaller folder."
     ),
 }
 

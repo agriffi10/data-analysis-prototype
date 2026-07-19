@@ -108,15 +108,49 @@ def _validate_caps() -> None:
         ("DQ_MAX_PARTITION_VALUES", DQ_MAX_PARTITION_VALUES),
         ("DQ_MAX_COLUMNS", DQ_MAX_COLUMNS),
         ("DQ_SCAN_TOTAL_BYTES", DQ_SCAN_TOTAL_BYTES),
+        ("DQ_OFFENDING_VALUE_SAMPLE", DQ_OFFENDING_VALUE_SAMPLE),
+        ("DQ_QUERY_POLL_SECONDS", DQ_QUERY_POLL_SECONDS),
     ):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise RuntimeError(f"dqcommon.config.{name} must be a positive int, got {value!r}")
+
+    # A ratio, not a count — validated separately. A threshold outside (0, 1] would make
+    # every column either always-flagged or never-flagged, which looks like a broken
+    # checker rather than a broken config.
+    if not isinstance(DQ_TYPE_DOMINANCE_THRESHOLD, float) or not 0 < DQ_TYPE_DOMINANCE_THRESHOLD <= 1:
+        raise RuntimeError(
+            "dqcommon.config.DQ_TYPE_DOMINANCE_THRESHOLD must be a float in (0, 1], "
+            f"got {DQ_TYPE_DOMINANCE_THRESHOLD!r}"
+        )
 
 # SPEC-111 — the profile query's column ceiling.
 # Athena caps a query STRING at 262,144 bytes. Four TRY_CASTs plus a null-ratio and a
 # sample aggregate per column approaches that on a very wide table, so a source wider
 # than this is rejected with a clear message rather than emitting an unparseable query.
 DQ_MAX_COLUMNS = 200
+
+# SPEC-111 — a column's dominant parseable type must cover at least this share of its
+# NON-NULL values for the stragglers to be reported as a type-consistency issue.
+#
+# The shape of the judgement: a column that is 99% integers with a handful of "N/A"s has
+# a real problem worth flagging. A column that is 40% integers is not a broken numeric
+# column, it is free text that happens to contain some numbers — reporting 60% of its
+# values as "offending" would be noise. Below the threshold the column is reported as
+# `text` with NO issue.
+DQ_TYPE_DOMINANCE_THRESHOLD = 0.90
+
+# SPEC-111 — how many non-parsing values the profile query keeps as examples, per column.
+#
+# The aggregate that collects them MUST be bounded (dqcommon.sql uses Trino's n-ary
+# max_by, whose accumulator holds only N values). A naive array_agg-then-truncate
+# accumulates O(rows) — on a 250 GB source with a badly-typed column that is the whole
+# column in memory, which fails the query rather than sampling it.
+DQ_OFFENDING_VALUE_SAMPLE = 10
+
+# SPEC-111 — the Step Function's Wait interval between GetQueryExecution polls.
+# Declared here so the constant and the state machine's Wait cannot drift; the ASL
+# template carries the same number with a pointer back to this line.
+DQ_QUERY_POLL_SECONDS = 30
 
 # SPEC-112 — the byte-scan budget, PER REQUEST (never per file).
 # Divided across the files in the manifest; every encoding figure is labelled sampled
