@@ -125,4 +125,12 @@ locals {
   # The dedicated Athena workgroup this pipeline's queries run in (athena.tf).
   athena_workgroup_name = "${var.project_name}-${var.environment}-data-quality-wg"
   athena_workgroup_arn  = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${local.athena_workgroup_name}"
+
+  # Glue catalog ARNs for the temp-table grants (SPEC-111 FR-006). WILDCARD database and
+  # table on purpose: the temp table is created in the actor's own database (personal) or
+  # the shared space's (shared), so the target is only known at request time and cannot be
+  # enumerated in static Terraform. Same shape as table-builder/locals.tf:92-94.
+  glue_catalog_arn  = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
+  glue_database_any = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
+  glue_table_any    = "arn:aws:glue:${var.aws_region}:${var.account_id}:table/*/*"
 }

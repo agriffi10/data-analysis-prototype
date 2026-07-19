@@ -25,7 +25,10 @@
     {
       "Sid": "ListSourceBuckets",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
       "Resource": [
         "${user_space_bucket_arn}",
         "${shared_space_bucket_arn}"
@@ -47,6 +50,49 @@
       "Resource": [
         "${user_space_bucket_arn}/*/_data-quality-reports/*",
         "${shared_space_bucket_arn}/*/_data-quality-reports/*"
+      ]
+    },
+    {
+      "Sid": "TempTableCreateDescribeDrop",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetTable",
+        "glue:CreateTable",
+        "glue:DeleteTable"
+      ],
+      "Resource": [
+        "${glue_catalog_arn}",
+        "${glue_database_any}",
+        "${glue_table_any}"
+      ]
+    },
+    {
+      "Sid": "AthenaRunProfileQueries",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetWorkGroup"
+      ],
+      "Resource": "${athena_workgroup_arn}"
+    },
+    {
+      "Sid": "LakeFormationDataAccess",
+      "Effect": "Allow",
+      "Action": "lakeformation:GetDataAccess",
+      "Resource": "*"
+    },
+    {
+      "Sid": "AthenaResultsReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*"
       ]
     },
     {

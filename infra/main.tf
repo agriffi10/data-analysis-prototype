@@ -80,6 +80,17 @@ locals {
   # data_lake_settings references it (LF rejects an unknown admin principal).
   table_share_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
 
+  # Data-quality SHARED execution role ARN (SPEC-111; one role for all nine verbs,
+  # mirroring the table-builder and table-share arcs). Added to the analytics Lake
+  # Formation admins list as a CONSTRUCTED STRING — known at plan time so it's
+  # compact()-safe — because the temp-table target database is DYNAMIC: the actor's own
+  # database for a personal check, the shared space's for a shared one, neither
+  # enumerable in static Terraform. create-temp-tables CREATEs the throwaway dq_tmp_*
+  # external tables there and drop-temp-tables DELETEs them on every path.
+  # module.analytics depends_on module.data_quality, so the role exists BEFORE
+  # data_lake_settings references it (LF rejects an unknown admin principal).
+  data_quality_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-data-quality-execution-role"
+
   # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
   # Passed to module.data so the user-space bucket policy can EXCLUDE it from the
@@ -272,13 +283,19 @@ module "analytics" {
   # tables in the dynamic recipient databases. Constructed string (locals above).
   table_share_execution_role_arn = local.table_share_execution_role_arn
 
+  # SPEC-111: add the data-quality shared execution role as a Lake Formation admin for
+  # the same reason — create-temp-tables CREATEs and drop-temp-tables DELETEs the
+  # throwaway dq_tmp_* external tables in the dynamic target database (the actor's own,
+  # or the shared space's). Constructed string (locals above).
+  data_quality_execution_role_arn = local.data_quality_execution_role_arn
+
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF
-  # and attaches the analytics policy to; shared_spaces + table_builder + table_share
-  # create the orchestrator/execution roles added to the LF admins list (they must
-  # exist before data_lake_settings references them — LF rejects an unknown admin
-  # principal). Force all to settle first.
-  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder, module.table_share]
+  # and attaches the analytics policy to; shared_spaces + table_builder + table_share +
+  # data_quality create the orchestrator/execution roles added to the LF admins list
+  # (they must exist before data_lake_settings references them — LF rejects an unknown
+  # admin principal). Force all to settle first.
+  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder, module.table_share, module.data_quality]
 }
 
 # Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control

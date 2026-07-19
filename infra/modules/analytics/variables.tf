@@ -91,3 +91,9 @@ variable "table_share_execution_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "data_quality_execution_role_arn" {
+  description = "SPEC-111: ARN of the data-quality shared execution role (all nine verbs run under it), added as a Lake Formation admin so create-temp-tables can CREATE and drop-temp-tables can DELETE the throwaway dq_tmp_* external tables in the dynamic target databases (the actor's own for a personal check, the shared space's for a shared one — not enumerable in static Terraform). Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  type        = string
+  default     = ""
+}
