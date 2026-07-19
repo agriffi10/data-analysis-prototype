@@ -15,7 +15,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon.ddl import Storage, build_create_table_ddl, default_storage, quote  # noqa: E402
+from cpcommon.ddl import (  # noqa: E402
+    Storage,
+    build_create_table_ddl,
+    default_storage,
+    quote,
+    quote_dml,
+)
 
 LOC = "s3://dat-prod-user-space/alice/sales/2026/"
 
@@ -173,6 +179,22 @@ def test_unknown_format_still_raises_when_no_storage_is_supplied():
 
 def test_quote_backticks_an_identifier():
     assert quote("dq_tmp_7f3a") == "`dq_tmp_7f3a`"
+
+
+def test_quote_dml_double_quotes_an_identifier():
+    """Athena's two dialects: DDL is Hive (backticks), DML is Trino (double quotes).
+
+    Using the wrong one fails AT QUERY TIME, not at build time — after the temp tables
+    exist and the scan has been paid for.
+    """
+    assert quote_dml("dq_tmp_7f3a") == '"dq_tmp_7f3a"'
+    assert "`" not in quote_dml("dq_tmp_7f3a")
+
+
+def test_quote_dml_escapes_an_embedded_double_quote():
+    """A CSV header can contain anything. Unescaped, this ends the identifier early and
+    the rest of the name is parsed as SQL."""
+    assert quote_dml('he said "hi"') == '"he said ""hi"""'
 
 
 if __name__ == "__main__":

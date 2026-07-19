@@ -214,7 +214,7 @@ def test_profile_query_counts_null_and_blank_as_missing():
     """The inner projection folds null-and-blank into one NULL, so the outer aggregate
     is a plain IS NULL — and every downstream predicate inherits the same definition."""
     q = sql.build_profile_query("alice", "t", STR_COLS, "csv")
-    assert "NULLIF(TRIM(`order_id`), '') AS c0" in q
+    assert 'NULLIF(TRIM("order_id"), \'\') AS c0' in q
     assert "COUNT_IF(c0 IS NULL) AS c0_missing" in q
 
 
@@ -267,7 +267,7 @@ def test_profile_query_skips_type_checks_for_non_string_columns():
     # A non-string column is projected through untouched — TRIM is a string function —
     # but still gets a missing count. For JSON that IS the key-drift check, since the
     # Hive SerDe yields null for a missing key.
-    assert "`id` AS c0" in q
+    assert '"id" AS c0' in q
     assert "COUNT_IF(c0 IS NULL) AS c0_missing" in q
 
 
@@ -310,15 +310,15 @@ def test_profile_query_stays_under_athenas_query_string_cap_at_the_column_cap():
 
 def test_ragged_query_counts_rows_whose_field_count_differs():
     q = sql.build_ragged_query("alice", "dq_tmp_raw_x", 5)
-    assert "cardinality(split(`line`, ',')) <> 5" in q
-    assert "`alice`.`dq_tmp_raw_x`" in q
+    assert 'cardinality(split("line", \',\')) <> 5' in q
+    assert '"alice"."dq_tmp_raw_x"' in q
 
 
 def test_ragged_query_excludes_blank_lines():
     """A blank line splits to ONE empty field, so on any multi-column source every blank
     line would otherwise be counted as ragged — a false finding in front of the user."""
     q = sql.build_ragged_query("alice", "raw", 5)
-    assert "`line` IS NOT NULL AND `line` <> ''" in q
+    assert '"line" IS NOT NULL AND "line" <> \'\'' in q
 
 
 def test_ragged_query_returns_one_row():
@@ -334,9 +334,9 @@ def test_ragged_query_returns_one_row():
 def test_duplicates_query_shape_is_pinned_to_one_row():
     q = sql.build_duplicates_query("alice", "t", STR_COLS, [])
     assert q == (
-        "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM "
-        "(SELECT COUNT(*) AS cnt FROM `alice`.`t` "
-        "GROUP BY `order_id`, `amount` HAVING COUNT(*) > 1)"
+        'SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM '
+        '(SELECT COUNT(*) AS cnt FROM "alice"."t" '
+        'GROUP BY "order_id", "amount" HAVING COUNT(*) > 1)'
     )
 
 
@@ -345,7 +345,7 @@ def test_duplicates_query_groups_by_partition_columns_too():
     q = sql.build_duplicates_query(
         "alice", "t", [{"name": "id", "type": "string"}], [{"name": "year", "values": ["2024"]}]
     )
-    assert "GROUP BY `id`, `year`" in q
+    assert 'GROUP BY "id", "year"' in q
 
 
 def test_duplicates_query_does_not_double_count_a_partition_named_column():
@@ -356,8 +356,30 @@ def test_duplicates_query_does_not_double_count_a_partition_named_column():
         [{"name": "year", "type": "string"}, {"name": "id", "type": "string"}],
         [{"name": "year", "values": ["2024"]}],
     )
-    assert q.count("`year`") == 1
-    assert "GROUP BY `id`, `year`" in q
+    assert q.count('"year"') == 1
+    assert 'GROUP BY "id", "year"' in q
+
+
+def test_no_query_uses_hive_backtick_quoting():
+    """THE DIALECT TRAP, asserted across all three queries at once.
+
+    Athena parses DDL with Hive (backticks) and DML with Trino (double quotes), and AWS
+    documents backticks in a DML query as an error. A query built with the DDL quoter
+    looks perfectly reasonable in a diff AND in a golden-string test, then fails against
+    the engine — after the temp tables exist and the scan has been paid for. The DDL
+    builders above still use backticks, correctly; these must not.
+    """
+    queries = [
+        sql.build_profile_query("alice", "t", STR_COLS, "csv"),
+        sql.build_ragged_query("alice", "raw", 3),
+        sql.build_duplicates_query("alice", "t", STR_COLS, []),
+    ]
+    for q in queries:
+        assert "`" not in q, q[:120]
+    # And the DDL side genuinely still uses them, so this is a real distinction and not
+    # just "nothing anywhere is backticked".
+    assert "`" in sql.build_temp_table_ddl("alice", "t", STR_COLS, [], "csv", LOC)
+    assert "`" in sql.build_drop_table_ddl("alice", "t")
 
 
 def test_duplicates_query_is_separate_from_the_profile_query():

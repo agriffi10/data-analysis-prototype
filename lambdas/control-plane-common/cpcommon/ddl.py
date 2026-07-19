@@ -71,8 +71,30 @@ _DEFAULT_STORAGE = {
 
 
 def quote(identifier: str) -> str:
-    """Backtick-quote a catalog identifier (db / table / column)."""
+    """Backtick-quote a catalog identifier for a DDL statement (db / table / column).
+
+    DDL ONLY. Athena parses ``CREATE``/``DROP`` with Hive syntax, where backticks are the
+    identifier quote — but it parses ``SELECT`` with Trino syntax, where they are not.
+    Use ``quote_dml`` inside a query (SPEC-111).
+    """
     return f"`{identifier}`"
+
+
+def quote_dml(identifier: str) -> str:
+    """Double-quote a catalog identifier for a DML statement (SELECT and friends).
+
+    ATHENA'S TWO DIALECTS ARE A REAL TRAP, and it fails at query time rather than at build
+    time: DDL is Hive (backticks), DML is Trino (double quotes), and AWS documents that
+    backticks in a DML query are an error. A query built with the DDL quoter looks
+    perfectly reasonable in a diff and in a golden-string test, then fails against the
+    engine — after the temp tables exist and the scan has been paid for.
+
+    An embedded double quote is escaped by doubling, so a column named ``he said "hi"``
+    still produces a parseable identifier rather than a syntax error (or, worse, a
+    statement that parses into something else).
+    """
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def default_storage(fmt: str) -> Storage:

@@ -304,7 +304,7 @@ def _projection(index: int, column: dict) -> str:
     A non-string column is passed through untouched: ``TRIM`` is a string function, and
     the format already guarantees the value's type.
     """
-    name = ddl.quote(column["name"])
+    name = ddl.quote_dml(column["name"])
     alias = _COLUMN_ALIAS.format(index=index)
     if column["type"] == _CHECKED_TYPE:
         return f"NULLIF(TRIM({name}), '') AS {alias}"
@@ -381,7 +381,7 @@ def build_profile_query(database: str, table_name: str, columns: list[dict], fmt
         items.extend(_column_aggregates(index, column, type_checked))
 
     selected = ", ".join(items)
-    table = f"{ddl.quote(database)}.{ddl.quote(table_name)}"
+    table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"
     return (
         f"SELECT {selected} FROM (SELECT {projected} FROM {table}) "
         'GROUP BY GROUPING SETS ((), ("$path"))'
@@ -411,12 +411,12 @@ def build_ragged_query(database: str, raw_table_name_: str, header_column_count:
     exactly ``header_column_count`` fields by definition, so it is never ragged. It IS
     counted in ``total_lines``, which is why that figure is named for LINES and not rows.
     """
-    line = ddl.quote(RAW_LINE_COLUMN)
+    line = ddl.quote_dml(RAW_LINE_COLUMN)
     present = f"{line} IS NOT NULL AND {line} <> ''"
     return (
         f"SELECT COUNT_IF({present} AND cardinality(split({line}, ',')) <> {header_column_count}) "
         f"AS ragged_rows, COUNT_IF({present}) AS total_lines "
-        f"FROM {ddl.quote(database)}.{ddl.quote(raw_table_name_)}"
+        f"FROM {ddl.quote_dml(database)}.{ddl.quote_dml(raw_table_name_)}"
     )
 
 
@@ -438,10 +438,10 @@ def build_duplicates_query(
     otherwise-identical rows in different partitions are different rows, not duplicates.
     """
     part_names = {key["name"] for key in partition_keys}
-    grouped = [ddl.quote(c["name"]) for c in columns if c["name"] not in part_names]
-    grouped.extend(ddl.quote(key["name"]) for key in partition_keys)
+    grouped = [ddl.quote_dml(c["name"]) for c in columns if c["name"] not in part_names]
+    grouped.extend(ddl.quote_dml(key["name"]) for key in partition_keys)
     all_columns = ", ".join(grouped)
-    table = f"{ddl.quote(database)}.{ddl.quote(table_name)}"
+    table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"
 
     return (
         "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM "
