@@ -1,8 +1,10 @@
 name: CI
 
+# Checks run on PRs only. main never tests or lints — it builds and deploys
+# (deploy-app / deploy-lambdas / deploy-infra). Note this leaves *.test.tsx
+# typechecking to the local `npm run build` you must run before opening a PR;
+# `tsc --noEmit` alone does not cover test files.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -33,10 +35,6 @@ jobs:
       - name: Test
         working-directory: apps/portal
         run: npm run test:coverage
-
-      - name: Build
-        working-directory: apps/portal
-        run: npm run build
 
   lambdas:
     runs-on: ubuntu-latest
