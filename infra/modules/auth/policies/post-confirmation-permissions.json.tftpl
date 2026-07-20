@@ -14,11 +14,12 @@
       ]
     },
     {
-      "Sid": "LakeFormationGrantOnUserDatabase",
+      "Sid": "LakeFormationUserDatabase",
       "Effect": "Allow",
       "Action": [
         "lakeformation:GrantPermissions",
-        "lakeformation:GetDataLakeSettings"
+        "lakeformation:GetDataLakeSettings",
+        "lakeformation:AddLFTagsToResource"
       ],
       "Resource": "*"
     },
