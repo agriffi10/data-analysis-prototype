@@ -48,6 +48,29 @@ def test_create_happy_path_provisions_everything():
     assert entry["createdAt"]
 
 
+def test_create_tags_database_portal_managed():
+    # The shared DB is tagged portal-managed=true so the control-plane execution roles
+    # get CREATE_TABLE on it via TBAC (they are granted on the tag, not per-DB).
+    _s3, _glue, lf, _cognito = install()
+    c.create_space("sales", "alice", "req-1")
+    assert lf.lf_tags == [
+        ({"Database": {"Name": "sales"}}, [{"TagKey": "portal-managed", "TagValues": ["true"]}])
+    ]
+
+
+def test_create_tag_failure_records_terminal_failed():
+    # add_lf_tags_to_resource reports problems in Failures (it does not raise); a
+    # non-empty Failures must fail the create (recorded terminal `failed`), never a
+    # silent success that leaves a DB the control-plane roles cannot use.
+    s3, _glue, lf, _cognito = install()
+    lf.tag_failures = [{"LFTag": {"TagKey": "portal-managed"}, "Error": {"ErrorCode": "x"}}]
+    raises(lambda: c.create_space("sales", "alice", "req-1"), RuntimeError, "portal-managed")
+    rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["status"] == "failed"
+    # Tag precedes the portal-role grant, so the grant is not reached.
+    assert lf.grants == []
+
+
 def test_create_name_collision_fails():
     s3, *_ = install()
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(

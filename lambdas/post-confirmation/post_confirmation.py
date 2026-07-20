@@ -15,6 +15,14 @@ When a user finishes signing up, provision their private analytics workspace:
      (SPEC-032 removed the IAMAllowedPrincipals "Super" grant). The IAM principal tag
      is still the gate, so the role can only ever touch its own session's database.
 
+  3. Tag the database ``portal-managed=true`` (a Lake Formation LF-Tag) so the shared
+     control-plane execution roles (table-builder / table-share / data-quality) get
+     CREATE_TABLE on it via TBAC — those roles are granted on the tag, not per-DB
+     (infra/modules/analytics/lakeformation.tf). A table created in the DB inherits the
+     tag, so it is reachable by the same grant. Runs LAST, so a tagging failure never
+     costs the user their own portal-role grant above (only control-plane access, which
+     the backfill reconciles).
+
 Design rules (FR-002):
   - Idempotent: every step tolerates "already exists / already granted".
   - Non-fatal: the handler ALWAYS returns the event, so a transient AWS error never
@@ -42,6 +50,13 @@ lf = boto3.client("lakeformation")
 # The shared portal role the LF grant targets (set in Terraform, FR-003).
 PORTAL_ROLE_ARN = os.environ["PORTAL_ROLE_ARN"]
 
+# LF-Tag stamped on every user database so the shared control-plane execution roles
+# (table-builder / table-share / data-quality) get CREATE_TABLE on it via TBAC — those
+# roles are granted on this tag, not per-DB (infra/modules/analytics/lakeformation.tf).
+# Key/value MUST match aws_lakeformation_lf_tag.portal_managed there.
+PORTAL_MANAGED_TAG_KEY = "portal-managed"
+PORTAL_MANAGED_TAG_VALUE = "true"
+
 # Database-level permissions: read metadata + define/alter/drop tables, enabling
 # CREATE EXTERNAL TABLE and CREATE TABLE AS SELECT (CTAS).
 _DATABASE_PERMISSIONS = ["DESCRIBE", "CREATE_TABLE", "ALTER", "DROP"]
@@ -59,6 +74,26 @@ def _ensure_database(db):
         logger.info("Created Glue database %s", db)
     except glue.exceptions.AlreadyExistsException:
         logger.info("Glue database %s already exists; skipping create", db)
+
+
+def _tag_database(db):
+    """Attach the ``portal-managed`` LF-Tag to ``db``.
+
+    This is what grants the control-plane execution roles CREATE_TABLE on the database
+    (they are granted on the tag, not per-DB — see the analytics module). Idempotent:
+    re-assigning the same tag value is a no-op. ``add_lf_tags_to_resource`` reports
+    per-tag problems in a ``Failures`` list rather than raising, so a non-empty
+    ``Failures`` is turned into an exception — the caller decides how to react
+    (handler swallows it to avoid blocking sign-up; backfill lets it surface).
+    """
+    resp = lf.add_lf_tags_to_resource(
+        Resource={"Database": {"Name": db}},
+        LFTags=[{"TagKey": PORTAL_MANAGED_TAG_KEY, "TagValues": [PORTAL_MANAGED_TAG_VALUE]}],
+    )
+    failures = resp.get("Failures") or []
+    if failures:
+        raise RuntimeError(f"failed to tag database {db} {PORTAL_MANAGED_TAG_KEY}: {failures}")
+    logger.info("Tagged database %s %s=%s", db, PORTAL_MANAGED_TAG_KEY, PORTAL_MANAGED_TAG_VALUE)
 
 
 def _grant_role_full_access(db):
@@ -90,6 +125,7 @@ def provision_user(username):
     """
     _ensure_database(username)
     _grant_role_full_access(username)
+    _tag_database(username)
 
 
 def handler(event, context):
