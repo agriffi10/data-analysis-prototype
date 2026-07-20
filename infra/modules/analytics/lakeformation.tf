@@ -125,6 +125,28 @@ resource "aws_lakeformation_lf_tag" "portal_managed" {
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
 
+# ASSIGNING the tag to a database requires ASSOCIATE permission ON THE TAG — and, like
+# CREATE_TABLE, LF data-lake ADMIN status does NOT implicitly grant it (confirmed live:
+# the post-confirmation role, an admin, got "Required ASSOCIATE on portal-managed" from
+# AddLFTagsToResource). The tag CREATOR (the deploy role, via Terraform) has it
+# implicitly; the two provisioning roles that call AddLFTagsToResource — post_confirmation
+# (personal DBs) and the shared-space orchestrator (shared DBs) — must be granted it
+# explicitly. DESCRIBE lets them reference the tag. The control-plane execution roles
+# do NOT assign the tag (they only benefit from the tag-policy grants below), so they
+# are not granted ASSOCIATE.
+resource "aws_lakeformation_permissions" "provisioner_tag_associate" {
+  for_each    = toset(compact([var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn]))
+  principal   = each.value
+  permissions = ["ASSOCIATE", "DESCRIBE"]
+
+  lf_tag {
+    key    = aws_lakeformation_lf_tag.portal_managed.key
+    values = ["true"]
+  }
+
+  depends_on = [aws_lakeformation_lf_tag.portal_managed]
+}
+
 # DB level: DESCRIBE + CREATE_TABLE/ALTER/DROP on any database carrying the tag —
 # what lets a verb create (and clean up) tables in the target DB.
 resource "aws_lakeformation_permissions" "control_plane_tag_database" {
