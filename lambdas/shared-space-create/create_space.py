@@ -26,6 +26,13 @@ logger.setLevel(logging.INFO)
 # is kept in logs + the registry `failed` record for operators, never shown.
 _GENERIC_REASON = "please try again or contact the Administrator"
 
+# LF-Tag stamped on every shared-space database so the control-plane execution roles
+# (table-builder / table-share / data-quality) get CREATE_TABLE on it via TBAC — those
+# roles are granted on this tag, not per-DB (infra/modules/analytics/lakeformation.tf).
+# Key/value MUST match aws_lakeformation_lf_tag.portal_managed there.
+PORTAL_MANAGED_TAG_KEY = "portal-managed"
+PORTAL_MANAGED_TAG_VALUE = "true"
+
 
 def _user_reason(exc):
     """The user-facing failure reason (SPEC-106 FR-009).
@@ -53,6 +60,24 @@ def _ensure_database(name):
         glue.create_database(DatabaseInput={"Name": name})
     except glue.exceptions.AlreadyExistsException:
         pass
+
+
+def _tag_database(name):
+    """Attach the ``portal-managed`` LF-Tag to the shared DB.
+
+    This is what grants the control-plane execution roles (table-builder / table-share
+    / data-quality) CREATE_TABLE on the database — they are granted on the tag, not
+    per-DB (analytics module). Idempotent. ``add_lf_tags_to_resource`` reports per-tag
+    problems in a ``Failures`` list rather than raising, so a non-empty ``Failures`` is
+    turned into an exception the create path records as a terminal ``failed``.
+    """
+    resp = clients.lf().add_lf_tags_to_resource(
+        Resource={"Database": {"Name": name}},
+        LFTags=[{"TagKey": PORTAL_MANAGED_TAG_KEY, "TagValues": [PORTAL_MANAGED_TAG_VALUE]}],
+    )
+    failures = resp.get("Failures") or []
+    if failures:
+        raise RuntimeError(f"failed to tag database {name} {PORTAL_MANAGED_TAG_KEY}: {failures}")
 
 
 def _grant_portal_role(name):
@@ -110,6 +135,7 @@ def create_space(name, actor, request_id):
         membership.assign_or_find_slot(actor, name)  # may raise "membership limit reached"
         _ensure_marker(name)
         _ensure_database(name)
+        _tag_database(name)
         _grant_portal_role(name)
         # Seed the owner's member projection with just the owner; carry the registry's
         # createdAt so the Connections card meta line can show it.

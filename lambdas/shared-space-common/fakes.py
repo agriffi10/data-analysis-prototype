@@ -136,12 +136,18 @@ class FakeLF:
     def __init__(self):
         self.grants = []
         self.revokes = []
+        self.lf_tags = []
+        self.tag_failures = []
 
     def grant_permissions(self, Principal, Resource, Permissions):
         self.grants.append((Resource, Permissions))
 
     def revoke_permissions(self, Principal, Resource, Permissions):
         self.revokes.append((Resource, Permissions))
+
+    def add_lf_tags_to_resource(self, Resource, LFTags):
+        self.lf_tags.append((Resource, LFTags))
+        return {"Failures": list(self.tag_failures)}
 
 
 class FakeCognito:

@@ -37,12 +37,18 @@ class _FakeGlue:
 class _FakeLakeFormation:
     def __init__(self):
         self.grant_calls = []
+        self.tag_calls = []
         self.raise_error = None
+        self.tag_failures = []
 
     def grant_permissions(self, **kwargs):
         self.grant_calls.append(kwargs)
         if self.raise_error is not None:
             raise self.raise_error
+
+    def add_lf_tags_to_resource(self, **kwargs):
+        self.tag_calls.append(kwargs)
+        return {"Failures": list(self.tag_failures)}
 
 
 _fake_glue = _FakeGlue()
@@ -63,7 +69,9 @@ def _reset():
     _fake_glue.create_calls.clear()
     _fake_glue.raise_already_exists = False
     _fake_lf.grant_calls.clear()
+    _fake_lf.tag_calls.clear()
     _fake_lf.raise_error = None
+    _fake_lf.tag_failures = []
 
 
 def _event(username="alice", trigger="PostConfirmation_ConfirmSignUp"):
@@ -76,6 +84,7 @@ def test_ignores_forgot_password_confirmation():
     assert post_confirmation.handler(event, None) is event
     assert _fake_glue.create_calls == []
     assert _fake_lf.grant_calls == []
+    assert _fake_lf.tag_calls == []
 
 
 def test_signup_creates_database_named_as_username_verbatim():
@@ -103,6 +112,37 @@ def test_signup_grants_portal_role_db_and_table_permissions():
     # Writes (INSERT) included; row-level DELETE deliberately not granted in v1.
     assert table_grant["Permissions"] == ["SELECT", "INSERT", "DESCRIBE", "ALTER", "DROP"]
     assert "DELETE" not in table_grant["Permissions"]
+
+
+def test_signup_tags_database_portal_managed():
+    _reset()
+    post_confirmation.handler(_event(username="alice"), None)
+    assert len(_fake_lf.tag_calls) == 1
+    call = _fake_lf.tag_calls[0]
+    assert call["Resource"]["Database"]["Name"] == "alice"
+    assert call["LFTags"] == [{"TagKey": "portal-managed", "TagValues": ["true"]}]
+
+
+def test_tag_failure_surfaces_but_after_the_portal_grant():
+    _reset()
+    _fake_lf.tag_failures = [{"LFTag": {"TagKey": "portal-managed"}, "Error": {"ErrorCode": "x"}}]
+    # provision_user raises so the operator/backfill sees it (the trigger swallows it).
+    try:
+        post_confirmation.provision_user("alice")
+        assert False, "expected provision_user to raise on a tag failure"
+    except RuntimeError as exc:
+        assert "portal-managed" in str(exc)
+    # Tagging runs LAST, so the user's own portal-role grant already happened — a tag
+    # failure costs only control-plane access (which backfill reconciles), never the
+    # user's workspace grant.
+    assert len(_fake_lf.grant_calls) == 2
+
+
+def test_handler_never_blocks_signup_on_tag_failure():
+    _reset()
+    _fake_lf.tag_failures = [{"LFTag": {"TagKey": "portal-managed"}, "Error": {"ErrorCode": "x"}}]
+    event = _event(username="alice")
+    assert post_confirmation.handler(event, None) is event
 
 
 def test_already_existing_database_is_tolerated_and_still_grants():
