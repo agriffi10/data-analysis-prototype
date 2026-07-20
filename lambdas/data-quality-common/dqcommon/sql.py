@@ -279,9 +279,18 @@ def _sample_expr(column: str, predicate: str, size: int) -> str:
     offenders — DETERMINISTIC, which matters because a Step Functions Retry re-runs the
     query and a random sample would silently change the report between attempts.
     ``max_by`` ignores rows whose KEY is null, so the CASE doubles as the filter.
+
+    THE RESULT IS RENDERED AS JSON, and that is a correctness fix rather than a formatting
+    preference (SPEC-112). Athena writes an ARRAY into its CSV result file as
+    ``[N/A, -, 1,024]`` — the ELEMENTS are unquoted, so an offending value containing a
+    comma is unrecoverable when assemble-report parses the cell back, and it splits into
+    two wrong examples. These samples are drawn from exactly the badly-formed values most
+    likely to contain one (``1,024`` in a numeric column is a canonical CSV defect, and the
+    reason the column was flagged at all). ``json_format`` emits ``["N/A","-","1,024"]``,
+    which round-trips through ``json.loads`` with commas, quotes and newlines intact.
     """
     keyed = f"CASE WHEN {predicate} THEN {column} END"
-    return f"max_by({keyed}, {keyed}, {size})"
+    return f"json_format(CAST(max_by({keyed}, {keyed}, {size}) AS JSON))"
 
 
 def _projection(index: int, column: dict) -> str:
