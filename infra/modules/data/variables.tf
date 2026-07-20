@@ -45,3 +45,31 @@ variable "notifications_writer_role_arn" {
   type        = string
   default     = ""
 }
+
+# The three control-plane execution roles below all read USER-SPACE data via their own
+# execution role (table-builder/table-share inspect a source folder; data-quality lists +
+# probes + profiles one). SPEC-070/092/109 granted each the identity-side s3:GetObject/
+# ListBucket — but NONE was ever added to THIS bucket's resource-policy allowlist, so the
+# Deny below overrode those Allows and every read 403'd. The gap was invisible until the
+# SPEC-111 live smoke run became the first time any of the three actually read a real
+# user's files (greenfield, no production users). Constructed cycle-free by the root module
+# (a bucket-policy StringNotLike condition only needs the ARN string, so the role need not
+# exist at apply time); default "" keeps this module planning standalone.
+
+variable "table_builder_execution_role_arn" {
+  description = "SPEC-070/111-fix: ARN of the table-builder shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can read a personal-space source folder; the identity-side grant alone is overridden by the Deny without this exclusion."
+  type        = string
+  default     = ""
+}
+
+variable "table_share_execution_role_arn" {
+  description = "SPEC-092/111-fix: ARN of the table-share shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source/copy-objects can read a personal-space source table's files."
+  type        = string
+  default     = ""
+}
+
+variable "data_quality_execution_role_arn" {
+  description = "SPEC-109/111-fix: ARN of the data-quality shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can list+probe and Athena can profile a personal-space folder; without it the whole pipeline 403s at the first read."
+  type        = string
+  default     = ""
+}

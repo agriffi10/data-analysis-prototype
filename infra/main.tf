@@ -215,6 +215,16 @@ module "data" {
   # known at plan; the role is created in module.notifications.
   notifications_writer_role_arn = local.notifications_writer_role_arn
 
+  # SPEC-111 fix (systemic): the three control-plane execution roles that READ user-space
+  # data via their own execution role must ALSO be excluded from the Deny, or the bucket
+  # resource policy overrides their identity-side s3:GetObject/ListBucket grants and every
+  # read 403s. None was ever added here — invisible until the first live run (greenfield).
+  # Constructed strings (locals) — known at plan; the roles are created in their own
+  # modules, but a bucket-policy condition only needs the ARN string, so no cycle.
+  table_builder_execution_role_arn = local.table_builder_execution_role_arn
+  table_share_execution_role_arn   = local.table_share_execution_role_arn
+  data_quality_execution_role_arn  = local.data_quality_execution_role_arn
+
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
   identity_pool_id = module.auth.identity_pool_id
