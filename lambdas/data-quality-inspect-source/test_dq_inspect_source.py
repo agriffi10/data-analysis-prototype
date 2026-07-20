@@ -399,9 +399,21 @@ def _write(tmp_path, name, content, binary=False):
 
 
 def _probe_local(monkeypatch, path, fmt):
-    """Run the probe against a local file by stubbing the s3:// URI + access probe."""
+    """Run the probe against a local file.
+
+    Mirrors the two read paths the verb uses (SPEC-111): CSV/JSON are read via
+    ``_read_plain_head`` (a boto3 buffer — polars' object_store cloud read does not work in
+    Lambda) so the stub feeds polars the file's bytes; Parquet still reads via the s3:// URI
+    (its schema is a footer at the END of the file, unreachable by a head read), so the stub
+    points ``_object_uri`` at the local path.
+    """
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
-    monkeypatch.setattr(v, "_object_uri", lambda bucket, key: path)
+    if fmt == "parquet":
+        monkeypatch.setattr(v, "_object_uri", lambda bucket, key: path)
+    else:
+        with open(path, "rb") as fh:
+            data = fh.read()
+        monkeypatch.setattr(v, "_read_plain_head", lambda bucket, key: data)
     return v._probe_columns("bkt", "some/key", fmt)
 
 
@@ -449,6 +461,62 @@ def test_the_probe_hands_polars_an_s3_uri_rather_than_a_local_path():
     polars/object_store's (it range-fetches the footer), which a unit test can't observe —
     only that we never route the read through /tmp. The gz path's bound IS asserted, below."""
     assert v._object_uri("bkt", "alice/sales/a.parquet") == "s3://bkt/alice/sales/a.parquet"
+
+
+def test_csv_probe_reads_via_boto3_not_object_store(tmp_path, monkeypatch):
+    """The SPEC-111 fix: a plain CSV must be read through _read_plain_head (boto3 buffer),
+    NOT polars' object_store s3:// scan — which fails in Lambda even with credentials
+    ('failed to allocate N bytes to download'). Fail _object_uri so any accidental route
+    back to the cloud reader is caught here rather than in production."""
+    path = _write(tmp_path, "a.csv", "id,amount\n1,2\n")
+    monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
+
+    def _boom(bucket, key):
+        raise AssertionError("CSV must not use the object_store s3:// path")
+
+    monkeypatch.setattr(v, "_object_uri", _boom)
+    with open(path, "rb") as fh:
+        data = fh.read()
+    monkeypatch.setattr(v, "_read_plain_head", lambda bucket, key: data)
+    assert [c["name"] for c in v._probe_columns("bkt", "some/a.csv", "csv")] == ["id", "amount"]
+
+
+def test_storage_options_carries_the_roles_creds_and_region(monkeypatch):
+    """polars' object_store needs the creds handed in explicitly (SPEC-111). Assert the
+    aws_* keys are built from the Lambda role's env — the token is mandatory."""
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA_TEST")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret_test")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "token_test")
+    opts = v._storage_options()
+    assert opts == {
+        "aws_region": "us-east-1",
+        "aws_access_key_id": "AKIA_TEST",
+        "aws_secret_access_key": "secret_test",
+        "aws_session_token": "token_test",
+    }
+
+
+def test_read_plain_head_drops_a_partial_trailing_line():
+    """A CSV header is line 1; the read trims to whole lines and drops a partial trailing
+    line (handing polars a truncated final row would invent a column or fail to parse)."""
+    body, _ = _install_body(b"id,amount\n1,2\n3,4\npartial_no_newline")
+    out = v._read_plain_head("bkt", "some/a.csv")
+    assert out == b"id,amount\n1,2\n3,4\n"  # partial tail dropped
+    assert body.closed  # the body stream is abandoned, not drained
+
+
+def test_read_plain_head_does_not_drain_a_large_object():
+    """The guarantee that matters: it abandons the object once the bound is met, so a huge
+    CSV is never fully pulled into the Lambda. (Bounding is at chunk granularity, like the
+    gzip head — a chunk may carry many lines — so this asserts bytes-not-drained + whole
+    lines, not an exact line count.)"""
+    rows = b"h\n" + b"row\n" * 262_144  # ~1 MiB, many 256 KiB chunks
+    body, counter = _install_body(rows)
+    out = v._read_plain_head("bkt", "some/big.csv")
+    assert counter["read"] < len(rows)  # stopped early — did not drain the object
+    assert out.endswith(b"\n")  # whole lines only
+    assert body.closed
 
 
 def test_check_access_head_objects_the_key():

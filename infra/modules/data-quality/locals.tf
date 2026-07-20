@@ -122,9 +122,12 @@ locals {
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
-  # The dedicated Athena workgroup this pipeline's queries run in (athena.tf).
-  athena_workgroup_name = "${var.project_name}-${var.environment}-data-quality-wg"
-  athena_workgroup_arn  = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${local.athena_workgroup_name}"
+  # The SHARED portal Athena workgroup every verb runs in (var.athena_workgroup) — the
+  # same one table-builder/table-share use. SPEC-108 gave this arc its OWN workgroup to
+  # escape the portal workgroup's scan cutoff, but a dedicated workgroup fails Lake
+  # Formation's Create/Describe checks (Athena ties LF to the workgroup); SPEC-111's live
+  # run proved it. The ARN scopes the execution role's athena:StartQueryExecution etc.
+  athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
 
   # Glue catalog ARNs for the temp-table grants (SPEC-111 FR-006). WILDCARD database and
   # table on purpose: the temp table is created in the actor's own database (personal) or

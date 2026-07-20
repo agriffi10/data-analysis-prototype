@@ -59,8 +59,12 @@ resource "aws_lambda_function" "functions" {
   # (local.data_quality_verb_env) is reserved for OPTIONAL action env only.
   # NOTIFICATIONS_QUEUE_URL stays optional by design (emit is a no-op when unset).
   #
-  # ATHENA_WORKGROUP is THIS module's dedicated workgroup (athena.tf) — never the shared
-  # portal workgroup, whose 10 GiB scan cutoff would fail every real check.
+  # ATHENA_WORKGROUP is the SHARED portal workgroup (var.athena_workgroup) — the same one
+  # table-builder/table-share use. SPEC-108 originally gave this arc its own workgroup to
+  # escape the portal workgroup's 10 GiB scan cutoff, but Athena ties Lake Formation to the
+  # workgroup: a dedicated one fails LF's Create/Describe checks even for an LF-admin role
+  # (SPEC-111 live finding). The cutoff tradeoff is documented in the architecture doc — a
+  # data-quality check over a source larger than the cutoff fails until it is raised.
   environment {
     variables = merge(
       {
@@ -69,7 +73,7 @@ resource "aws_lambda_function" "functions" {
         ADMIN_BUCKET            = var.admin_bucket_name
         COGNITO_USER_POOL_ID    = var.user_pool_id
         COGNITO_APP_CLIENT_ID   = var.app_client_id
-        ATHENA_WORKGROUP        = aws_athena_workgroup.data_quality.name
+        ATHENA_WORKGROUP        = var.athena_workgroup
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
       },
       lookup(local.data_quality_verb_env, each.key, {}),

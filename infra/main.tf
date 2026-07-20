@@ -498,9 +498,14 @@ module "table_share" {
 #
 # The engine is ATHENA, not Lambda: a full pass over a 250 GB source is impossible inside
 # Lambda's 900 s ceiling, so a short Lambda STARTS the query and the STATE MACHINE waits
-# (Standard executions run for up to a year). It brings its OWN Athena workgroup with
-# bytes_scanned_cutoff_per_query UNSET — the shared portal workgroup's 10 GiB cutoff is
-# 25x under a 250 GB check and would fail every real one.
+# (Standard executions run for up to a year). It runs in the SHARED portal Athena
+# workgroup — the same one table-builder/table-share use. SPEC-108 originally gave the arc
+# its own workgroup to escape the portal workgroup's 10 GiB scan cutoff, but Athena ties
+# Lake Formation to the workgroup: a dedicated workgroup fails LF's Create/Describe checks
+# even for an LF-admin role (SPEC-111 live finding). TRADEOFF: the portal workgroup's scan
+# cutoff now applies to data-quality's profile queries, so a check over a source larger
+# than the cutoff fails until it is raised — tracked with the deferred DML-timeout quota
+# increase (data-quality-architecture.md §7.2, §10).
 #
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
 # deploy-role grants this module needs landed + applied in SPEC-108 PR1, so no in-module
@@ -528,6 +533,11 @@ module "data_quality" {
 
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
+
+  # SPEC-111 fix: run every verb's Athena queries in the SHARED portal workgroup (the same
+  # one table-builder/table-share use) — Athena ties Lake Formation to the workgroup, so a
+  # dedicated workgroup fails LF's table Create/Describe even for an LF-admin role.
+  athena_workgroup = local.athena_workgroup_name
 
   # SPEC-109: the portal role this module attaches the sqs:SendMessage enqueue policy to
   # (by name) — the browser's ONLY data-quality privilege.
