@@ -1,8 +1,8 @@
 # Spec: Data Quality — Temp Tables + the Athena Profile Query
 
 **ID:** SPEC-111
-**Status:** Draft
-**Last Updated:** 2026-07-13
+**Status:** Completed
+**Last Updated:** 2026-07-20
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation, incl. the polling loop), SPEC-109 (authorization), SPEC-110 (the manifest), SPEC-032 (Athena/Glue/LF), SPEC-069/070 (table-builder's DDL + projection machinery, reused here)
 
 > **Read `docs/data-quality-architecture.md` §0, §2.1, §5.1 and §7 first.** This is the spec that makes the arc work at 250 GB, and the spec that spends the arc's IAM budget.

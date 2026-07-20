@@ -116,7 +116,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 108 — Data Quality: Foundation Infrastructure + Common Layer + Athena Workgroup | Completed |
 | 109 — Data Quality: Request Contract, Enqueue & validate-authorize | Completed |
 | 110 — Data Quality: Source Inspection | Completed |
-| 111 — Data Quality: Temp Tables + the Athena Profile Query | Draft |
+| 111 — Data Quality: Temp Tables + the Athena Profile Query | Completed |
 | 112 — Data Quality: byte-scan + Report Assembly | Draft |
 | 113 — Data Quality: File-Browser UI + Report View | Draft |
 | 114 — Data Quality: Notification Producer | Draft |
