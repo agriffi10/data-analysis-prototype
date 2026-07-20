@@ -7,10 +7,19 @@ on:
   push:
     branches: [main]
     paths: ['infra/**']
+  # Manual recovery lever. The push trigger above is the normal path, but GitHub
+  # can silently DROP a push event (it did for the SPEC-111 merge 930c12e — zero
+  # workflow runs were created, so the apply never happened and the deployed state
+  # drifted from main with no way to reconcile it). workflow_dispatch is the escape
+  # hatch: run this workflow by hand against main to apply whatever main currently
+  # holds. It plans nothing (that is a PR-only check) — it applies, exactly like a
+  # push does, so the risk profile is identical to the existing main-applies design.
+  workflow_dispatch:
 
 jobs:
   # fmt-check / validate / plan are PR-only checks. main does not re-run them —
-  # it applies what the PR already planned.
+  # it applies what the PR already planned. A manual workflow_dispatch skips them
+  # too and goes straight to apply, same as a push.
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -74,7 +83,7 @@ jobs:
             });
 
   apply:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
