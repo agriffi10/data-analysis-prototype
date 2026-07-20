@@ -74,6 +74,7 @@ Two verbs that finish the job. **`byte-scan`** performs the one check a SQL engi
 - [ ] **The ragged-row figure carries BOTH of its caveats**, not one: `split` over-reports when a field contains a **quoted comma** *and* when a field contains an **embedded newline inside quotes** (one logical row appearing as two physical lines). A test asserts the rendered note mentions both.
 - [ ] If a file exceeded **Athena's 200 MB single-line limit** and the raw-line table failed, the ragged figure renders as `not_computed` with that reason — it does **not** fail the request (SPEC-111 FR-002).
 - [ ] A report where **any** figure is approximate, sampled, skipped or not-computed sets a top-level `hasApproximateFigures: true` — the flag SPEC-114's notification reads so it never says an unqualified "clean" over a sampled scan or an uncomputed check.
+- [ ] **A second top-level flag, `hasIncompleteFigures`, is set only when a check was SKIPPED or FAILED** — a `.gz`/Parquet skip, a degraded ragged/duplicates query, or a sampled encoding scan. *(Added in build, user decision.)* The reason it exists: given the classification above, `hasApproximateFigures` is **true on every report for every format** — ragged and encoding are approximate whenever computed and skipped whenever not, so no source shape produces an all-exact report, and a flag that never varies cannot tell SPEC-114 anything. `hasIncompleteFigures` is the one that varies: **false** for a healthy CSV whose three queries all succeeded and whose bytes were all scanned. SPEC-114 qualifies softly on the first ("some figures are estimates" — the normal case) and warns only on the second. A test asserts the false case is reachable.
 - [ ] The overall verdict is `clean` or `issues_found`.
 - [ ] A **top-issues list** of at most **5** human-readable strings is produced for the notification body, ordered by severity (structural before statistical), each naming the file and column involved. A test pins the ordering and the cap.
 - [ ] The verb emits a **small** summary payload (`requestId`, `location`, `format`, `fileCount`, verdict, top issues, `hasApproximateFigures`, `completedAt`, report key) for SPEC-114 — and, by design, everything a SPEC-123 index entry needs (FR-004). The notification never carries the full report.
@@ -118,7 +119,8 @@ DQ_TOP_ISSUES: int = 5
   "format": "csv",
   "fileCount": 3,
   "verdict": "issues_found",              // | "clean"
-  "hasApproximateFigures": true,          // ⇒ SPEC-114 qualifies the notification
+  "hasApproximateFigures": true,          // ⇒ SPEC-114 qualifies softly. ALWAYS true — see FR-003.
+  "hasIncompleteFigures": false,          // ⇒ SPEC-114 warns. The flag that actually varies.
   "completedAt": "2026-07-12T14:32:11Z",  // when the check completed — the ONLY field a replay changes
 
   "exact": {

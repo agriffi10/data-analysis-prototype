@@ -630,6 +630,55 @@ def test_an_extra_column_reads_grammatically_too():
     ]
 
 
+def test_a_healthy_csv_has_nothing_incomplete():
+    """The flag that actually varies. Everything ran and every byte was scanned, so the user
+    is not missing a figure — even though ragged is inherently approximate."""
+    document = _build(profile=[_profile_row(1000, [{"not_bigint": 0}, {"not_bigint": 0}])])
+
+    assert document["hasApproximateFigures"] is True
+    assert document["hasIncompleteFigures"] is False
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["degraded_duplicates", "degraded_ragged", "skipped_ragged", "sampled_encoding",
+     "skipped_encoding", "parquet_types"],
+)
+def test_anything_skipped_or_failed_marks_the_report_incomplete(case):
+    """Each of these means a figure the user asked for is not in front of them — which is
+    what SPEC-114 must warn about, as opposed to the always-on approximate qualifier."""
+    request, manifest, encoding = _request(), None, _encoding()
+    profile = [_profile_row(1000, [{"not_bigint": 0}, {"not_bigint": 0}])]
+    ragged = dupes = None
+
+    if case == "degraded_duplicates":
+        request = _request(duplicates={"status": "not_computed", "reason": "EXCEEDED_RESOURCES"})
+        dupes = []
+    elif case == "degraded_ragged":
+        request = _request(ragged={"status": "not_computed", "reason": "boom"})
+        ragged = []
+    elif case == "skipped_ragged":
+        request, ragged = _request(ragged=None), []
+    elif case == "sampled_encoding":
+        encoding = _encoding(coverage="sampled", bytesExamined=1, bytesTotal=300)
+    elif case == "skipped_encoding":
+        encoding = {"status": "skipped", "reason": "binary format"}
+    else:
+        request = _request(format="parquet")
+        manifest = _manifest(
+            [{"key": "a.parquet", "size": 1, "columns": [{"name": "id", "type": "string"}]}],
+            fmt="parquet",
+        )
+        profile = [_profile_row(1000, [{}])]
+
+    document = _build(
+        request=request, manifest=manifest, profile=profile,
+        ragged=ragged, dupes=dupes, encoding=encoding,
+    )
+
+    assert document["hasIncompleteFigures"] is True
+
+
 def test_the_report_carries_its_identity_and_completion_time():
     document = _build()
 

@@ -435,12 +435,34 @@ def _has_approximate(exact: dict, approximate: dict) -> bool:
     assert against a state the arc cannot produce, and guarding them separately would be
     two branches nothing could ever exercise.
 
-    THE CONSEQUENCE FOR SPEC-114: its qualifier fires on every report. The wording has to
-    read as the normal case ("some figures are estimates") rather than as a warning, or it
-    becomes noise the user learns to skip past — and then it is not protecting anything.
+    Because it never varies it carries no information on its own, which is why
+    ``_has_incomplete`` exists beside it (user decision). SPEC-114 qualifies softly on this
+    one — "some figures are estimates", the normal case — and warns only on that one.
     """
     return any(
         "status" in figure or "note" in figure or "coveragePercent" in figure
+        for figure in approximate.values()
+    )
+
+
+def _has_incomplete(exact: dict, approximate: dict) -> bool:
+    """True when a check was SKIPPED or FAILED, rather than merely being approximate.
+
+    The distinction ``hasApproximateFigures`` cannot make (user decision). "Ragged rows
+    over-count quoted commas" is a permanent property of the method and applies to every
+    healthy CSV; "the duplicate-row query ran out of resources" means a figure the user
+    asked for is not in front of them. Both set the approximate flag; only the second should
+    make a notification say something is missing.
+
+    FALSE is reachable and is the common case: a CSV whose three queries all succeeded and
+    whose bytes were all scanned has nothing skipped and nothing failed.
+    """
+    if not isinstance(exact["duplicateRows"], int):
+        return True
+    if any(column.get("typeConsistency") == "skipped" for column in exact["columns"]):
+        return True
+    return any(
+        "status" in figure or figure.get("coverage") == "sampled"
         for figure in approximate.values()
     )
 
@@ -497,6 +519,9 @@ def build(
         "fileCount": len(files),
         "verdict": "issues_found" if issues else "clean",
         "hasApproximateFigures": _has_approximate(exact, approximate),
+        # The flag that actually varies: something was skipped or failed, as opposed to
+        # something being approximate by nature. SPEC-114 warns on this one.
+        "hasIncompleteFigures": _has_incomplete(exact, approximate),
         # THE ONLY FIELD A REPLAY CHANGES. The key is a pure function of requestId, so a
         # retry or an SQS redelivery overwrites the same object rather than adding a second
         # one — which is how this pipeline is replay-safe, since no verb in this codebase

@@ -158,6 +158,7 @@ def _assemble(event: dict) -> dict:
     out["reportKey"] = key
     out["verdict"] = document["verdict"]
     out["hasApproximateFigures"] = document["hasApproximateFigures"]
+    out["hasIncompleteFigures"] = document["hasIncompleteFigures"]
     out["completedAt"] = document["completedAt"]
     out["topIssues"] = document["topIssues"]
     out["fileCount"] = document["fileCount"]
