@@ -38,15 +38,6 @@ TEXT_FORMATS = frozenset({"csv", "json"})
 SKIP_BINARY = "binary format — encoding is defined by the file format"
 SKIP_COMPRESSED = "compressed source — raw bytes are DEFLATE output"
 
-#: Bytes pulled from a stream at a time. PEAK MEMORY IS THIS, NOT THE BUDGET: the decode is
-#: streaming, so a 512 MiB head window on a 2-file manifest is never held whole. Without
-#: that property the 2 GiB budget would OOM a 1024 MB function on any small manifest.
-_READ_CHUNK = 256 * 1024
-
-#: Offsets kept as examples. The COUNT is what matters; the offsets are there so an
-#: operator can go and look at one. A file that is entirely mis-encoded has millions.
-_MAX_OFFSETS = 10
-
 #: Longest UTF-8 sequence, hence the most trailing bytes that can be a truncated character.
 _MAX_UTF8_LEN = 4
 
@@ -65,14 +56,23 @@ _MAX_UTF8_LEN = 4
 # quadratic path. The handler records into module state because codecs identifies handlers
 # by NAME — a Lambda invocation is single-threaded, and each file's scan resets the state
 # before it starts.
+#
+# THE COUNT IS AN INT AND THE OFFSET LIST IS CAPPED, which is not tidiness — retaining an
+# offset per bad sequence is ~42 bytes each, and a 250 MB CP1252 export holds tens of
+# millions of them: over a gigabyte in a 1024 MB function. Avoiding the quadratic CPU path
+# above only to OOM on the same file would be the same bug wearing a different hat.
 _HANDLER_NAME = "dq_byte_scan.count_invalid"
 _found: list[int] = []
+_invalid = 0
 _base = 0
 
 
 def _record_invalid(err: UnicodeDecodeError):
     """Record one invalid sequence and tell the decoder to carry on past it."""
-    _found.append(_base + err.start)
+    global _invalid
+    _invalid += 1
+    if len(_found) < config.DQ_OFFSET_SAMPLE:
+        _found.append(_base + err.start)
     return ("�", err.end)
 
 
@@ -104,37 +104,48 @@ def _decode(buf: bytes, base: int) -> None:
     buf.decode("utf-8", errors=_HANDLER_NAME)
 
 
-def _read_range(bucket: str, key: str, start: int, length: int):
-    """Return a streaming body for ``length`` bytes of ``key`` from ``start``."""
-    end = start + length - 1
-    try:
-        return clients.s3().get_object(
-            Bucket=bucket, Key=key, Range=f"bytes={start}-{end}"
-        )["Body"]
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        # A one-off SlowDown must not fail a check this far in — every Athena query has
-        # already run by now. The verb is a pure read, so a Step Functions Retry re-runs it
-        # safely and re-reads the same deterministic ranges.
-        errors.raise_if_transient(err, f"get {bucket}/{key} bytes={start}-{end}")
-        raise
+#: A range that no longer exists because the object shrank between states (see _scan_region).
+_INVALID_RANGE = "InvalidRange"
 
 
 def _scan_region(bucket: str, key: str, start: int, length: int, at_eof: bool) -> int:
     """Scan one contiguous byte range, returning the bytes actually examined.
 
     Invalid-sequence offsets land in the module-level ``_found``; the caller owns resetting
-    and truncating it.
+    it.
+
+    THE WHOLE TRANSFER IS INSIDE THE TRY, not just the request. The bytes move during
+    ``iter_chunks``, and a mid-stream fault (ReadTimeoutError, IncompleteReadError, a reset
+    connection) carries no error code and arrives at Step Functions as its own Python class
+    name — which the ByteScan Retry list does not name. One dropped connection across the
+    ~1000 sequential reads a 2 GiB budget can span would then fail the request PERMANENTLY,
+    after all three Athena queries have already been paid for. Wrapping only the
+    ``get_object`` call would map the rarer fault and miss the likelier one.
     """
-    body = _read_range(bucket, key, start, length)
+    end = start + length - 1
     pending = b""
     base = start
     examined = 0
 
-    for chunk in body.iter_chunks(_READ_CHUNK):
-        examined += len(chunk)
-        decodable, pending = _split_trailing_partial(pending + chunk)
-        _decode(decodable, base)
-        base += len(decodable)
+    try:
+        body = clients.s3().get_object(Bucket=bucket, Key=key, Range=f"bytes={start}-{end}")["Body"]
+        for chunk in body.iter_chunks(config.DQ_SCAN_READ_CHUNK_BYTES):
+            examined += len(chunk)
+            decodable, pending = _split_trailing_partial(pending + chunk)
+            _decode(decodable, base)
+            base += len(decodable)
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        if errors.error_code(err) == _INVALID_RANGE:
+            # The object shrank or was replaced between inspect-source's listing and now,
+            # so this range is past its end. Losing the whole check over one file that
+            # changed under us would be worse than scanning less of it: the figure is
+            # already labelled sampled, and the caller marks the file incomplete.
+            logger.warning("range %s-%s of %s no longer exists — object changed", start, end, key)
+            return examined
+        # A one-off SlowDown must not fail a check this far in. The verb is a pure read, so
+        # a Step Functions Retry re-runs it safely over the same deterministic ranges.
+        errors.raise_if_transient(err, f"get {bucket}/{key} bytes={start}-{end}")
+        raise
 
     if pending and at_eof:
         # Bytes left over at the end of the region are a truncated character. At EOF that
@@ -159,7 +170,7 @@ def _regions(size: int, share: int) -> list[tuple[int, int]]:
     see that constant for why the REQUEST count, not just the byte count, is a way to blow
     the timeout.
     """
-    if size <= share:
+    if _fits(size, share):
         return [(0, size)] if size else []
 
     head = int(share * config.DQ_SCAN_HEAD_FRACTION)
@@ -181,19 +192,33 @@ def _regions(size: int, share: int) -> list[tuple[int, int]]:
     return regions
 
 
+def _fits(size: int, share: int) -> bool:
+    """True when the whole file fits inside its share, so it is read in full.
+
+    ONE predicate, used by both the planner and the coverage verdict. Duplicating it let a
+    single-sided edit report ``coverage: "complete"`` over a file the planner had in fact
+    sampled — a coverage figure that lies in the safe-sounding direction.
+    """
+    return size <= share
+
+
 def _scan_file(bucket: str, entry: dict, share: int) -> tuple[int, bool, int, list[int]]:
     """Scan one file within its share.
 
     Returns ``(bytesExamined, read_in_full, invalid_count, first_offsets)``. The offsets are
     already ascending — regions are planned in file order and scanned in order.
     """
+    global _invalid
     key = entry["key"]
     size = entry.get("size") or 0
     examined = 0
     _found.clear()
+    _invalid = 0
     for start, length in _regions(size, share):
         examined += _scan_region(bucket, key, start, length, at_eof=start + length >= size)
-    return examined, size <= share, len(_found), _found[:_MAX_OFFSETS]
+    # A short read (the object changed mid-check) also means this file was not read in full,
+    # whatever the manifest's size said.
+    return examined, _fits(size, share) and examined >= size, _invalid, list(_found)
 
 
 def _scan(event: dict) -> dict:
@@ -214,7 +239,7 @@ def _scan(event: dict) -> dict:
     # Compression is per FILE (inspect-source enforces one FORMAT, not one codec), so a
     # folder can mix plain and .gz. The scannable subset is scanned and the rest counted as
     # skipped, rather than losing the whole figure to one .gz sibling.
-    scannable = [f for f in files if not f["key"].endswith(config.GZIP_SUFFIX)]
+    scannable = [f for f in files if not config.is_compressed(f["key"])]
     skipped = len(files) - len(scannable)
 
     if not scannable:
@@ -241,7 +266,7 @@ def _scan(event: dict) -> dict:
         # that an operator can go and look at one.
         offsets.extend(
             {"key": entry["key"], "offset": offset}
-            for offset in file_offsets[: _MAX_OFFSETS - len(offsets)]
+            for offset in file_offsets[: config.DQ_OFFSET_SAMPLE - len(offsets)]
         )
 
     out["encoding"] = {
@@ -249,7 +274,12 @@ def _scan(event: dict) -> dict:
         "sampleOffsets": offsets,
         "bytesExamined": examined,
         "bytesTotal": sum(f.get("size") or 0 for f in scannable),
-        "coverage": "complete" if complete else "sampled",
+        # A SKIPPED FILE MAKES THE WHOLE FIGURE SAMPLED. Without that clause, one 13-byte
+        # .csv beside ninety-nine 1 GiB .csv.gz files reports coverage "complete" at 100%
+        # over a folder where 99 GB was never looked at — the figure reading cleanest
+        # exactly where it has seen least. FR-001's own standard: a number that silently
+        # means "of the first 0.8%" is worse than no number.
+        "coverage": "complete" if complete and not skipped else "sampled",
         "filesScanned": len(scannable),
         "filesSkipped": skipped,
     }
@@ -269,7 +299,10 @@ def _scan(event: dict) -> dict:
         invalid,
         skipped,
     )
-    _found.clear()
+    # No clear here: _scan_file resets before every file, and what survives the last one is
+    # at most DQ_OFFSET_SAMPLE ints. Clearing it on the way out would ALSO erase the only
+    # externally observable evidence that the cap is doing anything — the test asserting it
+    # would pass against an unbounded list.
     return out
 
 

@@ -94,6 +94,20 @@ EXT_FORMAT = {
 GZIP_SUFFIX = ".gz"
 
 
+def is_compressed(key: str) -> bool:
+    """True when ``key`` names a gzip-wrapped object.
+
+    SHARED rather than per-verb, and CASE-INSENSITIVE, because the two readings must never
+    drift: inspect-source classifies ``SALES.CSV.GZ`` as compressed csv (it lowercases),
+    so a case-SENSITIVE test anywhere downstream lets a gzip object through as plain text.
+    byte-scan reading DEFLATE output as UTF-8 yields roughly 42 fabricated "invalid
+    encoding" findings per 100 bytes — a confident, entirely false corruption report over a
+    file that is fine, on exactly the Windows-tooling population that produces both
+    uppercase extensions and the codepage files the check is for.
+    """
+    return key.lower().endswith(GZIP_SUFFIX)
+
+
 def _validate_caps() -> None:
     """Fail fast at import if a cap was edited into something meaningless.
 
@@ -111,6 +125,8 @@ def _validate_caps() -> None:
         ("DQ_SCAN_SAMPLE_COUNT", DQ_SCAN_SAMPLE_COUNT),
         ("DQ_SCAN_MIN_SAMPLE_BYTES", DQ_SCAN_MIN_SAMPLE_BYTES),
         ("DQ_TOP_ISSUES", DQ_TOP_ISSUES),
+        ("DQ_OFFSET_SAMPLE", DQ_OFFSET_SAMPLE),
+        ("DQ_SCAN_READ_CHUNK_BYTES", DQ_SCAN_READ_CHUNK_BYTES),
         ("DQ_OFFENDING_VALUE_SAMPLE", DQ_OFFENDING_VALUE_SAMPLE),
         ("DQ_QUERY_POLL_SECONDS", DQ_QUERY_POLL_SECONDS),
     ):
@@ -209,6 +225,18 @@ DQ_SCAN_MIN_SAMPLE_BYTES = 4 * 1024**2  # 4 MiB
 # The notification is a sentence or two, not a report: past a handful the user stops
 # reading and the real finding is buried. The full detail is in report.json.
 DQ_TOP_ISSUES = 5
+
+# SPEC-112 — how many invalid-sequence byte offsets the report keeps as examples.
+# The COUNT is the finding; the offsets exist so an operator can go and look at one.
+# It also BOUNDS MEMORY: a mis-encoded 250 MB export contains tens of millions of invalid
+# sequences, and retaining an offset for each is ~42 bytes apiece — over a gigabyte in a
+# 1024 MB function, i.e. an OOM on precisely the file the check exists to diagnose.
+DQ_OFFSET_SAMPLE = 10
+
+# SPEC-112 — bytes pulled from a stream at a time. PEAK MEMORY IS THIS, NOT THE BUDGET:
+# the decode is streaming, so a 512 MiB head window on a 2-file manifest is never held
+# whole. Without that property the 2 GiB budget would OOM a 1024 MB function.
+DQ_SCAN_READ_CHUNK_BYTES = 256 * 1024
 
 
 # Called at the BOTTOM: it reads every cap above, including the two declared after its

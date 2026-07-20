@@ -108,8 +108,9 @@ def _classify(key: str) -> str | None:
     return config.EXT_FORMAT.get(name[dot:])
 
 
-def _is_compressed(key: str) -> bool:
-    return key.lower().endswith(config.GZIP_SUFFIX)
+#: Shared with byte-scan (SPEC-112): the two verbs must agree on what "compressed" means,
+#: or a file this one classifies as gzipped csv gets its DEFLATE output scanned as text.
+_is_compressed = config.is_compressed
 
 
 def _resolve_listing_prefix(bucket: str, location: str) -> str:

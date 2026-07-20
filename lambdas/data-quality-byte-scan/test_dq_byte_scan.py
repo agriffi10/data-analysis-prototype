@@ -53,14 +53,19 @@ class _FakeBody:
     generated a chunk at a time and never held, exactly as the verb reads them.
     """
 
-    def __init__(self, data=None, length=0):
+    def __init__(self, data=None, length=0, mid_stream_error=None):
         self.data = data
         self.length = length
+        self.mid_stream_error = mid_stream_error
 
     def iter_chunks(self, size):
         if self.data is not None:
             for start in range(0, len(self.data), size):
                 yield self.data[start : start + size]
+                # Faults DURING the transfer, which is where a dropped connection actually
+                # lands — not on the request that opened it.
+                if self.mid_stream_error:
+                    raise self.mid_stream_error
             return
         remaining = self.length
         while remaining > 0:
@@ -72,9 +77,10 @@ class _FakeBody:
 class _FakeS3:
     """Records every ranged GET and serves content (real or synthetic)."""
 
-    def __init__(self, content=None, error=None):
+    def __init__(self, content=None, error=None, mid_stream_error=None):
         self.content = content or {}
         self.error = error
+        self.mid_stream_error = mid_stream_error
         self.gets = []
         self.bytes_served = 0
 
@@ -86,15 +92,18 @@ class _FakeS3:
         self.gets.append((Key, start, end))
         if Key in self.content:
             data = self.content[Key][start : end + 1]
+            # S3 answers a range past the end of an object with 416, not a short read.
+            if start >= len(self.content[Key]):
+                raise _FakeClientError("InvalidRange")
             self.bytes_served += len(data)
-            return {"Body": _FakeBody(data=data)}
+            return {"Body": _FakeBody(data=data, mid_stream_error=self.mid_stream_error)}
         self.bytes_served += end - start + 1
-        return {"Body": _FakeBody(length=end - start + 1)}
+        return {"Body": _FakeBody(length=end - start + 1, mid_stream_error=self.mid_stream_error)}
 
 
-def _setup(monkeypatch, files, fmt="csv", content=None, error=None):
+def _setup(monkeypatch, files, fmt="csv", content=None, error=None, mid_stream_error=None):
     """Install a fake S3 + manifest and return the fake."""
-    fake = _FakeS3(content=content, error=error)
+    fake = _FakeS3(content=content, error=error, mid_stream_error=mid_stream_error)
     monkeypatch.setattr(v.clients, "s3", lambda: fake)
     monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: {"files": files})
     return fake
@@ -163,6 +172,21 @@ def test_a_gzip_sibling_is_skipped_but_the_plain_files_are_still_scanned(monkeyp
     assert [key for key, _, _ in fake.gets] == ["alice/s/a.csv"]
 
 
+@pytest.mark.parametrize("key", ["alice/s/A.CSV.GZ", "alice/s/a.csv.Gz", "alice/s/A.Csv.gZ"])
+def test_an_uppercase_gzip_extension_is_still_skipped(monkeypatch, key):
+    """inspect-source lowercases before classifying, so SALES.CSV.GZ enters the manifest as
+    compressed csv. A case-SENSITIVE test here would hand its DEFLATE output to the UTF-8
+    decoder — about 42 fabricated findings per 100 bytes, i.e. a confident corruption
+    report over a file that is fine, on exactly the Windows-tooling population this check
+    is aimed at."""
+    fake = _setup(monkeypatch, [{"key": key, "size": 5}])
+
+    out = v.handler(_event(), None)
+
+    assert out["encoding"] == {"status": "skipped", "reason": v.SKIP_COMPRESSED}
+    assert fake.gets == []
+
+
 # ── Coverage: complete vs sampled (FR-001) ───────────────────────────────────
 
 
@@ -191,19 +215,55 @@ def test_a_file_larger_than_its_share_is_sampled(monkeypatch):
     assert out["bytesExamined"] / out["bytesTotal"] < 0.001
 
 
-def test_one_sampled_file_makes_the_whole_figure_sampled(monkeypatch):
+@pytest.mark.parametrize("sampled_first", [True, False])
+def test_one_sampled_file_makes_the_whole_figure_sampled(monkeypatch, sampled_first):
+    """Parametrized on ORDER: a reduce written as `complete = in_full` rather than
+    `complete = complete and in_full` still passes when the sampled file happens to come
+    last, and reports a 250 GB folder as fully examined when it comes first."""
     _shrink(monkeypatch)
     content = {"alice/s/small.csv": b"ok\n"}
-    _setup(
-        monkeypatch,
-        [
-            {"key": "alice/s/small.csv", "size": 3},
-            {"key": "alice/s/big.csv", "size": 250 * GIB},
-        ],
-        content=content,
-    )
+    files = [
+        {"key": "alice/s/big.csv", "size": 250 * GIB},
+        {"key": "alice/s/small.csv", "size": 3},
+    ]
+    _setup(monkeypatch, files if sampled_first else files[::-1], content=content)
 
     assert v.handler(_event(), None)["encoding"]["coverage"] == "sampled"
+
+
+def test_a_file_exactly_the_size_of_its_share_is_complete(monkeypatch):
+    """FR-001's boundary: read IN FULL WITHIN its share. The planner and the coverage
+    verdict must agree on which side `==` falls, or coverage lies in the reassuring
+    direction."""
+    _shrink(monkeypatch, total=20, min_sample=2)
+    content = {"alice/s/a.csv": b"a" * 20}
+    fake = _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": 20}], content=content)
+
+    out = v.handler(_event(), None)["encoding"]
+
+    assert out["coverage"] == "complete"
+    assert out["bytesExamined"] == 20
+    # ONE contiguous read, which is the whole reason the boundary is `<=`. Falling to the
+    # sampled branch here still reads all 20 bytes, so no figure would look wrong — it just
+    # spends six round trips to do it, and that cost is invisible except right here.
+    assert len(fake.gets) == 1
+
+
+def test_skipped_files_make_the_figure_sampled_however_complete_the_rest_was(monkeypatch):
+    """One tiny .csv beside ninety-nine 1 GiB .csv.gz files must not read "complete".
+
+    Otherwise the coverage figure reads cleanest exactly where it has looked least: 100% of
+    13 bytes, over a folder holding 99 GB nobody examined.
+    """
+    content = {"alice/s/a.csv": b"id,name\n1,ok\n"}
+    files = [{"key": "alice/s/a.csv", "size": 13}]
+    files += [{"key": f"alice/s/{i}.csv.gz", "size": GIB} for i in range(99)]
+    _setup(monkeypatch, files, content=content)
+
+    out = v.handler(_event(), None)["encoding"]
+
+    assert out["coverage"] == "sampled"
+    assert out["filesSkipped"] == 99
 
 
 # ── Invalid UTF-8 (FR-001) ───────────────────────────────────────────────────
@@ -228,7 +288,7 @@ def test_the_offset_sample_is_capped_at_ten(monkeypatch):
     out = v.handler(_event(), None)["encoding"]
 
     assert out["invalidUtf8Sequences"] == 50  # the COUNT is not capped
-    assert len(out["sampleOffsets"]) == v._MAX_OFFSETS
+    assert len(out["sampleOffsets"]) == config.DQ_OFFSET_SAMPLE
 
 
 def test_the_offset_sample_stays_capped_across_many_files(monkeypatch):
@@ -242,7 +302,50 @@ def test_the_offset_sample_stays_capped_across_many_files(monkeypatch):
     out = v.handler(_event(), None)["encoding"]
 
     assert out["invalidUtf8Sequences"] == 40
-    assert len(out["sampleOffsets"]) == v._MAX_OFFSETS
+    assert len(out["sampleOffsets"]) == config.DQ_OFFSET_SAMPLE
+
+
+def test_offsets_stay_absolute_across_read_chunks(monkeypatch):
+    """The offset must be the position IN THE FILE, not in the chunk it was found in.
+
+    Nothing else pins the base arithmetic: a single-chunk fixture has base 0 everywhere, so
+    zeroing the running base — or dropping the advance — passes a suite that only ever
+    looks at small files. The field exists so an operator can go and look at the byte.
+    """
+    monkeypatch.setattr(config, "DQ_SCAN_READ_CHUNK_BYTES", 4)
+    content = {"alice/s/a.csv": b"aaaaaaaa\xe9,zzz"}  # the bad byte is at offset 8
+    _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": 13}], content=content)
+
+    out = v.handler(_event(), None)["encoding"]
+
+    assert out["sampleOffsets"] == [{"key": "alice/s/a.csv", "offset": 8}]
+
+
+def test_offsets_stay_absolute_inside_a_sampled_region(monkeypatch):
+    """A ranged region starts partway into the file, and its offsets must say so."""
+    _shrink(monkeypatch, total=8, min_sample=2)
+    # share 8 -> head (0,4), then samples at (4,2) and (12,2). The bad byte sits at 12,
+    # inside the LAST region — a region that does not start at zero.
+    content = {"alice/s/a.csv": b"a" * 12 + b"\xe9" + b"a" * 7}
+    _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": 20}], content=content)
+
+    out = v.handler(_event(), None)["encoding"]
+
+    assert out["sampleOffsets"] == [{"key": "alice/s/a.csv", "offset": 12}]
+
+
+def test_the_offset_list_is_bounded_even_on_a_wholly_corrupt_file(monkeypatch):
+    """MEMORY, not cosmetics. Retaining an offset per bad sequence is ~42 bytes each, and a
+    mis-encoded 250 MB export holds tens of millions — over a gigabyte in a 1024 MB
+    function, i.e. an OOM on precisely the file this check exists to diagnose. Avoiding the
+    quadratic CPU path only to blow up on memory is the same bug in a different costume."""
+    content = {"alice/s/a.csv": b"\xe9" * 20_000}
+    _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": 20_000}], content=content)
+
+    out = v.handler(_event(), None)["encoding"]
+
+    assert out["invalidUtf8Sequences"] == 20_000  # the COUNT is exact
+    assert len(v._found) <= config.DQ_OFFSET_SAMPLE  # the RETAINED offsets are not
 
 
 def test_a_clean_multibyte_file_reports_nothing(monkeypatch):
@@ -262,7 +365,7 @@ def test_a_character_split_across_read_chunks_is_not_counted(monkeypatch):
     once as a truncated lead byte, once as a stray continuation — on a file that is
     perfectly valid UTF-8.
     """
-    monkeypatch.setattr(v, "_READ_CHUNK", 3)
+    monkeypatch.setattr(config, "DQ_SCAN_READ_CHUNK_BYTES", 3)
     content = {"alice/s/a.csv": "aa☕bb".encode()}  # the 3-byte char starts at byte 2
     _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": len(content["alice/s/a.csv"])}], content=content)
 
@@ -379,6 +482,10 @@ def test_a_large_file_leads_with_a_head_window():
     assert regions[0][0] == 0
     assert regions[0][1] == int(config.DQ_SCAN_TOTAL_BYTES * config.DQ_SCAN_HEAD_FRACTION)
     assert len(regions) == 1 + config.DQ_SCAN_SAMPLE_COUNT
+    # Every sample starts AT OR AFTER the head window. Samples that restart from zero would
+    # re-read bytes the head already covered — spending the budget twice on the same bytes
+    # while reporting the coverage of a scan that had looked further.
+    assert all(start >= regions[0][1] for start, _ in regions[1:])
     # Spread across the file, not clustered at the front — a corruption in the tail of a
     # 250 GB export is still reachable.
     assert regions[-1][0] > 200 * GIB
@@ -420,6 +527,43 @@ def test_a_throttled_read_raises_transient_so_the_state_machine_retries(monkeypa
 
     with pytest.raises(TransientError):
         v.handler(_event(), None)
+
+
+def test_a_fault_midway_through_the_transfer_is_also_mapped_to_transient(monkeypatch):
+    """The bytes move during iter_chunks, not during get_object.
+
+    A read timeout or reset connection arrives there, with no error code, and reaches Step
+    Functions as its own class name — which the ByteScan Retry list does not name. One
+    dropped connection across the ~1000 reads a 2 GiB budget spans would then fail the
+    request permanently, after all three Athena queries had already been paid for.
+    """
+    content = {"alice/s/a.csv": b"a" * 64}
+    _setup(
+        monkeypatch,
+        [{"key": "alice/s/a.csv", "size": 64}],
+        content=content,
+        mid_stream_error=_FakeClientError("RequestTimeout"),
+    )
+    monkeypatch.setattr(config, "DQ_SCAN_READ_CHUNK_BYTES", 8)
+
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_range_past_a_shrunken_object_does_not_fail_the_whole_check(monkeypatch):
+    """The manifest's size is a snapshot from inspect-source; the object can change.
+
+    A 416 must cost that file some coverage, not cost the user their entire check — every
+    Athena query has already run by this point.
+    """
+    _shrink(monkeypatch, total=8, min_sample=2)
+    content = {"alice/s/a.csv": b"abcd"}  # the manifest claims 20 bytes; only 4 remain
+    _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": 20}], content=content)
+
+    out = v.handler(_event(), None)["encoding"]
+
+    assert out["coverage"] == "sampled"
+    assert out["bytesExamined"] == 4
 
 
 def test_a_denied_read_propagates_rather_than_being_retried(monkeypatch):
