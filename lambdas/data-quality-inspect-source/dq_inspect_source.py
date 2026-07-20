@@ -22,6 +22,7 @@ Athena's job (SPEC-111); byte-level reading is byte-scan's (SPEC-112).
 import io
 import json
 import logging
+import os
 import zlib
 
 from cpcommon import clients, errors, events, s3_listing
@@ -298,6 +299,41 @@ def _read_gzip_head(bucket: str, key: str) -> bytes:
     return bytes(out[: end + 1]) if end != -1 else bytes(out)
 
 
+def _read_plain_head(bucket: str, key: str) -> bytes:
+    """Bounded head of a PLAIN (uncompressed) line-delimited object, whole lines only.
+
+    Why this exists at all: polars' object_store cloud reader (a scan over an s3:// URI)
+    does NOT work in this Lambda even with the role's credentials handed in via
+    storage_options — it fails with "failed to allocate N bytes to download" (SPEC-111
+    live finding). boto3 authenticates and reads fine, so CSV/JSON are read the same way
+    the gzip path already is: fetch a bounded head via boto3 and hand polars an in-memory
+    buffer, which polars reads without object_store.
+
+    The head is enough for the probe — a CSV header is line 1, and JSON type inference
+    samples the first JSON_SAMPLE_ROWS lines — so this never downloads a whole large file,
+    the property the s3:// scan was chosen for. Parquet is NOT read here (its schema lives
+    in a footer at the END of the file); see _probe_columns.
+    """
+    try:
+        body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        errors.raise_if_transient(err, f"get {bucket}/{key}")
+        raise
+    out = bytearray()
+    try:
+        for chunk in body.iter_chunks(_GZIP_CHUNK_BYTES):
+            out += chunk
+            # Same two bounds the gzip head uses: enough lines for the JSON sample (a CSV
+            # needs only the first), and a hard byte ceiling so one pathologically long
+            # line can't grow the buffer without limit.
+            if out.count(b"\n") >= _GZIP_PROBE_LINES or len(out) >= GZIP_PROBE_MAX_DECOMPRESSED_BYTES:
+                break
+    finally:
+        body.close()  # abandon the rest of the object; do not drain it
+    end = out.rfind(b"\n")
+    return bytes(out[: end + 1]) if end != -1 else bytes(out)
+
+
 def _hive(dtype, name: str) -> str:
     try:
         return map_dtype(dtype)
@@ -307,30 +343,67 @@ def _hive(dtype, name: str) -> str:
         ) from exc
 
 
-def _columns_from(source, fmt: str) -> list[dict]:
+def _storage_options() -> dict:
+    """Credentials for polars' object_store cloud reader, from the Lambda role's env.
+
+    polars does NOT reuse the ambient AWS credential chain the way boto3 does: its
+    object_store S3 reader needs the role's creds handed in EXPLICITLY as storage_options,
+    even inside a Lambda where boto3 finds them automatically. Without this, a scan over
+    s3:// fails with "failed to allocate N bytes to download" — an unauthenticated GET,
+    not an allocation problem (observed on the SPEC-111 live run; the bucket-policy
+    allowlist was already fixed, and boto3 in the same invocation authenticates fine).
+
+    The Lambda runtime injects AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+    AWS_SESSION_TOKEN (temporary role creds — the session token is mandatory or the
+    request is rejected) and AWS_REGION. object_store's config keys are the aws_* forms.
+    """
+    opts: dict[str, str] = {}
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if region:
+        opts["aws_region"] = region
+    for env_name, os_key in (
+        ("AWS_ACCESS_KEY_ID", "aws_access_key_id"),
+        ("AWS_SECRET_ACCESS_KEY", "aws_secret_access_key"),
+        ("AWS_SESSION_TOKEN", "aws_session_token"),
+    ):
+        value = os.environ.get(env_name)
+        if value:
+            opts[os_key] = value
+    return opts
+
+
+def _columns_from(source, fmt: str, storage_options: dict | None = None) -> list[dict]:
     """Return ordered ``[{name, type}]`` for ``source``.
 
     ``source`` is an ``s3://`` URI (polars' object_store fetches only the byte ranges the
     scan needs — a Parquet footer, a CSV header) or an in-memory buffer of already-
     decompressed gzip head bytes. Every format yields the same {name, type} shape;
     SPEC-111 needs a type per column because Athena does not auto-detect a Parquet schema.
+
+    ``storage_options`` carries the role's credentials for the URI case (see
+    ``_storage_options``); it is ``None`` for an in-memory buffer, where polars ignores it.
     """
     import polars as pl
 
     if fmt == "parquet":
-        schema = pl.scan_parquet(source).collect_schema()
+        schema = pl.scan_parquet(source, storage_options=storage_options).collect_schema()
         return [{"name": n, "type": _hive(d, n)} for n, d in schema.items()]
 
     if fmt == "csv":
         # Header only, no type inference: every column is string, matching SPEC-111
         # FR-002's OpenCSVSerde. polars parses the header properly, so a quoted name
         # containing a comma survives — a hand-rolled split(",") would not.
-        schema = pl.scan_csv(source, infer_schema_length=0).collect_schema()
+        schema = pl.scan_csv(
+            source, infer_schema_length=0, storage_options=storage_options
+        ).collect_schema()
         return [{"name": n, "type": "string"} for n in schema.names()]
 
     if fmt == "json":
         frame = pl.scan_ndjson(
-            source, infer_schema_length=JSON_SAMPLE_ROWS, n_rows=JSON_SAMPLE_ROWS
+            source,
+            infer_schema_length=JSON_SAMPLE_ROWS,
+            n_rows=JSON_SAMPLE_ROWS,
+            storage_options=storage_options,
         ).collect()
         return [{"name": n, "type": _hive(d, n)} for n, d in frame.schema.items()]
 
@@ -347,8 +420,23 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
     _check_access(bucket, key)
     try:
         if _is_compressed(key):
+            # The gzip head is already in memory (boto3-fetched), so no storage_options.
             return _columns_from(io.BytesIO(_read_gzip_head(bucket, key)), fmt)
-        return _columns_from(_object_uri(bucket, key), fmt)
+        if fmt == "parquet":
+            # Parquet's schema lives in a FOOTER at the END of the file — a head read
+            # can't reach it — so polars reads the footer via object_store RANGE requests
+            # over the s3:// URI, with the role's creds in storage_options.
+            #
+            # UNVERIFIED LIVE (SPEC-111): object_store's full-download path fails in this
+            # Lambda even with credentials (that is why CSV/JSON moved to the boto3 buffer
+            # above), but a footer range-GET is a different access pattern and may or may
+            # not work. This path needs a real Parquet source to confirm; if it also fails,
+            # the fix is a boto3 footer read (last-N-bytes) rather than object_store.
+            return _columns_from(_object_uri(bucket, key), fmt, _storage_options())
+        # CSV / JSON: header (CSV) or sample rows (JSON) live at the START, so a bounded
+        # boto3 head read + polars-from-memory avoids object_store, which does not work in
+        # this Lambda (SPEC-111 live finding; see _read_plain_head).
+        return _columns_from(io.BytesIO(_read_plain_head(bucket, key)), fmt)
     except (TerminalError, TransientError):
         # TransientError must pass through: _read_gzip_head runs INSIDE this try, so a
         # throttled GetObject would otherwise be swallowed by the catch-all below and

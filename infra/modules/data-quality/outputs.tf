@@ -19,10 +19,6 @@ output "state_machine_arn" {
   value       = aws_sfn_state_machine.data_quality.arn
 }
 
-output "athena_workgroup_name" {
-  description = "Name of this pipeline's DEDICATED Athena workgroup (bytes_scanned_cutoff_per_query unset — the shared portal workgroup's 10 GiB cutoff would fail every real check). Every verb's ATHENA_WORKGROUP env."
-  value       = aws_athena_workgroup.data_quality.name
-}
 
 output "dqcommon_layer_name" {
   description = "Name of the dqcommon Lambda layer CI builds + publishes (attached to all nine verbs alongside cpcommon). The version ARN is produced by deploy-lambdas.yml, not Terraform (CI owns the layer artifact)."

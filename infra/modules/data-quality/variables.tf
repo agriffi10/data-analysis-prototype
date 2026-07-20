@@ -92,3 +92,8 @@ variable "portal_role_name" {
   description = "SPEC-109 FR-003: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
   type        = string
 }
+
+variable "athena_workgroup" {
+  description = "SPEC-111-fix: the SHARED portal Athena workgroup every verb's queries run in — the SAME workgroup table-builder/table-share use. Athena's Lake Formation integration is tied to the workgroup: a dedicated workgroup (SPEC-108's original design) fails LF's Create/Describe checks even when the execution role is an LF admin, because everything LF-governed must run in the one workgroup. Constructed string from root (the portal workgroup name), mirroring table-builder's athena_workgroup input."
+  type        = string
+}
