@@ -334,6 +334,16 @@ module "shared_spaces" {
   max_shared_memberships = var.max_shared_memberships
   portal_role_name       = local.portal_role_name
 
+  # TBAC fix (SPEC-070/111): the three control-plane execution roles get
+  # DATA_LOCATION_ACCESS on the shared bucket here (the `portal-managed` tag +
+  # tag-policy grants live in module.analytics). Constructed strings so the module
+  # still plans standalone.
+  control_plane_execution_role_arns = [
+    local.table_builder_execution_role_arn,
+    local.table_share_execution_role_arn,
+    local.data_quality_execution_role_arn,
+  ]
+
   # SPEC-056 trusted-actor binding: the provisioner Lambda verifies caller ID tokens
   # against the pool JWKS (env vars). Module.auth outputs (one-directional dep: auth
   # applies before data, which this module already depends on).

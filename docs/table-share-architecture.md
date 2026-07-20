@@ -91,6 +91,8 @@ There is no consent/accept gate — sharing is a **direct push** (§9). This is 
 
 ## 7. Execution role — one shared role, Lake Formation admin (decided)
 
+> **Correction (2026-07-20, SPEC-070/111 live run):** LF data-lake **admin status does NOT grant `CREATE_TABLE`** on a database the admin did not create — it buys the *ability to grant* + catalog-wide **Describe** only. So admin covers the `glue:GetTable` Describe foot-gun below, but the `CREATE_TABLE` on recipient DBs it lists does **not** come from admin. Create now comes via the **`portal-managed` LF-Tag (TBAC)**: every user/shared DB is tagged at provision time and each execution role holds one tag-policy grant; `DATA_LOCATION_ACCESS` is a **static per-bucket** grant (not per-DB). See `infra/modules/analytics/lakeformation.tf` and CLAUDE.md → *Control-plane table creation = TBAC*.
+
 Mirroring the table-builder's post-072 consolidation, the Step Function **and all five verb Lambdas share ONE execution role** (union policy in `infra/modules/table-share/policies/execution.json.tftpl`); per-verb roles are **not** used (user-stated: "one execution role that is an LF admin"). That one role is a **table-share Lake Formation admin** (analytics `data_lake_settings`) so it can:
 
 - `glue:GetTable` on the **source** (which may be an LF-gated personal/shared DB — the same `AccessDenied`-vs-`EntityNotFound` foot-gun the table-builder hit, §table-builder-arch, forces the LF-admin grant),
