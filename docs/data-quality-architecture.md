@@ -178,6 +178,8 @@ The Step Function and all verb Lambdas **share ONE execution role**.
 
 **It needs Glue, Athena, and Lake Formation admin.** Target databases are dynamic (per user, per shared space), so they cannot be statically LF-granted — the same reasoning that made table-builder's `execute-ddl` role an LF admin (SPEC-070). The role needs Glue create/get/delete table (for the temp tables), Athena `StartQueryExecution`/`GetQueryExecution`, `lakeformation:GetDataAccess`, and the Athena results location.
 
+> **Correction (2026-07-20, SPEC-070/111 live run):** LF data-lake **admin status does NOT grant `CREATE_TABLE`** on a database the admin did not create. Admin buys the *ability to grant* + catalog-wide **Describe**, so it fixed the `AccessDenied`-vs-`EntityNotFound` read foot-gun — but every `CREATE TABLE` against a real user/shared DB still failed (confirmed live: `create-temp-tables` → *"Required Create Table on agriffith"*). Create now comes via the **`portal-managed` LF-Tag (TBAC)**: every DB is tagged at provision time and each execution role holds one tag-policy grant + a **static per-bucket `DATA_LOCATION_ACCESS`** (not per-DB). The role stays an LF admin (for Describe); admin is simply not what authorizes create. See `infra/modules/analytics/lakeformation.tf` and CLAUDE.md → *Control-plane table creation = TBAC*.
+
 **S3 grants, and the `Deny` that makes them safe:**
 
 - `s3:GetObject` + `s3:ListBucket` on the source; `s3:PutObject` **and `s3:GetObject`** on the report prefix (`assemble-report` must *read* the intermediate results it wrote — v2 granted write only, which would have failed at the last verb).

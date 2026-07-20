@@ -93,3 +93,91 @@ resource "aws_lakeformation_permissions" "portal_data_location" {
     aws_lakeformation_resource.user_space,
   ]
 }
+
+# ── TBAC: control-plane create-table access to every managed database ─────────
+# Fixes the SPEC-070/111 error. Being an LF data-lake ADMIN does NOT grant a role
+# CREATE_TABLE on a database it did not create — so table-builder / table-share /
+# data-quality (all admins) cannot create tables in the dynamic per-user /
+# per-shared-space target DBs. Rather than loop a per-DB named grant onto each of
+# these shared admin roles (exactly the toil LF-Tags exist to remove), tag every
+# managed DB with ONE `portal-managed` LF-Tag and grant the roles on the TAG. The
+# provisioning Lambdas (post_confirmation / create_space) attach the tag to each new
+# DB; a table inherits its DB's tag, so a created table is reachable by the same
+# grant. Adding a future control-plane role is then one grant here — no Lambda change.
+#
+# The portal role is deliberately NOT tag-granted: its per-user isolation depends on
+# the named database ARN + IAM principal tag, so it keeps its per-DB named grant
+# (issued by the SPEC-033 Lambda) rather than blanket tag access to every DB.
+locals {
+  # The three shared control-plane execution roles that create tables in dynamic
+  # managed DBs. compact() drops any empty ARN so the module still plans standalone.
+  control_plane_role_arns = toset(compact([
+    var.table_builder_execution_role_arn,
+    var.table_share_execution_role_arn,
+    var.data_quality_execution_role_arn,
+  ]))
+}
+
+resource "aws_lakeformation_lf_tag" "portal_managed" {
+  key    = "portal-managed"
+  values = ["true"]
+
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+# DB level: DESCRIBE + CREATE_TABLE/ALTER/DROP on any database carrying the tag —
+# what lets a verb create (and clean up) tables in the target DB.
+resource "aws_lakeformation_permissions" "control_plane_tag_database" {
+  for_each    = local.control_plane_role_arns
+  principal   = each.value
+  permissions = ["DESCRIBE", "CREATE_TABLE", "ALTER", "DROP"]
+
+  lf_tag_policy {
+    resource_type = "DATABASE"
+    expression {
+      key    = aws_lakeformation_lf_tag.portal_managed.key
+      values = ["true"]
+    }
+  }
+
+  depends_on = [aws_lakeformation_lf_tag.portal_managed]
+}
+
+# Table level (via tag inheritance): read + write + table DDL on every table in a
+# tagged DB, so a verb can SELECT/INSERT and DROP the tables it manages. Mirrors the
+# portal role's per-DB table grant; row-level DELETE is still granted nowhere.
+resource "aws_lakeformation_permissions" "control_plane_tag_table" {
+  for_each    = local.control_plane_role_arns
+  principal   = each.value
+  permissions = ["SELECT", "INSERT", "DESCRIBE", "ALTER", "DROP"]
+
+  lf_tag_policy {
+    resource_type = "TABLE"
+    expression {
+      key    = aws_lakeformation_lf_tag.portal_managed.key
+      values = ["true"]
+    }
+  }
+
+  depends_on = [aws_lakeformation_lf_tag.portal_managed]
+}
+
+# The location half LF-Tags can't express: DATA_LOCATION_ACCESS on the registered
+# user-space bucket for each control-plane role, so `CREATE EXTERNAL TABLE` over a
+# `{username}/…` prefix passes LF's location check. A single per-BUCKET grant covers
+# every user prefix, exactly like the portal role's grant above; which user's data a
+# role may touch is gated by validate-authorize, not per-prefix IAM.
+resource "aws_lakeformation_permissions" "control_plane_user_data_location" {
+  for_each    = local.control_plane_role_arns
+  principal   = each.value
+  permissions = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = var.user_space_bucket_arn
+  }
+
+  depends_on = [
+    aws_lakeformation_data_lake_settings.this,
+    aws_lakeformation_resource.user_space,
+  ]
+}

@@ -53,3 +53,22 @@ resource "aws_lakeformation_permissions" "portal_shared_location" {
 
   depends_on = [aws_lakeformation_resource.shared_space]
 }
+
+# TBAC fix (SPEC-070/111): DATA_LOCATION_ACCESS on the shared bucket for each
+# control-plane execution role (table-builder / table-share / data-quality), so a
+# verb can CREATE tables over any shared-space prefix. This is the location half the
+# `portal-managed` LF-Tag can't express (tags cover DB/table resources, not S3
+# locations); the tag itself + the tag-policy grants live in the analytics module.
+# One per-bucket grant, mirroring portal_shared_location; per-space gating stays at
+# validate-authorize. Empty list (standalone plan) => no grants.
+resource "aws_lakeformation_permissions" "control_plane_shared_location" {
+  for_each    = toset(compact(var.control_plane_execution_role_arns))
+  principal   = each.value
+  permissions = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = aws_s3_bucket.shared_space.arn
+  }
+
+  depends_on = [aws_lakeformation_resource.shared_space]
+}

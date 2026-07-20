@@ -89,3 +89,11 @@ variable "notifications_queue_url" {
   type        = string
   default     = ""
 }
+
+# ── TBAC fix (SPEC-070/111): control-plane data-location on the shared bucket ──
+
+variable "control_plane_execution_role_arns" {
+  description = "ARNs of the shared control-plane execution roles (table-builder / table-share / data-quality) granted DATA_LOCATION_ACCESS on the shared bucket so they can CREATE tables over shared-space prefixes. LF-Tags cover DB/table resources but not S3 locations, so the location grant is here while the `portal-managed` tag + tag-policy grants live in the analytics module. Constructed strings from root; empty keeps the module standalone-plannable."
+  type        = list(string)
+  default     = []
+}

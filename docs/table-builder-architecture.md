@@ -66,6 +66,8 @@ its **own** Lambda with shared helpers (auth/clients/notify) in a common module/
 > via `tbcommon.notify.notifies_on_failure` — closing the silent-failure gap that let the `AccessDenied` above (and
 > other unexpected errors) fail with no inbox message.
 
+> **Correction (2026-07-20, SPEC-070/111 live run).** Being an LF admin fixed `check-table-absent`'s **Describe** (the `AccessDenied`-vs-`EntityNotFound` bug above), but admin status does **NOT** grant `CREATE_TABLE` on a database the admin did not create — so `execute-ddl`'s create against a real user/shared DB still failed. Create now comes via the **`portal-managed` LF-Tag (TBAC)**: every DB is tagged at provision time and each execution role holds one tag-policy grant + a **static per-bucket `DATA_LOCATION_ACCESS`** (not per-DB). The role stays an LF admin for Describe. See `infra/modules/analytics/lakeformation.tf` and CLAUDE.md → *Control-plane table creation = TBAC*.
+
 **Why SQS → Pipe → Step Function:** keeps the privileged surface off the user's credentials (the browser only
 gets `sqs:SendMessage`), gives durable retry/replay + DLQ for a multi-step AWS provisioning flow, and makes the
 validate→inspect→infer→execute pipeline explicit and observable — the same rationale as shared spaces.
