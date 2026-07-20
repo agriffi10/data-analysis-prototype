@@ -94,6 +94,20 @@ EXT_FORMAT = {
 GZIP_SUFFIX = ".gz"
 
 
+def is_compressed(key: str) -> bool:
+    """True when ``key`` names a gzip-wrapped object.
+
+    SHARED rather than per-verb, and CASE-INSENSITIVE, because the two readings must never
+    drift: inspect-source classifies ``SALES.CSV.GZ`` as compressed csv (it lowercases),
+    so a case-SENSITIVE test anywhere downstream lets a gzip object through as plain text.
+    byte-scan reading DEFLATE output as UTF-8 yields roughly 42 fabricated "invalid
+    encoding" findings per 100 bytes — a confident, entirely false corruption report over a
+    file that is fine, on exactly the Windows-tooling population that produces both
+    uppercase extensions and the codepage files the check is for.
+    """
+    return key.lower().endswith(GZIP_SUFFIX)
+
+
 def _validate_caps() -> None:
     """Fail fast at import if a cap was edited into something meaningless.
 
@@ -108,20 +122,32 @@ def _validate_caps() -> None:
         ("DQ_MAX_PARTITION_VALUES", DQ_MAX_PARTITION_VALUES),
         ("DQ_MAX_COLUMNS", DQ_MAX_COLUMNS),
         ("DQ_SCAN_TOTAL_BYTES", DQ_SCAN_TOTAL_BYTES),
+        ("DQ_SCAN_SAMPLE_COUNT", DQ_SCAN_SAMPLE_COUNT),
+        ("DQ_SCAN_MIN_SAMPLE_BYTES", DQ_SCAN_MIN_SAMPLE_BYTES),
+        ("DQ_TOP_ISSUES", DQ_TOP_ISSUES),
+        ("DQ_OFFSET_SAMPLE", DQ_OFFSET_SAMPLE),
+        ("DQ_SCAN_READ_CHUNK_BYTES", DQ_SCAN_READ_CHUNK_BYTES),
         ("DQ_OFFENDING_VALUE_SAMPLE", DQ_OFFENDING_VALUE_SAMPLE),
         ("DQ_QUERY_POLL_SECONDS", DQ_QUERY_POLL_SECONDS),
     ):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise RuntimeError(f"dqcommon.config.{name} must be a positive int, got {value!r}")
 
-    # A ratio, not a count — validated separately. A threshold outside (0, 1] would make
-    # every column either always-flagged or never-flagged, which looks like a broken
-    # checker rather than a broken config.
-    if not isinstance(DQ_TYPE_DOMINANCE_THRESHOLD, float) or not 0 < DQ_TYPE_DOMINANCE_THRESHOLD <= 1:
-        raise RuntimeError(
-            "dqcommon.config.DQ_TYPE_DOMINANCE_THRESHOLD must be a float in (0, 1], "
-            f"got {DQ_TYPE_DOMINANCE_THRESHOLD!r}"
-        )
+    # Ratios, not counts — validated separately.
+    #
+    # DQ_TYPE_DOMINANCE_THRESHOLD outside (0, 1] would make every column either
+    # always-flagged or never-flagged, which looks like a broken checker rather than a
+    # broken config. DQ_SCAN_HEAD_FRACTION outside (0, 1] would either spend nothing on the
+    # head window or spend the whole share there, leaving the ranged samples nothing —
+    # both silently change what "sampled" means in a user's report.
+    for name, ratio in (
+        ("DQ_TYPE_DOMINANCE_THRESHOLD", DQ_TYPE_DOMINANCE_THRESHOLD),
+        ("DQ_SCAN_HEAD_FRACTION", DQ_SCAN_HEAD_FRACTION),
+    ):
+        if not isinstance(ratio, float) or not 0 < ratio <= 1:
+            raise RuntimeError(
+                f"dqcommon.config.{name} must be a float in (0, 1], got {ratio!r}"
+            )
 
 # SPEC-111 — the profile query's column ceiling.
 # Athena caps a query STRING at 262,144 bytes. Four TRY_CASTs plus a null-ratio and a
@@ -160,6 +186,57 @@ DQ_QUERY_POLL_SECONDS = 30
 # in production. That is the exact error class this arc's re-architecture exists to
 # eliminate, so the budget is per REQUEST.
 DQ_SCAN_TOTAL_BYTES = 2 * 1024**3  # 2 GiB
+
+# SPEC-112 — how each file's share of the budget is spent.
+#
+# A head window first, because corruption CLUSTERS AT THE START of a badly-exported file:
+# a BOM, a codepage-encoded header row, an accented name in the first records. The rest of
+# the share is spread as evenly-placed ranged reads so a corruption confined to the middle
+# or tail of a large file is still reachable, rather than the scan proving only that the
+# first N bytes are clean.
+DQ_SCAN_HEAD_FRACTION = 0.5
+DQ_SCAN_SAMPLE_COUNT = 20
+
+# The floor that makes DQ_SCAN_SAMPLE_COUNT an "up to" rather than an "always", and it is
+# load-bearing for the TIMEOUT even though the BYTE budget above is already safe.
+#
+# THE SECOND DISASTER, which the per-request byte budget does NOT prevent: bytes are not
+# the only cost — REQUESTS are. A flat 1 head + 20 ranged reads per file is 21,000
+# sequential GetObjects on a 1000-file manifest. At ~30 ms of round-trip each that is
+# ~630 s against this function's 300 s ceiling (locals.tf), while reading only the 2 GiB
+# the byte budget permits. It would have timed out on exactly the large folders the budget
+# rewrite was meant to save, for a completely different reason.
+#
+# So a file's share only buys a ranged read when that read is worth a round trip. Measured
+# across the range (share = 2 GiB / fileCount, head = half of it):
+#
+#   files=1     20 samples     21 GETs    ~36 s
+#   files=12    20 samples    252 GETs    ~43 s
+#   files=100    2 samples    300 GETs    ~44 s
+#   files=1000   0 samples   1000 GETs    ~65 s     <- 21,000 GETs / ~630 s without this
+#
+# Both costs are now bounded: never more than DQ_SCAN_TOTAL_BYTES, and never more than
+# ~1000 requests. At 1000 files each file's whole 2 MiB share goes to its head window,
+# which is the right trade — one contiguous 2 MiB read of a file beats 21 scattered 100 KiB
+# ones for finding a corrupt export, and the report says the coverage is sampled either way.
+DQ_SCAN_MIN_SAMPLE_BYTES = 4 * 1024**2  # 4 MiB
+
+# SPEC-112 — how many human-readable issues the report renders for the notification body.
+# The notification is a sentence or two, not a report: past a handful the user stops
+# reading and the real finding is buried. The full detail is in report.json.
+DQ_TOP_ISSUES = 5
+
+# SPEC-112 — how many invalid-sequence byte offsets the report keeps as examples.
+# The COUNT is the finding; the offsets exist so an operator can go and look at one.
+# It also BOUNDS MEMORY: a mis-encoded 250 MB export contains tens of millions of invalid
+# sequences, and retaining an offset for each is ~42 bytes apiece — over a gigabyte in a
+# 1024 MB function, i.e. an OOM on precisely the file the check exists to diagnose.
+DQ_OFFSET_SAMPLE = 10
+
+# SPEC-112 — bytes pulled from a stream at a time. PEAK MEMORY IS THIS, NOT THE BUDGET:
+# the decode is streaming, so a 512 MiB head window on a 2-file manifest is never held
+# whole. Without that property the 2 GiB budget would OOM a 1024 MB function.
+DQ_SCAN_READ_CHUNK_BYTES = 256 * 1024
 
 
 # Called at the BOTTOM: it reads every cap above, including the two declared after its
