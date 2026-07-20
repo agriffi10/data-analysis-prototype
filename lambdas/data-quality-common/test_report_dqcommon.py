@@ -7,6 +7,7 @@ on exact wording and exact numbers, not on shape.
 
 import csv
 import io
+import json
 import os
 import sys
 
@@ -94,7 +95,9 @@ def _build(request=None, manifest=None, profile=None, ragged=None, dupes=None, e
         _rows(profile if profile is not None else [_profile_row(100, [{}, {}])]),
         _rows(ragged if ragged is not None else [{"ragged_rows": 0, "total_lines": 101}]),
         _rows(dupes if dupes is not None else [{"duplicate_rows": 0}]),
-        encoding or _encoding(),
+        # `is not None`, not `or`: an EMPTY block is a case under test, and `or` would
+        # silently swap in the healthy default and assert nothing.
+        encoding if encoding is not None else _encoding(),
         completed_at=COMPLETED,
     )
 
@@ -389,25 +392,96 @@ def test_a_degraded_duplicates_query_still_leaves_a_complete_report():
 
 def test_row_counts_by_file_are_keyed_by_object_key_not_the_s3_uri():
     document = _build(
+        manifest=_manifest([_file("alice/sales/part-0.csv", ["id", "amount"])]),
         profile=[
             _profile_row(1000, [{}, {}]),
             _profile_row(1000, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/part-0.csv"),
-        ]
+        ],
     )
 
     assert document["exact"]["rowCountsByFile"] == [{"key": "alice/sales/part-0.csv", "rows": 1000}]
+
+
+def test_a_file_with_no_data_rows_is_reported_as_zero_rather_than_vanishing():
+    """Athena emits no `$path` group for a file with no data rows, so a header-only CSV — a
+    failed export, one of the commoner real defects — would simply be ABSENT from the array.
+    The file the user most needs to hear about is the one that disappears, and the array's
+    length would silently stop matching fileCount."""
+    files = [_file("alice/s/a.csv", ["id"]), _file("alice/s/empty.csv", ["id"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[
+            _profile_row(1000, [{}]),
+            _profile_row(1000, [{}], is_total=0, source_file="s3://bkt/alice/s/a.csv"),
+        ],
+    )
+
+    assert document["exact"]["rowCountsByFile"] == [
+        {"key": "alice/s/a.csv", "rows": 1000},
+        {"key": "alice/s/empty.csv", "rows": 0},
+    ]
+
+
+def test_row_counts_are_sorted_so_a_replay_cannot_reorder_them():
+    """GROUP BY GROUPING SETS has no ORDER BY: Athena's row order is arbitrary and not
+    stable across executions. FR-003 requires a replay to differ ONLY in completedAt."""
+    files = [_file("alice/s/c.csv", ["id"]), _file("alice/s/a.csv", ["id"]), _file("alice/s/b.csv", ["id"])]
+    per_file = [
+        _profile_row(1, [{}], is_total=0, source_file=f"s3://bkt/alice/s/{name}.csv")
+        for name in ("b", "c", "a")
+    ]
+
+    document = _build(manifest=_manifest(files), profile=[_profile_row(3, [{}]), *per_file])
+
+    assert [entry["key"] for entry in document["exact"]["rowCountsByFile"]] == [
+        "alice/s/a.csv",
+        "alice/s/b.csv",
+        "alice/s/c.csv",
+    ]
 
 
 # ── Encoding (FR-001 consumed here) ──────────────────────────────────────────
 
 
 def test_a_sampled_scan_states_its_coverage_percentage():
-    figure = _build(encoding=_encoding(bytesExamined=1000, bytesTotal=250_000, coverage="sampled"))[
-        "approximate"
-    ]["encoding"]
+    figure = _build(
+        manifest=_manifest([_file("alice/sales/a.csv", ["id", "amount"], size=250_000)]),
+        encoding=_encoding(bytesExamined=1000, bytesTotal=250_000, coverage="sampled"),
+    )["approximate"]["encoding"]
 
     assert figure["coveragePercent"] == 0.4
     assert figure["note"] == "Sampled — 0.4% of bytes examined."
+
+
+def test_the_coverage_percentage_counts_bytes_the_scan_could_not_read():
+    """One 13-byte .csv beside ninety-nine 1 GiB .csv.gz.
+
+    byte-scan's own bytesTotal counts only the files it could read, so using it as the
+    denominator renders "Sampled — 100.0% of bytes examined. 99 compressed file(s) were not
+    scanned." — a sentence that contradicts itself and understates the unexamined data by
+    ~99 GB. Phase 1 fixed the "complete" label for this case and left the percentage wrong.
+    """
+    gib = 1024**3
+    files = [_file("alice/s/a.csv", ["id"], size=13)]
+    files += [_file(f"alice/s/{i}.csv.gz", ["id"], size=gib) for i in range(99)]
+
+    figure = _build(
+        manifest=_manifest(files),
+        profile=[_profile_row(10, [{}])],
+        encoding=_encoding(bytesExamined=13, bytesTotal=13, coverage="sampled", filesSkipped=99),
+    )["approximate"]["encoding"]
+
+    assert figure["coveragePercent"] == 0.0
+    assert "100.0%" not in figure["note"]
+
+
+def test_an_empty_encoding_block_is_not_computed_rather_than_a_clean_zero():
+    """An absent figure must not be manufactured into a green one: zero invalid sequences
+    over zero bytes examined, rendered as a real result."""
+    figure = _build(encoding={})["approximate"]["encoding"]
+
+    assert figure == {"status": "not_computed", "reason": report.NOT_COMPUTED_ENCODING}
 
 
 def test_a_complete_scan_says_so():
@@ -502,6 +576,58 @@ def test_every_supported_format_reports_approximate_figures(fmt):
     )
 
     assert document["hasApproximateFigures"] is True
+
+
+def test_a_profile_result_with_no_total_row_is_a_FAILED_check_not_a_clean_one():
+    """Every exact figure comes from that one row. Without it the report assembles happily —
+    zero rows, every column clean, verdict CLEAN — and hands the user a green result over
+    data nothing measured. That is worse than no report at all."""
+    with pytest.raises(report.MissingProfileError):
+        _build(profile=[])
+
+
+def test_a_profile_result_with_only_per_file_rows_is_also_a_failed_check():
+    per_file = _profile_row(10, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/a.csv")
+
+    with pytest.raises(report.MissingProfileError):
+        _build(profile=[per_file])
+
+
+def test_an_enormous_offending_value_is_truncated():
+    """DQ_OFFENDING_VALUE_SAMPLE bounds how MANY examples a column contributes; nothing
+    bounds how long one is, and an Athena varchar has no length limit."""
+    huge = "x" * 5000
+    total = _profile_row(1000, [{"not_bigint": 5, "sample_non_numeric": json.dumps([huge])}])
+
+    sample = _build(profile=[total])["exact"]["columns"][0]["sampleOffending"][0]
+
+    assert len(sample) == report.MAX_SAMPLE_VALUE_CHARS + 1  # the cap plus the ellipsis
+    assert sample.endswith("…")
+
+
+def test_a_two_file_disagreement_reads_grammatically():
+    """"the other 1 files have" would ship straight into a notification body."""
+    files = [_file("alice/s/a.csv", ["id", "note"]), _file("alice/s/b.csv", ["id"])]
+
+    document = _build(manifest=_manifest(files), profile=[_profile_row(10, [{}, {}])])
+
+    assert document["topIssues"] == [
+        "b.csv is missing the column `note` that the other 1 file has"
+    ]
+
+
+def test_an_extra_column_reads_grammatically_too():
+    files = [
+        _file("alice/s/a.csv", ["id"]),
+        _file("alice/s/b.csv", ["id"]),
+        _file("alice/s/c.csv", ["id", "surprise"]),
+    ]
+
+    document = _build(manifest=_manifest(files), profile=[_profile_row(10, [{}, {}])])
+
+    assert document["topIssues"] == [
+        "c.csv has the extra column `surprise`, which the other 2 files do not"
+    ]
 
 
 def test_the_report_carries_its_identity_and_completion_time():

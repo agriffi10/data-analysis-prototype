@@ -60,6 +60,7 @@ NOT_COMPUTED_RAGGED_LINE_TOO_LONG = (
     "a single line in this data was longer than the check can read (Athena's 200 MB limit)."
 )
 NOT_COMPUTED_RAGGED = "the ragged-row check couldn't be completed on this data."
+NOT_COMPUTED_ENCODING = "the character-encoding check didn't produce a result."
 NOT_COMPUTED_DUPLICATES = (
     "finding duplicates means comparing every column across the whole dataset, and that "
     "was too large to complete here."
@@ -83,6 +84,13 @@ _SAMPLE_FOR = {"bigint": "non_numeric", "double": "non_numeric", "timestamp": "n
 #: numeric column — it is free text that happens to contain numbers.
 _TEXT = "text"
 
+#: Longest offending-value example the report will carry (see _json_array).
+MAX_SAMPLE_VALUE_CHARS = 200
+
+
+class MissingProfileError(ValueError):
+    """The profile result had no total row; the caller raises the terminal."""
+
 
 def parse_result(body: bytes) -> list[dict]:
     """Parse an Athena CSV result file into header-keyed rows.
@@ -95,8 +103,15 @@ def parse_result(body: bytes) -> list[dict]:
 
     Safe to read whole: every result set here is O(files x columns) or exactly one row —
     never O(rows) (SPEC-111 FR-003).
+
+    Decoded with ``errors="replace"`` rather than strictly. Hive's text readers already
+    substitute U+FFFD, so Athena's result file should always be valid UTF-8 — but the
+    offending-value samples in it are literally the worst-formed values in the user's data,
+    on a source this check flagged BECAUSE it may be mis-encoded. A UnicodeDecodeError here
+    would escape as a raw Python error after every query had already run, to spare a
+    replacement character in one example value.
     """
-    return list(csv.DictReader(io.StringIO(body.decode("utf-8"))))
+    return list(csv.DictReader(io.StringIO(body.decode("utf-8", errors="replace"))))
 
 
 def _int(row: dict, key: str) -> int:
@@ -119,7 +134,22 @@ def _json_array(row: dict, key: str) -> list:
         parsed = json.loads(raw)
     except ValueError:
         return []
-    return parsed if isinstance(parsed, list) else []
+    if not isinstance(parsed, list):
+        # json_format renders a NULL aggregate — max_by matched no row — as the string
+        # "null". Passed through, that would put `sampleOffending: null` in the report where
+        # SPEC-113 expects a list.
+        return []
+    # Each VALUE is bounded too, not just the count. DQ_OFFENDING_VALUE_SAMPLE caps how many
+    # examples a column contributes; nothing caps how long one is, and an Athena varchar has
+    # no length limit. Ten multi-megabyte values across 200 columns would bloat the report
+    # object itself — and an example that long tells the reader nothing a truncated one
+    # doesn't.
+    return [_truncate(value) for value in parsed]
+
+
+def _truncate(value):
+    text = value if isinstance(value, str) else json.dumps(value)
+    return text if len(text) <= MAX_SAMPLE_VALUE_CHARS else text[:MAX_SAMPLE_VALUE_CHARS] + "…"
 
 
 def _is_line_too_long(reason) -> bool:
@@ -188,6 +218,12 @@ def cross_file(files: list[dict]) -> dict:
     would make every disagreement look like a missing column and never an extra one; the
     first file's would blame all 999 others when file 0 is the odd one out. The modal set
     names the minority, which is the file the user has to go and fix.
+
+    THE ONE CASE WHERE THAT CLAIM DOES NOT HOLD is exactly two files that disagree: there is
+    no majority, ``most_common`` breaks the tie on insertion order, and the SECOND file is
+    always the one named. The finding itself is still true and still points at the right
+    pair of files — but which of the two is "the odd one" is arbitrary, and no amount of
+    counting can settle it, because the data does not say.
     """
     if not files:
         return {"columnsAgree": True, "disagreements": []}
@@ -210,13 +246,31 @@ def cross_file(files: list[dict]) -> dict:
     return {"columnsAgree": not disagreements, "disagreements": disagreements}
 
 
-def _row_counts_by_file(rows: list[dict]) -> list[dict]:
-    """Per-file row counts, keyed by object key rather than the ``$path`` S3 URI."""
-    return [
-        {"key": _strip_scheme(row.get("source_file") or ""), "rows": _int(row, "row_count")}
+def _row_counts_by_file(rows: list[dict], files: list[dict]) -> list[dict]:
+    """Per-file row counts, keyed by object key rather than the ``$path`` S3 URI.
+
+    RECONCILED AGAINST THE MANIFEST, and SORTED, for two separate reasons.
+
+    Reconciled: Athena produces no ``"$path"`` group for a file with no data rows, so a
+    header-only CSV — a failed export, one of the commoner real defects — would simply be
+    ABSENT from this array rather than present with zero. A reader comparing its length to
+    ``fileCount`` would find them silently disagreeing, and the empty file the user most
+    needs to know about is the one that disappears.
+
+    Sorted: a ``GROUP BY GROUPING SETS`` has no ORDER BY, so Athena's row order is arbitrary
+    and not stable across executions. FR-003 requires a replay to differ ONLY in
+    ``completedAt``; without this, a re-run that produced a second Athena execution would
+    differ by ordering alone and SPEC-113 would list files in a different order each time.
+    """
+    counted = {
+        _strip_scheme(row.get("source_file") or ""): _int(row, "row_count")
         for row in rows
         if _int(row, "is_total") == 0
-    ]
+    }
+    return sorted(
+        ({"key": entry["key"], "rows": counted.get(entry["key"], 0)} for entry in files),
+        key=lambda entry: entry["key"],
+    )
 
 
 def _strip_scheme(path: str) -> str:
@@ -251,13 +305,28 @@ def _duplicates(block, rows: list[dict]):
     return _int(rows[0], "duplicate_rows") if rows else 0
 
 
-def _encoding(block: dict) -> dict:
-    """The encoding figure with its explicit coverage percentage, or the skipped variant."""
+def _encoding(block: dict, source_bytes: int) -> dict:
+    """The encoding figure with its explicit coverage percentage, or the skipped variant.
+
+    THE DENOMINATOR IS EVERY BYTE IN THE SOURCE, not just the scannable ones. byte-scan's
+    own ``bytesTotal`` counts only the files it could read, so a folder of one 13-byte .csv
+    beside ninety-nine 1 GiB .csv.gz would otherwise render:
+
+        "Sampled — 100.0% of bytes examined. 99 compressed file(s) were not scanned."
+
+    — a sentence that contradicts itself and understates the unexamined data by ~99 GB.
+    Phase 1 fixed the "complete" LABEL for this case and left the percentage wrong; this is
+    the other half.
+    """
     if "status" in block:
         return dict(block)
+    if "bytesExamined" not in block:
+        # An absent figure is not a clean one. Without this, an empty block renders as zero
+        # invalid sequences over zero bytes — a green result manufactured from nothing.
+        return {"status": "not_computed", "reason": NOT_COMPUTED_ENCODING}
 
-    total = block.get("bytesTotal") or 0
     examined = block.get("bytesExamined") or 0
+    total = source_bytes or block.get("bytesTotal") or 0
     percent = round(100 * examined / total, 2) if total else 100.0
     sampled = block.get("coverage") != "complete"
     # The percentage is stated whether or not it is flattering. A figure that silently
@@ -299,17 +368,19 @@ def top_issues(exact: dict, approximate: dict, file_count: int) -> list[str]:
     for disagreement in exact["crossFile"]["disagreements"]:
         name = _basename(disagreement["file"])
         others = file_count - 1
+        # "the other 1 files have" would ship straight into a notification body.
+        rest = f"the other {others} {_plural(others, 'file')} {'has' if others == 1 else 'have'}"
         if disagreement["missing"]:
             columns = ", ".join(f"`{c}`" for c in disagreement["missing"])
             issues.append(
                 f"{name} is missing the {_plural(len(disagreement['missing']), 'column')} "
-                f"{columns} that the other {others} files have"
+                f"{columns} that {rest}"
             )
         if disagreement["extra"]:
             columns = ", ".join(f"`{c}`" for c in disagreement["extra"])
             issues.append(
-                f"{name} has {_plural(len(disagreement['extra']), 'column')} {columns} "
-                f"that the other {others} files do not"
+                f"{name} has the extra {_plural(len(disagreement['extra']), 'column')} "
+                f"{columns}, which {rest.replace('has', 'does').replace('have', 'do')} not"
             )
 
     ragged = approximate["raggedRows"]
@@ -392,13 +463,20 @@ def build(
     # still looks entirely plausible.
     columns = sql.union_columns(files)
 
-    total = next((row for row in profile_rows if _int(row, "is_total") == 1), {})
+    total = next((row for row in profile_rows if _int(row, "is_total") == 1), None)
+    if total is None:
+        # EVERY exact figure comes from this one row. Without it the report would assemble
+        # perfectly happily — zero rows, every column "text" and clean, verdict CLEAN — and
+        # hand the user a green result over data nothing actually measured. A missing
+        # profile result is a failed check, not a clean one.
+        raise MissingProfileError("the profile result carried no total row")
+
     row_count = _int(total, "row_count")
     parquet = fmt == "parquet"
 
     exact = {
         "rowCount": row_count,
-        "rowCountsByFile": _row_counts_by_file(profile_rows),
+        "rowCountsByFile": _row_counts_by_file(profile_rows, files),
         "duplicateRows": _duplicates(request.get("duplicates"), duplicate_rows),
         "columns": [
             _column(index, column, total, row_count, _skip_reason(column, parquet))
@@ -408,7 +486,7 @@ def build(
     }
     approximate = {
         "raggedRows": _ragged(request.get("ragged"), ragged_rows),
-        "encoding": _encoding(encoding_block),
+        "encoding": _encoding(encoding_block, sum(f.get("size") or 0 for f in files)),
     }
 
     issues = top_issues(exact, approximate, len(files))

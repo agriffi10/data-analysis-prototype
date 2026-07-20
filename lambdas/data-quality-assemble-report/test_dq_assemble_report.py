@@ -336,6 +336,41 @@ def test_a_throttled_write_raises_transient_so_the_state_machine_retries(monkeyp
         v.handler(_event(), None)
 
 
+def test_a_throttled_fallback_listing_also_raises_transient(monkeypatch):
+    """The fallback path needs the same mapping as every other S3 call in this verb — a
+    SlowDown arriving as a bare ClientError is not in the Retry list."""
+    objects = _objects()
+    del objects["alice/athenaresults/data-quality/req-1/profile/q1.csv"]
+    fake = _setup(monkeypatch, objects=objects)
+
+    def _throttle(**kw):
+        raise _FakeClientError("SlowDown")
+
+    monkeypatch.setattr(fake, "list_objects_v2", _throttle)
+
+    with pytest.raises(TransientError):
+        v.handler(_event(), None)
+
+
+def test_a_profile_result_with_no_total_row_fails_the_check(monkeypatch):
+    """A green verdict over data nothing measured is worse than no report at all, so this
+    must surface as a terminal — not as a clean report full of zeros."""
+    objects = _objects(
+        {
+            "alice/athenaresults/data-quality/req-1/profile/q1.csv": _csv(
+                [{"source_file": "s3://b/alice/sales/a.csv", "is_total": 0, "row_count": 5}]
+            )
+        }
+    )
+    fake = _setup(monkeypatch, objects=objects)
+
+    with pytest.raises(TerminalError) as excinfo:
+        v.handler(_event(), None)
+
+    assert excinfo.value.reason == "query_failed"
+    assert fake.puts == []  # and NOTHING was written
+
+
 def test_a_malformed_state_raises_a_terminal_rather_than_a_key_error(monkeypatch):
     _setup(monkeypatch)
     event = _event()

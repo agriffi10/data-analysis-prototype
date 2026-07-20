@@ -95,7 +95,14 @@ def _find_result(bucket: str, prefix: str) -> str:
     adjacent to the result and parsing it as the result would yield a report full of zeros
     rather than an error.
     """
-    listed = clients.s3().list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents") or []
+    try:
+        listed = clients.s3().list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents") or []
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        # The fallback path needs the same mapping as every other S3 call here: a SlowDown
+        # arriving as a bare ClientError is not in the Retry list, so a one-off throttle
+        # would permanently fail a request that has already paid for three Athena queries.
+        errors.raise_if_transient(err, f"list {bucket}/{prefix}")
+        raise
     keys = [o["Key"] for o in listed if o["Key"].endswith(_RESULT_SUFFIX)]
     return keys[0] if keys else ""
 
@@ -120,15 +127,21 @@ def _assemble(event: dict) -> dict:
     events.require(event, "requestId", reason=messages.INVALID_REQUEST)
 
     manifest = manifest_store.load(bucket, manifest_key)
-    document = report.build(
-        event,
-        manifest,
-        _result_rows(event.get("profile")),
-        _result_rows(event.get("ragged")),
-        _result_rows(event.get("duplicates")),
-        event.get("encoding") or {},
-        completed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    )
+    try:
+        document = report.build(
+            event,
+            manifest,
+            _result_rows(event.get("profile")),
+            _result_rows(event.get("ragged")),
+            _result_rows(event.get("duplicates")),
+            event.get("encoding") or {},
+            completed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+    except report.MissingProfileError as err:
+        # A failed check, never a clean one. Every exact figure comes from the profile
+        # query's total row, so without it the report would assemble into a green verdict
+        # over data nothing measured — the one outcome worse than no report at all.
+        raise TerminalError(messages.QUERY_FAILED, f"profile result unusable: {err}") from err
 
     key = report_key(report_prefix)
     _write(bucket, key, document)
