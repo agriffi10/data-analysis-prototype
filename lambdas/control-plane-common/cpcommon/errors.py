@@ -15,6 +15,34 @@ _SFN_ERROR = "Error"
 _SFN_CAUSE = "Cause"
 
 
+#: Longest raw-service text allowed into a TerminalError detail (see ``bounded_detail``).
+MAX_DETAIL_CHARS = 500
+
+
+def bounded_detail(text) -> str:
+    """Truncate raw service text before it becomes a ``TerminalError`` detail.
+
+    WHY A DETAIL'S LENGTH IS A PAYLOAD PROBLEM: the detail becomes the exception's message,
+    which Lambda returns as the ``Cause`` of the Step Functions error, which the terminal
+    states now carry as a raw object (PR #252). In table-share that object is repeated PER
+    RECIPIENT into the Map's result array. Step Functions caps a state payload at 256 KB
+    and a ``Cause`` at 32 KB — so ONE verbose reason repeated across recipients can breach
+    the payload limit at as few as SEVEN of them, raising States.DataLimitExceeded on the
+    Map and destroying every per-recipient outcome it exists to preserve.
+
+    Athena's ``StateChangeReason`` is the realistic source: a syntax or Lake Formation error
+    can echo a large fragment of the statement, and this arc generates wide DDL.
+
+    NOTHING IS LOST — callers log the full text before truncating (``cpcommon.athena``
+    does). The truncated head keeps what a reader actually uses: engine messages lead with
+    the useful part.
+    """
+    text = str(text)
+    if len(text) <= MAX_DETAIL_CHARS:
+        return text
+    return f"{text[:MAX_DETAIL_CHARS]}… [truncated {len(text) - MAX_DETAIL_CHARS} chars; full text in logs]"
+
+
 def failure_reason(error) -> str:
     """Extract a stable reason code from a Step Functions error object, tolerating any shape.
 

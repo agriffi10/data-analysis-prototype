@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest  # noqa: E402
 
-_INFRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_INFRA = os.path.join(_HERE, "..", "..", "infra", "modules")
 _TEMPLATES = sorted(glob.glob(os.path.join(_INFRA, "*", "state-machine.asl.json.tftpl")))
 
 #: Intrinsics that RAISE rather than degrade when their input is the wrong shape.
@@ -147,6 +148,60 @@ def test_every_transition_resolves_and_every_state_is_reachable(path):
         assert not names - targets - {start}, f"{scope}: unreachable states {sorted(names - targets - {start})}"
 
     check(asl["States"], asl["StartAt"], os.path.basename(os.path.dirname(path)) + ":")
+
+
+#: Step Functions' hard cap on a state payload. Breaching it raises
+#: States.DataLimitExceeded, which is thrown OUTSIDE every Catch.
+_STATE_PAYLOAD_LIMIT = 256 * 1024
+
+
+def test_map_result_stays_under_the_state_payload_limit():
+    """The table-share Map's result must fit in a state payload AT THE CAPS.
+
+    THE FAILURE THIS PREVENTS is uniquely nasty: every recipient contributes a summary
+    entry to `$.recipientResults`, and a FAILED entry carries the raw Step Functions
+    {Error, Cause} (PR #252 — the ASL decode that used to shrink it raised an uncatchable
+    States.Runtime). If the array breaches 256 KB, States.DataLimitExceeded fires ON THE
+    MAP, routes to the whole-request RecordFailure, and destroys every per-recipient
+    outcome the Map exists to preserve — turning a partial success into a total failure,
+    on precisely the requests that already went worst.
+
+    TWO constants bound it and BOTH are load-bearing, which is why this computes the
+    product rather than asserting either alone:
+      - SHARE_MAX_RECIPIENTS caps how many entries there are;
+      - errors.MAX_DETAIL_CHARS caps how big a Cause gets. A count cap ALONE cannot bound
+        this: at Step Functions' 32 KB Cause ceiling the array breaches at SEVEN recipients.
+
+    The worst case is modelled from a REAL Cause measured in execution history (572 bytes
+    for a TerminalError), scaled to a maximum-length detail.
+    """
+    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
+    from cpcommon import errors
+    from tscommon import config as ts_config
+
+    # A worst-case failed entry: the longest key/name this contract allows, plus a Cause
+    # whose message is a maximum-length truncated detail and whose stackTrace is deep.
+    cause = json.dumps({
+        "errorMessage": "create_failed: " + ("x" * errors.MAX_DETAIL_CHARS),
+        "errorType": "TerminalError",
+        "requestId": "0" * 36,
+        "stackTrace": ['  File "/var/task/table_share_create_table.py", line 999, in _fn\n    raise\n'] * 8,
+    })
+    entry = {
+        "kind": "space",
+        "name": "s" * 64,
+        "status": "failed",
+        "error": {"Error": "TerminalError", "Cause": cause},
+    }
+    worst = json.dumps([entry] * ts_config.SHARE_MAX_RECIPIENTS)
+
+    assert len(worst) < _STATE_PAYLOAD_LIMIT, (
+        f"the Map result reaches {len(worst):,} bytes at SHARE_MAX_RECIPIENTS="
+        f"{ts_config.SHARE_MAX_RECIPIENTS} x MAX_DETAIL_CHARS={errors.MAX_DETAIL_CHARS}, "
+        f"over the {_STATE_PAYLOAD_LIMIT:,}-byte state-payload limit"
+    )
+    # And with real headroom, not by a hair — the whole request object rides alongside it.
+    assert len(worst) < _STATE_PAYLOAD_LIMIT // 2, f"only {len(worst):,} bytes of margin"
 
 
 if __name__ == "__main__":

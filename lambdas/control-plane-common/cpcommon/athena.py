@@ -188,7 +188,13 @@ def run_ddl(
             return qid
         if state in _TERMINAL_FAIL:
             reason = status.get("StateChangeReason") or state
-            raise TerminalError(fail_reason, reason)
+            # LOG IN FULL, RAISE BOUNDED. Athena's reason can echo a large fragment of the
+            # statement, and the detail ends up as the SFN error Cause — which table-share
+            # repeats per recipient into the Map result, where a verbose one can breach the
+            # 256 KB state-payload limit and destroy every per-recipient outcome. An
+            # operator still gets the whole thing, here, in CloudWatch.
+            logger.error("query %s %s: %s", qid, state, reason)
+            raise TerminalError(fail_reason, errors.bounded_detail(reason))
         if now() >= deadline:
             raise TerminalError(
                 timeout_reason,

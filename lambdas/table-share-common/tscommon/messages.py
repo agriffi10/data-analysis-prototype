@@ -13,6 +13,8 @@ they pass ``TerminalError``'s raise-time validation (SPEC-107 FR-005).
 
 from cpcommon import messages as _cpmessages
 
+from . import config
+
 # Reasons that mean "not allowed" — no table detail is surfaced (the request may
 # not even have got far enough to trust one).
 _ACCESS_DENIED = frozenset({"unauthorized", "forbidden"})
@@ -26,6 +28,10 @@ _BODIES = {
     "invalid_table_name": "the result name isn't a valid table name.",
     "no_recipients": "no recipients were given.",
     "invalid_recipients": "the recipient list is malformed.",
+    "too_many_recipients": (
+        f"a share can go to at most {config.SHARE_MAX_RECIPIENTS} recipients "
+        "({count} were given). Please share to fewer at a time."
+    ),
     "source_not_found": "the source table doesn't exist.",
     "source_not_readable": "the source table couldn't be read.",
     "source_is_view": "views can't be shared - only tables with data files.",

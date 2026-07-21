@@ -214,5 +214,50 @@ def test_raw_engine_prose_never_leaks_into_the_reason():
     assert prose not in errors.failure_reason(error)
 
 
+# ── bounded_detail: keeping one verbose engine message from breaking a Map ───
+
+
+def test_a_short_detail_is_returned_unchanged():
+    assert errors.bounded_detail("conflict on table orders") == "conflict on table orders"
+
+
+def test_a_long_detail_is_truncated_and_says_so():
+    """The detail becomes the exception message, which becomes the SFN error Cause, which
+    table-share repeats PER RECIPIENT into the Map result. One verbose Athena reason can
+    push that array past the 256 KB state-payload limit."""
+    huge = "SYNTAX_ERROR: line 1:8: " + ("column_name_x, " * 500)
+
+    bounded = errors.bounded_detail(huge)
+
+    assert len(bounded) < len(huge)
+    assert bounded.startswith("SYNTAX_ERROR: line 1:8:")   # the useful head survives
+    assert "truncated" in bounded and "full text in logs" in bounded
+
+
+def test_the_bound_holds_for_the_worst_case_athena_can_produce():
+    """Step Functions caps a Cause at 32 KB; the bound must hold well inside it."""
+    assert len(errors.bounded_detail("x" * 32768)) < errors.MAX_DETAIL_CHARS + 100
+
+
+@pytest.mark.parametrize("value", [None, 42, ["a", "b"], {"k": "v"}])
+def test_bounded_detail_never_raises_on_a_non_string(value):
+    """It runs on the failure path, where a second failure means the user hears nothing."""
+    assert isinstance(errors.bounded_detail(value), str)
+
+
+def test_a_truncated_detail_still_decodes_to_its_reason_code():
+    """Truncation must not break the OTHER half of this contract: failure_reason splits on
+    the first colon, so the reason has to survive at the head of the message."""
+    detail = errors.bounded_detail("SYNTAX_ERROR: " + "x" * 5000)
+    error = {
+        "Error": "TerminalError",
+        "Cause": json.dumps(
+            {"errorMessage": f"create_failed: {detail}", "errorType": "TerminalError"}
+        ),
+    }
+
+    assert errors.failure_reason(error) == "create_failed"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

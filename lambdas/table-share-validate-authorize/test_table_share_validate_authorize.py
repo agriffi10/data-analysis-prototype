@@ -21,6 +21,8 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+from tscommon.config import SHARE_MAX_RECIPIENTS  # noqa: E402
+
 import table_share_validate_authorize as v  # noqa: E402
 from cpcommon.errors import TerminalError  # noqa: E402
 
@@ -132,6 +134,42 @@ def test_malformed_recipient_is_terminal():
     _expect_reason(_event(recipients=[{"kind": "user"}]), "invalid_recipients")
     _expect_reason(_event(recipients=["bob"]), "invalid_recipients")
     _expect_reason(_event(recipients={"kind": "user", "name": "bob"}), "invalid_recipients")
+
+
+def test_a_recipient_list_over_the_cap_is_terminal():
+    """The cap exists for the MAP'S RESULT, not the fan-out.
+
+    Each recipient contributes a summary entry to `$.recipientResults`, and a failed one
+    carries the raw {Error, Cause}. Unbounded, a broadly-failing share breaches Step
+    Functions' 256 KB state payload — States.DataLimitExceeded fires on the Map and
+    destroys every per-recipient outcome the Map exists to preserve.
+    """
+    _setup()
+    over = [{"kind": "user", "name": f"user{i:04d}"} for i in range(SHARE_MAX_RECIPIENTS + 1)]
+
+    _expect_reason(_event(recipients=over), "too_many_recipients")
+
+
+def test_a_recipient_list_exactly_at_the_cap_is_accepted():
+    """The boundary, both sides — an off-by-one here rejects a legitimate share."""
+    _setup()
+    at_cap = [{"kind": "user", "name": f"user{i:04d}"} for i in range(SHARE_MAX_RECIPIENTS)]
+
+    out = v.handler(_event(recipients=at_cap), None)
+
+    assert len(out["recipients"]) == SHARE_MAX_RECIPIENTS
+
+
+def test_the_cap_is_checked_before_dedupe_collapses_the_list():
+    """A caller cannot smuggle 10,000 entries past the cap by repeating one name.
+
+    Dedupe only ever shrinks the list, so checking after it would let an arbitrarily large
+    raw list through the O(n) normalisation loop first — the work the cap exists to avoid.
+    """
+    _setup()
+    duplicates = [{"kind": "user", "name": "bob"}] * (SHARE_MAX_RECIPIENTS + 50)
+
+    _expect_reason(_event(recipients=duplicates), "too_many_recipients")
 
 
 def test_duplicate_recipients_collapse():
