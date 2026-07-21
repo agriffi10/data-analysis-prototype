@@ -138,8 +138,17 @@ class TerminalError(Exception):
                 "messages table (or cpcommon.messages base codes) before raising it"
             )
         self.reason = reason
-        self.detail = detail
-        super().__init__(f"{reason}: {detail}" if detail else reason)
+        # BOUNDED HERE, not at the call sites, so the invariant cannot be forgotten. The
+        # detail becomes this exception's message, which Lambda returns as the Step
+        # Functions error Cause, which table-share repeats PER RECIPIENT into its Map
+        # result — so one verbose raw-service string can push a state payload over 256 KB.
+        # A review of the per-call-site version found it applied at ONE of at least three
+        # sites that interpolate raw text (Athena's start-query branch, and copy.py's
+        # "copy {src} -> {dest}" with two 1024-byte S3 keys), and both of the misses were
+        # in the Map path, where a CORRELATED failure produces N identical oversized
+        # Causes — the worst case. Callers that need the full text log it first.
+        self.detail = bounded_detail(detail) if detail else detail
+        super().__init__(f"{reason}: {self.detail}" if self.detail else reason)
 
 
 class TransientError(Exception):

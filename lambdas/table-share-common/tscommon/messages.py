@@ -28,9 +28,12 @@ _BODIES = {
     "invalid_table_name": "the result name isn't a valid table name.",
     "no_recipients": "no recipients were given.",
     "invalid_recipients": "the recipient list is malformed.",
+    # NO {count} MARKER HERE: tscommon.failure_message substitutes only {tableName} —
+    # it has no **tokens mechanism (dqcommon's does, which is what this was copied from).
+    # An unsubstituted marker ships to the user's inbox verbatim.
     "too_many_recipients": (
-        f"a share can go to at most {config.SHARE_MAX_RECIPIENTS} recipients "
-        "({count} were given). Please share to fewer at a time."
+        f"a share can go to at most {config.SHARE_MAX_RECIPIENTS} recipients at a time. "
+        "Please share to fewer."
     ),
     "source_not_found": "the source table doesn't exist.",
     "source_not_readable": "the source table couldn't be read.",
