@@ -5,7 +5,69 @@ data-quality / file-converter) verbs all raise ONE ``TerminalError`` / ``Transie
 type instead of per-layer copies.
 """
 
+import json
+
 from . import messages
+
+#: What a Step Functions Catch parks under ``$.error``: the error NAME and, optionally, a
+#: Cause. Only the name is guaranteed — see ``failure_reason``.
+_SFN_ERROR = "Error"
+_SFN_CAUSE = "Cause"
+
+
+def failure_reason(error) -> str:
+    """Extract a stable reason code from a Step Functions error object, tolerating any shape.
+
+    THIS EXISTS BECAUSE ASL CANNOT DO IT SAFELY, and trying anyway killed executions
+    outright. The three control planes used to decode the Cause in a ``Pass`` state:
+
+        "cause.$": "States.StringToJson($.error.Cause)"
+
+    A Pass state cannot ``Catch``, and ``States.StringToJson`` raises ``States.Runtime`` on
+    anything that is not a JSON string. Verified against the live service with TestState:
+
+        Lambda TerminalError (JSON Cause)   -> SUCCEEDED
+        States.Timeout (no Cause key)       -> States.Runtime  "JsonPath ... could not be found"
+        States.DataLimitExceeded (prose)    -> States.Runtime  "Cannot convert String to Json"
+        Lambda.Unknown (prose)              -> States.Runtime  "Cannot convert String to Json"
+
+    Three of four realistic shapes killed the execution BEFORE the recorded-failure and
+    notify states — so on precisely the failures a user most needs to hear about (a timeout,
+    an oversized payload, a Lambda that died without a handled error) they were told nothing
+    at all. Python can do this safely in a way ASL cannot, so the decode moved here and the
+    machines now pass ``$.error`` through untouched.
+
+    Returns the verb's own reason code when there is one (a ``TerminalError``'s
+    ``"reason: detail"`` message decodes to its reason), otherwise the raw SFN error name —
+    which is already a stable code like ``States.Timeout``. Never raises, and never returns
+    empty: a caller mapping this to user-facing text always gets something to map, and an
+    unmapped code falls through to the domain resolver's generic (SPEC-106).
+    """
+    if not isinstance(error, dict):
+        return messages.UNEXPECTED_ERROR
+
+    name = error.get(_SFN_ERROR) or messages.UNEXPECTED_ERROR
+    cause = error.get(_SFN_CAUSE)
+    if not isinstance(cause, str) or not cause:
+        # No Cause at all — States.Timeout's shape. The error NAME is the reason.
+        return name
+
+    try:
+        decoded = json.loads(cause)
+    except ValueError:
+        # A plain-sentence Cause (States.DataLimitExceeded, Lambda.Unknown). Its prose is
+        # raw engine text and must never reach a user (SPEC-106 FR-008); it stays in the
+        # execution history, and the caller gets the stable name to map instead.
+        return name
+
+    if not isinstance(decoded, dict):
+        return name
+    # A Lambda failure: errorMessage is TerminalError's "reason: detail". The reason is
+    # everything before the first colon — the same split the raise site composed.
+    message = decoded.get("errorMessage")
+    if not isinstance(message, str) or not message:
+        return name
+    return message.split(":", 1)[0].strip() or name
 
 
 class TerminalError(Exception):
