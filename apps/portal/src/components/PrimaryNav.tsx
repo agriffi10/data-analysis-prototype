@@ -44,11 +44,21 @@ const TABS: Tab[] = [
         <path d="M10 7h4a3 3 0 0 1 3 3v4M7 10v4a3 3 0 0 0 3 3h4" />
       </>
     )
+  },
+  {
+    to: '/data-quality',
+    label: 'Data quality',
+    icon: (
+      <>
+        <path d="M9 12l2 2 4-4" />
+        <path d="M21 12a9 9 0 1 1-3.5-7.1" />
+      </>
+    )
   }
 ];
 
 /**
- * Primary tab navigation (Files | Query | Connections) in the authenticated
+ * Primary tab navigation (Files | Query | Connections | Data quality) in the authenticated
  * topbar. Underline tabs — deliberately distinct from the sidebar's filled
  * item so the two nav levels read differently. Route-driven via NavLink, so
  * deep links and back/forward set the active tab. The Header gates rendering

@@ -129,6 +129,8 @@ def _validate_caps() -> None:
         ("DQ_SCAN_READ_CHUNK_BYTES", DQ_SCAN_READ_CHUNK_BYTES),
         ("DQ_OFFENDING_VALUE_SAMPLE", DQ_OFFENDING_VALUE_SAMPLE),
         ("DQ_QUERY_POLL_SECONDS", DQ_QUERY_POLL_SECONDS),
+        ("DQ_INDEX_MAX_ENTRIES", DQ_INDEX_MAX_ENTRIES),
+        ("DQ_INDEX_CAS_RETRIES", DQ_INDEX_CAS_RETRIES),
     ):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise RuntimeError(f"dqcommon.config.{name} must be a positive int, got {value!r}")
@@ -237,6 +239,19 @@ DQ_OFFSET_SAMPLE = 10
 # the decode is streaming, so a 512 MiB head window on a 2-file manifest is never held
 # whole. Without that property the 2 GiB budget would OOM a 1024 MB function.
 DQ_SCAN_READ_CHUNK_BYTES = 256 * 1024
+
+# SPEC-123 — entries kept in a space's runs index, oldest dropped first.
+# THE CAP IS WHAT KEEPS THE INDEX WORTH HAVING. The dashboard fetches this whole file on
+# every load, so an uncapped index makes the page slower the more the feature is used —
+# which is the exact failure the index was introduced to avoid (listing the reports prefix
+# and GETting every report). 200 rows is 20 pages at 10/page; past that a user wants a
+# search, not a longer list.
+DQ_INDEX_MAX_ENTRIES = 200
+
+# SPEC-123 — CAS attempts before the index append gives up (and is swallowed).
+# Contention is a few concurrent checks in one space, so a small cap is plenty; this
+# mirrors shared-space-common's casio.MAX_CAS_ATTEMPTS (6) rather than inventing a number.
+DQ_INDEX_CAS_RETRIES = 5
 
 
 # Called at the BOTTOM: it reads every cap above, including the two declared after its

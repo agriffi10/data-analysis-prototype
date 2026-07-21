@@ -78,6 +78,16 @@ const DESTS: NavDest[] = [
       </GlyphSvg>
     )
   },
+  {
+    to: '/data-quality',
+    label: 'Data quality',
+    icon: (
+      <GlyphSvg>
+        <path d="M9 12l2 2 4-4" />
+        <path d="M21 12a9 9 0 1 1-3.5-7.1" />
+      </GlyphSvg>
+    )
+  },
   {to: '/notifications', label: 'Notifications', icon: <BellIcon className="h-[18px] w-[18px] flex-none" />},
   {to: '/help', label: 'Help', icon: <HelpCircleIcon className="h-[18px] w-[18px] flex-none" />}
 ];

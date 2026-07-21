@@ -139,7 +139,21 @@ def _setup(monkeypatch, objects=None, missing=()):
 
 
 def _written(fake):
-    return json.loads(fake.puts[-1]["Body"])
+    """The REPORT document, selected by key rather than by being the last write.
+
+    It used to be `puts[-1]`. SPEC-123 made this verb write twice — the report, then the
+    per-space runs index — so "the last thing put" silently became the index, and every
+    assertion below started reading the wrong object.
+    """
+    reports = [p for p in fake.puts if p["Key"].endswith(v.REPORT_BASENAME)]
+    assert reports, "the report object was never written"
+    return json.loads(reports[-1]["Body"])
+
+
+def _index(fake):
+    """The runs-index document (SPEC-123), or None if this run never wrote one."""
+    indexes = [p for p in fake.puts if p["Key"].endswith("index.json")]
+    return json.loads(indexes[-1]["Body"]) if indexes else None
 
 
 def _state_machine():
@@ -195,13 +209,81 @@ def test_a_replay_overwrites_the_same_object_and_changes_only_completedAt(monkey
     second = v.handler(_event(), None)
 
     assert first["reportKey"] == second["reportKey"]
-    reports = [json.loads(put["Body"]) for put in fake.puts]
-    assert len(fake.puts) == 2
+    # Scoped to the REPORT writes: SPEC-123 added a second write per run (the runs index),
+    # so a bare count over every put now measures both objects at once.
+    report_puts = [p for p in fake.puts if p["Key"].endswith(v.REPORT_BASENAME)]
+    assert len(report_puts) == 2
     # One object, not two: same bucket AND same key on both writes.
-    assert {(p["Bucket"], p["Key"]) for p in fake.puts} == {(BUCKET, f"{PREFIX}/report.json")}
+    assert {(p["Bucket"], p["Key"]) for p in report_puts} == {(BUCKET, f"{PREFIX}/report.json")}
+    reports = [json.loads(put["Body"]) for put in report_puts]
     for document in reports:
         document.pop("completedAt")
     assert reports[0] == reports[1]
+
+    # And the replay leaves ONE row, not two — the index has to be as replay-safe as the
+    # report key is, or a retried run shows up on the dashboard twice (SPEC-123 FR-001).
+    assert [e["requestId"] for e in _index(fake)["entries"]] == ["req-1"]
+
+
+def test_the_index_row_is_written_after_the_report_object(monkeypatch):
+    """ORDER IS THE CONTRACT (SPEC-123 FR-001). The reverse would put a row on the
+    dashboard that 404s when clicked — the index must never reference a report that
+    does not exist yet."""
+    fake = _setup(monkeypatch)
+    v.handler(_event(), None)
+
+    keys = [p["Key"] for p in fake.puts]
+    assert keys.index(f"{PREFIX}/report.json") < keys.index("alice/_data-quality-reports/index.json")
+
+
+def test_the_index_row_carries_this_runs_summary(monkeypatch):
+    fake = _setup(monkeypatch)
+    out = v.handler(_event(), None)
+
+    (entry,) = _index(fake)["entries"]
+    assert entry["requestId"] == "req-1"
+    assert entry["verdict"] == out["verdict"]
+    assert entry["fileCount"] == out["fileCount"]
+    assert entry["timestamp"] == out["completedAt"]
+    assert out["indexed"] is True
+
+
+def test_an_unwritable_index_does_not_fail_the_check(monkeypatch):
+    """The report is on S3 and the actor has been notified by the time the index is
+    touched. A lost ROW must never become a lost CHECK (SPEC-123 FR-001)."""
+    fake = _setup(monkeypatch)
+    real_put = fake.put_object
+
+    def put(**kwargs):
+        if kwargs["Key"].endswith("index.json"):
+            raise RuntimeError("index is unwritable")
+        return real_put(**kwargs)
+
+    monkeypatch.setattr(fake, "put_object", put)
+
+    out = v.handler(_event(), None)  # must not raise
+    assert out["reportKey"].endswith("report.json")
+    assert out["indexed"] is False
+
+
+def test_the_actor_is_notified_before_the_index_is_touched(monkeypatch):
+    """The notification is the user's only completion signal (SPEC-114), and the index
+    append can cost several round trips under contention. Notifying second would mean a
+    verb that times out mid-CAS leaves a written report nobody is ever told about."""
+    fake = _setup(monkeypatch)
+    order = []
+    monkeypatch.setattr(v.notify, "emit_completed", lambda event: order.append("notify"))
+    real_put = fake.put_object
+
+    def put(**kwargs):
+        if kwargs["Key"].endswith("index.json"):
+            order.append("index")
+        return real_put(**kwargs)
+
+    monkeypatch.setattr(fake, "put_object", put)
+
+    v.handler(_event(), None)
+    assert order == ["notify", "index"]
 
 
 def test_the_written_report_is_the_assembled_document(monkeypatch):

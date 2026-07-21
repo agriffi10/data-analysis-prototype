@@ -8,11 +8,12 @@ import type {HelpSection} from './help.types';
 // join status), and Notifications. Every step below maps to a real, wired
 // affordance in the code.
 //
-// The data-quality guide now documents the notification and the report, because
-// SPEC-114 shipped the producer that links to them. What it still does NOT
-// document is BROWSING past checks — there is no runs dashboard until SPEC-123,
-// so the notification is the only route to a report and the guide says so rather
-// than implying a list the user could go and find.
+// The data-quality guides now cover the whole loop: starting a check, the
+// notification that reports it, the report itself, and (SPEC-123) browsing past
+// checks from the Data quality tab. What they still do NOT promise is that EVERY
+// failure reaches notifications — a request that never starts an execution
+// notifies nobody until SPEC-126 drains the DLQs, which is why both the guide and
+// the page itself say a failed check "usually" reports itself there.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
@@ -111,6 +112,22 @@ export const HELP_SECTIONS: HelpSection[] = [
         callout: {
           kind: 'tip',
           text: 'The check never guesses in your favour. Some figures are <b>estimates</b> and say so: ragged-row counts over-count rows with commas inside quotes, and on a large folder the text-encoding check reads a sample rather than every byte. A figure marked <b>Skipped</b> or <b>Not computed</b> is one the check couldn’t make — never a clean result.'
+        }
+      },
+      {
+        id: 'past-data-quality-checks',
+        title: 'Find a past quality check',
+        subtitle: 'Every check you’ve run, in one place — you don’t need to keep the notification.',
+        intro:
+          'The <b>Data quality</b> tab lists every check that finished, newest first, across your own space and any shared spaces you belong to. Click a row to reopen its full report. This is what makes a report safe to come back to: before, a report was reachable only from its notification, so clearing the notification effectively lost it.',
+        steps: [
+          'Open the <b>Data quality</b> tab.',
+          'Use <b>All</b> / <b>Issues found</b> / <b>Clean</b> to narrow the list, and <b>Prev</b> / <b>Next</b> to page through it.',
+          'Click any row to open that check’s full report.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'A row tagged <b>Sampled</b> means some of that check’s figures are estimates rather than exact counts — open the report to see which. A check that <b>failed</b> has no row here, because it never produced a report; it reports itself in your <b>notifications</b> instead.'
         }
       }
     ]
