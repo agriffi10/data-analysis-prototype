@@ -13,6 +13,8 @@ Goal: each feature is **specified before it's built**, built in **reviewable pha
 
 The docs are tiered by how often they're loaded. Keep each tier in its lane — the always-loaded tier
 was deliberately shrunk (CLAUDE.md 265→~90 lines, architecture.md 696→~130) and **must not regrow**.
+It regrew once and was cut again: the fix each time is a pointer to a deeper tier, never a longer
+paragraph in the always-loaded file.
 
 | Tier | File(s) | Loaded | Authoritative for |
 |---|---|---|---|
@@ -20,14 +22,19 @@ was deliberately shrunk (CLAUDE.md 265→~90 lines, architecture.md 696→~130) 
 | Status | `docs/specs/INDEX.md` + each spec header | on demand | spec **status** (one row per spec) |
 | The work | `docs/specs/SPEC-XXX-*.md` | the one you're building | requirements + phases |
 | Why | `docs/architecture.md` | the *section* you need | design rationale + Known Constraints |
-| Reuse | `docs/component-inventory.md` | skim for reuse | services/hooks/components already built |
+| Decisions | `docs/decisions.md` | the *entry* for your area | settled decisions in full + "do NOT build" fences |
+| Arcs | `docs/specs/ARCS.md` | the arc you're in | why an arc exists, how its specs compose |
+| Reuse | `docs/component-inventory.md` → `component-inventory/<area>.md` | the area(s) you need | services/hooks/components already built |
 | Rulebooks | `docs/best-practices/INDEX.md` → domain doc | the section(s) you need | domain coding rules (React, a11y, …) |
 | History | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
 | Method | `docs/process.md` (this file) | once | how we work |
 
 **Context discipline (the user cares about session-start token cost):**
 - Read **only the current spec** in full.
-- **Never** read `architecture.md` or delivery docs whole — pull the one section you need.
+- **Never** read `architecture.md`, `decisions.md`, `ARCS.md`, or delivery docs whole — pull the one
+  section/entry you need.
+- The component inventory is a **router**: read `component-inventory/<area>.md` for the areas the spec
+  touches, never all of them.
 - Delegate *dependency* delivery-doc reading to an Explore/subagent brief rather than loading it into
   the main loop.
 
@@ -45,8 +52,8 @@ Specs move **Draft → In Progress → Completed** (the status in each spec's he
 - **Completed** — merged on green CI, delivery doc written (see §5).
 
 **Arcs.** Related specs are grouped into *arcs* (file-operations, analytics, query-editor UX,
-shared-connections, notifications) with an explicit **build order** documented in `INDEX.md` →
-*Arcs*. Build in that order; arcs can have non-obvious dependencies (e.g. 056 before 051).
+shared-connections, notifications) with an explicit **build order** documented in
+`docs/specs/ARCS.md`. Build in that order; arcs can have non-obvious dependencies (e.g. 056 before 051).
 
 ---
 
@@ -57,13 +64,13 @@ This is the operating loop, start to finish. CLAUDE.md's *Session Workflow* is t
 **Start of session**
 1. Read CLAUDE.md, then the **current** spec in full. Don't infer scope from a prior conversation —
    read the spec file as it exists now.
-2. Skim `component-inventory.md` for reuse; pull only the `architecture.md` section / dependency
-   delivery-doc you actually need.
+2. For reuse, read the `component-inventory/<area>.md` file(s) the spec touches; pull only the
+   `architecture.md` section / `decisions.md` entry / dependency delivery-doc you actually need.
 3. Confirm CI is green: `gh run list --branch main --limit 5`. Investigate failures before building.
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
 5. **Generate and validate a plan before writing code.** Turn the spec's Implementation Phases into a
    concrete implementation plan, then validate it against the spec (every FR + acceptance criterion is
-   covered, reuse from `component-inventory.md` is used, no out-of-scope work crept in). Confirm the
+   covered, reuse from the component inventory is used, no out-of-scope work crept in). Confirm the
    plan before building. The plan — not per-phase checkpoints baked into the spec — is what gates the
    work.
 
@@ -134,10 +141,12 @@ When a spec is done, in the same pass:
 3. Write a **short** delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from
    `docs/templates/spec-completion-template.md` — *what shipped + what changed*, under ~40 lines, **no
    code/JSON pasted** (the code + component-inventory are the source of truth for reuse).
-4. If reusable services/hooks/components were added, add a **one-line** row to
-   `docs/component-inventory.md`.
-5. A *new architectural decision* gets **one line** in CLAUDE.md's Key Decisions (+ a pointer) — never a
-   paragraph. Reasoning lives in the spec/delivery doc.
+4. If reusable services/hooks/components were added, add a **one-line** row to the matching
+   `docs/component-inventory/<area>.md` (the router only changes if a whole new area appeared).
+5. A *new architectural decision* gets its full entry in `docs/decisions.md` and **one line** in
+   CLAUDE.md's Key Decisions — never a paragraph in CLAUDE.md. Reasoning lives in the spec/delivery doc.
+6. **Prune CLAUDE.md's `## Specs` → Current work** of whatever the closed spec made stale. It carries
+   only what is live and undocumented elsewhere — never append a changelog.
 6. **User-facing docs sweep.** If the spec added, changed, or removed a capability a user can see, update the
    surfaces that describe it — first and foremost the in-app **Help & guides** content
    (`apps/portal/src/features/help/helpContent.ts`, SPEC-074), plus any README / onboarding copy. New shipped

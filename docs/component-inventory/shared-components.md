@@ -1,0 +1,40 @@
+# Shared components (`apps/portal/src/components/`)
+
+Part of the component inventory (`docs/component-inventory.md` is the router).
+Public surface only — the code is the source of truth; verify signatures before relying on them.
+
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `RootLayout` | `components/RootLayout.tsx` | Top-level route layout. |
+| `ProtectedLayout` | `components/ProtectedLayout.tsx` | Auth-gated layout wrapper (redirects unauthenticated users). |
+| `Header` | `components/Header.tsx` | App header (sign-in/out, identity). Below `tablet` a hamburger (≥44px, `aria-controls`) opens `AppNavDrawer`; `PrimaryNav` is `hidden tablet:flex` (SPEC-095). |
+| `Sidebar` | `components/Sidebar.tsx` | Left nav for the authenticated shell — composes `SpacesList` inside `CollapsibleRail` (SPEC-085). Rendered by `FilesPage` (SPEC-057). |
+| `SpacesList` | `components/SpacesList.tsx` | The spaces list itself (`{connections, activeSpaceId, onSelectSpace}`; personal first, shared A–Z, pending/failed disabled). Decoupled from rail chrome so it renders both on-page (`Sidebar`) and in the mobile `AppNavDrawer` contextual slot via `useProvideNavRail` (SPEC-099). |
+| `CollapsibleRail` | `components/CollapsibleRail.tsx` | Shared 248px left-rail chrome (`{ariaLabel, title?, children}`) for the Files `Sidebar` + Query `SchemaBrowser`: `hidden … tablet:flex` panel + header collapse control + a reopen handle when collapsed; collapse = `display:none` (panel kept mounted so in-rail state + `aria-controls` survive). Collapse state via `useRailCollapsed` (SPEC-085). Rail hidden below `tablet`; mobile nav is `AppNavDrawer` (SPEC-095). |
+| `AppNavDrawer` | `components/AppNavDrawer.tsx` | Mobile off-canvas nav (`{open, onClose, id?, contextualRail?}`): 300px left sheet, five primary links (active via `NavLink`) + page-supplied rail slot; focus trap + scroll lock + Escape/scrim/link dismiss. Mounted by `Header` only when `useIsMobile` (SPEC-095). |
+| `NavRailProvider` / `useProvideNavRail` / `useNavRailContent` | `components/NavRailProvider.tsx`, `components/navRailContext.ts` | Bridges a page's contextual rail to the Header-owned `AppNavDrawer` (`useProvideNavRail(memoizedNode)` registers; drawer reads via `useNavRailContent`). Wrapped around the shell in `RootLayout` (SPEC-095). |
+| `MobileActionBar` | `components/MobileActionBar.tsx` | Fixed-bottom `tablet:hidden` action toolbar (`{children, ariaLabel?}`), safe-area-inset aware, ≥44px targets; consuming page pads its scroll region by the bar height. Shell only (SPEC-095). |
+| `Menu` (+ `MenuItem`/`MenuProps`) | `components/Menu.tsx` | Accessible menu primitive: render-prop `trigger` (`{open, toggle, ref, menuId}`) + `role="menu"` popover (arrow roving, Escape/outside-click close + focus return); `items` = action (`icon?`, `tone: default\|danger`, `disabled?`) or separator; `align`/`className`/`menuClassName`. Extracted from `TableActionsMenu` (SPEC-095); also backs `LandingNavMenu` (SPEC-104). |
+| `LandingNavMenu` | `routes/LandingNavMenu.tsx` | Mobile-only (`tablet:hidden`) hamburger for the landing page's section anchors (`{links}`), composing `Menu`; each link sets `window.location.hash` and closes (SPEC-104). |
+| `useRailCollapsed()` | `components/useRailCollapsed.ts` | `localStorage`-backed rail collapse state under one shared key (`RAIL_COLLAPSED_STORAGE_KEY`) so it carries across both rails; `{collapsed, toggle, setCollapsed}`; guarded access → default expanded when storage is unavailable (SPEC-085). |
+| `Button` (+ `ButtonVariant`/`ButtonSize`) | `components/Button.tsx` | Design-system button — `variant` primary/default/ghost/danger, `size` sm/md/lg, `forwardRef` (SPEC-028; `lg` added SPEC-029). |
+| `IconButton` | `components/IconButton.tsx` | Ghost icon-only button; `label` → aria-label, `forwardRef` (SPEC-028). |
+| `Input` | `components/Input.tsx` | Text input with `label` + `error` state, aria wiring, `forwardRef` (SPEC-028). |
+| `Badge` | `components/Badge.tsx` | Neutral type pill (file/folder labels) (SPEC-028). |
+| `Banner` (+ `BannerVariant`) | `components/Banner.tsx` | Dismissible status banner — success/warning/danger/info, optional `title`/`onDismiss` (SPEC-028). |
+| `ErrorBanner` | `components/ErrorBanner.tsx` | `Banner` wrapper that renders `toUserMessage(error)` mapped text for a caught/`ServiceResult` error; defaults to `danger` (SPEC-106). |
+| `ToastProvider` / `useToast()` | `components/ToastProvider.tsx` / `components/toastContext.ts` | App-level toast host (mounted once in `main.tsx`); `useToast()` → `{push({variant,message,action?}), dismiss()}`. Single-toast semantics; reuses the `Toast` view. Replaces per-page toast state (SPEC-106). |
+| `CATALOG_IDENTIFIER_RULE` | `features/query/query.constants.ts` | Human-readable form of `CATALOG_IDENTIFIER_RE` (the "Use 3–63 characters…" hint); one source of truth for the view/table/connection/partition dialogs (SPEC-106). |
+| `BrandMark` | `components/BrandMark.tsx` | Accent-square upload-arrow icon + wordmark; `size` sm/md, `showWordmark` (SPEC-028; used by Header + LandingPage). |
+| `PrimaryNav` | `components/PrimaryNav.tsx` | Topbar Files \| Query underline tabs (`NavLink`-driven); rendered by `Header` only when authenticated (SPEC-035); wrapped `hidden tablet:flex` on mobile (SPEC-095). |
+| `useBreakpoint()` / `useIsMobile()` | `lib/useBreakpoint.ts` | `matchMedia`-backed viewport tier (`{isMobile, isTablet, isDesktop}`; thresholds 900/1300), `useSyncExternalStore`, SSR-safe. **Mount-gating only** — never styling (that's `tablet:`/`desktop:` variants) (SPEC-095). |
+| `Modal` | `components/Modal.tsx` | Centered modal shell (SPEC-026 pattern): scrim + surface card + role/aria + backdrop-dismiss + Escape (`useEscapeKey`); `dismissible` locks it during in-flight actions; `className` replaces the default `max-w-md`; viewport-capped + scroll-in-panel on small screens (SPEC-095). Children supply body + footer. (react-best-practices pass) |
+| `ConfirmDialog` | `components/ConfirmDialog.tsx` | Warn-and-confirm dialog over `Modal`: title (+ optional danger icon `tone`), body `children`, optional `irreversible` line, `confirmVariant`, `busy`/`busyLabel`, `confirmDisabled` (gate confirm only — e.g. type-the-name, SPEC-054), `dismissOnly` (single-button info), focus defaults to Cancel. Used by Clear/CloseTab/DropTable/TabLimit/delete-confirm/overwrite-confirm. (react-best-practices pass) |
+| `Drawer` | `components/Drawer.tsx` | Slide-over (SPEC-036): scrim + panel + header (title, `headerAccessory`, close button) + scrollable body + optional `footer`; `closeOnEscape` yields Escape to a nested dialog. Desktop = 440px right slide-over; below `tablet` a full-width sheet via `mobileVariant: 'bottom-sheet'`(default)`\|'full-height'` (SPEC-095). Used by history / saved-queries / upload / member drawers. (react-best-practices pass) |
+| `PageLayout` | `components/PageLayout.tsx` | Full-width page chrome (title/subtitle/`actions` header over a padded, width-capped content column) — the page's `<main id="main">`. `stackActionsOnMobile?` (default off) stacks the header below `tablet` (SPEC-102). Hosts: Connections, Notifications. |
+| `Pager` | `components/Pager.tsx` | Prev / range-label / Next pager (SPEC-038 styling), `nextBusy` "Loading…" state; Prev/Next `h-[38px] tablet:h-9` (full touch height on mobile, SPEC-102). Shared by the query-results table + history drawer. (react-best-practices pass) |
+| `LoadingState` | `components/LoadingState.tsx` | Centered `role="status"` "Loading…" indicator (route Suspense fallback + auth gate). (react-best-practices pass) |
+| `FolderIcon` / `UploadIcon` / `DocumentIcon` / `CopyIcon` / `CheckIcon` | `components/icons.tsx` | Shared inline SVG icons (no icon lib); `className` for size/color; `FolderIcon` takes `filled`. (react-best-practices pass) |
+| `CopyButton` | `components/CopyButton.tsx` | Icon-only copy-to-clipboard button; `value` + `label` (→ `Copy {label}` aria-label), swaps to a check + polite live-region announce on success. Built on `useCopyToClipboard`. |
+

@@ -1,0 +1,26 @@
+# Shared-spaces feature (`apps/portal/src/features/shared-spaces/`)
+
+Part of the component inventory (`docs/component-inventory.md` is the router).
+Public surface only — the code is the source of truth; verify signatures before relying on them.
+
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `enqueueSharedSpaceRequest(input)` | `sharedSpaces.service.ts` | Enqueue one shared-space request (FIFO `SendMessage`, constant MessageGroupId = serial intake, requestId dedup) carrying the verified ID token; `ServiceResult<{requestId}>`, never throws. The browser's only shared-space write (SPEC-051/056). |
+| `readSharedConnectionsCache(username)` | `sharedSpaces.service.ts` | Read-only `GetObject` of the per-user cache (`{username}/user_settings/shared-connections.json`); forgiving parse (missing/corrupt → empty, drops malformed entries); `ServiceResult`, never throws. Source for `useConnections` (SPEC-052). |
+| `ConnectionsPage` | `ConnectionsPage.tsx` | The `/connections` management view: lists shared connections (mono name, role pill, status badge text+icon), Refresh control, empty state, read-error `Banner`, failed-entry reason + Dismiss/Retry; merges cache + local optimistic pending (SPEC-052). |
+| `RefreshConnectionsButton` | `RefreshConnectionsButton.tsx` | `IconButton` affordance (SPEC-046 pattern) for `useConnections().refresh`; spins + disables while in-flight (SPEC-052). |
+| `connectionStatusLabel(status)` | `connectionStatus.ts` | Human label for a shared connection's lifecycle status (Provisioning…/Active/Failed/Leaving…/Deleting…); shared by the Connections badge + the disabled schema-rail hint (SPEC-052; `deleting` added SPEC-054). |
+| `useLeaveOrDeleteSharedSpace(username)` | `useLeaveOrDeleteSharedSpace.ts` | `{leave(space), remove(space), busy}` — enqueue `leave` (member self-revoke) / `delete` (owner cascade); no payload; the browser makes no direct AWS call; no-op when signed out (SPEC-054). |
+| `LeaveSharedSpaceDialog` | `LeaveSharedSpaceDialog.tsx` | Member's leave confirm (shared danger `ConfirmDialog`); copy notes no data is deleted (SPEC-054). |
+| `DeleteSharedSpaceDialog` | `DeleteSharedSpaceDialog.tsx` | Owner's irreversible delete confirm — **type-the-name** guard (via `ConfirmDialog.confirmDisabled`) + Enter-to-confirm-on-match; names the cascade (SPEC-054). |
+| `useManageMembers(username)` | `useManageMembers.ts` | `{addMembers, removeMembers, busy}` — enqueue `add_members`/`remove_members` (payload.members); the browser makes no direct AWS call; no-op when signed out/empty (SPEC-053). |
+| `useAcknowledgeMembership(username, connections, activeSpaceId)` | `useAcknowledgeMembership.ts` | Effect hook: when a member resolves an `active` shared space they belong to (not owner), enqueues one `acknowledge_membership` per space per browser session (sessionStorage dedup), flipping them Pending → Active in the owner projection. Called from `FilesPage` (SPEC-073). |
+| `MembersList` | `MembersList.tsx` | Shared presentational roster: owner tagged + first, others A–Z, per-member Pending/Active chip; optional `onRemove` renders per-member Remove (read-only without it). Used by both member-drawers (SPEC-075). |
+| `ManageMembersDrawer` | `ManageMembersDrawer.tsx` | Owner-only member-management slide-over (SPEC-036 `Drawer`) over `MembersList` (read-write): per-member Remove (SPEC-026 confirm), Add, Refresh; renders the owner-readable `Member[]` projection (SPEC-053/073). |
+| `MemberRosterDrawer` | `MemberRosterDrawer.tsx` | Read-only member roster over `MembersList` for non-owner members (Refresh + legacy "not available yet" note); no Add/Remove. Opened by "View members" on an active member card (SPEC-075). |
+| `AddMembersDialog` / `parseMemberInput` | `AddMembersDialog.tsx` / `memberInput.ts` | Single-or-bulk add modal + the parse util (split on comma/space/newline, trim, lowercase, de-dupe, drop tokens failing `CATALOG_IDENTIFIER_RE`, exclude existing) (SPEC-053). |
+| `useCreateSharedConnection(username)` | `useCreateSharedConnection.ts` | `{create(name), busy, pending}` — enqueue a `create` + hold an optimistic LOCAL provisioning entry (no S3 write; the pipeline writes the cache) (SPEC-051). |
+| `CreateSharedConnectionDialog` | `CreateSharedConnectionDialog.tsx` | Name-prompt modal for a new shared connection; validates `CATALOG_IDENTIFIER_RE`; "permanent + globally unique" copy; busy-locks (SPEC-051). |
+| `SharedConnectionEntry`, `SharedConnectionsCache`, `SharedSpaceRequest`, `SharedSpaceAction`, `SharedConnectionRole/Status`, `Member`/`MemberStatus` | `sharedSpaces.types.ts` | Per-user cache entry/cache shapes + the SQS request contract types (SPEC-051/056). SPEC-052 reads the cache; `members?` on the owner entry is the owner-readable projection, now `Member[]` with per-member `pending`/`active` join status (SPEC-053/073). |
+

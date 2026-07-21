@@ -256,12 +256,13 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 
 | Document | What's in it |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Project memory: tech stack, code conventions, the **Key Decisions log**, active‑spec table |
+| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a one‑line **Key Decisions** digest, session workflow |
+| [`docs/decisions.md`](docs/decisions.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
 | [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, two‑bucket model, env vars, deployment, known constraints |
-| [`docs/component-inventory.md`](docs/component-inventory.md) | Flat lookup of reusable services / hooks / components / types / utilities |
+| [`docs/component-inventory.md`](docs/component-inventory.md) | **Router** to the per‑area inventories in [`docs/component-inventory/`](docs/component-inventory/) (reusable services / hooks / components / types / utilities) |
 | [`docs/design/design-system.md`](docs/design/design-system.md) | Design tokens, typography, component patterns (the source of truth for the UI) |
 | [`docs/design/landing.html`](docs/design/landing.html) · [`docs/design/mockup.html`](docs/design/mockup.html) | Interactive design references (marketing landing · file browser + upload) |
-| [`docs/specs/`](docs/specs/) | Feature specs (SPEC‑001 … SPEC‑031) — what each feature should do |
+| [`docs/specs/`](docs/specs/) | Feature specs — what each feature should do; [`INDEX.md`](docs/specs/INDEX.md) is status, [`ARCS.md`](docs/specs/ARCS.md) is arc narrative |
 | [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later‑change amendments |
 | [`docs/templates/`](docs/templates/) | Spec + spec‑completion templates |
 | [`docs/deploy-setup.md`](docs/deploy-setup.md) | Deploy setup checklist |
@@ -277,7 +278,8 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
   never throw, feature‑folder structure, file‑naming) are defined in [`CLAUDE.md`](CLAUDE.md).
 - **Feature code** lives in `apps/portal/src/features/<feature>/`; shared UI primitives in
   `apps/portal/src/components/`; AWS clients in `apps/portal/src/lib/`.
-- **Before reusing code**, check [`docs/component-inventory.md`](docs/component-inventory.md).
+- **Before reusing code**, check [`docs/component-inventory.md`](docs/component-inventory.md) and
+  open the area file(s) it routes you to.
 - **Infrastructure** is organized as bounded‑context modules under `infra/modules/`; IAM policies
   are `.tftpl` templates rendered with `templatefile()`. New resource types must also be granted
   to the deploy role (`infra/modules/base/`).
