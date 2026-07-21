@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
@@ -137,6 +138,20 @@ def _setup(monkeypatch, objects=None, missing=()):
 
 def _written(fake):
     return json.loads(fake.puts[-1]["Body"])
+
+
+def _state_machine():
+    """Parse the DEPLOYED ASL template, with its Terraform placeholders stubbed out.
+
+    Read from infra/ rather than duplicated here on purpose: a copy would drift, and the
+    whole value of the contract tests below is that they fail when one side moves.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "infra", "modules", "data-quality", "state-machine.asl.json.tftpl",
+    )
+    with open(path) as handle:
+        return json.loads(re.sub(r"\$\{[^}]+\}", "stub-arn", handle.read()))
 
 
 # ── The write ────────────────────────────────────────────────────────────────
@@ -334,6 +349,52 @@ def test_a_throttled_write_raises_transient_so_the_state_machine_retries(monkeyp
 
     with pytest.raises(TransientError):
         v.handler(_event(), None)
+
+
+def test_record_success_can_read_every_field_it_names(monkeypatch):
+    """The state machine's contract, asserted against the verb that has to satisfy it.
+
+    RecordSuccess is a Pass state, and a Pass state's JSONPath HARD-FAILS on an ABSENT key
+    with States.Runtime — which a Pass state cannot Catch. So a field named there but never
+    threaded here does not degrade anything: the execution dies before NotifyFailure and the
+    user is told NOTHING, on a check that actually succeeded. That failure mode has already
+    been hit once in this arc (the SPEC-108 live smoke test), and it is invisible to every
+    test that looks only at one side of the boundary.
+
+    Reads the deployed ASL template rather than a copy of it, so the two cannot drift.
+    """
+    asl = _state_machine()
+    reads = [
+        path for key, path in asl["States"]["RecordSuccess"]["Parameters"].items()
+        if key.endswith(".$")
+    ]
+    _setup(monkeypatch)
+
+    out = v.handler(_event(), None)
+
+    missing = [path for path in reads if path[len("$.") :] not in out]
+    assert not missing, f"RecordSuccess reads fields assemble-report never sets: {missing}"
+
+
+def test_record_failure_reads_only_fields_the_failure_path_guarantees():
+    """The same contract on the other side, including the pre-identity path.
+
+    A validate-authorize failure never has a location — its input was the raw SQS array —
+    so ValidateFailureSeed must seed every identity field RecordFailure names. Miss one and
+    the ONE failure that happens before the request exists (a malformed or unauthorized
+    request) dies uncatchably, which is the worst outcome in the pipeline: the user gets no
+    notification about a request that was rejected outright.
+    """
+    asl = _state_machine()
+    reads = {
+        path for key, path in asl["States"]["RecordFailure"]["Parameters"].items()
+        if key.endswith(".$")
+    }
+    seeded = set(asl["States"]["ValidateFailureSeed"]["Parameters"])
+    # $.parsed.* is added by ParseError, which every failure path runs after the seed.
+    identity = {path[len("$.") :] for path in reads if not path.startswith("$.parsed")}
+
+    assert identity <= seeded, f"RecordFailure reads unseeded fields: {identity - seeded}"
 
 
 def test_a_throttled_fallback_listing_also_raises_transient(monkeypatch):
