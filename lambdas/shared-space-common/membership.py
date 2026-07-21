@@ -7,8 +7,10 @@ portal role is scoped to). This module owns assigning and clearing those slots â
 UserNotFoundException). All operations are idempotent / replay-safe.
 """
 
+from cpcommon import config as cpconfig
+
 import config
-import clients
+from cpcommon import clients
 from registry import ProvisioningError
 
 
@@ -45,7 +47,7 @@ def assign_or_find_slot(username: str, name: str) -> int:
         cognito.exceptions.UserNotFoundException: the user does not exist.
     """
     cognito = clients.cognito()
-    user = cognito.admin_get_user(UserPoolId=config.USER_POOL_ID, Username=username)
+    user = cognito.admin_get_user(UserPoolId=cpconfig.USER_POOL_ID, Username=username)
     attrs = {a["Name"]: a.get("Value", "") for a in user.get("UserAttributes", [])}
     free = None
     for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1):
@@ -57,7 +59,7 @@ def assign_or_find_slot(username: str, name: str) -> int:
     if free is None:
         raise ProvisioningError("membership limit reached")
     cognito.admin_update_user_attributes(
-        UserPoolId=config.USER_POOL_ID,
+        UserPoolId=cpconfig.USER_POOL_ID,
         Username=username,
         UserAttributes=[{"Name": _slot_attr(free), "Value": name}],
     )
@@ -72,14 +74,14 @@ def clear_slot(username: str, name: str) -> None:
     """
     cognito = clients.cognito()
     try:
-        user = cognito.admin_get_user(UserPoolId=config.USER_POOL_ID, Username=username)
+        user = cognito.admin_get_user(UserPoolId=cpconfig.USER_POOL_ID, Username=username)
     except cognito.exceptions.UserNotFoundException:
         return
     attrs = {a["Name"]: a.get("Value", "") for a in user.get("UserAttributes", [])}
     for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1):
         if attrs.get(_slot_attr(k)) == name:
             cognito.admin_update_user_attributes(
-                UserPoolId=config.USER_POOL_ID,
+                UserPoolId=cpconfig.USER_POOL_ID,
                 Username=username,
                 UserAttributes=[{"Name": _slot_attr(k), "Value": ""}],
             )

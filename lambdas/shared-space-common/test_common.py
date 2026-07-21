@@ -9,7 +9,7 @@ import json
 
 import auth
 import cache
-import config
+from cpcommon import config as cpconfig
 import membership
 import notify
 import registry as reg
@@ -137,7 +137,7 @@ def test_registry_set_status_cas_preserves_concurrent_member_add():
     commits first, so it re-reads and re-applies its status change on the FRESH record —
     both changes survive (the add is not lost, and status still lands)."""
     from fakes import FakeS3
-    import clients
+    from cpcommon import clients
 
     class RacyS3(FakeS3):
         _injected = False
@@ -163,7 +163,7 @@ def test_registry_save_members_cas_retries_and_preserves_untouched_field():
     """FR-001: save_members re-reads fresh on a 412, so a concurrent writer's change to
     a field it doesn't touch survives while its own members change still lands."""
     from fakes import FakeS3
-    import clients
+    from cpcommon import clients
 
     class RacyS3(FakeS3):
         _injected = False
@@ -189,7 +189,7 @@ def test_registry_cas_exhausts_after_persistent_contention():
     """FR-001: unbounded contention raises a typed RuntimeError (non-swallowed), so the
     Step Function records a terminal failure rather than a silent success/lost write."""
     from fakes import FakeS3
-    import clients
+    from cpcommon import clients
 
     class AlwaysRacyS3(FakeS3):
         def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
@@ -210,7 +210,7 @@ def test_reserve_failed_retry_is_conditional_under_contention():
     retry that commits first makes this one 412 and re-read (not a blind double-write) —
     the loser gets a typed ProvisioningError and the sibling's record stands."""
     from fakes import FakeS3
-    import clients
+    from cpcommon import clients
 
     def _as_bytes(body):
         return body if isinstance(body, (bytes, bytearray)) else body.encode()
@@ -389,7 +389,7 @@ def test_write_roster_to_all_is_best_effort_per_member():
     """FR-002: one member's cache write failing is logged and skipped, never aborting
     the fan-out — the remaining members and the owner still get the roster."""
     from fakes import FakeS3, FakeClientError
-    import clients
+    from cpcommon import clients
 
     class FlakyS3(FakeS3):
         def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
@@ -412,7 +412,7 @@ def test_cache_cas_retries_and_preserves_concurrent_write():
     write (advancing the ETag), so the conditional PutObject fails once; the CAS loop
     re-reads and reapplies, and BOTH entries survive."""
     from fakes import FakeS3
-    import clients
+    from cpcommon import clients
 
     key = "bob/user_settings/shared-connections.json"
 
@@ -439,7 +439,7 @@ def test_cache_read_treats_accessdenied_as_absent():
     """Hardening: when the role lacks s3:ListBucket, a missing object returns 403
     AccessDenied (not NoSuchKey). _read must treat that as absent and create."""
     from fakes import FakeS3, FakeClientError
-    import clients
+    from cpcommon import clients
 
     class NoListBucketS3(FakeS3):
         def get_object(self, Bucket, Key):
@@ -457,7 +457,7 @@ def test_cache_read_treats_accessdenied_as_absent():
 def test_cache_read_propagates_unexpected_error():
     """A non-absence S3 error must propagate (never silently overwrite real data)."""
     from fakes import FakeS3, FakeClientError
-    import clients
+    from cpcommon import clients
 
     class BrokenS3(FakeS3):
         def get_object(self, Bucket, Key):
@@ -482,7 +482,7 @@ def test_notify_is_noop_when_queue_unset():
     install()  # NOTIFICATIONS_QUEUE_URL = ""
     from fakes import FakeSqs
 
-    import clients
+    from cpcommon import clients
 
     clients._sqs = FakeSqs()
     notify.emit_notification("alice", "hi")
@@ -493,32 +493,32 @@ def test_notify_sends_when_queue_set():
     install()
     from fakes import FakeSqs
 
-    import clients
+    from cpcommon import clients
 
     clients._sqs = FakeSqs()
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
     notify.emit_notification("alice", "hi", dedup_id="d1")
     assert len(clients._sqs.sent) == 1
     msg = clients._sqs.sent[0]
     assert msg["MessageGroupId"] == "alice" and msg["MessageDeduplicationId"] == "d1"
     body = json.loads(msg["MessageBody"])
     assert body == {"action": "create", "username": "alice", "message": "hi"}
-    config.NOTIFICATIONS_QUEUE_URL = ""  # reset
+    cpconfig.NOTIFICATIONS_QUEUE_URL = ""  # reset
 
 
 def test_notify_swallows_errors():
     install()
 
-    import clients
+    from cpcommon import clients
 
     class Boom:
         def send_message(self, **kw):
             raise RuntimeError("sqs down")
 
     clients._sqs = Boom()
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
     notify.emit_notification("alice", "hi")  # must not raise
-    config.NOTIFICATIONS_QUEUE_URL = ""
+    cpconfig.NOTIFICATIONS_QUEUE_URL = ""
 
 
 if __name__ == "__main__":

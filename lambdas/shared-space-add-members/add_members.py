@@ -9,7 +9,7 @@ skippedAtLimit}.
 
 import logging
 
-import clients
+from cpcommon import clients
 import cache
 import membership
 import registry as reg

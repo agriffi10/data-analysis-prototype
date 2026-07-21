@@ -6,14 +6,14 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-import clients  # noqa: E402
-import config  # noqa: E402
+from cpcommon import clients  # noqa: E402
+from cpcommon import config as cpconfig  # noqa: E402
 import add_members as a  # noqa: E402
 from fakes import install  # noqa: E402
 
 
 def _enable_notifications():
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
     return clients._sqs
 
 

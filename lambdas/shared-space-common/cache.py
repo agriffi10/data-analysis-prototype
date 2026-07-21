@@ -16,8 +16,8 @@ means a concurrent writer won, so re-read and retry.
 import json
 import logging
 
-import config
-import clients
+from cpcommon import config as cpconfig
+from cpcommon import clients
 import casio
 
 logger = logging.getLogger()
@@ -48,7 +48,7 @@ def _read(username):
     """
     s3 = clients.s3()
     try:
-        obj = s3.get_object(Bucket=config.USER_SPACE_BUCKET, Key=_key(username))
+        obj = s3.get_object(Bucket=cpconfig.USER_SPACE_BUCKET, Key=_key(username))
     except s3.exceptions.NoSuchKey:
         return [], None
     except s3.exceptions.ClientError as exc:
@@ -71,7 +71,7 @@ def _write(username, connections, etag):
     Raises the S3 ClientError on a precondition failure so the CAS loop can retry.
     """
     kwargs = {
-        "Bucket": config.USER_SPACE_BUCKET,
+        "Bucket": cpconfig.USER_SPACE_BUCKET,
         "Key": _key(username),
         "Body": json.dumps({"version": 1, "connections": connections}).encode(),
         "ContentType": "application/json",

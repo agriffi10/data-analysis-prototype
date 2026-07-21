@@ -12,8 +12,10 @@ add-members.
 
 import logging
 
+from cpcommon import config as cpconfig
+
 import config
-import clients
+from cpcommon import clients
 import cache
 import membership
 import registry as reg
@@ -48,7 +50,7 @@ def _user_reason(exc):
 def _ensure_marker(name):
     """Create the space's DO_NOT_DELETE.txt marker. Idempotent."""
     clients.s3().put_object(
-        Bucket=config.SHARED_SPACE_BUCKET,
+        Bucket=cpconfig.SHARED_SPACE_BUCKET,
         Key=f"{name}/DO_NOT_DELETE.txt",
         Body=b"This object marks a shared space. Do not delete.\n",
     )

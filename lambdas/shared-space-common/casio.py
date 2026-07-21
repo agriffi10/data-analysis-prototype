@@ -18,6 +18,8 @@ the loop and precondition detection are shared here.
 
 import logging
 
+from cpcommon.errors import error_code
+
 logger = logging.getLogger()
 
 # Contention is rare (a few concurrent ops on one space/user), so a small cap is
@@ -25,9 +27,10 @@ logger = logging.getLogger()
 MAX_CAS_ATTEMPTS = 6
 
 
-def error_code(exc):
-    """The S3 error code from a botocore/fake ClientError, or "" if it has none."""
-    return str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
+#: Re-exported from cpcommon (SPEC-125) — this module kept its own copy, and cpcommon's
+#: docstring literally said it "mirrors shared-space-common/casio.error_code". Kept in this
+#: namespace so `casio.error_code` call sites don't move.
+__all__ = ["error_code", "is_precondition", "cas_mutate", "MAX_CAS_ATTEMPTS"]
 
 
 def is_precondition(exc):

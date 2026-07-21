@@ -1,72 +1,47 @@
-"""SPEC-083 FR-001: shared-space config validates required env vars at import.
+"""SPEC-083 FR-001 / SPEC-125: the shared-space verbs' env contract fails fast at import.
 
-Reloads the module with a var removed/added to assert the fail-fast on required vars
-and the graceful path on optional ones. Restores the conftest baseline in finally so
-the rest of the suite keeps its patched config.
+SPEC-125 split this module's constants in two: the buckets / User Pool / notifications
+queue moved to ``cpcommon.config`` (whose own fail-fast is pinned by
+``test_config_cpcommon.py``), and ``PORTAL_ROLE_ARN`` + ``MAX_SHARED_MEMBERSHIPS`` stayed
+here. So this file no longer re-tests the shared five — it tests what this module still
+owns, plus the one thing neither file would otherwise cover: that the UNION a shared-space
+verb needs at cold start is still required by SOMETHING.
+
+That union test is the PR #196 lesson made executable. A shared layer's import-time
+``_require`` runs for every function that attaches it, so the set of vars a verb must have
+is the union across ALL its layers — and the failure it produces is a cold-start crash,
+never an error at the line that would have used the value.
 """
 
 import importlib
 import os
 
+from cpcommon import config as cpconfig
+
 import config
 
 
-def _reload_without(name):
-    """Reload config with ``name`` removed from the environment; restore afterwards."""
+def _requires(module, name):
+    """True iff reloading ``module`` without ``name`` raises a RuntimeError naming it."""
     saved = dict(os.environ)
+    raised = None
     try:
         os.environ.pop(name, None)
-        importlib.reload(config)
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
-        importlib.reload(config)  # restore to the conftest baseline
-
-
-def test_required_var_fails_fast_naming_the_var():
-    saved = dict(os.environ)
-    try:
-        os.environ.pop("ADMIN_BUCKET", None)
-        raised = None
         try:
-            importlib.reload(config)
+            importlib.reload(module)
         except RuntimeError as exc:
             raised = exc
-        assert raised is not None, "expected a RuntimeError for the missing required var"
-        assert "ADMIN_BUCKET" in str(raised)
     finally:
         os.environ.clear()
         os.environ.update(saved)
-        importlib.reload(config)
+        importlib.reload(module)
+    return raised is not None and name in str(raised)
 
 
-def test_each_required_var_is_enforced():
-    for name in ("COGNITO_USER_POOL_ID", "COGNITO_APP_CLIENT_ID", "SHARED_SPACE_BUCKET", "USER_SPACE_BUCKET", "PORTAL_ROLE_ARN"):
-        raised = None
-        saved = dict(os.environ)
-        try:
-            os.environ.pop(name, None)
-            try:
-                importlib.reload(config)
-            except RuntimeError as exc:
-                raised = exc
-        finally:
-            os.environ.clear()
-            os.environ.update(saved)
-            importlib.reload(config)
-        assert raised is not None and name in str(raised), f"{name} should be required"
-
-
-def test_optional_notifications_queue_absent_is_ok():
-    saved = dict(os.environ)
-    try:
-        os.environ.pop("NOTIFICATIONS_QUEUE_URL", None)
-        importlib.reload(config)  # must NOT raise — optional (SPEC-061 degrade-gracefully)
-        assert config.NOTIFICATIONS_QUEUE_URL == ""
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
-        importlib.reload(config)
+def test_portal_role_arn_fails_fast_naming_the_var():
+    # The one required var this module still owns: Lake Formation grants target it, and a
+    # missing value would surface as an opaque LF failure mid-request instead.
+    assert _requires(config, "PORTAL_ROLE_ARN")
 
 
 def test_max_memberships_defaults_when_unset():
@@ -79,3 +54,39 @@ def test_max_memberships_defaults_when_unset():
         os.environ.clear()
         os.environ.update(saved)
         importlib.reload(config)
+
+
+def test_every_var_a_shared_space_verb_needs_is_required_by_one_of_its_two_layers():
+    """The union across `cpcommon` + `shared-space-common`, which is what a cold start sees.
+
+    Each var is checked against the module that now owns it. If a future refactor moves one
+    and forgets its ``_require``, the var silently becomes optional in code while Terraform
+    keeps setting it — and the break shows up only when an environment stops setting it.
+    """
+    owned_by_cpcommon = (
+        "COGNITO_USER_POOL_ID",
+        "COGNITO_APP_CLIENT_ID",
+        "ADMIN_BUCKET",
+        "USER_SPACE_BUCKET",
+        "SHARED_SPACE_BUCKET",
+        # SPEC-125 added this one to the shared-space Lambdas' env for exactly this reason:
+        # cpcommon requires it at import even though no shared-space verb calls Athena.
+        "ATHENA_WORKGROUP",
+    )
+    for name in owned_by_cpcommon:
+        assert _requires(cpconfig, name), f"{name} should be required by cpcommon.config"
+    assert _requires(config, "PORTAL_ROLE_ARN")
+
+
+def test_the_notifications_queue_stays_optional():
+    # SPEC-061 degrade-gracefully: an unset queue makes every emit a logged no-op rather
+    # than crashing a control plane that is otherwise working.
+    saved = dict(os.environ)
+    try:
+        os.environ.pop("NOTIFICATIONS_QUEUE_URL", None)
+        importlib.reload(cpconfig)  # must NOT raise
+        assert cpconfig.NOTIFICATIONS_QUEUE_URL == ""
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+        importlib.reload(cpconfig)

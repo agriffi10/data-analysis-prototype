@@ -54,8 +54,11 @@ SQS ──▶ EventBridge Pipe ──▶ Step Function  (orchestrates single-tas
 > orchestrated by the Step Function**, not one monolithic provisioner. The state machine runs a
 > **validate-authorize** Lambda, then a **`Choice`** routes by `action` to exactly **one verb Lambda**
 > (`create-space | add-members | remove-members | leave | delete-space`); shared code
-> (config/clients/auth/registry/membership/cache/notify) lives in a **`shared-space-common` Lambda layer**
-> (CI builds + publishes it; functions attach it, so it deploys like code). The original implementation
+> (domain config/auth-adapter/registry/membership/cache/notify/teardown/casio) lives in a **`shared-space-common`
+> Lambda layer** (CI builds + publishes it; functions attach it, so it deploys like code). Since **SPEC-125**
+> each verb attaches **two** layers — `cpcommon` + `shared-space-common` — and the shared surface
+> (boto/JWKS clients, the env-config core, the ID-token verification, the notifications send, the S3 error-code
+> extractor) lives once in `cpcommon`; this layer is domain-only and declares no external deps. The original implementation
 > (SPEC-050→054) shipped as a single 711-line provisioner with an `action`-switch; SPEC-062 decomposes it to
 > this shape (the §7 "provisioning Lambda(s)" intent). Behavior, the request contract, the membership-tag
 > model, and the registry/cache shapes are unchanged.
@@ -199,7 +202,8 @@ Because provisioning is eventual, the UI never blocks on it:
 - **SQS** request queue (+ DLQ), **EventBridge Pipe** (SQS source → Step Function target), **Step Function**
   state machine, and the **single-task Lambdas** it invokes — a `validate-authorize` Lambda + five verb
   Lambdas (`create-space` / `add-members` / `remove-members` / `leave` / `delete-space`), sharing a
-  `shared-space-common` **Lambda layer** (config/clients/auth/registry/membership/cache/notify). Code under
+  `shared-space-common` **Lambda layer** (domain config/auth-adapter/registry/membership/cache/notify/teardown),
+  plus the shared `cpcommon` layer since SPEC-125. Code under
   `lambdas/` per the SPEC-012 code/infra split; the state machine + the shared orchestrator role in the
   `infra/modules/shared-spaces/` bounded-context module. (SPEC-062 decomposed the original single 711-line
   provisioner into these; the six functions share **one** orchestrator role — see §2.)

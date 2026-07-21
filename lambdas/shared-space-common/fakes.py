@@ -8,7 +8,9 @@ clients are faked here and installed onto ``clients._<name>``.
 
 import types
 
-import clients
+from cpcommon import clients
+from cpcommon import config as cpconfig
+
 import config
 
 
@@ -209,10 +211,14 @@ def install(cognito_attrs=None, max_memberships=10):
     clients._cognito = FakeCognito(cognito_attrs)
     clients._sqs = FakeSqs()
     config.MAX_SHARED_MEMBERSHIPS = max_memberships
-    config.ADMIN_BUCKET = "admin-bkt"
-    config.SHARED_SPACE_BUCKET = "shared-bkt"
-    config.USER_SPACE_BUCKET = "user-bkt"
     config.PORTAL_ROLE_ARN = "arn:aws:iam::1:role/portal"
-    config.USER_POOL_ID = "pool"
-    config.NOTIFICATIONS_QUEUE_URL = ""  # unset -> notify is a no-op
+    # SPEC-125: the buckets, the pool and the queue URL now live in cpcommon.config —
+    # ONE definition, so this is the one place they are patched. The conftest's
+    # snapshot/restore fixture undoes it after each test, which it could not do while
+    # this layer kept its own copies.
+    cpconfig.ADMIN_BUCKET = "admin-bkt"
+    cpconfig.SHARED_SPACE_BUCKET = "shared-bkt"
+    cpconfig.USER_SPACE_BUCKET = "user-bkt"
+    cpconfig.USER_POOL_ID = "pool"
+    cpconfig.NOTIFICATIONS_QUEUE_URL = ""  # unset -> notify is a no-op
     return clients._s3, clients._glue, clients._lf, clients._cognito
