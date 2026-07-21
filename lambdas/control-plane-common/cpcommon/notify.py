@@ -4,7 +4,7 @@ Two pieces are genuinely shared; the domain emitters (``emit_failure`` /
 ``emit_unexpected`` / the per-arc success emitters + event-context extraction) stay in
 each domain layer because their signatures and dedup strategy differ.
 
-- ``emit_notification(username, message, dedup_id=None)`` — sends a ``create`` envelope
+- ``emit_notification(username, message, dedup_id=None, link=None)`` — sends a ``create`` envelope
   to the FIFO notifications queue, grouped by ``username``. No-op (one log line) when
   ``NOTIFICATIONS_QUEUE_URL`` is unset or there is no recipient. Catches and logs all
   errors, never raises — a missed notification must never change or fail a pipeline
@@ -27,11 +27,21 @@ from .errors import TerminalError, TransientError
 logger = logging.getLogger()
 
 
-def emit_notification(username: str, message: str, dedup_id: str | None = None) -> None:
+def emit_notification(
+    username: str, message: str, dedup_id: str | None = None, link: str | None = None
+) -> None:
     """Send a ``create`` envelope to the FIFO notifications queue, grouped by username.
 
     No-op (one log line) when ``NOTIFICATIONS_QUEUE_URL`` is unset or there is no
     recipient. Catches and logs all errors; never raises.
+
+    ``link`` (SPEC-113 FR-008, first producer SPEC-114) is an optional IN-APP PATH the
+    notification deep-links to. It is OMITTED FROM THE BODY unless truthy rather than sent
+    as null, because the writer treats any non-empty string as a link to persist
+    (``notifications_writer.apply_create``) and a key that is absent is unambiguous in a
+    way a null is not. NOT VALIDATED HERE: the browser decides what is safe to render as a
+    link (``isSafeInAppPath``), and duplicating that rule in a Lambda would give two places
+    to keep in step. Producers pass in-app paths only — never an absolute URL.
     """
     if not config.NOTIFICATIONS_QUEUE_URL:
         logger.info("notifications queue unset; skipping notify for %s", username)
@@ -41,6 +51,8 @@ def emit_notification(username: str, message: str, dedup_id: str | None = None) 
         return
     try:
         body = {"action": "create", "username": username, "message": message}
+        if link:
+            body["link"] = link
         kwargs = {
             "QueueUrl": config.NOTIFICATIONS_QUEUE_URL,
             "MessageBody": json.dumps(body),

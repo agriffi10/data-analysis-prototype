@@ -55,14 +55,9 @@ export function DataQualityDialog({target, kind, displayPath, onClose}: DataQual
         {kind === 'folder' ? ' and every file in this folder' : ''}. Nothing is modified, moved, or deleted.
       </p>
 
-      {/* Deliberately does NOT promise a notification. The data-quality notification
-          producer is SPEC-114 and is not built — `dq_notify_failure` is still a
-          SPEC-108 pass-through stub and there is no success emitter — so a check today
-          completes silently. Restore the "you'll be notified" wording as part of
-          SPEC-114, not before. */}
       <p className="mt-2 text-sm text-text-2">
-        The check runs in the background and can take a few minutes. It writes a report when it finishes; you don’t need
-        to keep this page open.
+        The check runs in the background and can take a few minutes. You’ll get a notification when it finishes — with a
+        link to the report — so you don’t need to keep this page open.
       </p>
     </ConfirmDialog>
   );

@@ -26,9 +26,9 @@ export type UseDataQualityCheckResult = {
  * dialog whose only remaining move is Cancel, and the report page's "Re-run check" invokes
  * this with no dialog mounted at all, where the toast is the only channel there is.
  *
- * The check itself is asynchronous and takes minutes. Success here means *enqueued*,
- * never *checked* — and today it means nothing more: the data-quality notification
- * producer (SPEC-114) is not built, so a finished check surfaces nowhere on its own.
+ * The check itself is asynchronous and takes minutes. Success here means *enqueued*, never
+ * *checked* — the outcome arrives as a notification carrying a link to the report
+ * (SPEC-114), which is what lets this toast stop at "started" without stranding the user.
  *
  * @example
  * const {start, isPending} = useDataQualityCheck();
@@ -57,9 +57,7 @@ export function useDataQualityCheck(): UseDataQualityCheckResult {
           result.success
             ? {
                 variant: 'success',
-                // No "you'll be notified": the data-quality notification producer is
-                // SPEC-114 and is not built yet (see DataQualityDialog).
-                message: `Checking “${locationLabel(target.location)}”… this runs in the background and can take a few minutes.`
+                message: `Checking “${locationLabel(target.location)}”… you’ll get a notification when it finishes.`
               }
             : {variant: 'danger', message: toUserMessage(result.error).message}
         );

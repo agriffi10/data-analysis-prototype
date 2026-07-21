@@ -129,9 +129,23 @@ class TerminalError(Exception):
     raises ``ValueError`` at the raise site (SPEC-107 FR-005) — a mistyped reason can
     never reach the user as a silent generic fallback, and the data-quality /
     file-converter arcs rely on this guarantee.
+
+    ``tokens`` (SPEC-114 FR-002) is the OPPOSITE OF ``detail`` and the distinction is the
+    whole reason it exists as a second field rather than being folded into the first:
+
+        detail  -> operators. Raw service text is ALLOWED. Never reaches a user.
+        tokens  -> the user. Fills the {object}/{count} markers in the domain's message
+                   body. Raw service text is FORBIDDEN (SPEC-106 FR-008).
+
+    It exists because the notification is emitted by ``notifies_on_failure``, which runs in
+    the decorator — far from the raise site, holding only the exception. Without a
+    structured channel the markers already sitting in a domain's message table render
+    LITERALLY ("{count} found"), so a message that promises to name the offending file
+    cannot. Optional and defaulting to ``None``, so table-builder and table-share — whose
+    message tables carry no per-request markers — are untouched.
     """
 
-    def __init__(self, reason, detail=""):
+    def __init__(self, reason, detail="", tokens=None):
         if not messages.is_known_reason(reason):
             raise ValueError(
                 f"unknown TerminalError reason {reason!r}: register it via the domain "
@@ -148,6 +162,15 @@ class TerminalError(Exception):
         # in the Map path, where a CORRELATED failure produces N identical oversized
         # Causes — the worst case. Callers that need the full text log it first.
         self.detail = bounded_detail(detail) if detail else detail
+        # Copied, not aliased: a caller that mutates the dict it passed must not retroactively
+        # change the message a decorator will render from this exception further up the stack.
+        # Values are str()'d here so a message body's str.replace cannot fail on an int count.
+        self.tokens = {str(k): str(v) for k, v in tokens.items()} if tokens else {}
+        # NOT part of the exception message, deliberately: the message becomes the Step
+        # Functions Cause, which failure_reason() splits on its FIRST COLON to recover the
+        # reason code. An S3 key or column name in there could carry a colon and would
+        # corrupt that split — and tokens are never needed on the NotifyFailure path anyway
+        # (see dqcommon.notify: the decorator emits first and wins the FIFO dedup).
         super().__init__(f"{reason}: {self.detail}" if self.detail else reason)
 
 

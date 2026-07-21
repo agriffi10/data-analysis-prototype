@@ -19,7 +19,7 @@ SECOND query, and the pipeline would poll one execution while another ran unwatc
 import logging
 
 from cpcommon import athena, config as cpconfig, events
-from dqcommon import manifest as manifest_store, messages, sql
+from dqcommon import manifest as manifest_store, messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -136,6 +136,7 @@ def _start_queries(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("start-profile-query")
 def handler(event, context) -> dict:
     """Start the three queries and thread their execution ids onward."""
     return _start_queries(event)

@@ -23,6 +23,9 @@ from . import config
 # resolver hard-errors on a domain re-defining a shared base code.
 UNAUTHORIZED = _cpmessages.UNAUTHORIZED
 FORBIDDEN = _cpmessages.FORBIDDEN
+#: The generic catch-all `notifies_on_failure` emits for an UNEXPECTED exception (SPEC-114
+#: FR-003) — also a cpcommon base code, re-exported for the same one-import reason.
+UNEXPECTED_ERROR = _cpmessages.UNEXPECTED_ERROR
 
 #: A malformed envelope: missing/renamed/wrong-typed field, or no requestId (SPEC-109 FR-001).
 INVALID_REQUEST = "invalid_request"
@@ -138,3 +141,62 @@ def failure_message(reason: str, location: str = "", **tokens: str) -> str:
         return "You don't have access to check data quality there."
     where = f' on "{location}"' if location else ""
     return f"Couldn't check data quality{where}: {resolver.body(reason, **tokens)}"
+
+
+#: How many of the report's top issues the NOTIFICATION names (SPEC-114 FR-001).
+#
+# Lower than config.DQ_TOP_ISSUES (5) on purpose, and the two are not the same quantity: the
+# report is a page the user reads, the notification is one line in an inbox they scan. Five
+# findings — each of which can be a full sentence naming a column and a formatted count —
+# produces a message no one reads to the end, which is a worse outcome than naming two and
+# pointing at the report for the rest. The count is always stated, so nothing is hidden.
+NOTIFY_ISSUES = 2
+
+
+def success_message(
+    location: str,
+    verdict: str,
+    top_issues: list[str] | None = None,
+    *,
+    has_approximate: bool = False,
+    has_incomplete: bool = False,
+) -> str:
+    """The message the actor sees when a check COMPLETES (SPEC-114 FR-001).
+
+    Carries the verdict, the first ``NOTIFY_ISSUES`` findings and the total count — never
+    the report itself, which stays a file. The caller adds the report link separately
+    (``dqcommon.notify.report_link``); this function returns text only.
+
+    THE TWO FLAGS SAY DIFFERENT THINGS AND ARE WORDED DIFFERENTLY ON PURPOSE
+    (``dqcommon.report._has_approximate`` / ``_has_incomplete``):
+
+    ``has_approximate`` is TRUE FOR EVERY SOURCE THIS ARC SUPPORTS — ragged rows and the
+    encoding scan are classified approximate whenever they run at all. So it carries no
+    information on its own, and phrasing it as a warning would put a warning on every
+    healthy result until users learned to ignore it. It gets a flat, factual clause.
+
+    ``has_incomplete`` is the one that varies: something the user asked for was SKIPPED or
+    FAILED and is not in front of them. That earns the actual "some checks couldn't be
+    completed" sentence. FR-001's ban on an unqualified "clean" is satisfied by the first
+    flag, which is always present on a clean verdict.
+    """
+    issues = list(top_issues or [])
+    where = f' on "{location}"' if location else ""
+    head = f"Data quality check{where} finished"
+
+    if verdict == "clean" and not issues:
+        body = f"{head}: no issues found."
+    else:
+        named = "; ".join(issues[:NOTIFY_ISSUES])
+        more = len(issues) - NOTIFY_ISSUES
+        tail = f" (and {more} more)" if more > 0 else ""
+        count = f"{len(issues)} issue{'' if len(issues) == 1 else 's'} found"
+        body = f"{head}: {count} — {named}{tail}." if named else f"{head}: {count}."
+
+    # Order matters: the caveat follows the finding it qualifies, so a user who stops
+    # reading at the first sentence has still read the verdict.
+    if has_approximate:
+        body += " Some figures are estimates."
+    if has_incomplete:
+        body += " Some checks couldn't be completed — see the report."
+    return body

@@ -28,7 +28,7 @@ import zlib
 from cpcommon import clients, errors, events, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
-from dqcommon import config, messages
+from dqcommon import config, messages, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -174,6 +174,7 @@ def _enforce_caps(objects: list[tuple[str, int]]) -> None:
         raise TerminalError(
             messages.TOO_MANY_FILES,
             f"{len(objects)} objects exceeds DQ_MAX_OBJECTS={config.DQ_MAX_OBJECTS}",
+            tokens={"count": f"{len(objects):,}"},
         )
     for key, size in objects:
         if _is_compressed(key) and size > config.DQ_MAX_GZIP_OBJECT_BYTES:
@@ -181,6 +182,7 @@ def _enforce_caps(objects: list[tuple[str, int]]) -> None:
                 messages.COMPRESSED_SOURCE_TOO_LARGE,
                 f"{key} is {size} bytes, over DQ_MAX_GZIP_OBJECT_BYTES="
                 f"{config.DQ_MAX_GZIP_OBJECT_BYTES} (gzip is not splittable)",
+                tokens={"object": key},
             )
 
 
@@ -207,7 +209,9 @@ def _resolve_format(objects: list[tuple[str, int]], location: str) -> str:
 
     if len(formats) > 1:
         raise TerminalError(
-            messages.MIXED_FORMATS, f"multiple formats present: {sorted(formats)}"
+            messages.MIXED_FORMATS,
+            f"multiple formats present: {sorted(formats)}",
+            tokens={"formats": ", ".join(sorted(formats))},
         )
     return next(iter(formats))
 
@@ -335,12 +339,21 @@ def _read_plain_head(bucket: str, key: str) -> bytes:
     return bytes(out[: end + 1]) if end != -1 else bytes(out)
 
 
-def _hive(dtype, name: str) -> str:
+def _hive(dtype, name: str, key: str = "") -> str:
+    """Map one probed dtype to its Hive type, or raise the terminal naming the FILE.
+
+    ``key`` is threaded from ``_probe_columns`` purely so the notification can name the
+    object (SPEC-114 FR-002) — the column name alone tells a user nothing about which of
+    forty files to go and look at. It is the user-facing {object} token; the column and
+    dtype stay in the operator-only detail.
+    """
     try:
         return map_dtype(dtype)
     except UnmappableTypeError as exc:
         raise TerminalError(
-            messages.UNREADABLE_HEADER, f"column {name!r} has unmappable dtype {dtype}"
+            messages.UNREADABLE_HEADER,
+            f"column {name!r} has unmappable dtype {dtype}",
+            tokens={"object": key},
         ) from exc
 
 
@@ -373,7 +386,9 @@ def _storage_options() -> dict:
     return opts
 
 
-def _columns_from(source, fmt: str, storage_options: dict | None = None) -> list[dict]:
+def _columns_from(
+    source, fmt: str, storage_options: dict | None = None, key: str = ""
+) -> list[dict]:
     """Return ordered ``[{name, type}]`` for ``source``.
 
     ``source`` is an ``s3://`` URI (polars' object_store fetches only the byte ranges the
@@ -388,7 +403,7 @@ def _columns_from(source, fmt: str, storage_options: dict | None = None) -> list
 
     if fmt == "parquet":
         schema = pl.scan_parquet(source, storage_options=storage_options).collect_schema()
-        return [{"name": n, "type": _hive(d, n)} for n, d in schema.items()]
+        return [{"name": n, "type": _hive(d, n, key)} for n, d in schema.items()]
 
     if fmt == "csv":
         # Header only, no type inference: every column is string, matching SPEC-111
@@ -406,9 +421,11 @@ def _columns_from(source, fmt: str, storage_options: dict | None = None) -> list
             n_rows=JSON_SAMPLE_ROWS,
             storage_options=storage_options,
         ).collect()
-        return [{"name": n, "type": _hive(d, n)} for n, d in frame.schema.items()]
+        return [{"name": n, "type": _hive(d, n, key)} for n, d in frame.schema.items()]
 
-    raise TerminalError(messages.UNREADABLE_HEADER, f"unknown format {fmt!r}")
+    raise TerminalError(
+        messages.UNREADABLE_HEADER, f"unknown format {fmt!r}", tokens={"object": key}
+    )
 
 
 def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
@@ -422,7 +439,7 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
     try:
         if _is_compressed(key):
             # The gzip head is already in memory (boto3-fetched), so no storage_options.
-            return _columns_from(io.BytesIO(_read_gzip_head(bucket, key)), fmt)
+            return _columns_from(io.BytesIO(_read_gzip_head(bucket, key)), fmt, key=key)
         if fmt == "parquet":
             # Parquet's schema lives in a FOOTER at the END of the file — a head read
             # can't reach it — so polars reads the footer via object_store RANGE requests
@@ -433,11 +450,11 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
             # above), but a footer range-GET is a different access pattern and may or may
             # not work. This path needs a real Parquet source to confirm; if it also fails,
             # the fix is a boto3 footer read (last-N-bytes) rather than object_store.
-            return _columns_from(_object_uri(bucket, key), fmt, _storage_options())
+            return _columns_from(_object_uri(bucket, key), fmt, _storage_options(), key=key)
         # CSV / JSON: header (CSV) or sample rows (JSON) live at the START, so a bounded
         # boto3 head read + polars-from-memory avoids object_store, which does not work in
         # this Lambda (SPEC-111 live finding; see _read_plain_head).
-        return _columns_from(io.BytesIO(_read_plain_head(bucket, key)), fmt)
+        return _columns_from(io.BytesIO(_read_plain_head(bucket, key)), fmt, key=key)
     except (TerminalError, TransientError):
         # TransientError must pass through: _read_gzip_head runs INSIDE this try, so a
         # throttled GetObject would otherwise be swallowed by the catch-all below and
@@ -446,7 +463,9 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
         raise
     except Exception as exc:  # noqa: BLE001 - a corrupt/mistyped object is terminal, not retryable
         raise TerminalError(
-            messages.UNREADABLE_HEADER, f"could not read the schema of {key}: {exc}"
+            messages.UNREADABLE_HEADER,
+            f"could not read the schema of {key}: {exc}",
+            tokens={"object": key},
         ) from exc
 
 
@@ -483,6 +502,7 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
             raise TerminalError(
                 messages.PARTITION_LAYOUT_MISMATCH,
                 f"{key} has non-partition folder segment(s) {plain} in a partitioned source",
+                tokens={"object": key},
             )
         names = tuple(seg.split("=", 1)[0] for seg in dirs)
         if expected is None:
@@ -491,6 +511,7 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
             raise TerminalError(
                 messages.PARTITION_LAYOUT_MISMATCH,
                 f"{key} has partition keys {list(names)}, but the source uses {list(expected)}",
+                tokens={"object": key},
             )
         for seg in dirs:
             name, value = seg.split("=", 1)
@@ -502,6 +523,7 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
                 raise TerminalError(
                     messages.PARTITION_LAYOUT_MISMATCH,
                     f"{key} has an empty partition key or value in segment {seg!r}",
+                    tokens={"object": key},
                 )
             seen = values.setdefault(name, [])
             if value not in seen:
@@ -513,6 +535,7 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
                 messages.TOO_MANY_PARTITION_VALUES,
                 f"partition key {name!r} has {len(seen)} values, over "
                 f"DQ_MAX_PARTITION_VALUES={config.DQ_MAX_PARTITION_VALUES}",
+                tokens={"key": name, "count": f"{len(seen):,}"},
             )
 
     # Sorted for determinism: the manifest and SPEC-111's projection enum are compared
@@ -619,6 +642,7 @@ def _inspect(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("inspect-source")
 def handler(event, context) -> dict:
     """Inspect the authorized location, write the manifest, and pass its KEY onward."""
     return _inspect(event)

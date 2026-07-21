@@ -22,7 +22,7 @@ import logging
 
 from cpcommon import athena, config as cpconfig, events
 from cpcommon.errors import TerminalError
-from dqcommon import manifest as manifest_store, messages, sql
+from dqcommon import manifest as manifest_store, messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -100,7 +100,11 @@ def _create(event: dict) -> dict:
     try:
         sql.check_column_count(columns)
     except sql.TooManyColumnsError as exc:
-        raise TerminalError(messages.TOO_MANY_COLUMNS, str(exc)) from exc
+        # The count comes from `columns`, not from parsing str(exc): the exception's text is
+        # log prose, and a token that reaches a user must never be scraped out of a message.
+        raise TerminalError(
+            messages.TOO_MANY_COLUMNS, str(exc), tokens={"count": f"{len(columns):,}"}
+        ) from exc
 
     table = sql.temp_table_name(request_id)
     raw_table = sql.raw_table_name(request_id) if fmt == "csv" else None
@@ -146,6 +150,7 @@ def _create(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("create-temp-tables")
 def handler(event, context) -> dict:
     """Create the temp table(s) and thread their names onward."""
     return _create(event)

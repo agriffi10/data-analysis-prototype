@@ -19,7 +19,7 @@ Two properties make it safe to call from anywhere:
 import logging
 
 from cpcommon import athena, config as cpconfig
-from dqcommon import messages, sql
+from dqcommon import messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -90,7 +90,25 @@ def _cleanup(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("drop-temp-tables")
 def handler(event, context) -> dict:
-    """Drop both temp tables (if any) and thread the cleanup outcome onward."""
+    """Drop both temp tables (if any) and thread the cleanup outcome onward.
+
+    A KNOWN, ACCEPTED EDGE (SPEC-114): this verb runs on BOTH paths, so its notification
+    behaves differently on each.
+
+    On the FAILURE path the real cause was emitted first, seconds earlier, under the same
+    ``{requestId}:failure`` dedup id — so a cleanup failure here collapses into it and the
+    user sees what actually went wrong (pinned by
+    ``test_a_cleanup_failure_cannot_mask_the_real_reason``).
+
+    On the SUCCESS path there is no earlier failure to collapse into, so a cleanup failure
+    after a written report sends the user BOTH a success notification and a failure one.
+    Each is individually true — the report exists AND the run ended in Fail — but the pair
+    reads oddly. It is left as-is rather than papered over: suppressing the second would
+    need the terminal states to carry whether a report was written, and RecordFailure
+    deliberately carries only {requestId, actor, location, status, error}. Widening it is a
+    state-machine change, which this spec is explicitly not making.
+    """
     request = dict(event) if isinstance(event, dict) else {}
     return _cleanup(request)
