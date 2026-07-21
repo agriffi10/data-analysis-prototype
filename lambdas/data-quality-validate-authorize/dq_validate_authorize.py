@@ -173,6 +173,17 @@ def _validate_and_authorize(event) -> dict:
         "space": {"kind": space["kind"], "bucket": space["bucket"], "prefix": f"{space_root}/"},
         "location": normalized,
         "reportPrefix": destination,
+        # SEEDED NULL HERE, FILLED BY assemble-report. It exists from the FIRST verb purely
+        # so the terminal RecordFailure Pass state can read $.reportKey on every path: a
+        # Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable
+        # States.Runtime, which would kill the execution before NotifyFailure and leave the
+        # user with no notification at all — the same trap $.location fell into (see
+        # ValidateFailureSeed's comment in the ASL). A null VALUE is fine; a missing key is
+        # fatal. Every verb threads the state with dict(event), so seeding it once is
+        # enough. What it buys: notify-failure can tell a post-report cleanup failure from
+        # a real one and stay quiet, because the user already has their success
+        # notification and their report (SPEC-114).
+        "reportKey": None,
     }
 
 

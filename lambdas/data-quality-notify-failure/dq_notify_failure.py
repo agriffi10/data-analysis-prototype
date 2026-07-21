@@ -48,6 +48,30 @@ def handler(event, context) -> dict:
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: requestId=%s actor=%s reason=%s", request_id, actor, reason)
 
+    if request.get("reportKey"):
+        # THE CHECK ACTUALLY SUCCEEDED. reportKey is null until assemble-report writes the
+        # report, and assemble-report is followed only by DropTempTables — so a non-null
+        # value here means the report exists, the success notification already went out
+        # (assemble-report emits it immediately after the write), and what failed was
+        # CLEANUP, after the fact.
+        #
+        # Telling the user their check failed at that point would flatly contradict the
+        # message they already have, and the one they can act on is the success: their
+        # report is real and their link works. The leaked temp table is an operator
+        # problem, and it is already an ERROR log in drop-temp-tables plus a failed
+        # execution in the console.
+        #
+        # Note this is NOT the common cleanup failure: a Glue DROP that fails is swallowed
+        # by drop-temp-tables._drop and never reaches a terminal at all. What lands here is
+        # the cleanup Lambda itself failing — an import error, a timeout — which no verb
+        # code can catch, which is exactly why the suppression has to live here.
+        logger.info(
+            "report %s was written; suppressing the post-success cleanup failure for %s",
+            request.get("reportKey"),
+            request_id,
+        )
+        return request
+
     if not actor:
         # A PRE-IDENTITY FAILURE — a garbage or missing token, so validate-authorize raised
         # before it could bind an actor and ValidateFailureSeed seeded a null one. There is

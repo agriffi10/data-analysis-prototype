@@ -94,21 +94,19 @@ def _cleanup(event: dict) -> dict:
 def handler(event, context) -> dict:
     """Drop both temp tables (if any) and thread the cleanup outcome onward.
 
-    A KNOWN, ACCEPTED EDGE (SPEC-114): this verb runs on BOTH paths, so its notification
-    behaves differently on each.
+    THREE LAYERS KEEP CLEANUP FROM EVER MISREPORTING AN OUTCOME, because this verb runs on
+    both paths and a naive version gets each one wrong in a different way:
 
-    On the FAILURE path the real cause was emitted first, seconds earlier, under the same
-    ``{requestId}:failure`` dedup id — so a cleanup failure here collapses into it and the
-    user sees what actually went wrong (pinned by
-    ``test_a_cleanup_failure_cannot_mask_the_real_reason``).
-
-    On the SUCCESS path there is no earlier failure to collapse into, so a cleanup failure
-    after a written report sends the user BOTH a success notification and a failure one.
-    Each is individually true — the report exists AND the run ended in Fail — but the pair
-    reads oddly. It is left as-is rather than papered over: suppressing the second would
-    need the terminal states to carry whether a report was written, and RecordFailure
-    deliberately carries only {requestId, actor, location, status, error}. Widening it is a
-    state-machine change, which this spec is explicitly not making.
+    1. ``_drop`` swallows a failed DROP outright, so the ordinary case — Glue throttling,
+       an AccessDenied, a table that vanished — never becomes a terminal at all.
+    2. On the FAILURE path, anything that does escape collapses into the real cause: it was
+       emitted seconds earlier under the same ``{requestId}:failure`` dedup id (pinned by
+       ``test_a_cleanup_failure_cannot_mask_the_real_reason``).
+    3. On the SUCCESS path there is no earlier failure to collapse into, so notify-failure
+       suppresses instead: ``RecordFailure`` carries ``$.reportKey``, and a non-null value
+       there means the report was written and the user was already told. Only a
+       LAMBDA-LEVEL failure of this function — an import error, a timeout — can reach that
+       point, which is exactly why no verb-side guard could have covered it.
     """
     request = dict(event) if isinstance(event, dict) else {}
     return _cleanup(request)

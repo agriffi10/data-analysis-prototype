@@ -120,6 +120,29 @@ def test_a_lambda_import_failure_reaches_the_user():
     assert "something went wrong" in message.lower()
 
 
+def test_a_cleanup_failure_after_a_written_report_says_nothing():
+    """The check SUCCEEDED. reportKey is null until assemble-report writes the report, and
+    only DropTempTables runs after it — so a non-null reportKey on a failed execution means
+    cleanup died after the fact. The user already has a success notification and a working
+    link; telling them it failed would contradict the message they can actually act on."""
+    fake = _arm()
+    event = _event({"Error": "Lambda.Unknown", "Cause": "Runtime exited"})
+    event["reportKey"] = "alice/_data-quality-reports/r-1/report.json"
+    nf.handler(event, None)
+    assert fake.calls == []
+
+
+def test_a_failure_before_the_report_exists_still_notifies():
+    """The mirror, and the case that must NOT be suppressed: reportKey is null on every
+    failure that happened before assemble-report, which is nearly all of them."""
+    fake = _arm()
+    event = _event(_terminal_cause("query_timeout"))
+    event["reportKey"] = None
+    nf.handler(event, None)
+    assert len(fake.calls) == 1
+    assert "too large" in fake.messages()[0]
+
+
 def test_a_missing_error_object_still_notifies():
     fake = _arm()
     nf.handler(_event(None), None)
