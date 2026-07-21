@@ -46,7 +46,8 @@ def failure_reason(error) -> str:
     if not isinstance(error, dict):
         return messages.UNEXPECTED_ERROR
 
-    name = error.get(_SFN_ERROR) or messages.UNEXPECTED_ERROR
+    # str(), because a malformed error object must still yield something a resolver can map.
+    name = str(error.get(_SFN_ERROR) or messages.UNEXPECTED_ERROR)
     cause = error.get(_SFN_CAUSE)
     if not isinstance(cause, str) or not cause:
         # No Cause at all — States.Timeout's shape. The error NAME is the reason.
@@ -62,8 +63,25 @@ def failure_reason(error) -> str:
 
     if not isinstance(decoded, dict):
         return name
-    # A Lambda failure: errorMessage is TerminalError's "reason: detail". The reason is
-    # everything before the first colon — the same split the raise site composed.
+
+    # THE SPLIT IS ONLY VALID FOR A TerminalError, so it is gated on the type rather than
+    # applied to any errorMessage that happens to contain a colon. TerminalError composes
+    # its message as f"{reason}: {detail}" from a REGISTERED, colon-free reason code, so
+    # taking everything before the first colon reverses exactly what the raise site did.
+    #
+    # Every other exception's message is prose, and splitting it yields prose dressed up as
+    # a reason code. Both of these are routine, not exotic:
+    #
+    #   ClientError  -> "An error occurred (AccessDeniedException) when calling the
+    #                    CreateTable operation"      <- from the FIRST colon of an AWS message
+    #   TransientError -> "listing objects"          <- what raise_if_transient composes
+    #
+    # Neither is a registered code, so a resolver would fall back to the generic anyway —
+    # but the value is logged, recorded, and handed to SPEC-114/121 code not yet written,
+    # and raw engine prose must never travel as if it were a code (SPEC-106 FR-008).
+    if decoded.get("errorType") != TerminalError.__name__:
+        return name
+
     message = decoded.get("errorMessage")
     if not isinstance(message, str) or not message:
         return name

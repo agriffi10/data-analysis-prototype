@@ -184,7 +184,7 @@
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } (identity is null for a pre-identity validate failure) then fails the execution.",
+      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, status:'failed', error } (identity is null for a pre-identity validate failure) then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",

@@ -13,7 +13,7 @@ passes `error` through as {Error, Cause} untouched, because the ASL decode that 
 produce a `reason` field lived in a Pass state running States.StringToJson — which raises
 an UNCATCHABLE States.Runtime on any Cause that is absent or not JSON (States.Timeout,
 States.DataLimitExceeded, Lambda.Unknown), killing the execution before it ever reached
-this function. SPEC-114 must call cpcommon.errors.failure_reason(event["error"]) to get a
+this function. SPEC-114 must call cpcommon.errors.failure_reason(event.get("error")) to get a
 stable reason code and map it through dqcommon.messages.failure_message — never read a
 `reason` key, and never surface the raw Cause to a user (SPEC-106 FR-008).
 """

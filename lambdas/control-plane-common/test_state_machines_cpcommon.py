@@ -20,9 +20,37 @@ import pytest  # noqa: E402
 _INFRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules")
 _TEMPLATES = sorted(glob.glob(os.path.join(_INFRA, "*", "state-machine.asl.json.tftpl")))
 
-#: Intrinsics that RAISE rather than degrade when their input is the wrong shape. A Pass
-#: state has no Catch, so one of these in a Pass kills the execution outright.
+#: Intrinsics that RAISE rather than degrade when their input is the wrong shape.
+#:
+#: They raise ``States.Runtime``, which AWS documents as neither retriable NOR catchable —
+#: a ``Catch: ["States.ALL"]`` on the very same Task does not catch it. So one of these
+#: anywhere, in ANY state type, kills the execution outright. (An earlier version of this
+#: guard checked only ``Pass`` states, on the mistaken belief that "a Pass state cannot
+#: Catch" was the mechanism. It is not — the Pass states were merely where the bug
+#: happened to live.)
 _THROWING_INTRINSICS = ("States.StringToJson", "States.ArrayGetItem", "States.MathAdd")
+
+#: Every control plane whose machine must satisfy the invariants below. Named rather than
+#: counted so a renamed or deleted module fails loudly instead of shrinking the sample.
+_EXPECTED_ARCS = {"data-quality", "shared-spaces", "table-builder", "table-share"}
+
+
+def _intrinsics_in(value):
+    """Yield every throwing intrinsic anywhere inside a Parameters value.
+
+    Recurses: a Parameters block nests, and an intrinsic one level down
+    (``{"outer": {"cause.$": "States.StringToJson(...)"}}``) is exactly as fatal as one at
+    the top and exactly as invisible to a flat scan.
+    """
+    if isinstance(value, str):
+        if any(fn in value for fn in _THROWING_INTRINSICS):
+            yield value
+    elif isinstance(value, dict):
+        for nested in value.values():
+            yield from _intrinsics_in(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _intrinsics_in(nested)
 
 
 def _load(path):
@@ -44,43 +72,49 @@ def _states(asl):
     return walk(asl["States"])
 
 
-def test_there_are_state_machines_to_check():
-    """Guards the whole file against passing vacuously if the glob ever stops matching."""
-    assert len(_TEMPLATES) >= 3, _TEMPLATES
+def test_every_expected_state_machine_is_being_checked():
+    """Guards the whole file against passing vacuously if the glob stops matching.
+
+    Asserts the NAMES, not a count: a renamed module would keep a count-based check green
+    while silently dropping a whole control plane from every invariant below.
+    """
+    found = {os.path.basename(os.path.dirname(p)) for p in _TEMPLATES}
+
+    assert found == _EXPECTED_ARCS, f"missing {_EXPECTED_ARCS - found}, unexpected {found - _EXPECTED_ARCS}"
 
 
 @pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
-def test_no_pass_state_uses_a_throwing_intrinsic(path):
-    """THE BUG THIS EXISTS FOR, and it cost every notification on the failure path.
+def test_no_state_uses_a_throwing_intrinsic(path):
+    """THE BUG THIS EXISTS FOR, and it cost the failure path its outcome in all three arcs.
 
-    All three control planes decoded a Lambda error the same way:
+    Every control plane decoded a Lambda error the same way:
 
         "cause.$": "States.StringToJson($.error.Cause)"
 
-    in a Pass state. A Pass state cannot Catch, and StringToJson raises States.Runtime
-    whenever Cause is absent or is not JSON. Confirmed against the live service with
-    TestState: States.Timeout (no Cause), States.DataLimitExceeded and Lambda.Unknown
-    (plain-sentence Cause) each killed the execution — BEFORE the recorded-failure and
-    notify states. So on exactly the failures a user most needs to hear about, they were
-    told nothing at all.
+    StringToJson raises States.Runtime whenever Cause is absent or is not JSON, and
+    States.Runtime is neither retriable nor catchable — not even by a Catch on the very
+    same state. Confirmed against the live service with TestState: States.Timeout (no
+    Cause), States.DataLimitExceeded and Lambda.Unknown (plain-sentence Cause) each killed
+    the execution BEFORE the recorded-failure state. In data-quality that meant no
+    notification at all on exactly the failures a user most needs to hear about; in
+    table-share, which decoded per recipient inside a Map, one unparseable Cause failed the
+    iteration, which failed the Map, which took down every SIBLING recipient's share.
 
-    Worse inside a Map: table-share decoded per recipient, so one recipient with an
-    unparseable Cause failed the iteration, which failed the Map, which took down every
-    SIBLING recipient too.
+    CHECKS EVERY STATE TYPE, not just Pass, and recurses into nested Parameters — an
+    intrinsic in a Task's Parameters is exactly as fatal and was exactly as unguarded.
 
-    Decode in Python instead — cpcommon.errors.failure_reason handles any shape.
+    Decode in Python instead: cpcommon.errors.failure_reason handles any shape.
     """
     offenders = [
-        f"{name}.{key} = {value}"
+        f"{name}.{key} = {found}"
         for name, state in _states(_load(path))
-        if state.get("Type") == "Pass"
         for key, value in (state.get("Parameters") or {}).items()
-        if isinstance(value, str) and any(fn in value for fn in _THROWING_INTRINSICS)
+        for found in _intrinsics_in(value)
     ]
 
     assert not offenders, (
-        f"{os.path.basename(os.path.dirname(path))}: a Pass state cannot Catch, so a "
-        f"throwing intrinsic there kills the execution uncatchably: {offenders}"
+        f"{os.path.basename(os.path.dirname(path))}: States.Runtime cannot be caught "
+        f"anywhere, so a throwing intrinsic kills the execution outright: {offenders}"
     )
 
 

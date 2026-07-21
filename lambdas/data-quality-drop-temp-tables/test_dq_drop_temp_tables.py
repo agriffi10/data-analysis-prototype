@@ -174,19 +174,32 @@ def test_a_leaked_table_is_logged_loudly(monkeypatch, caplog):
 # ── The failure-path invocation shape ────────────────────────────────────────
 
 
-def test_it_handles_the_failure_paths_event_shape(ran):
-    """DropTempTablesOnFailure passes the whole state, including $.error and $.parsed."""
+@pytest.mark.parametrize(
+    "cause",
+    [
+        '{"errorMessage": "query_failed: boom", "errorType": "TerminalError"}',
+        "The cause could not be determined.",  # a plain-sentence Cause
+        None,                                   # no Cause key at all
+    ],
+)
+def test_it_handles_the_failure_paths_event_shape(ran, cause):
+    """DropTempTablesOnFailure passes the whole state through, including $.error.
+
+    RecordFailure reads $.error AFTER this verb returns, so a cleanup verb that dropped or
+    reshaped it would leave the user with no reason for the failure. Parametrized over the
+    Cause shapes that used to matter: the ASL decode that once sat between here and
+    RecordFailure died on the last two, so this verb must carry ALL of them intact and let
+    cpcommon.errors.failure_reason sort them out later.
+    """
     event = _event()
-    event["error"] = {"Error": "TerminalError", "Cause": '{"errorMessage": "query_failed: boom"}'}
-    event["parsed"] = {"cause": {"errorMessage": "query_failed: boom"}}
+    event["error"] = {"Error": "TerminalError"}
+    if cause is not None:
+        event["error"]["Cause"] = cause
 
     out = v.handler(event, None)
 
     assert len(ran) == 2
-    # The error context must survive untouched — RecordFailure reads $.parsed AFTER this
-    # verb returns, and a cleanup verb that dropped it would leave the user with no reason.
-    assert out["parsed"]["cause"]["errorMessage"] == "query_failed: boom"
-    assert out["error"]["Cause"]
+    assert out["error"] == event["error"]
 
 
 def test_the_request_object_is_threaded_not_replaced(ran):
@@ -245,7 +258,6 @@ def test_a_mid_query_failure_leaves_no_temp_table_behind(monkeypatch):
 
     # start-profile-query blows up; the SFN Catch parks the error and routes here.
     state["error"] = {"Error": "TerminalError", "Cause": '{"errorMessage": "query_failed: boom"}'}
-    state["parsed"] = {"cause": {"errorMessage": "query_failed: boom"}}
 
     out = v.handler(state, None)
 
@@ -255,4 +267,5 @@ def test_a_mid_query_failure_leaves_no_temp_table_behind(monkeypatch):
         f"DROP TABLE IF EXISTS `alice`.`dq_tmp_raw_{HEX32}`",
     }
     assert out["cleanup"]["failed"] == []
-    assert out["parsed"]["cause"]["errorMessage"] == "query_failed: boom"
+    # $.error survives cleanup — RecordFailure reads it after this verb returns.
+    assert out["error"]["Cause"] == '{"errorMessage": "query_failed: boom"}'
