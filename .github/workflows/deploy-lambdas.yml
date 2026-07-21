@@ -513,6 +513,10 @@ jobs:
           - { name: data-quality-assemble-report, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
           - { name: data-quality-drop-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
           - { name: data-quality-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
+          # Control-plane DLQ drain (SPEC-126). ONE function on all four request DLQs.
+          # cpcommon only — it verifies the dead-lettered token and emits a notification,
+          # and touches no domain surface at all.
+          - { name: control-plane-dlq-drain, layer: false, polars: false, tbcommon: false, cpcommon: true }
 
     steps:
       - name: Checkout

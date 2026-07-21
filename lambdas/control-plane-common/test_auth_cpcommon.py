@@ -125,6 +125,76 @@ def test_missing_token_detail_is_parameterized_for_table_share():
     raise AssertionError("expected TerminalError")
 
 
+# ── verified_username_ignoring_expiry (SPEC-126 FR-002) ──────────────────────
+# The DLQ drain's relaxation. Only `exp` is unenforced; every other check must still hold,
+# and the ENFORCING entry point must be unchanged — which is the pairing these tests exist
+# to hold in place.
+
+
+def _expect_unauthorized_ignoring_expiry(token):
+    _install()
+    try:
+        auth.verified_username_ignoring_expiry(token)
+    except TerminalError as exc:
+        assert exc.reason == "unauthorized"
+        return
+    raise AssertionError("expected TerminalError('unauthorized')")
+
+
+def test_expired_but_validly_signed_token_still_names_its_subject():
+    # A dead-lettered message is OLD BY CONSTRUCTION (three failed receives, then a wait in
+    # a 14-day queue) while an ID token lives an hour, so enforcing exp here would drop
+    # exactly the late failures SPEC-126 exists to surface.
+    _install()
+    assert auth.verified_username_ignoring_expiry(_token(exp=int(time.time()) - 86400)) == "alice"
+
+
+def test_ignoring_expiry_still_rejects_a_bad_signature():
+    # The relaxation is exp AND NOTHING ELSE: a token this pool didn't sign proves nothing.
+    _install()
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    forged = jwt.encode(
+        {
+            "cognito:username": "mallory",
+            "token_use": "id",
+            "aud": config.APP_CLIENT_ID,
+            "iss": ISSUER,
+            "exp": int(time.time()) + 3600,
+        },
+        other.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ),
+        algorithm="RS256",
+    )
+    _expect_unauthorized_ignoring_expiry(forged)
+
+
+def test_ignoring_expiry_still_rejects_wrong_audience_issuer_and_non_id_tokens():
+    _expect_unauthorized_ignoring_expiry(_token(aud="some-other-client"))
+    _expect_unauthorized_ignoring_expiry(_token(iss="https://evil.example.com/pool"))
+    _expect_unauthorized_ignoring_expiry(_token(token_use="access"))
+
+
+def test_ignoring_expiry_still_requires_an_exp_claim_to_be_present():
+    # Not enforcing `exp` is not the same as accepting a token that has none — that would be
+    # a second, unasked-for relaxation.
+    _install()
+    claims = {
+        "cognito:username": "alice",
+        "token_use": "id",
+        "aud": config.APP_CLIENT_ID,
+        "iss": ISSUER,
+    }
+    _expect_unauthorized_ignoring_expiry(jwt.encode(claims, _PRIVATE_PEM, algorithm="RS256"))
+
+
+def test_the_enforcing_entry_point_still_enforces_expiry():
+    # The whole risk of adding a relaxed path is that it leaks into the enforcing one.
+    _expect_unauthorized(_token(exp=int(time.time()) - 60))
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

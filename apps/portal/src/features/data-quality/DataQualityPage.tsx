@@ -241,15 +241,18 @@ export function DataQualityPage() {
  * writes an index entry, so it has no row here. A history page that silently omits failures
  * teaches the user to trust a list that is lying to them, so the omission is stated.
  *
- * WHY IT IS WORDED "usually" RATHER THAN AS A GUARANTEE. SPEC-114 FR-004 makes the failure
- * notification survive everything that happens once an execution has STARTED — including a
- * Lambda import error and a Step Functions-level error, neither of which any verb can catch.
- * What it cannot cover is a request that never starts an execution at all (a malformed body
- * the Pipe rejects, which exhausts its receives into the DLQ): nothing ran, so nothing can
- * notify. **SPEC-126** closes that by draining the DLQs back into the notification pipeline,
- * and is not built yet. Until it ships, promising "you'll always get a notification" would
- * be the page making a claim the system does not yet honour — the precise failure this line
- * exists to prevent, merely relocated. Tighten the wording when SPEC-126 lands.
+ * WHY IT NOW SAYS "always" AND NOT "usually". SPEC-114 FR-004 makes the failure notification
+ * survive everything that happens once an execution has STARTED — including a Lambda import
+ * error and a Step Functions-level error, neither of which any verb can catch. What it could
+ * not cover was a request that never started an execution at all (a malformed body the Pipe
+ * rejects, which exhausts its receives into the DLQ): nothing ran, so nothing notified, and
+ * this line hedged with "usually" for exactly that gap. **SPEC-126** closed it — the request
+ * DLQs drain back into the notification pipeline — so the hedge is now the inaccuracy.
+ *
+ * The remaining hole is the NOTIFICATIONS DLQ itself, which SPEC-126 deliberately leaves
+ * undrained (draining it through the queue that just failed to deliver is circular). That is
+ * a failure of the delivery channel, not of the check — if it breaks, no wording on this page
+ * is reaching the user anyway.
  *
  * This is the STANDING explanation; SPEC-124's post-enqueue banner is the MOMENTARY one.
  * Together they are what keeps a completed-only list honest: the banner covers the check the
@@ -258,7 +261,7 @@ export function DataQualityPage() {
 function CompletedOnlyNote() {
   return (
     <p className="mt-4 px-1 text-xs text-text-3">
-      This lists checks that finished. A check that failed usually reports itself in your{' '}
+      This lists checks that finished. A check that failed always reports itself in your{' '}
       <Link
         to="/notifications"
         className="underline underline-offset-2 hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">

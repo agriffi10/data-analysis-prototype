@@ -135,6 +135,24 @@ locals {
   # change — the role never became an LF admin and provisioning grants failed. Apply
   # ordering (auth -> data -> analytics) still guarantees the role exists first.
   post_confirmation_exec_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-post-confirmation-role"
+
+  # The request DLQs the SPEC-126 drain attaches to. Constructed names (each arc module
+  # creates its own as "${project}-${env}-<domain>-requests-dlq.fifo"), cycle-free and known
+  # at plan time like every other cross-module ARN here.
+  #
+  # THE NOTIFICATIONS DLQ IS DELIBERATELY ABSENT. The drain's only delivery channel is the
+  # notifications queue, so draining the notifications DLQ would ask the queue that just
+  # failed to deliver to deliver the news about itself. See the comment in
+  # modules/notifications/sqs.tf; the honest answer there is operator-facing and out of
+  # SPEC-126's scope. Keep this list and dlq_drain.py's SOURCES table in step — a test in
+  # lambdas/control-plane-dlq-drain/ reads the module locals.tf files and fails if a fifth
+  # control plane appears without being wired or explicitly excluded.
+  drained_dlq_names = [
+    "${var.project_name}-${var.environment}-data-quality-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-table-builder-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-table-share-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-shared-space-requests-dlq.fifo",
+  ]
 }
 
 module "app" {
@@ -562,4 +580,41 @@ module "data_quality" {
   # data creates the portal role this module attaches the enqueue policy to, and the
   # user-space bucket the reports land in. Settle both first.
   depends_on = [module.base, module.data]
+}
+
+# ── Control-plane DLQ drain (SPEC-126) ───────────────────────────────────────
+# The one function that turns a dead-lettered request into a sentence in the actor's inbox.
+# Before this, a request the pipeline refused simply vanished: no verb ran, so no failure
+# notification fired, and the person who made it waited for a result that never came.
+#
+# The four DLQ ARNs are CONSTRUCTED STRINGS (locals below), not the arc modules' outputs —
+# known at plan time, so the drain's IAM policy plans cleanly and no module→module edge is
+# created (the architecture.md "unknown ARN in list" discipline; the same reason every
+# producer scopes to a constructed notifications queue ARN).
+module "control_plane_dlq_drain" {
+  source = "./modules/control-plane-dlq-drain"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  dlq_queue_names = local.drained_dlq_names
+  dlq_arns        = [for name in local.drained_dlq_names : "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${name}"]
+
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
+  user_pool_id  = module.auth.user_pool_id
+  app_client_id = module.auth.user_pool_client_id
+
+  # Required by the cpcommon layer's import-time config._require, not used by the drain
+  # (PR #196 — a shared layer's fail-fast runs at COLD START for every attaching function).
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+  admin_bucket_name        = local.athena_admin_bucket_name
+  athena_workgroup         = local.athena_workgroup_name
+
+  # base grants the deploy role its drain perms (SPEC-126 PR1, already applied).
+  depends_on = [module.base]
 }
