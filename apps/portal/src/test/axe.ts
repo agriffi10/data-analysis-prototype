@@ -62,3 +62,17 @@ export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunO
     unmount();
   }
 }
+
+/**
+ * Assert an ALREADY-RENDERED container has no axe violations.
+ *
+ * {@link expectNoA11yViolations} renders and checks in one step, which is right for a tree
+ * that is correct on first paint. It cannot reach a state the user has to drive into — a
+ * dialog opened from a button, a panel expanded — because there is no point between its
+ * render and its assertion at which to click. Render, interact, then hand the container
+ * here; the axe configuration is still the one defined above and nowhere else.
+ */
+export async function expectContainerHasNoA11yViolations(container: Element, axeOptions?: RunOptions): Promise<void> {
+  const results = await runAxe(container, axeOptions);
+  expect(results).toHaveNoViolations();
+}

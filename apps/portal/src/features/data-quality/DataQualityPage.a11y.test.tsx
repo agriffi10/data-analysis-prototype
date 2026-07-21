@@ -1,14 +1,15 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, waitFor, cleanup} from '@testing-library/react';
+import {render, screen, waitFor, cleanup, fireEvent} from '@testing-library/react';
 import {MemoryRouter, Routes, Route} from 'react-router-dom';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import type {ReactElement} from 'react';
-import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../../test/axe';
+import {expectNoA11yViolations, expectContainerHasNoA11yViolations, ROUTE_AXE_OPTIONS} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityPage} from './DataQualityPage';
 import * as runsService from './dataQualityRuns.service';
+import * as fileBrowser from '../file-browser/fileBrowser.service';
 import * as sharedSpaces from '../shared-spaces/sharedSpaces.service';
 import type {DataQualityRunSummary} from './dataQuality.types';
 
@@ -17,6 +18,17 @@ vi.mock('./dataQualityRuns.service', async (importActual) => ({
   getRunsIndex: vi.fn()
 }));
 vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
+  ...(await importActual<typeof fileBrowser>()),
+  listFiles: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      folders: [{type: 'folder', prefix: 'alice/sales/', name: 'sales'}],
+      files: [{type: 'file', key: 'alice/report.csv', name: 'report.csv', size: 1, lastModified: new Date(0)}],
+      isTruncated: false
+    }
+  })
+}));
 vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
   getIdToken: vi.fn().mockResolvedValue({success: true, data: 'tok'})
@@ -96,6 +108,18 @@ describe('DataQualityPage a11y', () => {
     } finally {
       Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
     }
+  });
+
+  it('has no axe violations with the start-a-check dialog open (SPEC-124)', async () => {
+    // The dialog is a state the user drives into, so this renders, clicks, and checks the
+    // live container — `expectNoA11yViolations` has no point between render and assert at
+    // which to open it.
+    const {container} = render(withProviders());
+    await waitFor(() => expect(screen.getByRole('link', {name: /alice\/sales\//})).toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole('button', {name: 'New quality check'})[0]);
+    await screen.findByRole('button', {name: 'Select file report.csv'});
+
+    await expectContainerHasNoA11yViolations(container, ROUTE_AXE_OPTIONS);
   });
 
   it('exposes exactly one h1 and one main landmark', async () => {

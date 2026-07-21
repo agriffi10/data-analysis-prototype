@@ -60,7 +60,7 @@ describe('MoveDialog', () => {
     await waitFor(() => expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined));
 
     await user.click(screen.getByRole('button', {name: /move here/i}));
-    expect(onMove).toHaveBeenCalledWith('alice/archive/', 'us');
+    expect(onMove).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
   });
 
   it('climbs back to the root via the ".." row and can move there', async () => {
@@ -81,7 +81,7 @@ describe('MoveDialog', () => {
     const moveHere = screen.getByRole('button', {name: /move here/i});
     expect(moveHere).toBeEnabled();
     await user.click(moveHere);
-    expect(onMove).toHaveBeenCalledWith('alice/', 'us');
+    expect(onMove).toHaveBeenCalledWith('alice/', 'us', undefined);
   });
 
   it('disables "Move here" at the items\' current parent', () => {

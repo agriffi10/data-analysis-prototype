@@ -66,13 +66,14 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — data-quality arc.** 108→114 + 123 complete; **open: 124 (next).** SPEC-126
-(cross-cutting DLQ→notification drain) is written and open.
-- **LIVE VERIFICATION IS OWED.** No live smoke tests until 124 is built (user decision 2026-07-21),
-  then **one pass over the whole arc**. 114 and 123 are merged and deployed **unproven against real
-  SQS/SFN/Cognito/S3** — scenarios are in each spec's Phase 2. Two changes most deserve it: 114's
-  `reportKey` Pass-state seeding (the SPEC-108 smoke test has caught that class before) and 123's
-  **conditional-put CAS**, which unit tests can only check against a hand-written *model* of S3.
+**Current work — data-quality arc.** 108→114 + 123/124 complete. SPEC-126 (cross-cutting
+DLQ→notification drain) is written and open.
+- **LIVE VERIFICATION IS OWED — 124 is now built, so the arc is due its one smoke pass** (user
+  decision 2026-07-21). 114, 123 and 124 are merged and deployed **unproven against real
+  SQS/SFN/Cognito/S3** — scenarios are in each spec's Phase 2. Three changes most deserve it: 114's
+  `reportKey` Pass-state seeding (the SPEC-108 smoke test has caught that class before), 123's
+  **conditional-put CAS** (unit tests can only check it against a hand-written *model* of S3), and
+  124's dashboard enqueue, whose whole path to SQS has only ever run against a mock.
 - **SPEC-126 tightens two things when it lands:** the `/data-quality` footer line (and its test)
   currently say a failed check *"usually"* reports itself in notifications — absolute once the DLQ
   drain exists; and SPEC-123's amended shipping gate names 126 as the remaining half.

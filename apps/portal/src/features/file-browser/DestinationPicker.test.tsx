@@ -40,23 +40,26 @@ function listing(map: Record<string, FileListPage>) {
   mock.listFiles.mockImplementation((_bucket, prefix) => Promise.resolve(ok(map[prefix ?? ''] ?? pageOf())));
 }
 
-function renderPicker(props?: Partial<React.ComponentProps<typeof DestinationPicker>>) {
+// `Props` is a union (selectableFiles ⇒ markerKey required), which `Partial<>` can't
+// express usefully for a test helper — the override bag is loosened to a record and
+// re-widened at the spread. The union is still enforced at every real call site.
+type PickerProps = React.ComponentProps<typeof DestinationPicker>;
+
+function renderPicker(props?: Record<string, unknown>) {
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
-  const result = renderWithProviders(
-    <DestinationPicker
-      bucket="us"
-      items={[{type: 'file', key: 'alice/docs/f.txt'} satisfies SelectableItem]}
-      rootPrefix="alice/"
-      rootLabel="My Files"
-      currentPrefix="alice/docs/"
-      confirmLabel="Copy here"
-      busyLabel="Copying…"
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-      {...props}
-    />
-  );
+  const base = {
+    bucket: 'us',
+    items: [{type: 'file', key: 'alice/docs/f.txt'} satisfies SelectableItem],
+    rootPrefix: 'alice/',
+    rootLabel: 'My Files',
+    currentPrefix: 'alice/docs/',
+    confirmLabel: 'Copy here',
+    busyLabel: 'Copying…',
+    onConfirm,
+    onCancel
+  };
+  const result = renderWithProviders(<DestinationPicker {...({...base, ...props} as PickerProps)} />);
   return {...result, onConfirm, onCancel};
 }
 
@@ -74,7 +77,7 @@ describe('DestinationPicker', () => {
     await waitFor(() => expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined));
 
     await user.click(screen.getByRole('button', {name: /copy here/i}));
-    expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us');
+    expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
   });
 
   it('excludes the protected athenaresults folder from the listing', async () => {
@@ -153,6 +156,121 @@ describe('DestinationPicker', () => {
 
     // Confirming reports the shared bucket as the destination bucket.
     await user.click(screen.getByRole('button', {name: /copy here/i}));
-    expect(onConfirm).toHaveBeenCalledWith('team/', 'shared');
+    expect(onConfirm).toHaveBeenCalledWith('team/', 'shared', undefined);
+  });
+});
+
+// SPEC-124 FR-003. The mode is opt-in precisely BECAUSE three shipped dialogs depend
+// on files being inert, so the first test here is a regression guard on them, not a
+// feature test.
+describe('DestinationPicker — selectable-files mode (SPEC-124)', () => {
+  const selectable = {selectableFiles: true, markerKey: 'alice/DO_NOT_DELETE.txt', allowCurrentParent: true};
+
+  it('leaves the three default-mode callers (Move / Copy / Save results) unaffected', async () => {
+    listing({'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')])});
+    // Every shipped caller omits `selectableFiles`, so the default IS their behaviour:
+    // the file is visible, not a button, and not selectable by any means.
+    const {user, onConfirm} = renderPicker({currentPrefix: 'alice/docs/'});
+
+    expect(await screen.findByText('report.csv')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /report\.csv/i})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /select file/i})).not.toBeInTheDocument();
+    // The list keeps its destination-shaped label when the caller doesn't override it.
+    expect(screen.getByRole('list', {name: 'Destination folders'})).toBeInTheDocument();
+
+    // And confirm still reports a folder — never a file key — for those callers.
+    await user.click(screen.getByRole('button', {name: /copy here/i}));
+    expect(onConfirm).toHaveBeenCalledWith('alice/', 'us', undefined);
+  });
+
+  it('selects a file, deselects it, and clears the selection on navigation', async () => {
+    listing({
+      'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')]),
+      'alice/archive/': pageOf([], [file('alice/archive/old.csv', 'old.csv')])
+    });
+    const {user, onConfirm} = renderPicker({...selectable, currentPrefix: 'alice/'});
+
+    // No selection → the browsed folder is the target.
+    const row = await screen.findByRole('button', {name: 'Select file report.csv'});
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+
+    // Select → the file is the target.
+    await user.click(row);
+    expect(screen.getByRole('button', {name: 'Select file report.csv'})).toHaveAttribute('aria-pressed', 'true');
+
+    // Click again → deselected, target back to the folder.
+    await user.click(screen.getByRole('button', {name: 'Select file report.csv'}));
+    expect(screen.getByRole('button', {name: 'Select file report.csv'})).toHaveAttribute('aria-pressed', 'false');
+
+    // Re-select, then navigate: the selection must NOT survive into the new folder.
+    await user.click(screen.getByRole('button', {name: 'Select file report.csv'}));
+    await user.click(screen.getByRole('button', {name: /open folder archive/i}));
+    const moved = await screen.findByRole('button', {name: 'Select file old.csv'});
+    expect(moved).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(screen.getByRole('button', {name: /copy here/i}));
+    expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
+  });
+
+  it('confirms with the selected file key only while a file is selected', async () => {
+    listing({'alice/': pageOf([], [file('alice/report.csv', 'report.csv')])});
+    const {user, onConfirm} = renderPicker({...selectable, currentPrefix: 'alice/'});
+
+    await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
+    await user.click(screen.getByRole('button', {name: /copy here/i}));
+    expect(onConfirm).toHaveBeenCalledWith('alice/', 'us', 'alice/report.csv');
+  });
+
+  it('reports the target on mount and on every navigation/selection change', async () => {
+    listing({
+      'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')]),
+      'alice/archive/': pageOf([], [file('alice/archive/old.csv', 'old.csv')])
+    });
+    const onTargetChange = vi.fn();
+    const {user} = renderPicker({...selectable, currentPrefix: 'alice/', onTargetChange});
+
+    expect(onTargetChange).toHaveBeenCalledWith({prefix: 'alice/', fileKey: undefined});
+
+    await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
+    expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/', fileKey: 'alice/report.csv'});
+
+    await user.click(screen.getByRole('button', {name: /open folder archive/i}));
+    expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/archive/', fileKey: undefined});
+  });
+
+  it('hides the prefix marker, so it can never be selected as a target', async () => {
+    listing({
+      'alice/': pageOf(
+        [],
+        [file('alice/DO_NOT_DELETE.txt', 'DO_NOT_DELETE.txt'), file('alice/report.csv', 'report.csv')]
+      )
+    });
+    renderPicker({...selectable, currentPrefix: 'alice/'});
+
+    expect(await screen.findByRole('button', {name: 'Select file report.csv'})).toBeInTheDocument();
+    expect(screen.queryByText('DO_NOT_DELETE.txt')).not.toBeInTheDocument();
+  });
+
+  it('disables confirm in an empty folder, and only in selectable-files mode', async () => {
+    // Empty listing is the default mock.
+    const {unmount} = renderPicker({...selectable, currentPrefix: 'alice/'});
+    await waitFor(() => expect(screen.getByRole('button', {name: /copy here/i})).toBeDisabled());
+    expect(screen.getByText(/nothing here to check/i)).toBeInTheDocument();
+    unmount();
+
+    // Save results targets an empty folder all the time — the guard must not leak.
+    renderPicker({currentPrefix: 'alice/', allowCurrentParent: true});
+    await waitFor(() => expect(screen.getByRole('button', {name: /copy here/i})).toBeEnabled());
+  });
+
+  it('renders a listing failure through toUserMessage, never the raw AWS text', async () => {
+    mock.listFiles.mockResolvedValue({
+      success: false,
+      error: {message: 'User: arn:aws:sts::1:assumed-role/x is not authorized', code: 'AccessDenied'}
+    });
+    renderPicker({...selectable, currentPrefix: 'alice/'});
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/don't have permission/i);
+    expect(screen.queryByText(/assumed-role/)).not.toBeInTheDocument();
   });
 });

@@ -31,6 +31,20 @@ export function sourceFolderPrefix(location: string): string {
   return cut === -1 ? '' : location.slice(0, cut + 1);
 }
 
+/**
+ * Split a location into its truncatable parent and its identifying final segment.
+ *
+ * A trailing slash stays with the NAME so a folder still reads as a folder once the parent
+ * has been truncated away — `…/sales/` says "folder" where `…/sales` does not.
+ */
+export function splitLocation(location: string): {parent: string; name: string} {
+  const trimmed = location.replace(/\/+$/, '');
+  const cut = trimmed.lastIndexOf('/');
+  const suffix = location.endsWith('/') ? '/' : '';
+  if (cut === -1) return {parent: '', name: trimmed + suffix};
+  return {parent: trimmed.slice(0, cut + 1), name: trimmed.slice(cut + 1) + suffix};
+}
+
 /** A dominant type for display. The Lambda upper-cases matched casts but not `text`. */
 export function dominantTypeLabel(type: string): string {
   return type.toUpperCase();

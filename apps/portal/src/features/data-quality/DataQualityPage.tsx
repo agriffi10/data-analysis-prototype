@@ -1,12 +1,18 @@
 import {useState} from 'react';
 import {Link} from 'react-router-dom';
 import {Banner} from '../../components/Banner';
+import {Button} from '../../components/Button';
 import {IconButton} from '../../components/IconButton';
 import {PageLayout} from '../../components/PageLayout';
 import {Pager} from '../../components/Pager';
 import {cx} from '../../lib/cx';
 import {usePageTitle} from '../../hooks/usePageTitle';
+import {useAuth} from '../auth';
+import {useConnections} from '../query/useConnections';
+import {usableSpaceTargets} from '../file-browser';
 import {useDataQualityRuns} from './useDataQualityRuns';
+import {useDataQualityCheck, type DataQualityTarget} from './useDataQualityCheck';
+import {StartQualityCheckDialog} from './StartQualityCheckDialog';
 import {DataQualityRunRow} from './DataQualityRunRow';
 
 const PAGE_SIZE = 10;
@@ -29,6 +35,32 @@ const FILTERS: {value: Filter; label: string}[] = [
 export function DataQualityPage() {
   usePageTitle('Data quality');
   const {runs, isLoading, error, refresh} = useDataQualityRuns();
+
+  // The second entry point into a check (SPEC-124). Spaces are REUSED from
+  // `usableSpaceTargets`, not re-derived: `useConnections` carries no bucket and no root
+  // prefix, and a third derivation of that mapping would be the one that drifts.
+  const {user} = useAuth();
+  const {connections} = useConnections(user?.username ?? null);
+  const spaces = usableSpaceTargets(
+    connections,
+    user?.username ?? null,
+    import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
+    import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined
+  );
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [started, setStarted] = useState<string | null>(null);
+  const {start: startCheck, isPending} = useDataQualityCheck();
+
+  const handleStart = async (target: DataQualityTarget) => {
+    // `toast: false` — the banner below is the receipt, and it says strictly more than the
+    // toast does. One action, one confirmation. A FAILURE still toasts (the hook owns that
+    // wording) and returns false, so the dialog stays open with the target intact rather
+    // than costing the user a selection they can't get back.
+    const ok = await startCheck(target, {toast: false});
+    if (!ok) return;
+    setStarted(target.location);
+    setDialogOpen(false);
+  };
 
   const [filter, setFilter] = useState<Filter>('all');
   const visible =
@@ -86,6 +118,16 @@ export function DataQualityPage() {
               <path d="M3 21v-5h5" />
             </svg>
           </IconButton>
+          {/* Starting a check NEVER depends on the history being readable, so this
+              renders in every list state — including the error one. */}
+          {spaces.length > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setDialogOpen(true)}>
+              New quality check
+            </Button>
+          )}
         </>
       }>
       {/* Shown ABOVE the list and never replacing it, so a failed Refresh is
@@ -104,6 +146,23 @@ export function DataQualityPage() {
         </Banner>
       )}
 
+      {/* SPEC-124 FR-005. A check that has just started is NOT in the list and will not be
+          for minutes, so without this the most common first impression of the feature is
+          "I pressed the button and nothing happened." It reports that the check STARTED —
+          never that it will pass — and does not survive a reload: it is a receipt for an
+          action just taken, not a state of the world. */}
+      {started !== null && (
+        <Banner
+          variant="info"
+          role="status"
+          title="Check started"
+          onDismiss={() => setStarted(null)}
+          className="mb-2">
+          We’re checking <span className="font-mono">{started}</span> in the background. It will appear in this list
+          when it finishes, and you’ll get a notification either way.
+        </Banner>
+      )}
+
       {isLoading ? (
         <p
           role="status"
@@ -118,9 +177,21 @@ export function DataQualityPage() {
             </p>
             <p className="mt-1 text-sm text-text-3">
               {runs.length === 0
-                ? 'Start one from any file or folder in Files — select it, then choose Check quality.'
+                ? 'Pick a folder or a file and we’ll check it for missing values, ragged rows, and type problems.'
                 : 'Try a different filter to see your other checks.'}
             </p>
+            {/* SPEC-124 FR-001 amends SPEC-123 FR-005's copy: the empty state used to send
+                the user to the Files browser. Files is still a valid entry point (and the
+                help content still says so) — the page just stops sending them away from the
+                one place that can now do the job. */}
+            {runs.length === 0 && spaces.length > 0 && (
+              <Button
+                variant="primary"
+                className="mt-4"
+                onClick={() => setDialogOpen(true)}>
+                New quality check
+              </Button>
+            )}
           </div>
         )
       ) : (
@@ -150,6 +221,15 @@ export function DataQualityPage() {
       )}
 
       <CompletedOnlyNote />
+
+      {dialogOpen && (
+        <StartQualityCheckDialog
+          spaces={spaces}
+          isPending={isPending}
+          onStart={(target) => void handleStart(target)}
+          onCancel={() => setDialogOpen(false)}
+        />
+      )}
     </PageLayout>
   );
 }
@@ -170,6 +250,10 @@ export function DataQualityPage() {
  * and is not built yet. Until it ships, promising "you'll always get a notification" would
  * be the page making a claim the system does not yet honour — the precise failure this line
  * exists to prevent, merely relocated. Tighten the wording when SPEC-126 lands.
+ *
+ * This is the STANDING explanation; SPEC-124's post-enqueue banner is the MOMENTARY one.
+ * Together they are what keeps a completed-only list honest: the banner covers the check the
+ * user just started and cannot yet see, this line covers every check that will never appear.
  */
 function CompletedOnlyNote() {
   return (
