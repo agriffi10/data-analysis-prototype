@@ -86,6 +86,27 @@ describe('getNotifications', () => {
     expect(result.success && result.data[0].read).toBe(false);
   });
 
+  it('carries a link through to the reader, and drops a non-string one (SPEC-113 FR-008)', async () => {
+    // `normalize` rebuilds each row field-by-field, so a field it doesn't name is
+    // silently discarded. Without this test, dropping `link` there would make every
+    // deep link vanish between S3 and the row with the whole suite still green —
+    // the notification would arrive and simply not be clickable.
+    fakeS3({
+      body: JSON.stringify([
+        note({id: 'linked', link: '/data-quality/alice/req-1'}),
+        note({id: 'plain'}),
+        {...note({id: 'bad-type'}), link: 42}
+      ])
+    });
+    const result = await getNotifications(USER);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const byId = Object.fromEntries(result.data.map((n) => [n.id, n]));
+    expect(byId.linked.link).toBe('/data-quality/alice/req-1');
+    expect(byId.plain).not.toHaveProperty('link');
+    expect(byId['bad-type']).not.toHaveProperty('link');
+  });
+
   it('drops malformed rows but keeps valid ones', async () => {
     fakeS3({body: JSON.stringify([{nope: true}, note({id: 'ok'})])});
     const result = await getNotifications(USER);

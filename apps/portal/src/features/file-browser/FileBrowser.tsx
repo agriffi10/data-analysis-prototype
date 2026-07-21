@@ -29,6 +29,7 @@ import {BatchOverwritePrompt} from './BatchOverwritePrompt';
 import {RenameDialog} from './RenameDialog';
 import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
+import {DataQualityDialog} from '../data-quality';
 import {SelectionProvider} from './SelectionProvider';
 import {CreateTableButton} from '../table-builder';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
@@ -321,6 +322,27 @@ function BulkCopyIcon() {
   );
 }
 
+function QualityCheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className="h-[15px] w-[15px]"
+      aria-hidden="true">
+      {/* A magnifier over a document — inspecting, not changing. */}
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" />
+      <circle
+        cx="16"
+        cy="13"
+        r="4"
+      />
+      <path d="M19 16l3 3" />
+    </svg>
+  );
+}
+
 function BulkMoveIcon() {
   return (
     <svg
@@ -360,12 +382,15 @@ function SelectionToolbar({
   onRequestDelete,
   onRequestMove,
   onRequestCopy,
+  onRequestQualityCheck,
   isBusy
 }: {
   allItems: SelectableItem[];
   onRequestDelete: () => void;
   onRequestMove: () => void;
   onRequestCopy: () => void;
+  /** Absent when the space can't be resolved (no space name) — the action is then omitted. */
+  onRequestQualityCheck?: () => void;
   isBusy: boolean;
 }) {
   const {count, isSelected, selectAll, clear} = useSelection();
@@ -401,6 +426,25 @@ function SelectionToolbar({
       </span>
 
       <div className="flex-1" />
+
+      {/* SPEC-113: a read-only diagnostic on ONE file or folder. It lives here rather
+          than on the top toolbar because it is scoped to the SELECTION, like its
+          neighbours — and here it is already reachable at every breakpoint (labelled
+          at ≥ tablet, icon-only on mobile) without a second mount. `user_settings` and
+          `_data-quality-reports` need no guard: they are filtered out of the listing
+          entirely, so they can never be selected. */}
+      {onRequestQualityCheck && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+          onClick={onRequestQualityCheck}
+          disabled={count !== 1 || isBusy}
+          aria-label="Check data quality of the selected item">
+          <QualityCheckIcon />
+          <span className="hidden tablet:inline">Check quality</span>
+        </Button>
+      )}
 
       <Button
         variant="ghost"
@@ -545,6 +589,8 @@ function FileBrowserContent({
   // The folder whose read-only details drawer is open (null = closed). Folders
   // carry no HeadObject metadata, so this renders synchronously from the listing.
   const [detailsFolder, setDetailsFolder] = useState<S3FolderItem | null>(null);
+  // SPEC-113: the one selected file/folder awaiting a data-quality check (null = closed).
+  const [checkingQuality, setCheckingQuality] = useState<SelectableItem | null>(null);
 
   async function handleDownload(file: S3FileItem) {
     // Don't start a second download for a key already in flight (SPEC-081 FR-002:
@@ -891,13 +937,15 @@ function FileBrowserContent({
         />
       )}
 
-      {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039) — select all + bulk copy/move/delete */}
+      {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039 + SPEC-113) — select all +
+          bulk copy/move/delete + the single-item data-quality check */}
       {canModify && hasContent && (
         <SelectionToolbar
           allItems={allItems}
           onRequestDelete={() => setConfirmOpen(true)}
           onRequestMove={() => setMoving([...selection.selected.values()])}
           onRequestCopy={() => setCopying([...selection.selected.values()])}
+          onRequestQualityCheck={username ? () => setCheckingQuality(selectedItems[0] ?? null) : undefined}
           isBusy={del.isDeleting || move.isBusy || copy.isBusy || downloadingKey !== null}
         />
       )}
@@ -1171,6 +1219,27 @@ function FileBrowserContent({
             copy.cancelCollision();
             setCopying(null);
           }}
+        />
+      )}
+
+      {/* SPEC-113: confirm a read-only data-quality check on the one selected item.
+          The space root prefix (not the current folder) is what identifies the space
+          to the control plane; `location` is the item itself. */}
+      {checkingQuality && username && (
+        <DataQualityDialog
+          target={{
+            space: {kind: spaceKind ?? 'personal', bucket, prefix: rootPrefix},
+            location: checkingQuality.type === 'file' ? checkingQuality.key : checkingQuality.prefix
+          }}
+          kind={checkingQuality.type}
+          // Shown space-relative, matching the breadcrumbs — the raw `{space}/` prefix
+          // is noise the user never sees anywhere else in the browser.
+          displayPath={
+            (checkingQuality.type === 'file' ? checkingQuality.key : checkingQuality.prefix).slice(rootPrefix.length) ||
+            rootLabel ||
+            rootPrefix
+          }
+          onClose={() => setCheckingQuality(null)}
         />
       )}
 

@@ -297,6 +297,7 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 
 | `NotificationsBell` | `NotificationsBell.tsx` | Header bell **link** (react-router `NavLink` → `/notifications`) with a presence-only accent dot when `hasUnread`; count carried in the aria-label (never color-only); `aria-current` on route (SPEC-060). |
 | `NotificationsPage` | `NotificationsPage.tsx` | Routed page (via `routes/NotificationsPage.tsx` wrapper): newest-first list, 10/page `Pager`, Mark-all-read + Refresh, empty/loading/error states, optimistic actions + danger `Toast`; owns `useNotifications` + its document title (SPEC-060). |
+| `isSafeInAppPath(link)` | `notificationLink.ts` | Open-redirect guard for a notification's optional `link`: accepts a single-slash in-app path only, rejecting schemes, protocol-relative `//host` and backslash-authority `/\host`. The row falls back to plain text when it returns false (SPEC-113 FR-008). |
 | `NotificationRow` | `NotificationRow.tsx` | One notification row — unread accent dot + sr-only "Unread:", message, `formatRelativeTime`, Mark-read on unread rows (read rows de-emphasized, no control); no delete (SPEC-060). |
 | `BellIcon` | `components/icons.tsx` | Shared inline bell SVG for the notifications header link (SPEC-060). |
 | `buildSqlCompletions`, `createSqlCompletionProvider`, `DatabaseSchema` | `features/query/sqlCompletions.ts` | Pure, Monaco-free builder mapping `DatabaseSchema[]` (per-DB tables) → completion descriptors: **fully-qualified** `database.table` for tables/views, bare de-duped columns with type detail; plus the Monaco provider factory reading a live `schemaRef`. Feeds multi-database autocomplete (SPEC-065/077). |
@@ -326,6 +327,20 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `ShareRecipient`, `TableShareRequest` | `tableShare.types.ts` | The share-request shapes matching the SPEC-089 contract (SPEC-089). |
 | `useTableShare(notify)` | `useTableShare.ts` | Dialog + enqueue state for "Share table": `open(db, table)` / `close` / `submit` → `enqueueTableShare`; success closes + emits the pending toast via `notify`, failure keeps the dialog open with `error` set (SPEC-093). |
 | `TableShareDialog` | `TableShareDialog.tsx` | The Share modal: read-only `db.table`, Users/Shared-spaces radio toggle, multi-entry recipient chips (reuses `parseMemberInput`; removable, mixed kinds allowed), catalog-safe result-name field, busy lock + inline submit-error `Banner`; axe-tested (SPEC-093). |
+
+## Data-quality feature (`apps/portal/src/features/data-quality/`)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `enqueueQualityCheck(req)` | `dataQuality.service.ts` | The browser's only data-quality write: FIFO-sends the SPEC-109 envelope to `VITE_DATA_QUALITY_QUEUE_URL`; `MessageGroupId` = SHA-256 of `{bucket}/{location}` (a hash, because SQS caps group ids at 128 chars and S3 keys reach 1024), dedup = `requestId` (SPEC-109). |
+| `useDataQualityCheck()` | `useDataQualityCheck.ts` | `{start, isPending}` — mints the request id, enqueues, and reports the outcome ONLY as a toast (success, or `toUserMessage` on failure) so it can be reused with no dialog mounted. Ref-guarded against re-entry (SPEC-113). |
+| `DataQualityDialog` | `DataQualityDialog.tsx` | Read-only-check confirmation on the shared `ConfirmDialog`: names the target space-relative, states plainly that nothing is modified, locks while in flight; closes either way (SPEC-113). |
+| `getQualityReport(bucket, space, requestId)` | `dataQualityReport.service.ts` | Reads `{space}/_data-quality-reports/{requestId}/report.json`; a missing or structurally-invalid document is a typed failure, never an empty "clean" report. Also exports `reportKey` (SPEC-113). |
+| `useDataQualityReport(space, requestId)` | `useDataQualityReport.ts` | Resolves the `:space` segment (own username wins; shared names only when it differs), then fetches. Never fetches for an unreachable space, and waits for the connections list so it can't cache a wrong-bucket read. Also exports pure `resolveSpace` (SPEC-113). |
+| `DataQualityReportPage` | `DataQualityReportPage.tsx` | The `/data-quality/:space/:requestId` view: verdict banner, summary tiles (2×2 → 4-up), top issues, columns table→cards (`useIsMobile` mount-gated), cross-file disagreements, qualifier callouts, metadata footer. Every approximate/skipped/not-computed figure renders with its reason (SPEC-113). |
+| `DataQualityReport` + figure types | `dataQuality.types.ts` | The report shape, mirroring `dqcommon/report.py` byte-for-byte, plus the `isSkipped`/`isNotComputed`/`isUnmeasured`/`isTypedColumn` narrowing helpers that keep "could never apply" and "tried and failed" from collapsing (SPEC-113). |
+| `asSentence`, `isApproximateIssue`, `sourceFolderPrefix`, `formatRatio`, `locationLabel` | `dataQuality.format.ts` | Report presentation helpers: sentence-case a Lambda-authored reason fragment, classify a top-issue line as exact vs approximate (pinned to `report.py::top_issues` wording by test), reduce a file key to its parent folder, percentages that distinguish none from rounds-to-none (SPEC-113). |
+| `csvReport()`, `parquetReport()` | `reportFixtures.ts` | Report fixtures whose shapes **and wording** are copied from `dqcommon/report.py`, so the "approximate is always qualified" assertions test against real text rather than invented text (SPEC-113). |
 
 ## Help feature (`apps/portal/src/features/help/`)
 

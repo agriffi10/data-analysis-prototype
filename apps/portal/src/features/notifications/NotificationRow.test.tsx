@@ -1,5 +1,6 @@
 import {describe, it, expect, vi, afterEach} from 'vitest';
 import {render, screen, cleanup, fireEvent} from '@testing-library/react';
+import {MemoryRouter} from 'react-router-dom';
 import {NotificationRow} from './NotificationRow';
 import type {Notification} from './notifications.types';
 
@@ -107,5 +108,46 @@ describe('NotificationRow (SPEC-060 FR-003/005)', () => {
     expect(button.previousElementSibling).toHaveTextContent(/min ago/);
     // Only one Mark-read control exists (mount-gated, not duplicated).
     expect(screen.getAllByRole('button', {name: 'Mark read'})).toHaveLength(1);
+  });
+
+  // ── SPEC-113 FR-008: the optional deep link ────────────────────────────────
+
+  const renderRow = (notification: Notification) =>
+    render(
+      <MemoryRouter>
+        <ul>
+          <NotificationRow
+            notification={notification}
+            onMarkRead={vi.fn()}
+          />
+        </ul>
+      </MemoryRouter>
+    );
+
+  it('renders the MESSAGE as the link when one is supplied', () => {
+    renderRow(note({message: 'Data quality check finished', link: '/data-quality/alice/req-1'}));
+    // The accessible name is the message itself — never a trailing "here" — so the
+    // anchor says where it goes, and it is keyboard-focusable for free.
+    const anchor = screen.getByRole('link', {name: 'Data quality check finished'});
+    expect(anchor).toHaveAttribute('href', '/data-quality/alice/req-1');
+  });
+
+  it('renders plain text when there is no link — pinning existing notifications unchanged', () => {
+    // Table Builder / Table Share / the shared-space verbs supply no link and must be
+    // completely unaffected by this field existing.
+    renderRow(note());
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByText('Your shared space was created')).toBeInTheDocument();
+  });
+
+  it('falls back to plain text for a link that could leave this origin', () => {
+    // Rejected AT RENDER, so a notification can never become an open redirect. The
+    // protocol-relative and backslash forms are the ones that look like paths.
+    for (const link of ['https://evil.test/phish', '//evil.test', '/\\evil.test', 'javascript:alert(1)']) {
+      renderRow(note({message: `Suspicious ${link}`, link}));
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+      expect(screen.getByText(`Suspicious ${link}`)).toBeInTheDocument();
+      cleanup();
+    }
   });
 });

@@ -66,6 +66,21 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'InvalidDestination', userFixable: true, passthrough: true}, // e.g. folder into itself
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
 
+  // ── Data-quality report reads (SPEC-113 FR-005). Deliberately NOT folded into
+  // the generic `NotFound` above: that one says "refresh and try again", which is
+  // wrong advice here — a report the user followed a link to is either still being
+  // written, or gone for good, and refreshing a deleted one forever is not a plan. ──
+  {
+    code: 'DataQualityReportNotFound',
+    message: 'That report isn’t available. It may still be running, or it may have been deleted.',
+    userFixable: true
+  },
+  {
+    code: 'DataQualityReportUnreadable',
+    message: `That report couldn’t be read. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
   // Trigger: user aborted an in-flight upload. Not an error to fix. ──
   {code: 'Cancelled', message: 'Upload cancelled.', userFixable: true},
   // Trigger: an object/table/DDL target was missing (S3 404, Glue table-absent).

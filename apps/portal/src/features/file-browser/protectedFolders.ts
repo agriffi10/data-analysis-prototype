@@ -6,12 +6,22 @@
 //    the main file browser and the move/copy destination picker.
 //  - `athenaresults/` — Athena query results. Locked out of move/copy
 //    destinations, but still visible in the browser.
+//  - `_data-quality-reports/` — the data-quality reports (SPEC-112). Hidden
+//    EVERYWHERE, like `user_settings/`.
+//
+// `_data-quality-reports` needs BOTH lists, and needs naming here at all,
+// because the leading `_` that marks it internal is a LAMBDA-SIDE convention
+// only: the SPA has no `_`-prefix filter anywhere (`fileBrowser.service.ts`
+// filters nothing), so nothing else would hide it. Hiding it from the listing
+// alone would leave it a valid move/copy paste target — a folder the user
+// cannot see but can still drop files into, which is how the reports the
+// notification links to would quietly acquire neighbours.
 
 /** Hidden from the main file-browser listing. */
-export const HIDDEN_BROWSER_FOLDERS = ['user_settings'] as const;
+export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports'] as const;
 
 /** Never offered as a move/copy destination. */
-export const PICKER_LOCKED_FOLDERS = ['athenaresults', 'user_settings'] as const;
+export const PICKER_LOCKED_FOLDERS = ['athenaresults', 'user_settings', '_data-quality-reports'] as const;
 
 /**
  * Does `folderPrefix` name one of `names` at the user's own root

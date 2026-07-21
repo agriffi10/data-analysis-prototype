@@ -2,10 +2,10 @@ import type {HelpSection} from './help.types';
 
 // SPEC-074 FR-005 — MAINTENANCE NOTE.
 // This content describes only the portal behavior that is shipped and reachable
-// by users as of implementation: Files, Query, Tables (create-from-folder +
-// share, SPEC-066→072 / 088→094), Shared connections (incl. SPEC-073
-// pending/active join status), and Notifications. Every step below maps to a
-// real, wired affordance in the code.
+// by users as of implementation: Files (incl. the SPEC-113 data-quality check +
+// report view), Query, Tables (create-from-folder + share, SPEC-066→072 /
+// 088→094), Shared connections (incl. SPEC-073 pending/active join status), and
+// Notifications. Every step below maps to a real, wired affordance in the code.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
@@ -86,6 +86,25 @@ export const HELP_SECTIONS: HelpSection[] = [
           'From here you can also <b>Download</b> a file or <b>Rename</b> the item.',
           'Use the copy buttons to grab a path, and close the panel with <b>Escape</b> or the close button.'
         ]
+      },
+      {
+        id: 'check-data-quality',
+        title: 'Check data quality',
+        subtitle: 'Find out what’s wrong with a data file — without changing it.',
+        intro:
+          'Before you build a table from a folder of CSVs, or after someone hands you an export you don’t trust, this tells you what’s actually in there: how many rows, whether a column that looks numeric has stray text in it, how much is blank, whether rows repeat, and — for a folder — whether every file agrees on the same columns. It only ever <b>reads</b> your data. Nothing is modified, moved, or deleted.',
+        steps: [
+          'In the <b>Files</b> tab, tick the checkbox on <b>one</b> file or <b>one</b> folder. The check runs on a single item at a time.',
+          'Click <b>Check quality</b> in the toolbar above the list.',
+          'Confirm in the dialog — it names exactly what will be read — then click <b>Start check</b>.',
+          'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.',
+          'When it finishes you get a <b>notification</b>. Open it to read the full report.',
+          'On the report, <b>Re-run check</b> runs it again against the same files, and <b>Open folder</b> takes you back to the data.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'Some figures are <b>estimates</b>, and the report always says which. Ragged-row counts over-count rows that contain commas inside quotes, and on a large folder the text-encoding check reads a sample rather than every byte — it tells you what percentage it looked at. A figure marked <b>Skipped</b> or <b>Not computed</b> is one the check couldn’t make, never a clean result.'
+        }
       }
     ]
   },
