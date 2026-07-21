@@ -21,7 +21,7 @@ from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from tscommon import cognito as cog
 from tscommon import notify
-from tscommon.config import RECIPIENT_KINDS
+from tscommon.config import RECIPIENT_KINDS, SHARE_MAX_RECIPIENTS
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -65,6 +65,15 @@ def _normalize_recipients(recipients) -> list:
         raise TerminalError("invalid_recipients", "recipients must be a list")
     if not recipients:
         raise TerminalError("no_recipients", "recipients is empty")
+    # Checked BEFORE the dedupe loop, on the raw list: the loop is O(n) work on
+    # caller-supplied input, and the reason a cap exists at all is to stop an unbounded list
+    # reaching the Map. Rejecting 10,000 entries after normalising them would still have
+    # done the work. (Dedupe can only shrink the list, so a request that passes here can
+    # never exceed the cap after collapsing.)
+    if len(recipients) > SHARE_MAX_RECIPIENTS:
+        raise TerminalError(
+            "too_many_recipients", f"{len(recipients)} recipients, over {SHARE_MAX_RECIPIENTS}"
+        )
 
     normalized = []
     seen = set()

@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest  # noqa: E402
 
-_INFRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_INFRA = os.path.join(_HERE, "..", "..", "infra", "modules")
 _TEMPLATES = sorted(glob.glob(os.path.join(_INFRA, "*", "state-machine.asl.json.tftpl")))
 
 #: Intrinsics that RAISE rather than degrade when their input is the wrong shape.
@@ -147,6 +148,59 @@ def test_every_transition_resolves_and_every_state_is_reachable(path):
         assert not names - targets - {start}, f"{scope}: unreachable states {sorted(names - targets - {start})}"
 
     check(asl["States"], asl["StartAt"], os.path.basename(os.path.dirname(path)) + ":")
+
+
+#: Step Functions' hard cap on a state payload. Breaching it raises
+#: States.DataLimitExceeded, which is thrown OUTSIDE every Catch.
+_STATE_PAYLOAD_LIMIT = 256 * 1024
+
+
+def test_the_failure_records_contribution_to_the_map_state_is_bounded():
+    """Bounds what THIS PR controls — the failure records — and only that.
+
+    HONEST SCOPE, because an earlier version of this test was not: it measured the results
+    array alone, called the answer 26% of the limit, and read as though the Map state were
+    safe. It is not. `inspect-source` puts an `objects` array of up to SHARE_MAX_OBJECTS
+    entries on the state, the Map's ItemSelector copies the whole state into every item, and
+    ResultPath merges the results back into it. Measured at the shipped caps with ordinary
+    Hive keys (`year=/month=/day=/hour=/part-…parquet`, ~140 chars):
+
+        results array alone (what this test bounds)      78 KB   30%
+        FULL Map state, 1000 objects, 50 recipients     249 KB   95%
+        the same with ZERO failures                     187 KB   71%
+
+    So the dominant term is `objects`, it is pre-existing, and no recipient cap can fix it.
+    That is being moved to an S3 pointer (the SPEC-110 manifest precedent); the whole-state
+    guard belongs with that change, where it can assert something true.
+
+    What IS true here: two constants bound the failure records, and both are load-bearing.
+    A count cap alone cannot bound them — at Step Functions' 32 KB Cause ceiling the array
+    breaches on its own at SEVEN recipients.
+    """
+    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
+    from cpcommon import errors
+    from tscommon import config as ts_config
+
+    cause = json.dumps({
+        "errorMessage": "create_failed: " + ("x" * errors.MAX_DETAIL_CHARS),
+        "errorType": "TerminalError",
+        "requestId": "0" * 36,
+        "stackTrace": ['  File "/var/task/table_share_create_table.py", line 999, in _fn\n    raise\n'] * 8,
+    })
+    entry = {
+        "kind": "space",
+        "name": "s" * 64,
+        "status": "failed",
+        "error": {"Error": "TerminalError", "Cause": cause},
+    }
+    records = len(json.dumps([entry] * ts_config.SHARE_MAX_RECIPIENTS))
+
+    # A THIRD of the limit for the records alone — deliberately strict, because the rest of
+    # the state is large and is not bounded here.
+    assert records < _STATE_PAYLOAD_LIMIT // 3, (
+        f"failure records reach {records:,} bytes at SHARE_MAX_RECIPIENTS="
+        f"{ts_config.SHARE_MAX_RECIPIENTS} x MAX_DETAIL_CHARS={errors.MAX_DETAIL_CHARS}"
+    )
 
 
 if __name__ == "__main__":

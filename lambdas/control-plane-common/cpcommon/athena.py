@@ -188,6 +188,10 @@ def run_ddl(
             return qid
         if state in _TERMINAL_FAIL:
             reason = status.get("StateChangeReason") or state
+            # LOG IN FULL — TerminalError bounds the detail it carries, so this log is the
+            # ONLY place the whole Athena reason survives. It can echo a large fragment of
+            # the statement, and this arc generates wide DDL.
+            logger.error("query %s %s: %s", qid, state, reason)
             raise TerminalError(fail_reason, reason)
         if now() >= deadline:
             raise TerminalError(

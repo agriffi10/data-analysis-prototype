@@ -15,6 +15,34 @@ _SFN_ERROR = "Error"
 _SFN_CAUSE = "Cause"
 
 
+#: Longest raw-service text allowed into a TerminalError detail (see ``bounded_detail``).
+MAX_DETAIL_CHARS = 500
+
+
+def bounded_detail(text) -> str:
+    """Truncate raw service text before it becomes a ``TerminalError`` detail.
+
+    WHY A DETAIL'S LENGTH IS A PAYLOAD PROBLEM: the detail becomes the exception's message,
+    which Lambda returns as the ``Cause`` of the Step Functions error, which the terminal
+    states now carry as a raw object (PR #252). In table-share that object is repeated PER
+    RECIPIENT into the Map's result array. Step Functions caps a state payload at 256 KB
+    and a ``Cause`` at 32 KB — so ONE verbose reason repeated across recipients can breach
+    the payload limit at as few as SEVEN of them, raising States.DataLimitExceeded on the
+    Map and destroying every per-recipient outcome it exists to preserve.
+
+    Athena's ``StateChangeReason`` is the realistic source: a syntax or Lake Formation error
+    can echo a large fragment of the statement, and this arc generates wide DDL.
+
+    NOTHING IS LOST — callers log the full text before truncating (``cpcommon.athena``
+    does). The truncated head keeps what a reader actually uses: engine messages lead with
+    the useful part.
+    """
+    text = str(text)
+    if len(text) <= MAX_DETAIL_CHARS:
+        return text
+    return f"{text[:MAX_DETAIL_CHARS]}… [truncated {len(text) - MAX_DETAIL_CHARS} chars; full text in logs]"
+
+
 def failure_reason(error) -> str:
     """Extract a stable reason code from a Step Functions error object, tolerating any shape.
 
@@ -110,8 +138,17 @@ class TerminalError(Exception):
                 "messages table (or cpcommon.messages base codes) before raising it"
             )
         self.reason = reason
-        self.detail = detail
-        super().__init__(f"{reason}: {detail}" if detail else reason)
+        # BOUNDED HERE, not at the call sites, so the invariant cannot be forgotten. The
+        # detail becomes this exception's message, which Lambda returns as the Step
+        # Functions error Cause, which table-share repeats PER RECIPIENT into its Map
+        # result — so one verbose raw-service string can push a state payload over 256 KB.
+        # A review of the per-call-site version found it applied at ONE of at least three
+        # sites that interpolate raw text (Athena's start-query branch, and copy.py's
+        # "copy {src} -> {dest}" with two 1024-byte S3 keys), and both of the misses were
+        # in the Map path, where a CORRELATED failure produces N identical oversized
+        # Causes — the worst case. Callers that need the full text log it first.
+        self.detail = bounded_detail(detail) if detail else detail
+        super().__init__(f"{reason}: {self.detail}" if self.detail else reason)
 
 
 class TransientError(Exception):

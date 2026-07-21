@@ -127,6 +127,17 @@ This reuses the SPEC-058 **trusted-producer** `create` contract and the SPEC-061
 - [x] **One-time snapshot** — no ongoing sync from source to copies. (Implied by "copying the data files"; recorded to set expectations.)
 - [x] **Entry point = the Query schema-rail per-table options menu** (SPEC-044), on any accessible table. (Derived from "click on any table in the Databases they have access to.")
 
+
+**Recipient cap (added 2026-07-21).** A share targets at most
+`SHARE_MAX_RECIPIENTS` (50) recipients. The binding constraint is not the fan-out but
+the **Map's result**: each recipient contributes a summary entry, and a failed one
+carries the raw Step Functions `{Error, Cause}`. Step Functions caps a state payload at
+256 KB, and breaching it raises `States.DataLimitExceeded` **on the Map** — which routes
+to the whole-request `RecordFailure` and destroys every per-recipient outcome the Map
+exists to preserve. The other half of the bound is `cpcommon.errors.bounded_detail`,
+which truncates raw Athena text before it becomes a `TerminalError` detail: a cap on
+COUNT alone cannot bound a 32 KB `Cause`, which breaches at seven recipients.
+
 ## 10. New infrastructure (summary; detail in SPEC-088)
 
 - **`infra/modules/table-share/`** (standalone-deployable, `compact()`-safe cross-module locals): a **FIFO SQS** request queue + **FIFO DLQ**; an **EventBridge Pipe** (SQS → Step Function) + role; a **Step Function** (Standard) orchestrating five single-task Lambdas via a recipient `Map`; **five Lambda functions** (placeholder zip + `ignore_changes`, Python 3.12) on **one shared execution role**; a **`table-share-common` Lambda layer** (built + published in CI, attached to all five); CloudWatch log groups (14-day).
