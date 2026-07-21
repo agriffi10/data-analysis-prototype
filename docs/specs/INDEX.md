@@ -119,7 +119,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 111 — Data Quality: Temp Tables + the Athena Profile Query | Completed |
 | 112 — Data Quality: byte-scan + Report Assembly | Completed |
 | 113 — Data Quality: File-Browser UI + Report View | Completed |
-| 114 — Data Quality: Notification Producer | Draft |
+| 114 — Data Quality: Notification Producer | Completed |
 | 115 — File Converter: Foundation Infrastructure + Layers + Athena Workgroup | Draft |
 | 116 — File Converter: Request Contract, Enqueue & validate-authorize | Draft |
 | 117 — File Converter: Source Inspection + Schema Reconciliation | Draft |

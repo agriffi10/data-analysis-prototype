@@ -66,23 +66,16 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — data-quality arc.** 108→113 complete; **open: 114 (next), then 123, 124.**
-- **No more live smoke tests until 114/123/124 are all built** (user decision 2026-07-21) — then one
-  end-to-end pass over the whole arc. Each spec's live scenarios are recorded in its own Phase 2.
-- **SPEC-114 FR-005 (CloudWatch DLQ/`ExecutionsFailed` alarms) was removed, not deferred** (user
-  decision 2026-07-21): an alarm with no notification target, on one arc of five, told the *user*
-  nothing. **SPEC-126** replaces it — drain every control plane's request DLQ back into the
-  notification pipeline. It is what SPEC-123's completed-checks-only dashboard now depends on.
-- **The live gap 114 closes:** a finished check surfaces **nowhere**. `dq_notify_failure` is still a
-  SPEC-108 pass-through stub, there's no success emitter, and the runs dashboard is 123 — so today the
-  only route to a report is typing `/data-quality/{space}/{requestId}`. The false "you'll be notified"
-  copy was removed from the dialog/toast/help; **114 restores it and deletes the guard test in
-  `DataQualityDialog.test.tsx`.**
+**Current work — data-quality arc.** 108→114 complete; **open: 123 (next), then 124.** SPEC-126
+(cross-cutting DLQ→notification drain) is written and open.
+- **LIVE VERIFICATION IS OWED.** No live smoke tests until 123/124 are built (user decision
+  2026-07-21), then **one pass over the whole arc**. 114 merged and deployed **unproven against real
+  SQS/SFN/Cognito** — its scenarios are in its Phase 2, and its `reportKey` seeding is exactly the
+  kind of change the SPEC-108 smoke test has caught before. Don't close the arc without this.
 - **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
   includes every line of the minority file **plus every header** — the check compares against the
   *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when files
   agree. Two findings double-reporting one cause.
-- Live e2e PASSED 2026-07-21 (mismatched-header CSV folder → `issues_found` in 51s, report written).
 
 ---
 
@@ -106,6 +99,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Table Builder (066→072):** dedicated control plane (5 linear verbs, one role, `tbcommon` + `polars` layers). Partition keys are **user-declared** + Athena partition projection. CSV all-string. Record: `docs/table-builder-architecture.md`.
 - **Table Share (088→094):** dedicated control plane w/ recipient `Map`; **clone** the source Glue table def, never re-infer; push (no consent). Record: `docs/table-share-architecture.md`.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
+- **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. `TerminalError` gained `tokens` (user-facing; `detail` stays operator-only). FR-005's alarms were **removed** → **SPEC-126**.
 - **Control-plane table creation = TBAC (070/111 correction):** LF **admin does NOT grant `CREATE_TABLE`**. A `portal-managed` LF-Tag on every DB + one tag-policy grant per execution role + static per-bucket `DATA_LOCATION_ACCESS`. (Distinct from the per-user isolation tag.)
 - **No ASL state decodes an error Cause (#252, control-plane-wide):** `States.StringToJson($.error.Cause)` raises `States.Runtime`, **uncatchable anywhere**. Carry raw `$.error`; decode via `cpcommon.errors.failure_reason`.
 - **IaC:** OpenTofu; `infra/modules/` bounded-context; IAM policies are `.tftpl` rendered with `templatefile()`.
