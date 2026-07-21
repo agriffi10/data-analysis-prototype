@@ -16,7 +16,26 @@ report readable. Shipped in four PR commits on one branch.
   disagreements, qualifier callouts, metadata footer. No new shared component.
 - **`_data-quality-reports` is hidden and picker-locked** (`protectedFolders.ts`, both lists).
 - **Notifications gained an optional `link`** (FR-008) — see below.
-- **Help guide** — "Check data quality" in the Files section (`helpContent.ts`).
+- **Help guide** — "Check data quality" in the Files section (`helpContent.ts`), scoped to
+  starting a check (see the gap below).
+
+## KNOWN GAP — the report view has no in-app route yet
+
+**A finished check surfaces nowhere.** SPEC-113 shipped copy promising "you'll get a
+notification with a link to the report", but nothing sends one: `dq_notify_failure` is
+still a SPEC-108 pass-through stub and there is no success emitter at all — that is
+**SPEC-114**, unbuilt. The runs dashboard (**SPEC-123**) is unbuilt too. So today the only
+way to open a report is to type `/data-quality/{space}/{requestId}`.
+
+This was caught on the first live run (2026-07-21): the check succeeded in 51s and wrote its
+report; the user saw nothing. The false promise was removed from the dialog, the success
+toast and the help guide in a follow-up, and `DataQualityDialog.test.tsx` now asserts the
+dialog says nothing about notifications. **SPEC-114 should delete that assertion and restore
+the wording in the same change.**
+
+The lesson for the arc: SPEC-113 verified the SPEC-058 notifications *pipeline* worked, but
+never checked that anything on the data-quality side *calls* it. Half a flow tested end to
+end is not an end-to-end test.
 
 ### Deliberate deviations (all recorded as Amendments in the spec)
 
