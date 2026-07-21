@@ -12,6 +12,7 @@ foreign data. No object bytes pass through the Lambda.
 import logging
 
 from tscommon import copy as copy_mod
+from tscommon import copy_plan
 from tscommon import notify
 
 logger = logging.getLogger()
@@ -29,7 +30,8 @@ def handler(event, context) -> dict:
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
     location = request.get("location") or {}
-    objects = request.get("objects") or []
+    # Loaded by POINTER — the list is far too large to ride on the Map's state.
+    objects = copy_plan.load(request.get("copyPlanKey"))
 
     copied = copy_mod.copy_prefix(
         src_bucket=location.get("bucket"),

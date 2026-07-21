@@ -70,6 +70,10 @@ def _setup(**kwargs):
 
 
 def _event(objects):
+    # The plan travels by POINTER now (tscommon.copy_plan): inline, the object list pushed
+    # the Map's state to 95% of Step Functions' 256 KB payload limit. The verb loads it, so
+    # the fixture stubs the load rather than putting the list on the state.
+    m.copy_plan.load = lambda key: objects
     return {
         "recipient": {
             "kind": "user",
@@ -82,7 +86,7 @@ def _event(objects):
         "request": {
             "tableName": "orders_copy",
             "location": {"bucket": "user-bkt", "prefix": "alice/sales/"},
-            "objects": objects,
+            "copyPlanKey": "table-share/h/copy-plan.json",
         },
     }
 

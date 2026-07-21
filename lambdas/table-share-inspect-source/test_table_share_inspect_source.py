@@ -85,9 +85,23 @@ def _table(
     }
 
 
+def _plan_writes(monkeypatch=None):
+    """Capture what inspect-source writes to the copy plan.
+
+    The object list travels by POINTER now (tscommon.copy_plan) — inline it reached 95% of
+    Step Functions' 256 KB state payload at the shipped caps. Tests assert the written
+    CONTENT, which is the same list they used to read off the state.
+    """
+    written = []
+    m.copy_plan.write = lambda request, objects: (written.append(objects) or "table-share/h/copy-plan.json")
+    return written
+
+
 def _setup(table=None, objects=None, glue_error=None):
     clients._glue = _FakeGlue(table=table, error_code=glue_error)
+    plan = _plan_writes()
     clients._s3 = _FakeS3(objects if objects is not None else [("alice/sales/part-0.parquet", 100)])
+    return plan
 
 
 def _event():
@@ -109,10 +123,13 @@ def _expect_reason(reason):
 
 
 def test_flat_external_table_emits_copy_plan():
-    _setup(table=_table())
+    plan = _setup(table=_table())
     out = m.handler(_event(), None)
     assert out["location"] == {"bucket": USER_BUCKET, "prefix": "alice/sales/"}
-    assert out["objects"] == [{"relKey": "part-0.parquet", "size": 100}]
+    assert plan[-1] == [{"relKey": "part-0.parquet", "size": 100}]
+    assert out["copyPlanKey"] == "table-share/h/copy-plan.json"
+    assert out["objectCount"] == 1
+    assert "objects" not in out  # the list must NOT ride on the state
     assert out["partitioned"] is False
     # The threaded request context is preserved for the Map.
     assert out["actor"] == "alice" and out["tableName"] == "orders_copy"
@@ -202,7 +219,7 @@ def test_other_glue_error_is_transient():
 
 
 def test_listing_applies_ignore_rules_and_relative_keys():
-    _setup(
+    plan = _setup(
         table=_table(),
         objects=[
             ("alice/sales/part-0.parquet", 100),
@@ -215,8 +232,8 @@ def test_listing_applies_ignore_rules_and_relative_keys():
             ("alice/sales/", 0),
         ],
     )
-    out = m.handler(_event(), None)
-    assert out["objects"] == [
+    m.handler(_event(), None)
+    assert plan[-1] == [
         {"relKey": "part-0.parquet", "size": 100},
         {"relKey": "year=2025/part-1.parquet", "size": 50},
     ]

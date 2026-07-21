@@ -8,7 +8,9 @@ enforce the copy caps. Read-only — no copy/create side effects. Every rejectio
 a whole-request TerminalError (Catch → recorded failure; no recipient runs).
 
 Emits the copy plan merged over the threaded request:
-{…request, tableDefinition, location: {bucket, prefix}, objects: [{relKey, size}], partitioned}.
+{…request, tableDefinition, location: {bucket, prefix}, copyPlanKey, objectCount, partitioned}.
+The object LIST goes to S3 and travels by POINTER — see tscommon.copy_plan for the
+measured reason (inline, the Map's state reached 95% of the 256 KB payload limit).
 """
 
 import logging
@@ -16,6 +18,7 @@ import logging
 from cpcommon import s3_listing
 from cpcommon.errors import TerminalError
 from tscommon import config
+from tscommon import copy_plan
 from tscommon import glue as glue_mod
 from tscommon import notify
 
@@ -73,6 +76,10 @@ def _inspect_source(event) -> dict:
         **event,
         "tableDefinition": definition,
         "location": location,
-        "objects": objects,
+        # The KEY, not the list: inline this reached 95% of Step Functions' 256 KB state
+        # payload at the shipped caps, because the Map's ItemSelector copies the whole
+        # state into every item. objectCount stays for logging and the notification.
+        "copyPlanKey": copy_plan.write(event, objects),
+        "objectCount": len(objects),
         "partitioned": partitioned,
     }
