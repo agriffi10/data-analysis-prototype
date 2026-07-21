@@ -147,14 +147,28 @@ def save_inbox(username, notifications):
     return capped
 
 
-def apply_create(notifications, message):
-    """Prepend a new notification with a server-assigned id/timestamp and read=false."""
+def apply_create(notifications, message, link=None):
+    """Prepend a new notification with a server-assigned id/timestamp and read=false.
+
+    ``link`` is a CONTRACT CHANGE TO A SHIPPED PIPELINE (SPEC-113 FR-008), which is why
+    it is called out rather than assumed: the SPEC-058 record gains one optional field
+    and nothing else. It is written only when a producer supplies a non-empty string, so
+    every existing producer — table-builder, table-share, the shared-space verbs — keeps
+    writing byte-identical records, and every notification already in a user's inbox
+    stays valid.
+
+    The value is NOT validated here. The browser decides whether a link is safe to turn
+    into an anchor (``isSafeInAppPath``), because that is where it becomes one; a second
+    opinion in this Lambda could only disagree with the one that actually matters.
+    """
     notification = {
         "id": uuid.uuid4().hex,
         "message": message,
         "read": False,
         "timestamp": _now_iso(),
     }
+    if isinstance(link, str) and link:
+        notification["link"] = link
     return [notification, *notifications]
 
 
@@ -217,7 +231,7 @@ def process(req):
         message = req.get("message")
         if not message or not isinstance(message, str):
             raise ValidationError("create requires a message")
-        updated = apply_create(load_inbox(username), message)
+        updated = apply_create(load_inbox(username), message, req.get("link"))
     elif action == "markRead":
         notification_id = req.get("id")
         if not notification_id or not isinstance(notification_id, str):

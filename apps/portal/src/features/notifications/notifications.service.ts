@@ -30,8 +30,19 @@ function isValidRow(row: unknown): row is Notification {
 }
 
 // `read` is coerced to a boolean so a legacy/missing flag never counts as unread.
+//
+// `link` is carried through only when it is a string, and is NOT validated here: the
+// safety decision belongs at the render site (`isSafeInAppPath`), where the value
+// actually becomes an anchor. Dropping a non-string keeps the field's type honest;
+// this rebuild is field-by-field, so anything not named here is discarded by design.
 function normalize(row: Notification): Notification {
-  return {id: row.id, message: row.message, read: row.read === true, timestamp: row.timestamp};
+  return {
+    id: row.id,
+    message: row.message,
+    read: row.read === true,
+    timestamp: row.timestamp,
+    ...(typeof row.link === 'string' ? {link: row.link} : {})
+  };
 }
 
 // Forgiving parse: missing/corrupt/non-array → empty list. Returned newest-first —

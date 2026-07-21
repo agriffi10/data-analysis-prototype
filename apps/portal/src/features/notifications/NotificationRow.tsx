@@ -1,6 +1,8 @@
+import {Link} from 'react-router-dom';
 import {formatRelativeTime} from '../query/query.format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';
+import {isSafeInAppPath} from './notificationLink';
 import type {Notification} from './notifications.types';
 
 type NotificationRowProps = {
@@ -16,7 +18,12 @@ type NotificationRowProps = {
  * There is no delete — notifications are only ever marked read.
  */
 export function NotificationRow({notification, onMarkRead}: NotificationRowProps) {
-  const {id, message, read, timestamp} = notification;
+  const {id, message, read, timestamp, link} = notification;
+  // The MESSAGE is the link — never a trailing "here". That gives the anchor an
+  // accessible name that says where it goes, and keeps the row a single target.
+  // A link that could leave this origin is dropped entirely (open-redirect guard),
+  // leaving exactly the plain-text row a producer supplying no link would produce.
+  const to = isSafeInAppPath(link) ? link : undefined;
   // Mark-read is a compact trailing control at ≥ tablet; below the message as a
   // full-width touch target on mobile (SPEC-102 FR-003). Mount-gated so exactly
   // one button exists (a CSS swap would duplicate it in the DOM).
@@ -45,7 +52,15 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
       <div className="min-w-0 flex-1">
         <p className={cx('break-words text-sm leading-relaxed', read ? 'text-text-2' : 'font-semibold text-text')}>
           {!read && <span className="sr-only">Unread: </span>}
-          {message}
+          {to ? (
+            <Link
+              to={to}
+              className="underline underline-offset-2 hover:text-accent-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              {message}
+            </Link>
+          ) : (
+            message
+          )}
         </p>
         <p className="mt-1 text-xs text-text-3">{formatRelativeTime(timestamp)}</p>
 

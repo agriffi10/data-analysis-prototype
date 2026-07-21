@@ -102,6 +102,38 @@ def test_create_uses_body_username_not_token():
     assert _inbox(s3, "alice") is None
 
 
+def test_create_persists_a_supplied_link():
+    # SPEC-113 FR-008: the record gains ONE optional field so a notification can deep-link
+    # to the report it is about.
+    s3 = _setup()
+    w.handler(
+        _msg({
+            "action": "create",
+            "username": "alice",
+            "message": "Data quality check finished",
+            "link": "/data-quality/alice/req-1",
+        }),
+        None,
+    )
+    assert _inbox(s3, "alice")[0]["link"] == "/data-quality/alice/req-1"
+
+
+def test_create_without_a_link_writes_no_link_key():
+    # The existing producers (table-builder, table-share, the shared-space verbs) supply
+    # no link and must keep writing byte-identical records. An empty or non-string value
+    # is treated the same as absent rather than written as a falsy link the browser would
+    # have to defend against.
+    s3 = _setup()
+    for body in (
+        {"action": "create", "username": "alice", "message": "no link"},
+        {"action": "create", "username": "alice", "message": "empty", "link": ""},
+        {"action": "create", "username": "alice", "message": "wrong type", "link": 42},
+    ):
+        w.handler(_msg(body), None)
+    for note in _inbox(s3, "alice"):
+        assert "link" not in note
+
+
 def test_create_requires_message():
     _setup()
     _raises(
