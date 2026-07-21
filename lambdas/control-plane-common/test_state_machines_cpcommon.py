@@ -155,32 +155,32 @@ def test_every_transition_resolves_and_every_state_is_reachable(path):
 _STATE_PAYLOAD_LIMIT = 256 * 1024
 
 
-def test_map_result_stays_under_the_state_payload_limit():
-    """The table-share Map's result must fit in a state payload AT THE CAPS.
+def test_the_failure_records_contribution_to_the_map_state_is_bounded():
+    """Bounds what THIS PR controls — the failure records — and only that.
 
-    THE FAILURE THIS PREVENTS is uniquely nasty: every recipient contributes a summary
-    entry to `$.recipientResults`, and a FAILED entry carries the raw Step Functions
-    {Error, Cause} (PR #252 — the ASL decode that used to shrink it raised an uncatchable
-    States.Runtime). If the array breaches 256 KB, States.DataLimitExceeded fires ON THE
-    MAP, routes to the whole-request RecordFailure, and destroys every per-recipient
-    outcome the Map exists to preserve — turning a partial success into a total failure,
-    on precisely the requests that already went worst.
+    HONEST SCOPE, because an earlier version of this test was not: it measured the results
+    array alone, called the answer 26% of the limit, and read as though the Map state were
+    safe. It is not. `inspect-source` puts an `objects` array of up to SHARE_MAX_OBJECTS
+    entries on the state, the Map's ItemSelector copies the whole state into every item, and
+    ResultPath merges the results back into it. Measured at the shipped caps with ordinary
+    Hive keys (`year=/month=/day=/hour=/part-…parquet`, ~140 chars):
 
-    TWO constants bound it and BOTH are load-bearing, which is why this computes the
-    product rather than asserting either alone:
-      - SHARE_MAX_RECIPIENTS caps how many entries there are;
-      - errors.MAX_DETAIL_CHARS caps how big a Cause gets. A count cap ALONE cannot bound
-        this: at Step Functions' 32 KB Cause ceiling the array breaches at SEVEN recipients.
+        results array alone (what this test bounds)      78 KB   30%
+        FULL Map state, 1000 objects, 50 recipients     249 KB   95%
+        the same with ZERO failures                     187 KB   71%
 
-    The worst case is modelled from a REAL Cause measured in execution history (572 bytes
-    for a TerminalError), scaled to a maximum-length detail.
+    So the dominant term is `objects`, it is pre-existing, and no recipient cap can fix it.
+    That is being moved to an S3 pointer (the SPEC-110 manifest precedent); the whole-state
+    guard belongs with that change, where it can assert something true.
+
+    What IS true here: two constants bound the failure records, and both are load-bearing.
+    A count cap alone cannot bound them — at Step Functions' 32 KB Cause ceiling the array
+    breaches on its own at SEVEN recipients.
     """
     sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
     from cpcommon import errors
     from tscommon import config as ts_config
 
-    # A worst-case failed entry: the longest key/name this contract allows, plus a Cause
-    # whose message is a maximum-length truncated detail and whose stackTrace is deep.
     cause = json.dumps({
         "errorMessage": "create_failed: " + ("x" * errors.MAX_DETAIL_CHARS),
         "errorType": "TerminalError",
@@ -193,15 +193,14 @@ def test_map_result_stays_under_the_state_payload_limit():
         "status": "failed",
         "error": {"Error": "TerminalError", "Cause": cause},
     }
-    worst = json.dumps([entry] * ts_config.SHARE_MAX_RECIPIENTS)
+    records = len(json.dumps([entry] * ts_config.SHARE_MAX_RECIPIENTS))
 
-    assert len(worst) < _STATE_PAYLOAD_LIMIT, (
-        f"the Map result reaches {len(worst):,} bytes at SHARE_MAX_RECIPIENTS="
-        f"{ts_config.SHARE_MAX_RECIPIENTS} x MAX_DETAIL_CHARS={errors.MAX_DETAIL_CHARS}, "
-        f"over the {_STATE_PAYLOAD_LIMIT:,}-byte state-payload limit"
+    # A THIRD of the limit for the records alone — deliberately strict, because the rest of
+    # the state is large and is not bounded here.
+    assert records < _STATE_PAYLOAD_LIMIT // 3, (
+        f"failure records reach {records:,} bytes at SHARE_MAX_RECIPIENTS="
+        f"{ts_config.SHARE_MAX_RECIPIENTS} x MAX_DETAIL_CHARS={errors.MAX_DETAIL_CHARS}"
     )
-    # And with real headroom, not by a hair — the whole request object rides alongside it.
-    assert len(worst) < _STATE_PAYLOAD_LIMIT // 2, f"only {len(worst):,} bytes of margin"
 
 
 if __name__ == "__main__":
