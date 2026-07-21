@@ -136,6 +136,17 @@ describe('FileBrowser — listing states', () => {
     expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
   });
 
+  it('hides the app-managed folders from a listing that contains them (SPEC-113 FR-004)', async () => {
+    mock.listFiles.mockResolvedValue(
+      ok(page({folders: [folder('docs'), folder('user_settings'), folder('_data-quality-reports')]}))
+    );
+    renderBrowser();
+    const list = await screen.findByRole('list', {name: 'File list'});
+    expect(within(list).getByText('docs')).toBeInTheDocument();
+    expect(within(list).queryByText('_data-quality-reports')).not.toBeInTheDocument();
+    expect(within(list).queryByText('user_settings')).not.toBeInTheDocument();
+  });
+
   it('shows an empty-folder message when the listing is empty', async () => {
     mock.listFiles.mockResolvedValue(ok(page({files: [], folders: []})));
     renderBrowser();
