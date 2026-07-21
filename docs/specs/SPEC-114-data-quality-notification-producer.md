@@ -1,8 +1,8 @@
 # Spec: Data Quality — Notification Producer
 
 **ID:** SPEC-114
-**Status:** Draft
-**Last Updated:** 2026-07-13
+**Status:** Completed
+**Last Updated:** 2026-07-21
 **Depends On:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.notify` / `messages`), SPEC-108 (the `notify-failure` placeholder Lambda this spec wires), SPEC-112 (the summary payload), SPEC-113 (the UI + the report view this links to)
 
 > **Read `docs/data-quality-architecture.md` §8 first.** Mirrors SPEC-072 (table-builder) and SPEC-094 (table-share).
