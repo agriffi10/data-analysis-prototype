@@ -343,6 +343,11 @@ module "shared_spaces" {
   athena_admin_bucket_name = local.athena_admin_bucket_name
   app_url                  = var.app_url
 
+  # SPEC-125: not used by any shared-space verb — required by the cpcommon layer's
+  # import-time config._require, which runs at cold start for every attaching function
+  # (PR #196). Wired and applied here, one PR ahead of the code that imports cpcommon.
+  athena_workgroup = local.athena_workgroup_name
+
   # SPEC-051: the orchestrator writes each member's per-user cache into the
   # user-space bucket; it also targets the shared portal role in per-DB LF grants.
   user_space_bucket_name = local.user_space_bucket_name
