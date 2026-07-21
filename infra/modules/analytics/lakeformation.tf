@@ -145,6 +145,35 @@ resource "aws_lakeformation_permissions" "provisioner_tag_associate" {
   }
 
   depends_on = [aws_lakeformation_lf_tag.portal_managed]
+
+  # THIS BROKE MAIN, AND WITHOUT IT EVERY FUTURE INFRA APPLY FAILS. Read before removing.
+  #
+  # Lake Formation does not read this grant back the way Terraform wrote it. We grant
+  # ASSOCIATE+DESCRIBE on values ["true"]; a refresh returns values ["*"] with
+  # permissions_with_grant_option ["ALTER","ASSOCIATE","DESCRIBE","DROP"] — the principal's
+  # EFFECTIVE permissions, because these two roles are also data-lake admins. `values` is
+  # replacement-forcing, so every plan showed "must be replaced" and every apply tried to
+  # revoke-then-regrant.
+  #
+  # The revoke then FAILS, because the grant it describes was never explicitly made:
+  #   InvalidInputException: No permissions revoked. Revoking Tag permissions on Tags
+  #   that grantee does not have permissions on.
+  # (Observed 2026-07-21 on the SPEC-112 phase-3 merge, which aborted the apply before it
+  # reached the state machine. Nothing was revoked, so the grants survived — a louder
+  # failure than it looks, and a luckier one.)
+  #
+  # The grant itself is correct and is doing its job: it is what lets post_confirmation and
+  # create_space call AddLFTagsToResource (SPEC-111's live e2e passed on it). Only the
+  # read-back diverges. The tag has exactly ONE value, so LF's ["*"] and our ["true"] are
+  # the same grant described two ways.
+  #
+  # WHAT THIS COSTS: a genuine out-of-band revocation of these grants would no longer show
+  # up as drift. That is the accepted trade — the alternative is a permanently red main and
+  # an infra pipeline that cannot deploy anything. If provisioning ever fails with
+  # "Required ASSOCIATE on portal-managed", check this grant FIRST; Terraform will not.
+  lifecycle {
+    ignore_changes = [lf_tag, permissions_with_grant_option]
+  }
 }
 
 # DB level: DESCRIBE + CREATE_TABLE/ALTER/DROP on any database carrying the tag —
