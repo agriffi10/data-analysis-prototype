@@ -85,7 +85,7 @@ tag** scopes the portal role's Glue ARN to `database/${aws:PrincipalTag/username
 username), **not** LF-Tags. Lake Formation grants the shared role broadly (per-DB grant issued by the
 SPEC-033 post-confirmation Lambda); IAM is the per-user gate. The user-space bucket is registered in
 LF **hybrid** mode so the file browser keeps direct-IAM S3 access while Athena reads via LF. Detail:
-`docs/specs/INDEX.md` (analytics arc) + `docs/specs/SPEC-032`.
+`docs/specs/ARCS.md` (analytics arc) + `docs/specs/SPEC-032`.
 
 ---
 
