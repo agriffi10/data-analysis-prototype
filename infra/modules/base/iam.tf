@@ -225,6 +225,43 @@ resource "aws_iam_role_policy_attachment" "deploy_data_quality" {
   policy_arn = aws_iam_policy.deploy_data_quality.arn
 }
 
+# SPEC-126 control-plane DLQ drain grants — a SEPARATE customer-managed policy, same
+# rationale + shape as the per-arc policies above (off the role's inline-policy aggregate,
+# separate 6,144-char budget). The drain module is deliberately small: ONE Lambda, ONE
+# execution role, ONE log group, and four SQS event-source mappings.
+#
+# NO SQS RESOURCE GRANTS HERE, and that is the point rather than an omission. The drain
+# creates no queue — it attaches to the four request DLQs the arc modules already own, and
+# their ARNs reach the module through Terraform state, so the deploy role makes no SQS API
+# call for them. The drain's own RUNTIME access to those queues is a grant on its EXECUTION
+# role (in the drain module), not on the deploy role.
+#
+# lambda:*EventSourceMapping is not resource-scopable (the mapping has no ARN to name at
+# create time), so it is isolated to its own "*" statement — the same trap the notifications
+# module hit, per architecture.md → "Deploy-role IAM — adding a new resource type".
+#
+# The drain attaches the shared cpcommon layer, which deploy_control_plane_common already
+# covers; nothing here needs a layer grant.
+#
+# Granted FIRST (this PR) and applied before the drain module's resources land in the next
+# PR (the deploy-perms-before-resources rule), so there is no self-grant race.
+resource "aws_iam_policy" "deploy_control_plane_dlq_drain" {
+  name        = "${var.project_name}-deploy-control-plane-dlq-drain"
+  description = "Deploy-role grants for the SPEC-126 control-plane DLQ drain (one Lambda + execution role + log group + four SQS event-source mappings), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-dlq-drain.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_control_plane_dlq_drain.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
