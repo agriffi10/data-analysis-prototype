@@ -7,6 +7,7 @@ import {UploadQueueProvider} from './UploadQueueProvider';
 import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {getSessionCredentials} from '../../lib/awsCredentials';
+import * as dqService from '../data-quality/dataQuality.service';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Integration style (react.md §21): render the REAL FileBrowser tree — real
@@ -38,8 +39,12 @@ vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
 }));
+// SPEC-113: the data-quality enqueue is another AWS boundary — mock it, and let the
+// real DataQualityDialog and useDataQualityCheck render.
+vi.mock('../data-quality/dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
 
 const mock = vi.mocked(service);
+const mockQualityCheck = vi.mocked(dqService.enqueueQualityCheck);
 
 // ── Builders ────────────────────────────────────────────────────────────────
 const file = (name: string, over: Partial<S3FileItem> = {}): S3FileItem => ({
@@ -110,6 +115,7 @@ beforeEach(() => {
   mock.objectExists.mockResolvedValue(ok(false));
   mock.createFolder.mockResolvedValue(ok({prefix: 'alice/new/'}));
   mock.uploadFile.mockResolvedValue(ok({key: 'alice/up.txt'}));
+  mockQualityCheck.mockResolvedValue(ok({requestId: 'req-1'}));
 });
 
 afterEach(() => {
@@ -404,6 +410,110 @@ describe('FileBrowser — upload', () => {
     await user.upload(input, new File(['data'], 'up.txt', {type: 'text/plain'}));
     // The real UploadQueueProvider starts the queued item via uploadFile.
     await waitFor(() => expect(mock.uploadFile).toHaveBeenCalled());
+  });
+});
+
+describe('FileBrowser — data quality (SPEC-113)', () => {
+  const checkButton = () => screen.getByRole('button', {name: 'Check data quality of the selected item'});
+
+  it('offers the check only on exactly one selected item', async () => {
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+
+    // Empty selection — present but inert, like its Copy/Move/Delete neighbours.
+    expect(checkButton()).toBeDisabled();
+
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    expect(checkButton()).toBeEnabled();
+
+    // Multi-select disables it again: one file or one folder per request in v1.
+    await user.click(screen.getByRole('checkbox', {name: 'Select notes.txt'}));
+    expect(checkButton()).toBeDisabled();
+  });
+
+  it('enqueues a check for a selected FILE, naming it and promising nothing changes', async () => {
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(checkButton());
+
+    const dialog = await screen.findByRole('alertdialog', {name: 'Confirm data quality check'});
+    // Shown space-relative, as the breadcrumbs are — not the raw `alice/` key.
+    expect(within(dialog).getByText('report.csv')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/only reads/i);
+
+    await user.click(within(dialog).getByRole('button', {name: 'Start check'}));
+    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
+    expect(mockQualityCheck.mock.calls[0][0]).toMatchObject({
+      // The SPACE ROOT identifies the space to the control plane, not the current folder.
+      space: {kind: 'personal', bucket: 'my-bucket', prefix: 'alice/'},
+      location: 'alice/report.csv'
+    });
+  });
+
+  it('enqueues a check for a selected FOLDER, using its prefix as the location', async () => {
+    const {user} = renderBrowser();
+    await screen.findByText('docs');
+    await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
+    await user.click(checkButton());
+
+    const dialog = await screen.findByRole('alertdialog', {name: 'Confirm data quality check'});
+    await user.click(within(dialog).getByRole('button', {name: 'Start check'}));
+
+    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
+    expect(mockQualityCheck.mock.calls[0][0]).toMatchObject({location: 'alice/docs/'});
+  });
+
+  it('sends the SPACE ROOT even when browsing a subfolder, not the current folder', async () => {
+    // Every other test browses at the root, where the two are identical — so without
+    // this one, sending `currentPrefix` as the space prefix would pass unnoticed and
+    // validate-authorize would be handed a space that isn't one.
+    const {user} = renderBrowser({prefix: 'alice/docs/'});
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(checkButton());
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Start check'}));
+
+    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
+    expect(mockQualityCheck.mock.calls[0][0].space.prefix).toBe('alice/');
+  });
+
+  it('targets the shared-space root when browsing a shared space', async () => {
+    const {user} = renderBrowser({
+      spaceKind: 'shared',
+      bucket: 'shared-bucket',
+      prefix: 'team-data/',
+      rootPrefix: 'team-data/',
+      username: 'team-data'
+    });
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(checkButton());
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Start check'}));
+
+    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
+    expect(mockQualityCheck.mock.calls[0][0]).toMatchObject({
+      space: {kind: 'shared', bucket: 'shared-bucket', prefix: 'team-data/'}
+    });
+  });
+
+  it('is absent entirely in read-only browse, where there is no space to check', async () => {
+    renderBrowser({writable: false, username: undefined});
+    await screen.findByText('report.csv');
+    expect(screen.queryByRole('button', {name: 'Check data quality of the selected item'})).not.toBeInTheDocument();
+  });
+
+  it('is reachable on mobile as an icon-only control in the same toolbar', async () => {
+    // ONE component tree: the label is hidden below tablet, the button is not.
+    window.innerWidth = 500;
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    const button = checkButton();
+    expect(button).toBeEnabled();
+    expect(within(button).getByText('Check quality')).toHaveClass('hidden', 'tablet:inline');
+    // And exactly one exists — it is not duplicated into the MobileActionBar.
+    expect(screen.getAllByRole('button', {name: 'Check data quality of the selected item'})).toHaveLength(1);
   });
 });
 

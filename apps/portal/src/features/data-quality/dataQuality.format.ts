@@ -47,6 +47,25 @@ export function formatRatio(ratio: number): string {
   return `${percent.toFixed(1)}%`;
 }
 
+/**
+ * Present a Lambda-authored `reason` as a standalone sentence.
+ *
+ * Every reason in `dqcommon` is written as a lower-case FRAGMENT, because on its own
+ * surface it completes a clause: `Couldn't check data quality: {reason}`. This view
+ * shows reasons on their own, after a bold lead, where the fragment reads as a
+ * mistake — "Not applicable. not a line-delimited text format." So the first letter is
+ * capitalized and a full stop added when missing.
+ *
+ * Presentation only: no word is changed, and a reason already starting with a proper
+ * noun ("Parquet enforces types…") is untouched.
+ */
+export function asSentence(reason: string): string {
+  const trimmed = reason.trim();
+  if (!trimmed) return '';
+  const capitalized = trimmed[0].toUpperCase() + trimmed.slice(1);
+  return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+}
+
 /** An ISO-8601 timestamp as a readable absolute date-time; invalid input yields ''. */
 export function formatTimestamp(iso: string): string {
   const date = new Date(iso);

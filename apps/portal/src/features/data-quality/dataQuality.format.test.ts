@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {formatRatio, isApproximateIssue, locationLabel, sourceFolderPrefix} from './dataQuality.format';
+import {asSentence, formatRatio, isApproximateIssue, locationLabel, sourceFolderPrefix} from './dataQuality.format';
 
 describe('locationLabel', () => {
   it('names a folder by its own segment and a file by its basename', () => {
@@ -34,6 +34,28 @@ describe('formatRatio', () => {
     expect(formatRatio(0.0000008)).toBe('<0.1%');
     expect(formatRatio(0.0432)).toBe('4.3%');
     expect(formatRatio(0.61)).toBe('61.0%');
+  });
+});
+
+describe('asSentence', () => {
+  it('makes a lower-case Lambda fragment read as a standalone sentence', () => {
+    // dqcommon writes reasons as fragments that complete "Couldn't check data quality:
+    // {reason}". This view shows them alone after a bold lead, where the raw fragment
+    // reads as a typo — "Not applicable. not a line-delimited text format."
+    expect(asSentence('not a line-delimited text format.')).toBe('Not a line-delimited text format.');
+    expect(asSentence('binary format — encoding is defined by the file format')).toBe(
+      'Binary format — encoding is defined by the file format.'
+    );
+  });
+
+  it('leaves an already-well-formed reason alone', () => {
+    const parquet = 'Parquet enforces types in the file format, so this check cannot find anything.';
+    expect(asSentence(parquet)).toBe(parquet);
+  });
+
+  it('returns empty for empty input rather than a bare full stop', () => {
+    expect(asSentence('')).toBe('');
+    expect(asSentence('   ')).toBe('');
   });
 });
 

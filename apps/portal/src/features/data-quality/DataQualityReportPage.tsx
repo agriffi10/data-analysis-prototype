@@ -10,6 +10,7 @@ import {formatCount} from '../query/query.format';
 import {useDataQualityReport} from './useDataQualityReport';
 import {useDataQualityCheck} from './useDataQualityCheck';
 import {
+  asSentence,
   dominantTypeLabel,
   formatRatio,
   formatTimestamp,
@@ -168,7 +169,7 @@ function ColumnTypeCell({column}: {column: ColumnFinding}) {
           label="Skipped"
           tone="warning"
         />
-        <span className="text-xs text-text-2">{column.reason}</span>
+        <span className="text-xs text-text-2">{asSentence(column.reason)}</span>
       </div>
     );
   }
@@ -341,16 +342,19 @@ function ApproximateSection({ragged, encoding}: {ragged: RaggedRowsFigure; encod
           <Callout
             tone="info"
             lead={isSkipped(ragged) ? 'Not applicable.' : 'Not computed.'}>
-            {ragged.reason}
+            {asSentence(ragged.reason)}
           </Callout>
         ) : (
           <>
             <p className="text-lg font-semibold text-text">{formatCount(ragged.count)}</p>
+            {/* The lead COMPLEMENTS the Lambda's note rather than repeating it: that note
+                already opens with its own "Approximate — " label, and a lead saying the
+                same thing reads as a stutter. The note itself is rendered verbatim. */}
             <Callout
               tone="warning"
-              lead="This is an estimate.">
+              lead="What this counts.">
               {ragged.note ||
-                'It over-counts rows with commas inside quotes, and rows with newlines inside quoted fields.'}
+                'Approximate — over-counts rows with commas inside quotes, and rows with newlines inside quoted fields.'}
             </Callout>
           </>
         )}
@@ -375,14 +379,16 @@ function ApproximateSection({ragged, encoding}: {ragged: RaggedRowsFigure; encod
           <Callout
             tone="info"
             lead={isSkipped(encoding) ? 'Not applicable.' : 'Not computed.'}>
-            {encoding.reason}
+            {asSentence(encoding.reason)}
           </Callout>
         ) : (
           <>
             <p className="text-lg font-semibold text-text">{formatCount(encoding.invalidUtf8Sequences)}</p>
+            {/* Same reason as above: the note opens with "Sampled — " / "Complete — ",
+                so the lead names the dimension instead of restating the label. */}
             <Callout
               tone={encoding.coverage === 'complete' ? 'info' : 'warning'}
-              lead={encoding.coverage === 'complete' ? 'Every byte was examined.' : 'Only part of the data was read.'}>
+              lead="Coverage.">
               {encoding.note || `${encoding.coveragePercent}% of bytes examined.`}
             </Callout>
           </>

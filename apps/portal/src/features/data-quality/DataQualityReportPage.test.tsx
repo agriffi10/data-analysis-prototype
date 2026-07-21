@@ -143,10 +143,13 @@ describe('DataQualityReportPage — qualifying what it shows', () => {
     expect(screen.queryByText('No issues found')).not.toBeInTheDocument();
     expect(screen.getByText(/some checks couldn’t be completed/i)).toBeInTheDocument();
 
-    // Every skipped figure carries its reason and a Skipped chip.
+    // Every skipped figure carries its reason and a Skipped chip. Matched on the
+    // SUBSTANCE of each reason, not the exact string: the view sentence-cases these
+    // Lambda-authored fragments for display (`asSentence`), and pinning the casing here
+    // would make this test fail for a presentation change it does not care about.
     expect(screen.getAllByText('Skipped').length).toBeGreaterThanOrEqual(3);
-    expect(screen.getAllByText(SKIP_TYPE_PARQUET).length).toBe(2); // one per column
-    expect(screen.getByText(SKIP_BINARY)).toBeInTheDocument();
+    expect(screen.getAllByText(new RegExp(SKIP_TYPE_PARQUET.slice(1))).length).toBe(2); // one per column
+    expect(screen.getByText(new RegExp(SKIP_BINARY.slice(1)))).toBeInTheDocument();
     // And no column claims a dominant type it was never checked for.
     expect(screen.queryByText('BIGINT')).not.toBeInTheDocument();
     expect(screen.queryByText('DOUBLE')).not.toBeInTheDocument();

@@ -1,7 +1,7 @@
 # Spec: Data Quality — File-Browser UI + the Report View
 
 **ID:** SPEC-113
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-21
 **Depends On:** SPEC-109 (enqueue service + contract), SPEC-112 (the pipeline actually produces a report), SPEC-058 (the notifications pipeline FR-008 amends), SPEC-095 (responsive foundation), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help content), SPEC-120 (**optional** — FR-006 only)
 
@@ -42,8 +42,8 @@ From the Files browser, with a file or folder selected, the user presses **"Chec
 
 ## Amendments (2026-07-21, at implementation)
 
-Four corrections, each made after reading the code this spec was written against. They are
-recorded here rather than silently applied because three of them contradict what the spec
+Five corrections, each made after reading the code this spec was written against. They are
+recorded here rather than silently applied because four of them contradict what the spec
 originally said.
 
 1. **The action lives in the file browser's `SelectionToolbar`, not the `MobileActionBar`**
