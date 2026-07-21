@@ -59,7 +59,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "RecordFailure"
         }
       ],
       "Next": "ShareToRecipients"
@@ -106,7 +106,7 @@
               {
                 "ErrorEquals": ["States.ALL"],
                 "ResultPath": "$.error",
-                "Next": "RecipientParseError"
+                "Next": "RecipientFailed"
               }
             ],
             "Next": "CopyObjects"
@@ -137,7 +137,7 @@
               {
                 "ErrorEquals": ["States.ALL"],
                 "ResultPath": "$.error",
-                "Next": "RecipientParseError"
+                "Next": "RecipientFailed"
               }
             ],
             "Next": "CreateTable"
@@ -168,7 +168,7 @@
               {
                 "ErrorEquals": ["States.ALL"],
                 "ResultPath": "$.error",
-                "Next": "RecipientParseError"
+                "Next": "RecipientFailed"
               }
             ],
             "Next": "RecipientSucceeded"
@@ -183,23 +183,14 @@
             },
             "End": true
           },
-          "RecipientParseError": {
-            "Type": "Pass",
-            "Comment": "Decode the Lambda error Cause (a JSON string) so RecipientFailed can carry the 'reason: detail' TerminalError string (e.g. 'conflict: …') for this recipient only.",
-            "Parameters": {
-              "recipient.$": "$.recipient",
-              "cause.$": "States.StringToJson($.error.Cause)"
-            },
-            "Next": "RecipientFailed"
-          },
           "RecipientFailed": {
             "Type": "Pass",
-            "Comment": "Per-item terminal-failure record (flat summary entry). Ends the ITEM, not the Map: sibling recipients continue. reason carries the verb's 'reason: detail' TerminalError string (unknown_user/unknown_space/conflict/target_not_readable/copy_failed/create_failed…).",
+            "Comment": "Per-item terminal-failure record (flat summary entry). Ends the ITEM, not the Map: sibling recipients continue. `error` carries the raw {Error, Cause}; the verb's reason (unknown_user/unknown_space/conflict/target_not_readable/copy_failed/create_failed…) is recovered from it with cpcommon.errors.failure_reason. `error` is the RAW Step Functions {Error, Cause}; decode it in Python with cpcommon.errors.failure_reason, NEVER in ASL (States.StringToJson raises an uncatchable States.Runtime on any Cause that is absent or not JSON).",
             "Parameters": {
               "kind.$": "$.recipient.kind",
               "name.$": "$.recipient.name",
               "status": "failed",
-              "reason.$": "$.cause.errorMessage"
+              "error.$": "$.error"
             },
             "End": true
           }
@@ -209,14 +200,14 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "RecordFailure"
         }
       ],
       "Next": "ShapeSummary"
     },
     "ShapeSummary": {
       "Type": "Pass",
-      "Comment": "The whole-request success outcome (SPEC-092 FR-003): identity + the per-recipient summary array collected from the Map ({kind, name, status:'ok'|'failed', reason?} each). The Succeed state passes this through as the execution output — what SPEC-094's sender/recipient notifications read.",
+      "Comment": "The whole-request success outcome (SPEC-092 FR-003): identity + the per-recipient summary array collected from the Map ({kind, name, status:'ok'|'failed', error?} each — `error` is the RAW Step Functions {Error, Cause}; decode it with cpcommon.errors.failure_reason, never in ASL). The Succeed state passes this through as the execution output — what SPEC-094's sender/recipient notifications read.",
       "Parameters": {
         "actor.$": "$.actor",
         "source.$": "$.source",
@@ -227,33 +218,24 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared ParseError/RecordFailure path is uniform for every whole-request failure.",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every whole-request failure.",
       "Parameters": {
         "actor": null,
         "source": { "database": null, "table": null },
         "tableName": null,
         "error.$": "$"
       },
-      "Next": "ParseError"
-    },
-    "ParseError": {
-      "Type": "Pass",
-      "Comment": "Decode the Lambda error Cause (a JSON string) so RecordFailure can read the errorMessage — the 'reason: detail' string TerminalError raised (e.g. 'forbidden: …').",
-      "Parameters": {
-        "cause.$": "States.StringToJson($.error.Cause)"
-      },
-      "ResultPath": "$.parsed",
       "Next": "RecordFailure"
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome { actor, source, tableName, status:'failed', reason } SPEC-094 notifies from, then fails the execution. Per-RECIPIENT failures never come here — they end their Map item via RecipientFailed and siblings continue.",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome { actor, source, tableName, status:'failed', error } SPEC-094 notifies from, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL. Per-RECIPIENT failures never come here — they end their Map item via RecipientFailed and siblings continue.",
       "Parameters": {
         "actor.$": "$.actor",
         "source.$": "$.source",
         "tableName.$": "$.tableName",
         "status": "failed",
-        "reason.$": "$.parsed.cause.errorMessage"
+        "error.$": "$.error"
       },
       "Next": "Failed"
     },

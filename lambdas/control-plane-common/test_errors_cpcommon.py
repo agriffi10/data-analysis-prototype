@@ -4,6 +4,7 @@ The classifier is the shared home for the logic four verbs used to copy. Runnabl
 pytest or directly: python3 test_errors_cpcommon.py.
 """
 
+import json
 import os
 import sys
 
@@ -105,6 +106,112 @@ def test_a_code_shaped_MESSAGE_without_a_response_is_not_transient():
     MESSAGE but no .response, so it is NOT transient. A test relying on message text would
     be exercising nothing — this asserts the classifier ignores the message."""
     assert errors.raise_if_transient(RuntimeError("ThrottlingException")) is None
+
+
+# ── failure_reason: the decode that used to live (unsafely) in ASL ───────────
+#
+# Every case below is a real Step Functions error shape. The first is the only one the old
+# `States.StringToJson($.error.Cause)` Pass state survived; the rest each raised an
+# UNCATCHABLE States.Runtime, killing the execution before it could record or notify
+# anything. Verified against the live service with TestState before this was written.
+
+
+def test_a_terminal_error_decodes_to_the_verbs_own_reason_code():
+    error = {
+        "Error": "TerminalError",
+        "Cause": json.dumps(
+            {"errorMessage": "invalid_request: the envelope was malformed", "errorType": "TerminalError"}
+        ),
+    }
+
+    assert errors.failure_reason(error) == "invalid_request"
+
+
+@pytest.mark.parametrize(
+    "label,error,expected",
+    [
+        # No Cause key at all. The OLD ASL failed with "JsonPath could not be found".
+        ("States.Timeout", {"Error": "States.Timeout"}, "States.Timeout"),
+        # A plain-sentence Cause. The OLD ASL failed with "Cannot convert String to Json".
+        (
+            "States.DataLimitExceeded",
+            {"Error": "States.DataLimitExceeded", "Cause": "The state/task returned a result with a size exceeding the limit."},
+            "States.DataLimitExceeded",
+        ),
+        (
+            "Lambda.Unknown",
+            {"Error": "Lambda.Unknown", "Cause": "The cause could not be determined."},
+            "Lambda.Unknown",
+        ),
+        # Valid JSON, but not an object.
+        ("array Cause", {"Error": "States.TaskFailed", "Cause": "[]"}, "States.TaskFailed"),
+        # An object without the key we want.
+        ("no errorMessage", {"Error": "States.TaskFailed", "Cause": '{"x": 1}'}, "States.TaskFailed"),
+        # An errorMessage with no errorType — not a TerminalError, so not split.
+        ("bare errorMessage", {"Error": "X", "Cause": '{"errorMessage": "boom"}'}, "X"),
+        # A TerminalError with no colon in its message (constructed with no detail).
+        (
+            "TerminalError, no detail",
+            {"Error": "TerminalError", "Cause": '{"errorMessage": "conflict", "errorType": "TerminalError"}'},
+            "conflict",
+        ),
+        # An empty Cause string.
+        ("empty Cause", {"Error": "X", "Cause": ""}, "X"),
+    ],
+)
+def test_every_shape_that_used_to_kill_the_execution_now_yields_a_reason(label, error, expected):
+    assert errors.failure_reason(error) == expected, label
+
+
+@pytest.mark.parametrize(
+    "label,error",
+    [
+        # An AWS message, whose FIRST colon falls in the middle of a sentence.
+        (
+            "botocore ClientError",
+            {"Error": "ClientError", "Cause": json.dumps({
+                "errorMessage": "An error occurred (AccessDeniedException) when calling the "
+                                "CreateTable operation: Insufficient Lake Formation permission(s)",
+                "errorType": "ClientError"})},
+        ),
+        # Exactly what raise_if_transient composes — every retry-exhausted throttle.
+        (
+            "TransientError",
+            {"Error": "TransientError", "Cause": json.dumps({
+                "errorMessage": "listing objects: transient SlowDown", "errorType": "TransientError"})},
+        ),
+    ],
+)
+def test_a_non_terminal_exception_never_has_its_prose_split_into_a_fake_reason(label, error):
+    """The split reverses what TerminalError composed; applied to anything else it produces
+    prose wearing a reason code's clothes. Both shapes here are routine, and the value is
+    logged, recorded, and handed to notification code not yet written."""
+    reason = errors.failure_reason(error)
+
+    assert reason == error["Error"], label
+    assert " " not in reason, f"{label}: a reason code should not be a sentence"
+
+
+@pytest.mark.parametrize(
+    "junk",
+    [None, "a string", 42, [], {}, {"Cause": "orphan"}, {"Error": 5}, {"Error": None}],
+)
+def test_a_malformed_error_object_still_yields_something_mappable(junk):
+    """It must NEVER raise and NEVER return empty: this runs on the failure path, where a
+    second failure means the user hears nothing at all."""
+    reason = errors.failure_reason(junk)
+
+    assert isinstance(reason, str) and reason
+
+
+def test_raw_engine_prose_never_leaks_into_the_reason():
+    """SPEC-106 FR-008. A Cause carrying raw AWS text must not become user-facing wording —
+    the caller gets a stable code to map, and the prose stays in the execution history."""
+    prose = "HIVE_CURSOR_ERROR: Line too long in text file s3://bucket/key at offset 12345"
+    error = {"Error": "States.TaskFailed", "Cause": prose}
+
+    assert errors.failure_reason(error) == "States.TaskFailed"
+    assert prose not in errors.failure_reason(error)
 
 
 if __name__ == "__main__":

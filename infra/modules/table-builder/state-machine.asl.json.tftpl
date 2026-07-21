@@ -59,7 +59,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "RecordFailure"
         }
       ],
       "Next": "InspectSource"
@@ -90,7 +90,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "RecordFailure"
         }
       ],
       "Next": "InferSchema"
@@ -121,7 +121,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "RecordFailure"
         }
       ],
       "Next": "ExecuteDdl"
@@ -153,7 +153,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "RecordFailure"
         }
       ],
       "Next": "RecordSuccess"
@@ -172,7 +172,7 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared ParseError/RecordFailure path is uniform for every verb.",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every verb.",
       "Parameters": {
         "requestId": null,
         "actor": null,
@@ -180,27 +180,18 @@
         "tableName": null,
         "error.$": "$"
       },
-      "Next": "ParseError"
-    },
-    "ParseError": {
-      "Type": "Pass",
-      "Comment": "Decode the Lambda error Cause (a JSON string) so RecordFailure can read the errorMessage — the 'reason: detail' string TerminalError raised (e.g. 'ddl_execution_failed: SYNTAX_ERROR …').",
-      "Parameters": {
-        "cause.$": "States.StringToJson($.error.Cause)"
-      },
-      "ResultPath": "$.parsed",
       "Next": "RecordFailure"
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } (identity is null for a pre-identity validate failure) then fails the execution.",
+      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, status:'failed', error } (identity is null for a pre-identity validate failure) then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "database.$": "$.space.database",
         "tableName.$": "$.tableName",
         "status": "failed",
-        "reason.$": "$.parsed.cause.errorMessage"
+        "error.$": "$.error"
       },
       "Next": "Failed"
     },

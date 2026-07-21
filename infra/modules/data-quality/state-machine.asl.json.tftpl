@@ -1,5 +1,5 @@
 {
-  "Comment": "Data-quality control plane (SPEC-108 skeleton — the canonical state list; later specs WIRE these states, none adds one). validate-authorize -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
+  "Comment": "Data-quality control plane (SPEC-108 skeleton — the canonical state list; later specs WIRE these states, none adds one). validate-authorize -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. NO ASL STATE DECODES AN ERROR CAUSE: States.StringToJson in a Pass state raises an uncatchable States.Runtime on any non-JSON Cause, which killed executions before they could notify. The raw $.error travels to RecordFailure and Python decodes it. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -60,7 +60,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "CreateTempTables"
@@ -92,7 +92,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "StartProfileQuery"
@@ -124,7 +124,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "WaitForQuery"
@@ -162,7 +162,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "QueryComplete"
@@ -206,7 +206,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "AssembleReport"
@@ -238,7 +238,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "DropTempTables"
@@ -270,7 +270,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ParseError"
+          "Next": "DropTempTablesOnFailure"
         }
       ],
       "Next": "RecordSuccess"
@@ -296,27 +296,18 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared ParseError/cleanup/RecordFailure path is uniform for every verb. `location` IS SEEDED HERE FOR THE SAME REASON requestId and actor are, and it is load-bearing: SPEC-112 FR-005 added $.location to RecordFailure, and a Pass state hard-fails on an ABSENT key with an uncatchable States.Runtime — so without this line the ONE failure path that reaches RecordFailure without ever having a location (a malformed or unauthorized request) would die before NotifyFailure and tell the user nothing at all.",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared cleanup/RecordFailure path is uniform for every verb. `location` IS SEEDED HERE FOR THE SAME REASON requestId and actor are, and it is load-bearing: SPEC-112 FR-005 added $.location to RecordFailure, and a Pass state hard-fails on an ABSENT key with an uncatchable States.Runtime — so without this line the ONE failure path that reaches RecordFailure without ever having a location (a malformed or unauthorized request) would die before NotifyFailure and tell the user nothing at all.",
       "Parameters": {
         "requestId": null,
         "actor": null,
         "location": null,
         "error.$": "$"
       },
-      "Next": "ParseError"
-    },
-    "ParseError": {
-      "Type": "Pass",
-      "Comment": "Decode the Lambda error Cause (a JSON string) so RecordFailure can read the errorMessage — the 'reason: detail' string TerminalError raised.",
-      "Parameters": {
-        "cause.$": "States.StringToJson($.error.Cause)"
-      },
-      "ResultPath": "$.parsed",
       "Next": "DropTempTablesOnFailure"
     },
     "DropTempTablesOnFailure": {
       "Type": "Task",
-      "Comment": "THE CATCH ALWAYS REACHES CLEANUP. The failure-path twin of DropTempTables, invoking the SAME Lambda (a state can have only one Next, hence the twin). Without it, every failed request would LEAK a temp table into the user's own Glue database — visible in the Query workspace's schema rail and eventually colliding with their real table names. ResultPath parks the result on a scratch field so $.parsed (the decoded error) survives for RecordFailure. Its OWN Catch goes straight to RecordFailure: cleanup is best-effort on the failure path and must NEVER mask the original error, and this is what stops the failure path looping back into itself.",
+      "Comment": "THE CATCH ALWAYS REACHES CLEANUP. The failure-path twin of DropTempTables, invoking the SAME Lambda (a state can have only one Next, hence the twin). Without it, every failed request would LEAK a temp table into the user's own Glue database — visible in the Query workspace's schema rail and eventually colliding with their real table names. ResultPath parks the result on a scratch field so $.error (the original failure) survives for RecordFailure. Its OWN Catch goes straight to RecordFailure: cleanup is best-effort on the failure path and must NEVER mask the original error, and this is what stops the failure path looping back into itself.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${drop_temp_tables_function_arn}",
@@ -348,13 +339,13 @@
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every verb's Catch reaches (after cleanup). Shapes the structured outcome { requestId, actor, location, status:'failed', reason } (SPEC-112 FR-005; identity and location are null for a pre-identity validate failure, which ValidateFailureSeed seeds precisely so this state's JSONPath finds the KEYS). Nothing durable is written here either — a failed check produces no report object, so no UI should be built expecting a failure artefact in S3. SPEC-114 notifies from this state, and it needs `location` to say WHICH check failed: a user who started three of them cannot act on 'your check failed'.",
+      "Comment": "The single recorded-failure state every verb's Catch reaches (after cleanup). Shapes the structured outcome { requestId, actor, location, status:'failed', error } (SPEC-112 FR-005; identity and location are null for a pre-identity validate failure, which ValidateFailureSeed seeds precisely so this state's JSONPath finds the KEYS). Nothing durable is written here either — a failed check produces no report object, so no UI should be built expecting a failure artefact in S3. SPEC-114 notifies from this state, and it needs `location` to say WHICH check failed: a user who started three of them cannot act on 'your check failed'. IT CARRIES THE RAW ERROR OBJECT, NOT A DECODED reason: this used to read $.parsed.cause.errorMessage, produced by a ParseError Pass state running States.StringToJson($.error.Cause) — which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown; verified against the live service with TestState). The execution died right here, before NotifyFailure, on exactly the failures a user most needs to hear about. $.error is copied whole because a plain JSONPath copy of a key that always exists cannot fail; notify-failure decodes it in Python via cpcommon.errors.failure_reason, where any shape is safe.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "location.$": "$.location",
         "status": "failed",
-        "reason.$": "$.parsed.cause.errorMessage"
+        "error.$": "$.error"
       },
       "Next": "NotifyFailure"
     },

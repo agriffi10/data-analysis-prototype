@@ -429,8 +429,10 @@ def test_the_seed_supplies_every_identity_field_record_failure_names():
         if key.endswith(".$")
     }
     assert reads, "RecordFailure reads nothing — this test would pass vacuously"
-    # $.parsed.* is added by ParseError, which every failure path runs after the seed.
-    identity = {path for path in reads if not path.startswith("$.parsed")}
+    # Nothing is added between the seed and RecordFailure any more — the ParseError state
+    # that used to sit there was removed (it decoded the Cause with an intrinsic that
+    # raises an uncatchable States.Runtime), so EVERY field read must come from the seed.
+    identity = set(reads)
     seed = {
         key.removesuffix(".$"): value
         for key, value in asl["States"]["ValidateFailureSeed"]["Parameters"].items()
