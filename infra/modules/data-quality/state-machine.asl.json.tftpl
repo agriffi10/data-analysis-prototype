@@ -277,12 +277,14 @@
     },
     "RecordSuccess": {
       "Type": "Pass",
-      "Comment": "Shape the terminal SUCCESS outcome SPEC-114 notifies from (SPEC-112 FR-005). Nothing durable is written by a terminal state — the report object is the artefact, so no future UI should be built expecting a success object in S3. THE IDENTITY CONTRACT: every field read here must EXIST as a key by now. ValidateAuthorize guarantees requestId/actor/location; AssembleReport guarantees verdict/hasApproximateFigures/hasIncompleteFigures/reportKey and threads the rest. A Pass state's JSONPath HARD-FAILS on an ABSENT key (States.Runtime) and a Pass state has NO Catch, so that failure escapes straight to ExecutionFailed, skipping NotifyFailure and leaving the user with no notification at all. A null VALUE is fine; a missing key is fatal. (Caught by the SPEC-108 live smoke test.)",
+      "Comment": "Shape the terminal SUCCESS outcome SPEC-114 notifies from (SPEC-112 FR-005). The field list is FR-003's summary payload, which is wider than FR-005's own sentence and deliberately so: FR-004 promises a SPEC-123 index entry can be built from it, and that needs format and fileCount too. A NotifySuccess added later (the mirror of RecordFailure -> NotifyFailure) reads THIS state, so anything omitted here is a field SPEC-114/123 would have to reopen the machine to get. Nothing durable is written by a terminal state — the report object is the artefact, so no future UI should be built expecting a success object in S3. THE IDENTITY CONTRACT: every field read here must EXIST as a key by now. ValidateAuthorize guarantees requestId/actor/location; AssembleReport guarantees verdict/hasApproximateFigures/hasIncompleteFigures/reportKey and threads the rest. A Pass state's JSONPath HARD-FAILS on an ABSENT key (States.Runtime) and a Pass state has NO Catch, so that failure escapes straight to ExecutionFailed, skipping NotifyFailure and leaving the user with no notification at all. A null VALUE is fine; a missing key is fatal. (Caught by the SPEC-108 live smoke test.)",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "location.$": "$.location",
         "status": "completed",
+        "format.$": "$.format",
+        "fileCount.$": "$.fileCount",
         "verdict.$": "$.verdict",
         "hasApproximateFigures.$": "$.hasApproximateFigures",
         "hasIncompleteFigures.$": "$.hasIncompleteFigures",
