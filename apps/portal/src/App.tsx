@@ -8,6 +8,7 @@ import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotificationsPage from './routes/NotificationsPage';
 import HelpPage from './routes/HelpPage';
+import DataQualityReportPage from './routes/DataQualityReportPage';
 import NotFoundPage from './routes/NotFoundPage';
 
 // The Query route pulls in Monaco + the Athena/Glue SDK clients — lazy-load the
@@ -63,6 +64,14 @@ export default function App() {
           <Route
             path="/help"
             element={<HelpPage />}
+          />
+          {/* Reached from a notification's deep link (SPEC-114) — the space is in
+              the path because a requestId alone doesn't say which space holds the
+              report. Eager: it reuses the S3 client the Files route already pulls
+              in, so lazy-loading would save nothing. */}
+          <Route
+            path="/data-quality/:space/:requestId"
+            element={<DataQualityReportPage />}
           />
         </Route>
         <Route
