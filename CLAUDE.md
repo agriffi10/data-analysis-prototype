@@ -67,6 +67,12 @@ arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live 
 down elsewhere — when a spec closes, prune it rather than appending.**
 
 **Current work — data-quality arc.** 108→113 complete; **open: 114 (next), then 123, 124.**
+- **No more live smoke tests until 114/123/124 are all built** (user decision 2026-07-21) — then one
+  end-to-end pass over the whole arc. Each spec's live scenarios are recorded in its own Phase 2.
+- **SPEC-114 FR-005 (CloudWatch DLQ/`ExecutionsFailed` alarms) was removed, not deferred** (user
+  decision 2026-07-21): an alarm with no notification target, on one arc of five, told the *user*
+  nothing. **SPEC-126** replaces it — drain every control plane's request DLQ back into the
+  notification pipeline. It is what SPEC-123's completed-checks-only dashboard now depends on.
 - **The live gap 114 closes:** a finished check surfaces **nowhere**. `dq_notify_failure` is still a
   SPEC-108 pass-through stub, there's no success emitter, and the runs dashboard is 123 — so today the
   only route to a report is typing `/data-quality/{space}/{requestId}`. The false "you'll be notified"

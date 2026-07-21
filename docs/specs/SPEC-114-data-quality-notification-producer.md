@@ -24,7 +24,6 @@ Two requirements here are not boilerplate.
 - A **success** notification: the verdict, the top issues, a **link to the report view**, and an explicit qualifier when any figure is sampled or approximate.
 - A **failure** notification for **every** terminal failure — including failures **no verb can catch** (a Lambda import error, a Step Functions-level error), via the `NotifyFailure` state on the failure path (FR-004). This spec **wires** that state to the **`notify-failure` Lambda SPEC-108 provisioned as a placeholder** — no new function appears here. **This is the condition on which SPEC-123's completed-checks-only dashboard was accepted** (user decision, 2026-07-12): a check that fails must always reach the user with a concrete reason.
 - `@notifies_on_failure` on every verb handler, so an unexpected crash still reaches the user.
-- **DLQ and `ExecutionsFailed` CloudWatch alarms** (FR-005) — the operator backstop for the residual class of failures that cannot notify anyone, because nothing ever ran.
 - The execution role's `sqs:SendMessage` on the **notifications queue ARN only** + the `NOTIFICATIONS_QUEUE_URL` env var.
 - Data-quality reason codes registered through the `cpcommon.messages` domain hook (SPEC-107 FR-005).
 
@@ -33,6 +32,8 @@ Two requirements here are not boilerplate.
 - Any change to the notifications writer, the inbox file, or the `/notifications` page — this spec is a **producer** only.
 - A notification per file. One request, one notification: a folder with 40 problem files produces one message carrying the top issues, not 40 messages.
 - Notifying anyone but the actor. Data quality has exactly one recipient; there is no fan-out (unlike Table Share).
+- **The residual class of failures where nothing ever ran** — a malformed body the Pipe rejects, which exhausts its receives and lands in the **DLQ**. No verb executed and no execution started, so nothing in this spec can reach the user. **SPEC-126** drains that DLQ back into the notification pipeline; see the FR-004 note below.
+- **CloudWatch alarms.** An earlier FR-005 here provisioned DLQ + `ExecutionsFailed` alarms as an *operator* backstop. **Removed 2026-07-21 (user decision):** it would have shipped two alarms with no notification target — visible in a console nobody watches, on one arc out of five — when the actual requirement was that the **user** hear about it. Replaced wholesale by SPEC-126.
 
 ---
 
@@ -65,6 +66,8 @@ Two requirements here are not boilerplate.
 - [ ] `unauthorized` / `forbidden` collapse to a single "You don't have access…" message leaking no path or space name (mirroring `tbcommon/messages.py:41-42`).
 - [ ] Reason codes are registered through the `cpcommon.messages` **domain-scoped** registry hook — registered codes are exported constants; an unregistered code raises at raise-time (SPEC-107 FR-005).
 - [ ] Substitution uses `str.replace` on named tokens, never `str.format` — a literal brace in a path or column name must not raise (`tbcommon/messages.py:45-47`).
+- [ ] **The per-request tokens reach the emitter via an optional `tokens` mapping on `cpcommon.errors.TerminalError`** (default `None`, so table-builder and table-share are untouched), because the emit happens in the decorator, far from the raise site, and `TerminalError` currently carries only `reason` + a free-prose `detail`. Without it the `{object}`/`{count}`/`{key}`/`{formats}` markers already in `dqcommon/messages.py` render **literally** and the four criteria above cannot be met. The ~10 data-quality raise sites pass `tokens=` alongside `detail`; a test asserts every reason whose body contains a marker is raised with a matching token, so a new marker cannot ship unfilled.
+- [ ] `tokens` values are **never raw AWS/Athena text** — they are S3 keys, column names and counts the verb already holds. A comment records the distinction from `detail`, which *is* allowed raw text precisely because it never reaches a user.
 
 ### FR-003: No silent failures
 
@@ -86,42 +89,27 @@ Two requirements here are not boilerplate.
 - a **Step Functions-level** error (a state timeout, a payload-size failure, a task that cannot be invoked);
 - a message that **never starts an execution** at all — a malformed body the Pipe rejects, which exhausts its receives and lands in the **DLQ**.
 
-The first two are fixable in the state machine. The third is not, and needs an operational backstop.
+The first two are fixable in the state machine, and this FR fixes them. **The third is not fixable here at all** — nothing ran, so nothing in this arc can notify — and it is handed to **SPEC-126**, which drains every control plane's request DLQ back into the notification pipeline. That is the condition SPEC-123's completed-checks-only dashboard depends on, and it is met by SPEC-126 rather than by an alarm.
 
 #### Acceptance Criteria:
 
 - [ ] The state machine's **`NotifyFailure`** Task (on the failure path, after `DropTempTables`/`RecordFailure`, before `Fail`) is **wired to the `notify-failure` Lambda provisioned as a placeholder in SPEC-108 FR-002**; this spec supplies its real handler and does not create a new function. **Notification delivery therefore does not depend on the failing verb being able to emit it.**
 - [ ] `NotifyFailure` derives its reason by calling **`cpcommon.errors.failure_reason(event.get("error"))`** on the RAW `{Error, Cause}` object `RecordFailure` carries — there is no pre-decoded `reason` key and there must not be one. **No ASL state may decode an error Cause** *(corrected 2026-07-21 — see the `ParseError` removal)*: `States.StringToJson($.error.Cause)` raises `States.Runtime`, which is neither retriable nor catchable, whenever `Cause` is absent or is not JSON (`States.Timeout`, `States.DataLimitExceeded`, `Lambda.Unknown` — all verified live). The raw `$.error` is carried through to the terminal state and decoded in Python with `cpcommon.errors.failure_reason`. It falls back to `unexpected_error` where it cannot — it **never** terminates without emitting **when a verified actor exists**; a pre-identity failure (e.g. a garbage token) is a **logged no-op** — there is no trustworthy recipient (mirrors `tbcommon/notify.py`).
-- [ ] Because both `@notifies_on_failure` and `NotifyFailure` can fire for the same failure, the **`{requestId}:{step}` dedup id** (FR-006) collapses them to one message. A test forces a verb failure and asserts the user receives **exactly one** notification, not two.
+- [ ] Because both `@notifies_on_failure` and `NotifyFailure` can fire for the same failure, the **`{requestId}:{step}` dedup id** (FR-005) collapses them to one message. A test forces a verb failure and asserts the user receives **exactly one** notification, not two.
 - [ ] **The dedup assumption is recorded in a comment:** the decorator emit and the `NotifyFailure` emit land **seconds apart**, so SQS FIFO's **5-minute deduplication window** collapses them — the collapse depends on that window, and the comment says so.
 - [ ] A test forces a **Lambda import failure** and asserts the user still receives a friendly notification.
 - [ ] A test forces a **Step Functions-level** failure (a state that fails without a verb exception) and asserts the user still receives a friendly notification.
 - [ ] The `NotifyFailure` state is reached **after** `DropTempTables` (SPEC-111 FR-005), so a cleanup failure cannot suppress the user's notification.
 
-### FR-005: The backstop for failures that cannot notify at all
-
-#### Description
-
-Two holes remain that **no amount of state-machine wiring can close**, and pretending otherwise would be worse than naming them.
-
-**A message that never starts an execution** — a malformed body, a Pipe failure — exhausts its receives and lands in the **DLQ**. Nothing has run, so nothing can notify. **And notification emission is best-effort by design** (FR-006): if the `SendMessage` to the notifications queue fails, it is logged and swallowed, because a notification failure must never fail the pipeline.
-
-So there is a residual class of failures the user cannot be told about. The answer is not to pretend it away; it is to make sure **an operator** finds out. The DLQ alarm was previously deferred across both arcs as a "known cross-cutting gap." **It cannot be deferred any longer**, because the dashboard's completeness now *depends* on notifications being the failure channel.
-
-#### Acceptance Criteria:
-
-- [ ] A **CloudWatch alarm on the data-quality DLQ** fires when its depth exceeds zero. A comment records why: a message in the DLQ is a check the user asked for, will never hear about, and will not see on the dashboard.
-- [ ] A **CloudWatch alarm on the state machine's `ExecutionsFailed`** metric fires on any failed execution — the backstop for a failure that somehow reaches `Fail` without notifying.
-- [ ] Both alarms are provisioned in `infra/modules/data-quality/` and the deploy role is expanded for the new resource type (CloudWatch alarms), per the CLAUDE.md infra rule.
-- [ ] Neither alarm has a notification target wired in v1 (there is no on-call rotation) — they exist so the failure is **visible in the console** rather than invisible everywhere. A comment records that a target is the obvious follow-up and that shipping the alarm without one is deliberate, not an oversight.
-
-### FR-006: Best-effort emission, correctly scoped IAM
+### FR-005: Best-effort emission, correctly scoped IAM
 
 #### Acceptance Criteria:
 
 - [ ] Emission is **best-effort**: an unset `NOTIFICATIONS_QUEUE_URL` is a logged no-op, a missing recipient is a logged no-op, and any exception during send is logged and swallowed — **a notification failure never fails the pipeline outcome** (`cpcommon.notify.emit_notification`).
 - [ ] `MessageGroupId` = the recipient username (per-user single-writer ordering, SPEC-058).
 - [ ] `MessageDeduplicationId` = `{requestId}:{step}` (mirroring `tbcommon/notify.py:30-32`) — which is why SPEC-109 FR-001 requires `requestId` on every envelope.
+- [ ] **`{step}` is a single shared token — `failure` — for EVERY failure emit in the arc, and `completed` for the success emit.** A comment records why it is not the per-verb name: `NotifyFailure` runs after the execution has already left the failing verb and **cannot know which verb raised**, so a per-verb step would make the decorator's id and `NotifyFailure`'s id differ and the user would get **two** notifications for one failure — the exact outcome FR-004's dedup criterion forbids. Only one verb can fail per execution, so one token per outcome is sufficient to distinguish them. A test asserts the decorator's dedup id and `NotifyFailure`'s dedup id are byte-identical for the same request.
+- [ ] Where the decorator and `NotifyFailure` both fire, **the decorator's message is the one delivered** (it emits first, inside the Lambda, before the Catch routes). That ordering is what lets the delivered message carry the per-request tokens (`{object}`, `{count}`) that `NotifyFailure` — which recovers only a reason code from the raw `$.error` — cannot. A comment records it.
 - [ ] The execution role gains `sqs:SendMessage` on the **notifications queue ARN only** — no other queue, no other SQS action.
 - [ ] The Glue/Athena/LF grants from SPEC-111 are unchanged; this spec adds no catalog permission. A plan assertion confirms it.
 
@@ -140,28 +128,46 @@ The emitted SQS body — the producer side of the notification wire contract (th
   "link": "/data-quality/alice/7f3a…"       // in-app path only (SPEC-113 FR-008); space per the precedence rule
 }
 // MessageGroupId         = the recipient username  (per-user single-writer ordering, SPEC-058)
-// MessageDeduplicationId = "{requestId}:{step}"    (collapses decorator + NotifyFailure emits, FR-004/FR-006)
+// MessageDeduplicationId = "{requestId}:{step}"    (collapses decorator + NotifyFailure emits, FR-004/FR-005)
 ```
 
 ## File & Folder Structure
 
 ```
-lambdas/data-quality-notify-failure/notify_failure.py      (+ tests)  # the REAL handler for the SPEC-108 placeholder — wired, not created, here
-lambdas/data-quality-common/dqcommon/messages.py   # reason codes → friendly text (registered via cpcommon)
+lambdas/data-quality-notify-failure/dq_notify_failure.py   (+ tests)  # the REAL handler for the SPEC-108 placeholder — wired, not created, here
+lambdas/data-quality-common/dqcommon/messages.py   # + success_message (verdict/top issues/qualifier); reason codes already registered by 109-111
+lambdas/data-quality-common/dqcommon/notify.py     # NEW: the domain emitters + notifies_on_failure + the report-link builder
+lambdas/control-plane-common/cpcommon/notify.py    # + optional `link` on emit_notification (SPEC-113 FR-008 wire field)
+lambdas/control-plane-common/cpcommon/errors.py    # + optional `tokens` on TerminalError (FR-002)
 lambdas/data-quality-*/…                            # @notifies_on_failure on every handler; emit at terminals
-infra/modules/data-quality/state-machine.asl.json.tftpl    # NotifyFailure state → the notify-failure Lambda
 infra/modules/data-quality/policies/execution.json.tftpl   # + sqs:SendMessage on the notifications queue
-infra/modules/data-quality/lambda.tf                       # + NOTIFICATIONS_QUEUE_URL env
+infra/modules/data-quality/iam.tf                          # + notifications_queue_arn into the templatefile() call
+apps/portal/src/features/data-quality/DataQualityDialog.tsx    # restore the "you'll be notified" copy
+apps/portal/src/features/data-quality/DataQualityDialog.test.tsx  # DELETE the SPEC-113 guard test
+apps/portal/src/features/help/helpContent.ts               # SPEC-074 sweep: the notification is now real
 ```
+
+**Already wired by SPEC-108→113 — this spec changes neither:** the `NotifyFailure` state in
+`state-machine.asl.json.tftpl` (it already targets the notify-failure function, already sits
+after `DropTempTablesOnFailure`/`RecordFailure`, and already carries the raw `$.error`), and
+the `NOTIFICATIONS_QUEUE_URL` env in `lambda.tf`. **No ASL change is in scope**; a diff that
+touches the state machine is a signal something was misread.
 
 ## Implementation Phases
 
 ### Phase 1: Messages + emission
 
-- Register **every** data-quality reason code through the `cpcommon.messages` hook (incl. `invalid_request`, `unreadable_header`, `compressed_source_too_large`, `too_many_partition_values`, `too_many_columns`) and test that no raise site can use an unregistered one; emit success from `assemble-report` (verdict + top issues + **the `/data-quality/{space}/{requestId}` report link** + the approximate qualifier) and failure from each terminal path; implement the `notify-failure` handler and wire the `NotifyFailure` state to it; decorate every handler with `@notifies_on_failure`.
+- Verify (do not re-do) that every data-quality reason code is registered through the `cpcommon.messages` hook — SPEC-109→111 already registered all fourteen — and add the test that no raise site can use an unregistered one, asserting against `dqcommon`'s own `_BODIES` table per FR-002.
+- `cpcommon`: optional `link` on `emit_notification`, optional `tokens` on `TerminalError`.
+- `dqcommon/notify.py`: the domain emitters, `notifies_on_failure(step)`, and the report-link builder; `dqcommon/messages.py`: `success_message`.
+- Emit success from `assemble-report` (verdict + top issues + **the `/data-quality/{space}/{requestId}` report link** + the approximate qualifier); implement the real `notify-failure` handler; decorate every handler with `@notifies_on_failure`; pass `tokens=` at the raise sites.
+- Restore the "you'll be notified" copy in the dialog + toast + help, and **delete the guard test** in `DataQualityDialog.test.tsx`.
 
-### Phase 2: IAM + env + end-to-end
+### Phase 2: IAM + end-to-end
 
-- `sqs:SendMessage` on the notifications queue ARN only; the `NOTIFICATIONS_QUEUE_URL` env var; confirm no catalog permission crept in.
-- End-to-end: run a check on a folder with a known drifting column and a large file, and assert the actor's inbox receives **one** message that names the issue, links to the report view, and **says the encoding figure was sampled**. Run a check that fails authorization and assert one friendly failure message with no raw AWS text. Run a check on an `.xlsx` file and assert the message says the format is unsupported — with no convert-first guidance.
+- `sqs:SendMessage` on the notifications queue ARN only (the `NOTIFICATIONS_QUEUE_URL` env is already wired); confirm no catalog permission crept in.
+- **Live end-to-end is DEFERRED to the end of the arc (user decision, 2026-07-21):** no further live smoke tests until the data-quality feature specs (114, 123, 124) are all built, then one pass covering the arc. The scenarios below are what that pass must cover for this spec, and they are recorded here so they are not lost:
+  - a folder with a known drifting column and a large file → the actor's inbox receives **one** message that names the issue, links to the report view, and **says the encoding figure was sampled**;
+  - a check that fails authorization → one friendly failure message with no raw AWS text;
+  - an `.xlsx` file → the message says the format is unsupported, with no convert-first guidance.
 - Completion ritual, including the SPEC-074 help sweep — the arc is now user-visible end to end — and a one-line Key Decisions entry in CLAUDE.md pointing at `docs/data-quality-architecture.md`.
