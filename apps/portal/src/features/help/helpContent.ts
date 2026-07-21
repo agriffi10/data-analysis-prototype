@@ -11,10 +11,10 @@ import type {HelpSection} from './help.types';
 // The data-quality guides now cover the whole loop: starting a check from EITHER
 // entry point (Files, or Data quality → New quality check — SPEC-124), the
 // notification that reports it, the report itself, and (SPEC-123) browsing past
-// checks from the Data quality tab. What they still do NOT promise is that EVERY
-// failure reaches notifications — a request that never starts an execution
-// notifies nobody until SPEC-126 drains the DLQs, which is why both the guide and
-// the page itself say a failed check "usually" reports itself there.
+// checks from the Data quality tab. Since SPEC-126 drains every control plane's
+// request DLQ back into notifications, the guides may now say a failure ALWAYS
+// reports itself there — they hedged with "usually" until that shipped, because a
+// request that never started an execution notified nobody.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
@@ -128,7 +128,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'A row tagged <b>Sampled</b> means some of that check’s figures are estimates rather than exact counts — open the report to see which. A check that <b>failed</b> has no row here, because it never produced a report; it reports itself in your <b>notifications</b> instead.'
+          text: 'A row tagged <b>Sampled</b> means some of that check’s figures are estimates rather than exact counts — open the report to see which. A check that <b>failed</b> has no row here, because it never produced a report; it always reports itself in your <b>notifications</b> instead — including a request that couldn’t be started at all.'
         }
       }
     ]

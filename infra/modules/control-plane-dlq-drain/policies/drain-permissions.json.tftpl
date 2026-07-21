@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTheRequestDlqs",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": ${jsonencode(dlq_arns)}
+    },
+    {
+      "Sid": "NotifyTheActor",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${notifications_queue_arn}"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${lambda_log_group_arn}:*"
+    }
+  ]
+}

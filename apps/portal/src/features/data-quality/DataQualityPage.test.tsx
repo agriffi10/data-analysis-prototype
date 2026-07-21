@@ -302,15 +302,16 @@ describe('DataQualityPage — the completed-only signpost', () => {
     expect(screen.getByText(/This lists checks that finished/)).toBeInTheDocument();
   });
 
-  it('does not promise a notification for EVERY failure while SPEC-126 is unbuilt', async () => {
-    // A request that never starts an execution (DLQ) notifies nobody until SPEC-126
-    // drains it. Promising otherwise would relocate the very lie this line exists to
-    // prevent. Tighten this test to an absolute promise when SPEC-126 ships.
+  it('promises a notification for EVERY failure, now that SPEC-126 drains the DLQs', async () => {
+    // This was worded "usually" while a request that never started an execution notified
+    // nobody. SPEC-126 drains the request DLQs back into the notification pipeline, so the
+    // hedge became the inaccuracy — and a page that under-promises teaches the same
+    // distrust as one that over-promises.
     renderPage();
 
     const note = await screen.findByText(/This lists checks that finished/);
-    expect(note).toHaveTextContent(/usually/);
-    expect(note).not.toHaveTextContent(/always/);
+    expect(note).toHaveTextContent(/always/);
+    expect(note).not.toHaveTextContent(/usually/);
   });
 });
 

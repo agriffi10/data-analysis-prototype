@@ -1,7 +1,7 @@
 # Spec: Control-Plane DLQ Drain → User Notification
 
 **ID:** SPEC-126
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-21
 **Depends On:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.auth` / `notify` / `messages`), SPEC-114 (the data-quality producer whose FR-005 this replaces)
 
