@@ -24,6 +24,32 @@ export type DataQualityRequest = {
  */
 export type DataQualityMessage = DataQualityRequest & {idToken: string};
 
+/**
+ * One row on the runs dashboard (SPEC-123 FR-001).
+ *
+ * Mirrors an entry in `{space}/_data-quality-reports/index.json`, written by
+ * `dqcommon/index_store.py::entry_from`. Deliberately small: this file is fetched whole on
+ * every dashboard load, so it carries what a ROW renders and nothing else — the findings
+ * live in the per-run report, fetched only on drill-down.
+ */
+export type DataQualityRunSummary = {
+  requestId: string;
+  /**
+   * CLIENT-DERIVED from whichever space's index this came out of — it is NOT stored in the
+   * entry. Storing it would be a second copy of a fact the object's own key already states,
+   * free to drift; deriving it makes the row's `/data-quality/{space}/{requestId}` link
+   * correct by construction.
+   */
+  space: string;
+  location: string;
+  format: string;
+  verdict: DataQualityVerdict;
+  fileCount: number;
+  hasApproximateFigures: boolean;
+  /** The report's `completedAt` (SPEC-112 FR-003). */
+  timestamp: string;
+};
+
 // ── The report (SPEC-113 FR-005) ────────────────────────────────────────────
 //
 // Mirrors `lambdas/data-quality-common/dqcommon/report.py::build` BYTE-FOR-BYTE. The

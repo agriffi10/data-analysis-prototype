@@ -1,8 +1,8 @@
 # Spec: Data Quality — Runs Dashboard (the parent page)
 
 **ID:** SPEC-123
-**Status:** Draft
-**Last Updated:** 2026-07-13
+**Status:** Completed
+**Last Updated:** 2026-07-21
 **Depends On:** SPEC-112 (`assemble-report` — this spec adds the index write to it), SPEC-113 (the report view this drills into), SPEC-114 (notifications), SPEC-085 (side nav), SPEC-095 (responsive), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help)
 
 > Dependency note: this spec has **no direct `cpcommon` dependency** — its Lambda-side work rides `dqcommon` (`index_store`) inside the already-shipped `assemble-report` verb; everything else is browser-side. SPEC-107's absence from Depends On is deliberate.
@@ -33,7 +33,12 @@ The storage model is the one the arc already uses: **a hidden folder of JSON, on
 
 ### Out of Scope
 
-- **Failed checks.** A run that fails before `assemble-report` never writes an index entry, so the dashboard lists **completed checks only** — accepted by the user on 2026-07-12, **on one explicit condition: a failed check must always reach the user with a concrete reason.** That condition is not a hope; it is discharged by **SPEC-114 FR-004** (a dedicated `NotifyFailure` state on the failure path, so notification does not depend on the failing verb being able to emit it — it survives a Lambda import error and a Step Functions-level error) and **SPEC-114 FR-005** (DLQ and `ExecutionsFailed` alarms for the residual class where *nothing ran*, so no notification is possible at all). **SPEC-123 must not ship before SPEC-114 FR-004 and FR-005 do** — without them, "completed checks only" degrades into a list that lies by omission.
+- **Failed checks.** A run that fails before `assemble-report` never writes an index entry, so the dashboard lists **completed checks only** — accepted by the user on 2026-07-12, **on one explicit condition: a failed check must always reach the user with a concrete reason.** That condition is discharged in two parts, and **only one of them had shipped when this spec did** (amended 2026-07-21, user decision):
+
+- **SPEC-114 FR-004 — shipped.** A dedicated `NotifyFailure` state on the failure path, so notification does not depend on the failing verb being able to emit it; it survives a Lambda import error and a Step Functions-level error.
+- **The residual class where *nothing ran*** — a request the Pipe never turns into an execution, which exhausts its receives into the DLQ. SPEC-114 FR-005 was to cover this with CloudWatch alarms; that FR was **removed** (an alarm with no notification target tells the *user* nothing) and replaced by **SPEC-126**, which drains every control plane's request DLQ back into the notification pipeline. **SPEC-126 was not built when this spec shipped.**
+
+So the FR-006 footer line is worded **"usually"**, not as a guarantee, and a test pins that wording. Promising every failure reaches notifications while that hole is open would relocate the very lie the line exists to prevent. **Tighten the line — and its test — to an absolute promise when SPEC-126 lands.**
 - **Deleting a check from the dashboard.** The pipeline holds no `s3:DeleteObject`; the user's own role can delete the report objects, but a delete affordance here would need to also rewrite the index under CAS, and the value is low. Deferred.
 - **Any new shared component.** The page is `PageLayout` + the existing row/pager/filter primitives, exactly as SPEC-113 FR-007 requires of the report view.
 - A converter runs dashboard. If this pattern proves useful, that is a follow-up — but symmetry is not a reason to build a second one now.

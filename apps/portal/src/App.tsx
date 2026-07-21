@@ -8,6 +8,7 @@ import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotificationsPage from './routes/NotificationsPage';
 import HelpPage from './routes/HelpPage';
+import DataQualityPage from './routes/DataQualityPage';
 import DataQualityReportPage from './routes/DataQualityReportPage';
 import NotFoundPage from './routes/NotFoundPage';
 
@@ -65,10 +66,18 @@ export default function App() {
             path="/help"
             element={<HelpPage />}
           />
-          {/* Reached from a notification's deep link (SPEC-114) — the space is in
-              the path because a requestId alone doesn't say which space holds the
-              report. Eager: it reuses the S3 client the Files route already pulls
-              in, so lazy-loading would save nothing. */}
+          {/* The runs dashboard (SPEC-123) — a primary nav destination. Eager, same
+              reasoning as the report view below. Declared BEFORE the two-segment
+              report route; react-router matches on specificity, not order, but
+              keeping the list route first reads in the order a user meets them. */}
+          <Route
+            path="/data-quality"
+            element={<DataQualityPage />}
+          />
+          {/* Reached from this list or from a notification's deep link (SPEC-114) —
+              the space is in the path because a requestId alone doesn't say which
+              space holds the report. Eager: it reuses the S3 client the Files route
+              already pulls in, so lazy-loading would save nothing. */}
           <Route
             path="/data-quality/:space/:requestId"
             element={<DataQualityReportPage />}

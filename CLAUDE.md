@@ -66,12 +66,16 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — data-quality arc.** 108→114 complete; **open: 123 (next), then 124.** SPEC-126
+**Current work — data-quality arc.** 108→114 + 123 complete; **open: 124 (next).** SPEC-126
 (cross-cutting DLQ→notification drain) is written and open.
-- **LIVE VERIFICATION IS OWED.** No live smoke tests until 123/124 are built (user decision
-  2026-07-21), then **one pass over the whole arc**. 114 merged and deployed **unproven against real
-  SQS/SFN/Cognito** — its scenarios are in its Phase 2, and its `reportKey` seeding is exactly the
-  kind of change the SPEC-108 smoke test has caught before. Don't close the arc without this.
+- **LIVE VERIFICATION IS OWED.** No live smoke tests until 124 is built (user decision 2026-07-21),
+  then **one pass over the whole arc**. 114 and 123 are merged and deployed **unproven against real
+  SQS/SFN/Cognito/S3** — scenarios are in each spec's Phase 2. Two changes most deserve it: 114's
+  `reportKey` Pass-state seeding (the SPEC-108 smoke test has caught that class before) and 123's
+  **conditional-put CAS**, which unit tests can only check against a hand-written *model* of S3.
+- **SPEC-126 tightens two things when it lands:** the `/data-quality` footer line (and its test)
+  currently say a failed check *"usually"* reports itself in notifications — absolute once the DLQ
+  drain exists; and SPEC-123's amended shipping gate names 126 as the remaining half.
 - **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
   includes every line of the minority file **plus every header** — the check compares against the
   *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when files
@@ -99,6 +103,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Table Builder (066→072):** dedicated control plane (5 linear verbs, one role, `tbcommon` + `polars` layers). Partition keys are **user-declared** + Athena partition projection. CSV all-string. Record: `docs/table-builder-architecture.md`.
 - **Table Share (088→094):** dedicated control plane w/ recipient `Map`; **clone** the source Glue table def, never re-infer; push (no consent). Record: `docs/table-share-architecture.md`.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
+- **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. `TerminalError` gained `tokens` (user-facing; `detail` stays operator-only). FR-005's alarms were **removed** → **SPEC-126**.
 - **Control-plane table creation = TBAC (070/111 correction):** LF **admin does NOT grant `CREATE_TABLE`**. A `portal-managed` LF-Tag on every DB + one tag-policy grant per execution role + static per-bucket `DATA_LOCATION_ACCESS`. (Distinct from the per-user isolation tag.)
 - **No ASL state decodes an error Cause (#252, control-plane-wide):** `States.StringToJson($.error.Cause)` raises `States.Runtime`, **uncatchable anywhere**. Carry raw `$.error`; decode via `cpcommon.errors.failure_reason`.

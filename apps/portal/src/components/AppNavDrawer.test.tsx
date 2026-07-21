@@ -16,7 +16,7 @@ function renderDrawer(props: Partial<React.ComponentProps<typeof AppNavDrawer>> 
   );
 }
 
-const DESTS = ['Files', 'Query', 'Connections', 'Notifications', 'Help'];
+const DESTS = ['Files', 'Query', 'Connections', 'Data quality', 'Notifications', 'Help'];
 
 describe('AppNavDrawer', () => {
   it('renders nothing when closed', () => {

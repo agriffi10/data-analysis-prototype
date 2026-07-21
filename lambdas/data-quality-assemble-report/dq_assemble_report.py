@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 
 from cpcommon import clients, errors, events
 from cpcommon.errors import TerminalError
-from dqcommon import manifest as manifest_store, messages, notify, report
+from dqcommon import index_store, manifest as manifest_store, messages, notify, report
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -146,12 +146,6 @@ def _assemble(event: dict) -> dict:
     key = report_key(report_prefix)
     _write(bucket, key, document)
 
-    # THE SEAM FOR SPEC-123. The report write completes BEFORE any index write would run,
-    # and the summary below already carries everything an index entry needs (requestId,
-    # location, format, verdict, fileCount, hasApproximateFigures, completedAt). SPEC-123
-    # appends to the per-space index HERE, under ETag CAS, and swallows an exhausted retry:
-    # the index is a convenience, never a dependency — the report is the artefact.
-
     out = dict(event)
     # A SMALL payload, deliberately. The findings stay in the report; SPEC-114's
     # notification is built from these fields alone and must never carry the full document.
@@ -171,6 +165,7 @@ def _assemble(event: dict) -> dict:
         document["exact"]["rowCount"],
         len(document["topIssues"]),
     )
+
     return out
 
 
@@ -187,4 +182,20 @@ def handler(event, context) -> dict:
     """
     out = _assemble(event)
     notify.emit_completed(out)
+
+    # ORDER IS THE CONTRACT, AND IT IS THREE-DEEP: report object, then notification, then
+    # index row — most durable to least.
+    #
+    # The report is written first (in `_assemble`) so the index can never reference a report
+    # that does not exist; the reverse would put a row on the dashboard that 404s when
+    # clicked. The NOTIFICATION goes before the index because it is the user's only
+    # completion signal (SPEC-114) and the index append can cost up to
+    # DQ_INDEX_CAS_RETRIES round trips under contention — putting that ahead of the notify
+    # means a verb that times out mid-CAS leaves a written report nobody is ever told about,
+    # which is the silent-success twin of the silent failure this arc exists to end.
+    #
+    # `append` never raises: an exhausted CAS or an unwritable index is logged and swallowed.
+    # Losing the row costs a dashboard entry; failing here would cost the whole check.
+    space = out.get("space") or {}
+    out["indexed"] = index_store.append(space.get("bucket", ""), out.get("reportPrefix", ""), out)
     return out

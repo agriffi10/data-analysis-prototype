@@ -1,0 +1,108 @@
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {render, screen, waitFor, cleanup} from '@testing-library/react';
+import {MemoryRouter, Routes, Route} from 'react-router-dom';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import type {ReactElement} from 'react';
+import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../../test/axe';
+import {ToastProvider} from '../../components/ToastProvider';
+import {AuthContext} from '../auth/authContext';
+import {authenticated} from '../../test/authFixtures';
+import {DataQualityPage} from './DataQualityPage';
+import * as runsService from './dataQualityRuns.service';
+import * as sharedSpaces from '../shared-spaces/sharedSpaces.service';
+import type {DataQualityRunSummary} from './dataQuality.types';
+
+vi.mock('./dataQualityRuns.service', async (importActual) => ({
+  ...(await importActual<typeof runsService>()),
+  getRunsIndex: vi.fn()
+}));
+vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('../../lib/awsCredentials', () => ({
+  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
+  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'tok'})
+}));
+
+const mockIndex = vi.mocked(runsService.getRunsIndex);
+const mockCache = vi.mocked(sharedSpaces.readSharedConnectionsCache);
+
+// A local provider stack with default gcTime (not renderWithProviders'): the cache warmed
+// by the first `render` is reused by the render inside expectNoA11yViolations, so axe sees
+// the populated list rather than the loading line (the NotificationsPage.a11y precedent).
+const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+
+function withProviders(): ReactElement {
+  return (
+    <QueryClientProvider client={client}>
+      <AuthContext.Provider value={authenticated('alice')}>
+        <MemoryRouter initialEntries={['/data-quality']}>
+          <ToastProvider>
+            <Routes>
+              <Route
+                path="/data-quality"
+                element={<DataQualityPage />}
+              />
+            </Routes>
+          </ToastProvider>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    </QueryClientProvider>
+  );
+}
+
+function run(over: Partial<DataQualityRunSummary> = {}): DataQualityRunSummary {
+  return {
+    requestId: 'r-1',
+    space: 'alice',
+    location: 'alice/sales/',
+    format: 'csv',
+    verdict: 'issues_found',
+    fileCount: 3,
+    hasApproximateFigures: true,
+    timestamp: '2026-07-20T10:00:00Z',
+    ...over
+  };
+}
+
+/** Render, wait for the list, unmount — then hand the same tree to axe. */
+async function renderThenAxe() {
+  const ui = withProviders();
+  render(ui);
+  await waitFor(() => expect(screen.getByRole('link', {name: /alice\/sales\//})).toBeInTheDocument());
+  cleanup();
+  await expectNoA11yViolations(ui, ROUTE_AXE_OPTIONS);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  client.clear();
+  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
+  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
+  mockCache.mockResolvedValue({success: true, data: {version: 1, connections: []}});
+  mockIndex.mockResolvedValue({
+    success: true,
+    data: [run(), run({requestId: 'r-2', verdict: 'clean', hasApproximateFigures: false, location: 'alice/ok.csv'})]
+  });
+});
+
+describe('DataQualityPage a11y', () => {
+  it('has no axe violations listing checks', async () => {
+    await renderThenAxe();
+  });
+
+  it('has no axe violations at a phone width', async () => {
+    Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
+    try {
+      await renderThenAxe();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
+    }
+  });
+
+  it('exposes exactly one h1 and one main landmark', async () => {
+    render(withProviders());
+    await waitFor(() => expect(screen.getByRole('link', {name: /alice\/sales\//})).toBeInTheDocument());
+
+    expect(screen.getAllByRole('heading', {level: 1})).toHaveLength(1);
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+  });
+});
