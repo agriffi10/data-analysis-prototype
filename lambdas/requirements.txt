@@ -1,10 +1,14 @@
 # Shared Python dependencies for the Lambdas under lambdas/.
 #
-# PyJWT[crypto] — the shared-space validate-authorize Lambda verifies Cognito ID
-# tokens against the User Pool JWKS (SPEC-056 trusted-actor binding). It ships in the
-# `shared-space-common` Lambda LAYER (SPEC-062): deploy-lambdas.yml's `layer` job
-# installs this file into the layer, so the shared-space functions don't bundle it.
-# The non-layer functions (pre-signup/post-confirmation/notifications-writer) still
-# install these into their own package; they use only the standard library and don't
-# import PyJWT, so the bundled copy is harmless (well under the Lambda size limit).
+# PyJWT[crypto] — Cognito ID-token verification against the User Pool JWKS.
+#
+# SPEC-125: this file is now only for the NON-LAYER functions (pre-signup /
+# post-confirmation / notifications-writer), which install it into their own package.
+# Every control-plane verb — including the eight shared-space ones, which used to get
+# PyJWT from the shared-space-common layer — now gets it from the cpcommon layer, whose
+# own requirements.txt is the single declaration for the layered path.
+#
+# The three non-layer functions use only the standard library and don't import PyJWT, so
+# their bundled copy is harmless (well under the Lambda size limit); it is kept because
+# the build step installs this file whenever a function attaches no code layer.
 PyJWT[crypto]>=2.8,<3

@@ -8,8 +8,10 @@ Kept in the shared layer so the two verbs share one implementation.
 
 import logging
 
+from cpcommon import config as cpconfig
+
 import config
-import clients
+from cpcommon import clients
 
 logger = logging.getLogger()
 
@@ -24,13 +26,13 @@ def delete_shared_prefix(name):
     prefix = f"{name}/"
     token = None
     while True:
-        kwargs = {"Bucket": config.SHARED_SPACE_BUCKET, "Prefix": prefix}
+        kwargs = {"Bucket": cpconfig.SHARED_SPACE_BUCKET, "Prefix": prefix}
         if token:
             kwargs["ContinuationToken"] = token
         page = s3.list_objects_v2(**kwargs)
         objects = [{"Key": o["Key"]} for o in page.get("Contents", [])]
         if objects:
-            s3.delete_objects(Bucket=config.SHARED_SPACE_BUCKET, Delete={"Objects": objects})
+            s3.delete_objects(Bucket=cpconfig.SHARED_SPACE_BUCKET, Delete={"Objects": objects})
         if page.get("IsTruncated"):
             token = page.get("NextContinuationToken")
         else:

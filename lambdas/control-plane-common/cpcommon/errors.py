@@ -183,6 +183,25 @@ class TransientError(Exception):
     """
 
 
+class AuthError(Exception):
+    """An ID token that could not be verified. INTERNAL — callers translate it (SPEC-125).
+
+    This exists because two control planes verify the same token with the same JWKS logic
+    and then raise DIFFERENT exception types on failure: table-builder / table-share /
+    data-quality raise ``TerminalError("unauthorized", …)``, while shared-space raises its
+    own ``AuthorizationError`` (a Standard Step Function that Catches domain exceptions and
+    has no transient-retry concept at all). Sharing the verification meant giving it an
+    exception SEAM rather than picking a winner.
+
+    So ``cpcommon.auth.verify_id_token`` raises this, and each caller maps it to its own
+    model. It should never reach a Step Function: a verb that lets one escape has skipped
+    its translation, which would surface a name no Catch or Retry list mentions.
+
+    ``detail`` carries the same wording the two models raised before they shared this path,
+    so neither's message text changes.
+    """
+
+
 # Retryable AWS fault codes — the canonical superset the per-verb copies converged on
 # (S3 SlowDown/RequestTimeout/500/503, Glue/generic throttles, Athena 5xx). A code NOT in
 # here is deterministic (AccessDenied, NoSuchKey, 403/404): retrying it just burns the

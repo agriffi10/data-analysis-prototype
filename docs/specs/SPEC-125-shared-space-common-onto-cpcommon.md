@@ -1,7 +1,7 @@
 # Spec: Fold `shared-space-common` onto the `cpcommon` layer
 
 **ID:** SPEC-125
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-18
 **Depends On:** SPEC-107 (`cpcommon` layer), SPEC-062 (shared-space verb decomposition), SPEC-082 (registry CAS)
 

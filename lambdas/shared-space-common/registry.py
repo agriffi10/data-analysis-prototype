@@ -16,8 +16,8 @@ the change to the *freshly-read* record, and ``PutObject`` conditioned on that E
 import json
 from datetime import datetime, timezone
 
-import config
-import clients
+from cpcommon import config as cpconfig
+from cpcommon import clients
 import casio
 
 
@@ -45,7 +45,7 @@ def _read(name: str) -> tuple[dict | None, str | None]:
     """
     s3 = clients.s3()
     try:
-        obj = s3.get_object(Bucket=config.ADMIN_BUCKET, Key=_key(name))
+        obj = s3.get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=_key(name))
     except s3.exceptions.NoSuchKey:
         return None, None
     except s3.exceptions.ClientError as exc:
@@ -60,7 +60,7 @@ def _put(name: str, record: dict, etag: str | None) -> None:
     ``If-None-Match: *`` when absent (create). Raises the S3 ClientError on a
     precondition failure so the CAS loop can retry."""
     kwargs = {
-        "Bucket": config.ADMIN_BUCKET,
+        "Bucket": cpconfig.ADMIN_BUCKET,
         "Key": _key(name),
         "Body": json.dumps(record).encode(),
         "ContentType": "application/json",
@@ -102,7 +102,7 @@ def reserve(name: str, actor: str, request_id: str) -> str:
     }
     try:
         s3.put_object(
-            Bucket=config.ADMIN_BUCKET,
+            Bucket=cpconfig.ADMIN_BUCKET,
             Key=_key(name),
             Body=json.dumps(record).encode(),
             ContentType="application/json",
@@ -265,4 +265,4 @@ def delete(name: str) -> None:
 
     Idempotent (deleting an absent key is a no-op in S3).
     """
-    clients.s3().delete_object(Bucket=config.ADMIN_BUCKET, Key=_key(name))
+    clients.s3().delete_object(Bucket=cpconfig.ADMIN_BUCKET, Key=_key(name))

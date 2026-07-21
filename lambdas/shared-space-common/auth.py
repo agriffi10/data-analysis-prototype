@@ -5,12 +5,17 @@ Cognito ID token (issuer/audience/expiry/signature against the pool JWKS) — ne
 a body-asserted username. ``authorize`` is a pure function gating each action against
 the registry. Both run in the validate-authorize Lambda; the verb Lambdas trust its
 decision and never re-verify.
+
+SPEC-125: the JWKS VERIFICATION itself now lives once, in ``cpcommon.auth`` — this module
+kept its own copy of it until then, so a claim-validation fix had to be made twice. What
+stays here is everything domain-shaped: the exception TYPE (this control plane's Standard
+Step Function Catches ``AuthorizationError``, not ``TerminalError``), the exact message
+strings, and all of ``authorize``.
 """
 
-import jwt
-
 import config
-import clients
+from cpcommon import auth as cpauth
+from cpcommon.errors import AuthError
 
 
 class AuthorizationError(Exception):
@@ -18,30 +23,17 @@ class AuthorizationError(Exception):
 
 
 def verified_username(id_token: str) -> str:
-    """Verify a Cognito ID token and return the trusted ``cognito:username``."""
-    if not id_token:
-        raise AuthorizationError("missing idToken")
-    issuer = f"https://cognito-idp.{config.REGION}.amazonaws.com/{config.USER_POOL_ID}"
-    jwks_url = f"{issuer}/.well-known/jwks.json"
-    try:
-        signing_key = clients.jwks(jwks_url).get_signing_key_from_jwt(id_token)
-        claims = jwt.decode(
-            id_token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=config.APP_CLIENT_ID,
-            issuer=issuer,
-            options={"require": ["exp", "iss", "aud"]},
-        )
-    except Exception as exc:  # noqa: BLE001 - any verify failure = untrusted
-        raise AuthorizationError(f"token verification failed: {exc}") from exc
+    """Verify a Cognito ID token and return the trusted ``cognito:username``.
 
-    if claims.get("token_use") != "id":
-        raise AuthorizationError("not an ID token")
-    username = claims.get("cognito:username")
-    if not username:
-        raise AuthorizationError("token missing cognito:username")
-    return username
+    A thin adapter over ``cpcommon.auth.verify_id_token``: identical verification, this
+    control plane's exception type. The message strings are unchanged and pinned by test —
+    the SFN Catch keys off the type, but an operator reads the message, and nothing pinned
+    these before, so a silent reword would have passed CI.
+    """
+    try:
+        return cpauth.verify_id_token(id_token)["cognito:username"]
+    except AuthError as exc:
+        raise AuthorizationError(str(exc)) from exc
 
 
 def authorize(action, space, actor, registry):

@@ -5,11 +5,12 @@ name: Deploy Lambdas
 # function under lambdas/, this installs the shared requirements, zips the
 # package, uploads it to the artifacts bucket, and runs update-function-code.
 #
-# Shared-space functions (SPEC-062) get their deps + shared common code from a
-# Lambda LAYER instead of bundling them: the `layer` job builds + publishes the
-# `shared-space-common` layer once, and each shared-space function attaches it via
-# update-function-configuration. Terraform ignores the function `layers` attribute,
-# so CI owns the layer the same way it owns the code.
+# Shared-space functions (SPEC-062) get their shared code from a Lambda LAYER instead
+# of bundling it: the `layer` job builds + publishes the `shared-space-common` layer
+# once, and each shared-space function attaches it via update-function-configuration.
+# Terraform ignores the function `layers` attribute, so CI owns the layer the same way
+# it owns the code. Since SPEC-125 they attach `cpcommon` alongside it — two layers —
+# and shared-space-common carries DOMAIN code only, with no external deps of its own.
 
 on:
   push:
@@ -54,12 +55,14 @@ jobs:
           set -euo pipefail
           LAYER_DIR="build/layer/python"
           rm -rf build/layer && mkdir -p "$LAYER_DIR"
-          # External deps for the layer (manylinux wheels, compatible with the
-          # python3.12 Lambda runtime — same as the previous per-function bundling).
-          pip install --quiet --requirement lambdas/requirements.txt --target "$LAYER_DIR"
+          # SPEC-125: NO pip install here any more. PyJWT[crypto] was this layer's only
+          # external dep, and it is now declared once in the cpcommon layer that every
+          # shared-space function also attaches — installing it twice would put two copies
+          # of cryptography on the same function's 250 MB ceiling.
           # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
-          # Keep this list in sync with lambdas/shared-space-common/.
-          for m in config clients casio auth registry membership cache notify teardown; do
+          # Keep this list in sync with lambdas/shared-space-common/. `clients` is gone
+          # (SPEC-125 deleted it in favour of cpcommon.clients).
+          for m in config casio auth registry membership cache notify teardown; do
             cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
           done
           echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
@@ -78,7 +81,7 @@ jobs:
           LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-shared-space-common"
           ARN=$(aws lambda publish-layer-version \
             --layer-name "$LAYER_NAME" \
-            --description "Shared common code + deps for the shared-space control plane (SPEC-062)." \
+            --description "Shared-space DOMAIN code (registry/cache/membership/teardown/casio/auth-adapter). Deps + the shared client/config/JWT surface come from the cpcommon layer (SPEC-062, slimmed by SPEC-125)." \
             --zip-file "fileb://build/shared-space-common-layer.zip" \
             --compatible-runtimes python3.12 \
             --query LayerVersionArn --output text)
@@ -474,14 +477,14 @@ jobs:
           - { name: pre-signup, layer: false, polars: false, tbcommon: false }
           - { name: post-confirmation, layer: false, polars: false, tbcommon: false }
           - { name: notifications-writer, layer: false, polars: false, tbcommon: false }
-          - { name: shared-space-validate, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-create, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-add-members, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-remove-members, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-leave, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-delete, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-forget, layer: true, polars: false, tbcommon: false }
-          - { name: shared-space-acknowledge-membership, layer: true, polars: false, tbcommon: false }
+          - { name: shared-space-validate, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-create, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-add-members, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-remove-members, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-leave, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-delete, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-forget, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-acknowledge-membership, layer: true, polars: false, tbcommon: false, cpcommon: true }
           # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
           # — ALL five verbs use the shared tbcommon package now (config/clients/errors +
           # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer

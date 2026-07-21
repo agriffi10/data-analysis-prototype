@@ -66,8 +66,7 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — data-quality arc.** 108→114 + 123/124 + 126 complete; **open: 125 (next)** —
-fold `shared-space-common` onto `cpcommon`.
+**Current work — data-quality arc.** 108→114 + 123/124 + 125/126 complete. **No spec is open.**
 - **LIVE VERIFICATION IS OWED — 124 is now built, so the arc is due its one smoke pass** (user
   decision 2026-07-21). 114, 123 and 124 are merged and deployed **unproven against real
   SQS/SFN/Cognito/S3** — scenarios are in each spec's Phase 2. Three changes most deserve it: 114's
@@ -76,6 +75,10 @@ fold `shared-space-common` onto `cpcommon`.
   124's dashboard enqueue, whose whole path to SQS has only ever run against a mock. **126 owes its
   own live check too** — hand-place a malformed body on the data-quality DLQ with a valid token and
   confirm one "couldn't be started" notification arrives naming no path from the body.
+- **SPEC-125 owes a shared-space smoke run** (create → add-member → leave → delete). It attached the
+  `cpcommon` layer to all 8 verbs, and a shared layer's import-time `_require` fails at **cold
+  start** — the one failure mode no unit test can reach (PR #196). Check the 8 functions' first
+  invoke after deploy before trusting the arc.
 - **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
   includes every line of the minority file **plus every header** — the check compares against the
   *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when files
@@ -97,7 +100,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Usernames** = S3 prefix = principal tag = Glue DB name; catalog-safe `^[a-z][a-z0-9_]{2,62}$` (SPEC-033).
 - **Query workspace has NO active database** (SPEC-077, supersedes 047/076): every base table is fully-qualified `database.table`; rail is browse-only.
 - **Multi-statement scripts (078):** client-side `;` split, sequential stop-on-first-failure, 3 run scopes (⌘⏎ / ⌘⇧⏎ / ⌘⌥⏎). No transactions.
-- **Bucket 2 (shared-space):** privileged async control plane (FIFO SQS → Pipe → SFN → single-task verb Lambdas + `shared-space-common` layer, one shared `orchestrator` role). Create is creator-only. Record: `docs/shared-spaces-architecture.md`.
+- **Bucket 2 (shared-space):** privileged async control plane (FIFO SQS → Pipe → SFN → single-task verb Lambdas + `cpcommon` **and** a domain-only `shared-space-common` layer since SPEC-125, one shared `orchestrator` role). Create is creator-only. Record: `docs/shared-spaces-architecture.md`.
 - **Member join status (073):** 7th verb `acknowledge-membership` flips pending→active; display/bookkeeping only, access granted at add time.
 - **Member roster (075):** reverses 053 — every member sees a read-only roster; `cache.write_roster_to_all` fans out on add/remove/leave.
 - **Table Builder (066→072):** dedicated control plane (5 linear verbs, one role, `tbcommon` + `polars` layers). Partition keys are **user-declared** + Athena partition projection. CSV all-string. Record: `docs/table-builder-architecture.md`.

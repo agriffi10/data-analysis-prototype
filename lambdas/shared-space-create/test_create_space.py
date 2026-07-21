@@ -10,8 +10,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-import clients  # noqa: E402
-import config  # noqa: E402
+from cpcommon import clients  # noqa: E402
+from cpcommon import config as cpconfig  # noqa: E402
 import create_space as c  # noqa: E402
 import registry as reg  # noqa: E402
 from fakes import install, raises  # noqa: E402
@@ -20,7 +20,7 @@ from fakes import install, raises  # noqa: E402
 def _enable_notifications():
     """Point the emit helper at a queue so notify is no longer a no-op; return the
     FakeSqs install() already wired onto clients._sqs."""
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
+    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
     return clients._sqs
 
 
@@ -104,7 +104,7 @@ def test_create_slot_full_fails_and_records_failure():
 
 def test_create_failure_after_slot_rolls_back_slot():
     install()
-    import clients
+    from cpcommon import clients
 
     # The slot is assigned, then a later provisioning step fails: the except path must
     # clear the slot so a failed create doesn't leak one toward the membership cap.
@@ -121,7 +121,7 @@ def test_create_failure_after_slot_rolls_back_slot():
 
 def test_create_slot_assignment_is_replay_safe():
     install(cognito_attrs={"custom:shared_space_2": "sales"})
-    import clients
+    from cpcommon import clients
 
     clients._s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
         {"name": "sales", "owner": "alice", "lastRequestId": "req-1", "status": "provisioning"}
@@ -173,7 +173,7 @@ def test_create_failure_scrubs_raw_aws_error_from_notification_and_cache():
     # must NOT leak into the actor's notification or the cache `reason` the
     # Connections card shows — but the registry `failed` record keeps it for operators.
     s3, *_ = install()
-    import clients
+    from cpcommon import clients
 
     clients._lf.grant_permissions = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("AccessDenied on glue:xyz"))
     sqs = _enable_notifications()
