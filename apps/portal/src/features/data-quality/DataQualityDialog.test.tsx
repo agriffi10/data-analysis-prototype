@@ -43,7 +43,16 @@ describe('DataQualityDialog', () => {
     expect(dialog).toHaveTextContent(/only reads/i);
     expect(dialog).toHaveTextContent(/nothing is modified, moved, or deleted/i);
     expect(dialog).toHaveTextContent(/runs in the background/i);
-    expect(dialog).toHaveTextContent(/notification/i);
+  });
+
+  it('does not promise a notification, because nothing sends one yet', () => {
+    // The data-quality notification producer is SPEC-114 and is unbuilt —
+    // `dq_notify_failure` is still a SPEC-108 pass-through stub and there is no
+    // success emitter — so a finished check surfaces nowhere on its own. This
+    // assertion is the guard against the promise creeping back before it is true;
+    // SPEC-114 should delete it and restore the wording in the same change.
+    renderDialog();
+    expect(screen.getByRole('alertdialog')).not.toHaveTextContent(/notif/i);
   });
 
   it('enqueues the check on confirm, closes, and toasts that it has started', async () => {

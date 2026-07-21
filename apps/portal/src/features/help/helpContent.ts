@@ -2,10 +2,17 @@ import type {HelpSection} from './help.types';
 
 // SPEC-074 FR-005 — MAINTENANCE NOTE.
 // This content describes only the portal behavior that is shipped and reachable
-// by users as of implementation: Files (incl. the SPEC-113 data-quality check +
-// report view), Query, Tables (create-from-folder + share, SPEC-066→072 /
-// 088→094), Shared connections (incl. SPEC-073 pending/active join status), and
+// by users as of implementation: Files (incl. STARTING a SPEC-113 data-quality
+// check), Query, Tables (create-from-folder + share, SPEC-066→072 / 088→094),
+// Shared connections (incl. SPEC-073 pending/active join status), and
 // Notifications. Every step below maps to a real, wired affordance in the code.
+//
+// The data-quality guide deliberately stops at "the check is running". Reading
+// the report is NOT documented, because there is no in-app route to it yet: the
+// notification that links to it is SPEC-114 (unbuilt — `dq_notify_failure` is a
+// pass-through stub) and the runs dashboard is SPEC-123. Documenting the report
+// view now would send users down a dead end. SPEC-114's completion ritual is
+// where those steps get added back.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
@@ -97,13 +104,11 @@ export const HELP_SECTIONS: HelpSection[] = [
           'In the <b>Files</b> tab, tick the checkbox on <b>one</b> file or <b>one</b> folder. The check runs on a single item at a time.',
           'Click <b>Check quality</b> in the toolbar above the list.',
           'Confirm in the dialog — it names exactly what will be read — then click <b>Start check</b>.',
-          'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.',
-          'When it finishes you get a <b>notification</b>. Open it to read the full report.',
-          'On the report, <b>Re-run check</b> runs it again against the same files, and <b>Open folder</b> takes you back to the data.'
+          'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.'
         ],
         callout: {
           kind: 'tip',
-          text: 'Some figures are <b>estimates</b>, and the report always says which. Ragged-row counts over-count rows that contain commas inside quotes, and on a large folder the text-encoding check reads a sample rather than every byte — it tells you what percentage it looked at. A figure marked <b>Skipped</b> or <b>Not computed</b> is one the check couldn’t make, never a clean result.'
+          text: 'The check never guesses in your favour. Some figures are <b>estimates</b> and say so: ragged-row counts over-count rows with commas inside quotes, and on a large folder the text-encoding check reads a sample rather than every byte. A figure marked <b>Skipped</b> or <b>Not computed</b> is one the check couldn’t make — never a clean result.'
         }
       }
     ]
