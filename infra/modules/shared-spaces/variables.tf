@@ -40,6 +40,11 @@ variable "athena_admin_bucket_name" {
   type        = string
 }
 
+variable "athena_workgroup" {
+  description = "SPEC-125: the shared portal Athena workgroup name. The shared-space verbs never call Athena — this is here because the cpcommon layer they now attach _require()s ATHENA_WORKGROUP AT IMPORT, so a verb missing it crashes at COLD START rather than at the line that would have used it (the table-builder break, PR #196)."
+  type        = string
+}
+
 variable "app_url" {
   description = "Public URL of the deployed app. Added to the shared-space bucket CORS allowed-origins alongside local dev; empty = localhost only."
   type        = string

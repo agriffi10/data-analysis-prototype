@@ -5,6 +5,9 @@ imported lazily so a verb that doesn't need a client never pays for it. Tests pa
 cached globals directly (e.g. ``clients._s3 = Fake()``). This is the UNION of what the
 table-builder and table-share layers used: s3, sqs, glue, athena, cognito, and the
 memoized User Pool JWKS client (per-container cache, matching the old tbcommon/clients).
+
+SPEC-125 completes the union with ``lf()``, the one factory ``shared-space-common`` had
+that this module lacked — so the shared-space verbs can drop their own copy of this file.
 """
 
 _s3 = None
@@ -12,6 +15,7 @@ _sqs = None
 _glue = None
 _athena = None
 _cognito = None
+_lf = None
 _jwks = None
 
 
@@ -58,6 +62,16 @@ def cognito():
 
         _cognito = boto3.client("cognito-idp")
     return _cognito
+
+
+def lf():
+    """Lake Formation client. Used by the shared-space verbs (LF-Tag + permission grants)."""
+    global _lf
+    if _lf is None:
+        import boto3
+
+        _lf = boto3.client("lakeformation")
+    return _lf
 
 
 def jwks(url):
