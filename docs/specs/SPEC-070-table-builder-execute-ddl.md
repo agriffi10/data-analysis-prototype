@@ -15,6 +15,15 @@
 > is **no `MSCK REPAIR TABLE`** step and **no `partition_load_failed`** reason — a projected table is queryable
 > the instant the `CREATE` succeeds.
 
+> **Superseded 2026-07-21 (PR #252):** the `ParseError` state was REMOVED from every
+> control plane. `States.StringToJson($.error.Cause)` in a `Pass` raises an uncatchable
+> `States.Runtime` whenever `Cause` is absent or is not JSON (`States.Timeout`,
+> `States.DataLimitExceeded`, `Lambda.Unknown` — verified live with `TestState`), killing
+> the execution before the recorded-failure and notify states. Every `Catch` now routes
+> straight to cleanup/`RecordFailure`, which carries the RAW `error` object
+> (`{Error, Cause}`) rather than a decoded `reason`; `cpcommon.errors.failure_reason`
+> decodes it in Python. **No ASL state may decode an error Cause.**
+
 ## Overview
 
 Run the table into existence. `execute-ddl` takes the `infer-schema` payload (the `CREATE EXTERNAL TABLE IF NOT

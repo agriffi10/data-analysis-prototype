@@ -139,8 +139,8 @@ member** of that space per `<admin-bucket>/shared-spaces/{database}.json`); vali
 `valid` / `reason` (`unknown_user` / `unknown_space`) — an invalid recipient is NOT
 fatal (it fails per-recipient in the Map; siblings proceed). Whole-request terminals
 (`unauthorized` / `forbidden` / `invalid_table_name` / `invalid_recipients` /
-`no_recipients`) route Catch → `ValidateFailureSeed → ParseError → RecordFailure →
-Failed` with the structured `{actor, source, tableName, status:'failed', reason}`.
+`no_recipients`) route Catch → `ValidateFailureSeed → RecordFailure →
+Failed` with the structured `{actor, source, tableName, status:'failed', error}`.
 
 ### Checks
 
@@ -199,8 +199,8 @@ partition-projection. Terminal reasons: `source_is_view` / `source_not_external`
 
 The recipient fan-out is real: the Map (MaxConcurrency 5) runs
 `check-target-absent → copy-objects → create-table(stub)` per recipient with a
-per-item `Catch → RecipientParseError → RecipientFailed` shaping
-`{recipient, status:'failed', reason}` — one recipient's failure never aborts
+per-item `Catch → RecipientFailed` shaping
+`{kind, name, status:'failed', error}` — one recipient's failure never aborts
 siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok'}`).
 
 - **check-target-absent**: invalid recipients (SPEC-089 annotation) short-circuit to
@@ -222,3 +222,10 @@ siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok
 2. **Live per-recipient path** — still gated on the SPEC-092 LF-admin wiring
    (recipient-DB `GetTable` → `target_not_readable` until then). The full live
    share (copy + create + per-recipient outcomes) is SPEC-092's check.
+
+> **Corrected 2026-07-21 (PR #252):** the `ParseError` state is GONE from every control
+> plane. It decoded the error Cause with `States.StringToJson`, which raises an
+> uncatchable `States.Runtime` on any Cause that is absent or not JSON — killing the
+> execution before the recorded-failure state. The terminal states now carry the RAW
+> `error` object (`{Error, Cause}`) instead of a decoded `reason`; decode it with
+> `cpcommon.errors.failure_reason`.
