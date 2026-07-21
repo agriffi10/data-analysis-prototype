@@ -20,7 +20,7 @@ import logging
 
 from cpcommon import athena
 from cpcommon.errors import TerminalError
-from dqcommon import messages
+from dqcommon import messages, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -148,6 +148,7 @@ def _check(event):
     return out
 
 
+@notify.notifies_on_failure("check-query")
 def handler(event, context) -> dict:
     """Report every query's status; never wait, sleep, or loop."""
     return _check(dict(event) if isinstance(event, dict) else {})

@@ -96,6 +96,138 @@ def test_unknown_reason_falls_back_without_leaking_the_code():
     assert "no_such_reason_code" not in body
 
 
+# ── The exhaustive raise-site walk (SPEC-114 FR-002) ─────────────────────────
+#
+# Everything above pins WORDING. This walks the arc's actual source and pins that no raise
+# site can name a reason this domain never registered, and that no message promising to
+# name a file or a count can ship without the token to fill it. Both failures are invisible
+# in a unit test of the verb: the first raises ValueError only on the deployed function
+# (see the docstring on test_inspect_source_reasons_are_in_dqcommons_own_table), and the
+# second renders "{count} found" to a user while every assertion still passes.
+
+import ast  # noqa: E402
+import re  # noqa: E402
+
+_ARC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+_MARKER = re.compile(r"\{(\w+)\}")
+
+
+def _verb_sources():
+    """Every non-test data-quality module, as (path, parsed AST)."""
+    for entry in sorted(os.listdir(_ARC)):
+        if not entry.startswith("data-quality-"):
+            continue
+        folder = os.path.join(_ARC, entry)
+        if not os.path.isdir(folder):
+            continue
+        for root, _dirs, files in os.walk(folder):
+            for name in sorted(files):
+                if not name.endswith(".py") or name.startswith("test_"):
+                    continue
+                path = os.path.join(root, name)
+                with open(path, encoding="utf-8") as handle:
+                    yield path, ast.parse(handle.read())
+
+
+def _reason_of(node):
+    """The reason code a `messages.CONST` / literal AST node denotes, or None."""
+    if isinstance(node, ast.Attribute) and node.attr.isupper():
+        return getattr(messages, node.attr, None)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _raise_sites():
+    """Every (path, reason, token_keys) the arc can produce.
+
+    Covers BOTH shapes: a direct `TerminalError(reason, ...)` and the typed terminal
+    `cpcommon.events` raises via `reason=` (FR-002 names these explicitly — a malformed
+    envelope is a terminal like any other).
+    """
+    for path, tree in _verb_sources():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+            tokens = set()
+            for kw in node.keywords:
+                if kw.arg == "tokens" and isinstance(kw.value, ast.Dict):
+                    tokens = {k.value for k in kw.value.keys if isinstance(k, ast.Constant)}
+            if name == "TerminalError" and node.args:
+                reason = _reason_of(node.args[0])
+                if reason:
+                    yield path, reason, tokens
+                continue
+            for kw in node.keywords:
+                if kw.arg == "reason":
+                    reason = _reason_of(kw.value)
+                    if reason:
+                        yield path, reason, tokens
+
+
+def test_every_raise_site_in_the_arc_names_a_registered_reason():
+    """A missing code is not a vague message — it is a ValueError at the raise site, in
+    production, on the failure it exists for. Asserted against dqcommon's OWN table plus
+    the cpcommon base codes; never `is_known_reason` (see the note at the top of this file).
+    """
+    sites = list(_raise_sites())
+    assert sites, "found no raise sites — the walker is broken, not the code"
+    valid = set(messages._BODIES) | set(cpmessages.BASE_REASONS)
+    for path, reason, _tokens in sites:
+        assert reason in valid, f"{os.path.basename(path)} raises unregistered reason {reason!r}"
+
+
+def test_every_message_marker_is_filled_by_every_site_that_can_raise_it():
+    """A body promising to name the file/count/key must be raised WITH that token.
+
+    This is what makes FR-002's per-code criteria ("names the file", "names the column
+    count") hold at the raise site rather than only in a hand-written message test.
+    """
+    for path, reason, tokens in _raise_sites():
+        needed = set(_MARKER.findall(messages._BODIES.get(reason, "")))
+        missing = needed - tokens
+        assert not missing, (
+            f"{os.path.basename(path)} raises {reason!r} without token(s) {sorted(missing)} — "
+            f"the message would render them literally"
+        )
+
+
+def test_no_message_body_leaves_a_marker_the_arc_never_supplies():
+    """The mirror: a marker no raise site fills is dead wording that would reach a user."""
+    supplied = {}
+    for _path, reason, tokens in _raise_sites():
+        supplied.setdefault(reason, set()).update(tokens)
+    for reason, body in messages._BODIES.items():
+        markers = set(_MARKER.findall(body))
+        if not markers:
+            continue
+        assert reason in supplied, f"{reason!r} has markers {sorted(markers)} but is never raised"
+        assert not markers - supplied[reason], (
+            f"{reason!r} has marker(s) {sorted(markers - supplied[reason])} no raise site fills"
+        )
+
+
+def test_every_handler_in_the_arc_notifies_on_failure():
+    """FR-003: an unexpected crash in ANY verb must still reach the user. A new verb that
+    forgets the decorator is a silent failure, which is the thing this arc exists to end."""
+    undecorated = []
+    for path, tree in _verb_sources():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef) or node.name != "handler":
+                continue
+            names = [
+                d.func.attr if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) else ""
+                for d in node.decorator_list
+            ]
+            # notify-failure is the exception and must stay one: it is the LAST state on the
+            # failure path, so a decorator emitting there would be notifying about a failure
+            # to notify. Its own no-raise guarantee is pinned in its test module instead.
+            if "notifies_on_failure" not in names and "notify_failure" not in os.path.basename(path):
+                undecorated.append(os.path.basename(path))
+    assert not undecorated, f"handler(s) missing @notifies_on_failure: {undecorated}"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

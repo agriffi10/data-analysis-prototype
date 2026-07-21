@@ -9,7 +9,13 @@
 #   - logs                                                → SPEC-108
 #   - S3 (source read; registry read; report read+write)
 #     + the protected-object Deny                         → SPEC-109
-#   - Glue / Athena / Lake Formation admin                → SPEC-111 (here)
+#   - Glue / Athena / Lake Formation admin                → SPEC-111
+#   - sqs:SendMessage on the NOTIFICATIONS queue only     → SPEC-114 (here)
+#
+# The SPEC-114 grant is one action on one queue ARN — the outcome notification is the
+# arc's only write outside its own report prefix. Scoped to the notifications queue and
+# nothing else: not the data-quality request queue (the browser enqueues there, and a verb
+# that could re-enqueue its own work is a loop), and not the DLQ.
 #
 # THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (SPEC-111 FR-006,
 # data-quality-architecture.md §0/§7) — this is a decision, not drift, and it is the
@@ -66,6 +72,7 @@ resource "aws_iam_role_policy" "execution" {
     glue_database_any       = local.glue_database_any
     glue_table_any          = local.glue_table_any
     athena_workgroup_arn    = local.athena_workgroup_arn
+    notifications_queue_arn = var.notifications_queue_arn
   })
 }
 

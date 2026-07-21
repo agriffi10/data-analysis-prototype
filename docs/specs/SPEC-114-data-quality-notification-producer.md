@@ -76,6 +76,9 @@ Two requirements here are not boilerplate.
 - [ ] Every verb handler carries `@notifies_on_failure(step)`: `TerminalError` and `TransientError` pass through un-notified (the raise site already notified, or the SFN will retry), and **any other exception** emits an `unexpected_error` notification to the actor and re-raises.
 - [ ] A test asserts a bare `KeyError` in any verb still reaches the user as a friendly notification.
 - [ ] A failure inside `drop-temp-tables` (SPEC-111 FR-005) does not mask the original failure reason the user is notified about. A test asserts the user sees the real cause, not a cleanup error.
+- [ ] **A cleanup failure AFTER a written report emits no failure notification at all** (added 2026-07-21, user decision — the edge originally shipped as accepted). `drop-temp-tables` runs on both paths: on the failure path a cleanup error collapses into the real cause via the shared dedup id, but on the SUCCESS path there is no earlier failure to collapse into, so the user would receive a success notification *and* a contradicting failure one. Three layers close it, and the third needs the state machine: (1) `_drop` already swallows a failed DROP, so the ordinary Glue error never becomes a terminal; (2) the dedup collapse covers the failure path; (3) `RecordFailure` carries **`$.reportKey`**, and `notify-failure` stays silent when it is non-null — which can only mean the report was written, the success notification already went out, and what died afterwards was the cleanup **Lambda itself** (an import error, a timeout), the one class no verb-side guard can reach.
+- [ ] **`reportKey` is seeded null by `validate-authorize` AND by `ValidateFailureSeed`**, for the same reason `$.location` is (SPEC-112): a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable `States.Runtime`, killing the execution before `NotifyFailure` and leaving a failed request with no notification at all. A test asserts the key is **present** (not merely falsy) in validate-authorize's output.
+- [ ] A **general ASL invariant** in `test_state_machines_cpcommon.py` asserts that every Pass state reachable from a failure seed reads only keys that seed supplies — so this trap becomes a test failure in any arc rather than a silent production one. A test confirms it fires for the SPEC-112 `location` case too.
 
 ### FR-004: Every failure notifies — including the ones no verb can catch
 
@@ -150,8 +153,19 @@ apps/portal/src/features/help/helpContent.ts               # SPEC-074 sweep: the
 **Already wired by SPEC-108→113 — this spec changes neither:** the `NotifyFailure` state in
 `state-machine.asl.json.tftpl` (it already targets the notify-failure function, already sits
 after `DropTempTablesOnFailure`/`RecordFailure`, and already carries the raw `$.error`), and
-the `NOTIFICATIONS_QUEUE_URL` env in `lambda.tf`. **No ASL change is in scope**; a diff that
-touches the state machine is a signal something was misread.
+the `NOTIFICATIONS_QUEUE_URL` env in `lambda.tf`.
+
+**The ONE ASL change in scope** (added 2026-07-21 with the FR-003 cleanup criterion — the
+spec originally forbade touching the state machine at all): `ValidateFailureSeed` and
+`RecordFailure` each gain **`reportKey`**, seeded null and read respectively. No state is
+added, removed, or re-pointed, and **no state decodes an error Cause** — the decision that
+rule protects is untouched. Any *other* diff to the state machine is still a signal that
+something was misread.
+
+```
+infra/modules/data-quality/state-machine.asl.json.tftpl   # + reportKey on the two failure Pass states
+lambdas/control-plane-common/test_state_machines_cpcommon.py  # + the seed-covers-terminal invariant
+```
 
 ## Implementation Phases
 

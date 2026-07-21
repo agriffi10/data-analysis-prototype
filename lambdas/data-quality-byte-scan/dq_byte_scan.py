@@ -26,7 +26,7 @@ import codecs
 import logging
 
 from cpcommon import clients, errors, events
-from dqcommon import config, manifest as manifest_store, messages
+from dqcommon import config, manifest as manifest_store, messages, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -306,6 +306,7 @@ def _scan(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("byte-scan")
 def handler(event, context) -> dict:
     """Scan a bounded sample of the source's raw bytes and thread the figure onward."""
     return _scan(event)

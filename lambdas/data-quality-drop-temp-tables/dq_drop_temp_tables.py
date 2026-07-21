@@ -19,7 +19,7 @@ Two properties make it safe to call from anywhere:
 import logging
 
 from cpcommon import athena, config as cpconfig
-from dqcommon import messages, sql
+from dqcommon import messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -90,7 +90,23 @@ def _cleanup(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("drop-temp-tables")
 def handler(event, context) -> dict:
-    """Drop both temp tables (if any) and thread the cleanup outcome onward."""
+    """Drop both temp tables (if any) and thread the cleanup outcome onward.
+
+    THREE LAYERS KEEP CLEANUP FROM EVER MISREPORTING AN OUTCOME, because this verb runs on
+    both paths and a naive version gets each one wrong in a different way:
+
+    1. ``_drop`` swallows a failed DROP outright, so the ordinary case — Glue throttling,
+       an AccessDenied, a table that vanished — never becomes a terminal at all.
+    2. On the FAILURE path, anything that does escape collapses into the real cause: it was
+       emitted seconds earlier under the same ``{requestId}:failure`` dedup id (pinned by
+       ``test_a_cleanup_failure_cannot_mask_the_real_reason``).
+    3. On the SUCCESS path there is no earlier failure to collapse into, so notify-failure
+       suppresses instead: ``RecordFailure`` carries ``$.reportKey``, and a non-null value
+       there means the report was written and the user was already told. Only a
+       LAMBDA-LEVEL failure of this function — an import error, a timeout — can reach that
+       point, which is exactly why no verb-side guard could have covered it.
+    """
     request = dict(event) if isinstance(event, dict) else {}
     return _cleanup(request)

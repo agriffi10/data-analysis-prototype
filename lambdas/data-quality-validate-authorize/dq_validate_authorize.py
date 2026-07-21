@@ -31,7 +31,7 @@ import posixpath
 from cpcommon import auth, config, events
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
-from dqcommon import messages
+from dqcommon import messages, notify
 from dqcommon.config import MARKER_BASENAME, RESERVED_PREFIXES
 
 logger = logging.getLogger()
@@ -122,24 +122,49 @@ def _check_source_not_reserved(normalized: str, space_root: str) -> None:
 def _validate_and_authorize(event) -> dict:
     req = events.parse_sqs_request(event, reason=messages.UNAUTHORIZED)
 
-    # Shape first, so a malformed envelope is a typed terminal rather than a bare KeyError
-    # the SFN records as an opaque failure with no notification (SPEC-083 FR-002).
-    request_id = events.require(req, "requestId", reason=messages.INVALID_REQUEST)
-    space = req.get("space")
-    if not isinstance(space, dict):
-        raise TerminalError(messages.INVALID_REQUEST, "missing space")
-    events.require(req, "space", "kind", reason=messages.INVALID_REQUEST)
-    events.require(req, "space", "bucket", reason=messages.INVALID_REQUEST)
-    events.require(req, "space", "prefix", reason=messages.INVALID_REQUEST)
-    location = events.require(req, "location", reason=messages.INVALID_REQUEST)
-
-    # The actor comes from the VERIFIED token, never from the body.
+    # THE ACTOR IS BOUND FIRST, BEFORE THE SHAPE CHECKS, and the order is deliberate
+    # (SPEC-114 FR-002). It used to run after them, which meant a malformed envelope raised
+    # `invalid_request` with no actor bound — and this verb is the ONE place a failure
+    # cannot fall back to the NotifyFailure state, because ValidateFailureSeed seeds
+    # `actor: null` for exactly this case. Every shape terminal would have notified nobody.
+    # Verifying the token first costs nothing (it is offline against the cached JWKS) and
+    # gives every failure below a recipient. An `unauthorized` from HERE still has none —
+    # a caller who cannot prove who they are has no inbox we may write to — which is why
+    # this line stays outside the try.
     actor = auth.verified_username(req.get("idToken"))
 
-    normalized = _authorize(actor, space, location)
-    space_root = (space.get("prefix") or "").strip("/")
-    _check_source_not_reserved(normalized, space_root)
-    destination = _validate_destination(space_root, request_id)
+    # From here the actor is known, so a terminal failure notifies them (best-effort)
+    # before the SFN Catch records it. The decorator cannot do this for us: its `event` is
+    # the raw SQS ARRAY, which carries no actor field to address.
+    try:
+        # Shape first, so a malformed envelope is a typed terminal rather than a bare
+        # KeyError the SFN records as an opaque failure (SPEC-083 FR-002).
+        request_id = events.require(req, "requestId", reason=messages.INVALID_REQUEST)
+        space = req.get("space")
+        if not isinstance(space, dict):
+            raise TerminalError(messages.INVALID_REQUEST, "missing space")
+        events.require(req, "space", "kind", reason=messages.INVALID_REQUEST)
+        events.require(req, "space", "bucket", reason=messages.INVALID_REQUEST)
+        events.require(req, "space", "prefix", reason=messages.INVALID_REQUEST)
+        location = events.require(req, "location", reason=messages.INVALID_REQUEST)
+
+        normalized = _authorize(actor, space, location)
+        space_root = (space.get("prefix") or "").strip("/")
+        _check_source_not_reserved(normalized, space_root)
+        destination = _validate_destination(space_root, request_id)
+    except TerminalError as err:
+        notify.emit_failure(
+            {
+                "actor": actor,
+                # The body's own location, not the normalized one — normalization may not
+                # have run. It is the user's own submitted value being echoed back to that
+                # same verified user, so there is no cross-inbox injection here.
+                "location": req.get("location"),
+                "requestId": req.get("requestId"),
+            },
+            err,
+        )
+        raise
 
     logger.info("authorized %s for %s/%s", actor, space.get("bucket"), normalized)
     return {
@@ -148,9 +173,27 @@ def _validate_and_authorize(event) -> dict:
         "space": {"kind": space["kind"], "bucket": space["bucket"], "prefix": f"{space_root}/"},
         "location": normalized,
         "reportPrefix": destination,
+        # SEEDED NULL HERE, FILLED BY assemble-report. It exists from the FIRST verb purely
+        # so the terminal RecordFailure Pass state can read $.reportKey on every path: a
+        # Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable
+        # States.Runtime, which would kill the execution before NotifyFailure and leave the
+        # user with no notification at all — the same trap $.location fell into (see
+        # ValidateFailureSeed's comment in the ASL). A null VALUE is fine; a missing key is
+        # fatal. Every verb threads the state with dict(event), so seeding it once is
+        # enough. What it buys: notify-failure can tell a post-report cleanup failure from
+        # a real one and stay quiet, because the user already has their success
+        # notification and their report (SPEC-114).
+        "reportKey": None,
     }
 
 
+@notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """Verify the caller, authorize the location, and emit the threaded request object."""
+    """Verify the caller, authorize the location, and emit the threaded request object.
+
+    ``notify_terminal=False``: a ``TerminalError`` is notified inside
+    ``_validate_and_authorize``, which knows the actor. The decorator's own event is the raw
+    SQS array and could not address one. It still covers UNEXPECTED exceptions, where it
+    correctly no-ops for want of a recipient — the SFN records those either way.
+    """
     return _validate_and_authorize(event)

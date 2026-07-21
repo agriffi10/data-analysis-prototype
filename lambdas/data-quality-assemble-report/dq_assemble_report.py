@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 
 from cpcommon import clients, errors, events
 from cpcommon.errors import TerminalError
-from dqcommon import manifest as manifest_store, messages, report
+from dqcommon import manifest as manifest_store, messages, notify, report
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -174,6 +174,17 @@ def _assemble(event: dict) -> dict:
     return out
 
 
+@notify.notifies_on_failure("assemble-report")
 def handler(event, context) -> dict:
-    """Write the report and thread its summary onward."""
-    return _assemble(event)
+    """Write the report, notify the actor, and thread the summary onward.
+
+    THE SUCCESS NOTIFICATION IS EMITTED HERE, not from a terminal state, because this is the
+    last point that holds the summary AND runs Python. ``RecordSuccess`` is a ``Pass``, which
+    cannot call anything — adding a NotifySuccess Task would mean a new state, and the state
+    list is fixed (SPEC-108). It is emitted AFTER the report object is written, so a
+    notification can never link to a report that does not exist; if the write fails this
+    line is never reached and the failure path notifies instead.
+    """
+    out = _assemble(event)
+    notify.emit_completed(out)
+    return out

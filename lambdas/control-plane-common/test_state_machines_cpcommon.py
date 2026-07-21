@@ -260,5 +260,73 @@ def test_the_copy_plan_never_returns_to_the_state():
     )
 
 
+def _read_keys(parameters):
+    """The top-level ``$.key`` names a Parameters block reads (its `"x.$": "$.key"` pairs)."""
+    keys = set()
+    for name, value in (parameters or {}).items():
+        if not name.endswith(".$") or not isinstance(value, str):
+            continue
+        match = re.fullmatch(r"\$\.([A-Za-z0-9_]+)", value.strip())
+        if match:
+            keys.add(match.group(1))
+    return keys
+
+
+@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: os.path.basename(os.path.dirname(p)))
+def test_a_failure_seed_supplies_every_key_the_failure_terminal_reads(path):
+    """A Pass state reading a key its seed does not supply KILLS the failure path.
+
+    THE MECHANISM, which is why this is worth a general guard rather than a comment: a Pass
+    state's JSONPath hard-fails on an ABSENT key with ``States.Runtime``, and
+    ``States.Runtime`` is neither retriable nor catchable. So the failure terminal dies
+    BEFORE its notify state, and the user hears nothing at all — on a request that already
+    failed, which is precisely when they most need to hear something.
+
+    It has bitten this arc twice. ``$.location`` was added to the failure terminal and had
+    to be seeded (SPEC-112); ``$.reportKey`` was added and seeded the same way (SPEC-114).
+    Both times the seeding was remembered. This makes forgetting it a test failure instead
+    of a silent production one, and it is a real risk to automate away: the two edits are in
+    different states, tens of lines apart, and the machine still parses fine without the
+    seed.
+
+    A "failure seed" is identified structurally — a Pass state that captures the whole error
+    (``"error.$": "$"``) — so this holds for any arc that grows one, not just this one.
+    """
+    asl = _load(path)
+    states = dict(_states(asl))
+    seeds = {
+        name: state
+        for name, state in states.items()
+        if state.get("Type") == "Pass" and state.get("Parameters", {}).get("error.$") == "$"
+    }
+    if not seeds:
+        pytest.skip("no failure-seed state in this machine")
+
+    for seed_name, seed in seeds.items():
+        supplied = set(seed.get("Parameters", {}))
+        # "error.$" supplies "error"; a literal null key supplies itself.
+        supplied = {name[:-2] if name.endswith(".$") else name for name in supplied}
+
+        # Walk forward from the seed to every Pass state it can reach, collecting what they
+        # read. A Task in between only ADDS keys (ResultPath) — it never removes one — so
+        # anything a downstream Pass reads must already come from the seed.
+        seen, frontier = set(), [seed.get("Next")]
+        while frontier:
+            name = frontier.pop()
+            if not name or name in seen or name not in states:
+                continue
+            seen.add(name)
+            state = states[name]
+            if state.get("Type") == "Pass":
+                missing = _read_keys(state.get("Parameters")) - supplied
+                assert not missing, (
+                    f"{os.path.basename(os.path.dirname(path))}: {name} reads "
+                    f"{sorted(missing)}, which {seed_name} does not seed — an absent key "
+                    f"raises an uncatchable States.Runtime and the user is never notified"
+                )
+            frontier.append(state.get("Next"))
+            frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

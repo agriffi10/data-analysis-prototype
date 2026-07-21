@@ -59,6 +59,21 @@ def test_valid_personal_request_binds_the_verified_actor():
     assert out["reportPrefix"] == "alice/_data-quality-reports/11111111-2222-4333-8444-555555555555/"
 
 
+def test_report_key_is_seeded_as_a_present_null():
+    """THE KEY MUST EXIST FROM THE FIRST VERB, and `in` is the assertion, not the value.
+
+    RecordFailure reads `$.reportKey`, and a Pass state's JSONPath hard-fails on an ABSENT
+    key with an uncatchable States.Runtime — killing the execution before NotifyFailure and
+    leaving a failed request with no notification at all. A null VALUE is fine; a missing
+    key is fatal. So this asserts membership first: `out.get("reportKey") is None` would
+    pass just as happily on a key that was never emitted.
+    """
+    _setup(actor="alice")
+    out = v.handler(_event(), None)
+    assert "reportKey" in out, "reportKey must be a PRESENT key, not merely absent-and-falsy"
+    assert out["reportKey"] is None, "nothing has written a report yet at this point"
+
+
 def test_actor_is_never_read_from_the_body():
     # A body that tries to assert an identity must be ignored — the actor comes from the
     # verified token claim only.

@@ -96,6 +96,12 @@
       ]
     },
     {
+      "Sid": "EmitOutcomeNotifications",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${notifications_queue_arn}"
+    },
+    {
       "Sid": "NoWriteToProtectedObjects",
       "Effect": "Deny",
       "Action": "s3:PutObject",
