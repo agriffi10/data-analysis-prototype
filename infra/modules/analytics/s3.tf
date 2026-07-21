@@ -82,6 +82,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
       days = var.admin_results_retention_days
     }
   }
+
+  # The table-share copy plan (the object list inspect-source hands to copy-objects, moved
+  # off the Step Functions state because it pushed the Map's payload to 95% of the 256 KB
+  # limit). It is EXECUTION-SCOPED — read once, minutes after it is written — so nothing
+  # needs it long-term; the retention that remains is purely so an operator can inspect the
+  # plan of a failed share. Reuses the same retention as the fallback results rather than
+  # introducing a second knob: both are transient control-plane objects in this bucket, and
+  # neither matches shared-spaces/, which is the registry and is retained indefinitely.
+  rule {
+    id     = "expire-table-share-copy-plans"
+    status = "Enabled"
+
+    filter {
+      prefix = "table-share/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
 }
 
 # No CORS: this bucket is never read by the browser. User-facing result downloads
