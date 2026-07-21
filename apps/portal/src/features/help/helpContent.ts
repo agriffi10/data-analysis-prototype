@@ -8,7 +8,8 @@ import type {HelpSection} from './help.types';
 // join status), and Notifications. Every step below maps to a real, wired
 // affordance in the code.
 //
-// The data-quality guides now cover the whole loop: starting a check, the
+// The data-quality guides now cover the whole loop: starting a check from EITHER
+// entry point (Files, or Data quality → New quality check — SPEC-124), the
 // notification that reports it, the report itself, and (SPEC-123) browsing past
 // checks from the Data quality tab. What they still do NOT promise is that EVERY
 // failure reaches notifications — a request that never starts an execution
@@ -102,9 +103,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Before you build a table from a folder of CSVs, or after someone hands you an export you don’t trust, this tells you what’s actually in there: how many rows, whether a column that looks numeric has stray text in it, how much is blank, whether rows repeat, and — for a folder — whether every file agrees on the same columns. It only ever <b>reads</b> your data. Nothing is modified, moved, or deleted.',
         steps: [
-          'In the <b>Files</b> tab, tick the checkbox on <b>one</b> file or <b>one</b> folder. The check runs on a single item at a time.',
-          'Click <b>Check quality</b> in the toolbar above the list.',
-          'Confirm in the dialog — it names exactly what will be read — then click <b>Start check</b>.',
+          'There are two ways in. From <b>Files</b>: tick the checkbox on <b>one</b> file or <b>one</b> folder, then click <b>Check quality</b> in the toolbar above the list and confirm — the dialog names exactly what will be read.',
+          'Or from <b>Data quality</b>: click <b>New quality check</b>, choose the space, then browse to the folder you want checked. Click a file first if you want to check just that one file.',
           'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.',
           'When it finishes you’ll get a <b>notification</b> with the result. Click it to open the full report.',
           'The report shows every finding: row and column counts, blank values, columns whose values don’t match their type, repeated rows, and — for a folder — any file whose columns disagree with the rest.'
@@ -123,7 +123,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Open the <b>Data quality</b> tab.',
           'Use <b>All</b> / <b>Issues found</b> / <b>Clean</b> to narrow the list, and <b>Prev</b> / <b>Next</b> to page through it.',
-          'Click any row to open that check’s full report.'
+          'Click any row to open that check’s full report.',
+          'To run another, click <b>New quality check</b>. A check you’ve just started is <b>not</b> in this list yet — it appears once it finishes, which can take a few minutes.'
         ],
         callout: {
           kind: 'tip',

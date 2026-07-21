@@ -54,7 +54,7 @@ describe('CopyDialog — destination picker', () => {
     const copyHere = screen.getByRole('button', {name: /copy here/i});
     expect(copyHere).toBeEnabled();
     await user.click(copyHere);
-    expect(onCopy).toHaveBeenCalledWith('alice/', 'us');
+    expect(onCopy).toHaveBeenCalledWith('alice/', 'us', undefined);
   });
 
   it('filters protected (athenaresults) and the folders being copied from the picker', async () => {

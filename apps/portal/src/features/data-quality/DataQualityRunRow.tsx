@@ -1,6 +1,7 @@
 import {Link} from 'react-router-dom';
 import {formatRelativeTime} from '../query/query.format';
 import {cx} from '../../lib/cx';
+import {splitLocation} from './dataQuality.format';
 import type {DataQualityRunSummary} from './dataQuality.types';
 
 /**
@@ -61,20 +62,6 @@ export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
       </Link>
     </li>
   );
-}
-
-/**
- * Split a location into its truncatable parent and its identifying final segment.
- *
- * A trailing slash stays with the NAME so a folder still reads as a folder once the parent
- * has been truncated away — `…/sales/` says "folder" where `…/sales` does not.
- */
-function splitLocation(location: string): {parent: string; name: string} {
-  const trimmed = location.replace(/\/+$/, '');
-  const cut = trimmed.lastIndexOf('/');
-  const suffix = location.endsWith('/') ? '/' : '';
-  if (cut === -1) return {parent: '', name: trimmed + suffix};
-  return {parent: trimmed.slice(0, cut + 1), name: trimmed.slice(cut + 1) + suffix};
 }
 
 /** Dot PLUS text label — never colour-only (`ConnectionsPage` StatusBadge pattern). */

@@ -129,7 +129,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 121 — File Converter: Notification Producer | Draft |
 | 122 — File Converter: Create Table From Converted Files (chain to Table Builder) | Draft |
 | 123 — Data Quality: Runs Dashboard (`/data-quality` list + nav + runs index) | Completed |
-| 124 — Data Quality: Start a Check from the Dashboard (space + folder/file target picker) | Draft |
+| 124 — Data Quality: Start a Check from the Dashboard (space + folder/file target picker) | Completed |
 | 125 — Fold `shared-space-common` onto the `cpcommon` layer | Draft |
 | 126 — Control-Plane DLQ Drain → User Notification | Draft |
 

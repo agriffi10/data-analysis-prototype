@@ -1,18 +1,18 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {useFileBrowser} from './useFileBrowser';
 import {toUserMessage} from '../../lib/errorMessages';
 import type {SelectableItem} from './selectionContext';
 import type {FileSpaceTarget} from './useFileSpace';
 import {Button} from '../../components/Button';
+import {cx} from '../../lib/cx';
 import {PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
 
-type Props = {
+type BaseProps = {
   bucket: string; // the SOURCE space's bucket (also the default destination)
   items: SelectableItem[]; // the items being moved/copied
   rootPrefix: string; // navigation floor (source space root)
   rootLabel?: string; // label for the root crumb (hides the username segment)
   currentPrefix: string; // the items' current parent
-  markerKey?: string;
   isBusy?: boolean;
   // Connections the user can target (feedback 2026-06-30). When more than one is
   // given, a connection selector is shown and the destination can be another
@@ -30,9 +30,39 @@ type Props = {
   // Message shown when the confirm action is blocked inside an operated folder's
   // own subtree (the verb differs: "move" vs "copy").
   selfMessage?: string;
-  onConfirm: (destPrefix: string, destBucket: string) => void;
+  // SPEC-124 FR-003: the list's aria-label. "Destination folders" is wrong in a
+  // mode where files are selectable and nothing is a "destination".
+  listLabel?: string;
+  // SPEC-124 FR-003: fired on mount and on EVERY navigation/selection change, so
+  // the caller can render the resolved target and compute a confirm label without
+  // the picker giving up ownership of its browse state. Must be referentially
+  // stable (useCallback) — it is an effect dependency.
+  onTargetChange?: (target: {prefix: string; fileKey?: string}) => void;
+  // `selectedFileKey` is APPENDED rather than folded into the first argument so the
+  // three shipped callers (Move, Copy, Save results) compile and behave unchanged;
+  // they ignore it.
+  onConfirm: (destPrefix: string, destBucket: string, selectedFileKey?: string) => void;
   onCancel: () => void;
 };
+
+// `markerKey` is optional everywhere EXCEPT selectable-files mode, where it is
+// required: without it `useFileBrowser` doesn't filter the space's
+// `DO_NOT_DELETE.txt` prefix marker (SPEC-014), which would then sit at every space
+// root as a selectable target — enqueuing a job that fails minutes later as
+// `unsupported_format`. Inert for Move/Copy/Save (files aren't selectable there),
+// fatal here, so the type carries the rule rather than a comment.
+type Props = BaseProps &
+  (
+    | {
+        // Opt-in: render file rows as selectable buttons. Deliberately NOT defaulted
+        // on — a file is never a valid move/copy/save destination, and flipping the
+        // default would silently make one a valid paste target in three shipped
+        // dialogs.
+        selectableFiles: true;
+        markerKey: string;
+      }
+    | {selectableFiles?: false; markerKey?: string}
+  );
 
 type Crumb = {label: string; prefix: string};
 
@@ -79,6 +109,11 @@ function crumbsFor(browsePrefix: string, rootPrefix: string, rootLabel?: string)
 // moving/copying a folder into itself). Whether the items' current parent is a
 // valid destination is caller-controlled (`allowCurrentParent`): Move forbids it,
 // Copy allows it (same-folder auto-number).
+//
+// SPEC-124 FR-003 adds an opt-in `selectableFiles` mode for the caller that targets
+// data rather than a destination (the data-quality dialog). There a file row can be
+// selected as the target, the resolved target is reported back via `onTargetChange`
+// (the picker keeps owning the browse state), and `markerKey` becomes required.
 export function DestinationPicker({
   bucket,
   items,
@@ -93,6 +128,9 @@ export function DestinationPicker({
   confirmLabel,
   busyLabel,
   selfMessage = "You can't copy a folder into itself.",
+  listLabel = 'Destination folders',
+  selectableFiles = false,
+  onTargetChange,
   onConfirm,
   onCancel
 }: Props) {
@@ -113,18 +151,32 @@ export function DestinationPicker({
   const crossBucket = active.bucket !== bucket;
 
   const [browsePrefix, setBrowsePrefix] = useState(initial.rootPrefix);
+  // Selectable-files mode only. Null = the browsed folder is the target.
+  const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const {folders, files, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(
     active.bucket,
     browsePrefix,
     markerKey
   );
 
+  // Navigating ALWAYS clears the file selection. The target must be the thing the
+  // confirm button says it is; a selection surviving a navigation would silently
+  // confirm a file the user is no longer looking at.
+  function navigateTo(prefix: string) {
+    setBrowsePrefix(prefix);
+    setSelectedFileKey(null);
+  }
+
   function selectDestination(id: string) {
     const next = options.find((o) => o.id === id);
     if (!next) return;
     setDestId(id);
-    setBrowsePrefix(next.rootPrefix); // switching connections resets to its root
+    navigateTo(next.rootPrefix); // switching connections resets to its root
   }
+
+  useEffect(() => {
+    onTargetChange?.({prefix: browsePrefix, fileKey: selectedFileKey ?? undefined});
+  }, [browsePrefix, selectedFileKey, onTargetChange]);
 
   // Folders being operated on can't be navigated into (you can't move/copy a
   // folder inside itself), so hide them from the picker. The protected results
@@ -140,12 +192,21 @@ export function DestinationPicker({
   const intoOwnSubtree = !crossBucket && [...operatedFolderPrefixes].some((p) => browsePrefix.startsWith(p));
   const atCurrentParent = !crossBucket && browsePrefix === currentPrefix;
   const currentParentBlocked = atCurrentParent && !allowCurrentParent;
-  const canConfirm = !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled;
+  // The one invalid target the picker can detect for free (SPEC-124 FR-003) —
+  // scoped to selectable-files mode, since an empty folder is a perfectly good
+  // move/copy/save destination. Everything deeper (format, readability) stays
+  // server-side. Not applied while the listing is still loading or errored, or an
+  // in-flight page would read as "empty".
+  const emptyFolderBlocked =
+    selectableFiles && !isLoading && error === null && navigableFolders.length === 0 && files.length === 0;
+  const canConfirm = !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled && !emptyFolderBlocked;
   const disabledReason = currentParentBlocked
     ? 'These items are already here.'
     : intoOwnSubtree
       ? selfMessage
-      : undefined;
+      : emptyFolderBlocked
+        ? "There's nothing here to check. Open a folder that has files in it."
+        : undefined;
 
   const crumbs = crumbsFor(browsePrefix, active.rootPrefix, active.label);
 
@@ -203,7 +264,7 @@ export function DestinationPicker({
                 ) : (
                   <button
                     className="hover:text-text hover:underline"
-                    onClick={() => setBrowsePrefix(crumb.prefix)}>
+                    onClick={() => navigateTo(crumb.prefix)}>
                     {crumb.label}
                   </button>
                 )}
@@ -234,14 +295,14 @@ export function DestinationPicker({
           {!isLoading && error === null && navigableFolders.length === 0 && files.length === 0 && (
             <p className="py-4 text-center text-sm text-text-3">This folder is empty.</p>
           )}
-          <ul aria-label="Destination folders">
+          <ul aria-label={listLabel}>
             {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
                 root. Shown only below the navigation floor. */}
             {browsePrefix !== active.rootPrefix && (
               <li>
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                  onClick={() => setBrowsePrefix(parentOf(browsePrefix, active.rootPrefix))}
+                  onClick={() => navigateTo(parentOf(browsePrefix, active.rootPrefix))}
                   aria-label="Go up to parent folder">
                   <svg
                     viewBox="0 0 20 20"
@@ -264,7 +325,7 @@ export function DestinationPicker({
               <li key={folder.prefix}>
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                  onClick={() => setBrowsePrefix(folder.prefix)}
+                  onClick={() => navigateTo(folder.prefix)}
                   aria-label={`Open folder ${folder.name}`}>
                   <svg
                     viewBox="0 0 20 20"
@@ -277,25 +338,48 @@ export function DestinationPicker({
                 </button>
               </li>
             ))}
-            {/* Files in the browsed folder are shown as non-interactive, muted rows
-                so the destination's existing contents are visible — you pick a
-                folder, not a file, so these are unselectable (feedback 2026-06-30). */}
-            {files.map((file) => (
-              <li key={file.key}>
-                <div
-                  aria-disabled="true"
-                  className="flex h-10 w-full items-center gap-2 px-3 text-left text-sm text-text-3">
-                  <svg
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-4 w-4 shrink-0 text-text-3"
-                    aria-hidden="true">
-                    <path d="M4 4a2 2 0 012-2h5.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
-                  </svg>
-                  <span className="flex-1 truncate">{file.name}</span>
-                </div>
-              </li>
-            ))}
+            {/* Files in the browsed folder are shown so the destination's existing
+                contents are visible. By DEFAULT they are non-interactive, muted rows
+                — you pick a folder, not a file (feedback 2026-06-30). Under
+                `selectableFiles` (SPEC-124) they become toggle buttons: selecting one
+                makes it the target, clicking it again returns the target to the
+                browsed folder. */}
+            {files.map((file) => {
+              const selected = selectedFileKey === file.key;
+              const icon = (
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className={cx('h-4 w-4 shrink-0', selected ? 'text-accent' : 'text-text-3')}
+                  aria-hidden="true">
+                  <path d="M4 4a2 2 0 012-2h5.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
+                </svg>
+              );
+              return (
+                <li key={file.key}>
+                  {selectableFiles ? (
+                    <button
+                      aria-pressed={selected}
+                      aria-label={`Select file ${file.name}`}
+                      onClick={() => setSelectedFileKey(selected ? null : file.key)}
+                      className={cx(
+                        'flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+                        selected ? 'bg-accent-soft font-medium text-accent-text' : 'text-text'
+                      )}>
+                      {icon}
+                      <span className="flex-1 truncate">{file.name}</span>
+                    </button>
+                  ) : (
+                    <div
+                      aria-disabled="true"
+                      className="flex h-10 w-full items-center gap-2 px-3 text-left text-sm text-text-3">
+                      {icon}
+                      <span className="flex-1 truncate">{file.name}</span>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {hasMore && (
             <div className="p-2 text-center">
@@ -328,7 +412,7 @@ export function DestinationPicker({
         </Button>
         <Button
           variant="primary"
-          onClick={() => onConfirm(browsePrefix, active.bucket)}
+          onClick={() => onConfirm(browsePrefix, active.bucket, selectedFileKey ?? undefined)}
           disabled={!canConfirm}
           aria-describedby={disabledReason ? 'dest-disabled-reason' : undefined}>
           {isBusy ? busyLabel : confirmLabel}

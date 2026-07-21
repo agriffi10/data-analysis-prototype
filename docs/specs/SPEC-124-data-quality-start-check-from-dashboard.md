@@ -1,7 +1,7 @@
 # Spec: Data Quality — Start a Check from the Dashboard (the target picker)
 
 **ID:** SPEC-124
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-14
 **Depends On:** SPEC-123 (the `/data-quality` page this action lives on), SPEC-113 (`useDataQualityCheck` — the enqueue path, the reassurance copy, the hidden reports folder), SPEC-109 (the request envelope + `enqueueQualityCheck`), SPEC-039 (`DestinationPicker`), SPEC-055 (the space-selector-over-picker precedent in `SaveResultsDialog`), SPEC-057 (`usableSpaceTargets` — the space→bucket/rootPrefix derivation this reuses), SPEC-052 (`useConnections`), SPEC-095 (responsive), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help)
 

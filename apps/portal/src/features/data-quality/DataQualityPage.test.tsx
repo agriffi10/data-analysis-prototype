@@ -4,8 +4,11 @@ import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityPage} from './DataQualityPage';
 import * as runsService from './dataQualityRuns.service';
+import * as dqService from './dataQuality.service';
+import * as fileBrowserService from '../file-browser/fileBrowser.service';
 import * as sharedSpaces from '../shared-spaces/sharedSpaces.service';
 import type {DataQualityRunSummary} from './dataQuality.types';
+import type {FileListPage} from '../../types/s3.types';
 
 // Integration style (react.md §21): the real page, the real useDataQualityRuns, the real
 // useConnections — mocking only the AWS service boundaries they sit on.
@@ -14,6 +17,11 @@ vi.mock('./dataQualityRuns.service', async (importActual) => ({
   getRunsIndex: vi.fn()
 }));
 vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('./dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
+vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
+  ...(await importActual<typeof fileBrowserService>()),
+  listFiles: vi.fn()
+}));
 vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
   getIdToken: vi.fn().mockResolvedValue({success: true, data: 'tok'})
@@ -21,6 +29,15 @@ vi.mock('../../lib/awsCredentials', () => ({
 
 const mockIndex = vi.mocked(runsService.getRunsIndex);
 const mockCache = vi.mocked(sharedSpaces.readSharedConnectionsCache);
+const mockEnqueue = vi.mocked(dqService.enqueueQualityCheck);
+const mockList = vi.mocked(fileBrowserService.listFiles);
+
+const page = (over: Partial<FileListPage> = {}): FileListPage => ({
+  files: [],
+  folders: [],
+  isTruncated: false,
+  ...over
+});
 
 function run(over: Partial<DataQualityRunSummary> = {}): DataQualityRunSummary {
   return {
@@ -66,6 +83,8 @@ beforeEach(() => {
     data: {version: 1, connections: [{name: 'team-data', role: 'member', status: 'active'}]}
   });
   mockIndex.mockResolvedValue(ok([]));
+  mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'req-1'}});
+  mockList.mockResolvedValue({success: true, data: page()});
 });
 
 describe('DataQualityPage — the list', () => {
@@ -207,10 +226,13 @@ describe('DataQualityPage — filtering and paging', () => {
 });
 
 describe('DataQualityPage — empty, loading and error states', () => {
-  it('invites the user to start one when nothing has ever run', async () => {
+  it('offers to start one right here when nothing has ever run', async () => {
+    // SPEC-124 FR-001 amends SPEC-123 FR-005: the empty state used to send the user to the
+    // Files browser. It now offers the action on the page that can do the job.
     renderPage();
     expect(await screen.findByText('No quality checks yet')).toBeInTheDocument();
-    expect(screen.getByText(/Start one from any file or folder in Files/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', {name: 'New quality check'})).toHaveLength(2);
+    expect(screen.queryByText(/from any file or folder in Files/)).not.toBeInTheDocument();
   });
 
   it('distinguishes an empty filter from an empty history', async () => {
@@ -289,5 +311,178 @@ describe('DataQualityPage — the completed-only signpost', () => {
     const note = await screen.findByText(/This lists checks that finished/);
     expect(note).toHaveTextContent(/usually/);
     expect(note).not.toHaveTextContent(/always/);
+  });
+});
+
+// SPEC-124: the dashboard as a second entry point into a check.
+describe('DataQualityPage — starting a check (SPEC-124)', () => {
+  const openDialog = async (user: ReturnType<typeof renderPage>['user']) => {
+    const triggers = await screen.findAllByRole('button', {name: 'New quality check'});
+    await user.click(triggers[0]);
+    return screen.findByRole('dialog', {name: 'Start a quality check'});
+  };
+
+  it('offers the action even when the history cannot be read', async () => {
+    // Starting a check must never depend on the list being readable — the two are
+    // unrelated S3 reads, and the failure the user can act on is the one they came for.
+    mockIndex.mockResolvedValue(failed);
+    renderPage();
+
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', {name: 'New quality check'})).toBeEnabled();
+  });
+
+  it('enqueues the browsed folder and confirms with a banner, not a toast', async () => {
+    mockList.mockResolvedValue({
+      success: true,
+      data: page({folders: [{type: 'folder', prefix: 'alice/sales/', name: 'sales'}]})
+    });
+    const {user} = renderPage();
+
+    await openDialog(user);
+    await user.click(await screen.findByRole('button', {name: /open folder sales/i}));
+    await user.click(await screen.findByRole('button', {name: 'Check this folder'}));
+
+    await waitFor(() =>
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          space: {kind: 'personal', bucket: 'user-space', prefix: 'alice/'},
+          location: 'alice/sales/'
+        })
+      )
+    );
+
+    // The banner is the receipt; a toast as well would be two confirmations for one action.
+    const banner = await screen.findByText(/It will appear in this list when it finishes/);
+    expect(banner).toBeInTheDocument();
+    expect(screen.queryByText(/you’ll get a notification when it finishes\./)).not.toBeInTheDocument();
+    // It reports that the check STARTED and claims nothing about the result.
+    expect(banner).not.toHaveTextContent(/passed|clean|no issues/i);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('enqueues a single file when one is selected', async () => {
+    mockList.mockResolvedValue({
+      success: true,
+      data: page({
+        files: [{type: 'file', key: 'alice/report.csv', name: 'report.csv', size: 1, lastModified: new Date(0)}]
+      })
+    });
+    const {user} = renderPage();
+
+    await openDialog(user);
+    await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
+    // The confirm label names the target — the user is one click from a background job.
+    await user.click(await screen.findByRole('button', {name: 'Check this file'}));
+
+    await waitFor(() =>
+      expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({location: 'alice/report.csv'}))
+    );
+  });
+
+  it('keeps the dialog open with the target intact when the enqueue fails', async () => {
+    mockEnqueue.mockResolvedValue({success: false, error: {message: 'raw aws text', code: 'AccessDenied'}});
+    mockList.mockResolvedValue({
+      success: true,
+      data: page({folders: [{type: 'folder', prefix: 'alice/sales/', name: 'sales'}]})
+    });
+    const {user} = renderPage();
+
+    await openDialog(user);
+    await user.click(await screen.findByRole('button', {name: /open folder sales/i}));
+    await user.click(await screen.findByRole('button', {name: 'Check this folder'}));
+
+    // Failure is announced by the hook (SPEC-106 wording), never by echoing AWS.
+    await waitFor(() => expect(screen.getByText(/don't have permission/i)).toBeInTheDocument());
+    expect(screen.queryByText('raw aws text')).not.toBeInTheDocument();
+    // The dialog survives, still browsed to the folder the user picked.
+    expect(screen.getByRole('dialog', {name: 'Start a quality check'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Check this folder'})).toBeInTheDocument();
+    expect(screen.queryByText(/It will appear in this list when it finishes/)).not.toBeInTheDocument();
+  });
+
+  it('lists usable spaces only, personal first', async () => {
+    mockCache.mockResolvedValue({
+      success: true,
+      data: {
+        version: 1,
+        connections: [
+          {name: 'team-data', role: 'member', status: 'active'},
+          {name: 'half-built', role: 'owner', status: 'provisioning'}
+        ]
+      }
+    });
+    const {user} = renderPage();
+
+    await openDialog(user);
+    const options = within(screen.getByLabelText('Space')).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['alice', 'team-data (shared)']);
+  });
+
+  it('resets the picker when the space changes, so a selection cannot straddle spaces', async () => {
+    mockList.mockImplementation(async (bucket) =>
+      bucket === 'user-space'
+        ? {
+            success: true,
+            data: page({
+              files: [{type: 'file', key: 'alice/mine.csv', name: 'mine.csv', size: 1, lastModified: new Date(0)}]
+            })
+          }
+        : {
+            success: true,
+            data: page({
+              files: [
+                {type: 'file', key: 'team-data/theirs.csv', name: 'theirs.csv', size: 1, lastModified: new Date(0)}
+              ]
+            })
+          }
+    );
+    const {user} = renderPage();
+
+    await openDialog(user);
+    await user.click(await screen.findByRole('button', {name: 'Select file mine.csv'}));
+    expect(screen.getByRole('button', {name: 'Check this file'})).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Space'), 'team-data');
+
+    // The file target did not survive the switch — the confirm names a folder again.
+    expect(await screen.findByRole('button', {name: 'Select file theirs.csv'})).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    expect(screen.getByRole('button', {name: 'Check this folder'})).toBeInTheDocument();
+    expect(screen.queryByText('mine.csv')).not.toBeInTheDocument();
+  });
+
+  it('never offers the reports folder or the app-managed folders as a target', async () => {
+    mockList.mockResolvedValue({
+      success: true,
+      data: page({
+        folders: [
+          {type: 'folder', prefix: 'alice/_data-quality-reports/', name: '_data-quality-reports'},
+          {type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults'},
+          {type: 'folder', prefix: 'alice/user_settings/', name: 'user_settings'},
+          {type: 'folder', prefix: 'alice/sales/', name: 'sales'}
+        ]
+      })
+    });
+    const {user} = renderPage();
+
+    await openDialog(user);
+    expect(await screen.findByRole('button', {name: /open folder sales/i})).toBeInTheDocument();
+    for (const hidden of ['_data-quality-reports', 'athenaresults', 'user_settings']) {
+      expect(screen.queryByRole('button', {name: `Open folder ${hidden}`})).not.toBeInTheDocument();
+    }
+  });
+
+  it('returns focus to the trigger when the dialog is dismissed', async () => {
+    const {user} = renderPage();
+
+    const trigger = (await screen.findAllByRole('button', {name: 'New quality check'}))[0];
+    await user.click(trigger);
+    await screen.findByRole('dialog', {name: 'Start a quality check'});
+    await user.click(screen.getByRole('button', {name: /cancel/i}));
+
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });
