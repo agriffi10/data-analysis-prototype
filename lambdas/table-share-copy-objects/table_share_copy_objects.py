@@ -30,8 +30,13 @@ def handler(event, context) -> dict:
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
     location = request.get("location") or {}
-    # Loaded by POINTER — the list is far too large to ride on the Map's state.
-    objects = copy_plan.load(request.get("copyPlanKey"))
+    # Loaded by POINTER — the list is far too large to ride on the Map's state. The inline
+    # fallback covers the ROLLING-DEPLOY WINDOW only: the five verbs deploy as parallel
+    # matrix jobs, so an execution that cleared InspectSource under the old code carries
+    # `objects` and no key, and without this every one of its recipients would fail on a
+    # None key. Removable once no pre-pointer execution can still be in flight.
+    plan_key = request.get("copyPlanKey")
+    objects = copy_plan.load(plan_key) if plan_key else (request.get("objects") or [])
 
     copied = copy_mod.copy_prefix(
         src_bucket=location.get("bucket"),

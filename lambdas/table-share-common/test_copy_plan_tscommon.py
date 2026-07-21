@@ -88,16 +88,46 @@ def test_a_different_request_gets_a_different_key(field, value):
     assert copy_plan.plan_key({**REQUEST, field: value}) != copy_plan.plan_key(REQUEST)
 
 
-def test_a_different_source_gets_a_different_key():
-    other = {**REQUEST, "source": {"database": "alice", "table": "invoices"}}
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"database": "alice", "table": "invoices"},   # same db, different table
+        {"database": "salesteam", "table": "orders"},  # DIFFERENT DATABASE
+    ],
+)
+def test_a_different_source_gets_a_different_key(source):
+    """The database must be in the digest, and this is the case that matters most.
 
-    assert copy_plan.plan_key(other) != copy_plan.plan_key(REQUEST)
+    Two shares of different DATABASES are in different FIFO message groups, so they run
+    genuinely in parallel — and their plans list DIFFERENT prefixes. If the digest ignored
+    the database, one execution would copy another table's file list into its recipients,
+    under a name matching the wrong source. Every other collision is same-prefix and
+    therefore content-equivalent; this one is not.
+    """
+    assert copy_plan.plan_key({**REQUEST, "source": source}) != copy_plan.plan_key(REQUEST)
 
 
-def test_the_key_sits_under_the_prefix_the_lifecycle_rule_expires():
-    """analytics/s3.tf's expire-table-share-copy-plans filters on this prefix. A key written
-    outside it would never be cleaned up."""
-    assert copy_plan.plan_key(REQUEST).startswith(f"{copy_plan.PREFIX}/")
+def test_the_key_sits_under_the_prefix_the_infra_contracts_name():
+    """Asserted against the LITERAL, not against copy_plan.PREFIX — comparing the key to the
+    module's own constant is a tautology that passes however the constant is edited.
+
+    Two external contracts hard-code this prefix and neither is visible from here:
+    analytics/s3.tf's expire-table-share-copy-plans lifecycle filter (`table-share/`) and the
+    CopyPlanReadWrite IAM resource (`.../table-share/*`). Drift means plans are never expired
+    AND every write gets AccessDenied at runtime.
+    """
+    assert copy_plan.plan_key(REQUEST).startswith("table-share/")
+
+
+def test_the_prefix_matches_what_the_iam_grant_and_lifecycle_rule_use():
+    """Read from infra/ so the three cannot drift apart silently."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    policy = open(os.path.join(here, "..", "..", "infra", "modules", "table-share",
+                               "policies", "execution.json.tftpl")).read()
+    lifecycle = open(os.path.join(here, "..", "..", "infra", "modules", "analytics", "s3.tf")).read()
+
+    assert f"/{copy_plan.PREFIX}/*" in policy, "IAM grant does not cover the plan prefix"
+    assert f'prefix = "{copy_plan.PREFIX}/"' in lifecycle, "lifecycle rule does not expire the plan prefix"
 
 
 def test_write_then_load_round_trips(_fake_s3):

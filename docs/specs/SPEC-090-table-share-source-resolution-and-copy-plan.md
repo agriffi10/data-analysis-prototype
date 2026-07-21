@@ -7,6 +7,14 @@
 
 > **Read `docs/table-share-architecture.md` §4 first.**
 
+> **Corrected 2026-07-21 (PR #256):** the object list no longer rides on the Step Functions
+> state. `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/copy-plan.json`
+> and emits `copyPlanKey` + `objectCount`; `copy-objects` loads it. Inline, the Map's
+> output state reached **101%** of the 256 KB payload limit at the caps (the Map's
+> `ItemSelector` copies the whole state into every item) — `States.DataLimitExceeded`
+> on the Map, destroying every per-recipient outcome. By pointer it is ~34%.
+> `tableDefinition` still rides inline and is now capped by `SHARE_MAX_DEFINITION_BYTES`.
+
 ## Overview
 
 Implement **inspect-source**: given the validated request, `GetTable` the source, confirm it is a **shape we can share** (a base external table, flat or partition-projection-based), **clone its table definition**, list the source data objects, enforce copy caps, and emit a **copy plan** the recipient `Map` will execute. This is where the source's real Glue definition (columns, SerDe, format, partition keys, projection `TBLPROPERTIES`) is captured verbatim so the recipient table is an exact clone with only the `LOCATION` repointed.

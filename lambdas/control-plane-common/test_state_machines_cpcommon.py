@@ -156,6 +156,21 @@ def test_every_transition_resolves_and_every_state_is_reachable(path):
 _STATE_PAYLOAD_LIMIT = 256 * 1024
 
 
+def _definition_at_cap(cap_bytes):
+    """A cloned definition sized to exactly the cap inspect-source enforces.
+
+    Shaped like tscommon.glue.clone_definition's real output — lowercase name/type/comment
+    per column plus partitionKeys, serde parameters and tableProperties — not the
+    {Name, Type} pairs an earlier model used, which understated it by roughly 3x.
+    """
+    definition = {"columns": [], "partitionKeys": [], "serde": {"parameters": {}}, "tableProperties": {}}
+    while len(json.dumps(definition, separators=(",", ":")).encode()) < cap_bytes:
+        definition["columns"].append(
+            {"name": f"column_number_{len(definition['columns']):04d}", "type": "string", "comment": "c" * 255}
+        )
+    return definition
+
+
 def test_the_whole_map_state_stays_under_the_payload_limit():
     """The WHOLE state the Map produces, not just the part this change bounded.
 
@@ -174,10 +189,11 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     because measuring a part of it is how the last version came to certify a bound that did
     not exist.
 
-    THREE constants hold it: SHARE_MAX_RECIPIENTS (how many entries),
-    errors.MAX_DETAIL_CHARS (how big a Cause), and the pointer (no object list at all). A
-    count cap alone could not do it — at the 32 KB Cause ceiling the records breach on their
-    own at seven recipients.
+    FOUR things hold it: SHARE_MAX_RECIPIENTS (how many entries), errors.MAX_DETAIL_CHARS
+    (how big a Cause), SHARE_MAX_DEFINITION_BYTES (how big the cloned schema — the last
+    unbounded, user-controlled term), and the pointer (no object list at all). No single one
+    suffices: at the 32 KB Cause ceiling the records breach on their own at seven recipients,
+    and a 1,000-column commented definition breached at 150% even after the pointer landed.
     """
     sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
     from cpcommon import errors
@@ -195,9 +211,14 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         "source": {"database": "d" * 64, "table": "t" * 64},
         "tableName": "n" * 64,
         "recipients": [{"kind": "space", "name": "s" * 64, "valid": True} for _ in range(recipients)],
-        # A wide table's cloned definition still rides inline — bounded by column count, not
-        # by object count, so it is small next to what the pointer removed.
-        "tableDefinition": {"columns": [{"Name": f"column_number_{i:03d}", "Type": "string"} for i in range(300)]},
+        # The cloned definition still rides INLINE, and it is USER-CONTROLLED (columns with
+        # comments, plus the source's Glue table properties, copied verbatim). An earlier
+        # version of this test modelled 300 bare {Name, Type} pairs and called it "bounded by
+        # column count" — it was not: 1,000 columns with 255-char comments reached 150% of the
+        # limit even WITH the plan by pointer. It is bounded now because inspect-source
+        # rejects an oversized definition (SHARE_MAX_DEFINITION_BYTES), so the worst case is
+        # modelled at exactly that cap rather than at a column count someone guessed.
+        "tableDefinition": _definition_at_cap(ts_config.SHARE_MAX_DEFINITION_BYTES),
         "location": {"bucket": "b" * 63, "prefix": "p" * 200},
         # THE POINT OF THIS CHANGE: a key, not up to 1000 {relKey, size} entries.
         "copyPlanKey": "table-share/" + ("0" * 64) + "/copy-plan.json",

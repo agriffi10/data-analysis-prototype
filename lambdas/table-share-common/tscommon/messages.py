@@ -42,6 +42,10 @@ _BODIES = {
     "source_catalog_partitioned": "tables with catalog-registered partitions can't be shared (yet).",
     "source_empty": "the source table has no data files.",
     "source_too_large": "the source table is too large to share.",
+    "source_definition_too_large": (
+        "that table has too many columns (or too much column detail) to share. "
+        "Please share a narrower table."
+    ),
     "source_location_unsupported": "the source table's data location isn't supported.",
     # Per-recipient failures (the Map verbs).
     "unknown_user": "there is no user with that name.",

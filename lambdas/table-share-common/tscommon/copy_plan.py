@@ -11,7 +11,7 @@ chars) that reached **249 KB — 95%** of Step Functions' 256 KB state-payload l
 **71% with zero failures**. Breaching it raises ``States.DataLimitExceeded`` ON THE MAP,
 which routes to the whole-request ``RecordFailure`` and destroys every per-recipient
 outcome the Map exists to preserve — turning a partial success into a total failure, on
-exactly the requests that already went worst. By pointer the same state is ~28%.
+exactly the requests that already went worst. By pointer the same state is ~34%.
 
 This is the same indirection, for the same reason, as SPEC-110's data-quality manifest.
 
@@ -51,11 +51,23 @@ def plan_key(request: dict) -> str:
     Functions ``Retry`` of inspect-source rewrites the SAME key with the same content rather
     than leaving a second plan behind.
 
-    TWO REQUESTS CANNOT COLLIDE WHILE BOTH ARE RUNNING, and that is a property of the queue
-    rather than luck: the digest covers the source database and table, and the FIFO
-    ``MessageGroupId`` is exactly ``{database}.{table}`` (tableShare.service.ts) — so any two
-    requests that could hash alike are in the same message group and are therefore
-    SERIALIZED by SQS. Different sources hash differently.
+    TWO EXECUTIONS *CAN* OVERLAP ON ONE KEY, and an earlier version of this docstring
+    claimed otherwise — wrongly. The FIFO ``MessageGroupId`` is ``{database}.{table}``, but
+    the Pipe is ``invocation_type = "FIRE_AND_FORGET"`` (pipe.tf), so SQS considers the
+    message handled as soon as ``StartExecution`` RETURNS, not when the execution finishes.
+    A group serializes starts, not runs. Redelivery after a Pipes crash and a DLQ redrive
+    open the same window.
+
+    WHY IT IS STILL SAFE, stated as the bounded claim it actually is: a collision needs the
+    same actor, source database, source table AND result name. Those requests list the SAME
+    prefix, so both plans describe the same object set and either is correct for either
+    execution. The residual exposure is a source MUTATED between the two listings — the
+    earlier execution would then copy the later snapshot. Nothing here silently mixes two
+    different sources, because the digest covers the database and table (pinned by test).
+
+    Making it airtight would take an execution-unique salt (``$$.Execution.Name`` threaded
+    in), which costs an ASL payload-shape change; the bounded exposure above did not justify
+    it. Recorded so the next person weighs it rather than re-deriving it.
     """
     source = request.get("source") or {}
     digest = hashlib.sha256(

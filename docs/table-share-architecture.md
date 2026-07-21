@@ -167,3 +167,13 @@ UI is folded into the feature spec (SPEC-093), as in the other arcs. Build order
 - **Copy caps.** Pick concrete `SHARE_MAX_OBJECTS` / `SHARE_MAX_TOTAL_BYTES` defaults in SPEC-090 (sized so a Map item finishes within the Lambda timeout with multipart copies); document the "too large — use S3 Batch Ops (deferred)" failure reason.
 - **Source `LOCATION` normalization.** A source table whose `LOCATION` is not a clean single prefix (e.g. object-level location, or a `LOCATION` outside the space's bucket) is a validation failure — nail the exact rule in SPEC-090.
 - **Recipient == source no-op.** Sharing a table back into its own database under the same name is a self-conflict (fails at `check-target-absent`); a different name in the same DB is a legitimate in-place copy — allow it.
+
+> **Corrected 2026-07-21 (PR #256):** the object list no longer rides on the Step Functions
+> state. `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/copy-plan.json`
+> and emits `copyPlanKey` + `objectCount`; `copy-objects` loads it. Inline, the Map's
+> output state reached **101%** of the 256 KB payload limit at the caps (the Map's
+> `ItemSelector` copies the whole state into every item) — `States.DataLimitExceeded`
+> on the Map, destroying every per-recipient outcome. By pointer it is ~34%.
+> `tableDefinition` still rides inline and is now capped by `SHARE_MAX_DEFINITION_BYTES`,
+> since columns/comments/table-properties are user-controlled and a 1,000-column
+> commented table breached even after the pointer landed.

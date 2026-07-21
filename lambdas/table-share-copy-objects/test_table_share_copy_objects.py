@@ -18,6 +18,8 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import pytest  # noqa: E402
+
 import table_share_copy_objects as m  # noqa: E402
 from cpcommon import clients  # noqa: E402
 from tscommon import copy as copy_mod  # noqa: E402
@@ -69,10 +71,24 @@ def _setup(**kwargs):
     return fake
 
 
+#: See the twin note in the inspect-source suite: tscommon is NOT covered by conftest's
+#: module snapshot, so an unrestored stub here leaks into the copy_plan suite.
+_PATCHED = []
+
+
+@pytest.fixture(autouse=True)
+def _restore_shared_modules():
+    yield
+    while _PATCHED:
+        module, name, original = _PATCHED.pop()
+        setattr(module, name, original)
+
+
 def _event(objects):
     # The plan travels by POINTER now (tscommon.copy_plan): inline, the object list pushed
     # the Map's state to 95% of Step Functions' 256 KB payload limit. The verb loads it, so
     # the fixture stubs the load rather than putting the list on the state.
+    _PATCHED.append((m.copy_plan, "load", m.copy_plan.load))
     m.copy_plan.load = lambda key: objects
     return {
         "recipient": {
@@ -164,6 +180,32 @@ def test_copy_prefix_bounds_concurrency():
         concurrency=2,
     )
     assert n == 20 and len(fake.copies) == 20
+
+
+
+
+def test_an_in_flight_pre_pointer_execution_still_copies():
+    """The ROLLING-DEPLOY window, which has no other guard.
+
+    The five verbs deploy as parallel matrix jobs, so an execution that cleared
+    InspectSource under the old code carries `objects` inline and no copyPlanKey. Without
+    the fallback, copy_plan.load(None) raises and EVERY recipient of that in-flight share
+    fails — a self-inflicted outage lasting as long as the longest running execution.
+    """
+    fake = _setup()
+    objects = [{"relKey": "part-0.parquet", "size": 10}]
+    event = {
+        "recipient": {"kind": "user", "name": "bob", "destBucket": "user-bkt", "destPrefix": "bob/shared_tables/t/"},
+        "request": {
+            "location": {"bucket": "user-bkt", "prefix": "alice/orders/"},
+            "objects": objects,          # the OLD inline shape
+        },
+    }
+
+    out = m.handler(event, None)
+
+    assert out["copiedObjects"] == 1
+    assert fake.copies, "nothing was copied for a pre-pointer execution"
 
 
 if __name__ == "__main__":

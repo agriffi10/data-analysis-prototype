@@ -13,6 +13,7 @@ The object LIST goes to S3 and travels by POINTER — see tscommon.copy_plan for
 measured reason (inline, the Map's state reached 95% of the 256 KB payload limit).
 """
 
+import json
 import logging
 
 from cpcommon import s3_listing
@@ -37,12 +38,35 @@ def handler(event, context) -> dict:
     return _inspect_source(event)
 
 
+def _enforce_definition_cap(definition, database, table) -> None:
+    """Reject a definition too large to ride on the Step Functions state.
+
+    The object list travels by pointer now, but the CLONED DEFINITION does not — and it is
+    user-controlled: columns (name/type/comment) and the source's Glue table properties are
+    copied verbatim, and a user can set both from the query workspace. Measured with the
+    plan already by pointer and 50 recipients failing, 1,000 columns carrying 255-char
+    comments reached 150% of Step Functions' 256 KB state payload — States.DataLimitExceeded
+    on the Map, which destroys every per-recipient outcome.
+
+    Rejected HERE, as a whole-request terminal before any recipient runs, matching the
+    object/byte caps rather than failing 50 recipients one at a time.
+    """
+    size = len(json.dumps(definition, separators=(",", ":")).encode())
+    if size > config.SHARE_MAX_DEFINITION_BYTES:
+        raise TerminalError(
+            "source_definition_too_large",
+            f"{database}.{table} definition is {size} bytes "
+            f"(cap {config.SHARE_MAX_DEFINITION_BYTES})",
+        )
+
+
 def _inspect_source(event) -> dict:
     source = event.get("source") or {}
     database, table = source.get("database"), source.get("table")
 
     raw_table = glue_mod.get_table(database, table)
     definition, location, partitioned = glue_mod.clone_definition(raw_table)
+    _enforce_definition_cap(definition, database, table)
 
     objects = []
     total_bytes = 0
@@ -78,7 +102,9 @@ def _inspect_source(event) -> dict:
         "location": location,
         # The KEY, not the list: inline this reached 95% of Step Functions' 256 KB state
         # payload at the shipped caps, because the Map's ItemSelector copies the whole
-        # state into every item. objectCount stays for logging and the notification.
+        # state into every item. objectCount is the summary the state keeps so a reader of
+        # the execution can see the size of the share without fetching the plan; nothing
+        # consumes it yet (SPEC-094's messages carry no count).
         "copyPlanKey": copy_plan.write(event, objects),
         "objectCount": len(objects),
         "partitioned": partitioned,
