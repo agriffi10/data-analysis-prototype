@@ -7,6 +7,15 @@
 
 > **Read `docs/table-share-architecture.md` §6, §7 first.**
 
+> **Superseded 2026-07-21 (PR #252):** the `ParseError` state was REMOVED from every
+> control plane. `States.StringToJson($.error.Cause)` in a `Pass` raises an uncatchable
+> `States.Runtime` whenever `Cause` is absent or is not JSON (`States.Timeout`,
+> `States.DataLimitExceeded`, `Lambda.Unknown` — verified live with `TestState`), killing
+> the execution before the recorded-failure and notify states. Every `Catch` now routes
+> straight to cleanup/`RecordFailure`, which carries the RAW `error` object
+> (`{Error, Cause}`) rather than a decoded `reason`; `cpcommon.errors.failure_reason`
+> decodes it in Python. **No ASL state may decode an error Cause.**
+
 ## Overview
 
 Complete the recipient `Map` with **create-table**: from the cloned source definition (SPEC-090) with its `LOCATION` repointed to the recipient's `shared_tables/{tableName}/` prefix, run `CREATE EXTERNAL TABLE IF NOT EXISTS …` via **Athena** against the **recipient database**, polling to a terminal state. This makes each recipient's copied data queryable as a real table — an exact clone of the source (projection props carried, so no `MSCK`). This spec also finalizes the Step Function's success/failure terminal states and the **shared execution role's** LF/Glue/Athena/S3/Cognito grants (the role is a **Lake Formation admin**), delivering end-to-end sharing (sans notifications/UI polish).

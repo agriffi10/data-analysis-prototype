@@ -1,8 +1,8 @@
 # Spec: Data Quality — `byte-scan` + Report Assembly
 
 **ID:** SPEC-112
-**Status:** Draft
-**Last Updated:** 2026-07-13
+**Status:** Completed
+**Last Updated:** 2026-07-21
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (S3 grants), SPEC-110 (the manifest + per-file columns), SPEC-111 (the Athena results)
 
 > **Read `docs/data-quality-architecture.md` §5.2, §5.3 and §6 first.**

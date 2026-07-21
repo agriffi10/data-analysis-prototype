@@ -7,6 +7,15 @@
 
 > **Read `docs/data-quality-architecture.md` §0 and §2 first.** This spec builds the plumbing for the data-quality arc (SPEC-108→114); it is deliberately behavior-free.
 
+> **Superseded 2026-07-21 (PR #252):** the `ParseError` state was REMOVED from every
+> control plane. `States.StringToJson($.error.Cause)` in a `Pass` raises an uncatchable
+> `States.Runtime` whenever `Cause` is absent or is not JSON (`States.Timeout`,
+> `States.DataLimitExceeded`, `Lambda.Unknown` — verified live with `TestState`), killing
+> the execution before the recorded-failure and notify states. Every `Catch` now routes
+> straight to cleanup/`RecordFailure`, which carries the RAW `error` object
+> (`{Error, Cause}`) rather than a decoded `reason`; `cpcommon.errors.failure_reason`
+> decodes it in Python. **No ASL state may decode an error Cause.**
+
 ## Overview
 
 Stand up the **dedicated async control plane** for checking data quality — a FIFO SQS request queue (+ DLQ), an EventBridge Pipe, and a Standard Step Function that will orchestrate single-task Lambdas around an **Athena query**, plus a `dqcommon` Lambda layer and a dedicated Athena workgroup. This spec delivers the **skeleton only**: infrastructure, one shared execution role, placeholder Lambdas, log groups, deploy-role IAM, and a smoke test.

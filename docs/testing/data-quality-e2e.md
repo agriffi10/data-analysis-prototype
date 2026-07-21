@@ -13,7 +13,7 @@ Browser → SQS (FIFO requests.fifo) → EventBridge Pipe (batch 1) → Step Fun
    validate-authorize → inspect-source → create-temp-tables → start-profile-query
      → WaitForQuery(30s) → check-query → Choice(QUEUED/RUNNING? → WaitForQuery)   ◀── THE POLL
      → byte-scan → assemble-report → drop-temp-tables → RecordSuccess → Succeed
-   (any failure → Catch → ParseError → DropTempTablesOnFailure → RecordFailure
+   (any failure → Catch → DropTempTablesOnFailure → RecordFailure
                         → NotifyFailure → Fail)
 ```
 
@@ -156,3 +156,10 @@ colliding with their real table names.
   (2026-07-14): the 30-minute default is sufficient while the arc is in testing/concept.
 - `RecordSuccess`/`RecordFailure` are `Pass` states; **nothing durable is written by a
   terminal state** — the report object (SPEC-112) is the artefact.
+
+> **Corrected 2026-07-21 (PR #252):** the `ParseError` state is GONE from every control
+> plane. It decoded the error Cause with `States.StringToJson`, which raises an
+> uncatchable `States.Runtime` on any Cause that is absent or not JSON — killing the
+> execution before the recorded-failure state. The terminal states now carry the RAW
+> `error` object (`{Error, Cause}`) instead of a decoded `reason`; decode it with
+> `cpcommon.errors.failure_reason`.

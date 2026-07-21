@@ -248,7 +248,7 @@ partitioned sources.
 
 **Terminal states.** The pipeline now ends
 `… → ExecuteDdl → RecordSuccess → Succeeded`; every verb's `Catch` routes to a single
-recorded-failure path (`ParseError → RecordFailure → Failed`) that shapes the structured
+recorded-failure path (`RecordFailure → Failed`) that shapes the structured
 outcome SPEC-072 will notify from:
 
 ```jsonc
@@ -256,7 +256,9 @@ outcome SPEC-072 will notify from:
 { "requestId": "…", "actor": "alice", "database": "alice", "tableName": "sales_2026", "status": "created" }
 // RecordFailure output (recorded in history before the Fail state):
 { "requestId": "…", "actor": "alice", "database": "alice", "tableName": "sales_2026",
-  "status": "failed", "reason": "ddl_execution_failed: SYNTAX_ERROR …" }
+  "status": "failed",
+  "error": { "Error": "TerminalError",
+             "Cause": "{\"errorMessage\": \"ddl_execution_failed: SYNTAX_ERROR …\"}" } }
 ```
 
 A validate-authorize failure runs before the request identity exists, so its `Catch` routes
@@ -354,3 +356,10 @@ aws iam simulate-custom-policy --policy-input-list "$POLICY" \
    (`{requestId}:{step}`) and **silence** on transient/non-terminal paths and (validate-authorize)
    on `unauthorized` (no actor). Plus `python3 lambdas/table-builder-common/test_notify.py` +
    `test_messages.py` (helper + message-map).
+
+> **Corrected 2026-07-21 (PR #252):** the `ParseError` state is GONE from every control
+> plane. It decoded the error Cause with `States.StringToJson`, which raises an
+> uncatchable `States.Runtime` on any Cause that is absent or not JSON — killing the
+> execution before the recorded-failure state. The terminal states now carry the RAW
+> `error` object (`{Error, Cause}`) instead of a decoded `reason`; decode it with
+> `cpcommon.errors.failure_reason`.
