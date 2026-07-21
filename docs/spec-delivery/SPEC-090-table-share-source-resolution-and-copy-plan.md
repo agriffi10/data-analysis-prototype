@@ -22,3 +22,11 @@ In-session decisions (reversible, documented):
 ## Verification
 
 16 new inspect-source unit tests (+ the validate suite re-run, 15) — shape matrix, clone fidelity, projection carry, LOCATION rules, ignore rules/relative keys, both caps, transient-vs-terminal Glue mapping; `tofu fmt`/`validate` + template render checks green. Live happy-path `GetTable` on an LF-gated DB stays blocked until SPEC-092's LF-admin wiring (expected; `source_not_readable` is the interim terminal) — end-to-end share is SPEC-092's live check. Nothing user-facing (no Help change); component inventory untouched (backend-only).
+
+> **Corrected 2026-07-21 (PR #256):** the object list no longer rides on the Step Functions
+> state. `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/copy-plan.json`
+> and emits `copyPlanKey` + `objectCount`; `copy-objects` loads it. Inline, the Map's
+> output state reached **101%** of the 256 KB payload limit at the caps (the Map's
+> `ItemSelector` copies the whole state into every item) — `States.DataLimitExceeded`
+> on the Map, destroying every per-recipient outcome. By pointer it is ~34%.
+> `tableDefinition` still rides inline and is now capped by `SHARE_MAX_DEFINITION_BYTES`.

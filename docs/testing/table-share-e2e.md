@@ -229,3 +229,13 @@ siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok
 > execution before the recorded-failure state. The terminal states now carry the RAW
 > `error` object (`{Error, Cause}`) instead of a decoded `reason`; decode it with
 > `cpcommon.errors.failure_reason`.
+
+> **Corrected 2026-07-21 (PR #256):** the object list no longer rides on the Step Functions
+> state. `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/copy-plan.json`
+> and emits `copyPlanKey` + `objectCount`; `copy-objects` loads it. Inline, the Map's
+> output state reached **101%** of the 256 KB payload limit at the caps (the Map's
+> `ItemSelector` copies the whole state into every item) — `States.DataLimitExceeded`
+> on the Map, destroying every per-recipient outcome. By pointer it is ~34%.
+> `tableDefinition` still rides inline and is now capped by `SHARE_MAX_DEFINITION_BYTES`,
+> since columns/comments/table-properties are user-controlled and a 1,000-column
+> commented table breached even after the pointer landed.

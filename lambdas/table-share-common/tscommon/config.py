@@ -39,3 +39,21 @@ RECIPIENT_KINDS = frozenset({"user", "space"})
 # It is also a sane product limit in its own right: 1000 objects x 50 recipients is
 # 50,000 CopyObject calls, and there was previously NO cap at all.
 SHARE_MAX_RECIPIENTS = 50
+
+# Max serialized size of the cloned table definition.
+#
+# The LAST unbounded term on the Map's state. Moving the object list to a pointer removed
+# the big one, but `tableDefinition` still rides inline — and it is USER-CONTROLLED: it
+# clones the source's columns (name/type/comment) and its Glue table properties verbatim,
+# and a user can set both from the query workspace (CREATE EXTERNAL TABLE … TBLPROPERTIES).
+# Measured with the plan already by pointer, 50 recipients all failing:
+#
+#     300 columns, no comments      89 KB    34%
+#   1,000 columns, no comments     123 KB    47%
+#   1,000 columns, 255-char comments 393 KB  150%   <- BREACH, after the pointer
+#
+# So a wide-enough table still trips States.DataLimitExceeded on the Map and destroys every
+# per-recipient outcome. 32 KiB is generous — roughly 600 plain columns — and lands the
+# worst case near 41%. Rejected in inspect-source as a whole-request terminal, before any
+# recipient runs, which is the same shape as the object/byte caps above.
+SHARE_MAX_DEFINITION_BYTES = 32 * 1024

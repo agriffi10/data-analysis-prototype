@@ -19,6 +19,8 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import table_share_inspect_source as m  # noqa: E402
+import pytest  # noqa: E402
+
 from cpcommon import clients, config  # noqa: E402
 from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
@@ -85,9 +87,39 @@ def _table(
     }
 
 
+#: Attributes stubbed on the SHARED tscommon.copy_plan module, restored after each test.
+#: conftest.py snapshots cpcommon.* only — tscommon is not covered — so without this the
+#: stub leaks into test_copy_plan_tscommon.py and it exercises a lambda instead of the real
+#: function. It passed only because table-share-common/ sorts first.
+_PATCHED = []
+
+
+@pytest.fixture(autouse=True)
+def _restore_shared_modules():
+    yield
+    while _PATCHED:
+        module, name, original = _PATCHED.pop()
+        setattr(module, name, original)
+
+
+def _plan_writes():
+    """Capture what inspect-source writes to the copy plan.
+
+    The object list travels by POINTER now (tscommon.copy_plan) — inline it reached 95% of
+    Step Functions' 256 KB state payload at the shipped caps. Tests assert the written
+    CONTENT, which is the same list they used to read off the state.
+    """
+    written = []
+    _PATCHED.append((m.copy_plan, "write", m.copy_plan.write))
+    m.copy_plan.write = lambda request, objects: (written.append(objects) or "table-share/h/copy-plan.json")
+    return written
+
+
 def _setup(table=None, objects=None, glue_error=None):
     clients._glue = _FakeGlue(table=table, error_code=glue_error)
+    plan = _plan_writes()
     clients._s3 = _FakeS3(objects if objects is not None else [("alice/sales/part-0.parquet", 100)])
+    return plan
 
 
 def _event():
@@ -109,10 +141,13 @@ def _expect_reason(reason):
 
 
 def test_flat_external_table_emits_copy_plan():
-    _setup(table=_table())
+    plan = _setup(table=_table())
     out = m.handler(_event(), None)
     assert out["location"] == {"bucket": USER_BUCKET, "prefix": "alice/sales/"}
-    assert out["objects"] == [{"relKey": "part-0.parquet", "size": 100}]
+    assert plan[-1] == [{"relKey": "part-0.parquet", "size": 100}]
+    assert out["copyPlanKey"] == "table-share/h/copy-plan.json"
+    assert out["objectCount"] == 1
+    assert "objects" not in out  # the list must NOT ride on the state
     assert out["partitioned"] is False
     # The threaded request context is preserved for the Map.
     assert out["actor"] == "alice" and out["tableName"] == "orders_copy"
@@ -202,7 +237,7 @@ def test_other_glue_error_is_transient():
 
 
 def test_listing_applies_ignore_rules_and_relative_keys():
-    _setup(
+    plan = _setup(
         table=_table(),
         objects=[
             ("alice/sales/part-0.parquet", 100),
@@ -215,8 +250,8 @@ def test_listing_applies_ignore_rules_and_relative_keys():
             ("alice/sales/", 0),
         ],
     )
-    out = m.handler(_event(), None)
-    assert out["objects"] == [
+    m.handler(_event(), None)
+    assert plan[-1] == [
         {"relKey": "part-0.parquet", "size": 100},
         {"relKey": "year=2025/part-1.parquet", "size": 50},
     ]
@@ -245,6 +280,40 @@ def test_total_bytes_cap():
         _expect_reason("source_too_large")
     finally:
         m.config.SHARE_MAX_TOTAL_BYTES = original
+
+
+
+
+def test_an_oversized_table_definition_is_a_whole_request_terminal():
+    """The last unbounded, USER-CONTROLLED term on the Map's state.
+
+    columns/comments and the source's Glue table properties are cloned verbatim, and a user
+    sets both from the query workspace. Measured with the copy plan already by pointer and
+    50 recipients failing, 1,000 columns carrying 255-char comments reached 150% of Step
+    Functions' 256 KB payload — States.DataLimitExceeded on the Map, destroying every
+    per-recipient outcome. Rejected here, before any recipient runs.
+    """
+    wide = _table()
+    wide["StorageDescriptor"]["Columns"] = [
+        {"Name": f"column_number_{i:04d}", "Type": "string", "Comment": "c" * 255} for i in range(1000)
+    ]
+    _setup(table=wide)
+
+    with pytest.raises(TerminalError) as excinfo:
+        m.handler(_event(), None)
+
+    assert excinfo.value.reason == "source_definition_too_large"
+
+
+def test_an_ordinary_wide_table_is_still_accepted():
+    """The other side of the boundary — the cap must not reject a normal wide table."""
+    ordinary = _table()
+    ordinary["StorageDescriptor"]["Columns"] = [
+        {"Name": f"column_number_{i:03d}", "Type": "string"} for i in range(200)
+    ]
+    _setup(table=ordinary)
+
+    assert m.handler(_event(), None)["copyPlanKey"]
 
 
 if __name__ == "__main__":
