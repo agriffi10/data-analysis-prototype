@@ -20,6 +20,22 @@ resource "aws_iam_role_policy" "execution" {
   name = "permissions"
   role = aws_iam_role.execution.id
 
+  # CopyPlanReadWrite (2026-07-21): inspect-source WRITES the object list to
+  # {admin_bucket}/table-share/{requestId}/ and passes a KEY onward; copy-objects READS it.
+  # The list used to ride INLINE on the Step Functions state, and the Map's ItemSelector
+  # copies the whole state into every item — at the shipped caps (1000 objects, ordinary
+  # Hive keys) that put the Map's output state at 95% of the 256 KB payload limit, where
+  # States.DataLimitExceeded fires ON THE MAP and destroys every per-recipient outcome the
+  # Map exists to preserve. Same fix and same reason as SPEC-110's data-quality manifest.
+  #
+  # THE ADMIN BUCKET, not a user space: the SPA never browses it, so the plan needs no
+  # hidden-folder convention, and a user cannot delete it out from under a running
+  # execution (they DO hold s3:DeleteObject in their own space). No delete is granted here
+  # either — analytics/s3.tf's expire-table-share-copy-plans lifecycle rule expires it.
+  #
+  # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
+  # ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),
+  # so rationale goes HERE, not in the .tftpl.
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     log_group_arn = local.table_share_log_group_wildcard_arn
     # SPEC-089: registry read (source authz + recipient-space existence), Cognito
