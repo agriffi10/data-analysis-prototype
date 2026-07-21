@@ -9,15 +9,18 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-drop-temp-tables"))
 
 import pytest  # noqa: E402
 from cpcommon.errors import TerminalError, TransientError  # noqa: E402
 
 import dq_assemble_report as v  # noqa: E402
+import dq_drop_temp_tables as cleanup  # noqa: E402
 
 BUCKET = "dq-user-bkt"
 PREFIX = "alice/_data-quality-reports/req-1"
@@ -137,6 +140,36 @@ def _setup(monkeypatch, objects=None, missing=()):
 
 def _written(fake):
     return json.loads(fake.puts[-1]["Body"])
+
+
+def _state_machine():
+    """Parse the DEPLOYED ASL template, with its Terraform placeholders stubbed out.
+
+    Read from infra/ rather than duplicated here on purpose: a copy would drift, and the
+    whole value of the contract tests below is that they fail when one side moves.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "infra", "modules", "data-quality", "state-machine.asl.json.tftpl",
+    )
+    with open(path) as handle:
+        return json.loads(re.sub(r"\$\{[^}]+\}", "stub-arn", handle.read()))
+
+
+def _has_path(state, path):
+    """Whether a JSONPath like ``$.a.b`` resolves to an existing KEY in ``state``.
+
+    Walks nested segments rather than slicing off "$." and comparing to top-level keys: the
+    sibling table-builder machine already reads `$.space.database`, so a naive check would
+    false-fail the first time this machine grows a nested read. Only the key's PRESENCE
+    matters — a null value is fine in a Pass state, a missing key is fatal.
+    """
+    cursor = state
+    for segment in path.removeprefix("$.").split("."):
+        if not isinstance(cursor, dict) or segment not in cursor:
+            return False
+        cursor = cursor[segment]
+    return True
 
 
 # ── The write ────────────────────────────────────────────────────────────────
@@ -334,6 +367,77 @@ def test_a_throttled_write_raises_transient_so_the_state_machine_retries(monkeyp
 
     with pytest.raises(TransientError):
         v.handler(_event(), None)
+
+
+def test_record_success_can_read_every_field_it_names(monkeypatch):
+    """The state machine's contract, asserted against the state that ACTUALLY feeds it.
+
+    RecordSuccess is a Pass state, and a Pass state's JSONPath HARD-FAILS on an ABSENT key
+    with States.Runtime — which a Pass state cannot Catch. So a field named there but not
+    present does not degrade anything: the execution dies before NotifyFailure and the user
+    is told NOTHING about a check that SUCCEEDED. That failure mode has already been hit
+    once in this arc (the SPEC-108 live smoke test).
+
+    THE STATE FEEDING RecordSuccess IS DROP-TEMP-TABLES', NOT THIS VERB'S. DropTempTables
+    carries OutputPath "$.Payload", so it REPLACES the state wholesale — asserting against
+    assemble-report's output alone would pass while drop-temp-tables quietly dropped every
+    field, which is exactly what an earlier version of this test did.
+    """
+    asl = _state_machine()
+    reads = [
+        path for key, path in asl["States"]["RecordSuccess"]["Parameters"].items()
+        if key.endswith(".$")
+    ]
+    assert reads, "RecordSuccess reads nothing — this test would pass vacuously"
+    _setup(monkeypatch)
+
+    # The real success path: AssembleReport -> DropTempTables -> RecordSuccess.
+    state = cleanup.handler(v.handler(_event(), None), None)
+
+    missing = [path for path in reads if not _has_path(state, path)]
+    assert not missing, f"RecordSuccess reads fields the success path never sets: {missing}"
+
+
+def test_the_pre_identity_failure_path_actually_routes_through_the_seed():
+    """Pinning the WIRING, not just the seed's contents.
+
+    A subset check between two blobs in this file is satisfied whether or not the seed is on
+    the path at all. Repoint ValidateAuthorize's Catch straight at ParseError and a
+    malformed request reaches RecordFailure with no requestId/actor/location keys — dying
+    uncatchably, on the one failure that happens before the request identity exists. The
+    table-builder suite pins its equivalent edge the same way.
+    """
+    validate = _state_machine()["States"]["ValidateAuthorize"]
+
+    assert validate["Catch"][0]["Next"] == "ValidateFailureSeed"
+
+
+def test_the_seed_supplies_every_identity_field_record_failure_names():
+    """The pre-identity path's contract.
+
+    A validate-authorize failure never has a location — its input was the raw SQS array —
+    so ValidateFailureSeed must seed every identity field RecordFailure names. Miss one and
+    a malformed or unauthorized request produces no notification at all.
+
+    This covers the PRE-IDENTITY path only. The other entries to RecordFailure (a Catch on
+    any of the seven Task states) carry the threaded request object instead, and are covered
+    by each verb's own "request object is threaded through" test.
+    """
+    asl = _state_machine()
+    reads = {
+        path for key, path in asl["States"]["RecordFailure"]["Parameters"].items()
+        if key.endswith(".$")
+    }
+    assert reads, "RecordFailure reads nothing — this test would pass vacuously"
+    # $.parsed.* is added by ParseError, which every failure path runs after the seed.
+    identity = {path for path in reads if not path.startswith("$.parsed")}
+    seed = {
+        key.removesuffix(".$"): value
+        for key, value in asl["States"]["ValidateFailureSeed"]["Parameters"].items()
+    }
+
+    missing = [path for path in identity if not _has_path(seed, path)]
+    assert not missing, f"RecordFailure reads fields the seed never supplies: {missing}"
 
 
 def test_a_throttled_fallback_listing_also_raises_transient(monkeypatch):
