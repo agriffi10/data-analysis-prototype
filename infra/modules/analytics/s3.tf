@@ -67,6 +67,15 @@ resource "aws_s3_bucket_versioning" "athena_admin" {
 # rules can only INCLUDE a prefix (there is no exclude), so the rule targets only the
 # transient fallback output by prefix — registry objects under shared-spaces/ are
 # never matched and are retained indefinitely.
+#
+# SPEC-127 FR-009: `logs/` gets NO rule here — the structured logs are retained indefinitely
+# (user decision, 2026-07-22). The cost, stated plainly so it is read here rather than
+# discovered on a bill: unbounded growth, with no ceiling and no decision point.
+#
+# What makes that safe is structural, not conventional: EVERY rule below carries a prefix
+# filter, so none of them can match `logs/` by accident. S3 lifecycle rules can only INCLUDE a
+# prefix, never exclude one — so a rule added later with an empty filter would silently begin
+# expiring the logs. The `admin_lifecycle_rules_are_prefix_scoped` check below pins that.
 resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   bucket = aws_s3_bucket.athena_admin.id
 
@@ -106,3 +115,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
 
 # No CORS: this bucket is never read by the browser. User-facing result downloads
 # read from the user-space {username}/athenaresults/ prefix instead (SPEC-034).
+
+# SPEC-127 FR-009 — pins the invariant the logs/ retention decision rests on.
+#
+# `check` surfaces this as a PLAN WARNING, not a hard failure: OpenTofu has no native way to
+# fail on it without restructuring the lifecycle resource to render its rules from a local via
+# `dynamic`, which is more risk than this is worth on a working retention config. A warning in
+# the plan output is enough — the failure mode it guards against (someone adds an unfiltered
+# rule and silently starts expiring the logs) is a code-review moment, and this puts the
+# evidence in the diff's own plan comment.
+check "admin_lifecycle_rules_are_prefix_scoped" {
+  assert {
+    condition = alltrue([
+      for r in aws_s3_bucket_lifecycle_configuration.athena_admin.rule :
+      try(one(r.filter).prefix, "") != ""
+    ])
+    error_message = "Every admin-bucket lifecycle rule must carry a non-empty filter.prefix. An unfiltered rule matches logs/ too, which SPEC-127 FR-009 retains indefinitely — S3 lifecycle can include a prefix but never exclude one."
+  }
+}

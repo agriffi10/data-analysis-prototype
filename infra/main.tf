@@ -622,3 +622,28 @@ module "control_plane_dlq_drain" {
   # base grants the deploy role its drain perms (SPEC-126 PR1, already applied).
   depends_on = [module.base]
 }
+
+# SPEC-127 — the structured-logging pipe: one standard SQS logs queue and one scheduled sweep
+# that lands log-foundry events as Hive-partitioned NDJSON under s3://{admin}/logs/.
+module "observability" {
+  source = "./modules/observability"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+
+  admin_bucket_name = local.athena_admin_bucket_name
+  admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
+
+  user_pool_id  = module.auth.user_pool_id
+  app_client_id = module.auth.user_pool_client_id
+
+  # Required by the cpcommon layer's import-time config._require, not used by the sweep
+  # (PR #196 — a shared layer's fail-fast runs at COLD START for every attaching function).
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+  athena_workgroup         = local.athena_workgroup_name
+
+  # base grants the deploy role its observability perms (SPEC-127 PR1, already applied).
+  depends_on = [module.base]
+}

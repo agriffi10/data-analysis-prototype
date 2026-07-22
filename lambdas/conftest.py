@@ -66,3 +66,25 @@ _REQUIRED_ENV = {
 
 for _name, _value in _REQUIRED_ENV.items():
     os.environ.setdefault(_name, _value)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _drain_log_foundry_before_capture_closes():
+    """Retire log-foundry's worker while pytest's captured streams are still open.
+
+    `cpcommon.observability.init()` runs at module import in every instrumented handler
+    (SPEC-127), and log-foundry registers its terminal `shutdown()` via `atexit`. At
+    interpreter exit pytest has already closed the stream StdoutSink holds, so that atexit
+    call raises `ValueError: I/O operation on closed file` and prints a traceback AFTER a
+    green run — noise that would happily hide a real teardown error.
+
+    Draining here gets there first. `shutdown()` is once-only by design (log-forge SPEC-013),
+    so the later atexit call becomes a no-op rather than a second drain.
+    """
+    yield
+    try:
+        import log_foundry
+
+        log_foundry.shutdown()
+    except Exception:  # noqa: BLE001 — teardown hygiene must never fail a green suite
+        pass
