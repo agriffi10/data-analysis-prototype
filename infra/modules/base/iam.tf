@@ -262,6 +262,42 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
   policy_arn = aws_iam_policy.deploy_control_plane_dlq_drain.arn
 }
 
+# SPEC-127 observability: the structured-logging pipe — one standard SQS logs queue, one
+# scheduled sweep Lambda (+ its execution role and log group), and the EventBridge rule that
+# fires it.
+#
+# No lambda:*EventSourceMapping statement, deliberately: the sweep is pulled by a schedule, not
+# by a managed poll loop, so there is no mapping to create. That is the whole point of the
+# design (#270/#271 — idle long-polling was the bulk of this account's SQS request volume), and
+# the absence of the grant is what keeps a future "just add an event-source mapping" from
+# applying cleanly without a deliberate decision.
+#
+# S3 is NOT granted here: the sweep writes to the Athena admin bucket under logs/, which
+# S3AthenaAdminBucketManage in the main deploy policy already covers with s3:* on the bucket and
+# its contents. A second grant would be a duplicate, not a tightening.
+#
+# The sweep attaches the shared cpcommon layer, which deploy_control_plane_common already
+# covers; nothing here needs a layer grant.
+#
+# Granted FIRST (this PR) and applied before the observability module's resources land in the
+# next PR (the deploy-perms-before-resources rule), so there is no self-grant race.
+resource "aws_iam_policy" "deploy_observability" {
+  name        = "${var.project_name}-deploy-observability"
+  description = "Deploy-role grants for the SPEC-127 structured-logging foundation (one standard SQS logs queue + one scheduled sweep Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-observability.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_observability" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_observability.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
