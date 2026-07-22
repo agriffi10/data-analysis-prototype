@@ -604,8 +604,7 @@ module "control_plane_dlq_drain" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
-  dlq_queue_names = local.drained_dlq_names
-  dlq_arns        = [for name in local.drained_dlq_names : "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${name}"]
+  dlq_arns = [for name in local.drained_dlq_names : "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${name}"]
 
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url

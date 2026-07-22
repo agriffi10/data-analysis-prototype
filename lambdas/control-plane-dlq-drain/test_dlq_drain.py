@@ -54,10 +54,31 @@ class _FakeJwks:
 class _FakeSqs:
     def __init__(self):
         self.sent = []
+        self.queued = {}  # queue_url -> list[ReceiveMessage-shaped message]
+        self.deleted = []  # (queue_url, receipt_handle)
+        self.receive_calls = []  # queue_url, one per receive_message call
+        self.receive_error_urls = set()  # urls whose receive_message raises
+        self.delete_error = False  # when True, every delete_message raises
 
     def send_message(self, **kwargs):
         self.sent.append(kwargs)
         return {"MessageId": "m-1"}
+
+    def receive_message(self, **kwargs):
+        url = kwargs["QueueUrl"]
+        self.receive_calls.append(url)
+        if url in self.receive_error_urls:
+            raise RuntimeError("receive failed")
+        pending = self.queued.get(url, [])
+        batch = pending[: kwargs.get("MaxNumberOfMessages", 10)]
+        self.queued[url] = pending[len(batch) :]  # a received message is no longer visible
+        return {"Messages": batch} if batch else {}
+
+    def delete_message(self, **kwargs):
+        if self.delete_error:
+            raise RuntimeError("delete failed")
+        self.deleted.append((kwargs["QueueUrl"], kwargs.get("ReceiptHandle")))
+        return {}
 
 
 def _install():
@@ -89,6 +110,12 @@ def _arn(segment="data-quality"):
 def _record(body, *, segment="data-quality", receives="3"):
     raw = body if isinstance(body, str) else json.dumps(body)
     return {"eventSourceARN": _arn(segment), "body": raw, "attributes": {"ApproximateReceiveCount": receives}}
+
+
+def _msg(body, *, receipt="rh-1", receives="3"):
+    """A ReceiveMessage-shaped message, as the scheduled sweep sees it off a DLQ."""
+    raw = body if isinstance(body, str) else json.dumps(body)
+    return {"Body": raw, "ReceiptHandle": receipt, "Attributes": {"ApproximateReceiveCount": receives}}
 
 
 def _bodies(sqs):
@@ -367,3 +394,120 @@ def test_an_unrecognised_queue_still_notifies_with_a_generic_noun():
     )
 
     assert _bodies(sqs)[0]["message"].startswith("Your request couldn't be started")
+
+
+# ── Scheduled sweep: the pull driver that replaced the four event-source mappings ────────────
+# The per-record behaviour above (recipient from token, nothing from the body, never redeliver)
+# is unchanged; these pin the NEW part — that a scheduled invoke polls every DLQ, deletes what it
+# drains, and cannot be stopped by one bad queue.
+
+
+def test_queue_url_is_derived_from_the_arn():
+    assert (
+        dlq_drain._queue_url("arn:aws:sqs:us-east-1:1:dat-prod-data-quality-requests-dlq.fifo")
+        == "https://sqs.us-east-1.amazonaws.com/1/dat-prod-data-quality-requests-dlq.fifo"
+    )
+
+
+def test_dlq_arns_reads_the_env_and_tolerates_a_malformed_value(monkeypatch):
+    monkeypatch.setenv("DLQ_ARNS", json.dumps(["arn:a", "arn:b"]))
+    assert dlq_drain._dlq_arns() == ["arn:a", "arn:b"]
+    # A malformed env is a deploy error, not a reason to crash the sweep — drain nothing.
+    monkeypatch.setenv("DLQ_ARNS", "{not json")
+    assert dlq_drain._dlq_arns() == []
+    monkeypatch.delenv("DLQ_ARNS", raising=False)
+    assert dlq_drain._dlq_arns() == []
+
+
+def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_token(monkeypatch):
+    # One message on each of the four wired DLQs, each carrying the token in ITS domain's field
+    # (table-share uses `actor`, the rest `idToken`) — so this also pins that the sweep preserves
+    # the per-domain token-field resolution the event-source path had.
+    sqs = _install()
+    arns = [_arn(segment) for segment in dlq_drain.SOURCES]
+    monkeypatch.setenv("DLQ_ARNS", json.dumps(arns))
+    for i, segment in enumerate(dlq_drain.SOURCES):
+        field = dlq_drain.SOURCES[segment].token_field
+        url = dlq_drain._queue_url(_arn(segment))
+        sqs.queued[url] = [_msg({field: _token(f"user{i}"), "requestId": f"r-{i}"}, receipt=f"rh-{i}")]
+
+    result = dlq_drain.handler({}, None)  # a scheduled event carries no Records
+
+    assert result == {"drained": 4}
+    assert sorted(b["username"] for b in _bodies(sqs)) == ["user0", "user1", "user2", "user3"]
+
+
+def test_the_sweep_deletes_each_message_it_drains(monkeypatch):
+    sqs = _install()
+    arn = _arn("data-quality")
+    url = dlq_drain._queue_url(arn)
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.queued[url] = [_msg({"idToken": _token("alice")}, receipt="rh-A"), _msg({"idToken": _token("bob")}, receipt="rh-B")]
+
+    dlq_drain.handler({}, None)
+
+    assert sqs.deleted == [(url, "rh-A"), (url, "rh-B")]
+
+
+def test_the_sweep_deletes_a_message_it_cannot_notify_about(monkeypatch):
+    # No token → no verifiable recipient → no notification. But the message must STILL be deleted:
+    # a redelivered terminal message is exactly the invisibility this drain exists to end (FR-005).
+    sqs = _install()
+    arn = _arn("data-quality")
+    url = dlq_drain._queue_url(arn)
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.queued[url] = [_msg({"requestId": "r-1"}, receipt="rh-X")]
+
+    result = dlq_drain.handler({}, None)
+
+    assert sqs.sent == []
+    assert sqs.deleted == [(url, "rh-X")]
+    assert result == {"drained": 1}
+
+
+def test_an_empty_queue_is_polled_once_and_left(monkeypatch):
+    sqs = _install()
+    arn = _arn("table-builder")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+
+    result = dlq_drain.handler({}, None)
+
+    # One receive returns empty and the loop stops — no runaway polling, nothing deleted.
+    assert sqs.receive_calls == [dlq_drain._queue_url(arn)]
+    assert sqs.deleted == []
+    assert result == {"drained": 0}
+
+
+def test_a_receive_failure_on_one_queue_does_not_stop_the_rest(monkeypatch):
+    sqs = _install()
+    good, bad = _arn("data-quality"), _arn("table-builder")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([bad, good]))
+    sqs.receive_error_urls.add(dlq_drain._queue_url(bad))
+    sqs.queued[dlq_drain._queue_url(good)] = [_msg({"idToken": _token("alice")}, receipt="rh-1")]
+
+    result = dlq_drain.handler({}, None)
+
+    assert [b["username"] for b in _bodies(sqs)] == ["alice"]
+    assert result == {"drained": 1}
+
+
+def test_a_delete_failure_does_not_crash_the_sweep_or_drop_the_notification(monkeypatch):
+    sqs = _install()
+    arn = _arn("data-quality")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.delete_error = True
+    sqs.queued[dlq_drain._queue_url(arn)] = [_msg({"idToken": _token("alice")}, receipt="rh-1")]
+
+    assert dlq_drain.handler({}, None) == {"drained": 1}
+    assert [b["username"] for b in _bodies(sqs)] == ["alice"]
+
+
+def test_a_scheduled_event_shape_takes_the_sweep_path(monkeypatch):
+    sqs = _install()
+    arn = _arn("shared-space")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.queued[dlq_drain._queue_url(arn)] = [_msg({"idToken": _token("dave")}, receipt="rh-1")]
+
+    scheduled = {"source": "aws.events", "detail-type": "Scheduled Event", "detail": {}}
+    assert dlq_drain.handler(scheduled, None) == {"drained": 1}
+    assert [b["username"] for b in _bodies(sqs)] == ["dave"]

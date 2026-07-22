@@ -62,4 +62,36 @@ whether a poison message loops).
 **Deferred:** the live end-to-end (Phase 3's scenario) — hand-place a malformed body on the
 data-quality DLQ with a valid token and confirm one "couldn't be started" notification
 arrives naming no path from the body, then repeat with a bad-signature token and confirm
-nobody is notified. It joins the arc-wide smoke pass 108→126 still owed.
+nobody is notified. It joins the arc-wide smoke pass 108→126 still owed. (Now expect the
+notification within one ~10-min sweep interval, not seconds — see the follow-up below.)
+
+## Follow-up (2026-07-22): four event-source mappings → one EventBridge scheduled sweep
+
+The four SQS event-source mappings long-polled four almost-always-empty DLQs around the clock,
+and that idle polling was the bulk of the account's SQS request volume (it was tripping the
+1M/month free tier). They were replaced by **one EventBridge rule** (`rate(10 minutes)`) that
+invokes the drain; the handler now **polls all four DLQs itself** — receive → notify → delete,
+until empty — via `DLQ_ARNS` (the same ARNs, as an env JSON list).
+
+- **`dlq_drain.py`** gained `_sweep_one_queue` / `_dlq_arns` / `_queue_url` / `_guarded_notify`;
+  `_notify_one` and everything it calls is unchanged. `handler` dispatches: a scheduled event
+  (no `Records`) sweeps; an SQS event still takes the per-record path, so a captured record can
+  be replayed with `aws lambda invoke`.
+- **`infra/modules/control-plane-dlq-drain/lambda.tf`** drops the four mappings and adds an
+  `aws_cloudwatch_event_rule` + target + `aws_lambda_permission` (a resource-based grant for
+  `events.amazonaws.com` — no separate invoke role, unlike EventBridge Scheduler). The execution
+  role is **unchanged**: it already held the four DLQ read/delete grants the mappings polled with.
+  `DLQ_ARNS` was added to the function env; the now-unused `dlq_queue_names` var and `dlq_by_name`
+  local were removed.
+- **Deploy-role grant** (`events:` rule management, scoped to the `*-control-plane-dlq-drain-sweep`
+  rule) applied in its own PR first (#270), before the resource PR — perms before resources.
+
+**Semantic shift:** the drain now **deletes every message it reads whether or not it could
+notify**, so "total by construction" now means *never redeliver* rather than *safe to be
+redelivered*. The redelivery loop the original FR-005 guarded against is gone because nothing
+redelivers; the `_guarded_notify` belt stays so one bad message can't abort the sweep. The old
+`batch_size = 5` / no-`ReportBatchItemFailures` rationale no longer applies.
+
+**Trade-off:** a dead-lettered request surfaces within one sweep interval (~10 min) instead of
+seconds — immaterial for a queue nothing watches live. Idle SQS receives fell from ~10⁵–10⁶/month
+to a few thousand.

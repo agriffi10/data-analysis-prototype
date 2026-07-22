@@ -19,12 +19,7 @@ variable "account_id" {
 }
 
 variable "dlq_arns" {
-  description = "The request-DLQ ARNs to drain — the drain's ONLY SQS read scope. Constructed strings from the root module, not other modules' outputs, so they are known at plan time (architecture.md 'unknown ARN in list')."
-  type        = list(string)
-}
-
-variable "dlq_queue_names" {
-  description = "The same queues by name, in the same order as dlq_arns — the event-source mappings key off these so the map is stable across applies."
+  description = "The request-DLQ ARNs to drain — the drain's ONLY SQS read scope, and the DLQ_ARNS the scheduled sweep polls. Constructed strings from the root module, not other modules' outputs, so they are known at plan time (architecture.md 'unknown ARN in list')."
   type        = list(string)
 }
 
