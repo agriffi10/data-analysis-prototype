@@ -4,6 +4,7 @@ Pure logic, AWS stubbed: s3_listing.list_data_objects and the S3 client are repl
 the verb module, so no bucket is touched.
 """
 
+import io
 import json
 import os
 import sys
@@ -517,6 +518,26 @@ def test_read_plain_head_does_not_drain_a_large_object():
     assert counter["read"] < len(rows)  # stopped early — did not drain the object
     assert out.endswith(b"\n")  # whole lines only
     assert body.closed
+
+
+def test_json_types_are_inferred_from_rows_beyond_a_wide_first_record():
+    """A column null in row 1 and typed later must still type correctly, even when the
+    first record alone is wider than a read chunk.
+
+    This does NOT pin the line bound, and an earlier version of this test claimed it did.
+    Reading stops at a CHUNK boundary, so the head always overshoots the bound by up to
+    256 KiB — enough to carry thousands of rows — and no realistic input distinguishes a
+    1-line bound from a 1001-line one. max_lines bounds COST, not correctness; the byte
+    bound is what constrains memory. What this does cover is the path end-to-end: a
+    multi-chunk boto3 head, reassembled, inferred by polars from the buffer.
+    """
+    wide = b'{"a": null, "pad": "' + b"x" * 300_000 + b'"}\n'
+    _install_body(wide + b"".join(b'{"a": %d, "pad": "y"}\n' % n for n in range(500)))
+    head = v._read_plain_head("bkt", "some/a.ndjson")
+    assert dict((c["name"], c["type"]) for c in v._columns_from(io.BytesIO(head), "json")) == {
+        "a": "bigint",
+        "pad": "string",
+    }
 
 
 def test_check_access_head_objects_the_key():
