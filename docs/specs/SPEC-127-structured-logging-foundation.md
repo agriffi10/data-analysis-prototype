@@ -77,23 +77,33 @@ no other phase starts until the release exists and is pinned.
 10 workflow references, and four layers published with `--compatible-runtimes python3.12`). `pip
 install` refuses the package on 3.12 outright. Bumping the fleet to 3.13 would mean republishing
 the polars and `cryptography` layers and re-opening the 250 MB per-function guard for a library
-that, on inspection, uses nothing newer than `X | None` and `from __future__ import annotations`.
-The relaxation is the smaller and more honest change (user decision, 2026-07-22).
+that does not need 3.13. **This was verified, not assumed** (2026-07-22): the library's full gate
+was run against a real CPython 3.12.12 — `pytest` 274 passed / 1 skipped, `ruff --target-version
+py312` clean, `mypy --python-version 3.12` clean. The relaxation is the smaller and more honest
+change (user decision, 2026-07-22).
 
 **2. `shutdown()` is terminal, and Lambda needs a repeatable flush.** `decorator._shutdown_worker()`
 calls `Worker.shutdown()` but never resets the module-level `_worker`, and `Worker.shutdown()` sets
 `_shutdown_done = True` and **joins the thread**. So a handler that calls `lf.shutdown()` before
 returning silently logs nothing for the entire remaining life of that warm container — the failure
 would look like "logging works locally, and in production only the first invocation appears."
+**Reproduced against the shipped 0.2.0** (2026-07-22): with a recording sink, invocation 1 followed
+by `shutdown()` delivered its 2 events; invocations 2 and 3 on the same process delivered **zero**,
+and a second `shutdown()` changed nothing.
 Not flushing is equally wrong: Lambda freezes the execution environment the instant the handler
 returns, so the worker's 1-second flush loop stops mid-interval and the queued events are lost
 when the container is reaped. A drain that does **not** close the sink or retire the thread is
 the missing primitive.
 
+Both changes are specified upstream as **log-forge SPEC-013 — AWS Lambda Compatibility**
+(`~/Documents/Git/log-forge/docs/specs/SPEC-013-aws-lambda-compatibility.md`), which is where they
+are built. This FR is the consuming end: the gate that stops this arc starting before that release
+exists.
+
 #### Acceptance Criteria:
 
 - [ ] The upstream release (target: `log-foundry==0.3.0`) declares `requires-python = ">=3.12"`,
-      and its test suite runs green on 3.12.
+      and its CI runs the full gate as a **matrix over 3.12 and 3.13** (log-forge SPEC-013 FR-001).
 - [ ] The upstream release adds a public **`lf.flush()`** that drains the worker queue and emits
       the tail through the sink, **without** calling `sink.close()`, without joining the worker
       thread permanently, and without setting the once-only shutdown flag. A second `flush()`
