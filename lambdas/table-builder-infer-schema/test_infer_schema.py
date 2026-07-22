@@ -7,10 +7,16 @@ assertions run through the real bounded head read and the in-memory buffer polar
 actually handed in prod. Stubbing CSV at the URI seam instead is what let the
 object_store bug ship: polars reads a local path happily, so the test passed while every
 real build failed. Asserts the type rules plus scan-error → terminal and transient-S3 →
-raised. Runnable under pytest or directly: python3 test_infer_schema.py.
+raised.
+
+Run under pytest, which supplies the cpcommon path and the config env baseline from
+conftest.py. The `python3 test_infer_schema.py` mode this file used to advertise has not
+worked since the verb started importing cpcommon — the __main__ block below still runs,
+but only under an environment that provides both.
 """
 
 import datetime as dt
+import io as io_module
 import os
 import sys
 import tempfile
@@ -57,12 +63,17 @@ def _arm_notifications():
 
 
 _REAL_CHECK = i._check_access
+# Captured because _use_fixture replaces it globally and never restores it: without this,
+# a test that needs the REAL ranged reader silently gets the previous test's local-file
+# stub, and passes alone while failing (or worse, asserting nothing) in the full suite.
+_REAL_PARQUET_SOURCE = i._parquet_source
 _TMP = tempfile.mkdtemp()
 
 
 def _use_fixture(path):
-    # Point polars at the local fixture and no-op the S3 access probe.
-    i._object_uri = lambda bucket, key: path
+    # Parquet seam: hand polars a local file object (it seeks either the same way) and
+    # no-op the S3 access probe.
+    i._parquet_source = lambda bucket, key: open(path, "rb")
     i._check_access = lambda bucket, key: None
 
 
@@ -90,6 +101,34 @@ class _FakeS3Get:
         return {"Body": _FakeBody(self.data)}
 
 
+def _use_ranged_parquet(data):
+    """Serve ``data`` over a fake S3 honouring Range, with the REAL S3RangeReader in play.
+
+    The other Parquet tests hand polars a local file, which cannot tell a footer read from
+    a whole-object read. This one counts bytes, so "reads the footer, not the object" is
+    an assertion — the property that broke in production for CSV.
+    """
+    served = {"bytes": 0, "ranges": []}
+
+    class _RangedS3:
+        @staticmethod
+        def head_object(*a, **k):
+            return {"ContentLength": len(data)}
+
+        @staticmethod
+        def get_object(Bucket=None, Key=None, Range=None):
+            start, end = Range.split("=")[1].split("-")
+            chunk = data[int(start): int(end) + 1]
+            served["bytes"] += len(chunk)
+            served["ranges"].append((int(start), len(chunk)))
+            return {"Body": io_module.BytesIO(chunk)}
+
+    i._check_access = _REAL_CHECK
+    i._parquet_source = _REAL_PARQUET_SOURCE
+    clients._s3 = _RangedS3()
+    return served
+
+
 def _use_s3_fixture(data):
     """Serve ``data`` from a fake S3 and make any s3:// URI read a hard failure.
 
@@ -97,10 +136,10 @@ def _use_s3_fixture(data):
     handing polars an s3:// URI, _object_uri raises and the test fails loudly rather than
     silently exercising a path that does not work in Lambda.
     """
-    def _no_uri(bucket, key):
-        raise AssertionError("CSV/JSON must not be read through polars' object_store URI")
+    def _no_parquet_source(bucket, key):
+        raise AssertionError("CSV/JSON must not be read through the Parquet ranged reader")
 
-    i._object_uri = _no_uri
+    i._parquet_source = _no_parquet_source
     i._check_access = _REAL_CHECK
     clients._s3 = _FakeS3Get(data)
 
@@ -140,6 +179,32 @@ def test_parquet_preserves_native_types():
     }
     # column order preserved
     assert [c["name"] for c in out["columns"]] == ["order_id", "amount", "d", "ts", "note"]
+
+
+def test_parquet_reads_only_the_footer_not_the_whole_object():
+    """A Parquet source must cost a small tail read, however large the object.
+
+    This is the test that fails if the probe goes back to scan_parquet: over a file object
+    scan_parquet issues ONE read for the entire object, which is how a 250 GB source would
+    end up inside a 1 GB Lambda. The fixture has to dwarf polars' ~64 KiB footer
+    read-ahead or the whole file IS the footer read and this proves nothing.
+    """
+    blob = io_module.BytesIO()
+    pl.DataFrame({
+        "id": pl.Series(range(400_000), dtype=pl.Int64),
+        "amount": pl.Series([1.5] * 400_000, dtype=pl.Float64),
+        "note": pl.Series(["abcdefghij"] * 400_000),
+    }).write_parquet(blob, row_group_size=20_000)
+    data = blob.getvalue()
+    assert len(data) > 300_000, "fixture must dwarf the footer read-ahead"
+
+    served = _use_ranged_parquet(data)
+    out = i.handler(_event("parquet"), None)
+
+    assert [c["name"] for c in out["columns"]] == ["id", "amount", "note"]
+    assert served["bytes"] <= 256 * 1024, f"footer read grew to {served['bytes']} bytes"
+    assert served["bytes"] < len(data) / 4, f"read {served['bytes']} of {len(data)}"
+    assert min(s for s, _ in served["ranges"]) > len(data) / 2, "the read must sit in the tail"
 
 
 def test_csv_is_all_string_from_header_no_inference():

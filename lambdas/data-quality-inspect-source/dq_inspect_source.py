@@ -208,9 +208,12 @@ def _resolve_format(objects: list[tuple[str, int]], location: str) -> str:
     return next(iter(formats))
 
 
-def _object_uri(bucket: str, key: str) -> str:
-    """Return the polars source URI (Parquet only — its footer needs ranged reads)."""
-    return bounded_read.object_uri(bucket, key)
+def _parquet_source(bucket: str, key: str):
+    """Ranged file object over the Parquet object (its schema is a footer at the END).
+
+    The seam the tests point at a local file — polars reads either the same way.
+    """
+    return bounded_read.S3RangeReader(bucket, key)
 
 
 def _check_access(bucket: str, key: str) -> None:
@@ -301,37 +304,27 @@ def _hive(dtype, name: str, key: str = "") -> str:
         ) from exc
 
 
-def _storage_options() -> dict:
-    """Credentials for polars' object_store cloud reader (see ``cpcommon.bounded_read``)."""
-    return bounded_read.storage_options()
-
-
-def _columns_from(
-    source, fmt: str, storage_options: dict | None = None, key: str = ""
-) -> list[dict]:
+def _columns_from(source, fmt: str, key: str = "") -> list[dict]:
     """Return ordered ``[{name, type}]`` for ``source``.
 
-    ``source`` is an ``s3://`` URI (polars' object_store fetches only the byte ranges the
-    scan needs — a Parquet footer, a CSV header) or an in-memory buffer of already-
-    decompressed gzip head bytes. Every format yields the same {name, type} shape;
-    SPEC-111 needs a type per column because Athena does not auto-detect a Parquet schema.
-
-    ``storage_options`` carries the role's credentials for the URI case (see
-    ``_storage_options``); it is ``None`` for an in-memory buffer, where polars ignores it.
+    ``source`` is an in-memory buffer of head bytes (CSV / JSON, plain or already-
+    decompressed) or a seekable ranged file object (Parquet). Every format yields the same
+    {name, type} shape; SPEC-111 needs a type per column because Athena does not
+    auto-detect a Parquet schema.
     """
     import polars as pl
 
     if fmt == "parquet":
-        schema = pl.scan_parquet(source, storage_options=storage_options).collect_schema()
+        # read_parquet_schema, NOT scan_parquet: over a file object scan_parquet reads the
+        # WHOLE object in one call, while this seeks to the footer (cpcommon.bounded_read).
+        schema = pl.read_parquet_schema(source)
         return [{"name": n, "type": _hive(d, n, key)} for n, d in schema.items()]
 
     if fmt == "csv":
         # Header only, no type inference: every column is string, matching SPEC-111
         # FR-002's OpenCSVSerde. polars parses the header properly, so a quoted name
         # containing a comma survives — a hand-rolled split(",") would not.
-        schema = pl.scan_csv(
-            source, infer_schema_length=0, storage_options=storage_options
-        ).collect_schema()
+        schema = pl.scan_csv(source, infer_schema_length=0).collect_schema()
         return [{"name": n, "type": "string"} for n in schema.names()]
 
     if fmt == "json":
@@ -339,7 +332,6 @@ def _columns_from(
             source,
             infer_schema_length=JSON_SAMPLE_ROWS,
             n_rows=JSON_SAMPLE_ROWS,
-            storage_options=storage_options,
         ).collect()
         return [{"name": n, "type": _hive(d, n, key)} for n, d in frame.schema.items()]
 
@@ -358,19 +350,12 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
     _check_access(bucket, key)
     try:
         if _is_compressed(key):
-            # The gzip head is already in memory (boto3-fetched), so no storage_options.
             return _columns_from(io.BytesIO(_read_gzip_head(bucket, key)), fmt, key=key)
         if fmt == "parquet":
-            # Parquet's schema lives in a FOOTER at the END of the file — a head read
-            # can't reach it — so polars reads the footer via object_store RANGE requests
-            # over the s3:// URI, with the role's creds in storage_options.
-            #
-            # UNVERIFIED LIVE (SPEC-111): object_store's full-download path fails in this
-            # Lambda even with credentials (that is why CSV/JSON moved to the boto3 buffer
-            # above), but a footer range-GET is a different access pattern and may or may
-            # not work. This path needs a real Parquet source to confirm; if it also fails,
-            # the fix is a boto3 footer read (last-N-bytes) rather than object_store.
-            return _columns_from(_object_uri(bucket, key), fmt, _storage_options(), key=key)
+            # Parquet's schema lives in a FOOTER at the END of the file, which a head read
+            # can't reach — polars seeks to it through a boto3 ranged file object, reading
+            # only the footer region however large the object is.
+            return _columns_from(_parquet_source(bucket, key), fmt, key=key)
         # CSV / JSON: header (CSV) or sample rows (JSON) live at the START, so a bounded
         # boto3 head read + polars-from-memory avoids object_store, which does not work in
         # this Lambda (SPEC-111 live finding; see _read_plain_head).

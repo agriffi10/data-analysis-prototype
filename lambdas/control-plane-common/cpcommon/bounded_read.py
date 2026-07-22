@@ -16,11 +16,19 @@ object_store. The no-full-download property the ``s3://`` scan was chosen for is
 we stop reading after ``max_lines`` newlines or ``max_bytes``, whichever comes first, and
 abandon the rest of the body.
 
-This works for the formats whose schema lives at the START of the file: a CSV header is
-line 1, and JSON type inference samples the first N lines. **Parquet is the exception** —
-its schema lives in a footer at the END — so it still goes through object_store over the
-URI, with ``storage_options()`` credentials. That path is not yet proven live; if it
-fails the same way, the fix is a boto3 footer read (last-N-bytes), not more credentials.
+That covers the formats whose schema lives at the START of the file: a CSV header is line
+1, and JSON type inference samples the first N lines. **Parquet keeps its schema in a
+footer at the END**, which a head read cannot reach — so it gets ``S3RangeReader``, a
+file-like object that serves ``read``/``seek`` from boto3 ranged GETs. Handed to
+``polars.read_parquet_schema``, that fetches only the footer region: measured at 64 KiB
+and 4 GETs for both a 0.3 MB and a 25 MB file, i.e. bounded by metadata size, not object
+size. It must be ``read_parquet_schema`` — ``scan_parquet`` over a Python file object
+slurps the WHOLE object in a single ``read()`` (measured on polars 1.12.0), so a lazy
+reader would buy nothing there.
+
+**Nothing in this codebase uses object_store any more**, which is the point: the one
+reader that does not work here is no longer on any path, and no call site depends on
+credentials being threaded into it.
 
 ``stream_gzip_head`` / ``read_gzip_head`` do the same job for a gzipped object, which
 cannot be range-read at all, and carry the compression-bomb bound that a plain head read
@@ -28,7 +36,7 @@ does not need. The bounds are parameters: a caller with documented limits of its
 (data-quality's FR-005) passes them in rather than inheriting these defaults.
 """
 
-import os
+import io
 import zlib
 
 from . import clients, errors
@@ -55,34 +63,94 @@ DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024  # 32 MiB
 _GZIP_WBITS = 16 + zlib.MAX_WBITS
 
 
-def object_uri(bucket: str, key: str) -> str:
-    """The ``s3://`` URI for polars' cloud reader (Parquet footers only — see module doc)."""
-    return f"s3://{bucket}/{key}"
+class S3RangeReader(io.RawIOBase):
+    """A seekable, read-only file object backed by boto3 ranged GETs.
 
+    Exists for Parquet, whose schema is a footer at the END of the object: a head read
+    cannot reach it, and object_store cannot fetch it here (module doc). Hand this to
+    ``polars.read_parquet_schema`` and polars seeks to the tail and reads only the footer
+    region — a handful of small GETs, independent of how large the object is.
 
-def storage_options() -> dict:
-    """Credentials for polars' object_store cloud reader, from the Lambda role's env.
+    **Use ``read_parquet_schema``, not ``scan_parquet``.** Given a Python file object,
+    ``scan_parquet`` issues ONE ``read()`` for the entire object (measured on polars
+    1.12.0), which would pull a 250 GB source into a 1 GB Lambda — the exact failure this
+    module exists to avoid. ``read_parquet_schema`` is the one that seeks.
 
-    polars does NOT reuse the ambient AWS credential chain the way boto3 does: its
-    object_store S3 reader needs the role's creds handed in EXPLICITLY, even inside a
-    Lambda where boto3 finds them automatically. The runtime injects AWS_ACCESS_KEY_ID /
-    AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN (temporary role creds — the session token is
-    mandatory or the request is rejected) and AWS_REGION; object_store's config keys are
-    the ``aws_*`` forms.
+    Each ``readinto`` is one ranged GET; there is no read-ahead cache, because the footer
+    read is a few calls and a cache would only add memory the probe does not need.
     """
-    opts: dict[str, str] = {}
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if region:
-        opts["aws_region"] = region
-    for env_name, os_key in (
-        ("AWS_ACCESS_KEY_ID", "aws_access_key_id"),
-        ("AWS_SECRET_ACCESS_KEY", "aws_secret_access_key"),
-        ("AWS_SESSION_TOKEN", "aws_session_token"),
-    ):
-        value = os.environ.get(env_name)
-        if value:
-            opts[os_key] = value
-    return opts
+
+    def __init__(self, bucket: str, key: str, size: int | None = None):
+        self._bucket = bucket
+        self._key = key
+        self._size = size
+        self._pos = 0
+
+    @property
+    def size(self) -> int:
+        """The object's length, fetched once (needed to resolve SEEK_END and clamp ranges)."""
+        if self._size is None:
+            try:
+                self._size = clients.s3().head_object(Bucket=self._bucket, Key=self._key)[
+                    "ContentLength"
+                ]
+            except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+                errors.raise_if_transient(err, f"head {self._bucket}/{self._key}")
+                raise
+        return self._size
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        if whence == io.SEEK_SET:
+            base = 0
+        elif whence == io.SEEK_CUR:
+            base = self._pos
+        elif whence == io.SEEK_END:
+            base = self.size
+        else:
+            raise ValueError(f"invalid whence {whence!r}")
+        self._pos = max(0, base + offset)
+        return self._pos
+
+    def readinto(self, buffer) -> int:
+        want = len(buffer)
+        if want == 0 or self._pos >= self.size:
+            return 0
+        # Range is INCLUSIVE at both ends, and clamped to the object so a read past EOF
+        # returns the tail rather than an InvalidRange error.
+        end = min(self._pos + want, self.size) - 1
+        try:
+            body = clients.s3().get_object(
+                Bucket=self._bucket, Key=self._key, Range=f"bytes={self._pos}-{end}"
+            )["Body"]
+        except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+            errors.raise_if_transient(err, f"get {self._bucket}/{self._key}")
+            raise
+        try:
+            data = body.read()
+        finally:
+            body.close()
+        buffer[: len(data)] = data
+        self._pos += len(data)
+        return len(data)
+
+    def readall(self) -> bytes:
+        """Read to EOF. Present for file-object completeness; the footer probe never calls it."""
+        out = bytearray()
+        while True:
+            chunk = bytearray(_CHUNK_BYTES)
+            count = self.readinto(chunk)
+            if not count:
+                return bytes(out)
+            out += chunk[:count]
 
 
 def read_head(
