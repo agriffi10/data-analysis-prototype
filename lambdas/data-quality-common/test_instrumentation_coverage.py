@@ -7,7 +7,6 @@ descriptor-coverage test SPEC-126 FR-001 used for the same reason.
 """
 
 import ast
-import os
 import pathlib
 
 import pytest
