@@ -258,3 +258,76 @@ def test_traced_span_records_the_failure(sink):
     end = [e for e in sink.events if e["message"] == "span.end"]
     assert end and end[0]["status"] == "error"
     assert end[0]["error"]["type"] == "ValueError"
+
+
+def test_baggage_does_not_leak_between_invocations(sink):
+    """A warm container reuses the contextvar; a leaked request_id merges unrelated runs.
+
+    This is the failure SPEC-128 FR-002 forbids in its "never invent a correlation key" form —
+    a leaked key is an invented one, and nothing about the output looks wrong.
+    """
+    import log_foundry as lf_mod
+
+    @observability.traced("v")
+    def handler(event, context):
+        if event.get("requestId"):
+            lf_mod.set_baggage(request_id=event["requestId"])
+        return None
+
+    handler({"requestId": "run-1"}, None)
+    handler({}, None)  # second run sets nothing
+
+    second_batch = sink.batches[1]
+    assert all(
+        "request_id" not in e["fields"] for e in second_batch
+    ), "run-1's request_id leaked into a later invocation"
+
+
+# -- FR-001: the guard that a future re-pin cannot quietly regress ----------------------
+
+
+def test_installed_log_foundry_has_a_repeatable_flush():
+    """0.2.0's only drain was terminal: shutdown() closed the sink and joined the worker, so a
+    handler that called it logged nothing for the rest of that warm container's life.
+    """
+    assert callable(getattr(lf, "flush", None))
+
+    delivered = RecordingSink()
+    lf.configure(service="t", version="0", env="t", sink=delivered)
+
+    @lf.trace
+    def work():
+        return None
+
+    work()
+    lf.flush()
+    first = len(delivered.events)
+    work()
+    lf.flush()
+
+    assert len(delivered.events) > first, "the second flush on the same process delivered nothing"
+
+
+def test_installed_log_foundry_puts_baggage_on_the_boundary_events():
+    """The 0.4.0 property (log-forge SPEC-015), and the reason the pin is 0.4.0 not 0.3.0.
+
+    Without it, `fields.request_id` reaches `info` events but not `span.start`/`span.end` — the
+    records carrying duration_ms and status. Several tests in this file would then pass
+    TAUTOLOGICALLY, asserting the absence of a key that is never present. That false green is
+    what this guards.
+    """
+    delivered = RecordingSink()
+    lf.configure(service="t", version="0", env="t", sink=delivered)
+
+    @lf.trace
+    def work():
+        lf.set_baggage(request_id="r1")
+
+    work()
+    lf.flush()
+
+    end = [e for e in delivered.events if e["message"] == "span.end"]
+    assert end, "no span.end emitted"
+    assert end[0]["fields"].get("request_id") == "r1", (
+        "installed log-foundry predates SPEC-015 — re-pin to >=0.4.0"
+    )

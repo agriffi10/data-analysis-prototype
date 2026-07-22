@@ -142,6 +142,7 @@ def traced(verb: str):
         # an unwrapped wrapper would be invisible to the runtime.
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            _reset_baggage()
             try:
                 return span(*args, **kwargs)
             finally:
@@ -150,3 +151,29 @@ def traced(verb: str):
         return wrapper
 
     return decorate
+
+
+def _reset_baggage() -> None:
+    """Clear trace baggage at the start of every invocation.
+
+    Baggage lives in a ``contextvars.ContextVar``, and a warm Lambda container reuses the same
+    context across invocations. Without this, a run that sets ``request_id`` leaves it set for
+    the NEXT run — and a verb that fails to set one (a malformed event reaching notify-failure)
+    would silently emit the previous run's id.
+
+    That is worse than an unjoinable event: a fabricated correlation key merges two unrelated
+    runs into one query result, and nothing about the output looks wrong. SPEC-128 FR-002 is
+    explicit that a missing ``request_id`` must stay missing rather than be invented, and a
+    leaked one is an invented one.
+
+    Uses the library's private ContextVar because there is no public "clear" — ``set_baggage``
+    only merges. Guarded so a library refactor degrades to a warning, never a failed verb.
+    """
+    try:
+        from log_foundry import context as lf_context
+
+        lf_context._baggage.set({})
+    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+        logger.warning(
+            "structured logging: could not reset baggage (%s: %s)", type(exc).__name__, exc
+        )
