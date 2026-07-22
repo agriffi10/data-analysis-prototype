@@ -21,11 +21,17 @@ collides with a real table name.
 import logging
 
 from cpcommon import athena, config as cpconfig, events
+from cpcommon import observability
 from cpcommon.errors import TerminalError
 from dqcommon import manifest as manifest_store, messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
+# invocations, and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
+observability.init(service="data-quality")
 
 
 def _database(event: dict) -> str:
@@ -150,6 +156,11 @@ def _create(event: dict) -> dict:
     return out
 
 
+# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
+# catches on its way out, so if it were outermost the span would close status="ok" on an
+# invocation that actually failed and notified. Outermost traced sees the exception the
+# handler really raised.
+@observability.traced("create-temp-tables")
 @notify.notifies_on_failure("create-temp-tables")
 def handler(event, context) -> dict:
     """Create the temp table(s) and thread their names onward."""

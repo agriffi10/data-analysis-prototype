@@ -26,10 +26,16 @@ import codecs
 import logging
 
 from cpcommon import clients, errors, events
+from cpcommon import observability
 from dqcommon import config, manifest as manifest_store, messages, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
+# invocations, and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
+observability.init(service="data-quality")
 
 #: Formats whose bytes are user-authored text. Anything else is skipped (FR-001).
 TEXT_FORMATS = frozenset({"csv", "json"})
@@ -306,6 +312,11 @@ def _scan(event: dict) -> dict:
     return out
 
 
+# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
+# catches on its way out, so if it were outermost the span would close status="ok" on an
+# invocation that actually failed and notified. Outermost traced sees the exception the
+# handler really raised.
+@observability.traced("byte-scan")
 @notify.notifies_on_failure("byte-scan")
 def handler(event, context) -> dict:
     """Scan a bounded sample of the source's raw bytes and thread the figure onward."""

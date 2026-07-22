@@ -97,3 +97,15 @@ variable "athena_workgroup" {
   description = "SPEC-111-fix: the SHARED portal Athena workgroup every verb's queries run in — the SAME workgroup table-builder/table-share use. Athena's Lake Formation integration is tied to the workgroup: a dedicated workgroup (SPEC-108's original design) fails LF's Create/Describe checks even when the execution role is an LF admin, because everything LF-governed must run in the one workgroup. Constructed string from root (the portal workgroup name), mirroring table-builder's athena_workgroup input."
   type        = string
 }
+
+# ── SPEC-128: structured logging ─────────────────────────────────────────────
+
+variable "logs_queue_arn" {
+  description = "ARN of the SPEC-127 logs queue. The execution role gains sqs:SendMessage on this and nothing else."
+  type        = string
+}
+
+variable "logs_queue_url" {
+  description = "URL of the SPEC-127 logs queue, set as LOGS_QUEUE_URL on all nine verbs. Optional by construction (cpcommon.observability reads it with os.environ.get), so a function that somehow misses it logs to stdout rather than crashing at cold start."
+  type        = string
+}

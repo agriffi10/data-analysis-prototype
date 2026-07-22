@@ -28,13 +28,25 @@ polluting the recorded outcome.
 
 import logging
 
+from cpcommon import observability
+
 from cpcommon.errors import failure_reason
 from dqcommon import messages, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
+# invocations, and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
+observability.init(service="data-quality")
 
+
+# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
+# catches on its way out, so if it were outermost the span would close status="ok" on an
+# invocation that actually failed and notified. Outermost traced sees the exception the
+# handler really raised.
+@observability.traced("notify-failure")
 def handler(event, context) -> dict:
     """Notify the actor that their check failed, and thread the request object onward."""
     request = dict(event) if isinstance(event, dict) else {}

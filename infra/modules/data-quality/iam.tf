@@ -73,6 +73,7 @@ resource "aws_iam_role_policy" "execution" {
     glue_table_any          = local.glue_table_any
     athena_workgroup_arn    = local.athena_workgroup_arn
     notifications_queue_arn = var.notifications_queue_arn
+    logs_queue_arn          = var.logs_queue_arn
   })
 }
 

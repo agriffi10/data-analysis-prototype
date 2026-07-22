@@ -29,6 +29,7 @@ import logging
 import posixpath
 
 from cpcommon import auth, config, events
+from cpcommon import observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from dqcommon import messages, notify
@@ -36,6 +37,11 @@ from dqcommon.config import MARKER_BASENAME, RESERVED_PREFIXES
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
+# invocations, and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
+observability.init(service="data-quality")
 
 #: Where this arc writes its reports, relative to the space root.
 REPORTS_PREFIX = "_data-quality-reports"
@@ -187,6 +193,11 @@ def _validate_and_authorize(event) -> dict:
     }
 
 
+# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
+# catches on its way out, so if it were outermost the span would close status="ok" on an
+# invocation that actually failed and notified. Outermost traced sees the exception the
+# handler really raised.
+@observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
     """Verify the caller, authorize the location, and emit the threaded request object.

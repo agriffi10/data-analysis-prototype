@@ -585,6 +585,9 @@ module "data_quality" {
   # data creates the portal role this module attaches the enqueue policy to, and the
   # user-space bucket the reports land in. Settle both first.
   depends_on = [module.base, module.data]
+  # SPEC-128 — the nine verbs produce structured logs onto the SPEC-127 queue.
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
 }
 
 # ── Control-plane DLQ drain (SPEC-126) ───────────────────────────────────────
