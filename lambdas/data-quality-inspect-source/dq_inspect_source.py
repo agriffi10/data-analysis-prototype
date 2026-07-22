@@ -22,10 +22,8 @@ Athena's job (SPEC-111); byte-level reading is byte-scan's (SPEC-112).
 import io
 import json
 import logging
-import os
-import zlib
 
-from cpcommon import clients, errors, events, s3_listing
+from cpcommon import bounded_read, clients, errors, events, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 from dqcommon import config, messages, notify
@@ -58,12 +56,6 @@ GZIP_PROBE_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB
 # orders of magnitude more than a header plus JSON_SAMPLE_ROWS rows needs, and a source
 # whose first rows genuinely exceed it fails as unreadable_header — loudly, with a reason.
 GZIP_PROBE_MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024  # 32 MiB
-
-# Chunk size for that streaming read.
-_GZIP_CHUNK_BYTES = 256 * 1024
-
-# zlib wbits for a gzip (not raw-deflate) stream.
-_GZIP_WBITS = 16 + zlib.MAX_WBITS
 
 #: The manifest's filename inside the request's report prefix (FR-006).
 MANIFEST_BASENAME = "manifest.json"
@@ -217,12 +209,8 @@ def _resolve_format(objects: list[tuple[str, int]], location: str) -> str:
 
 
 def _object_uri(bucket: str, key: str) -> str:
-    """Return the polars source URI — a direct s3:// read (mirrors infer_schema.py:39-42).
-
-    No /tmp, no download: object_store fetches only the byte ranges the scan needs (a
-    Parquet footer, a CSV header) using the role's env credentials.
-    """
-    return f"s3://{bucket}/{key}"
+    """Return the polars source URI (Parquet only — its footer needs ranged reads)."""
+    return bounded_read.object_uri(bucket, key)
 
 
 def _check_access(bucket: str, key: str) -> None:
@@ -251,92 +239,48 @@ def _check_access(bucket: str, key: str) -> None:
 
 
 def _stream_gzip_head(bucket: str, key: str) -> bytearray:
-    """Stream a gzip object from byte 0 and return the bounded, decompressed head.
+    """This verb's FR-005 bounds applied to the shared gzip streamer.
 
     FR-005's "bounded range" is FALSE for gzip: the format is not seekable, so there is no
-    byte range that yields the header. The only way in is to stream from byte 0 and
-    decompress until the header/sample is in hand — then ABANDON the stream, which is what
-    keeps this bounded on a 1 GiB .gz. Stops at the first of: enough lines, enough
-    COMPRESSED input consumed, or enough DECOMPRESSED output held.
-
-    Split out from _read_gzip_head so the buffer this returns — the one that would OOM the
-    function — is directly assertable. The truncation below is not: it drops everything
-    after the last newline, so on a compression bomb (one newline, then gigabytes) the
-    truncated result is 15 bytes however large this buffer grew. A test asserting on that
-    passes whether or not any bound exists, which is precisely the bug review caught.
+    byte range that yields the header. ``cpcommon.bounded_read`` owns that mechanism (and
+    the compression-bomb guard); this binds the three limits documented above so the
+    numbers this arc promises stay visible in this arc.
     """
-    try:
-        body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        errors.raise_if_transient(err, f"get {bucket}/{key}")
-        raise
-    decompressor = zlib.decompressobj(_GZIP_WBITS)
-    out = bytearray()
-    consumed = 0
-    try:
-        for chunk in body.iter_chunks(_GZIP_CHUNK_BYTES):
-            consumed += len(chunk)
-            # max_length caps THIS call's output, and is the guard that matters: checking
-            # len(out) after an unbounded decompress() is too late, because the allocation
-            # that kills the function already happened inside the call. One 256 KiB chunk
-            # of deflate can expand to ~264 MB.
-            headroom = GZIP_PROBE_MAX_DECOMPRESSED_BYTES - len(out)
-            out += decompressor.decompress(chunk, headroom)
-            if (
-                out.count(b"\n") >= _GZIP_PROBE_LINES
-                or consumed >= GZIP_PROBE_MAX_BYTES
-                or len(out) >= GZIP_PROBE_MAX_DECOMPRESSED_BYTES
-            ):
-                break
-    finally:
-        body.close()  # abandon the rest of the object; do not drain it
-    return out
+    return bounded_read.stream_gzip_head(
+        bucket,
+        key,
+        max_lines=_GZIP_PROBE_LINES,
+        max_compressed_bytes=GZIP_PROBE_MAX_BYTES,
+        max_decompressed_bytes=GZIP_PROBE_MAX_DECOMPRESSED_BYTES,
+    )
 
 
 def _read_gzip_head(bucket: str, key: str) -> bytes:
-    """The bounded gzip head, trimmed to whole lines.
-
-    The tail after the last newline is dropped: it is a partial record, and handing polars
-    a truncated final row would produce a phantom column or a parse error.
-    """
-    out = _stream_gzip_head(bucket, key)
-    end = out.rfind(b"\n")
-    return bytes(out[: end + 1]) if end != -1 else bytes(out)
+    """The bounded gzip head, trimmed to whole lines."""
+    return bounded_read.read_gzip_head(
+        bucket,
+        key,
+        max_lines=_GZIP_PROBE_LINES,
+        max_compressed_bytes=GZIP_PROBE_MAX_BYTES,
+        max_decompressed_bytes=GZIP_PROBE_MAX_DECOMPRESSED_BYTES,
+    )
 
 
 def _read_plain_head(bucket: str, key: str) -> bytes:
     """Bounded head of a PLAIN (uncompressed) line-delimited object, whole lines only.
 
-    Why this exists at all: polars' object_store cloud reader (a scan over an s3:// URI)
-    does NOT work in this Lambda even with the role's credentials handed in via
-    storage_options — it fails with "failed to allocate N bytes to download" (SPEC-111
-    live finding). boto3 authenticates and reads fine, so CSV/JSON are read the same way
-    the gzip path already is: fetch a bounded head via boto3 and hand polars an in-memory
-    buffer, which polars reads without object_store.
-
-    The head is enough for the probe — a CSV header is line 1, and JSON type inference
-    samples the first JSON_SAMPLE_ROWS lines — so this never downloads a whole large file,
-    the property the s3:// scan was chosen for. Parquet is NOT read here (its schema lives
-    in a footer at the END of the file); see _probe_columns.
+    Why a boto3 read and not a polars scan: object_store does not work in this Lambda —
+    see ``cpcommon.bounded_read``, which owns the mechanism and the reasoning. The head is
+    enough for the probe (a CSV header is line 1; JSON inference samples the first
+    JSON_SAMPLE_ROWS lines), so a whole large file is never downloaded. Parquet is NOT
+    read here — its schema lives in a footer at the END of the file; see _probe_columns.
     """
-    try:
-        body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
-        errors.raise_if_transient(err, f"get {bucket}/{key}")
-        raise
-    out = bytearray()
-    try:
-        for chunk in body.iter_chunks(_GZIP_CHUNK_BYTES):
-            out += chunk
-            # Same two bounds the gzip head uses: enough lines for the JSON sample (a CSV
-            # needs only the first), and a hard byte ceiling so one pathologically long
-            # line can't grow the buffer without limit.
-            if out.count(b"\n") >= _GZIP_PROBE_LINES or len(out) >= GZIP_PROBE_MAX_DECOMPRESSED_BYTES:
-                break
-    finally:
-        body.close()  # abandon the rest of the object; do not drain it
-    end = out.rfind(b"\n")
-    return bytes(out[: end + 1]) if end != -1 else bytes(out)
+    return bounded_read.read_head(
+        bucket,
+        key,
+        max_lines=_GZIP_PROBE_LINES,
+        max_bytes=GZIP_PROBE_MAX_DECOMPRESSED_BYTES,
+    )
 
 
 def _hive(dtype, name: str, key: str = "") -> str:
@@ -358,32 +302,8 @@ def _hive(dtype, name: str, key: str = "") -> str:
 
 
 def _storage_options() -> dict:
-    """Credentials for polars' object_store cloud reader, from the Lambda role's env.
-
-    polars does NOT reuse the ambient AWS credential chain the way boto3 does: its
-    object_store S3 reader needs the role's creds handed in EXPLICITLY as storage_options,
-    even inside a Lambda where boto3 finds them automatically. Without this, a scan over
-    s3:// fails with "failed to allocate N bytes to download" — an unauthenticated GET,
-    not an allocation problem (observed on the SPEC-111 live run; the bucket-policy
-    allowlist was already fixed, and boto3 in the same invocation authenticates fine).
-
-    The Lambda runtime injects AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
-    AWS_SESSION_TOKEN (temporary role creds — the session token is mandatory or the
-    request is rejected) and AWS_REGION. object_store's config keys are the aws_* forms.
-    """
-    opts: dict[str, str] = {}
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if region:
-        opts["aws_region"] = region
-    for env_name, os_key in (
-        ("AWS_ACCESS_KEY_ID", "aws_access_key_id"),
-        ("AWS_SECRET_ACCESS_KEY", "aws_secret_access_key"),
-        ("AWS_SESSION_TOKEN", "aws_session_token"),
-    ):
-        value = os.environ.get(env_name)
-        if value:
-            opts[os_key] = value
-    return opts
+    """Credentials for polars' object_store cloud reader (see ``cpcommon.bounded_read``)."""
+    return bounded_read.storage_options()
 
 
 def _columns_from(

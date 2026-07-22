@@ -177,6 +177,22 @@ def test_json_dates_are_parsed():
     assert _types(out) == {"id": "bigint", "d": "date", "ts": "timestamp", "name": "string"}
 
 
+def test_json_types_are_inferred_from_rows_beyond_a_wide_first_record():
+    """A column null in row 1 and typed later must still type correctly, even when the
+    first record alone is wider than a read chunk.
+
+    This does NOT pin the line bound (an earlier version of this test claimed it did):
+    reading stops at a CHUNK boundary, so the head overshoots by up to 256 KiB — thousands
+    of rows — and no realistic input separates a 1-line bound from a 1001-line one.
+    max_lines bounds COST, not correctness. What it does cover is the real path: a
+    multi-chunk boto3 head, reassembled, inferred by polars from the buffer.
+    """
+    wide = b'{"a": null, "pad": "' + b"x" * 300_000 + b'"}\n'
+    _use_s3_fixture(wide + b"".join(b'{"a": %d, "pad": "y"}\n' % n for n in range(500)))
+    out = i.handler(_event("json"), None)
+    assert _types(out) == {"a": "bigint", "pad": "string"}
+
+
 def test_transient_get_on_the_body_read_is_not_terminalized():
     """The head read runs inside the scan's try/except, so a throttled GetObject must be
     re-raised as TransientError — reporting it as an unreadable file would be a permanent

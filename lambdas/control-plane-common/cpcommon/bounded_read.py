@@ -21,21 +21,38 @@ line 1, and JSON type inference samples the first N lines. **Parquet is the exce
 its schema lives in a footer at the END — so it still goes through object_store over the
 URI, with ``storage_options()`` credentials. That path is not yet proven live; if it
 fails the same way, the fix is a boto3 footer read (last-N-bytes), not more credentials.
+
+``stream_gzip_head`` / ``read_gzip_head`` do the same job for a gzipped object, which
+cannot be range-read at all, and carry the compression-bomb bound that a plain head read
+does not need. The bounds are parameters: a caller with documented limits of its own
+(data-quality's FR-005) passes them in rather than inheriting these defaults.
 """
 
 import os
+import zlib
 
 from . import clients, errors
 
-# Read enough lines for a JSON sample plus its header line. A CSV needs only line 1, but
-# both formats share the bound deliberately: a quoted CSV header can itself contain a
-# newline, and a one-line read would truncate it mid-column-name.
+# Read enough lines for a JSON sample plus its header line. This bounds COST, not
+# correctness: the loop stops at a CHUNK boundary, so the head overshoots by up to
+# _CHUNK_BYTES — thousands of ordinary rows — and no realistic object distinguishes a
+# 1-line bound from this one. max_bytes is the bound that constrains memory.
 DEFAULT_PROBE_LINES = 1001
 
 # Hard ceiling so one pathologically long line can't grow the buffer without limit.
 DEFAULT_PROBE_MAX_BYTES = 32 * 1024 * 1024  # 32 MiB
 
 _CHUNK_BYTES = 256 * 1024
+
+# Compressed bytes pulled from S3 before a gzip stream is abandoned.
+DEFAULT_GZIP_MAX_COMPRESSED_BYTES = 8 * 1024 * 1024  # 8 MiB
+
+# Decompressed bytes held in memory — the bound that actually protects the function
+# (see stream_gzip_head).
+DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024  # 32 MiB
+
+# zlib wbits for a gzip (not raw-deflate) stream.
+_GZIP_WBITS = 16 + zlib.MAX_WBITS
 
 
 def object_uri(bucket: str, key: str) -> str:
@@ -100,5 +117,72 @@ def read_head(
                 break
     finally:
         body.close()  # abandon the rest of the object; do not drain it
+    return _whole_lines(out)
+
+
+def _whole_lines(out: bytearray) -> bytes:
+    """Drop everything after the last newline (see read_head)."""
     end = out.rfind(b"\n")
     return bytes(out[: end + 1]) if end != -1 else bytes(out)
+
+
+def stream_gzip_head(
+    bucket: str,
+    key: str,
+    max_lines: int = DEFAULT_PROBE_LINES,
+    max_compressed_bytes: int = DEFAULT_GZIP_MAX_COMPRESSED_BYTES,
+    max_decompressed_bytes: int = DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES,
+) -> bytearray:
+    """Stream a gzip object from byte 0 and return the bounded, DECOMPRESSED head.
+
+    A ranged read is impossible here: gzip is not seekable, so no byte range yields the
+    header. The only way in is to stream from byte 0 and decompress until the
+    header/sample is in hand — then ABANDON the stream, which is what keeps this bounded
+    on a 1 GiB .gz. Stops at the first of: enough lines, enough COMPRESSED input consumed,
+    or enough DECOMPRESSED output held.
+
+    Returns the untrimmed buffer (``read_gzip_head`` trims it) so the buffer that would
+    OOM the function is directly assertable. The trimmed result is not: it drops
+    everything after the last newline, so on a compression bomb (one newline, then
+    gigabytes) it is 15 bytes however large this buffer grew — a test asserting on that
+    passes whether or not any bound exists.
+    """
+    try:
+        body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
+    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        errors.raise_if_transient(err, f"get {bucket}/{key}")
+        raise
+    decompressor = zlib.decompressobj(_GZIP_WBITS)
+    out = bytearray()
+    consumed = 0
+    try:
+        for chunk in body.iter_chunks(_CHUNK_BYTES):
+            consumed += len(chunk)
+            # max_length caps THIS call's output, and is the guard that matters: checking
+            # len(out) after an unbounded decompress() is too late, because the allocation
+            # that kills the function already happened inside the call. One 256 KiB chunk
+            # of deflate can expand to ~264 MB.
+            headroom = max_decompressed_bytes - len(out)
+            out += decompressor.decompress(chunk, headroom)
+            if (
+                out.count(b"\n") >= max_lines
+                or consumed >= max_compressed_bytes
+                or len(out) >= max_decompressed_bytes
+            ):
+                break
+    finally:
+        body.close()  # abandon the rest of the object; do not drain it
+    return out
+
+
+def read_gzip_head(
+    bucket: str,
+    key: str,
+    max_lines: int = DEFAULT_PROBE_LINES,
+    max_compressed_bytes: int = DEFAULT_GZIP_MAX_COMPRESSED_BYTES,
+    max_decompressed_bytes: int = DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES,
+) -> bytes:
+    """The bounded gzip head of ``key``, trimmed to whole lines."""
+    return _whole_lines(
+        stream_gzip_head(bucket, key, max_lines, max_compressed_bytes, max_decompressed_bytes)
+    )
