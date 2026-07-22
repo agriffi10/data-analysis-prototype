@@ -11,6 +11,6 @@ output "role_arn" {
 }
 
 output "drained_queue_names" {
-  description = "The request DLQs this drain is attached to."
-  value       = keys(local.dlq_by_name)
+  description = "The request DLQs this drain sweeps (queue name is the last segment of each ARN)."
+  value       = [for arn in var.dlq_arns : split(":", arn)[5]]
 }

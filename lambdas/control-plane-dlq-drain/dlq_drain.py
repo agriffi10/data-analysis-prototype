@@ -25,8 +25,9 @@ Three things shape the whole handler:
 
 import json
 import logging
+import os
 
-from cpcommon import auth, messages
+from cpcommon import auth, clients, messages
 from cpcommon.notify import emit_notification
 
 logger = logging.getLogger()
@@ -171,18 +172,113 @@ def _notify_one(record: dict) -> None:
     emit_notification(username, message, dedup_id=dedup_id)
 
 
-def handler(event, context):  # noqa: ARG001 - context unused; Lambda supplies it
-    """Notify the actor behind every dead-lettered request in the batch.
+# ── Scheduled sweep (SPEC-126 follow-up: SQS event-source mappings → EventBridge schedule) ────
+# The drain used to hang off four SQS event-source mappings — four managed poll loops on queues
+# that are, by design, almost always empty, and that idle polling was the bulk of the account's
+# SQS request volume. It now runs on ONE EventBridge schedule and sweeps all four queues itself:
+# receive a batch, notify, delete, repeat until the queue is empty. Everything a notification
+# depends on (_notify_one and what it calls) is UNCHANGED — only the driver moved from push to pull.
 
-    Total by construction: one unparseable, unverifiable or un-notifiable message never
-    raises and never suppresses the rest of the batch. Returning normally lets SQS delete
-    every record — a redelivery would only re-run a path that already decided it had nothing
-    it could do (FR-005).
+#: Receive rounds a single sweep makes per queue before leaving the rest for the next tick. These
+#: queues are almost always empty (one empty receive and we move on); the cap only bounds a
+#: pathological burst so one sweep cannot run to the timeout — 10 rounds × 10 = 100 messages per
+#: queue per sweep, and the next tick mops up any remainder.
+_MAX_ROUNDS_PER_QUEUE = 10
+
+#: Long-poll each receive rather than short-poll (WaitTimeSeconds=0): a short poll samples a
+#: subset of SQS hosts and can return empty while a message waits, deferring it a whole interval.
+#: A couple of seconds of wait on an empty queue is nothing on a 10-minute cadence.
+_RECEIVE_WAIT_SECONDS = 2
+
+
+def _guarded_notify(record) -> None:
+    """Call _notify_one so it can never raise — the belt to _notify_one's own braces (FR-005)."""
+    try:
+        _notify_one(record if isinstance(record, dict) else {})
+    except Exception:  # noqa: BLE001 - a per-message throw must never stop the batch/sweep
+        logger.exception("dlq-drain record handling failed")
+
+
+def _dlq_arns() -> list[str]:
+    """The DLQ ARNs to sweep, from DLQ_ARNS (a JSON list mirroring the drain's IAM read scope)."""
+    try:
+        arns = json.loads(os.environ.get("DLQ_ARNS", "[]"))
+    except Exception:  # noqa: BLE001 - a malformed env is a deploy error; sweep nothing, don't crash
+        logger.exception("DLQ_ARNS is not valid JSON; sweeping nothing")
+        return []
+    return [a for a in arns if isinstance(a, str)] if isinstance(arns, list) else []
+
+
+def _queue_url(queue_arn: str) -> str:
+    """The queue URL for a queue ARN: arn:aws:sqs:REGION:ACCOUNT:NAME → the standard URL."""
+    _, _, _, region, account, name = queue_arn.split(":", 5)
+    return f"https://sqs.{region}.amazonaws.com/{account}/{name}"
+
+
+def _record_from_message(queue_arn: str, message: dict) -> dict:
+    """Shape a raw ReceiveMessage result like the SQS-event record _notify_one expects.
+
+    ReceiveMessage does not carry eventSourceARN (the event source used to inject it), so the
+    sweep supplies the queue it is polling. ApproximateReceiveCount is requested explicitly and
+    used only for the forensic log line.
     """
-    records = (event or {}).get("Records") or []
-    for record in records:
+    return {
+        "eventSourceARN": queue_arn,
+        "body": message.get("Body"),
+        "attributes": {"ApproximateReceiveCount": (message.get("Attributes") or {}).get("ApproximateReceiveCount")},
+    }
+
+
+def _sweep_one_queue(queue_arn: str) -> int:
+    """Drain one DLQ — notify then delete each message, until empty or the round cap. Never raises."""
+    sqs = clients.sqs()
+    url = _queue_url(queue_arn)
+    drained = 0
+    for _ in range(_MAX_ROUNDS_PER_QUEUE):
         try:
-            _notify_one(record if isinstance(record, dict) else {})
-        except Exception:  # noqa: BLE001 - belt to _notify_one's braces; never fail the batch
-            logger.exception("dlq-drain record handling failed")
-    return {"drained": len(records)}
+            response = sqs.receive_message(
+                QueueUrl=url,
+                MaxNumberOfMessages=10,
+                WaitTimeSeconds=_RECEIVE_WAIT_SECONDS,
+                AttributeNames=["ApproximateReceiveCount"],
+            )
+        except Exception:  # noqa: BLE001 - a receive failure is transient; the next sweep retries
+            logger.exception("could not receive from %s; leaving it for the next sweep", queue_arn)
+            break
+        messages = response.get("Messages") or []
+        if not messages:
+            break
+        for message in messages:
+            _guarded_notify(_record_from_message(queue_arn, message))
+            # Delete regardless of the notify outcome. The event-source model deleted the whole
+            # batch on return — even a message it could not act on — and a redelivery only re-runs
+            # a decision already made about a terminal message (FR-005). A delete failure is rare
+            # and transient; the message resurfaces on a later sweep (and may notify once more then,
+            # outside the notifications queue's 5-minute dedup window) rather than being lost.
+            try:
+                sqs.delete_message(QueueUrl=url, ReceiptHandle=message.get("ReceiptHandle"))
+            except Exception:  # noqa: BLE001 - see above; a resurfaced message is deduped, not doubled
+                logger.exception("could not delete a drained message; it will resurface next sweep")
+            drained += 1
+    return drained
+
+
+def handler(event, context):  # noqa: ARG001 - context unused; Lambda supplies it
+    """Notify the actor behind every dead-lettered request.
+
+    On its EventBridge schedule the event carries no ``Records``, so the handler SWEEPS all four
+    request DLQs itself. Handed an SQS event instead — a captured record replayed with
+    ``aws lambda invoke`` — it processes those records directly; the per-record path is shared.
+
+    Total by construction either way: one unparseable, unverifiable or un-notifiable message never
+    raises and never suppresses the rest. A message is deleted whether or not it could be notified
+    about, because a redelivery would only re-run a path that already decided it had nothing it
+    could do (FR-005).
+    """
+    records = (event or {}).get("Records")
+    if records is not None:
+        for record in records:
+            _guarded_notify(record)
+        return {"drained": len(records)}
+
+    return {"drained": sum(_sweep_one_queue(arn) for arn in _dlq_arns())}
