@@ -49,6 +49,12 @@ jobs:
           python-version: '3.12'
 
       - name: Install lint + test tools
+        # control-plane-common/requirements.txt is installed so cpcommon's own layer
+        # dependencies are importable under test — log-foundry (SPEC-127) is declared only
+        # there, and cpcommon.observability imports it at module scope. Packaging already
+        # reads that file in deploy-lambdas.yml's layer job; this is the test side of the
+        # same declaration, so the two can't drift.
+        #
         # polars (from the two polars layer requirements) so the table-builder
         # type-mapping + infer-schema tests (SPEC-069) and the data-quality
         # inspect-source probe tests (SPEC-110) run for real in CI rather than being
@@ -58,6 +64,7 @@ jobs:
         # whichever was installed last.
         run: |
           pip install -r lambdas/requirements.txt -r lambdas/requirements-dev.txt
+          pip install -r lambdas/control-plane-common/requirements.txt
           pip install -r lambdas/table-builder-infer-schema/requirements.txt
           pip install -r lambdas/data-quality-polars/requirements.txt
 
