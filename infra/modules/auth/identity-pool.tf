@@ -24,7 +24,7 @@ resource "aws_cognito_identity_pool" "portal" {
 
   cognito_identity_providers {
     client_id               = aws_cognito_user_pool_client.spa.id
-    provider_name           = "cognito-idp.${data.aws_region.current.name}.amazonaws.com/${aws_cognito_user_pool.portal.id}"
+    provider_name           = "cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.portal.id}"
     server_side_token_check = true
   }
 
@@ -48,9 +48,37 @@ resource "aws_cognito_identity_pool" "portal" {
 # role's templated statement for that slot matches nothing (implicit deny). Grant/
 # revoke takes effect on the NEXT token refresh (forced by SPEC-052's Refresh control),
 # not instantly (shared-spaces-architecture.md §3 propagation note).
+# `identity_provider_name` is built from `var.aws_region`, NOT `data.aws_region.current.name`,
+# and that is load-bearing rather than stylistic.
+#
+# This module carries a module-level `depends_on = [module.base]` (main.tf). A module-level
+# depends_on defers EVERY data source inside the module to apply time whenever the dependency
+# has a pending change — and `module.base` changes on most PRs, since it holds the deploy-role
+# policies. So `data.aws_region.current` came back "(known after apply)", which made
+# `identity_provider_name` unknown at plan time, and it is a ForceNew attribute:
+#
+#   ~ identity_provider_name = "cognito-idp.us-east-1.amazonaws.com/us-east-1_zOlWYrE9K"
+#         # forces replacement -> (known after apply) # forces replacement
+#
+# Every apply therefore destroyed and recreated the principal-tag mapping that the whole ABAC
+# isolation model depends on (SPEC-011), on PRs that touched no auth code at all. It failed
+# CLOSED, not open — the portal policy interpolates the tag into a Resource ARN
+# (`${bucket_arn}/${aws:PrincipalTag/username}/*`), so an unstamped tag leaves the ARN
+# unresolved and matches nothing — but a brief window where a fresh sign-in gets credentials
+# that can read nothing is still a real outage, and it was recurring on every infra merge.
+#
+# `var.aws_region` is the same value by construction (providers.tf does `region =
+# var.aws_region`) and is known at plan time, so the attribute stays static and the resource
+# stops churning. Do NOT reintroduce the data source here.
+#
+# `ignore_changes` would have been the WRONG fix — compare the LF-grants case in
+# docs/decisions.md, where `aws_lakeformation_permissions` genuinely reads back different
+# values than were written and the drift is unavoidable. Here nothing drifts: the value is
+# correct and constant, it was merely unknowable at plan time. Suppressing the diff would hide
+# a real change to the provider name if the pool were ever recreated.
 resource "aws_cognito_identity_pool_provider_principal_tag" "username" {
   identity_pool_id       = aws_cognito_identity_pool.portal.id
-  identity_provider_name = "cognito-idp.${data.aws_region.current.name}.amazonaws.com/${aws_cognito_user_pool.portal.id}"
+  identity_provider_name = "cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.portal.id}"
   use_defaults           = false
 
   principal_tags = merge(

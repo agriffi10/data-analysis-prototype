@@ -116,6 +116,23 @@ LF **hybrid** mode so the file browser keeps direct-IAM S3 access while Athena r
   navigation returns a raw S3 error.
 - **`connections.json` is the user's own data.** Corrupting/deleting it loses their connections; the
   UI treats a missing file as empty, not an error.
+- **A module-level `depends_on` defers every data source inside that module to apply time**,
+  whenever the dependency has a pending change — the data source's attributes then read
+  `(known after apply)` at plan time. If such a value feeds a **ForceNew** attribute, the plan
+  says *"must be replaced"* on PRs that touch nothing in that module. This bit `module.auth`
+  (`depends_on = [module.base]`, and `module.base` changes on most PRs because it holds the
+  deploy-role policies): `data.aws_region.current.name` fed
+  `aws_cognito_identity_pool_provider_principal_tag.username`'s `identity_provider_name`, so
+  every infra apply destroyed and recreated the principal-tag mapping the whole ABAC isolation
+  model rests on. Fixed by referencing `var.aws_region` — identical by construction
+  (`providers.tf` sets `region = var.aws_region`) and known at plan time. **The rule: inside a
+  module with a module-level `depends_on`, prefer a variable over a data source for anything
+  feeding a ForceNew attribute.** `ignore_changes` is the wrong tool here — nothing drifts; the
+  value is correct and constant, it was merely unknowable at plan time. (Contrast the
+  `aws_lakeformation_permissions` case in `decisions.md`, where the API genuinely reads back
+  different values than were written and `ignore_changes` is correct.) The two `archive_file`
+  placeholders in `modules/auth` are deferred by the same mechanism but are harmless, because
+  the functions carry `ignore_changes = [filename, source_code_hash]`.
 
 ## Infrastructure & Deployment
 

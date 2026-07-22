@@ -10,7 +10,7 @@ output "user_pool_client_id" {
 
 output "user_pool_domain" {
   description = "Fully-qualified Hosted UI domain. Maps to VITE_COGNITO_DOMAIN."
-  value       = "${aws_cognito_user_pool_domain.portal.domain}.auth.${data.aws_region.current.name}.amazoncognito.com"
+  value       = "${aws_cognito_user_pool_domain.portal.domain}.auth.${var.aws_region}.amazoncognito.com"
 }
 
 output "identity_pool_id" {
