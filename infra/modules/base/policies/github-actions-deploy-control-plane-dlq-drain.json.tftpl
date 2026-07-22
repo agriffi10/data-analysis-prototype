@@ -75,6 +75,22 @@
         "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-control-plane-dlq-drain",
         "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-control-plane-dlq-drain:*"
       ]
+    },
+    {
+      "Sid": "DlqDrainScheduleManage",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:${aws_region}:*:rule/${project_name}-*-control-plane-dlq-drain-sweep"
     }
   ]
 }
