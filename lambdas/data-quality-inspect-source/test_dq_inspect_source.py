@@ -403,14 +403,14 @@ def _probe_local(monkeypatch, path, fmt):
     """Run the probe against a local file.
 
     Mirrors the two read paths the verb uses (SPEC-111): CSV/JSON are read via
-    ``_read_plain_head`` (a boto3 buffer — polars' object_store cloud read does not work in
-    Lambda) so the stub feeds polars the file's bytes; Parquet still reads via the s3:// URI
-    (its schema is a footer at the END of the file, unreachable by a head read), so the stub
-    points ``_object_uri`` at the local path.
+    ``_read_plain_head`` (a boto3 buffer — polars' cloud reader does not work in Lambda) so
+    the stub feeds polars the file's bytes; Parquet reads through a ranged file object (its
+    schema is a footer at the END, unreachable by a head read), so the stub hands
+    ``_parquet_source`` a local file object, which polars seeks the same way.
     """
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
     if fmt == "parquet":
-        monkeypatch.setattr(v, "_object_uri", lambda bucket, key: path)
+        monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))
     else:
         with open(path, "rb") as fh:
             data = fh.read()
@@ -457,45 +457,42 @@ def test_json_probe_infers_types(tmp_path, monkeypatch):
     ]
 
 
-def test_the_probe_hands_polars_an_s3_uri_rather_than_a_local_path():
-    """Named for what it actually proves. The no-download guarantee on this path is
-    polars/object_store's (it range-fetches the footer), which a unit test can't observe —
-    only that we never route the read through /tmp. The gz path's bound IS asserted, below."""
-    assert v._object_uri("bkt", "alice/sales/a.parquet") == "s3://bkt/alice/sales/a.parquet"
+def test_parquet_probe_reads_only_the_footer_region(tmp_path):
+    """The no-download guarantee, now observable.
+
+    It used to be object_store's and untestable ("only that we never route through /tmp").
+    The read is ours now, so the bytes can be counted: a ranged reader plus
+    read_parquet_schema must touch a small tail of the object, not all of it.
+    """
+    import polars as pl
+
+    path = str(tmp_path / "wide.parquet")
+    pl.DataFrame({f"c{n}": pl.Series(range(20_000), dtype=pl.Int64) for n in range(8)}).write_parquet(
+        path, row_group_size=2_000
+    )
+    size = os.path.getsize(path)
+    served = _install_ranged_object(path)
+    columns = v._columns_from(v._parquet_source("bkt", "some/a.parquet"), "parquet", key="k")
+    assert [c["name"] for c in columns] == [f"c{n}" for n in range(8)]
+    assert served["bytes"] < size / 2, f"read {served['bytes']} of {size} — not a footer read"
+    assert all(r.startswith("bytes=") for r in served["ranges"]), "must use ranged GETs"
 
 
-def test_csv_probe_reads_via_boto3_not_object_store(tmp_path, monkeypatch):
-    """The SPEC-111 fix: a plain CSV must be read through _read_plain_head (boto3 buffer),
-    NOT polars' object_store s3:// scan — which fails in Lambda even with credentials
-    ('failed to allocate N bytes to download'). Fail _object_uri so any accidental route
-    back to the cloud reader is caught here rather than in production."""
+def test_csv_probe_reads_via_boto3_not_the_parquet_reader(tmp_path, monkeypatch):
+    """The SPEC-111 fix: a plain CSV must be read through _read_plain_head (boto3 buffer).
+    Fail _parquet_source so any accidental route back to a whole-object read is caught
+    here rather than in production."""
     path = _write(tmp_path, "a.csv", "id,amount\n1,2\n")
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
 
     def _boom(bucket, key):
-        raise AssertionError("CSV must not use the object_store s3:// path")
+        raise AssertionError("CSV must not use the Parquet ranged reader")
 
-    monkeypatch.setattr(v, "_object_uri", _boom)
+    monkeypatch.setattr(v, "_parquet_source", _boom)
     with open(path, "rb") as fh:
         data = fh.read()
     monkeypatch.setattr(v, "_read_plain_head", lambda bucket, key: data)
     assert [c["name"] for c in v._probe_columns("bkt", "some/a.csv", "csv")] == ["id", "amount"]
-
-
-def test_storage_options_carries_the_roles_creds_and_region(monkeypatch):
-    """polars' object_store needs the creds handed in explicitly (SPEC-111). Assert the
-    aws_* keys are built from the Lambda role's env — the token is mandatory."""
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA_TEST")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret_test")
-    monkeypatch.setenv("AWS_SESSION_TOKEN", "token_test")
-    opts = v._storage_options()
-    assert opts == {
-        "aws_region": "us-east-1",
-        "aws_access_key_id": "AKIA_TEST",
-        "aws_secret_access_key": "secret_test",
-        "aws_session_token": "token_test",
-    }
 
 
 def test_read_plain_head_drops_a_partial_trailing_line():
@@ -553,7 +550,7 @@ def test_an_unmappable_dtype_is_a_terminal_not_a_crash(tmp_path, monkeypatch):
     path = str(tmp_path / "b.parquet")
     pl.DataFrame({"blob": pl.Series([b"\x00"], dtype=pl.Binary)}).write_parquet(path)
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
-    monkeypatch.setattr(v, "_object_uri", lambda bucket, key: path)
+    monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))
     with pytest.raises(TerminalError) as err:
         v._probe_columns("bkt", "alice/sales/b.parquet", "parquet")
     assert err.value.reason == messages.UNREADABLE_HEADER
@@ -563,7 +560,7 @@ def test_an_unmappable_dtype_is_a_terminal_not_a_crash(tmp_path, monkeypatch):
 def test_an_unknown_format_is_a_terminal():
     """Defensive: _resolve_format only ever emits csv/json/parquet."""
     with pytest.raises(TerminalError) as err:
-        v._columns_from("s3://bkt/a.avro", "avro")
+        v._columns_from(io.BytesIO(b""), "avro")
     assert err.value.reason == messages.UNREADABLE_HEADER
 
 
@@ -572,7 +569,7 @@ def test_an_unreadable_header_fails_the_whole_request(tmp_path, monkeypatch):
     worst file in the folder."""
     path = _write(tmp_path, "broken.parquet", b"this is not parquet", binary=True)
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
-    monkeypatch.setattr(v, "_object_uri", lambda bucket, key: path)
+    monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))
     with pytest.raises(TerminalError) as err:
         v._probe_columns("bkt", "alice/sales/broken.parquet", "parquet")
     assert err.value.reason == messages.UNREADABLE_HEADER
@@ -583,7 +580,7 @@ def test_the_access_probe_runs_before_the_read(tmp_path, monkeypatch):
     """A transient S3 error must surface as a retryable boto error, NOT unreadable_header
     — the user would otherwise be told a permanent-sounding verdict on a blip."""
     calls = []
-    monkeypatch.setattr(v, "_object_uri", lambda bucket, key: str(tmp_path / "nope.csv"))
+    monkeypatch.setattr(v, "_read_plain_head", lambda bucket, key: b"id\n")
 
     def _denied(bucket, key):
         calls.append(key)
@@ -626,6 +623,37 @@ def test_files_disagreeing_on_columns_is_recorded_not_rejected():
 
 # The probe checks its bounds after each chunk, so it can overshoot by at most one chunk.
 _CHUNK_SLACK = 256 * 1024
+
+
+def _install_ranged_object(path):
+    """Serve ``path`` over a fake S3 that honours Range, recording what was fetched.
+
+    The Parquet footer read is only meaningful if the bytes are counted — this is what
+    makes "reads the footer, not the object" an assertion rather than a claim.
+    """
+    served = {"bytes": 0, "ranges": []}
+    size = os.path.getsize(path)
+
+    class _S3:
+        @staticmethod
+        def head_object(Bucket, Key):  # noqa: N803 - boto3's kwarg casing
+            return {"ContentLength": size}
+
+        @staticmethod
+        def get_object(Bucket, Key, Range=None):  # noqa: N803
+            with open(path, "rb") as fh:
+                if Range is None:
+                    data = fh.read()
+                else:
+                    start, end = Range.split("=")[1].split("-")
+                    fh.seek(int(start))
+                    data = fh.read(int(end) - int(start) + 1)
+            served["bytes"] += len(data)
+            served["ranges"].append(Range)
+            return {"Body": io.BytesIO(data)}
+
+    v.clients.s3 = lambda: _S3()
+    return served
 
 
 class _CountingBody:
