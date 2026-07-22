@@ -354,3 +354,47 @@ Build order **107 → (108→114) → 123 → 124 and/or (115→121) → 122**. 
 spec ships as **two PRs** — deploy-role IAM applies *before* the module's resources. Both arcs add their execution role to
 `aws_lakeformation_data_lake_settings.admins` as a **constructed string in root `locals`**, never a module output (an unknown
 element in that `compact()` silently drops the change).
+
+---
+
+## Observability arc (SPEC-127 → 128, rollout to follow)
+
+**Why it exists.** Every Lambda in this repo logs free-form English to CloudWatch. That answers "what happened in this one
+invocation" and nothing else: there is no way to ask for a p95 duration, a week of failures, or every event in one request,
+because nothing in a log line is a *field*. **`log-foundry`** (`agriffi10/log-forge`, PyPI `log-foundry`) is the fix — a
+zero-dependency library that emits one identically-shaped JSON record when a call starts and another when it ends, carrying
+duration, status, and W3C trace/span IDs.
+
+**SPEC-127 builds the pipe, not the instrumentation.** A **standard** (non-FIFO) SQS logs queue, swept on a **5-minute
+EventBridge schedule** into the admin bucket as Hive-partitioned NDJSON at `logs/{service}/dt=…/hh=…/`. Three constraints shaped
+it. The queue **cannot be FIFO**, unlike every other queue here, because `SQSSink` sends no `MessageGroupId` — ordering is
+recovered from the records' own `timestamp`/`log_id`, not from delivery. Delivery is a **pull, not a push**, for the reason
+#270/#271 already established: an event-source mapping or Pipe idle-long-polls a queue that is empty almost always, and that
+idle polling was the bulk of the account's SQS volume — so the sweep short-polls (`WaitTimeSeconds=0`) explicitly, since a
+scheduled consumer sitting in a 20-second long poll reintroduces the same bill from the other direction. And `service` arrives
+**inside an untrusted body and becomes an S3 key**, so it is pattern-validated and anything unroutable is written verbatim to
+`logs/_unrouted/` and deleted — every message routable means every message deletable, which is what keeps a malformed body from
+redelivering every 5 minutes until retention. Two **upstream** changes gate the whole arc (SPEC-127 FR-001): the package
+declares `requires-python >=3.13` against this repo's `python3.12` fleet, and its `shutdown()` is **terminal** — it never resets
+the module-level worker, so a handler that flushes the obvious way logs nothing for the rest of that warm container's life.
+Both are one-line upstream fixes (relax to `>=3.12`; add a non-closing `flush()`), pinned exactly because the `cpcommon` layer
+attaches to every control-plane verb.
+
+**SPEC-128 is the pilot**, and data-quality is the right one: the **longest** plane (nine verbs, so cross-verb correlation
+actually pays), the **newest** (least understood under real load), and **entirely operator-facing** — a mistake costs log
+quality, not access. Its honest limitation is recorded rather than discovered: `log-foundry`'s trace context is per-process, so
+one run is **nine traces**, joined on a `request_id` field. True stitching needs an upstream `lf.continue_trace()` plus two more
+values threaded through the state payload, and is deliberately sequenced *after* the pipe is proven live (user decision,
+2026-07-22: correlation now, stitching later).
+
+**Two user decisions run against the recommendation and are settled, not open.** `logs/` gets **no lifecycle rule** — nothing is
+ever lost, at the cost of unbounded growth with no ceiling; the invariant that keeps it safe is that every existing rule on the
+admin bucket carries a prefix filter, pinned by assertion. And the sink is **SQS only**, not `MultiSink(Stdout, SQS)` — if the
+queue or sweep breaks, that window's trace data is gone, with `SQSSink`'s stderr write as the only breadcrumb. Note what that
+does *not* mean: the ~20 existing `logging.getLogger()` call sites are untouched and CloudWatch still receives all of them, so
+SPEC-126 FR-004's forensic log is unaffected.
+
+Build order **127 → 128 → rollout**. 127 ships as **two PRs** (deploy-role IAM applies before the module's resources). No
+`VITE_` variable and no SPA change anywhere in the arc — `log-foundry` is a Python library. The new Lambda variable
+`LOGS_QUEUE_URL` is **optional by construction** (`os.environ.get`, never `_require`), which is precisely what lets the
+rollout proceed one control plane at a time instead of touching all 34 functions' environment blocks at once.
