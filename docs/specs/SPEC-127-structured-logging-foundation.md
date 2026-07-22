@@ -1,7 +1,7 @@
 # Spec: Structured Logging Foundation (`log-foundry` → logs queue → admin bucket)
 
 **ID:** SPEC-127
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-07-22
 **Depends On:** SPEC-032 (admin bucket), SPEC-107 (`cpcommon` layer), SPEC-126 (the pull-sweep pattern this reuses)
 
@@ -41,7 +41,7 @@ always-on consumer would walk straight back into it. This queue is swept.
   and writes Hive-partitioned NDJSON to `s3://{admin-bucket}/logs/{service}/dt=…/hh=…/`.
 - Execution-role IAM for the sweep, and `sqs:SendMessage` for the roles that will produce.
 - Deploy-role expansion for the new module's resource types, **in its own PR, applied first**.
-- The two **upstream `log-foundry` changes** this design depends on, gated by a version pin.
+- The **upstream `log-foundry` changes** this design depends on, gated by a version pin.
 
 ### Out of Scope
 
@@ -95,14 +95,23 @@ returns, so the worker's 1-second flush loop stops mid-interval and the queued e
 when the container is reaped. A drain that does **not** close the sink or retire the thread is
 the missing primitive.
 
-Both changes are specified upstream as **log-forge SPEC-013 — AWS Lambda Compatibility**
+**3. Baggage never reaches the boundary events (found during the build, 2026-07-22).**
+`start_event`/`end_event` called `build_event(..., baggage={})` — hardcoded empty — so a
+`request_id` set with `set_baggage` reached `info` events and **not** `span.start`/`span.end`.
+Those two are the records carrying `duration_ms`, `status` and `error`, so filtering
+`fields.request_id == X` returned a run's narration and lost its outcome — i.e. exactly the
+questions SPEC-128 FR-002 exists to answer. Fixed upstream as **log-forge SPEC-015** (one
+backfill at span close, covering the sync, async and error paths) and released in **v0.4.0**,
+which is why the pin below is 0.4.0 rather than 0.3.0.
+
+The first two changes are specified upstream as **log-forge SPEC-013 — AWS Lambda Compatibility**
 (`~/Documents/Git/log-forge/docs/specs/SPEC-013-aws-lambda-compatibility.md`), which is where they
 are built. This FR is the consuming end: the gate that stops this arc starting before that release
 exists.
 
 #### Acceptance Criteria:
 
-- [ ] The upstream release (target: `log-foundry==0.3.0`) declares `requires-python = ">=3.12"`,
+- [ ] The upstream release (target: `log-foundry==0.4.0`) declares `requires-python = ">=3.12"`,
       and its CI runs the full gate as a **matrix over 3.12 and 3.13** (log-forge SPEC-013 FR-001).
 - [ ] The upstream release adds a public **`lf.flush()`** that drains the worker queue and emits
       the tail through the sink, **without** calling `sink.close()`, without joining the worker
@@ -111,7 +120,7 @@ exists.
 - [ ] `lf.shutdown()` keeps its current terminal semantics and stays registered via `atexit` —
       `flush()` is an addition, not a redefinition. A comment in `observability.py` records why
       Lambda calls `flush()` and **never** `shutdown()`.
-- [ ] The version is **pinned exactly** (`log-foundry==0.3.0`, not `>=`) in
+- [ ] The version is **pinned exactly** (`log-foundry==0.4.0`, not `>=`) in
       `lambdas/control-plane-common/requirements.txt`. A comment records that the pin is exact
       because the layer is attached to every control-plane verb, so an unattended minor bump
       would change the behaviour of all of them at once, at cold start.
@@ -316,9 +325,12 @@ police. Both problems have one answer: route everything somewhere, then delete i
 
 #### Acceptance Criteria:
 
-- [ ] `log-foundry==0.3.0` is added to `lambdas/control-plane-common/requirements.txt`. The
+- [ ] `log-foundry==0.4.0` is added to `lambdas/control-plane-common/requirements.txt`. The
       cpcommon layer job already `pip install`s that file, so **no workflow change is needed** to
-      package it.
+      package it. **Correction found during the build:** that is true of *packaging* and false of
+      *testing* — `ci.yml`'s test job installed `lambdas/requirements.txt` and the two polars
+      files but never the cpcommon layer's own, so `import log_foundry` failed under `pytest`.
+      `ci.yml` gains that one install line.
 - [ ] The **core** package is installed, **not** the `[aws]` extra. A comment records why: the
       extra exists only to pull `boto3`, `SQSSink` imports it lazily inside `__init__`, and the
       Lambda runtime already provides `boto3` — installing the extra would put a second copy of
@@ -351,7 +363,11 @@ that is written down where the next person looks rather than discovered on a bil
       accident. S3 lifecycle rules can only include a prefix, never exclude one — a rule added
       later with an empty filter would silently start expiring the logs.
 - [ ] A plan/config assertion pins that invariant: every rule in the admin bucket's lifecycle
-      configuration has a non-empty `filter.prefix`.
+      configuration has a non-empty `filter.prefix`. **Delivered as an OpenTofu `check` block,
+      which WARNS in plan output rather than failing** — the repo has no infra test harness, and
+      the hard-failure alternative means re-rendering the lifecycle rules from a local via
+      `dynamic`, which is more risk than the guard is worth on a working retention config. The
+      warning lands in the PR's own plan comment, which is where the review happens.
 
 ---
 
@@ -393,7 +409,13 @@ New **Lambda** environment variable, set by Terraform on every function that log
 
 ```
 LOGS_QUEUE_URL=https://sqs.{region}.amazonaws.com/{account}/{project}-{env}-logs
+ENV_NAME={environment}      # stamped as the event's `env` field; added during the build
 ```
+
+`ENV_NAME` was not in the spec as drafted: FR-003 asks `init()` to stamp `env` "from the
+environment name", and no existing variable carried it. It is set from `var.environment`
+alongside `LOGS_QUEUE_URL`, in the same env-block edit, and is optional in the same way
+(`os.environ.get`, never `_require`).
 
 Optional by construction (FR-003): read with `os.environ.get`, never `_require`. Unset means
 stdout, not a crash. Because the `cpcommon` layer's `config` runs `_require` at import for every
@@ -405,7 +427,7 @@ environment block of all 34 functions at once.
 ```
 lambdas/log-sweep/log_sweep.py                              (+ test_log_sweep.py)
 lambdas/control-plane-common/cpcommon/observability.py      (+ test_observability_cpcommon.py)
-lambdas/control-plane-common/requirements.txt               # + log-foundry==0.3.0 (exact pin)
+lambdas/control-plane-common/requirements.txt               # + log-foundry==0.4.0 (exact pin)
 infra/modules/observability/
 ├── sqs.tf                                                  # the standard logs queue
 ├── lambda.tf                                               # sweep function, log group, schedule
@@ -428,7 +450,7 @@ infra/main.tf                                               # module wiring
 
 ### Phase 2: The bootstrap + the queue
 
-- Pin `log-foundry==0.3.0` into the cpcommon layer requirements; confirm the layer size delta.
+- Pin `log-foundry==0.4.0` into the cpcommon layer requirements; confirm the layer size delta.
 - `cpcommon/observability.py` + tests, including the import-safe-without-`LOGS_QUEUE_URL` test
   and the flush-swallows-everything test.
 - The standard logs queue and the producer policy fragment.
