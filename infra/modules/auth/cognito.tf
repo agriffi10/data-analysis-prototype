@@ -105,7 +105,12 @@ resource "aws_cognito_user_pool" "portal" {
   deletion_protection = "ACTIVE"
 }
 
-data "aws_region" "current" {}
+# `data "aws_region" "current"` used to live here and was REMOVED deliberately — see the
+# comment on `aws_cognito_identity_pool_provider_principal_tag.username` in identity-pool.tf.
+# Short version: this module carries a module-level `depends_on = [module.base]`, which defers
+# EVERY data source in it to apply time whenever base has a pending change, so the region came
+# back "(known after apply)" and forced a replace on the principal-tag mapping. `var.aws_region`
+# is the same value (providers.tf configures the provider from it) and is known at plan time.
 
 locals {
   # Callback/logout URLs always include local dev; the deployed app URL is added
