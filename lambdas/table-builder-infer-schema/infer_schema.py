@@ -1,11 +1,16 @@
 """infer-schema — the table-builder Step Function's fourth task.
 
-Scans the inspect-source sample object with a polars LazyFrame directly from S3
-(never downloaded to /tmp, never fully materialized), derives the data column schema
-(order + types), folds in the user-declared partition columns, and generates the
-CREATE EXTERNAL TABLE IF NOT EXISTS DDL that execute-ddl runs. Reads are bounded
-regardless of object size: Parquet fetches only the file footer, CSV only the header
-row, JSON streams at most JSON_SAMPLE_ROWS rows.
+Probes the inspect-source sample object with polars (never downloaded to /tmp, never
+fully materialized), derives the data column schema (order + types), folds in the
+user-declared partition columns, and generates the CREATE EXTERNAL TABLE IF NOT EXISTS
+DDL that execute-ddl runs. Reads are bounded regardless of object size: Parquet fetches
+only the file footer, CSV only the header row, JSON at most JSON_SAMPLE_ROWS rows.
+
+CSV/JSON reach polars as an in-memory boto3-fetched head rather than an ``s3://`` URI:
+polars' own cloud reader does not work in Lambda (it tries to download the whole object),
+which is what broke every real CSV build until this was ported from data-quality — see
+``cpcommon.bounded_read``. Parquet still scans the URI because its schema lives in a
+footer at the END of the file.
 
 Type rules: Parquet keeps native types; JSON infers, typing date/datetime-looking
 strings as date/timestamp; CSV is not type-inferred — every column string, matching
@@ -14,12 +19,13 @@ propagate for the SFN Retry; a polars scan error on an existing object (corrupt 
 wrong format) is terminal schema_inference_failed.
 """
 
+import io
 import logging
 import re
 
-from cpcommon import clients, errors, events
+from cpcommon import bounded_read, clients, errors, events
 from tbcommon import notify
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 from cpcommon.ddl import build_create_table_ddl
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 
@@ -36,9 +42,8 @@ _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z
 
 
 def _object_uri(bucket, key):
-    """Return the polars source URI — a direct s3:// read (no /tmp; object_store
-    fetches only the byte ranges the scan needs, with the role's env credentials)."""
-    return f"s3://{bucket}/{key}"
+    """Return the polars source URI (Parquet only — its footer needs ranged reads)."""
+    return bounded_read.object_uri(bucket, key)
 
 
 def _check_access(bucket, key):
@@ -77,13 +82,17 @@ def _detect_date_type(series):
     return None
 
 
-def _infer_columns(source, fmt):
-    """Return ordered [{name, type}] data columns for the sample object at ``source``
-    (an s3:// URI in prod; a local path in tests — polars scans both)."""
+def _infer_columns(source, fmt, storage_options=None):
+    """Return ordered [{name, type}] data columns for the sample object at ``source``.
+
+    ``source`` is an in-memory buffer of head bytes (CSV / JSON), an ``s3://`` URI
+    (Parquet, where ``storage_options`` carries the role's credentials), or a local path
+    in tests — polars reads all three. ``storage_options`` is ignored for a buffer.
+    """
     import polars as pl
 
     if fmt == "parquet":
-        schema = pl.scan_parquet(source).collect_schema()
+        schema = pl.scan_parquet(source, storage_options=storage_options).collect_schema()
         return [{"name": n, "type": _hive(d, n)} for n, d in schema.items()]
 
     if fmt == "csv":
@@ -127,11 +136,22 @@ def _infer(event: dict) -> dict:
     location = events.require(event, "location")
 
     _check_access(bucket, sample_key)
-    source = _object_uri(bucket, sample_key)
     try:
-        columns = _infer_columns(source, fmt)
+        if fmt == "parquet":
+            # The Parquet schema lives in a footer at the END of the file, which a head
+            # read cannot reach, so polars reads it over the URI with explicit creds.
+            columns = _infer_columns(_object_uri(bucket, sample_key), fmt, bounded_read.storage_options())
+        else:
+            # CSV / JSON: schema is at the START, so a bounded boto3 head read keeps
+            # polars off object_store, which does not work here (cpcommon.bounded_read).
+            columns = _infer_columns(io.BytesIO(bounded_read.read_head(bucket, sample_key)), fmt)
     except TerminalError:
         raise  # unmappable_type / unknown format — already terminal
+    except TransientError:
+        # The head read runs INSIDE this try, so a throttled GetObject would otherwise be
+        # swallowed below and reported as an unreadable file — a permanent verdict on a
+        # fault the SFN would happily have retried.
+        raise
     except Exception as exc:  # noqa: BLE001 - any scan/parse failure = terminal
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
 

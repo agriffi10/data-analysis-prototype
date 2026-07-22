@@ -1,10 +1,13 @@
 """Handler tests for infer-schema.
 
-Real polars fixtures (Parquet / CSV / JSON) written to a temp dir; the source-URI
-seam points polars at the local fixture (polars scans local paths and s3:// the same
-way) and the access probe is stubbed out. Asserts the type rules plus scan-error →
-terminal and transient-S3 → raised. Runnable under pytest or directly:
-python3 test_infer_schema.py.
+Real polars fixtures (Parquet / CSV / JSON). Two seams, matching the two source paths:
+Parquet keeps the source-URI seam pointing polars at a local fixture (polars scans local
+paths and s3:// the same way), while CSV/JSON are stubbed at the S3 CLIENT, so the
+assertions run through the real bounded head read and the in-memory buffer polars is
+actually handed in prod. Stubbing CSV at the URI seam instead is what let the
+object_store bug ship: polars reads a local path happily, so the test passed while every
+real build failed. Asserts the type rules plus scan-error → terminal and transient-S3 →
+raised. Runnable under pytest or directly: python3 test_infer_schema.py.
 """
 
 import datetime as dt
@@ -63,6 +66,45 @@ def _use_fixture(path):
     i._check_access = lambda bucket, key: None
 
 
+class _FakeBody:
+    def __init__(self, data):
+        self._data = data
+        self.closed = False
+
+    def iter_chunks(self, size):
+        for start in range(0, len(self._data), size):
+            yield self._data[start: start + size]
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeS3Get:
+    def __init__(self, data):
+        self.data = data
+
+    def head_object(self, *a, **k):
+        return {"ContentLength": len(self.data)}
+
+    def get_object(self, **kwargs):
+        return {"Body": _FakeBody(self.data)}
+
+
+def _use_s3_fixture(data):
+    """Serve ``data`` from a fake S3 and make any s3:// URI read a hard failure.
+
+    CSV/JSON must reach polars as boto3-fetched bytes; if the handler ever goes back to
+    handing polars an s3:// URI, _object_uri raises and the test fails loudly rather than
+    silently exercising a path that does not work in Lambda.
+    """
+    def _no_uri(bucket, key):
+        raise AssertionError("CSV/JSON must not be read through polars' object_store URI")
+
+    i._object_uri = _no_uri
+    i._check_access = _REAL_CHECK
+    clients._s3 = _FakeS3Get(data)
+
+
 def _event(fmt, partition_keys=None, sample="alice/sales/2026/part-0"):
     return {
         "actor": "alice",
@@ -101,23 +143,62 @@ def test_parquet_preserves_native_types():
 
 
 def test_csv_is_all_string_from_header_no_inference():
-    path = os.path.join(_TMP, "s.csv")
-    with open(path, "w") as fh:
-        fh.write("order_id,amount,ts\n1,2.50,2026-01-01\n2,3.75,2026-01-02\n")
-    _use_fixture(path)
+    _use_s3_fixture(b"order_id,amount,ts\n1,2.50,2026-01-01\n2,3.75,2026-01-02\n")
     out = i.handler(_event("csv"), None)
     # Every column string despite int/float/date-looking values.
     assert _types(out) == {"order_id": "string", "amount": "string", "ts": "string"}
 
 
+def test_csv_header_is_read_without_downloading_the_object():
+    """The reported bug: a real 31 MiB CSV failed with "failed to allocate 32446710 bytes
+    to download" because polars' object_store tried to fetch the whole file. The header
+    must come from a bounded boto3 read — _use_s3_fixture fails the test if an s3:// URI
+    is used at all, and the body here is far bigger than the header."""
+    rows = b"".join(b"%d,%d.50,2026-01-01\n" % (n, n) for n in range(50_000))
+    _use_s3_fixture(b"order_id,amount,ts\n" + rows)
+    out = i.handler(_event("csv"), None)
+    assert [c["name"] for c in out["columns"]] == ["order_id", "amount", "ts"]
+
+
+def test_csv_header_with_a_quoted_comma_survives_the_head_read():
+    """polars parses the header, so a quoted name containing a comma stays one column —
+    the reason the head read keeps whole lines instead of splitting on the first newline."""
+    _use_s3_fixture(b'order_id,"amount, net",ts\n1,2.50,2026-01-01\n')
+    out = i.handler(_event("csv"), None)
+    assert [c["name"] for c in out["columns"]] == ["order_id", "amount, net", "ts"]
+
+
 def test_json_dates_are_parsed():
-    path = os.path.join(_TMP, "s.ndjson")
-    with open(path, "w") as fh:
-        fh.write('{"id": 1, "d": "2026-01-01", "ts": "2026-01-01T12:00:00", "name": "a"}\n')
-        fh.write('{"id": 2, "d": "2026-01-02", "ts": "2026-01-02T13:30:00", "name": "b"}\n')
-    _use_fixture(path)
+    _use_s3_fixture(
+        b'{"id": 1, "d": "2026-01-01", "ts": "2026-01-01T12:00:00", "name": "a"}\n'
+        b'{"id": 2, "d": "2026-01-02", "ts": "2026-01-02T13:30:00", "name": "b"}\n'
+    )
     out = i.handler(_event("json"), None)
     assert _types(out) == {"id": "bigint", "d": "date", "ts": "timestamp", "name": "string"}
+
+
+def test_transient_get_on_the_body_read_is_not_terminalized():
+    """The head read runs inside the scan's try/except, so a throttled GetObject must be
+    re-raised as TransientError — reporting it as an unreadable file would be a permanent
+    verdict on a fault the SFN would have retried."""
+    class _ThrottledS3:
+        def head_object(self, *a, **k):
+            return {"ContentLength": 10}
+
+        def get_object(self, **kwargs):
+            raise _FakeClientError("SlowDown")
+
+    i._check_access = _REAL_CHECK
+    clients._s3 = _ThrottledS3()
+    q = _arm_notifications()
+    try:
+        i.handler(_event("csv"), None)
+    except TransientError:
+        assert q.calls == [], "a retryable throttle must not notify the actor"
+        return
+    except TerminalError:
+        raise AssertionError("a throttled body read must not be terminalized")
+    raise AssertionError("expected TransientError from a throttled GetObject")
 
 
 def test_ddl_is_generated_and_carried():
