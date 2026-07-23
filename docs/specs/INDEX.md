@@ -136,7 +136,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 128 — Structured Logging: Instrument the Data-Quality Control Plane (pilot) | Completed |
 | 129 — Logs Queue → FIFO, and One Object Per Service-Day | Completed |
 | 130 — Structured Logging: Narrative Primitives and Function Identity | Completed |
-| 131 — Structured Logging: Narrate the Log Sweep | Draft |
+| 131 — Structured Logging: Narrate the Log Sweep | Completed |
 | 132 — Structured Logging: Narrate the Data-Quality Control Plane | Draft |
 | 133 — Structured Logging: Instrument the Control-Plane DLQ Drain | Draft |
 | 134 — Structured Logging: Instrument the Shared-Space Control Plane | Draft |
