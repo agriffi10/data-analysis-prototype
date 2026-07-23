@@ -276,6 +276,54 @@ def test_no_verb_puts_a_credential_into_a_log_field(plane, path):
     assert not offenders, f"{path.name} logs a credential-shaped field: {offenders}"
 
 
+def _every_handler_module():
+    """EVERY Lambda handler module in the repo, plane or not.
+
+    The per-plane descriptors above carry per-plane expectations — verb counts, decorator
+    rules. They cannot catch a function that belongs to NO plane, and that is exactly how
+    `notifications-writer` shipped with `init` and no `@traced`: it is a singleton, so no
+    descriptor covered it and nothing failed. Found by a repo-wide sweep run by hand at the
+    close of SPEC-137; this is that sweep, kept.
+    """
+    for directory in sorted(LAMBDAS.iterdir()):
+        if not directory.is_dir() or directory.name.startswith((".", "_")):
+            continue
+        for path in sorted(directory.glob("*.py")):
+            if path.name.startswith("test_"):
+                continue
+            if _decorators(path) is not None:
+                yield path
+
+
+ALL_HANDLERS = list(_every_handler_module())
+
+
+@pytest.mark.parametrize("path", ALL_HANDLERS, ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_every_lambda_in_the_repo_is_in_the_pipe(path):
+    """Fleet-wide, and deliberately not scoped to the registered planes.
+
+    "Partial instrumentation is worse than none" is the whole premise of this module, and a
+    function outside every plane is the one place that premise had no guard.
+    """
+    decorators = _decorators(path)
+    assert any(d.startswith("observability.traced(") for d in decorators), (
+        f"{path.parent.name}/{path.name} has a handler that is not traced"
+    )
+    assert "observability.init(service=" in path.read_text(), (
+        f"{path.parent.name}/{path.name} never calls observability.init"
+    )
+
+
+def test_the_fleet_sweep_found_every_plane_module_and_then_some():
+    """Guards the guard: the sweep must be a SUPERSET of the per-plane enumeration, or it is
+    quietly narrower than the thing it exists to backstop.
+    """
+    plane_modules = {p for _plane, p in MODULES}
+    assert plane_modules < set(ALL_HANDLERS), (
+        "the fleet sweep no longer covers every plane module plus the singletons"
+    )
+
+
 @pytest.mark.parametrize("plane", PLANES, ids=lambda p: p.service)
 def test_the_service_name_survives_the_sweeps_routing_rule(plane):
     """A `service` failing SERVICE_RE does not error — it quietly files every one of that
