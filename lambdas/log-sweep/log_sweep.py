@@ -50,6 +50,28 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="observability")
 
+#: Set once per invocation (FR-007) and prepended to every CloudWatch line by ``_SweepIdFilter``.
+_sweep_id = ""
+
+
+class _SweepIdFilter(logging.Filter):
+    """Prepend this invocation's ``sweep_id`` to every CloudWatch line the sweep writes.
+
+    A filter rather than an edit to each ``logger.*`` call, for two reasons. The structured
+    events and the CloudWatch lines are two accounts of the same sweep, and a join key present on
+    only one side of the join is not a join key — so *every* line needs it, including the ones in
+    ``_read_day`` and ``_append_day`` that know nothing about the invocation. And a line added
+    later gets the id for free, which is the difference between a property and a convention.
+    """
+
+    def filter(self, record):
+        if _sweep_id and not str(record.msg).startswith("[sweep "):
+            record.msg = f"[sweep {_sweep_id}] {record.msg}"
+        return True
+
+
+logger.addFilter(_SweepIdFilter())
+
 ADMIN_BUCKET = os.environ.get("ADMIN_BUCKET", "")
 LOGS_QUEUE_URL = os.environ.get("LOGS_QUEUE_URL", "")
 LOGS_PREFIX = "logs"
@@ -152,14 +174,21 @@ def _is_precondition(exc):
     return code in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
 
 
+@observability.step("append-day")
 def _append_day(key, new_lines):
     """Append lines to a day's object under CAS. Returns True only if they landed.
 
     Re-reads and re-applies on a precondition failure rather than retrying the same write: the
     whole point is that the object changed underneath us, so the new content has to be rebuilt
     on top of what the winner wrote.
+
+    One destination, one child span, and the events below are per-destination — never per
+    message (SPEC-131 FR-005). ``reason`` on the failure path is a stable token rather than a
+    stringified exception: a reason you can filter on is worth more than a message you can read
+    once.
     """
     payload = ("\n".join(new_lines) + "\n").encode("utf-8")
+    observability.info("appending", key=key, events=len(new_lines))
     for attempt in range(MAX_CAS_ATTEMPTS):
         existing, etag = _read_day(key)
         if len(existing) > LARGE_OBJECT_WARN_BYTES:
@@ -168,6 +197,7 @@ def _append_day(key, new_lines):
                 key,
                 len(existing) / 1024 / 1024,
             )
+            observability.warning("day object is large", key=key, bytes=len(existing))
         # A day's object always ends in a newline (below), so concatenation needs no separator —
         # but tolerate a hand-edited object that doesn't.
         if existing and not existing.endswith(b"\n"):
@@ -184,6 +214,12 @@ def _append_day(key, new_lines):
             kwargs["IfMatch"] = etag
         try:
             clients.s3().put_object(**kwargs)
+            observability.info(
+                "appended",
+                key=key,
+                events=len(new_lines),
+                bytes=len(existing) + len(payload),
+            )
             return True
         except Exception as err:  # noqa: BLE001 - every failure path is total (see handler)
             if _is_precondition(err):
@@ -193,9 +229,20 @@ def _append_day(key, new_lines):
                     attempt + 1,
                     MAX_CAS_ATTEMPTS,
                 )
+                # Once per retry, because the retry COUNT is the contention signal — a sweep
+                # that succeeds on attempt 4 is a sweep that nearly didn't.
+                observability.warning(
+                    "day object changed under us",
+                    key=key,
+                    attempt=attempt + 1,
+                    attempts=MAX_CAS_ATTEMPTS,
+                )
                 continue
             # Not a race: a real write failure. The messages stay on the queue and redeliver.
             logger.exception("log-sweep: failed to write %s (%d events left queued)", key, len(new_lines))
+            observability.error(
+                "append failed", key=key, events=len(new_lines), reason="write-failed"
+            )
             return False
     logger.error(
         "log-sweep: gave up on %s after %d CAS attempts; %d events left queued for the next sweep",
@@ -203,14 +250,21 @@ def _append_day(key, new_lines):
         MAX_CAS_ATTEMPTS,
         len(new_lines),
     )
+    observability.error(
+        "append failed", key=key, events=len(new_lines), reason="precondition-exhausted"
+    )
     return False
 
 
+@observability.step("receive")
 def _receive_all():
     """Short-poll the queue until a round comes back empty or the cap is hit.
 
     Returns ``(messages, truncated)``. ``truncated`` is surfaced by the caller rather than
     swallowed: a silent cap reads as "swept everything" when it didn't.
+
+    Its own child span because the poll loop and the writes have completely different failure
+    modes, and this is the half that is billed per round.
     """
     sqs = clients.sqs()
     messages = []
@@ -232,6 +286,7 @@ def _receive_all():
 def _delete(receipts):
     """Delete a group's messages, in SQS's batch-of-10 chunks."""
     sqs = clients.sqs()
+    undeleted = 0
     for i in range(0, len(receipts), 10):
         chunk = receipts[i : i + 10]
         try:
@@ -243,6 +298,15 @@ def _delete(receipts):
             # The events are already durable in S3; a failed delete only means they will be
             # appended again next sweep, producing duplicate log_ids that a reader collapses.
             logger.exception("log-sweep: failed to delete %d messages", len(chunk))
+            undeleted += len(chunk)
+    if undeleted:
+        # ONE event per group, not per failed chunk — a chunk is 10 messages, so a per-chunk
+        # emitter would be O(messages) on exactly the path where the queue is already unhappy.
+        observability.warning(
+            "delete failed; events will be appended again next sweep",
+            events=undeleted,
+            lost=False,
+        )
 
 
 @observability.traced("sweep")
@@ -253,9 +317,35 @@ def handler(event, context):
     verifiable end to end without instrumenting a control plane. The self-reference is safe —
     this invocation's own events go through the same queue and are collected by the NEXT
     scheduled sweep, never recursively within this one.
+
+    **That self-reference is also why the event count here is bounded** (SPEC-131 FR-005).
+    Every emitter below is per-sweep or per-day-group, never per message: this function emits
+    into the queue it drains, so an event per message consumed would mean draining M messages
+    produced ~M more, and the queue would have a floor it could never get below — permanently
+    busy carrying its own telemetry, with the day objects growing to match. Day-groups are
+    bounded by the number of control planes; messages are bounded by nothing.
+
+    **The existing ``logger`` calls stay alongside the structured events, deliberately, and
+    this is the one function where that is not duplication to copy into a verb.** The sink is
+    SQS-only (SPEC-127, user decision), so a sweep that cannot write to S3 cannot report through
+    the structured store that it could not write to S3 — the mechanism that would carry the
+    report is the thing that failed. Its CloudWatch line is the only account of that failure
+    that exists.
     """
+    global _sweep_id
+    # Before any emitter, so every event of this invocation carries it — including the boundary
+    # spans, which is what joins the two accounts. `traced`'s _reset_baggage() clears it between
+    # warm invocations, so a sweep can never inherit the previous one's id.
+    _sweep_id = sweep_id = uuid.uuid4().hex
+    observability.stamp(sweep_id=sweep_id)
+
     if not LOGS_QUEUE_URL or not ADMIN_BUCKET:
         logger.warning("log-sweep: LOGS_QUEUE_URL or ADMIN_BUCKET unset — nothing to do")
+        observability.warning(
+            "not configured",
+            has_queue=bool(LOGS_QUEUE_URL),
+            has_bucket=bool(ADMIN_BUCKET),
+        )
         return {"swept": 0, "written": 0}
 
     messages, truncated = _receive_all()
@@ -264,15 +354,19 @@ def handler(event, context):
 
     groups = defaultdict(list)  # (service, year, month, day) -> [(body, receipt), ...]
     undated = 0
+    unrouted = 0
     for message in messages:
         body = message.get("Body", "")
         service, parsed = _route(body)
         year, month, day, fell_back = _partition(parsed)
         undated += 1 if fell_back else 0
+        unrouted += 1 if service == UNROUTED else 0
         groups[(service, year, month, day)].append((body, message.get("ReceiptHandle", "")))
 
-    sweep_id = uuid.uuid4().hex
+    observability.info("received", messages=len(messages), groups=len(groups))
+
     written = 0
+    failed = 0
     for (service, year, month, day), items in sorted(groups.items()):
         key = _day_key(service, year, month, day)
         if _append_day(key, [b for b, _ in items]):
@@ -282,6 +376,8 @@ def handler(event, context):
             # next round, producing duplicate log_ids that a reader collapses on. Losing logs
             # is worse than duplicating them.
             _delete([r for _, r in items if r])
+        else:
+            failed += len(items)
 
     if truncated:
         # Explicit, with the count — a silent cap reads as "swept everything" when it didn't.
@@ -290,8 +386,16 @@ def handler(event, context):
             MAX_MESSAGES,
             len(messages),
         )
+        observability.warning("hit the message cap", limit=MAX_MESSAGES, taken=len(messages))
     if undated:
         logger.warning("log-sweep: %d event(s) had no usable timestamp; used the sweep clock", undated)
+        observability.warning("events had no usable timestamp", undated=undated)
+    if unrouted:
+        # The body itself is NOT logged. Not on sensitivity grounds — it is already preserved
+        # verbatim under logs/service=_unrouted/, where it can be read deliberately — but
+        # because it is unbounded input from a queue, and echoing it into a day object risks
+        # precisely the growth the read-modify-write design is careful about.
+        observability.warning("bodies could not be routed", unrouted=unrouted)
 
     logger.info(
         "log-sweep %s: %d message(s) in %d day-group(s), %d written",
@@ -299,5 +403,16 @@ def handler(event, context):
         len(messages),
         len(groups),
         written,
+    )
+    # Level carries the outcome, so "a sweep that partly failed" is reachable without reading a
+    # field: the old summary reported swept/groups/written and no failure count at all, so a
+    # sweep that wrote two destinations of three read as a success in every field it had.
+    outcome = observability.error if failed else observability.info
+    outcome(
+        "swept",
+        messages=len(messages),
+        groups=len(groups),
+        written=written,
+        failed=failed,
     )
     return {"swept": len(messages), "written": written, "groups": len(groups)}
