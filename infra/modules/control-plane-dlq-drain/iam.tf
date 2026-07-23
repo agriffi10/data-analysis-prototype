@@ -22,6 +22,7 @@ resource "aws_iam_role_policy" "drain" {
   policy = templatefile("${path.module}/policies/drain-permissions.json.tftpl", {
     dlq_arns                = var.dlq_arns
     notifications_queue_arn = var.notifications_queue_arn
+    logs_queue_arn          = var.logs_queue_arn
     lambda_log_group_arn    = local.log_group_arn
   })
 }

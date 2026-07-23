@@ -55,6 +55,10 @@ resource "aws_lambda_function" "drain" {
       SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
       ADMIN_BUCKET            = var.admin_bucket_name
       ATHENA_WORKGROUP        = var.athena_workgroup
+      # SPEC-133 FR-001/FR-007. Deliberately NOT mirrored by a config._require on the Lambda
+      # side: cpcommon.observability reads it with os.environ.get, so a drain that somehow
+      # loses this variable logs to stdout and still drains rather than crashing at cold start.
+      LOGS_QUEUE_URL = var.logs_queue_url
     }
   }
 
