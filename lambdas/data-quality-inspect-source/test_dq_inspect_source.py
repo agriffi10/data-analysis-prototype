@@ -1270,3 +1270,147 @@ def test_no_manifest_is_written_when_the_request_fails():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# -- SPEC-132: the narrative ------------------------------------------------------------
+
+
+def test_it_narrates_the_listing_the_format_and_the_schema(captured_events):
+    """FR-001/FR-004: column NAMES are logged deliberately — a name is schema, and schema is
+    what a schema bug is about. Column VALUES would be file contents and never appear.
+    """
+    _setup(
+        [("alice/sales/a.csv", 10), ("alice/sales/b.csv", 32)],
+        columns={
+            "alice/sales/a.csv": [{"name": "id", "type": "string"}],
+            "alice/sales/b.csv": [{"name": "id", "type": "string"}, {"name": "amount", "type": "string"}],
+        },
+    )
+
+    v.handler(_event(), None)
+
+    inspected = captured_events.messages("inspected source")
+    assert len(inspected) == 1
+    fields = inspected[0]["fields"]
+    assert fields["prefix"] == "alice/sales/"
+    assert fields["objects"] == 2
+    assert fields["bytes"] == 42
+    assert fields["format"] == "csv"
+    assert fields["column_names"] == ["amount", "id"]
+    assert fields["columns"] == 2
+    assert fields["partition_key_names"] == []
+    assert fields["manifest_key"].endswith("manifest.json")
+
+
+def test_partition_key_names_are_narrated(captured_events):
+    _setup([("alice/sales/region=eu/a.csv", 10), ("alice/sales/region=us/b.csv", 10)])
+
+    v.handler(_event(), None)
+
+    fields = captured_events.messages("inspected source")[0]["fields"]
+    assert fields["partition_key_names"] == ["region"]
+
+
+def test_the_bounded_phases_get_child_spans_and_the_per_file_probe_does_not(captured_events):
+    """FR-002: the probe span wraps the WHOLE loop. A folder of 900 objects must not mint 900
+    child spans — each one is an SQS message and a line in a day object the sweep rewrites in
+    full.
+    """
+    _setup([(f"alice/sales/f{n}.csv", 10) for n in range(9)])
+
+    v.handler(_event(), None)
+
+    parent = captured_events.spans("inspect-source")[0]
+    for step in ("list-objects", "resolve-format", "probe-columns", "detect-partitions", "write-manifest"):
+        spans = captured_events.spans(step)
+        assert len(spans) == 1, f"{step} emitted {len(spans)} spans for 9 objects"
+        assert spans[0]["parent_span_id"] == parent["span_id"]
+
+
+def test_a_terminal_names_its_reason_but_never_its_detail(captured_events):
+    """FR-003's file-contents exception, and the reason it is unconditional.
+
+    `_probe_columns`'s catch-all builds `detail` as "could not read the schema of {key}:
+    {exc}", and a polars parse error QUOTES the offending value. That is a cell out of a
+    user's file wearing an error message, in a store retained forever.
+    """
+    _setup([("alice/sales/a.xlsx", 10)])
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+
+    failed = captured_events.messages("inspect-source failed")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["reason"] == messages.UNSUPPORTED_FORMAT
+    assert "detail" not in failed[0]["fields"], (
+        "detail must never be logged by this verb — one of its raise sites interpolates a "
+        "polars parse error, which quotes the offending cell"
+    )
+    assert failed[0]["fields"]["detail_suppressed"] is True
+
+
+def _probe_that_quotes_a_cell(secret):
+    def _boom(bucket, key, fmt):
+        try:
+            raise ValueError(f"could not parse '{secret}' as dtype i64")
+        except ValueError as exc:
+            raise TerminalError(
+                messages.UNREADABLE_HEADER,
+                f"could not read the schema of {key}: {exc}",
+                tokens={"object": key},
+            ) from exc
+
+    return _boom
+
+
+def test_no_narrative_FIELD_carries_a_parse_failures_offending_value(monkeypatch, captured_events):
+    """What this spec's suppression actually buys, driven end to end.
+
+    A polars parse error quotes the offending cell, and the raise site interpolates it into
+    `detail`. No emitter in this verb may put that anywhere an operator query would group on.
+    """
+    _setup([("alice/sales/a.csv", 10)])
+    secret = "ACME-SECRET-CELL-VALUE"
+    monkeypatch.setattr(v, "_probe_columns", _probe_that_quotes_a_cell(secret))
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+
+    leaking = [e for e in captured_events.events if secret in json.dumps(e.get("fields", {}))]
+    assert leaking == [], "a cell value reached a log FIELD, in a store retained forever"
+
+
+def test_KNOWN_GAP_the_span_error_stack_still_carries_it(monkeypatch, captured_events):
+    """CHARACTERISATION, not approval: this pins a leak SPEC-132 cannot close from here.
+
+    `log-foundry`'s `end_event` attaches `traceback.format_exception(...)` to every failed
+    span UNCONDITIONALLY, and that walks the `__cause__` chain — so the polars message, cell
+    value and all, lands in `error.stack` on the span.end of both the step and the handler.
+    Suppressing `detail` does nothing about it, and neither would fixing the raise site, since
+    `raise ... from exc` is what puts the cause's text there.
+
+    It predates this spec: every traced verb has done this since SPEC-128, and it spreads to
+    the whole fleet with SPEC-134→137. Closing it needs an upstream `capture_stack=False`
+    (the same shape as the two upstream fixes SPEC-127 FR-001 already required) or an explicit
+    decision to accept stacks in a forever-retained store — a call for the user, not this
+    spec.
+
+    This test FAILS the day it is fixed. That is the point: delete it then, and update
+    SPEC-132 FR-004 to match.
+    """
+    _setup([("alice/sales/a.csv", 10)])
+    secret = "ACME-SECRET-CELL-VALUE"
+    monkeypatch.setattr(v, "_probe_columns", _probe_that_quotes_a_cell(secret))
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+
+    stacks = [
+        e["function"]
+        for e in captured_events.events
+        if secret in str((e.get("error") or {}).get("stack", ""))
+    ]
+    assert stacks, (
+        "the known gap is closed — remove this test, close it in SPEC-132 FR-004, and check "
+        "whether the upstream capture_stack option landed"
+    )

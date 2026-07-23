@@ -73,6 +73,7 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
     return f"s3://{bucket}/{prefix}/" if prefix else f"s3://{bucket}/"
 
 
+@observability.step("run-ddl")
 def _run_ddl(query: str, database: str, output_location: str) -> None:
     """Run one catalog DDL statement to completion.
 
@@ -153,6 +154,17 @@ def _create(event: dict) -> dict:
         raw_table or "-",
         table_location,
     )
+    observability.info(
+        "created temp tables",
+        database=database,
+        table=table,
+        # Whether the raw-line table exists decides whether the ragged check can run at all,
+        # so "no ragged finding" downstream reads as designed rather than as a bug.
+        raw_table=raw_table,
+        columns=len(columns),
+        format=fmt,
+        location=table_location,
+    )
     return out
 
 
@@ -164,4 +176,18 @@ def _create(event: dict) -> dict:
 @notify.notifies_on_failure("create-temp-tables")
 def handler(event, context) -> dict:
     """Create the temp table(s) and thread their names onward."""
-    return _create(event)
+    try:
+        return _create(event)
+    except TerminalError as err:
+        # One place rather than each raise site, for the reason SPEC-128 FR-001 gives about
+        # per-call-site bookkeeping. `detail` is safe here: every raise in this module
+        # interpolates a space kind, a count, or a literal — never anything read from a file.
+        observability.error(
+            "create-temp-tables failed",
+            step="run-ddl",
+            error_type=type(err).__name__,
+            reason=err.reason,
+            detail=err.detail,
+            tokens=err.tokens or {},
+        )
+        raise

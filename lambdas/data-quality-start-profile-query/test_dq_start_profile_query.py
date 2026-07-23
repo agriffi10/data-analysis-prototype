@@ -227,3 +227,54 @@ def test_the_request_object_is_threaded_not_replaced(started):
     assert out["requestId"] == REQUEST_ID
     assert out["actor"] == "alice"
     assert out["tempTable"] == f"dq_tmp_{HEX32}"
+
+
+# -- SPEC-132: the narrative ------------------------------------------------------------
+
+
+def test_it_narrates_how_many_queries_started_and_which(started, captured_events):
+    """FR-001: which of the optional checks were APPLICABLE, not merely how many ran."""
+    v.handler(_event(), None)
+
+    started_event = captured_events.messages("started queries")
+    assert len(started_event) == 1
+    fields = started_event[0]["fields"]
+    assert fields["queries"] == 3
+    assert fields["started"] == ["duplicates", "profile", "ragged"]
+    assert fields["ragged_applicable"] is True
+    assert fields["database"] == "alice"
+    assert fields["format"] == "csv"
+
+
+def test_a_parquet_source_reports_ragged_as_inapplicable(started, captured_events):
+    """`ragged` is null for JSON/Parquet because rows are not line-delimited fields — a
+    different thing from a ragged check that was attempted and degraded, and the report must
+    not blur them either.
+    """
+    v.handler(_event(format="parquet", tempRawTable=None), None)
+
+    fields = captured_events.messages("started queries")[0]["fields"]
+    assert fields["queries"] == 2
+    assert fields["ragged_applicable"] is False
+    assert "ragged" not in fields["started"]
+
+
+def test_the_submission_phase_gets_its_own_child_span(started, captured_events):
+    v.handler(_event(), None)
+
+    spans = captured_events.spans("start-queries")
+    assert len(spans) == 1
+    assert spans[0]["parent_span_id"] == captured_events.spans("start-profile-query")[0]["span_id"]
+
+
+def test_a_borrowed_terminal_is_still_narrated(started, captured_events):
+    """This verb raises no terminal of its own — every one arrives from `events.require` or
+    `athena.start_query`. A verb that only borrows its failures is exactly the one whose
+    silence looks like it was never reached.
+    """
+    with pytest.raises(TerminalError):
+        v.handler(_event(database=None), None)
+
+    failed = captured_events.messages("start-profile-query failed")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["reason"] == messages.INVALID_REQUEST

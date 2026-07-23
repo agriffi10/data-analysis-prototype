@@ -60,6 +60,7 @@ def _normalize(location: str) -> str:
     return "" if collapsed == "." else collapsed
 
 
+@observability.step("authorize")
 def _authorize(actor: str, space: dict, location: str) -> str:
     """Return the normalized location, or raise a terminal ``forbidden``."""
     kind = space.get("kind")
@@ -97,6 +98,7 @@ def _within(normalized: str, space_root: str) -> bool:
     return normalized == space_root or normalized.startswith(f"{space_root}/")
 
 
+@observability.step("validate-destination")
 def _validate_destination(space_root: str, request_id: str) -> str:
     """Return the report destination prefix, or raise if it isn't safe to write.
 
@@ -159,6 +161,24 @@ def _validate_and_authorize(event) -> dict:
         _check_source_not_reserved(normalized, space_root)
         destination = _validate_destination(space_root, request_id)
     except TerminalError as err:
+        # Emitted here rather than at each of the eleven raise sites: a narrative line added
+        # by hand next to a raise is one the twelfth raise will be added without, which is the
+        # same argument SPEC-128 FR-001 made for stamping request_id in the decorator. Every
+        # terminal from this verb passes through here.
+        #
+        # `reason` is `err.reason` — the messages constant's own value, never scraped out of
+        # the rendered prose (SPEC-132 FR-003). `detail` is safe to log for every raise site in
+        # this verb: they interpolate locations, buckets, prefixes and the actor, and nothing
+        # read out of a file.
+        observability.error(
+            "authorization failed",
+            step="authorize",
+            error_type=type(err).__name__,
+            reason=err.reason,
+            detail=err.detail,
+            tokens=err.tokens or {},
+            actor=actor,
+        )
         notify.emit_failure(
             {
                 "actor": actor,
@@ -173,6 +193,18 @@ def _validate_and_authorize(event) -> dict:
         raise
 
     logger.info("authorized %s for %s/%s", actor, space.get("bucket"), normalized)
+    observability.info(
+        "authorized",
+        actor=actor,
+        space=space_root,
+        # The distinction an operator needs first: a personal check can only ever read the
+        # actor's own prefix, whereas a shared one turned on a registry membership lookup that
+        # could itself be the thing that went wrong.
+        space_kind="own" if space.get("kind") == "personal" else "shared",
+        bucket=space.get("bucket"),
+        location=normalized,
+        report_prefix=destination,
+    )
     return {
         "requestId": request_id,
         "actor": actor,
