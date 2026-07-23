@@ -84,7 +84,20 @@ def init(service: str, **defaults: object) -> None:
         #
         # The client comes from clients.sqs() so a warm container holds ONE boto3 SQS client
         # across the notifications path and this one.
-        sink: object = SQSSink(LOGS_QUEUE_URL, client=clients.sqs())
+        #
+        # message_group_id is the SERVICE, overriding log-foundry's default of one group per
+        # trace_id. The library's default maximises parallelism (SQS delivers separate groups
+        # concurrently); a per-service group deliberately trades some of that for a simpler
+        # ordering story — one control plane's events arrive in the order it emitted them, and
+        # the sweep is a single consumer anyway, so the parallelism the default buys is not
+        # parallelism anything here can use. (User decision, 2026-07-23.)
+        #
+        # The sink infers FIFO from the `.fifo` queue URL, so nothing here has to declare it,
+        # and it mints a UUID MessageDeduplicationId per event — which is why the queue does not
+        # (and must not) enable content-based deduplication.
+        sink: object = SQSSink(
+            LOGS_QUEUE_URL, client=clients.sqs(), message_group_id=service
+        )
     else:
         from log_foundry.sinks.stdout import StdoutSink
 

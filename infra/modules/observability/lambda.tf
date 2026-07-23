@@ -27,8 +27,12 @@ resource "aws_lambda_function" "sweep" {
   # MUST stay below the 5-minute schedule interval (so a slow sweep cannot still be running when
   # the next one fires) and below the queue's 360s visibility timeout (so in-flight messages
   # cannot become visible to the next sweep and be written to S3 twice).
-  timeout     = 300
-  memory_size = 256
+  timeout = 300
+  # 512 MB, not 256: SPEC-129 made each sweep read the day's whole object back before appending
+  # to it (S3 has no append), so peak memory now tracks a day's log volume rather than one
+  # batch. LARGE_OBJECT_WARN_BYTES in the handler warns long before this becomes the binding
+  # limit.
+  memory_size = 512
 
   environment {
     variables = {
@@ -64,14 +68,19 @@ resource "aws_lambda_function" "sweep" {
 }
 
 # ── The schedule ─────────────────────────────────────────────────────────────
-# 5 minutes, not the DLQ drain's 10: a log you cannot see for ten minutes is not usable while
-# you are debugging the run that produced it. And not 1 minute: ~43k mostly-empty invocations a
-# month would dominate this function's own log group, which is itself something you have to read
-# when the pipe misbehaves. (User decision, 2026-07-22.)
+# 10 minutes, matching the DLQ drain (user decision, 2026-07-23 — this replaces the original
+# 5-minute cadence). The trade is freshness for churn: a log is now up to ten minutes behind the
+# run that produced it, which is the cost of halving both the invocation count and the number of
+# read-modify-write cycles over each day's growing object. Still not 1 minute: ~43k mostly-empty
+# invocations a month would dominate this function's own log group, which is itself something
+# you have to read when the pipe misbehaves.
+#
+# The function timeout (300s) must stay BELOW this interval so a slow sweep cannot still be
+# running when the next one fires — with 600s there is now twice the headroom there was at 5.
 resource "aws_cloudwatch_event_rule" "sweep" {
   name                = local.schedule_name
-  description         = "Fires the SPEC-127 structured-logging sweep every 5 minutes."
-  schedule_expression = "rate(5 minutes)"
+  description         = "Fires the SPEC-127 structured-logging sweep every 10 minutes."
+  schedule_expression = "rate(10 minutes)"
 }
 
 resource "aws_cloudwatch_event_target" "sweep" {

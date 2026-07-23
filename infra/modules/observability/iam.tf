@@ -34,8 +34,16 @@ resource "aws_iam_role" "sweep" {
   assume_role_policy = data.aws_iam_policy_document.sweep_assume.json
 }
 
-# The sweep writes logs; it reads nothing. No s3:GetObject, no s3:DeleteObject, no Glue, no
+# The sweep writes logs and reads BACK ONLY WHAT IT WROTE. No s3:DeleteObject, no Glue, no
 # Athena, and no access to the user-space or shared-space buckets.
+#
+# SPEC-129 REVERSED the "it reads nothing" property this role shipped with (SPEC-127 FR-006),
+# and that is a deliberate trade rather than a slip. One object per service per day means
+# read-modify-write, because S3 has no append: the sweep must GET the day's object to extend it.
+# What bounds the reversal is that s3:GetObject is scoped to the SAME logs/* prefix as the
+# write, so the role can read its own output and nothing else in the admin bucket — not
+# fallback-results/, not shared-spaces/, not table-share/. It still cannot read a single byte of
+# user data anywhere.
 #
 # The admin bucket is NOT in the user-space bucket-policy allowlist problem space — that
 # Deny-all-but-allowlist resource policy is on the USER-SPACE bucket, and this role touches
@@ -54,13 +62,14 @@ data "aws_iam_policy_document" "sweep" {
     resources = [aws_sqs_queue.logs.arn]
   }
 
-  # Scoped to logs/* — NOT the bucket root, which also holds fallback-results/, shared-spaces/
-  # and table-share/. A sweep that could write anywhere in the admin bucket could overwrite a
-  # user's query results with log lines.
+  # PutObject to extend a day's object, GetObject to read what is already in it. Both scoped to
+  # logs/* — NOT the bucket root, which also holds fallback-results/, shared-spaces/ and
+  # table-share/. A sweep that could write anywhere in the admin bucket could overwrite a user's
+  # query results with log lines; one that could READ anywhere could copy them into logs/.
   statement {
-    sid       = "WriteLogObjects"
+    sid       = "AppendLogObjects"
     effect    = "Allow"
-    actions   = ["s3:PutObject"]
+    actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${var.admin_bucket_arn}/${local.logs_prefix}/*"]
   }
 

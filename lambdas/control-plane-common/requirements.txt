@@ -35,7 +35,13 @@ PyJWT[crypto]>=2.8,<3
 # 0.4.0 is the floor that works here. 0.2.0 could not be installed at all (requires-python
 # >=3.13 against this fleet's python3.12) and had no repeatable flush() — a handler calling
 # shutdown() logs nothing for the rest of that warm container's life (log-forge SPEC-013).
-# 0.4.0 adds baggage on the span boundary events (log-forge SPEC-015), without which a filter
+# 0.4.0 added baggage on the span boundary events (log-forge SPEC-015), without which a filter
 # on fields.request_id returns a span's narration but not the span.end carrying duration_ms
 # and status — i.e. not the record worth finding.
-log-foundry==0.4.0
+#
+# 0.5.0 (log-forge SPEC-016) adds FIFO support to SQSSink. Before it, the sink sent entries
+# carrying only {Id, MessageBody}, and a FIFO queue REJECTS a batch with no MessageGroupId — so
+# the logs queue had to be the one standard queue in this repo. SPEC-129 converts it to FIFO,
+# which makes 0.5.0 a hard floor rather than a nice-to-have: on 0.4.0 every batch would fail and
+# the events would be abandoned to stderr.
+log-foundry==0.5.0
