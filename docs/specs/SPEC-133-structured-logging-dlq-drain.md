@@ -235,10 +235,19 @@ dies in `SQSSink`'s stderr write — instrumentation that looks deployed and is 
 - [ ] An `EmitStructuredLogEvents` statement in `policies/drain-permissions.json.tftpl` granting
       `sqs:SendMessage` on the logs queue ARN — the same Sid and shape as the statement already in
       `modules/data-quality/policies/execution.json.tftpl`, so the two read as one pattern.
-- [ ] The **deploy role** is checked against the repo's adding-a-resource-type rule before the
+- [x] The **deploy role** is checked against the repo's adding-a-resource-type rule before the
       code lands, and the finding is recorded either way. No new resource type appears here and
       no new deploy-role grant is expected — but "expected" is not "verified", and this is the
       trap that has cost this repo several rounds.
+
+      **Verified 2026-07-23, and no grant is needed.** Three things change and each is already
+      covered by `github-actions-deploy-control-plane-dlq-drain.json.tftpl`: the new policy
+      statement goes into the drain's existing inline role policy (`iam:PutRolePolicy` on
+      `role/${project_name}-*-control-plane-dlq-drain`), the new environment variable is a
+      `lambda:UpdateFunctionConfiguration` on the drain function, and both new values come from
+      **`module.observability`'s outputs** — attributes of an `aws_sqs_queue` already in state,
+      so there is no data source and therefore no new read permission. No new resource type
+      appears at all.
 - [ ] The IAM and the environment variable land and **apply** before the instrumented code
       deploys, matching the standing deploy-perms-before-resources sequence.
 - [ ] A live check confirms events arrive at `logs/service=dlq-drain/…` rather than in

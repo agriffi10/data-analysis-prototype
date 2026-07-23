@@ -23,6 +23,22 @@ variable "dlq_arns" {
   type        = list(string)
 }
 
+variable "logs_queue_arn" {
+  description = "Structured-logging queue ARN — the drain sends its events here (SPEC-133 FR-007)."
+  type        = string
+}
+
+variable "logs_queue_url" {
+  description = <<-EOT
+    Structured-logging queue URL, set as LOGS_QUEUE_URL on the function.
+
+    Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
+    os.environ.get and never config._require, so a drain deployed without it logs to stdout
+    instead of failing at cold start (PR #196). Passed here so it is set in practice.
+  EOT
+  type        = string
+}
+
 variable "notifications_queue_arn" {
   description = "SPEC-058 notifications FIFO queue ARN — the drain's ONLY sqs:SendMessage scope."
   type        = string

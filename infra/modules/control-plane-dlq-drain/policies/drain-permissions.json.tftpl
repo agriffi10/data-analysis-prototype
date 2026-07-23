@@ -18,6 +18,12 @@
       "Resource": "${notifications_queue_arn}"
     },
     {
+      "Sid": "EmitStructuredLogEvents",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
       "Sid": "Logs",
       "Effect": "Allow",
       "Action": [

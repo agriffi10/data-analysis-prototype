@@ -612,6 +612,12 @@ module "control_plane_dlq_drain" {
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
+  # SPEC-133: the drain joins the structured-logging pipe. Taken from the observability
+  # module's outputs rather than reconstructed, so the queue's FIFO `.fifo` suffix cannot
+  # drift between producer and consumer (SPEC-129).
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
