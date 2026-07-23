@@ -81,14 +81,16 @@ down elsewhere — when a spec closes, prune it rather than appending.**
   malformed message on one request DLQ, confirming the user is notified, the message is gone, and
   the redacted body is in `logs/service=dlq-drain/`. That discharges **126**'s owed malformed-body
   check too.
-- **OPEN DECISION blocking nothing but shaping 134→137 — `error.stack` carries file contents.**
-  `log-foundry`'s `end_event` attaches `traceback.format_exception` to **every** failed span
-  unconditionally, walking the `__cause__` chain — so a polars parse error quoting a user's cell
-  reaches `logs/`, which is retained **forever**. Predates 132 (every verb has done it since 128)
-  and spreads with each plane instrumented. Suppressing `detail` does **not** help; nor does fixing
-  the raise site (`from exc` is what puts it there). Pinned by
-  `test_KNOWN_GAP_the_span_error_stack_still_carries_it`, which **fails the day it is fixed**.
-  Options: upstream `capture_stack=False`, strip in the sweep, or narrow the rule to fields only.
+- **SETTLED (2026-07-23) — the no-file-contents rule is about FIELDS; `error.stack` is exempt.**
+  `log-foundry`'s `end_event` attaches `traceback.format_exception` to every failed span, walking
+  the `__cause__` chain — so a polars parse error quoting a user's cell reaches `error.stack` in
+  `logs/`. **Accepted rather than stripped** (user decision): `logs/` is admin-only, the absolute
+  rule binds the values a call site *chooses* to emit, and a stack is diagnostic metadata that
+  admins reading a failed run need. Do **not** conclude from a stack trace that the field rule is
+  loose — a verb still may never put file contents in a **field**. Pinned by
+  `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
+  starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
+  the test deleted. Full reasoning: `decisions.md`.
 - **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
   includes every line of the minority file **plus every header** — the check compares against the
   *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when
