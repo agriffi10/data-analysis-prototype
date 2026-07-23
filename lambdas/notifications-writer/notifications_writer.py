@@ -252,6 +252,7 @@ def process(req):
     return {"action": action, "username": username, "count": len(saved)}
 
 
+@observability.traced("write")
 def handler(event, context):
     """SQS event-source-mapping entry point (batch size 1 → one record per invocation).
 
