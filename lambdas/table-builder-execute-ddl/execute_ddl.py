@@ -20,13 +20,18 @@ A throttling / 5xx Athena error is raised as ``TransientError`` for the SFN ``Re
 
 import logging
 
-from cpcommon import config
+from cpcommon import config, observability
 from tbcommon import notify
 
 import athena_run
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
+# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
+# identity rides as the `verb` field.
+observability.init(service="table-builder")
 
 
 def _results_location(space, actor):
@@ -37,6 +42,10 @@ def _results_location(space, actor):
     return f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("execute-ddl")
 @notify.notifies_on_failure("execute")
 def handler(event: dict, context) -> dict:
     """SFN entry point: run the CREATE DDL via Athena and shape the success outcome.
@@ -52,6 +61,13 @@ def handler(event: dict, context) -> dict:
 
     # One CREATE, idempotent via IF NOT EXISTS; projection ⇒ no MSCK REPAIR. A terminal
     # DDL failure notifies the actor via @notifies_on_failure before the SFN Catch.
+    observability.info(
+        "running create ddl",
+        database=database,
+        table=event.get("tableName"),
+        workgroup=config.ATHENA_WORKGROUP,
+        actor=actor,
+    )
     athena_run.run_ddl(
         query=event["ddl"],
         database=database,

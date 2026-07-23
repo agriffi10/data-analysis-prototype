@@ -16,14 +16,23 @@ failing silently, and re-raised for the SFN Catch.
 
 import logging
 
-from cpcommon import clients, errors, events
+from cpcommon import clients, errors, events, observability
 from tbcommon import notify
 from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
+# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
+# identity rides as the `verb` field.
+observability.init(service="table-builder")
 
+
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("check-table-absent")
 @notify.notifies_on_failure("check")
 def handler(event: dict, context) -> dict:
     """SFN entry point: verify the target table doesn't already exist.
@@ -47,6 +56,14 @@ def _check_table_absent(event: dict) -> dict:
     except glue.exceptions.EntityNotFoundException:
         # The table (or its database) doesn't exist yet — the create can proceed.
         logger.info("table %s absent in %s — proceeding", table, database)
+        # THE VERDICT AS AN EXPLICIT BOOLEAN, with the database and table it checked. The
+        # pre-condition and the post-condition of a table build are the SAME check, so having
+        # this in the record is what makes "the DDL claimed success and the table is not there"
+        # a statable sentence rather than a suspicion (SPEC-135 FR-003 — the plane's defining
+        # incident, where LF admin status silently did not grant CREATE_TABLE).
+        observability.info(
+            "target table absent", database=database, table=table, exists=False
+        )
         return event
     except Exception as err:  # noqa: BLE001 - a throttle is retryable; the rest propagate
         # A Glue ThrottlingException is NOT EntityNotFoundException, so it would otherwise

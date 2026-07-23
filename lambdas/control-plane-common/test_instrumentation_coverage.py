@@ -19,6 +19,15 @@ import pytest
 LAMBDAS = pathlib.Path(__file__).resolve().parent.parent
 
 
+def _decorators(path):
+    """The decorator source lines applied to `handler`, outermost first."""
+    tree = ast.parse(path.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "handler":
+            return [ast.unparse(d) for d in node.decorator_list]
+    return None
+
+
 @dataclass(frozen=True)
 class Plane:
     """One control plane's coverage expectations.
@@ -36,26 +45,33 @@ class Plane:
 
     service: str
     glob: str
-    module_prefix: str
     verb_count: int
     notifies_on_failure: bool
     not_verbs: frozenset = field(default_factory=frozenset)
 
     def modules(self):
+        """Every VERB module in this plane, found by what makes a module a verb.
+
+        A verb module is one that DEFINES a top-level ``handler`` — that is the whole
+        definition, and matching on it directly is why this needs no per-plane filename
+        convention. Matching on a filename prefix instead silently swept in
+        ``table-builder-execute-ddl/athena_run.py``, a helper sitting beside the verb it
+        serves, and then demanded that helper carry a traced handler.
+        """
         for directory in sorted(LAMBDAS.glob(self.glob)):
             if not directory.is_dir() or directory.name in self.not_verbs:
                 continue
-            for path in directory.glob(f"{self.module_prefix}*.py"):
+            for path in sorted(directory.glob("*.py")):
                 if path.name.startswith("test_"):
                     continue
-                yield path
+                if _decorators(path) is not None:
+                    yield path
 
 
 PLANES = [
     Plane(
         service="data-quality",
         glob="data-quality-*",
-        module_prefix="dq_",
         verb_count=9,
         notifies_on_failure=True,
         not_verbs=frozenset({"data-quality-common", "data-quality-polars"}),
@@ -63,26 +79,23 @@ PLANES = [
     Plane(
         service="shared-space",
         glob="shared-space-*",
-        module_prefix="",
         verb_count=8,
         # Its verbs notify explicitly from inside the handler — see Plane's docstring.
         notifies_on_failure=False,
         not_verbs=frozenset({"shared-space-common"}),
+    ),
+    Plane(
+        service="table-builder",
+        glob="table-builder-*",
+        verb_count=5,
+        notifies_on_failure=True,
+        not_verbs=frozenset({"table-builder-common", "table-builder-polars"}),
     ),
 ]
 
 #: Every (plane, module) pair, so a failure names the file rather than just the plane.
 MODULES = [(plane, path) for plane in PLANES for path in plane.modules()]
 _IDS = [f"{plane.service}:{path.stem}" for plane, path in MODULES]
-
-
-def _decorators(path):
-    """The decorator source lines applied to `handler`, outermost first."""
-    tree = ast.parse(path.read_text())
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "handler":
-            return [ast.unparse(d) for d in node.decorator_list]
-    return None
 
 
 def _emitter_calls(path):
