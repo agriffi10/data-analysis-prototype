@@ -55,7 +55,7 @@ Failures are narrated **once per verb** rather than at each raise site (`validat
 has eleven): a line added by hand beside a raise is one the twelfth raise is added without — the
 argument SPEC-128 FR-001 already made for stamping `request_id` in the decorator.
 
-## KNOWN GAP — `error.stack`, which this spec cannot close
+## `error.stack` may carry file contents — ACCEPTED (user decision, 2026-07-23)
 
 `log-foundry`'s `end_event` attaches `traceback.format_exception(...)` to **every failed span,
 unconditionally**, and that walks the `__cause__` chain. So the same polars message reaches
@@ -63,12 +63,18 @@ unconditionally**, and that walks the `__cause__` chain. So the same polars mess
 does**. Suppressing `detail` does not help; nor would fixing the raise site, since `raise … from
 exc` is what puts the cause's text there.
 
-It **predates this spec** — every traced verb has done it since SPEC-128 — and it spreads to the
-whole fleet with SPEC-134→137. A characterisation test
-(`test_KNOWN_GAP_the_span_error_stack_still_carries_it`) pins it and **fails the day it is fixed**,
-so it cannot be quietly forgotten. Closing it needs an upstream `capture_stack=False` (the same
-shape as the two upstream `log-foundry` fixes SPEC-127 FR-001 already required), a strip in the
-sweep, or an explicit decision to accept stacks in a forever-retained store. **Open for the user.**
+Surfaced by this spec (it predates it — every traced verb has done it since SPEC-128 — and it
+spreads to the whole fleet with SPEC-134→137) and escalated. **The decision was to accept it, not
+strip it:** `logs/` is admin-only, and a stack is diagnostic metadata an admin debugging a failed
+run needs. So the absolute no-file-contents rule is understood to bind a **field a verb chooses to
+emit** — the thing the `detail` audit and the denylist tripwire cover — and not an automatic
+traceback. The rule text in `cpcommon/observability.py`'s docstring and in `decisions.md` now says
+so explicitly, so the exemption reads as a decision rather than a leak nobody noticed.
+
+The characterisation test was **renamed and kept** (`test_ACCEPTED_the_span_error_stack_may_carry_
+file_contents`), not deleted: it is now a tripwire that **fails if `log-foundry` starts stripping
+stacks** — at which point the decision to accept them should be revisited in the open, rather than
+the behaviour changing silently under a store retained forever.
 
 ## Three spec corrections
 

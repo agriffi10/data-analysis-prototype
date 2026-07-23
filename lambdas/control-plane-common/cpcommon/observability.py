@@ -37,10 +37,19 @@ run needs to reach the object (user decision, 2026-07-23).
   booleans, attempt numbers, enum-ish states; ``request_id``, ``service``, ``verb``. Usernames are
   **not** sensitive here — the username already *is* the S3 prefix, the principal tag and the Glue
   database name (SPEC-033), so it is the primary key of every operator-facing record already.
-* **Never, and the line is absolute: data from inside a file.** A cell value, a sampled row, a
-  parsed record, a decoded byte range, a rendered result set. Any of it can be PII, none of it is
-  needed to debug a control plane, and ``logs/`` is retained forever. Column *names* are schema
-  and are permitted; column *values* are file contents and are not.
+* **Never, and the line is absolute: data from inside a file — in a FIELD.** A cell value, a
+  sampled row, a parsed record, a decoded byte range, a rendered result set. Any of it can be PII,
+  none of it is needed to debug a control plane, and ``logs/`` is retained forever. Column *names*
+  are schema and are permitted; column *values* are file contents and are not.
+
+  **The one exemption, decided rather than overlooked (user decision, 2026-07-23):**
+  ``error.stack`` on a failed span. ``log-foundry`` attaches ``traceback.format_exception`` to
+  every error span, and that walks the ``__cause__`` chain — so an exception whose cause quotes a
+  cell (a polars parse error naming the value it could not convert) carries that text into
+  ``error.stack`` no matter what a call site does. This is accepted, not stripped: ``logs/`` is
+  admin-only, and a stack is diagnostic metadata an admin debugging a failed run needs. The rule
+  above binds what a verb *chooses to put in a field*; it does not bind an automatic traceback.
+  Do not read a stack trace as licence to relax the field rule.
 * **Never, regardless of provenance: tokens, credentials, and email addresses.** A bearer
   credential is not metadata — an expired ID token is still a signed assertion about a real person
   (which is why ``dlq_drain._redacted`` scrubs every known token field before its forensic line).

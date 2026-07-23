@@ -1380,23 +1380,24 @@ def test_no_narrative_FIELD_carries_a_parse_failures_offending_value(monkeypatch
     assert leaking == [], "a cell value reached a log FIELD, in a store retained forever"
 
 
-def test_KNOWN_GAP_the_span_error_stack_still_carries_it(monkeypatch, captured_events):
-    """CHARACTERISATION, not approval: this pins a leak SPEC-132 cannot close from here.
+def test_ACCEPTED_the_span_error_stack_may_carry_file_contents(monkeypatch, captured_events):
+    """CHARACTERISATION of an ACCEPTED behaviour (user decision, 2026-07-23), not a gap.
 
     `log-foundry`'s `end_event` attaches `traceback.format_exception(...)` to every failed
-    span UNCONDITIONALLY, and that walks the `__cause__` chain — so the polars message, cell
-    value and all, lands in `error.stack` on the span.end of both the step and the handler.
-    Suppressing `detail` does nothing about it, and neither would fixing the raise site, since
+    span, and that walks the `__cause__` chain — so the polars message, cell value and all,
+    lands in `error.stack` on the span.end of both the step and the handler. Suppressing
+    `detail` does nothing about it, and neither would fixing the raise site, since
     `raise ... from exc` is what puts the cause's text there.
 
-    It predates this spec: every traced verb has done this since SPEC-128, and it spreads to
-    the whole fleet with SPEC-134→137. Closing it needs an upstream `capture_stack=False`
-    (the same shape as the two upstream fixes SPEC-127 FR-001 already required) or an explicit
-    decision to accept stacks in a forever-retained store — a call for the user, not this
-    spec.
+    The user accepted this rather than stripping it: `logs/` is admin-only, and a stack is
+    diagnostic metadata an admin debugging a failed run needs. The absolute no-file-contents
+    rule binds a **field** a verb chooses to emit (asserted by the test above); it does not
+    bind an automatic traceback. See `decisions.md` and the module docstring in
+    `cpcommon/observability.py`.
 
-    This test FAILS the day it is fixed. That is the point: delete it then, and update
-    SPEC-132 FR-004 to match.
+    Kept as a tripwire, NOT deleted: if this starts **failing**, `log-foundry` began stripping
+    stacks (an upstream `capture_stack=False` landed), and the decision to accept them should
+    be revisited in the open rather than the test quietly removed.
     """
     _setup([("alice/sales/a.csv", 10)])
     secret = "ACME-SECRET-CELL-VALUE"
@@ -1411,6 +1412,6 @@ def test_KNOWN_GAP_the_span_error_stack_still_carries_it(monkeypatch, captured_e
         if secret in str((e.get("error") or {}).get("stack", ""))
     ]
     assert stacks, (
-        "the known gap is closed — remove this test, close it in SPEC-132 FR-004, and check "
-        "whether the upstream capture_stack option landed"
+        "error.stack no longer carries the cause's text — log-foundry began stripping stacks. "
+        "Revisit the 2026-07-23 decision to accept them (decisions.md) rather than deleting this."
     )
