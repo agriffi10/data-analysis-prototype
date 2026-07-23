@@ -139,7 +139,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 131 — Structured Logging: Narrate the Log Sweep | Completed |
 | 132 — Structured Logging: Narrate the Data-Quality Control Plane | Completed |
 | 133 — Structured Logging: Instrument the Control-Plane DLQ Drain | Completed |
-| 134 — Structured Logging: Instrument the Shared-Space Control Plane | Draft |
+| 134 — Structured Logging: Instrument the Shared-Space Control Plane | Completed |
 | 135 — Structured Logging: Instrument the Table-Builder Control Plane | Draft |
 | 136 — Structured Logging: Instrument the Table-Share Control Plane | Draft |
 | 137 — Structured Logging: Instrument the Singleton Lambdas | Draft |

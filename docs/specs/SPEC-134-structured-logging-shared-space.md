@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Instrument the Shared-Space Control Plane
 
 **ID:** SPEC-134
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-130 (the emitters and `step`), SPEC-133 (the infra pattern), SPEC-125 (`cpcommon` on this plane)
 

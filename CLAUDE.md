@@ -66,7 +66,7 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — SPEC-134 (shared-space narrative) in flight. 135→137 follow, one `Plane()` row each.**
+**Current work — SPEC-135 (table-builder) in flight; 136 (table-share) and 137 (singletons) follow. Each is one `Plane()` row in the SPEC-134 harness plus the plane's own narrative.**
 
 - **ONE LIVE RUN DISCHARGES FOUR DEBTS.** A real data-quality check started **from the UI** is
   owed by **114** (`reportKey` seeding), **123** (the index CAS), **128** (FR-002's `request_id`
