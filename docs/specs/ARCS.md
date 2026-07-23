@@ -357,7 +357,7 @@ element in that `compact()` silently drops the change).
 
 ---
 
-## Observability arc (SPEC-127 → 128, rollout to follow)
+## Observability arc (SPEC-127 → 137, fleet-complete)
 
 **Why it exists.** Every Lambda in this repo logs free-form English to CloudWatch. That answers "what happened in this one
 invocation" and nothing else: there is no way to ask for a p95 duration, a week of failures, or every event in one request,
@@ -398,3 +398,82 @@ Build order **127 → 128 → rollout**. 127 ships as **two PRs** (deploy-role I
 `VITE_` variable and no SPA change anywhere in the arc — `log-foundry` is a Python library. The new Lambda variable
 `LOGS_QUEUE_URL` is **optional by construction** (`os.environ.get`, never `_require`), which is precisely what lets the
 rollout proceed one control plane at a time instead of touching all 34 functions' environment blocks at once.
+
+**SPEC-130 → 133 add the narrative the first three specs deliberately left out.** 127/128/129 built a pipe and proved it
+carries something; what it carries is *boundaries* — a `span.start`/`span.end` pair per invocation and nothing between them.
+That answers which verb failed and how long it took, and is silent on what it was doing, which is the question an operator
+actually arrives with. The content already exists: the sweep and the verbs narrate themselves in ~20 `logging.getLogger()`
+calls that reach CloudWatch and never reach the store those same functions feed.
+
+**130 is the foundation and ships alone, changing no call site**, because `cpcommon` attaches to every control-plane verb and
+a layer change plus nine call-site changes is not one blast radius. It adds the sanctioned emitters (`info`/`warning`/`error`,
+never-raise, so nobody imports `log_foundry` directly and bypasses the discipline the module is built around) and `step()` for
+child spans. It also fixes two identity defects that instrumenting on top of would have multiplied: every root span in the
+fleet reports `function: "handler"` — `traced` never passed a `name`, and every Lambda entry point in this repo is named
+`handler` — and `verb` was a span *default*, so the first child span would carry `request_id` but not the verb that produced
+it. Naming the root span after the verb is a **discontinuity in a store retained forever** and is accepted without migration;
+`fields.verb` stays populated so queries span the cutover.
+
+**The two consumers are shaped by amplification, not by taste.** The sweep instruments itself, so its events go to the queue
+it drains: a sweep emitting one event per message consumed would give the queue a floor it can never drain below, so SPEC-131
+requires its event count to be `O(1)` in messages and `O(G)` in day-groups, with a test that fails when a per-message emitter
+is added. SPEC-132 has the same hazard twice — `check-query` runs on a 30-second poll for as long as the profiling query does
+(minutes to tens of minutes, since the poll was moved into the state machine to escape Lambda's 900 s ceiling), so it narrates
+**transitions only**; and byte-scan and inspect-source iterate per file, per region and per column, so those get no step and
+no emitter.
+
+**One rule spans all four, and the line is drawn at file contents — not at user-derived data** (user decision, 2026-07-23).
+`logs/` lives in the **admin bucket** and is read by administrators for administrative purposes, and that destination is what
+makes user-derived *metadata* the right thing to log rather than the wrong thing: file names, S3 keys and locations,
+usernames, database/table/column names and space names are all permitted and encouraged, because an operator debugging a
+failed run needs to reach the object. **Usernames are not sensitive here** — the username already *is* the S3 prefix, the
+principal tag and the Glue database name (SPEC-033). The absolute line is **data from inside a file** — a cell value, a
+sampled row, a result set, a decoded byte range, the text at an offset a UTF-8 scan rejected — because that can be PII, it is
+never needed to debug a control plane, and `logs/` is retained forever. Column *names* are schema and are in; column *values*
+are contents and are out. **Tokens and email addresses are out regardless of provenance**: a bearer credential is not
+metadata (which is why the drain redacts every known token field before anything logs the body), and an email — unlike a
+username — appears nowhere else in these operator records, has no operational meaning here, and would be the only personal
+contact detail in a prefix retained forever. And the narrative **never reaches the console** —
+`echo=` is prohibited outright, with the one named exposure being `init`'s `StdoutSink` fallback when `LOGS_QUEUE_URL` is
+unset, which stays because it is the cold-start safety property the module is shaped around, and which is bounded by the
+existing `logging.getLogger()` calls already putting the same keys in CloudWatch. There is deliberately **no runtime
+redaction filter**: the rule turns on *provenance* — did this value come from inside a file — and no filter over a field name
+or value shape can see that. Enforcement is a name-based tripwire test plus review.
+
+**SPEC-133 instruments `control-plane-dlq-drain`**, the one shared control-plane function outside the pipe entirely, and it is
+the only one of the four that touches infra (`LOGS_QUEUE_URL` plus `sqs:SendMessage` on the logs queue, mirroring
+data-quality's `EmitStructuredLogEvents`). Its point is not traces: **consuming a DLQ message destroys the evidence**, and
+SPEC-126 FR-004 knowingly traded each DLQ's 14-day retention for a log group's 14-day retention. Writing the redacted,
+size-capped body as an event upgrades that record to permanent. Two traps shape it. `request_id` must be a **field, never
+baggage** — the drain handles up to 400 requests per invocation while `_reset_baggage` runs once, so per-message baggage would
+leak one request's id onto the next, which is exactly the fabricated correlation key SPEC-128 FR-002 forbids. And per-message
+events are **correct here and prohibited in the sweep**, which only looks inconsistent: the sweep emits into the queue it
+drains, so an event per message gives that queue an undrainable floor; the drain emits to the logs queue and drains the
+request DLQs, with no feedback loop and an empty-by-design normal case.
+
+Build order **130 → (131 | 132 | 133)**, the three consumers independent once the layer lands. Only 133 needs infra, IAM or a
+new environment variable, and nothing in the arc touches the SPA.
+
+**SPEC-134 → 137 finish the fleet** — the remaining 21 functions, one spec per plane plus one for the singletons, each
+needing the same infra pair 133 introduced (`LOGS_QUEUE_URL` + `sqs:SendMessage` on the logs queue), since only data-quality
+and the sweep have it today. Each is written around what that plane can actually get wrong. **134 (shared-space, 8 verbs)** is
+first because it lands the **shared coverage harness** the other three reuse — four copies of an enumeration test is how three
+of them drift — and because a single request there touches five stores that can disagree (registry, per-user cache, Glue, Lake
+Formation, Cognito slots); every one of that plane's past bugs (#153–155 CAS race, #163/#164 durable intent, #165 `forget`) was
+diagnosed by inferring what the registry must have looked like. It is also the only plane with **no `notifies_on_failure`**, so
+the decorator-ordering rule stated three times elsewhere is *asserted absent* here rather than looking forgotten. **135
+(table-builder, 5)** targets the plane whose canonical failure was a verb that **completed** — SPEC-070's false "LF admin ⇒
+`CREATE_TABLE`" meant tables silently were not created (four PRs, #243–246, to find) — so the DDL, its Athena
+`StateChangeReason` verbatim, and the table's post-condition are all logged; its in-Lambda Athena poll gets the same
+transition-only treatment `check-query` got. **136 (table-share, 5)** is shaped by the only **`Map` fan-out** in the repo:
+three verbs run once per recipient at `MaxConcurrency: 5` with a per-item `Catch`, so `request_id` no longer identifies one
+invocation and **`recipient` is mandatory on every fan-out event** — partial success (2 of 3 shared) is this plane's normal
+outcome and must be readable from `logs/` alone. **137 (the three singletons)** is grouped by a shared hazard, not a shared
+domain: `notifications-writer`, `pre-signup` and `post-confirmation` do **not** attach `cpcommon`, and attaching it naively is
+PR #196 — `config._require` demands six variables at import that none of them has. Verified rather than assumed:
+`cpcommon.observability` imports and emits with **zero** env vars (the package `__init__` has no imports; `clients`
+lazy-imports boto3), so the layer is safe — and that invariant is pinned by a test importing it in a **subprocess with a
+scrubbed environment**, because `conftest`'s env baseline is exactly what hid the problem last time. The stakes there are
+uneven: the writer is how every other plane's failures reach a person, and its own DLQ is deliberately undrained (circular),
+so its events are the only account of its silence. 137 also closes the loop — its harness entries assert that **every** Lambda
+in the repo is registered or explicitly excluded.
