@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Narrative Primitives and Function Identity
 
 **ID:** SPEC-130
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-127 (the pipe), SPEC-128 (the pilot), SPEC-129 (FIFO + day objects)
 
