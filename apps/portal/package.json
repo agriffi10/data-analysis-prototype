@@ -26,7 +26,7 @@
     "@tanstack/react-query": "^5.101.0",
     "aws-amplify": "^6.18.0",
     "focus-trap-react": "^12.0.2",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.56.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.17.0"

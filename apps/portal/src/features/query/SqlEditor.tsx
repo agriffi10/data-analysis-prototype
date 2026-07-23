@@ -1,7 +1,7 @@
 import {forwardRef, useEffect, useImperativeHandle, useRef} from 'react';
 import Editor, {loader, type OnMount} from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import editorWorker from 'monaco-editor/editor/editor.worker?worker';
 import {createSqlCompletionProvider, type DatabaseSchema} from './sqlCompletions';
 
 // Self-host Monaco: no CDN/runtime external. Vite builds the editor worker
@@ -10,6 +10,11 @@ import {createSqlCompletionProvider, type DatabaseSchema} from './sqlCompletions
 // worker (no language-service worker). This whole module is lazy-loaded by
 // QueryWorkspace, so monaco lands in its own async chunk — never in the Files
 // or landing bundles.
+//
+// The worker path is `monaco-editor/editor/…`, NOT the `monaco-editor/esm/vs/editor/…`
+// that every pre-0.56 example shows. monaco-editor 0.56.0 added an `exports` map
+// (`"./*": "./esm/vs/*.js"`) that roots every subpath at `esm/vs/` — so the old deep
+// path now resolves to `esm/vs/esm/vs/…` and fails at build time.
 self.MonacoEnvironment = {
   getWorker() {
     return new editorWorker();
