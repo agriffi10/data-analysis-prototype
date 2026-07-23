@@ -1,16 +1,63 @@
-"""Structured-logging bootstrap for the control-plane verbs (SPEC-127).
+"""Structured-logging bootstrap and narrative for the control-plane verbs (SPEC-127/130).
 
-Three names, and a handler needs only the third::
+Seven names — ``init``, ``flush``, ``traced``, ``step``, ``info``, ``warning``, ``error``::
 
     from cpcommon import observability
 
     observability.init(service="data-quality")
 
+    @observability.step("probe-columns")
+    def _probe_columns(bucket, key): ...
+
     @observability.traced("inspect-source")
-    def handler(event, context): ...
+    def handler(event, context):
+        observability.info("listed source", objects=142, format="csv")
 
 ``init`` configures ``log-foundry`` once per container; ``traced`` opens a span around the
-handler and flushes on the way out, on both the success and the failure path.
+handler and flushes on the way out, on both the success and the failure path; ``step`` opens a
+child span around one named internal step; the three level emitters attach an event to whichever
+span is currently open.
+
+**Nothing outside this module imports ``log_foundry``** (SPEC-130 FR-001). The emitters exist so
+that the invariant below has one door rather than thirty-four, and an emitter is a far more
+attractive place to violate it than a decorator, because it sits in the middle of business logic
+where an exception is a real failure path.
+
+**Messages are literals; everything variable is a field.** ``info("appended", events=12)`` groups
+across every invocation and can be counted, filtered and alerted on. ``info(f"appended {n}
+events")`` mints a distinct message string per run and can do none of those things.
+
+**What may become a field value.** ``logs/`` lives in the admin bucket and is read by
+administrators for administrative purposes, and that destination is what makes user-derived
+*metadata* the right thing to log rather than the wrong thing — an operator debugging a failed
+run needs to reach the object (user decision, 2026-07-23).
+
+* **Permitted, and encouraged where it aids debugging:** file names, S3 keys, prefixes and
+  locations; usernames; database, table and column names; space names; counts, sizes, durations,
+  booleans, attempt numbers, enum-ish states; ``request_id``, ``service``, ``verb``. Usernames are
+  **not** sensitive here — the username already *is* the S3 prefix, the principal tag and the Glue
+  database name (SPEC-033), so it is the primary key of every operator-facing record already.
+* **Never, and the line is absolute: data from inside a file.** A cell value, a sampled row, a
+  parsed record, a decoded byte range, a rendered result set. Any of it can be PII, none of it is
+  needed to debug a control plane, and ``logs/`` is retained forever. Column *names* are schema
+  and are permitted; column *values* are file contents and are not.
+* **Never, regardless of provenance: tokens, credentials, and email addresses.** A bearer
+  credential is not metadata — an expired ID token is still a signed assertion about a real person
+  (which is why ``dlq_drain._redacted`` scrubs every known token field before its forensic line).
+  An email is excluded for a different reason: unlike a username it appears nowhere else in these
+  operator records, carries no operational meaning here, and would be the only personal contact
+  detail in a prefix retained forever.
+
+**The emitters do not enforce that rule at runtime, deliberately.** It turns on *provenance* — did
+this value come from inside a user's file — and no filter over a field name or a value shape can
+see provenance. A filter that looked like enforcement would be worse than none, because it would
+be trusted. Enforcement is review plus the per-call-site acceptance criteria in SPEC-131/132/133.
+
+**The narrative never reaches the console.** These events go to the logs queue and from there to
+the admin bucket (user decision, 2026-07-23). ``log-foundry``'s ``echo=`` writes a synchronous
+console line and is prohibited repo-wide; the emitters pass ``echo=False`` unconditionally and
+drop-and-warn an ``echo`` passed as a field. The one exposure is named rather than closed — see
+``init``'s ``StdoutSink`` fallback.
 
 **Import-safety is the point of this module's shape.** The ``cpcommon`` layer attaches to every
 control-plane verb, and its ``config._require`` runs at import — one missing variable is a
@@ -102,6 +149,13 @@ def init(service: str, **defaults: object) -> None:
     else:
         from log_foundry.sinks.stdout import StdoutSink
 
+        # The one named exposure to SPEC-130 FR-006's "the narrative never reaches the console":
+        # with no queue URL the events go to stdout, and stdout in Lambda is CloudWatch. The
+        # fallback STAYS anyway, because it is the cold-start safety property this whole module
+        # is shaped around — a function missing the variable must log to stdout rather than
+        # crash a control plane (PR #196). What bounds it: these same functions' existing
+        # logging.getLogger() calls already put the same keys, prefixes and locations in the
+        # same log group today, so the fallback exposes nothing CloudWatch does not already hold.
         sink = StdoutSink()
         logger.info(
             "structured logging: LOGS_QUEUE_URL unset — events go to stdout, not the logs queue"
@@ -146,17 +200,31 @@ def traced(verb: str):
     handler body is exactly the line that does not execute when it does.
 
     Args:
-        verb: The control-plane verb name, stamped as a field on every event in the span.
+        verb: The control-plane verb name. Names the span AND rides as baggage on every event
+            in it, children included.
     """
 
     def decorate(fn):
-        span = lf.trace(defaults={"verb": verb})(fn)
+        span = lf.trace(
+            # SPEC-130 FR-002, 2026-07-23. Without `name`, log-foundry falls back to
+            # `fn.__qualname__` and EVERY root span in the fleet reads `function: "handler"`,
+            # because every Lambda entry point in this repo is named `handler`.
+            #
+            # This is a DISCONTINUITY in a store retained forever (SPEC-127 FR-009): the day
+            # object spanning the cutover holds pre-change spans saying "handler" and
+            # post-change spans saying the verb. Accepted, not migrated — the objects are
+            # appended NDJSON, and rewriting them to tidy a field boundary would risk a day of
+            # logs to save a WHERE clause. `fields.verb` is populated on both sides of the
+            # cutover, so a query filtering on the verb spans it either way.
+            name=verb
+        )(fn)
 
         # functools.wraps because Lambda resolves the entry point as `module.handler` BY NAME —
         # an unwrapped wrapper would be invisible to the runtime.
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             _reset_baggage()
+            _stamp_verb(verb)
             _stamp_request_id(args[0] if args else None)
             try:
                 return span(*args, **kwargs)
@@ -166,6 +234,80 @@ def traced(verb: str):
         return wrapper
 
     return decorate
+
+
+def step(name: str):
+    """Open a **child span** around one named internal step (SPEC-130 FR-004).
+
+    Turns "the verb took 8 seconds and failed" into "the listing took 40ms, the column probe took
+    7.9s and raised" — the child gets its own ``function``, ``duration_ms`` and ``status``,
+    parented to the handler's span inside the same ``trace_id``.
+
+    A **thin** alias for ``lf.trace(name=...)``, and it stays one on purpose. The library's
+    decorator is non-swallowing by design — it records the failure and re-raises the original
+    exception unchanged — and that property has to survive contact with this wrapper. A step that
+    swallowed would convert a terminal failure into a silent wrong answer, and would do it under
+    ``@traced``, which sits outermost above ``@notifies_on_failure``. Nothing to add here is worth
+    putting a ``try`` between a raise and its notification.
+
+    Which functions get a step is a per-call-site decision, not one made here: every event is an
+    SQS message and a line in a day object the sweep rewrites in full, so a step inside a per-item
+    loop is a volume decision. SPEC-131 and SPEC-132 name their own steps and justify the count.
+
+    Args:
+        name: The step name, emitted as the child span's ``function``.
+    """
+    return lf.trace(name=name)
+
+
+def info(message: str, **fields: object) -> None:
+    """Emit an ``INFO`` event on the current span. Never raises.
+
+    ``message`` is a **literal**; everything variable is a field. See the module docstring for
+    that rule and for what may become a field value.
+    """
+    _emit(lf.info, message, fields)
+
+
+def warning(message: str, **fields: object) -> None:
+    """Emit a ``WARNING`` event — a degraded-but-continuing path. Never raises."""
+    _emit(lf.warning, message, fields)
+
+
+def error(message: str, **fields: object) -> None:
+    """Emit an ``ERROR`` event — a path that failed. Never raises."""
+    _emit(lf.error, message, fields)
+
+
+def _emit(level_fn, message: str, fields: dict[str, object]) -> None:
+    """Route one level event through ``log-foundry``, never failing the caller.
+
+    Two things happen here and nowhere else.
+
+    ``echo`` is **dropped and warned** rather than forwarded (SPEC-130 FR-006). It is an unusually
+    quiet mistake: ``**fields`` swallows the keyword, so an author who sets ``echo`` on an emitter
+    call gets neither a failure nor a console line — just a silently emitted field named ``echo``,
+    which an operator reading the output cannot tell from an intentional one.
+
+    Every exception is swallowed and logged at warning, protecting the invariant :func:`flush`
+    protects: *logging must never be the reason a verb fails*. This matters most on the orphan
+    path — an emitter called with no span open goes straight to ``sink.emit`` synchronously
+    (``log-foundry`` FR-004), so a sink that raises raises **here**, in the middle of business
+    logic, rather than on the worker thread where the span path absorbs it.
+    """
+    try:
+        if "echo" in fields:
+            del fields["echo"]
+            logger.warning(
+                "structured logging: `echo` is prohibited and was dropped from %r — the "
+                "narrative goes to the logs queue, never the console (SPEC-130 FR-006)",
+                message,
+            )
+        level_fn(message, echo=False, **fields)
+    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+        logger.warning(
+            "structured logging: event %r dropped (%s: %s)", message, type(exc).__name__, exc
+        )
 
 
 def _reset_baggage() -> None:
@@ -191,6 +333,26 @@ def _reset_baggage() -> None:
     except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
         logger.warning(
             "structured logging: could not reset baggage (%s: %s)", type(exc).__name__, exc
+        )
+
+
+def _stamp_verb(verb: str) -> None:
+    """Put the verb into baggage, so child spans and mid-span events inherit it.
+
+    Baggage rather than ``lf.trace(defaults=...)`` (SPEC-130 FR-003). A span *default* applies to
+    that span's own events and to nothing nested inside it, so the first :func:`step` child would
+    carry ``request_id`` (baggage) but not the verb that produced it — joinable to its run, and
+    unattributable to the verb.
+
+    Must run **after** :func:`_reset_baggage`, which clears the whole mapping.
+
+    Guarded like :func:`_stamp_request_id`: logging must never be the reason a verb fails.
+    """
+    try:
+        lf.set_baggage(verb=verb)
+    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+        logger.warning(
+            "structured logging: could not stamp verb (%s: %s)", type(exc).__name__, exc
         )
 
 
