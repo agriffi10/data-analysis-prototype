@@ -12,12 +12,17 @@ are terminal with a specific reason; transient S3 errors propagate for the SFN R
 
 import logging
 
-from cpcommon import errors, s3_listing, events
+from cpcommon import errors, s3_listing, events, observability
 from tbcommon import notify
 from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
+# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
+# identity rides as the `verb` field.
+observability.init(service="table-builder")
 
 # Extension → canonical format. NDJSON / JSONL are all "json".
 _EXT_FORMAT = {
@@ -69,6 +74,10 @@ def _validate_layout(rel_dirs, declared_names):
         )
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("inspect-source")
 @notify.notifies_on_failure("inspect")
 def handler(event: dict, context) -> dict:
     """SFN entry point: inspect the source folder and emit the bounded listing state.
@@ -134,4 +143,15 @@ def _inspect(event: dict) -> dict:
     # when absent from the event.
     out["location"] = event.get("location") or f"s3://{bucket}/{prefix}"
     logger.info("inspected %s: %s, %d files, partitioned=%s", prefix, fmt, file_count, bool(declared_names))
+    observability.info(
+        "inspected source",
+        prefix=prefix,
+        format=fmt,
+        files=file_count,
+        # DECLARED, not detected — this plane takes partition keys from the user rather than
+        # inferring them (unlike data-quality), so the names here are a statement of intent
+        # that every object was then validated against.
+        partition_key_names=list(declared_names or []),
+        partitioned=bool(declared_names),
+    )
     return out

@@ -12,7 +12,7 @@ Emits the validated, normalized request the next states consume:
 
 import logging
 
-from cpcommon import auth, config, events
+from cpcommon import auth, config, events, observability
 from cpcommon import errors
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
@@ -21,6 +21,11 @@ from tbcommon.config import PARTITION_TYPES
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
+# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
+# identity rides as the `verb` field.
+observability.init(service="table-builder")
 
 
 def _load_registry(database: str):
@@ -112,6 +117,10 @@ def _authorize_space(space, actor):
     return prefix
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
     """SFN entry point: parse → verify → authorize → validate → assemble the build state.
@@ -166,4 +175,16 @@ def _validate_and_authorize(event) -> dict:
         "requestId": req.get("requestId"),
     }
     logger.info("validated table %s in %s for %s", table_name, space.get("database"), actor)
+    # The DATABASE is the field that matters most on this plane: the silent-create incident was
+    # a CREATE that targeted a per-user or per-shared-space database the role could not write
+    # to, and "which database did this request aim at" was the first thing nobody could answer.
+    observability.info(
+        "validated",
+        actor=actor,
+        space=(space or {}).get("name"),
+        database=(space or {}).get("database"),
+        table=table_name,
+        partition_keys=len(partition_keys or []),
+        partition_key_names=[k.get("name") for k in (partition_keys or [])],
+    )
     return validated

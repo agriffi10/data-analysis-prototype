@@ -22,7 +22,7 @@ poll bounds. The per-verb wrappers (``table-builder-execute-ddl/athena_run.py``,
 import logging
 import time
 
-from cpcommon import clients, errors
+from cpcommon import clients, observability, errors
 from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
@@ -174,7 +174,15 @@ def run_ddl(
 
     qid = started["QueryExecutionId"]
     deadline = now() + max_poll_duration_seconds
+    # TRANSITIONS ONLY, never per poll (SPEC-135 FR-004). This loop runs INSIDE one
+    # invocation, so an event per iteration multiplies within a single span rather than
+    # across invocations — the same amplification as data-quality's 30-second poll, in a
+    # smaller box, and just as pointless: consecutive RUNNING observations carry nothing.
+    previous_state = None
+    polls = 0
+    started_at = now()
     while True:
+        polls += 1
         try:
             resp = athena.get_query_execution(QueryExecutionId=qid)
         except Exception as exc:  # noqa: BLE001 - transient poll error → retry the verb
@@ -185,6 +193,14 @@ def run_ddl(
         state = status.get("State")
         if state == _TERMINAL_OK:
             logger.info("query %s SUCCEEDED", qid)
+            observability.info(
+                "query succeeded",
+                query_id=qid,
+                database=database,
+                state=state,
+                polls=polls,
+                elapsed_ms=(now() - started_at) * 1000.0,
+            )
             return qid
         if state in _TERMINAL_FAIL:
             reason = status.get("StateChangeReason") or state
@@ -192,10 +208,38 @@ def run_ddl(
             # ONLY place the whole Athena reason survives. It can echo a large fragment of
             # the statement, and this arc generates wide DDL.
             logger.error("query %s %s: %s", qid, state, reason)
+            # THE RAW StateChangeReason IS A FIELD, verbatim, alongside the stable token the
+            # caller raises. This is the exact text that would have named the missing
+            # CREATE_TABLE grant in the silent-create incident (SPEC-135 FR-003); paraphrasing
+            # it into a token would have thrown away the diagnosis. It is Athena/LF service
+            # text about a STATEMENT — schema, never a row of anyone's data.
+            observability.error(
+                "query failed",
+                query_id=qid,
+                database=database,
+                state=state,
+                state_change_reason=reason,
+                reason=fail_reason,
+                polls=polls,
+            )
             raise TerminalError(fail_reason, reason)
         if now() >= deadline:
+            # A CREATE that runs long enough to hit the poll cap is a real signal, and today
+            # it is indistinguishable from a plain Lambda timeout.
+            observability.error(
+                "query poll budget exhausted",
+                query_id=qid,
+                database=database,
+                state=state,
+                polls=polls,
+                budget_seconds=max_poll_duration_seconds,
+                reason=timeout_reason,
+            )
             raise TerminalError(
                 timeout_reason,
                 f"query {qid} did not reach a terminal state within {max_poll_duration_seconds}s",
             )
+        if state != previous_state:
+            observability.info("query state changed", query_id=qid, state=state, polls=polls)
+            previous_state = state
         sleep(poll_interval_seconds)

@@ -22,7 +22,7 @@ import io
 import logging
 import re
 
-from cpcommon import bounded_read, clients, errors, events
+from cpcommon import bounded_read, clients, errors, events, observability
 from tbcommon import notify
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.ddl import build_create_table_ddl
@@ -30,6 +30,11 @@ from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
+# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
+# identity rides as the `verb` field.
+observability.init(service="table-builder")
 
 # Bounded row count for JSON inference / date detection (schema only, not the dataset).
 JSON_SAMPLE_ROWS = 1000
@@ -118,6 +123,10 @@ def _infer_columns(source, fmt):
     raise TerminalError("schema_inference_failed", f"unknown format {fmt!r}")
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("infer-schema")
 @notify.notifies_on_failure("infer")
 def handler(event: dict, context) -> dict:
     """SFN entry point: infer the schema and build the ``CREATE EXTERNAL TABLE`` DDL.
@@ -165,4 +174,18 @@ def _infer(event: dict) -> dict:
     out["columns"] = columns
     out["ddl"] = ddl
     logger.info("inferred %d columns for %s.%s", len(columns), database, table_name)
+    # Column NAMES and TYPES are schema, and schema is what a schema bug is about (SPEC-132
+    # FR-004). Column VALUES are file contents and appear nowhere. `all_string` records the
+    # CSV rule explicitly, so a table full of strings reads as the documented decision rather
+    # than as inference having failed.
+    observability.info(
+        "inferred schema",
+        database=database,
+        table=table_name,
+        columns=len(columns),
+        column_names=[c["name"] for c in columns],
+        column_types=sorted({c["type"] for c in columns}),
+        format=fmt,
+        all_string=fmt == "csv",
+    )
     return out

@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
+import pytest  # noqa: E402
 import json  # noqa: E402
 import athena_run  # noqa: E402
 import execute_ddl as e  # noqa: E402
@@ -262,3 +263,59 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# -- SPEC-135 FR-004: the in-Lambda poll narrates transitions, not iterations ------------
+
+
+def test_twenty_identical_polls_emit_no_per_iteration_events(captured_events):
+    """This loop runs INSIDE one invocation, so an event per iteration multiplies within a
+    single span rather than across invocations — the same amplification as data-quality's
+    30-second poll, in a smaller box, and just as pointless: consecutive RUNNING observations
+    carry no information.
+    """
+    _install(_FakeAthena(["RUNNING"] * 20 + ["SUCCEEDED"]), max_polls=40)
+
+    e.handler(_event(), None)
+
+    narrative = captured_events.levels()
+    # One transition (into RUNNING), one terminal. Never one per poll.
+    assert [e["message"] for e in narrative].count("query state changed") == 1, (
+        f"per-iteration events leaked: {[e['message'] for e in narrative]}"
+    )
+    succeeded = captured_events.messages("query succeeded")
+    assert len(succeeded) == 1
+    assert succeeded[0]["fields"]["polls"] >= 20
+
+
+def test_a_failed_ddl_carries_athenas_reason_VERBATIM(captured_events):
+    """FR-003. This is the exact text that would have named the missing CREATE_TABLE grant in
+    the silent-create incident — paraphrasing it into a stable token would have thrown away
+    the diagnosis. The token accompanies it; it does not replace it.
+    """
+    reason = "Insufficient permissions to execute the query. User does not have CREATE_TABLE"
+    _install(_FakeAthena([{"State": "FAILED", "StateChangeReason": reason}]))
+
+    with pytest.raises(TerminalError):
+        e.handler(_event(), None)
+
+    failed = captured_events.messages("query failed")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["state_change_reason"] == reason
+    assert failed[0]["fields"]["reason"] == "ddl_execution_failed"
+    assert failed[0]["fields"]["database"] == "alice"
+
+
+def test_an_exhausted_poll_budget_is_distinguishable_from_a_lambda_timeout(captured_events):
+    """A CREATE that runs long enough to hit the cap is a real signal, and today it is
+    indistinguishable from the Lambda simply being killed.
+    """
+    _install(_FakeAthena(["RUNNING"]), max_polls=3)
+
+    with pytest.raises(TerminalError):
+        e.handler(_event(), None)
+
+    exhausted = captured_events.messages("query poll budget exhausted")
+    assert exhausted and exhausted[0]["level"] == "ERROR"
+    assert exhausted[0]["fields"]["state"] == "RUNNING"
+    assert exhausted[0]["fields"]["polls"] >= 3
