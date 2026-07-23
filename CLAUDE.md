@@ -66,20 +66,27 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — none. No spec is open.**
+**Current work — SPEC-133 (DLQ-drain narrative). Infra applied; code phases next. 134→137 follow.**
 
-- **LIVE VERIFICATION STILL OWED for 114/123/125/126 — unchanged by the 127/128 work.** SPEC-127/128
-  were verified live on 2026-07-23 (cold start on all 10 new/changed functions, routing,
-  partitioning, path-injection containment, decorator order). That probe invoked the nine verbs
-  with synthetic payloads which were **rejected at validation**, so **no data-quality run
-  executed** — it did *not* exercise 114's `reportKey` seeding or 123's CAS. **125** still owes its
-  shared-space smoke run (create → add-member → leave → delete; a shared layer's import-time
-  `_require` fails at **cold start**, PR #196). **126** still owes its malformed-DLQ-body check
-  (one notification within a ~10-min sweep, naming no path from the body).
-- **SPEC-128 owes one real run.** Because the probe payloads were rejected, `request_id` was
-  correctly *absent* from every span. FR-002's join key is proven by unit test but **not** by a
-  live run — that needs a real check started from the UI. The same run would give SPEC-129's
-  append its first test at real volume (every sweep so far has appended 2 events).
+- **ONE LIVE RUN DISCHARGES FOUR DEBTS.** A real data-quality check started **from the UI** is
+  owed by **114** (`reportKey` seeding), **123** (the index CAS), **128** (FR-002's `request_id`
+  join key) and **129** (the append at real volume — every sweep so far has appended 2 events),
+  and it is **132's Phase 4** (the nine traces carry the narrative, join on `request_id`, and a
+  successful run contains **no** `error` events). The 2026-07-23 probe cannot stand in for it: its
+  synthetic payloads were **rejected at validation**, so no run executed and `request_id` was
+  correctly absent from every span.
+- **Also owed live:** **125**'s shared-space smoke run (create → add-member → leave → delete; a
+  shared layer's import-time `_require` fails at **cold start**, PR #196), and **126**'s
+  malformed-DLQ-body check — which **133's Phase 5 discharges**, since putting a malformed message
+  on a request DLQ tests both the notification and the new `logs/service=dlq-drain/` forensic copy.
+- **OPEN DECISION blocking nothing but shaping 134→137 — `error.stack` carries file contents.**
+  `log-foundry`'s `end_event` attaches `traceback.format_exception` to **every** failed span
+  unconditionally, walking the `__cause__` chain — so a polars parse error quoting a user's cell
+  reaches `logs/`, which is retained **forever**. Predates 132 (every verb has done it since 128)
+  and spreads with each plane instrumented. Suppressing `detail` does **not** help; nor does fixing
+  the raise site (`from exc` is what puts it there). Pinned by
+  `test_KNOWN_GAP_the_span_error_stack_still_carries_it`, which **fails the day it is fixed**.
+  Options: upstream `capture_stack=False`, strip in the sweep, or narrow the rule to fields only.
 - **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
   includes every line of the minority file **plus every header** — the check compares against the
   *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when

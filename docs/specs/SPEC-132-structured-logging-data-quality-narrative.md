@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Narrate the Data-Quality Control Plane
 
 **ID:** SPEC-132
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-130 (the emitters and `step`), SPEC-128 (the nine verbs are traced)
 
