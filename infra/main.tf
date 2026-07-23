@@ -469,6 +469,13 @@ module "table_builder" {
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
+  # SPEC-135: the five verbs join the structured-logging pipe. From module.observability's
+  # OUTPUTS rather than reconstructed, so the queue's `.fifo` suffix cannot drift between
+  # producer and consumer (SPEC-129). No cycle: observability takes only locals, module.auth
+  # and depends_on = [module.base].
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
   # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
   # applied); data creates the portal role this module attaches the enqueue policy to.
   # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which

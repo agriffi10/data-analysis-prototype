@@ -36,6 +36,9 @@ resource "aws_iam_role_policy" "execution" {
     glue_table_any          = local.glue_table_any
     # SPEC-072 — every verb emits an outcome notification (SendMessage, this queue only).
     notifications_queue_arn = var.notifications_queue_arn
+    # SPEC-135 — structured-logging producer, same Sid and shape as data-quality's, the drain's
+    # and shared-space's, so all four read as one pattern.
+    logs_queue_arn = var.logs_queue_arn
   })
 }
 
