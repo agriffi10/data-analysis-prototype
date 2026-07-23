@@ -55,6 +55,8 @@ resource "aws_iam_role_policy" "execution" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     athena_workgroup_arn    = local.athena_workgroup_arn
     notifications_queue_arn = var.notifications_queue_arn
+    # SPEC-136 — structured-logging producer; same Sid and shape as the other three planes.
+    logs_queue_arn = var.logs_queue_arn
   })
 }
 

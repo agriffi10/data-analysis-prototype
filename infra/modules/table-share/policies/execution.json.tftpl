@@ -119,6 +119,12 @@
       ]
     },
     {
+      "Sid": "EmitStructuredLogEvents",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
       "Sid": "WriteLogs",
       "Effect": "Allow",
       "Action": [

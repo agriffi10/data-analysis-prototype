@@ -87,6 +87,18 @@ variable "athena_workgroup" {
 
 # ── SPEC-094: notification producer (sender + recipients) ─────────────────────
 
+variable "logs_queue_arn" {
+  description = "SPEC-136: ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
+  type        = string
+  default     = ""
+}
+
+variable "logs_queue_url" {
+  description = "SPEC-136: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start (PR #196)."
+  type        = string
+  default     = ""
+}
+
 variable "notifications_queue_arn" {
   description = "SPEC-094: ARN of the SPEC-058 notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the verbs emit sender + recipient outcome notifications, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
   type        = string
