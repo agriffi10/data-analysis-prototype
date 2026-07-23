@@ -8,6 +8,7 @@ fails a verb", not toward the happy path.
 
 import functools
 import importlib
+import json
 import os
 import sys
 
@@ -331,3 +332,82 @@ def test_installed_log_foundry_puts_baggage_on_the_boundary_events():
     assert end[0]["fields"].get("request_id") == "r1", (
         "installed log-foundry predates SPEC-015 — re-pin to >=0.4.0"
     )
+
+
+# -- SPEC-128 FR-002: the correlation key, on BOTH entry-point shapes -------------------
+
+
+def _pipe_envelope(request_id):
+    """The EventBridge Pipe envelope: the raw SQS batch, body as a JSON STRING.
+
+    Shaped like the real thing rather than `{}` deliberately — a synthetic empty payload cannot
+    tell "request_id absent because there was none" from "request_id absent because we failed to
+    extract it", which is exactly how this bug survived the first live probe.
+    """
+    return [{"messageId": "m1", "body": json.dumps({"requestId": request_id, "space": {}})}]
+
+
+def test_request_id_is_stamped_from_the_step_functions_payload(sink):
+    """Every verb from inspect-source onward: a plain dict with the id at the top level."""
+
+    @observability.traced("inspect-source")
+    def handler(event, context):
+        return None
+
+    handler({"requestId": "run-1"}, None)
+
+    assert all(e["fields"].get("request_id") == "run-1" for e in sink.events)
+
+
+def test_request_id_is_stamped_from_the_pipe_envelope(sink):
+    """validate-authorize's event is the raw SQS ARRAY, not the state payload.
+
+    Live regression (2026-07-23): the verb that ESTABLISHES the request was the one verb that
+    could not be joined to its own run, because the extractor only looked at the top level.
+    """
+
+    @observability.traced("validate-authorize")
+    def handler(event, context):
+        return None
+
+    handler(_pipe_envelope("run-2"), None)
+
+    end = [e for e in sink.events if e["message"] == "span.end"]
+    assert end, "no span.end emitted"
+    assert end[0]["fields"].get("request_id") == "run-2"
+
+
+def test_request_id_is_stamped_from_a_single_record_envelope(sink):
+    """parse_sqs_request also accepts a bare record dict; the extractor must match it."""
+
+    @observability.traced("validate-authorize")
+    def handler(event, context):
+        return None
+
+    handler({"messageId": "m1", "body": json.dumps({"requestId": "run-3"})}, None)
+
+    assert all(e["fields"].get("request_id") == "run-3" for e in sink.events)
+
+
+@pytest.mark.parametrize(
+    ("event", "why"),
+    [
+        ({}, "empty state payload"),
+        ([], "empty SQS batch"),
+        ([{"messageId": "m1", "body": "not json at all"}], "unparseable body"),
+        ([{"messageId": "m1", "body": json.dumps({"space": {}})}], "body carries no requestId"),
+        ([{"messageId": "m1"}], "record has no body"),
+        ("a string", "not an envelope at all"),
+        (None, "no event"),
+    ],
+)
+def test_no_usable_id_leaves_request_id_absent_and_never_raises(sink, event, why):
+    """Absent, never defaulted: a fabricated correlation key merges unrelated runs."""
+
+    @observability.traced("notify-failure")
+    def handler(event, context):
+        return None
+
+    handler(event, None)  # must not raise
+
+    assert all("request_id" not in e["fields"] for e in sink.events), why
