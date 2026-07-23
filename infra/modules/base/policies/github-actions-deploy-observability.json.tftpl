@@ -16,7 +16,10 @@
         "sqs:AddPermission",
         "sqs:RemovePermission"
       ],
-      "Resource": "arn:aws:sqs:${aws_region}:*:${project_name}-*-logs"
+      "Resource": [
+        "arn:aws:sqs:${aws_region}:*:${project_name}-*-logs",
+        "arn:aws:sqs:${aws_region}:*:${project_name}-*-logs.fifo"
+      ]
     },
     {
       "Sid": "LogSweepLambdaManage",

@@ -276,6 +276,14 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
 # S3AthenaAdminBucketManage in the main deploy policy already covers with s3:* on the bucket and
 # its contents. A second grant would be a duplicate, not a tightening.
 #
+# The SQS statement names BOTH `-logs` and `-logs.fifo` deliberately. SPEC-129 converts the logs
+# queue to FIFO, and a FIFO queue's name MUST end in `.fifo` — which makes the rename a
+# destroy-and-create, not an update. So the one apply that performs it needs DeleteQueue on the
+# old name and CreateQueue on the new one at the same time. The old ARN stays in the list
+# afterwards rather than being pruned in a follow-up: removing it would only reclaim permission
+# to manage a queue that no longer exists, and re-adding it is exactly the grant a future
+# rollback would need.
+#
 # The sweep attaches the shared cpcommon layer, which deploy_control_plane_common already
 # covers; nothing here needs a layer grant.
 #
