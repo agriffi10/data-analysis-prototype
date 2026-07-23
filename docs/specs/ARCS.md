@@ -368,7 +368,13 @@ duration, status, and W3C trace/span IDs.
 **SPEC-127 builds the pipe, not the instrumentation.** A **standard** (non-FIFO) SQS logs queue, swept on a **5-minute
 EventBridge schedule** into the admin bucket as Hive-partitioned NDJSON at `logs/{service}/dt=…/hh=…/`. Three constraints shaped
 it. The queue **cannot be FIFO**, unlike every other queue here, because `SQSSink` sends no `MessageGroupId` — ordering is
-recovered from the records' own `timestamp`/`log_id`, not from delivery. Delivery is a **pull, not a push**, for the reason
+recovered from the records' own `timestamp`/`log_id`, not from delivery.
+
+> **All three of those were reversed by SPEC-129, and this paragraph describes 127 as it was built rather than the pipe as it
+> runs.** The queue is now **FIFO** with `message_group_id` = the service (`log-foundry` 0.5.0 removed the `MessageGroupId`
+> constraint), the sweep is on a **10-minute** schedule, and the layout is **one appended object per service-day** at
+> `logs/service={s}/year=/month=/day=/data.jsonl` — so every write is an ETag-CAS read-modify-write. Read this paragraph as
+> history; `decisions.md` and `spec-delivery/SPEC-129` carry the current shape. Delivery is a **pull, not a push**, for the reason
 #270/#271 already established: an event-source mapping or Pipe idle-long-polls a queue that is empty almost always, and that
 idle polling was the bulk of the account's SQS volume — so the sweep short-polls (`WaitTimeSeconds=0`) explicitly, since a
 scheduled consumer sitting in a 20-second long poll reintroduces the same bill from the other direction. And `service` arrives
