@@ -14,6 +14,8 @@ on; verbs trust it and never re-verify the token or re-authorize.
 import json
 import logging
 
+from cpcommon import observability
+
 import config
 import auth
 import cache
@@ -22,6 +24,13 @@ from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one shared-space request is up to eight
+# invocations, and they are only one queryable set if they share a service name (SPEC-127
+# FR-003). The per-verb identity rides as the `verb` field, and the verb names ARE the request
+# `action` values this plane already uses, so an event's `verb` and a request's `action` are the
+# same string and join without translation (SPEC-134 FR-001).
+observability.init(service="shared-space")
 
 
 # Only create/delete record an in-flight intent before the verb runs; the other verbs
@@ -69,6 +78,10 @@ def _parse_request(record):
     return req
 
 
+# @traced is the ONLY decorator on this plane: these verbs notify explicitly from inside
+# the handler rather than via @notifies_on_failure, so the ordering rule that governs
+# data-quality/table-builder/table-share does not apply here (SPEC-134 FR-002).
+@observability.traced("validate")
 def handler(event, context):
     """Validate and authorize the queued request; return the context the verbs consume."""
     record = _extract_record(event)
@@ -96,4 +109,20 @@ def handler(event, context):
         "requestId": req.get("requestId"),
     }
     logger.info("validated %s on %s by %s", action, space, actor)
+    # The space and the actor are on EVERY event from this plane: they are the first two things
+    # asked about a shared-space incident, and both are permitted metadata (SPEC-130 FR-005 —
+    # the username already IS the S3 prefix, the principal tag and the Glue database name).
+    #
+    # `intent_written` is the durable pending/deleting write that moved into the validator in
+    # #163/#164 — without it a request could vanish between validation and execution, leaving a
+    # space in no list at all. Whether it happened is exactly what you want to know when one has.
+    observability.info(
+        "validated",
+        action=action,
+        space=space,
+        actor=actor,
+        schema_version=(registry_doc or {}).get("schemaVersion"),
+        intent_written=action in _INTENT,
+        known_space=registry_doc is not None,
+    )
     return validated

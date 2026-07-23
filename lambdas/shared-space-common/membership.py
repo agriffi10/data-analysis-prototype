@@ -10,7 +10,7 @@ UserNotFoundException). All operations are idempotent / replay-safe.
 from cpcommon import config as cpconfig
 
 import config
-from cpcommon import clients
+from cpcommon import clients, observability
 from registry import ProvisioningError
 
 
@@ -56,8 +56,28 @@ def assign_or_find_slot(username: str, name: str) -> int:
             return k  # already assigned (replay-safe)
         if not value and free is None:
             free = k
+    occupied = sum(1 for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1) if attrs.get(_slot_attr(k), ""))
     if free is None:
+        # A stable reason token as well as the user-facing notification: "how often are people
+        # hitting the cap" is a product question, and a notification cannot be counted.
+        observability.error(
+            "membership slots exhausted",
+            space=name,
+            member=username,
+            slots_used=occupied,
+            slots_cap=config.MAX_SHARED_MEMBERSHIPS,
+            reason="membership-limit-reached",
+        )
         raise ProvisioningError("membership limit reached")
+    observability.info(
+        "membership slot assigned",
+        space=name,
+        member=username,
+        slot=free,
+        slots_used=occupied + 1,
+        slots_cap=config.MAX_SHARED_MEMBERSHIPS,
+        store="cognito",
+    )
     cognito.admin_update_user_attributes(
         UserPoolId=cpconfig.USER_POOL_ID,
         Username=username,

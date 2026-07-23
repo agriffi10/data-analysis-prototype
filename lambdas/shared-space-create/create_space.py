@@ -12,7 +12,7 @@ add-members.
 
 import logging
 
-from cpcommon import config as cpconfig
+from cpcommon import config as cpconfig, observability
 
 import config
 from cpcommon import clients
@@ -23,6 +23,13 @@ from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one shared-space request is up to eight
+# invocations, and they are only one queryable set if they share a service name (SPEC-127
+# FR-003). The per-verb identity rides as the `verb` field, and the verb names ARE the request
+# `action` values this plane already uses, so an event's `verb` and a request's `action` are the
+# same string and join without translation (SPEC-134 FR-001).
+observability.init(service="shared-space")
 
 # Generic user-facing clause for an unexpected AWS/boto failure — the raw str(exc)
 # is kept in logs + the registry `failed` record for operators, never shown.
@@ -132,6 +139,14 @@ def create_space(name, actor, request_id):
         )
         raise
     if outcome == "replay" and (reg.load(name) or {}).get("status") == "active":
+        observability.info(
+            "create replayed",
+            space=name,
+            actor=actor,
+            store="registry",
+            already=True,
+            provisioned=False,
+        )
         return {"status": "active", "space": name, "owner": actor, "replay": True}
     try:
         membership.assign_or_find_slot(actor, name)  # may raise "membership limit reached"
@@ -184,6 +199,10 @@ def create_space(name, actor, request_id):
     return {"status": "active", "space": name, "owner": actor}
 
 
+# @traced is the ONLY decorator on this plane: these verbs notify explicitly from inside
+# the handler rather than via @notifies_on_failure, so the ordering rule that governs
+# data-quality/table-builder/table-share does not apply here (SPEC-134 FR-002).
+@observability.traced("create")
 def handler(event, context):
     """``event`` is the validated context from the validator (via the Choice state)."""
     space = event["space"]
@@ -191,4 +210,15 @@ def handler(event, context):
     request_id = event.get("requestId")
     result = create_space(space, actor, request_id)
     logger.info("create %s by %s -> %s", space, actor, result["status"])
+    # The four stores this verb writes, named in order, because the plane's characteristic bug
+    # is two of them disagreeing and the characteristic debugging session is reconstructing
+    # which writes landed (#153-155, #163/#164, #165 were all that session).
+    observability.info(
+        "space created",
+        space=space,
+        actor=actor,
+        status=result["status"],
+        replayed=bool(result.get("replay")),
+        stores=["registry", "glue", "lakeformation", "cache"],
+    )
     return result
