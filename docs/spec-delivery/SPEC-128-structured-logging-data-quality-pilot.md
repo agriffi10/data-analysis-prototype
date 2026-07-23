@@ -60,10 +60,27 @@ pipeline while users receive failure notifications.
 FR-003 redaction: the only field key emitted across every event was `verb`. Zero JWT-shaped
 strings, no credential-shaped content.
 
-**Not done:** a *real* end-to-end run (a genuine `requestId` threaded through all nine, and the
-token grep against a real token). The probe used synthetic payloads, so `request_id` was correctly
-absent rather than populated — FR-002's join key is proven by unit test but **not yet by a live
-run**. That needs a real check started from the UI.
+**Live end-to-end (2026-07-23):** two real checks were run from the UI. Both completed all seven
+executed verbs with `status=ok`, and both are recoverable as one query on `fields.request_id` —
+FR-002's join key, proven live:
+
+```
+request_id=bb00a730…   inspect-source → create-temp-tables → start-profile-query →
+                       check-query → byte-scan → assemble-report → drop-temp-tables   (~45s)
+request_id=c2b433c2…   the same seven                                                  (~37s)
+```
+
+**That run also found a bug this spec shipped.** `validate-authorize` logged `request_id=None` in
+both runs: `traced()` read `event["requestId"]`, but a validate verb's event is the **raw SQS
+array** the EventBridge Pipe forwards, whose single record's `body` is a JSON *string*. So the one
+verb that ESTABLISHES the request was the one verb that could not be joined to its own run.
+
+The synthetic `{}` probe could not have caught it — with no id anywhere, "absent because there was
+none" and "absent because we failed to extract it" look identical. Fixed by teaching
+`_extract_request_id` both entry-point shapes, with tests built on a realistic Pipe envelope
+rather than `{}`.
+
+**Still not done:** the token grep against a real token.
 
 **SPEC-074 help sweep: no-op** — nothing user-facing changed.
 

@@ -29,6 +29,7 @@ proven live (SPEC-128 FR-005).
 """
 
 import functools
+import json
 import logging
 import os
 
@@ -193,6 +194,43 @@ def _reset_baggage() -> None:
         )
 
 
+def _extract_request_id(event: object) -> str | None:
+    """Pull ``requestId`` out of either event shape a control-plane verb can receive.
+
+    Two shapes, because a control plane has two kinds of entry point:
+
+    * **The Step Functions state payload** — a plain dict carrying ``requestId`` at the top
+      level. This is every verb from ``inspect-source`` onward.
+    * **The EventBridge Pipe envelope** — the raw SQS batch, a LIST whose single record's
+      ``body`` is a JSON *string*. This is what every ``validate-authorize`` verb receives, and
+      missing it is what made the verb that ESTABLISHES the request the one verb that could not
+      be joined to its own run (found in live traffic, 2026-07-23; the synthetic ``{}`` probe
+      could not distinguish "absent" from "not extracted").
+
+    Never raises and never parses beyond what it needs. Deliberately does not call
+    ``events.parse_sqs_request``, which raises ``TerminalError`` on a malformed envelope: a
+    logging helper that can raise a domain terminal is a logging helper that can fail a verb.
+    """
+    if isinstance(event, dict):
+        direct = event.get("requestId")
+        if isinstance(direct, str) and direct:
+            return direct
+
+    record = event[0] if isinstance(event, list) and event else event
+    if isinstance(record, dict):
+        body = record.get("body")
+        if isinstance(body, str):
+            try:
+                parsed = json.loads(body)
+            except (TypeError, ValueError):
+                return None
+            if isinstance(parsed, dict):
+                nested = parsed.get("requestId")
+                if isinstance(nested, str) and nested:
+                    return nested
+    return None
+
+
 def _stamp_request_id(event: object) -> None:
     """Put the run's ``requestId`` into baggage, from the handler's own event.
 
@@ -202,19 +240,22 @@ def _stamp_request_id(event: object) -> None:
     is one a tenth verb will be added without. Stamping it at the single point that already
     wraps every handler makes it structural instead of remembered.
 
-    Only a top-level, non-empty string ``requestId`` counts. A verb invoked with no usable id (a
-    malformed event reaching notify-failure) emits its span with ``request_id`` **absent** rather
-    than defaulted — a fabricated correlation key silently merges unrelated runs, which is worse
-    than an unjoinable event. Verbs that carry the id somewhere else set it themselves; this only
-    ever adds, never overwrites what a handler chose.
+    A verb invoked with no usable id (a malformed event reaching notify-failure) emits its span
+    with ``request_id`` **absent** rather than defaulted — a fabricated correlation key silently
+    merges unrelated runs, which is worse than an unjoinable event.
     """
-    if not isinstance(event, dict):
+    request_id = None
+    try:
+        request_id = _extract_request_id(event)
+    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+        logger.warning(
+            "structured logging: could not read request_id (%s: %s)", type(exc).__name__, exc
+        )
+    if not request_id:
         return
-    request_id = event.get("requestId")
-    if isinstance(request_id, str) and request_id:
-        try:
-            lf.set_baggage(request_id=request_id)
-        except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
-            logger.warning(
-                "structured logging: could not stamp request_id (%s: %s)", type(exc).__name__, exc
-            )
+    try:
+        lf.set_baggage(request_id=request_id)
+    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+        logger.warning(
+            "structured logging: could not stamp request_id (%s: %s)", type(exc).__name__, exc
+        )
