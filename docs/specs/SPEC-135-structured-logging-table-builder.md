@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Instrument the Table-Builder Control Plane
 
 **ID:** SPEC-135
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
 
