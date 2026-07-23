@@ -116,6 +116,14 @@ LF **hybrid** mode so the file browser keeps direct-IAM S3 access while Athena r
   navigation returns a raw S3 error.
 - **`connections.json` is the user's own data.** Corrupting/deleting it loses their connections; the
   UI treats a missing file as empty, not an error.
+- **`Deploy Infrastructure` and `Deploy Lambdas` run in parallel on the same push.** A change that
+  rewrites a function's Terraform **env block** while CI is calling `UpdateFunctionConfiguration`
+  to attach its layers fails with `ResourceConflictException: An update is in progress for
+  resource: <arn>`. Nothing is wrong with the code — re-running the failed job after the apply
+  settles succeeds. It bites any spec that changes Lambda **env** and Lambda **code** in one push
+  (seen on SPEC-129, which moved all nine data-quality functions to a new queue URL). If it
+  recurs often enough to be worth fixing, the fix is a `needs:` edge or a retry around
+  `update-function-configuration`, not a change to either spec.
 - **A module-level `depends_on` defers every data source inside that module to apply time**,
   whenever the dependency has a pending change — the data source's attributes then read
   `(known after apply)` at plan time. If such a value feeds a **ForceNew** attribute, the plan
