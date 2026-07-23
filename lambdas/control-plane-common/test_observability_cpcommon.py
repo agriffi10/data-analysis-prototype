@@ -98,7 +98,7 @@ def test_module_exposes_exactly_the_sanctioned_names():
         if callable(getattr(observability, n))
         and getattr(getattr(observability, n), "__module__", "") == observability.__name__
     }
-    assert defined == {"init", "flush", "traced", "step", "info", "warning", "error"}
+    assert defined == {"init", "flush", "traced", "step", "stamp", "info", "warning", "error"}
 
 
 # -- import safety: the cold-start failure no unit test can otherwise reach --------------

@@ -260,6 +260,33 @@ def step(name: str):
     return lf.trace(name=name)
 
 
+def stamp(**fields: object) -> None:
+    """Bind fields to **every** event for the rest of this invocation. Never raises.
+
+    Trace baggage: unlike a per-call field it reaches the boundary spans and every child span,
+    which is what makes it usable as a join key — and a join key present on only one side of the
+    join is not a join key. Use it for the one or two values that identify the *invocation*
+    (`sweep_id` for the log sweep, SPEC-131 FR-007), never for per-item detail.
+
+    `traced` clears baggage at the start of every invocation, so a warm container cannot leak one
+    invocation's identity onto the next. Call this **inside** the handler, after that clear.
+
+    Added by SPEC-131 rather than SPEC-130: the sweep needed an invocation-scoped join key, and
+    the alternative was importing ``log_foundry`` at a call site — which is exactly what the
+    module docstring's "one door" rule exists to prevent. The rule survives by widening the door,
+    not by making an exception to it.
+    """
+    try:
+        lf.set_baggage(**fields)
+    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+        logger.warning(
+            "structured logging: could not stamp %s (%s: %s)",
+            ", ".join(fields) or "(nothing)",
+            type(exc).__name__,
+            exc,
+        )
+
+
 def info(message: str, **fields: object) -> None:
     """Emit an ``INFO`` event on the current span. Never raises.
 
@@ -348,12 +375,7 @@ def _stamp_verb(verb: str) -> None:
 
     Guarded like :func:`_stamp_request_id`: logging must never be the reason a verb fails.
     """
-    try:
-        lf.set_baggage(verb=verb)
-    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
-        logger.warning(
-            "structured logging: could not stamp verb (%s: %s)", type(exc).__name__, exc
-        )
+    stamp(verb=verb)
 
 
 def _extract_request_id(event: object) -> str | None:
@@ -415,9 +437,4 @@ def _stamp_request_id(event: object) -> None:
         )
     if not request_id:
         return
-    try:
-        lf.set_baggage(request_id=request_id)
-    except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
-        logger.warning(
-            "structured logging: could not stamp request_id (%s: %s)", type(exc).__name__, exc
-        )
+    stamp(request_id=request_id)

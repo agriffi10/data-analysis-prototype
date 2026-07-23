@@ -20,6 +20,8 @@ sys.path.insert(
 os.environ.setdefault("LOGS_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/1/dat-prod-logs")
 os.environ.setdefault("ADMIN_BUCKET", "dat-prod-athena-admin")
 
+import log_foundry as lf  # noqa: E402
+
 import log_sweep  # noqa: E402
 
 
@@ -109,6 +111,479 @@ def wired(monkeypatch):
         return sqs, s3
 
     return _wire
+
+
+# -- SPEC-131: the structured narrative -------------------------------------------------
+
+
+class RecordingSink:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, batch):
+        self.events.extend(batch)
+
+    def close(self):
+        pass
+
+
+class NullSink:
+    def emit(self, batch):
+        pass
+
+    def close(self):
+        pass
+
+
+class RaisingSink:
+    def emit(self, batch):
+        raise RuntimeError("sink exploded")
+
+    def close(self):
+        pass
+
+
+def _install_sink(sink):
+    """Swap the process sink AND retire the worker built from the previous one.
+
+    The worker is created lazily from whatever sink was configured at the first flush and then
+    cached for the process, so reconfiguring alone would leave every later event going to the
+    sink this test replaced.
+    """
+    from log_foundry import decorator as lf_decorator
+
+    worker = getattr(lf_decorator, "_worker", None)
+    if worker is not None:
+        worker.shutdown()
+        lf_decorator._worker = None
+    lf.configure(service="observability", version="0", env="test", sink=sink)
+
+
+@pytest.fixture(autouse=True)
+def _quiet_sink():
+    """Keep every test in this module off the import-time SQSSink.
+
+    `observability.init` runs at import with LOGS_QUEUE_URL set, so without this each handler
+    call ends by handing its span to a real boto3 SQS client. The worker swallows the resulting
+    failure, so it is invisible — and slow.
+    """
+    _install_sink(NullSink())
+    yield
+    _install_sink(NullSink())
+
+
+@pytest.fixture
+def captured(_quiet_sink):
+    sink = RecordingSink()
+    _install_sink(sink)
+    return sink
+
+
+def _levels(sink):
+    """Every event that is not a span boundary — the narrative proper."""
+    return [e for e in sink.events if e["message"] not in ("span.start", "span.end")]
+
+
+def _by_message(sink, message):
+    return [e for e in sink.events if e["message"] == message]
+
+
+def _spans(sink, function):
+    return [e for e in sink.events if e["message"] == "span.start" and e["function"] == function]
+
+
+# -- FR-001: intake ---------------------------------------------------------------------
+
+
+def test_intake_reports_the_message_count_and_the_day_groups(wired, captured):
+    wired(
+        [
+            [
+                _message(_event(service="data-quality"), "a"),
+                _message(_event(service="observability"), "b"),
+            ]
+        ]
+    )
+
+    log_sweep.handler({}, None)
+
+    received = _by_message(captured, "received")
+    assert len(received) == 1
+    assert received[0]["fields"]["messages"] == 2
+    assert received[0]["fields"]["groups"] == 2
+
+
+def test_the_receive_loop_gets_its_own_child_span(wired, captured):
+    """The poll loop and the writes fail in completely different ways, and this is the half
+    that is billed per round — a single duration covering both tells you neither.
+    """
+    wired([[_message(_event(), "a")]])
+
+    log_sweep.handler({}, None)
+
+    receive = _spans(captured, "receive")
+    assert receive, "no receive span"
+    sweep = _spans(captured, "sweep")
+    assert receive[0]["trace_id"] == sweep[0]["trace_id"]
+    assert receive[0]["parent_span_id"] == sweep[0]["span_id"]
+
+
+def test_a_truncated_round_says_so_with_the_cap_and_the_count(wired, captured, monkeypatch):
+    monkeypatch.setattr(log_sweep, "MAX_MESSAGES", 20)
+    wired([[_message(_event(), f"r{i}-{n}") for n in range(10)] for i in range(5)])
+
+    log_sweep.handler({}, None)
+
+    capped = _by_message(captured, "hit the message cap")
+    assert capped and capped[0]["fields"] == {
+        **capped[0]["fields"],
+        "limit": 20,
+        "taken": 20,
+    }
+    assert capped[0]["level"] == "WARNING"
+
+
+def test_an_empty_sweep_narrates_nothing(wired, captured):
+    """Boundary spans only. The sweep fires every 10 minutes and is usually empty, so an
+    intake event on an empty round would be 144 events a day saying nothing happened — into
+    the queue this function drains.
+    """
+    wired([])
+
+    log_sweep.handler({}, None)
+
+    assert _levels(captured) == []
+
+
+# -- FR-002: every destination is named, with its outcome -------------------------------
+
+
+def test_each_destination_gets_a_child_span_and_an_entry_and_success_event(wired, captured):
+    key = "logs/service=data-quality/year=2026/month=07/day=22/data.jsonl"
+    wired([[_message(_event(service="data-quality", ts="2026-07-22T10:00:00Z"), "a")]])
+
+    log_sweep.handler({}, None)
+
+    assert _spans(captured, "append-day"), "no append-day span"
+    appending = _by_message(captured, "appending")
+    appended = _by_message(captured, "appended")
+    assert appending and appending[0]["fields"]["key"] == key
+    assert appending[0]["fields"]["events"] == 1
+    assert appended and appended[0]["fields"]["key"] == key
+    assert appended[0]["fields"]["events"] == 1
+    assert appended[0]["fields"]["bytes"] > 0
+
+
+def test_a_write_failure_is_an_error_event_with_a_stable_reason(wired, captured):
+    """The case that matters is the one where the data did not land, so this asserts on the
+    path where the messages stay queued.
+    """
+    sqs, _ = wired([[_message(_event(), "a")]], s3_fails=True)
+
+    log_sweep.handler({}, None)
+
+    failed = _by_message(captured, "append failed")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["reason"] == "write-failed"
+    assert failed[0]["fields"]["events"] == 1
+    assert sqs.deleted == [], "the premise of the test: the events are still queued"
+
+
+def test_cas_exhaustion_reports_its_own_reason(wired, captured, monkeypatch):
+    """A different token from a write failure, because they need different responses: one is
+    contention, the other is a broken bucket.
+    """
+    _, s3 = wired([[_message(_event(), "a")]])
+    monkeypatch.setattr(
+        s3, "put_object", lambda **k: (_ for _ in ()).throw(_ClientError("PreconditionFailed"))
+    )
+
+    log_sweep.handler({}, None)
+
+    failed = _by_message(captured, "append failed")
+    assert failed and failed[0]["fields"]["reason"] == "precondition-exhausted"
+
+
+# -- FR-003: degraded paths are warnings, not silence -----------------------------------
+
+
+def test_every_cas_retry_is_reported_because_the_count_is_the_signal(wired, captured, monkeypatch):
+    _, s3 = wired([[_message(_event(), "a")]])
+    monkeypatch.setattr(
+        s3, "put_object", lambda **k: (_ for _ in ()).throw(_ClientError("PreconditionFailed"))
+    )
+
+    log_sweep.handler({}, None)
+
+    retries = _by_message(captured, "day object changed under us")
+    assert len(retries) == log_sweep.MAX_CAS_ATTEMPTS
+    assert [e["fields"]["attempt"] for e in retries] == list(
+        range(1, log_sweep.MAX_CAS_ATTEMPTS + 1)
+    )
+
+
+def test_a_large_day_object_warns_with_its_size(wired, captured, monkeypatch):
+    key = "logs/service=data-quality/year=2026/month=07/day=22/data.jsonl"
+    _, s3 = wired([[_message(_event(service="data-quality", ts="2026-07-22T10:00:00Z"), "a")]])
+    monkeypatch.setattr(log_sweep, "LARGE_OBJECT_WARN_BYTES", 10)
+    s3.objects[key] = (b"x" * 64 + b"\n", '"etag-0"')
+
+    log_sweep.handler({}, None)
+
+    large = _by_message(captured, "day object is large")
+    assert large and large[0]["fields"]["key"] == key
+    assert large[0]["fields"]["bytes"] == 65
+
+
+def test_undated_events_are_counted_not_hidden_in_the_partitions(wired, captured):
+    wired([[_message(_event(ts="not-a-timestamp"), "a"), _message(_event(), "b")]])
+
+    log_sweep.handler({}, None)
+
+    undated = _by_message(captured, "events had no usable timestamp")
+    assert undated and undated[0]["fields"]["undated"] == 1
+
+
+def test_a_failed_delete_says_the_events_will_repeat_not_that_they_were_lost(
+    wired, captured, monkeypatch
+):
+    """25 messages is three SQS delete chunks on purpose: the event must be per GROUP, not per
+    chunk. A per-chunk emitter is O(messages) on exactly the path where the queue is already
+    unhappy — which is the feedback loop FR-005 exists to prevent.
+    """
+    sqs, _ = wired([[_message(_event(), f"r{n}") for n in range(25)]])
+    monkeypatch.setattr(
+        sqs, "delete_message_batch", lambda **k: (_ for _ in ()).throw(RuntimeError("sqs down"))
+    )
+
+    log_sweep.handler({}, None)
+
+    failed = _by_message(captured, "delete failed; events will be appended again next sweep")
+    assert len(failed) == 1, f"one event per group, not per chunk — got {len(failed)}"
+    assert failed[0]["fields"]["events"] == 25
+    assert failed[0]["fields"]["lost"] is False
+
+
+def test_unroutable_bodies_are_counted_and_the_body_is_never_logged(wired, captured):
+    """Not on sensitivity grounds — the body is already preserved verbatim under
+    service=_unrouted/. It is unbounded input from a queue, and echoing it into a day object
+    is the growth the read-modify-write design exists to avoid.
+    """
+    poison = '{"service": "../../etc/passwd", "secret": "do-not-echo-me"}'
+    wired([[_message(poison, "a")]])
+
+    log_sweep.handler({}, None)
+
+    unrouted = _by_message(captured, "bodies could not be routed")
+    assert unrouted and unrouted[0]["fields"]["unrouted"] == 1
+    assert "do-not-echo-me" not in json.dumps(captured.events)
+    assert "etc/passwd" not in json.dumps(captured.events)
+
+
+# -- FR-004: the outcome event is total -------------------------------------------------
+
+
+def test_the_outcome_event_reports_written_and_failed(wired, captured, monkeypatch):
+    """The old summary reported swept/groups/written and no failure count, so a sweep that
+    wrote two destinations of three read as a success in every field it had.
+    """
+    _, s3 = wired(
+        [
+            [
+                _message(_event(service="data-quality"), "a"),
+                _message(_event(service="observability"), "b"),
+            ]
+        ]
+    )
+    real_put = s3.put_object
+    monkeypatch.setattr(
+        s3,
+        "put_object",
+        lambda **k: (_ for _ in ()).throw(RuntimeError("down"))
+        if "data-quality" in k["Key"]
+        else real_put(**k),
+    )
+
+    log_sweep.handler({}, None)
+
+    swept = _by_message(captured, "swept")
+    assert len(swept) == 1
+    assert swept[0]["fields"]["written"] == 1
+    assert swept[0]["fields"]["failed"] == 1
+    assert swept[0]["level"] == "ERROR", "a partly-failed sweep must be reachable by level"
+
+
+def test_a_clean_sweep_reports_its_outcome_at_info(wired, captured):
+    wired([[_message(_event(), "a")]])
+
+    log_sweep.handler({}, None)
+
+    swept = _by_message(captured, "swept")
+    assert swept and swept[0]["level"] == "INFO"
+    assert swept[0]["fields"]["failed"] == 0
+
+
+def test_missing_configuration_warns_before_returning(wired, captured, monkeypatch):
+    """Configuration missing on the function that collects everyone's logs is the failure most
+    likely to be discovered late — nothing else reports it.
+    """
+    monkeypatch.setattr(log_sweep, "ADMIN_BUCKET", "")
+    wired([[_message(_event(), "a")]])
+
+    assert log_sweep.handler({}, None) == {"swept": 0, "written": 0}
+
+    misconfigured = _by_message(captured, "not configured")
+    assert misconfigured and misconfigured[0]["level"] == "WARNING"
+    assert misconfigured[0]["fields"]["has_bucket"] is False
+
+
+def test_the_handler_is_total_when_every_emit_raises(wired, _quiet_sink):
+    """No emitter and no step may introduce a path on which the sweep raises — a throw means
+    the messages redeliver, and a sweep that always throws poison-loops the queue it exists to
+    drain.
+    """
+    sqs, s3 = wired([[_message(_event(), "a"), _message('{"bad": true}', "b")]])
+    _install_sink(RaisingSink())
+
+    result = log_sweep.handler({}, None)
+
+    assert result == {"swept": 2, "written": 2, "groups": 2}
+    assert sorted(sqs.deleted) == ["a", "b"]
+
+
+# -- FR-005: one sweep's events are O(1) in the messages it consumes --------------------
+
+
+def _sweep_event_count(wired_factory, message_count, captured):
+    receipts = [
+        _message(_event(service="data-quality" if n % 2 else "observability"), f"r{n}")
+        for n in range(message_count)
+    ]
+    wired_factory([receipts[i : i + 10] for i in range(0, len(receipts), 10)])
+    captured.events.clear()
+    log_sweep.handler({}, None)
+    return len(captured.events)
+
+
+def test_the_event_count_depends_on_day_groups_not_on_messages(wired, captured):
+    """The guard, not the comment. The sweep emits into the queue it drains, so one event per
+    message consumed would mean draining M messages produced ~M more — a floor the queue could
+    never get below, permanently busy carrying its own telemetry.
+
+    Two sweeps over the SAME two day-groups, one with ten times the messages. Any per-message
+    emitter added later makes these two numbers differ.
+    """
+    small = _sweep_event_count(wired, 20, captured)
+    large = _sweep_event_count(wired, 200, captured)
+
+    assert small == large, (
+        f"{small} events for 20 messages but {large} for 200 — an emitter is per-message"
+    )
+
+
+def test_the_event_count_grows_with_day_groups(wired, captured):
+    """The other half of the bound: it must be O(G), which also proves the test above is not
+    green merely because the count is constant in everything.
+    """
+    two_groups = _sweep_event_count(wired, 20, captured)
+
+    receipts = [_message(_event(service=f"svc-{n}"), f"r{n}") for n in range(5)]
+    wired([receipts])
+    captured.events.clear()
+    log_sweep.handler({}, None)
+
+    assert len(captured.events) > two_groups
+
+
+# -- FR-006: CloudWatch keeps everything it has ----------------------------------------
+
+
+def test_every_existing_cloudwatch_message_is_still_in_the_source():
+    """The sink is SQS-only, so a sweep that cannot write to S3 cannot report through the
+    structured store that it could not write to S3 — the mechanism that would carry the report
+    is the thing that failed. Its CloudWatch line is the only account that exists.
+
+    Matched on the message literals rather than on formatted call sites, so reformatting the
+    file cannot fail this while deleting a call still does.
+    """
+    source = open(log_sweep.__file__).read()
+    for message in (
+        "log-sweep: LOGS_QUEUE_URL or ADMIN_BUCKET unset",
+        "log-sweep: no existing object at %s",
+        "log-sweep: %s is %.1f MB",
+        "log-sweep: %s changed under us",
+        "log-sweep: failed to write %s",
+        "log-sweep: gave up on %s",
+        "log-sweep: failed to delete %d messages",
+        "log-sweep: hit the %d-message cap",
+        "log-sweep: %d event(s) had no usable timestamp",
+        "log-sweep %s: %d message(s)",
+    ):
+        assert message in source, f"a CloudWatch account was removed: {message!r}"
+    assert source.count("logger.") >= 11, "a logger call was removed without its message"
+
+
+def test_a_failure_is_written_to_BOTH_accounts(wired, captured, caplog):
+    """Presence in the source is not reachability. This drives the write-failure path and
+    asserts the CloudWatch line and the structured event both land — which is the deliberate
+    duplication FR-006 requires, and the thing a future "de-duplicate the logging" cleanup
+    would break.
+    """
+    wired([[_message(_event(), "a")]], s3_fails=True)
+
+    with caplog.at_level("ERROR"):
+        log_sweep.handler({}, None)
+
+    assert any("failed to write" in r.message for r in caplog.records), "no CloudWatch account"
+    assert _by_message(captured, "append failed"), "no structured account"
+
+
+def test_the_console_echo_is_not_used_here():
+    assert ("echo" + "=True") not in open(log_sweep.__file__).read()
+
+
+# -- FR-007: sweep_id joins the two accounts -------------------------------------------
+
+
+def test_sweep_id_is_on_every_structured_event_including_the_boundaries(wired, captured):
+    wired([[_message(_event(), "a")]])
+
+    log_sweep.handler({}, None)
+
+    assert captured.events, "no events emitted"
+    ids = {e["fields"].get("sweep_id") for e in captured.events}
+    assert len(ids) == 1 and None not in ids, (
+        "sweep_id must ride as baggage, so it reaches the boundary spans too"
+    )
+
+
+def test_sweep_id_is_on_every_cloudwatch_line(wired, caplog):
+    """A join key present on one side of the join is not a join key."""
+    wired([[_message(_event(), "a")]])
+
+    with caplog.at_level("INFO"):
+        log_sweep.handler({}, None)
+
+    assert caplog.records, "the sweep logged nothing at all"
+    assert all(r.message.startswith("[sweep ") for r in caplog.records), [
+        r.message for r in caplog.records
+    ]
+
+
+def test_two_successive_sweeps_carry_different_sweep_ids(wired, captured):
+    """A warm container reuses the contextvar; a leaked sweep_id would merge two sweeps."""
+    sqs, _ = wired([[_message(_event(), "a")]])
+
+    log_sweep.handler({}, None)
+    first = {e["fields"]["sweep_id"] for e in captured.events}
+
+    captured.events.clear()
+    sqs.rounds = [[_message(_event(), "b")]]
+    log_sweep.handler({}, None)
+    second = {e["fields"]["sweep_id"] for e in captured.events}
+
+    assert len(first) == len(second) == 1
+    assert first != second
 
 
 # -- FR-005: routing, and the key-injection surface -------------------------------------

@@ -148,10 +148,15 @@ The bound is therefore structural: **the number of events one sweep emits must d
 number of day-groups, not on the number of messages.** Day-groups are bounded by the number of
 control planes (plus `_unrouted`); messages are not bounded by anything.
 
-Concretely, the design above emits roughly `6 + 3G` events per sweep for `G` day-groups — a
-handful of events per 10-minute tick, against a floor of 2 today. At 144 sweeps a day and the
-current 2–3 services that is a few thousand events a day of self-telemetry, all of it appended
-into `logs/service=observability/…`, which is a few hundred KB.
+Concretely, the design above emits **`6 + 4G`** events per sweep for `G` day-groups, and **4 on
+an empty sweep** — measured, 2026-07-23. (This corrects the `6 + 3G` / floor-of-2 arithmetic
+first written here, which did not count `step("receive")`'s own boundary pair or the
+per-destination entry event, both required by FR-001 and FR-002 above. The bound's *shape* —
+O(1) in messages, O(G) in day-groups — is unchanged, and it is the shape that matters.)
+
+At 144 sweeps a day and the current 2–3 services that is a few thousand events a day of
+self-telemetry, all of it appended into `logs/service=observability/…`, which is a few hundred
+KB.
 
 #### Acceptance Criteria:
 
