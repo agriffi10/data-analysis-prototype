@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Narrate the Log Sweep
 
 **ID:** SPEC-131
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-130 (the emitters and `step`), SPEC-127/129 (the sweep itself)
 
