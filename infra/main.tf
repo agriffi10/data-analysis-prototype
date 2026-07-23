@@ -380,6 +380,17 @@ module "shared_spaces" {
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
+  # SPEC-134: the eight verbs join the structured-logging pipe. Taken from
+  # module.observability's OUTPUTS rather than reconstructed, so the queue's `.fifo` suffix
+  # cannot drift between producer and consumer (SPEC-129).
+  #
+  # NO CYCLE, and it is worth stating because this module sits inside one of the repo's
+  # trickier dependency chains: module.observability takes only locals, module.auth and
+  # depends_on = [module.base] — it reaches neither shared_spaces nor analytics, so
+  # shared_spaces -> observability adds an edge to an already-settled corner of the graph.
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
   # base grants the deploy role its SQS/Pipes/Step-Functions/Lambda/IAM/logs/S3
   # perms for this module; data creates the portal role this module attaches the
   # membership policy to. Force both to settle first (first-apply propagation +

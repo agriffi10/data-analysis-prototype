@@ -60,6 +60,9 @@ resource "aws_lambda_function" "functions" {
       # SPEC-061: target for `create` notifications emitted at each lifecycle terminal
       # outcome (notify.emit_notification). Empty until notifications is wired -> no-op.
       NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
+      # SPEC-134. Deliberately NOT mirrored by a config._require: a verb that loses this must
+      # log to stdout and keep working, never crash the plane at cold start (PR #196).
+      LOGS_QUEUE_URL = var.logs_queue_url
       # SPEC-125: NOT used by any shared-space verb — set because the cpcommon layer's
       # config._require runs AT IMPORT for every attaching function. Landed and applied
       # BEFORE the code that imports cpcommon deploys, so the layer attach can never
