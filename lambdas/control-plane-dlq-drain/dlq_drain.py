@@ -27,11 +27,24 @@ import json
 import logging
 import os
 
-from cpcommon import auth, clients, messages
+from cpcommon import auth, clients, messages, observability
 from cpcommon.notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is "dlq-drain" and not a control-plane name: this function spans all four planes
+# and is nobody's verb, so it gets its own queryable set. The name is load-bearing in a quiet
+# way — `service` becomes an S3 key, and the sweep routes anything failing
+# ^[a-z][a-z0-9-]{2,62}$ to logs/_unrouted/ WITHOUT erroring (SPEC-129), so a name that missed
+# the pattern would file every one of these events somewhere nobody looks. Pinned by a test
+# that checks it against log_sweep.SERVICE_RE rather than against a human's reading of it.
+observability.init(service="dlq-drain")
+
+#: Cap on the serialized forensic body. The body is unbounded, untrusted input, and every event
+#: is appended into a day object the sweep rewrites IN FULL every ten minutes — one pathological
+#: body would be paid for again on every sweep for the rest of that day.
+_MAX_BODY_CHARS = 4096
 
 #: The user-facing reason this drain emits. Registered through the ``cpcommon.messages``
 #: domain hook like every other reason code, so it is a valid ``TerminalError`` reason and
@@ -112,6 +125,54 @@ def _redacted(body: dict, token_field: str) -> dict:
     return redacted
 
 
+def _request_id_field(body: dict) -> dict:
+    """``{"request_id": …}`` when the body has a usable one, and ``{}`` when it does not.
+
+    A FIELD, never baggage, and that is the whole point (SPEC-133 FR-002). Every other
+    instrumented function handles one request per invocation, so ``traced`` stamps ``request_id``
+    into baggage once and every event inherits it. **This function handles up to 400 messages per
+    invocation, each its own request** — and ``_reset_baggage()`` runs ONCE, at the top of
+    ``traced``'s wrapper. Set per message, the id would persist onto the next message's events,
+    and a body without one would silently inherit its predecessor's. That is the fabricated
+    correlation key SPEC-128 FR-002 forbids: it merges two unrelated requests into one query
+    result and nothing about the output looks wrong.
+
+    Omitted entirely rather than emitted empty, for the same reason: an absent field is
+    unjoinable, which is honest; an empty one is a value.
+    """
+    request_id = body.get("requestId")
+    return {"request_id": request_id} if isinstance(request_id, str) and request_id else {}
+
+
+def _forensic(body: dict, token_field: str) -> dict:
+    """Fields carrying the dead-lettered body as a permanent forensic record (FR-003).
+
+    Consuming a DLQ message DESTROYS the evidence: SPEC-126 FR-004 knowingly traded each queue's
+    14-day retention for a log group's 14-day retention, as the price of the user finding out at
+    all. ``logs/`` is retained forever, so writing the body here upgrades that record from a copy
+    that expires to one that does not.
+
+    Three properties, each closing a specific hazard:
+
+    * **Redacted** through the same ``_redacted`` the CloudWatch line uses — every known token
+      field, not just this source's, because a malformed body may carry the wrong one.
+    * **Capped**, because the body is unbounded untrusted input and the sweep rewrites the day's
+      object in full every ten minutes.
+    * **One serialized field, never re-parsed into fields.** Promoting attacker-controlled keys
+      into the event's own namespace would let a body shadow ``request_id``, ``verb`` or
+      ``service``.
+    """
+    serialized = json.dumps(_redacted(body, token_field), default=str)
+    truncated = len(serialized) > _MAX_BODY_CHARS
+    return {
+        "body": serialized[:_MAX_BODY_CHARS],
+        # Stated, not implied: a silently truncated forensic record is worse than a short one,
+        # because it reads as complete.
+        "body_truncated": truncated,
+        "body_length": len(serialized),
+    }
+
+
 def _notify_one(record: dict) -> None:
     """Turn one dead-lettered record into (at most) one notification. Never raises."""
     source = _source_for(record.get("eventSourceARN", ""))
@@ -119,6 +180,13 @@ def _notify_one(record: dict) -> None:
     token_field = source.token_field if source else "idToken"
     if source is None:
         logger.error("no descriptor for eventSourceARN %r; using the generic noun", record.get("eventSourceARN"))
+        # It means a notification went out with the generic fallback noun — a wrong-but-honest
+        # message the descriptor-coverage test is supposed to make unreachable.
+        observability.error(
+            "no descriptor for the queue",
+            reason="no-descriptor",
+            queue_arn=record.get("eventSourceARN"),
+        )
 
     raw = record.get("body") or ""
     try:
@@ -130,6 +198,16 @@ def _notify_one(record: dict) -> None:
         # structure to redact), and it cannot be notified about (there is no token to
         # identify a recipient), so log it and stop.
         logger.error("dead-lettered %s message is not a JSON object; body=%r", noun, raw)
+        # Bounded `repr`, not raw text: there is no structure to redact here, and `repr` escapes
+        # newlines and control characters so an attacker-supplied body cannot forge a second
+        # record. Same posture as log_foundry.decorator._warn_rejected.
+        observability.error(
+            "dead-lettered message could not be parsed",
+            reason="unparseable-body",
+            domain=noun,
+            body=repr(raw)[:_MAX_BODY_CHARS],
+            body_length=len(raw),
+        )
         return
 
     # FR-004: log BEFORE emitting. The event source deletes this message on success, trading
@@ -151,6 +229,15 @@ def _notify_one(record: dict) -> None:
         # notification wherever an attacker asked. Mirrors tbcommon/notify's pre-identity
         # posture and SPEC-114 FR-004.
         logger.exception("could not derive a verified recipient for a dead-lettered %s request", noun)
+        # ERROR, because this is a user who is never told their request died — the exact
+        # invisibility SPEC-126 exists to end, arrived at from the one angle it cannot close.
+        observability.error(
+            "no verified recipient for a dead-lettered request",
+            reason="no-verified-recipient",
+            domain=noun,
+            **_request_id_field(body),
+            **_forensic(body, token_field),
+        )
         return
 
     # NO VALUE FROM THE BODY REACHES THE MESSAGE — not a path, not a table name, not a space
@@ -170,6 +257,19 @@ def _notify_one(record: dict) -> None:
 
     # No `link`: the request never ran, so there is nothing to link to.
     emit_notification(username, message, dedup_id=dedup_id)
+
+    # The recipient IS logged: the username is already the S3 prefix, the principal tag and the
+    # Glue database name (SPEC-033), and "which user was affected" is the first question anyone
+    # asks about a dead-lettered request.
+    observability.info(
+        "notified a dead-lettered request",
+        domain=noun,
+        recipient=username,
+        receives=(record.get("attributes") or {}).get("ApproximateReceiveCount"),
+        dedup=dedup_id is not None,
+        **_request_id_field(body),
+        **_forensic(body, token_field),
+    )
 
 
 # ── Scheduled sweep (SPEC-126 follow-up: SQS event-source mappings → EventBridge schedule) ────
@@ -205,6 +305,10 @@ def _dlq_arns() -> list[str]:
         arns = json.loads(os.environ.get("DLQ_ARNS", "[]"))
     except Exception:  # noqa: BLE001 - a malformed env is a deploy error; sweep nothing, don't crash
         logger.exception("DLQ_ARNS is not valid JSON; sweeping nothing")
+        # The handler then sweeps NOTHING and returns {"drained": 0}, which is indistinguishable
+        # from a healthy idle sweep in every field it reports. A deploy error that disables the
+        # drain outright must not look like a quiet Tuesday.
+        observability.error("DLQ_ARNS is not valid JSON; sweeping nothing", reason="malformed-dlq-arns")
         return []
     return [a for a in arns if isinstance(a, str)] if isinstance(arns, list) else []
 
@@ -229,6 +333,7 @@ def _record_from_message(queue_arn: str, message: dict) -> dict:
     }
 
 
+@observability.step("sweep-queue")
 def _sweep_one_queue(queue_arn: str) -> int:
     """Drain one DLQ — notify then delete each message, until empty or the round cap. Never raises."""
     sqs = clients.sqs()
@@ -244,6 +349,9 @@ def _sweep_one_queue(queue_arn: str) -> int:
             )
         except Exception:  # noqa: BLE001 - a receive failure is transient; the next sweep retries
             logger.exception("could not receive from %s; leaving it for the next sweep", queue_arn)
+            observability.error(
+                "could not receive from a queue", reason="receive-failed", queue_arn=queue_arn
+            )
             break
         messages = response.get("Messages") or []
         if not messages:
@@ -259,10 +367,22 @@ def _sweep_one_queue(queue_arn: str) -> int:
                 sqs.delete_message(QueueUrl=url, ReceiptHandle=message.get("ReceiptHandle"))
             except Exception:  # noqa: BLE001 - see above; a resurfaced message is deduped, not doubled
                 logger.exception("could not delete a drained message; it will resurface next sweep")
+                # WARNING, and the consequence is stated: the message is not lost, it resurfaces
+                # on a later sweep — and may notify a second time, outside the notifications
+                # queue's 5-minute dedup window.
+                observability.warning(
+                    "could not delete a drained message; it will resurface",
+                    reason="delete-failed",
+                    queue_arn=queue_arn,
+                    lost=False,
+                )
             drained += 1
     return drained
 
 
+# @traced is the ONLY decorator here: there is no notifies_on_failure, because this function IS
+# the failure handler and has no upstream to notify through.
+@observability.traced("drain")
 def handler(event, context):  # noqa: ARG001 - context unused; Lambda supplies it
     """Notify the actor behind every dead-lettered request.
 

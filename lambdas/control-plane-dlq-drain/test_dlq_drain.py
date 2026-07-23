@@ -18,6 +18,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"))
 
+import pytest  # noqa: E402
 import jwt  # noqa: E402
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
@@ -511,3 +512,337 @@ def test_a_scheduled_event_shape_takes_the_sweep_path(monkeypatch):
     scheduled = {"source": "aws.events", "detail-type": "Scheduled Event", "detail": {}}
     assert dlq_drain.handler(scheduled, None) == {"drained": 1}
     assert [b["username"] for b in _bodies(sqs)] == ["dave"]
+
+
+# -- SPEC-133: the drain joins the pipe ------------------------------------------------
+
+
+def test_the_service_name_survives_the_sweeps_routing_rule():
+    """A `service` failing SERVICE_RE does not error — it quietly files every one of this
+    function's events under logs/_unrouted/. Checked against the sweep's OWN pattern rather
+    than against a human's reading of it.
+    """
+    import re
+    import pathlib
+
+    sweep = (pathlib.Path(dlq_drain.__file__).resolve().parent.parent / "log-sweep" / "log_sweep.py").read_text()
+    pattern = re.search(r'SERVICE_RE = re\.compile\(r"(.+?)"\)', sweep).group(1)
+
+    assert re.match(pattern, "dlq-drain"), "dlq-drain would be routed to logs/_unrouted/"
+
+
+def test_traced_is_the_only_decorator_on_the_handler():
+    """No notifies_on_failure: this function IS the failure handler and has no upstream."""
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path(dlq_drain.__file__).read_text())
+    handler = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "handler")
+    decorators = [ast.unparse(d) for d in handler.decorator_list]
+    assert decorators == ["observability.traced('drain')"], decorators
+
+
+def test_logs_queue_url_is_never_required():
+    """A drain deployed without it must log to stdout and keep draining, not crash at cold
+    start — the PR #196 shape, and the reason the variable is os.environ.get everywhere.
+    """
+    import pathlib
+
+    source = pathlib.Path(dlq_drain.__file__).read_text()
+    assert '_require("LOGS_QUEUE_URL")' not in source
+
+
+# -- FR-002: request_id is a FIELD here, never baggage ---------------------------------
+
+
+def test_no_request_id_leaks_from_one_message_onto_the_next(captured_events):
+    """THE leak this FR exists for, and the only test that would catch it.
+
+    The drain handles up to 400 messages per invocation while `_reset_baggage()` runs once.
+    Set as baggage, the middle message's absent id would silently inherit the first's.
+    """
+    sqs = _install()
+    dlq_drain.handler(
+        {
+            "Records": [
+                _record({"requestId": "req-A", "idToken": _token("alice")}),
+                _record({"idToken": _token("bob")}),  # no requestId at all
+                _record({"requestId": "req-C", "idToken": _token("carol")}),
+            ]
+        },
+        None,
+    )
+    assert sqs
+
+    notified = captured_events.messages("notified a dead-lettered request")
+    assert len(notified) == 3
+    assert notified[0]["fields"]["request_id"] == "req-A"
+    assert "request_id" not in notified[1]["fields"], "req-A's id leaked onto the next message"
+    assert notified[2]["fields"]["request_id"] == "req-C"
+
+
+def test_the_handlers_own_span_carries_no_request_id(captured_events):
+    """The drain has no single request, so its boundary spans must claim none."""
+    _install()
+    dlq_drain.handler({"Records": [_record({"requestId": "req-A", "idToken": _token("alice")})]}, None)
+
+    spans = [e for e in captured_events.events if e["message"] in ("span.start", "span.end")]
+    assert spans
+    assert all("request_id" not in e["fields"] for e in spans)
+
+
+@pytest.mark.parametrize(
+    ("event", "why"),
+    [
+        ({"detail-type": "Scheduled Event", "resources": []}, "the EventBridge schedule shape"),
+        ({"Records": [{"body": "{}"}]}, "the replayed SQS shape"),
+    ],
+)
+def test_neither_handler_event_shape_yields_a_request_id(event, why):
+    """The extractor was built for the state payload and the Pipe envelope; neither of THIS
+    handler's shapes must accidentally produce one.
+    """
+    from cpcommon import observability as obs
+
+    assert obs._extract_request_id(event) is None, why
+
+
+# -- FR-003: the body becomes a permanent forensic record ------------------------------
+
+
+def test_the_redacted_body_is_one_serialized_field(captured_events):
+    _install()
+    dlq_drain.handler({"Records": [_record({"requestId": "r", "idToken": _token("alice"), "location": "alice/x/"})]}, None)
+
+    fields = captured_events.messages("notified a dead-lettered request")[0]["fields"]
+    assert isinstance(fields["body"], str)
+    assert json.loads(fields["body"])["location"] == "alice/x/"
+    assert fields["body_truncated"] is False
+
+
+def test_every_known_token_field_is_redacted_not_just_this_sources(captured_events):
+    """Driven from SOURCES, so a fifth control plane's token field cannot be added without
+    this test covering it. A malformed body may carry the wrong one.
+    """
+    token_fields = {s.token_field for s in dlq_drain.SOURCES.values()}
+    assert len(token_fields) >= 1
+    body = {"requestId": "r", "idToken": _token("alice")}
+    for n, field in enumerate(sorted(token_fields)):
+        body[field] = f"SECRET-TOKEN-VALUE-{n}"
+    body["idToken"] = _token("alice")
+    _install()
+
+    dlq_drain.handler({"Records": [_record(body)]}, None)
+
+    dumped = json.dumps(captured_events.events)
+    for n in range(len(token_fields)):
+        assert f"SECRET-TOKEN-VALUE-{n}" not in dumped
+
+
+def test_an_oversized_body_is_truncated_and_says_so(captured_events):
+    """A silently truncated forensic record is worse than a short one: it reads as complete."""
+    _install()
+    huge = {"requestId": "r", "idToken": _token("alice"), "pad": "x" * (dlq_drain._MAX_BODY_CHARS * 2)}
+
+    dlq_drain.handler({"Records": [_record(huge)]}, None)
+
+    fields = captured_events.messages("notified a dead-lettered request")[0]["fields"]
+    assert fields["body_truncated"] is True
+    assert len(fields["body"]) == dlq_drain._MAX_BODY_CHARS
+    assert fields["body_length"] > dlq_drain._MAX_BODY_CHARS
+
+
+def test_an_unparseable_body_is_a_bounded_repr_not_raw_text(captured_events):
+    """`repr` escapes newlines and control characters, so an attacker-supplied body cannot
+    forge a second record. Same posture as log_foundry's own rejected-input warning.
+    """
+    _install()
+
+    dlq_drain.handler({"Records": [_record("not json\nInjected: line")]}, None)
+
+    failed = captured_events.messages("dead-lettered message could not be parsed")
+    assert failed and failed[0]["fields"]["reason"] == "unparseable-body"
+    assert "\n" not in failed[0]["fields"]["body"], "a raw newline could forge a second record"
+
+
+def test_no_key_from_the_body_is_promoted_to_an_event_field(captured_events):
+    """Re-parsing the body into fields would let it shadow request_id, verb or service."""
+    _install()
+    body = {
+        "requestId": "real-id",
+        "idToken": _token("alice"),
+        "verb": "SPOOFED",
+        "service": "SPOOFED",
+        "request_id": "SPOOFED",
+    }
+
+    dlq_drain.handler({"Records": [_record(body)]}, None)
+
+    event = captured_events.messages("notified a dead-lettered request")[0]
+    assert event["fields"]["verb"] == "drain"
+    assert event["service"] != "SPOOFED"
+    assert event["fields"]["request_id"] == "real-id"
+
+
+# -- FR-004: one event per message, and per-queue spans --------------------------------
+
+
+def test_each_queue_swept_gets_its_own_child_span(monkeypatch, captured_events):
+    sqs = _install()
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([_arn(s) for s in ("data-quality", "table-builder", "table-share", "shared-space")]))
+    assert sqs
+
+    dlq_drain.handler({}, None)
+
+    assert len(captured_events.spans("sweep-queue")) == 4
+
+
+def test_an_idle_sweep_narrates_nothing(monkeypatch, captured_events):
+    """The overwhelmingly common case — these DLQs are empty by design."""
+    _install()
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([_arn("data-quality")]))
+
+    dlq_drain.handler({}, None)
+
+    assert captured_events.levels() == []
+
+
+def test_a_notified_message_reports_the_domain_recipient_and_receive_count(captured_events):
+    _install()
+
+    dlq_drain.handler({"Records": [_record({"requestId": "r", "idToken": _token("alice")}, receives="7")]}, None)
+
+    fields = captured_events.messages("notified a dead-lettered request")[0]["fields"]
+    assert fields["recipient"] == "alice"
+    assert fields["receives"] == "7"
+    assert fields["dedup"] is True
+    assert fields["domain"]
+
+
+# -- FR-005: the sweep's own failures --------------------------------------------------
+
+
+def test_malformed_dlq_arns_is_an_error_not_a_quiet_tuesday(monkeypatch, captured_events):
+    """The handler sweeps NOTHING and returns {"drained": 0} — identical, in every field it
+    reports, to a healthy idle sweep. A deploy error that disables the drain must not look
+    like one.
+    """
+    _install()
+    monkeypatch.setenv("DLQ_ARNS", "{not json")
+
+    assert dlq_drain.handler({}, None) == {"drained": 0}
+
+    failed = captured_events.messages("DLQ_ARNS is not valid JSON; sweeping nothing")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["reason"] == "malformed-dlq-arns"
+
+
+def test_a_failed_receive_is_an_error_naming_the_queue(monkeypatch, captured_events):
+    sqs = _install()
+    arn = _arn("data-quality")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.receive_error_urls.add(dlq_drain._queue_url(arn))
+
+    dlq_drain.handler({}, None)
+
+    failed = captured_events.messages("could not receive from a queue")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["queue_arn"] == arn
+
+
+def test_a_failed_delete_says_the_message_resurfaces_rather_than_being_lost(monkeypatch, captured_events):
+    sqs = _install()
+    arn = _arn("data-quality")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.queued[dlq_drain._queue_url(arn)] = [_msg({"requestId": "r", "idToken": _token("alice")})]
+    sqs.delete_error = True
+
+    dlq_drain.handler({}, None)
+
+    warned = captured_events.messages("could not delete a drained message; it will resurface")
+    assert warned and warned[0]["level"] == "WARNING"
+    assert warned[0]["fields"]["lost"] is False
+
+
+def test_an_unrecognised_queue_arn_is_an_error_with_the_arn(captured_events):
+    """It means a notification went out with the generic fallback noun."""
+    _install()
+    record = _record({"requestId": "r", "idToken": _token("alice")})
+    record["eventSourceARN"] = "arn:aws:sqs:us-east-1:1:dat-prod-mystery-queue"
+
+    dlq_drain.handler({"Records": [record]}, None)
+
+    failed = captured_events.messages("no descriptor for the queue")
+    assert failed and failed[0]["fields"]["reason"] == "no-descriptor"
+    assert "mystery" in failed[0]["fields"]["queue_arn"]
+
+
+# -- FR-006: the handler stays total ---------------------------------------------------
+
+
+class _RaisingSink:
+    def emit(self, batch):
+        raise RuntimeError("sink exploded")
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize(
+    "event_factory",
+    [
+        lambda: {"Records": [_record({"requestId": "r", "idToken": _token("alice")})]},
+        lambda: {},
+    ],
+    ids=["records-shape", "schedule-shape"],
+)
+def test_a_sink_that_always_raises_changes_nothing(monkeypatch, captured_events, event_factory):
+    """Instrumentation is exactly the kind of change that quietly adds a raise path. A throw
+    here means redelivery, and a message that always throws burns invocations until retention.
+    """
+    import log_foundry as lf
+    from log_foundry import decorator as lf_decorator
+
+    sqs = _install()
+    arn = _arn("data-quality")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.queued[dlq_drain._queue_url(arn)] = [_msg({"requestId": "r", "idToken": _token("alice")})]
+    working = dlq_drain.handler(event_factory(), None)
+    working_sent = len(sqs.sent)
+
+    sqs = _install()
+    sqs.queued[dlq_drain._queue_url(arn)] = [_msg({"requestId": "r", "idToken": _token("alice")})]
+    lf_decorator._worker = None
+    lf.configure(service="t", version="0", env="t", sink=_RaisingSink())
+
+    broken = dlq_drain.handler(event_factory(), None)
+
+    assert broken == working
+    assert len(sqs.sent) == working_sent
+
+
+def test_a_body_that_json_cannot_serialize_is_still_notified_and_deleted(monkeypatch, captured_events):
+    """`default=str` on the forensic dump is what makes this true; without it the emitter
+    raises inside the per-message path.
+    """
+    sqs = _install()
+    arn = _arn("data-quality")
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    # A body whose value is not JSON-serializable once parsed back out is hard to build through
+    # json.loads, so patch _redacted to return one — the emitter must survive it either way.
+    monkeypatch.setattr(dlq_drain, "_redacted", lambda body, tf: {"weird": object()})
+    sqs.queued[dlq_drain._queue_url(arn)] = [_msg({"requestId": "r", "idToken": _token("alice")})]
+
+    result = dlq_drain.handler({}, None)
+
+    assert result == {"drained": 1}
+    assert sqs.deleted, "the message must still be deleted"
+    assert len(sqs.sent) == 1, "the user must still be notified"
+    # AND the forensic record must survive, which the three assertions above do NOT prove.
+    # Without `default=str` the dump raises inside `_forensic`, `_guarded_notify` swallows it,
+    # and every assertion above still passes while the permanent record — the entire point of
+    # FR-003 — is silently lost. Caught by mutation; this line is what makes the test mean
+    # something.
+    assert captured_events.messages("notified a dead-lettered request"), (
+        "the forensic event was dropped: totality was preserved by losing the record"
+    )
