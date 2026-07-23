@@ -91,6 +91,13 @@ PLANES = [
         notifies_on_failure=True,
         not_verbs=frozenset({"table-builder-common", "table-builder-polars"}),
     ),
+    Plane(
+        service="table-share",
+        glob="table-share-*",
+        verb_count=5,
+        notifies_on_failure=True,
+        not_verbs=frozenset({"table-share-common"}),
+    ),
 ]
 
 #: Every (plane, module) pair, so a failure names the file rather than just the plane.

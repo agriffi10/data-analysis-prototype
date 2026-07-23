@@ -16,7 +16,7 @@ measured reason (inline, the Map's state reached 95% of the 256 KB payload limit
 import json
 import logging
 
-from cpcommon import s3_listing
+from cpcommon import s3_listing, observability
 from cpcommon.errors import TerminalError
 from tscommon import config
 from tscommon import copy_plan
@@ -26,7 +26,16 @@ from tscommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
+# recipient Map fan-out), and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
+observability.init(service="table-share")
 
+
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("inspect-source")
 @notify.notifies_on_failure("inspect")
 def handler(event, context) -> dict:
     """SFN entry point: clone the source table definition and cap object count/size.
@@ -95,6 +104,17 @@ def _inspect_source(event) -> dict:
         len(objects),
         total_bytes,
         partitioned,
+    )
+    # The plan, not the objects. Counts and totals are what an operator needs to tell a share
+    # that was too large from one that was mis-scoped; the object KEYS live in the plan the
+    # state machine carries.
+    observability.info(
+        "copy plan built",
+        database=database,
+        table=table,
+        objects=len(objects),
+        bytes=total_bytes,
+        partitioned=partitioned,
     )
     return {
         **event,
