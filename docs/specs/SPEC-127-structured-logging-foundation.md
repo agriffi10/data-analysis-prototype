@@ -1,7 +1,7 @@
 # Spec: Structured Logging Foundation (`log-foundry` → logs queue → admin bucket)
 
 **ID:** SPEC-127
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-07-22
 **Depends On:** SPEC-032 (admin bucket), SPEC-107 (`cpcommon` layer), SPEC-126 (the pull-sweep pattern this reuses)
 

@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Instrument the Data-Quality Control Plane (pilot)
 
 **ID:** SPEC-128
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-22
 **Depends On:** SPEC-127 (the queue, the sweep, `cpcommon.observability`), SPEC-108→114 + 123/124 (the data-quality arc being instrumented)
 
