@@ -1,7 +1,7 @@
 # Spec: Logs Queue → FIFO, and One Object Per Service-Day
 
 **ID:** SPEC-129
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-127 (the queue, the sweep), SPEC-128 (the data-quality producer)
 
