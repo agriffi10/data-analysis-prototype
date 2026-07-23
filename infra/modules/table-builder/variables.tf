@@ -79,6 +79,18 @@ variable "app_client_id" {
 
 # ── SPEC-072: outcome notifications (trusted producer of the SPEC-058 inbox) ──
 
+variable "logs_queue_arn" {
+  description = "SPEC-135: ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
+  type        = string
+  default     = ""
+}
+
+variable "logs_queue_url" {
+  description = "SPEC-135: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (cpcommon.observability uses os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start (PR #196)."
+  type        = string
+  default     = ""
+}
+
 variable "notifications_queue_arn" {
   description = "SPEC-072: ARN of the SPEC-058 notifications FIFO queue. Scopes each verb role's sqs:SendMessage grant (the ONLY notifications-pipeline action they get). Constructed-string local from root; default \"\" keeps the module standalone-plannable."
   type        = string

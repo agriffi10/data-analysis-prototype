@@ -60,9 +60,11 @@ resource "aws_lambda_function" "functions" {
         SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
         ADMIN_BUCKET            = var.admin_bucket_name
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        COGNITO_USER_POOL_ID    = var.user_pool_id
-        COGNITO_APP_CLIENT_ID   = var.app_client_id
-        ATHENA_WORKGROUP        = var.athena_workgroup
+        # SPEC-135. Deliberately NOT mirrored by a config._require — see variables.tf.
+        LOGS_QUEUE_URL        = var.logs_queue_url
+        COGNITO_USER_POOL_ID  = var.user_pool_id
+        COGNITO_APP_CLIENT_ID = var.app_client_id
+        ATHENA_WORKGROUP      = var.athena_workgroup
       },
       lookup(local.table_builder_verb_env, each.key, {}),
     )
