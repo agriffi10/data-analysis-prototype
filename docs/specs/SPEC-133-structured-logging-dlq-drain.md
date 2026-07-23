@@ -1,7 +1,7 @@
 # Spec: Structured Logging — Instrument the Control-Plane DLQ Drain
 
 **ID:** SPEC-133
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-130 (the emitters and `step`), SPEC-126 (the drain), SPEC-127/129 (the pipe)
 
