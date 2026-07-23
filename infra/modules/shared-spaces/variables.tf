@@ -83,6 +83,25 @@ variable "app_client_id" {
 
 # ── SPEC-061: notifications producer (the first trusted producer) ─────────────
 
+variable "logs_queue_arn" {
+  description = "SPEC-134: ARN of the structured-logging queue — scopes the orchestrator role's sqs:SendMessage for log events. Empty = the grant resolves to nothing and events fall back to stdout."
+  type        = string
+  default     = ""
+}
+
+variable "logs_queue_url" {
+  description = <<-EOT
+    SPEC-134: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda.
+
+    Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
+    os.environ.get and never config._require, so a verb deployed without it logs to stdout
+    rather than crashing a whole control plane at cold start (PR #196 — the exact break this
+    plane suffered when a shared layer's import-time _require went unmet).
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "notifications_queue_arn" {
   description = "SPEC-061: ARN of the SPEC-058 notifications FIFO queue. Constructed string from root (not module.notifications' output) so this module plans standalone — scopes the orchestrator role's sqs:SendMessage (trusted producer, the notifications queue ARN only). Empty = notifications not wired."
   type        = string

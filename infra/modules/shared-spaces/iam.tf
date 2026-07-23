@@ -35,6 +35,9 @@ resource "aws_iam_role_policy" "orchestrator" {
     sfn_log_group_arn     = local.sfn_log_group_arn
     # SPEC-061: trusted notifications producer — sqs:SendMessage scoped to this ARN only.
     notifications_queue_arn = var.notifications_queue_arn
+    # SPEC-134: structured-logging producer, same Sid and shape as data-quality's and the
+    # drain's, so all three read as one pattern rather than three inventions.
+    logs_queue_arn = var.logs_queue_arn
   })
 }
 
