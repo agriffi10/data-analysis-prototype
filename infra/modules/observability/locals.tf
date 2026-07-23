@@ -1,5 +1,5 @@
 locals {
-  logs_queue_name = "${var.project_name}-${var.environment}-logs"
+  logs_queue_name = "${var.project_name}-${var.environment}-logs.fifo"
   sweep_name      = "${var.project_name}-${var.environment}-log-sweep"
   sweep_role_name = "${var.project_name}-${var.environment}-log-sweep"
   schedule_name   = "${var.project_name}-${var.environment}-log-sweep-schedule"

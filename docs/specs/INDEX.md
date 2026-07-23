@@ -134,6 +134,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 126 — Control-Plane DLQ Drain → User Notification | Completed |
 | 127 — Structured Logging Foundation (`log-foundry` → logs queue → admin bucket) | Completed |
 | 128 — Structured Logging: Instrument the Data-Quality Control Plane (pilot) | Completed |
+| 129 — Logs Queue → FIFO, and One Object Per Service-Day | Draft |
 
 ## Arcs
 
