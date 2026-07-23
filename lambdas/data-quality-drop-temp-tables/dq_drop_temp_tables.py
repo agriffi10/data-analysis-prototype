@@ -19,10 +19,16 @@ Two properties make it safe to call from anywhere:
 import logging
 
 from cpcommon import athena, config as cpconfig
+from cpcommon import observability
 from dqcommon import messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
+# invocations, and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
+observability.init(service="data-quality")
 
 
 def _drop(database: str, table: str, output_location: str) -> bool:
@@ -90,6 +96,11 @@ def _cleanup(event: dict) -> dict:
     return out
 
 
+# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
+# catches on its way out, so if it were outermost the span would close status="ok" on an
+# invocation that actually failed and notified. Outermost traced sees the exception the
+# handler really raised.
+@observability.traced("drop-temp-tables")
 @notify.notifies_on_failure("drop-temp-tables")
 def handler(event, context) -> dict:
     """Drop both temp tables (if any) and thread the cleanup outcome onward.

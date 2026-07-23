@@ -143,6 +143,7 @@ def traced(verb: str):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             _reset_baggage()
+            _stamp_request_id(args[0] if args else None)
             try:
                 return span(*args, **kwargs)
             finally:
@@ -177,3 +178,30 @@ def _reset_baggage() -> None:
         logger.warning(
             "structured logging: could not reset baggage (%s: %s)", type(exc).__name__, exc
         )
+
+
+def _stamp_request_id(event: object) -> None:
+    """Put the run's ``requestId`` into baggage, from the handler's own event.
+
+    Done here rather than as a hand-written ``set_baggage`` line in each verb, for the reason
+    SPEC-128 FR-001 gives about partial instrumentation: a run that shows eight of nine verbs
+    looks like a run that *stopped* at eight, and a correlation key added by hand in nine places
+    is one a tenth verb will be added without. Stamping it at the single point that already
+    wraps every handler makes it structural instead of remembered.
+
+    Only a top-level, non-empty string ``requestId`` counts. A verb invoked with no usable id (a
+    malformed event reaching notify-failure) emits its span with ``request_id`` **absent** rather
+    than defaulted — a fabricated correlation key silently merges unrelated runs, which is worse
+    than an unjoinable event. Verbs that carry the id somewhere else set it themselves; this only
+    ever adds, never overwrites what a handler chose.
+    """
+    if not isinstance(event, dict):
+        return
+    request_id = event.get("requestId")
+    if isinstance(request_id, str) and request_id:
+        try:
+            lf.set_baggage(request_id=request_id)
+        except Exception as exc:  # noqa: BLE001 — logging must never fail a verb
+            logger.warning(
+                "structured logging: could not stamp request_id (%s: %s)", type(exc).__name__, exc
+            )
