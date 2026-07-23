@@ -520,6 +520,11 @@ jobs:
           # cpcommon only — it verifies the dead-lettered token and emits a notification,
           # and touches no domain surface at all.
           - { name: control-plane-dlq-drain, layer: false, polars: false, tbcommon: false, cpcommon: true }
+          # Structured-logging sweep (SPEC-127). cpcommon only — it needs
+          # cpcommon.observability (which is where log-foundry is pinned) and clients, and
+          # touches no domain surface. It is also the only PRODUCER in SPEC-127: it instruments
+          # itself, which is what proves the pipe end to end without instrumenting a plane.
+          - { name: log-sweep, layer: false, polars: false, tbcommon: false, cpcommon: true }
 
     steps:
       - name: Checkout

@@ -19,3 +19,23 @@ PyJWT[crypto]>=2.8,<3
 # submodules, so the polars import only runs for a verb that explicitly imports
 # type_mapping — and those are exactly the two carrying a polars layer. That module's
 # docstring has the full constraint; test_type_mapping_cpcommon.py pins the __init__ rule.
+
+# log-foundry — structured logging for the control-plane verbs (SPEC-127).
+#
+# PINNED EXACTLY, not >=. This layer attaches to every control-plane verb, so an unattended
+# minor bump would change the behaviour of all of them at once, at cold start, with no PR to
+# review it.
+#
+# The CORE package, deliberately NOT the [aws] extra. The extra exists only to pull boto3;
+# SQSSink imports it lazily inside __init__, and the Lambda runtime already provides boto3 —
+# installing the extra would put a second copy of boto3/botocore on every control-plane verb's
+# 250 MB ceiling to gain nothing. The core install declares zero runtime dependencies, so the
+# layer size delta is tens of KB.
+#
+# 0.4.0 is the floor that works here. 0.2.0 could not be installed at all (requires-python
+# >=3.13 against this fleet's python3.12) and had no repeatable flush() — a handler calling
+# shutdown() logs nothing for the rest of that warm container's life (log-forge SPEC-013).
+# 0.4.0 adds baggage on the span boundary events (log-forge SPEC-015), without which a filter
+# on fields.request_id returns a span's narration but not the span.end carrying duration_ms
+# and status — i.e. not the record worth finding.
+log-foundry==0.4.0
