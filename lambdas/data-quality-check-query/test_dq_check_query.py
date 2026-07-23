@@ -228,3 +228,104 @@ def test_the_request_object_is_threaded_not_replaced(athena_says):
 def test_a_non_dict_event_does_not_crash(athena_says):
     out = v.handler(None, None)
     assert out["queryStatus"] == "SUCCEEDED"
+
+
+# -- SPEC-132 FR-005: transitions, not polls ---------------------------------------------
+
+
+def test_twenty_polls_with_no_change_narrate_nothing(athena_says, captured_events):
+    """THE guard for this verb. It is invoked from a 30-second Wait loop for as long as the
+    profiling query runs — minutes to tens of minutes by design — so one event per poll is
+    fifty events per run saying the query is still running. The span pair already records
+    that a poll happened; the narrative must add information or say nothing.
+    """
+    athena_says.update({q: {"state": "RUNNING", "reason": None} for q in ("qid-p", "qid-r", "qid-d")})
+    event = _event(profile="RUNNING", ragged="RUNNING", duplicates="RUNNING")
+
+    for _ in range(20):
+        event = v.handler(event, None)
+
+    assert captured_events.levels() == [], (
+        f"{len(captured_events.levels())} narrative events across 20 unchanged polls"
+    )
+
+
+def test_a_query_reaching_a_terminal_state_emits_exactly_one_event(athena_says, captured_events):
+    athena_says.update({q: {"state": "RUNNING", "reason": None} for q in ("qid-p", "qid-r", "qid-d")})
+    event = _event(profile="RUNNING", ragged="RUNNING", duplicates="RUNNING")
+
+    event = v.handler(event, None)
+    athena_says["qid-p"] = {"state": "SUCCEEDED", "reason": None}
+    event = v.handler(event, None)
+    event = v.handler(event, None)  # the settled block is never described again
+
+    settled = [e for e in captured_events.messages("query settled") if e["fields"]["query"] == "profile"]
+    assert len(settled) == 1
+    assert settled[0]["fields"]["query_id"] == "qid-p"
+    assert settled[0]["fields"]["status"] == "SUCCEEDED"
+
+
+def test_a_queued_to_running_transition_is_not_worth_an_event(athena_says, captured_events):
+    """A change, but not information: the query is still running either way."""
+    athena_says.update({q: {"state": "RUNNING", "reason": None} for q in ("qid-p", "qid-r", "qid-d")})
+
+    v.handler(_event(), None)
+
+    assert captured_events.levels() == []
+
+
+def test_a_degraded_query_is_a_warning_not_an_error(athena_says, captured_events):
+    """The request still SUCCEEDS: a ragged-row count is not worth losing the null ratios
+    and row counts over, so the level must not say the run failed.
+    """
+    athena_says.update(
+        {
+            "qid-p": {"state": "RUNNING", "reason": None},
+            "qid-r": {"state": "FAILED", "reason": "SYNTAX_ERROR"},
+            "qid-d": {"state": "RUNNING", "reason": None},
+        }
+    )
+
+    v.handler(_event(), None)
+
+    degraded = captured_events.messages("query degraded")
+    assert len(degraded) == 1
+    assert degraded[0]["level"] == "WARNING"
+    assert degraded[0]["fields"]["query"] == "ragged"
+    assert degraded[0]["fields"]["status"] == "not_computed"
+    assert degraded[0]["fields"]["reason"] == "SYNTAX_ERROR"
+
+
+def test_a_quota_kill_is_reported_as_a_timeout_not_a_generic_failure(athena_says, captured_events):
+    athena_says["qid-p"] = {"state": "FAILED", "reason": "Query exceeded the limit of 30 minutes"}
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+
+    timed_out = captured_events.messages("query timed out")
+    assert timed_out and timed_out[0]["level"] == "ERROR"
+    assert timed_out[0]["fields"]["status"] == "query_timeout"
+
+
+def test_a_failed_profile_is_an_error_carrying_athenas_own_reason(athena_says, captured_events):
+    """StateChangeReason is service text and is explicitly permitted — it is what an operator
+    needs, and it is never a result row.
+    """
+    athena_says["qid-p"] = {"state": "FAILED", "reason": "COLUMN_NOT_FOUND"}
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+
+    failed = captured_events.messages("query failed")
+    assert failed and failed[0]["fields"]["reason"] == "COLUMN_NOT_FOUND"
+
+
+def test_the_describe_phase_is_one_span_per_poll_not_one_per_query(athena_says, captured_events):
+    """Three spans on a poll that repeats fifty times is a hundred and fifty extra events for
+    a duration an operator reads as a single number anyway.
+    """
+    athena_says.update({q: {"state": "RUNNING", "reason": None} for q in ("qid-p", "qid-r", "qid-d")})
+
+    v.handler(_event(), None)
+
+    assert len(captured_events.spans("describe-queries")) == 1

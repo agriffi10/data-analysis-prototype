@@ -568,3 +568,46 @@ def test_a_malformed_state_raises_a_terminal_rather_than_a_key_error(monkeypatch
         v.handler(event, None)
 
     assert excinfo.value.reason == "invalid_request"
+
+
+# -- SPEC-132: counts and the key, never a result row -----------------------------------
+
+
+def test_it_narrates_counts_and_the_report_key(monkeypatch, captured_events):
+    """FR-004: this verb holds the parsed Athena result set in memory. A row count is a
+    measurement; a row is the file.
+    """
+    _setup(monkeypatch)
+
+    v.handler(_event(), None)
+
+    assembled = captured_events.messages("assembled report")
+    assert len(assembled) == 1
+    fields = assembled[0]["fields"]
+    assert fields["report_key"].endswith(v.REPORT_BASENAME)
+    assert fields["verdict"]
+    assert isinstance(fields["row_count"], int)
+    assert isinstance(fields["findings"], int)
+    assert isinstance(fields["files"], int)
+
+
+def test_no_result_row_reaches_an_event(monkeypatch, captured_events):
+    """The result CSV's own cell values must appear nowhere in the narrative."""
+    _setup(monkeypatch)
+
+    v.handler(_event(), None)
+
+    dumped = json.dumps([e["fields"] for e in captured_events.events])
+    for cell in ("SECRET_CELL", "row_count,"):
+        assert cell not in dumped
+
+
+def test_the_three_bounded_phases_get_child_spans(monkeypatch, captured_events):
+    _setup(monkeypatch)
+
+    v.handler(_event(), None)
+
+    assert captured_events.spans("read-results"), "no read-results span"
+    assert captured_events.spans("write-report"), "no write-report span"
+    parent = captured_events.spans("assemble-report")[0]
+    assert captured_events.spans("write-report")[0]["parent_span_id"] == parent["span_id"]

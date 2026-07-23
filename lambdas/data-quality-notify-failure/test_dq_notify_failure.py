@@ -212,3 +212,57 @@ if __name__ == "__main__":
             fn()
             print(f"  ok  {name}")
     print("all notify-failure tests passed")
+
+
+# -- SPEC-132 FR-007: the verb invoked when everything else already went wrong -----------
+
+
+def test_it_names_the_outcome_it_notified_about_and_that_there_is_no_link(captured_events):
+    """"No link" is a real state, distinct from "no notification": this path runs only when
+    no report was written, and SPEC-114's builder mints nothing where the view would resolve
+    wrong.
+    """
+    nf.handler(_event({"Error": "TerminalError", "Cause": "forbidden"}), None)
+
+    notified = captured_events.messages("notified the actor of a failure")
+    assert len(notified) == 1
+    assert notified[0]["fields"]["outcome"] == "notified"
+    assert notified[0]["fields"]["notified"] is True
+    assert notified[0]["fields"]["link"] is False
+    assert notified[0]["fields"]["reason"]
+
+
+def test_a_missing_request_id_warns_and_the_field_stays_ABSENT(captured_events):
+    """SPEC-128 FR-002: a fabricated correlation key silently merges unrelated runs, so a
+    missing one must stay missing. An event that cannot be joined to its run is all the
+    record there is — hence the warning saying so.
+    """
+    nf.handler(_event({"Error": "TerminalError", "Cause": "forbidden"}, request_id=None), None)
+
+    warned = captured_events.messages("no requestId on the failed request")
+    assert warned and warned[0]["level"] == "WARNING"
+    assert all("request_id" not in e["fields"] for e in captured_events.events), (
+        "request_id must be absent, not empty"
+    )
+
+
+def test_a_suppressed_post_success_failure_is_narrated_as_such(captured_events):
+    """Telling the user their check failed would contradict the success message they have.
+    The events must still say what happened, or the suppression looks like a lost run.
+    """
+    event = _event({"Error": "States.Timeout", "Cause": ""})
+    event["reportKey"] = "alice/_data-quality-reports/r-1/report.json"
+
+    nf.handler(event, None)
+
+    suppressed = captured_events.messages("suppressed a post-success failure")
+    assert suppressed and suppressed[0]["fields"]["outcome"] == "suppressed"
+    assert suppressed[0]["fields"]["notified"] is False
+
+
+def test_no_verified_actor_is_a_warning_not_a_silent_no_op(captured_events):
+    nf.handler(_event({"Error": "TerminalError", "Cause": "unauthorized"}, actor=""), None)
+
+    warned = captured_events.messages("no verified actor; nothing to notify")
+    assert warned and warned[0]["level"] == "WARNING"
+    assert warned[0]["fields"]["outcome"] == "no-recipient"

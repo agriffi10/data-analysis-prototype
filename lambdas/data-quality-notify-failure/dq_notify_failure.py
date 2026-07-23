@@ -60,6 +60,13 @@ def handler(event, context) -> dict:
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: requestId=%s actor=%s reason=%s", request_id, actor, reason)
 
+    if not request_id:
+        # SPEC-128 FR-002 requires the span to carry NO request_id rather than an invented
+        # one, so this event cannot be joined to its run — what it says about itself is the
+        # whole record. This verb is the one most likely to be handed a malformed event, and
+        # it is invoked precisely when the rest of the run has already gone wrong.
+        observability.warning("no requestId on the failed request", actor_bound=bool(actor))
+
     if request.get("reportKey"):
         # THE CHECK ACTUALLY SUCCEEDED. reportKey is null until assemble-report writes the
         # report, and assemble-report is followed only by DropTempTables — so a non-null
@@ -82,6 +89,14 @@ def handler(event, context) -> dict:
             request.get("reportKey"),
             request_id,
         )
+        observability.info(
+            "suppressed a post-success failure",
+            outcome="suppressed",
+            reason=reason,
+            report_key=request.get("reportKey"),
+            notified=False,
+            link=False,
+        )
         return request
 
     if not actor:
@@ -91,6 +106,13 @@ def handler(event, context) -> dict:
         # notifying it would let anyone deliver text to any inbox. A logged no-op is the
         # correct outcome, not a lost message (mirrors tbcommon/notify.py).
         logger.info("no verified actor on the failed request; nothing to notify")
+        observability.warning(
+            "no verified actor; nothing to notify",
+            outcome="no-recipient",
+            reason=reason,
+            notified=False,
+            link=False,
+        )
         return request
 
     # NO TOKENS ARE AVAILABLE HERE and none are needed. The raw error yields a reason code
@@ -104,5 +126,16 @@ def handler(event, context) -> dict:
         actor,
         messages.failure_message(reason, str(request.get("location") or "")),
         dedup_id=f"{request_id}:{notify.FAILURE_STEP}" if request_id else None,
+    )
+    # `link=False` always, and that is not a placeholder: this path runs only when no report
+    # was written, and SPEC-114's link builder mints nothing where the report view would
+    # resolve wrong. "No link" is a real state, distinct from "no notification".
+    observability.info(
+        "notified the actor of a failure",
+        outcome="notified",
+        reason=reason,
+        actor=actor,
+        notified=True,
+        link=False,
     )
     return request

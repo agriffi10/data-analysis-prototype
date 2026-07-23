@@ -130,17 +130,81 @@ def _aggregate(blocks):
     return PENDING if any(b and b.get("status") in _PENDING_STATES for b in blocks) else SETTLED
 
 
+def _settled(status) -> bool:
+    """True once a query will never be described again — the only time worth narrating."""
+    return bool(status) and status not in _PENDING_STATES
+
+
+def _narrate(name, before, after) -> None:
+    """Emit AT MOST ONE event, and only when this poll is the one that settled the query.
+
+    THE POLL IS THE HAZARD, not the query (SPEC-132 FR-005). This verb is invoked from a
+    30-second Wait loop for as long as the profiling query runs — minutes to tens of minutes
+    by design, since the poll was moved into the state machine to escape Lambda's 900-second
+    ceiling. Anything said on every poll is multiplied by fifty, and fifty copies of "still
+    running" is not information: the span.start/span.end pair already records that a poll
+    happened.
+
+    So a transition into a PENDING state (QUEUED -> RUNNING) says nothing either, and an
+    already-settled block cannot re-emit because :func:`_describe` stops describing it.
+
+    ``reason`` is Athena's ``StateChangeReason`` — permitted, and the thing an operator
+    actually needs (FR-004). It is schema-and-service text, never a result row.
+    """
+    before_status = (before or {}).get("status")
+    after_status = (after or {}).get("status")
+    if after_status == before_status or not _settled(after_status):
+        return
+
+    reason = (after or {}).get("reason")
+    fields = {
+        "query": name,
+        "query_id": (after or {}).get("queryExecutionId"),
+        "status": after_status,
+        "reason": reason,
+    }
+    if after_status == "not_computed":
+        # Degraded, not failed: the request still succeeds, and losing a ragged-row count is
+        # not worth losing the null ratios and row counts over.
+        observability.warning("query degraded", **fields)
+    elif after_status in _FAILED_STATES:
+        if name == "profile" and _is_timeout(reason):
+            observability.error("query timed out", **{**fields, "status": "query_timeout"})
+        else:
+            observability.error("query failed", **fields)
+    else:
+        observability.info("query settled", **fields)
+
+
+@observability.step("describe-queries")
+def _describe_all(event):
+    """Refresh all three blocks as ONE step.
+
+    One child span per invocation, not one per query: three spans on a poll that repeats
+    fifty times is a hundred and fifty extra events for a duration an operator reads as a
+    single number anyway — "how long did Athena take to answer this poll".
+    """
+    return {
+        "profile": _describe(event.get("profile")),
+        "ragged": _describe(event.get("ragged")),
+        "duplicates": _describe(event.get("duplicates")),
+    }
+
+
 def _check(event):
     out = dict(event)
+    described = _describe_all(event)
 
-    profile = _describe(event.get("profile"))
+    profile = described["profile"]
     out["profile"] = profile
+    _narrate("profile", event.get("profile"), profile)
     _check_profile(profile)
 
     for name in _DEGRADABLE:
-        block = _describe(event.get(name))
+        block = described[name]
         if block and block.get("status") in _FAILED_STATES:
             block = _degrade(name, block)
+        _narrate(name, event.get(name), block)
         out[name] = block
 
     out["queryStatus"] = _aggregate([out["profile"], out.get("ragged"), out.get("duplicates")])

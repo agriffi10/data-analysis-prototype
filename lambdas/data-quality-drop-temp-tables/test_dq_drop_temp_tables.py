@@ -269,3 +269,56 @@ def test_a_mid_query_failure_leaves_no_temp_table_behind(monkeypatch):
     assert out["cleanup"]["failed"] == []
     # $.error survives cleanup — RecordFailure reads it after this verb returns.
     assert out["error"]["Cause"] == '{"errorMessage": "query_failed: boom"}'
+
+
+# -- SPEC-132: cleanup narrates, and never claims the run failed ------------------------
+
+
+def test_it_narrates_which_tables_were_dropped(ran, captured_events):
+    """FR-001: named, not just counted — recovering a leaked table means running a DROP by
+    hand, and a count does not say which one.
+    """
+    v.handler(_event(), None)
+
+    cleaned = captured_events.messages("cleaned up")
+    assert len(cleaned) == 1
+    fields = cleaned[0]["fields"]
+    assert fields["tables"] == 2
+    assert len(fields["dropped"]) == 2
+    assert fields["failed"] == []
+    assert fields["skipped"] is False
+
+
+def test_a_tolerated_drop_failure_is_a_WARNING_not_an_error(monkeypatch, ran, captured_events):
+    """FR-003, and the level is the whole point: cleanup swallowing a failed DROP is a
+    DELIBERATE trade — the report is written and the check genuinely succeeded, so an ERROR
+    here would make a successful run look failed to anyone filtering by level.
+    """
+    _fail_with(monkeypatch, RuntimeError("glue is unhappy"))
+
+    v.handler(_event(), None)
+
+    leaked = captured_events.messages("temp table leaked")
+    assert leaked, "a leaked table must be reported — recovery is a human running a DROP"
+    assert all(e["level"] == "WARNING" for e in leaked), (
+        "cleanup failure is tolerated by design; ERROR would say the run failed"
+    )
+    assert [e for e in captured_events.levels() if e["level"] == "ERROR"] == []
+
+
+def test_each_drop_gets_its_own_child_span(ran, captured_events):
+    """Two tables, two spans — bounded at two by the verb itself (FR-002)."""
+    v.handler(_event(), None)
+
+    assert len(captured_events.spans("drop-table")) == 2
+
+
+def test_nothing_to_drop_is_narrated_as_a_clean_no_op(ran, captured_events):
+    """The overwhelmingly common failure case — a validator or inspection failure — reached
+    this verb before any table existed. Silence here would read as "cleanup never ran".
+    """
+    v.handler(_event(database=None, tempTable=None, tempRawTable=None), None)
+
+    nothing = captured_events.messages("nothing to drop")
+    assert nothing and nothing[0]["level"] == "INFO"
+    assert nothing[0]["fields"]["skipped"] is True

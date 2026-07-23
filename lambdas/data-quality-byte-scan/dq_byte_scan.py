@@ -227,37 +227,15 @@ def _scan_file(bucket: str, entry: dict, share: int) -> tuple[int, bool, int, li
     return examined, _fits(size, share) and examined >= size, _invalid, list(_found)
 
 
-def _scan(event: dict) -> dict:
-    bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
-    manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
-    fmt = events.require(event, "format", reason=messages.INVALID_REQUEST)
+@observability.step("scan")
+def _scan_all(bucket: str, scannable: list[dict], share: int):
+    """Scan every scannable file, as ONE step. Returns ``(examined, invalid, complete, offsets)``.
 
-    out = dict(event)
-
-    if fmt not in TEXT_FORMATS:
-        # Zero bytes read. The report renders the skip and its reason rather than a clean
-        # pass — a green encoding result Parquet never earned would be a lie.
-        out["encoding"] = {"status": "skipped", "reason": SKIP_BINARY}
-        logger.info("byte-scan skipped: format=%s", fmt)
-        return out
-
-    files = manifest_store.load(bucket, manifest_key).get("files") or []
-    # Compression is per FILE (inspect-source enforces one FORMAT, not one codec), so a
-    # folder can mix plain and .gz. The scannable subset is scanned and the rest counted as
-    # skipped, rather than losing the whole figure to one .gz sibling.
-    scannable = [f for f in files if not config.is_compressed(f["key"])]
-    skipped = len(files) - len(scannable)
-
-    if not scannable:
-        out["encoding"] = {"status": "skipped", "reason": SKIP_COMPRESSED}
-        logger.info("byte-scan skipped: all %d files compressed", skipped)
-        return out
-
-    # THE DIVISION THAT IS THE WHOLE POINT: the budget is a TOTAL. 1000 files get ~2 MiB
-    # each, 2 files get ~1 GiB each, and the bytes read never exceed the total whatever the
-    # file count or the file sizes are.
-    share = max(config.DQ_SCAN_TOTAL_BYTES // len(scannable), 1)
-
+    The span covers the WHOLE scan and never a file or a region (SPEC-132 FR-002). This verb
+    iterates per file AND per region within a file, so a step one level down would mint
+    thousands of child spans for one invocation — each an SQS message and a line in a day
+    object the sweep rewrites in full.
+    """
     examined = 0
     invalid = 0
     complete = True
@@ -274,6 +252,45 @@ def _scan(event: dict) -> dict:
             {"key": entry["key"], "offset": offset}
             for offset in file_offsets[: config.DQ_OFFSET_SAMPLE - len(offsets)]
         )
+    return examined, invalid, complete, offsets
+
+
+def _scan(event: dict) -> dict:
+    bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
+    manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
+    fmt = events.require(event, "format", reason=messages.INVALID_REQUEST)
+
+    out = dict(event)
+
+    if fmt not in TEXT_FORMATS:
+        # Zero bytes read. The report renders the skip and its reason rather than a clean
+        # pass — a green encoding result Parquet never earned would be a lie.
+        out["encoding"] = {"status": "skipped", "reason": SKIP_BINARY}
+        logger.info("byte-scan skipped: format=%s", fmt)
+        observability.info("scan skipped", reason=SKIP_BINARY, format=fmt, files=0, invalid=0)
+        return out
+
+    files = manifest_store.load(bucket, manifest_key).get("files") or []
+    # Compression is per FILE (inspect-source enforces one FORMAT, not one codec), so a
+    # folder can mix plain and .gz. The scannable subset is scanned and the rest counted as
+    # skipped, rather than losing the whole figure to one .gz sibling.
+    scannable = [f for f in files if not config.is_compressed(f["key"])]
+    skipped = len(files) - len(scannable)
+
+    if not scannable:
+        out["encoding"] = {"status": "skipped", "reason": SKIP_COMPRESSED}
+        logger.info("byte-scan skipped: all %d files compressed", skipped)
+        observability.info(
+            "scan skipped", reason=SKIP_COMPRESSED, format=fmt, files=0, skipped=skipped, invalid=0
+        )
+        return out
+
+    # THE DIVISION THAT IS THE WHOLE POINT: the budget is a TOTAL. 1000 files get ~2 MiB
+    # each, 2 files get ~1 GiB each, and the bytes read never exceed the total whatever the
+    # file count or the file sizes are.
+    share = max(config.DQ_SCAN_TOTAL_BYTES // len(scannable), 1)
+
+    examined, invalid, complete, offsets = _scan_all(bucket, scannable, share)
 
     out["encoding"] = {
         "invalidUtf8Sequences": invalid,
@@ -304,6 +321,22 @@ def _scan(event: dict) -> dict:
         out["encoding"]["bytesTotal"],
         invalid,
         skipped,
+    )
+    # OFFSETS ARE POSITIONS; THE BYTES AT THEM ARE FILE CONTENTS (SPEC-132 FR-004). This is
+    # the single highest-risk emitter in the plane — the verb's whole purpose is holding a
+    # user's raw bytes, and the natural debugging instinct is to log the sequence that failed
+    # to decode. That sequence is the file. An offset and a key are enough to go and look, and
+    # they are all that is logged. `logs/` is retained forever.
+    observability.info(
+        "scanned bytes",
+        files=len(scannable),
+        skipped=skipped,
+        bytes=examined,
+        bytes_total=out["encoding"]["bytesTotal"],
+        invalid=invalid,
+        offsets=[o["offset"] for o in offsets],
+        offset_keys=sorted({o["key"] for o in offsets}),
+        coverage=out["encoding"]["coverage"],
     )
     # No clear here: _scan_file resets before every file, and what survives the last one is
     # at most DQ_OFFSET_SAMPLE ints. Clearing it on the way out would ALSO erase the only

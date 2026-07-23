@@ -95,7 +95,7 @@ that is the selection criterion, not importance.
 | Verb | Steps |
 |---|---|
 | validate-authorize | `authorize`, `validate-destination` |
-| inspect-source | `list-objects`, `resolve-format`, `probe-columns`, `detect-partitions`, `write-manifest` |
+| inspect-source | `list-objects`, `resolve-format`, `probe-columns`\*, `detect-partitions`, `write-manifest` |
 | create-temp-tables | `run-ddl` (≤2 per invocation) |
 | start-profile-query | `start-queries` |
 | check-query | `describe-queries` |
@@ -103,6 +103,13 @@ that is the selection criterion, not importance.
 | assemble-report | `find-result`, `read-results`, `write-report` |
 | drop-temp-tables | `drop-table` (≤2 per invocation) |
 | notify-failure | none — the handler is the step |
+
+\* `probe-columns` and `scan` wrap the **whole loop**, in `_probe_all` / `_scan_all`, not the
+per-object `_probe_columns` / `_scan_file`. Naming them in this table while the criterion below
+forbids a step on a per-file function reads as a contradiction; extracting the loop is what
+satisfies both, and it is what the duration an operator wants ("how much of the verb went into
+reading headers") actually measures. A folder of 900 objects would otherwise mint 900 child spans,
+each an SQS message and a line in a day object the sweep rewrites in full.
 
 #### Acceptance Criteria:
 
@@ -184,8 +191,11 @@ is a credential rather than a name.
 - [ ] `check-query` logs query ids, states and the Athena `StateChangeReason`; never a result.
 - [ ] A test over the nine verb modules asserts no emitter call passes a field whose name is in a
       contents denylist (`value`, `values`, `sample`, `samples`, `row`, `rows`, `cell`, `content`,
-      `contents`, `preview`, `head`, `text`, `token`, `id_token`). Name-based and therefore
-      imperfect — it is a tripwire for the obvious mistake, not the enforcement; the rule turns on
+      `contents`, `preview`, `head`, `text`, `token`, `id_token`). **The denylist wins over this
+      spec's own Data Model, which lists `rows: int`** — a count of rows is spelled `row_count`,
+      because the tripwire's whole value is that it is dumb and strict, and a field an author has
+      to argue is fine is a field whose name should say so instead. (Caught on the guard's first
+      real run, against `assemble-report`.) Name-based and therefore imperfect — it is a tripwire for the obvious mistake, not the enforcement; the rule turns on
       where a value came from, which no name test can see.
 - [ ] The existing `logging.getLogger()` calls are **unchanged**.
 
@@ -285,8 +295,11 @@ step: str           reason: str
 ```
 
 Run volume, so the budget is stated rather than discovered: eight verbs at roughly 4–8 events
-each, plus `check-query` at 2 boundary events per 30-second poll and near-zero narrative — on the
-order of 150 events for a run with a ten-minute profiling query, against ~40 today.
+each, plus `check-query` at **4** boundary events per 30-second poll (the handler span **and**
+FR-002's `describe-queries` step, which this figure originally omitted) and near-zero narrative —
+on the order of **250** events for a run with a ten-minute profiling query, against ~40 today.
+The step is kept at one per invocation rather than one per query for exactly this reason: three
+would have made it eight per poll.
 
 ## File & Folder Structure
 
