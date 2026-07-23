@@ -7,6 +7,8 @@ here (it's stubbed in the validator's tests).
 
 import json
 
+import pytest
+
 import auth
 import cache
 from cpcommon import config as cpconfig
@@ -529,3 +531,94 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} common-layer tests passed.")
     sys.exit(0)
+
+
+# -- SPEC-134: the narrative -----------------------------------------------------------
+
+
+def test_a_failed_roster_fan_out_names_the_stale_member_and_the_counts(captured_events):
+    """FR-005. Five members, the THIRD one's cache broken — the exact shape that leaves a
+    roster looking correct to four people and stale to one, invisible from either side.
+
+    Per-member events are acceptable here and prohibited in the log sweep, and the difference
+    is structural rather than a matter of taste: membership is capped at ten Cognito attribute
+    slots, so this fan-out can emit at most ten events. The sweep's per-message count is
+    unbounded AND it emits into the queue it drains.
+    """
+    from fakes import FakeS3, FakeClientError
+    from cpcommon import clients
+
+    members = ["alice", "bob", "cara", "dan", "erin"]
+
+    class FlakyS3(FakeS3):
+        def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+            if Key == "cara/user_settings/shared-connections.json":
+                raise FakeClientError("InternalError")
+            return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+    install()
+    clients._s3 = FlakyS3()
+
+    cache.write_roster_to_all(members, "sales", "alice", [])
+
+    per_member = captured_events.messages("roster fan-out failed for one member")
+    assert len(per_member) == 1
+    assert per_member[0]["level"] == "WARNING"
+    assert per_member[0]["fields"]["member"] == "cara"
+
+    summary = captured_events.messages("roster fanned out")
+    assert len(summary) == 1
+    # alice is the owner (written separately), so the fan-out covers bob/cara/dan/erin.
+    assert summary[0]["fields"]["written"] == 3
+    assert summary[0]["fields"]["failed"] == 1
+    assert summary[0]["fields"]["stale_members"] == ["cara"]
+
+    # And the premise: the other four still landed.
+    for member in ("bob", "dan", "erin", "alice"):
+        assert ("user-bkt", f"{member}/user_settings/shared-connections.json") in clients._s3.store
+
+
+def test_the_fan_out_event_count_is_bounded_by_the_slot_cap(captured_events):
+    """The bound that makes per-member acceptable, asserted rather than asserted-about."""
+    from cpcommon import clients
+
+    install()
+    members = [f"user{n}" for n in range(membership.config.MAX_SHARED_MEMBERSHIPS)]
+
+    cache.write_roster_to_all(members, "sales", members[0], [])
+    assert clients._s3
+
+    assert len(captured_events.levels()) <= membership.config.MAX_SHARED_MEMBERSHIPS + 1
+
+
+def test_slot_assignment_reports_the_slot_and_the_occupancy(captured_events):
+    install()
+
+    membership.assign_or_find_slot("bob", "sales")
+
+    assigned = captured_events.messages("membership slot assigned")
+    assert assigned and assigned[0]["fields"]["slot"] >= 1
+    assert assigned[0]["fields"]["slots_cap"] == membership.config.MAX_SHARED_MEMBERSHIPS
+    assert assigned[0]["fields"]["store"] == "cognito"
+
+
+def test_slot_exhaustion_is_an_error_with_a_stable_reason(captured_events):
+    """A notification cannot be counted; "how often are people hitting the cap" is a product
+    question that needs a field.
+    """
+    from cpcommon import clients
+
+    install()
+    cap = membership.config.MAX_SHARED_MEMBERSHIPS
+    # Every slot already taken by a DIFFERENT space, so no early idempotent return.
+    clients._cognito.users["bob"] = {
+        membership._slot_attr(k): f"space{k}" for k in range(1, cap + 1)
+    }
+
+    with pytest.raises(membership.ProvisioningError):
+        membership.assign_or_find_slot("bob", "sales")
+
+    exhausted = captured_events.messages("membership slots exhausted")
+    assert exhausted and exhausted[0]["level"] == "ERROR"
+    assert exhausted[0]["fields"]["reason"] == "membership-limit-reached"
+    assert exhausted[0]["fields"]["slots_cap"] == cap

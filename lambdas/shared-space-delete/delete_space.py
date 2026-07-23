@@ -11,6 +11,8 @@ with a reason) for the screen's Retry affordance, then re-raises -> Fail.
 
 import logging
 
+from cpcommon import observability
+
 import cache
 import membership
 import registry as reg
@@ -19,6 +21,13 @@ from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one shared-space request is up to eight
+# invocations, and they are only one queryable set if they share a service name (SPEC-127
+# FR-003). The per-verb identity rides as the `verb` field, and the verb names ARE the request
+# `action` values this plane already uses, so an event's `verb` and a request's `action` are the
+# same string and join without translation (SPEC-134 FR-001).
+observability.init(service="shared-space")
 
 
 def delete_space(space, actor, request_id, registry):
@@ -71,9 +80,21 @@ def delete_space(space, actor, request_id, registry):
         )
         emit_notification(recipient, message, dedup_id=f"{request_id}:delete:{recipient}")
     logger.info("delete %s by %s: cascade complete (%d members revoked)", space, actor, len(members))
+    observability.info(
+        "space deleted",
+        space=space,
+        actor=actor,
+        members_applied=len(members),
+        revoked=members,
+        stores=["registry", "cognito", "glue", "cache"],
+    )
     return {"status": "ok", "action": "delete", "space": space, "revokedMembers": members}
 
 
+# @traced is the ONLY decorator on this plane: these verbs notify explicitly from inside
+# the handler rather than via @notifies_on_failure, so the ordering rule that governs
+# data-quality/table-builder/table-share does not apply here (SPEC-134 FR-002).
+@observability.traced("delete")
 def handler(event, context):
     """``event`` is the validated context from the validator (via the Choice state)."""
     space = event["space"]

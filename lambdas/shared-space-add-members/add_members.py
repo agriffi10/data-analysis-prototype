@@ -9,7 +9,7 @@ skippedAtLimit}.
 
 import logging
 
-from cpcommon import clients
+from cpcommon import clients, observability
 import cache
 import membership
 import registry as reg
@@ -18,6 +18,13 @@ from notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one shared-space request is up to eight
+# invocations, and they are only one queryable set if they share a service name (SPEC-127
+# FR-003). The per-verb identity rides as the `verb` field, and the verb names ARE the request
+# `action` values this plane already uses, so an event's `verb` and a request's `action` are the
+# same string and join without translation (SPEC-134 FR-001).
+observability.init(service="shared-space")
 
 
 def add_members(space, members, request_id, registry):
@@ -70,9 +77,38 @@ def add_members(space, members, request_id, registry):
     for recipient, message, tag in pending_notifications:
         emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
     logger.info("add_members %s: %s", space, summary)
+    # Requested vs applied vs ignored, because the three diverge silently: an unknown username
+    # and a user at their workspace limit are both "not added" to a caller reading a count, and
+    # they need completely different answers.
+    #
+    # MEMBER NAMES, not just counts. A username is permitted metadata here (it already IS the
+    # S3 prefix, the principal tag and the Glue database name), and "which member" is the whole
+    # question when a roster disagrees with a registry.
+    #
+    # The membership grant is live AT THIS POINT — but the principal TAG only takes effect once
+    # the user's token is re-minted, which is the lag that has repeatedly presented as "the
+    # grant didn't work" (SPEC-134 FR-006). Said here so the log answers that question instead
+    # of prompting it.
+    observability.info(
+        "members added",
+        space=space,
+        actor=owner,
+        store="registry",
+        members_requested=len(list(membership.normalize_members(members, owner))),
+        members_applied=len(summary["added"]),
+        members_ignored=len(summary["ignoredUnknown"]),
+        skipped_at_limit=len(summary["skippedAtLimit"]),
+        added=summary["added"],
+        access_live_now=True,
+        principal_tag_needs_token_remint=True,
+    )
     return {"status": "ok", "action": "add_members", "space": space, **summary}
 
 
+# @traced is the ONLY decorator on this plane: these verbs notify explicitly from inside
+# the handler rather than via @notifies_on_failure, so the ordering rule that governs
+# data-quality/table-builder/table-share does not apply here (SPEC-134 FR-002).
+@observability.traced("add-members")
 def handler(event, context):
     """``event`` is the validated context from the validator (via the Choice state)."""
     space = event["space"]

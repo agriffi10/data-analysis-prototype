@@ -16,7 +16,7 @@ means a concurrent writer won, so re-read and retry.
 import json
 import logging
 
-from cpcommon import config as cpconfig
+from cpcommon import observability, config as cpconfig
 from cpcommon import clients
 import casio
 
@@ -210,11 +210,35 @@ def write_roster_to_all(
     aborting the rest of the fan-out (the registry mutation already committed). The
     owner projection is written last, preserving the verbs' prior end state.
     """
+    written, failed = [], []
     for member in members:
         if member == owner:
             continue
         try:
             write_member_entry(member, name, owner, members, acknowledged, created_at)
+            written.append(member)
         except Exception:  # best-effort fan-out — never abort the others on one failure
             logger.exception("roster fan-out to %s for %s failed (best-effort)", member, name)
+            failed.append(member)
+            # WARNING, not error: the fan-out continues and the registry mutation already
+            # committed. What it costs is one member seeing a stale roster while everyone else
+            # sees the current one — invisible from either side, which is why it is named.
+            observability.warning(
+                "roster fan-out failed for one member", space=name, member=member, store="cache"
+            )
     write_owner_projection(owner, name, members, acknowledged, created_at)
+    # PER-MEMBER EVENTS ARE ACCEPTABLE HERE, and this is a deliberate exception to the
+    # per-item prohibition in SPEC-131 FR-005 and the per-file caution in SPEC-132 FR-002.
+    # The bound is STRUCTURAL, not a hope: membership is capped at ten by the Cognito
+    # attribute slot model (membership.MAX_SHARED_MEMBERSHIPS), so a fan-out can emit at most
+    # ten events. The sweep's prohibition exists because its per-message count is unbounded
+    # AND it emits into the queue it drains; neither is true here.
+    observability.info(
+        "roster fanned out",
+        space=name,
+        actor=owner,
+        store="cache",
+        written=len(written),
+        failed=len(failed),
+        stale_members=failed,
+    )
