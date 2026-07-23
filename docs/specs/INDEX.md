@@ -132,8 +132,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 124 — Data Quality: Start a Check from the Dashboard (space + folder/file target picker) | Completed |
 | 125 — Fold `shared-space-common` onto the `cpcommon` layer | Completed |
 | 126 — Control-Plane DLQ Drain → User Notification | Completed |
-| 127 — Structured Logging Foundation (`log-foundry` → logs queue → admin bucket) | Draft |
-| 128 — Structured Logging: Instrument the Data-Quality Control Plane (pilot) | Draft |
+| 127 — Structured Logging Foundation (`log-foundry` → logs queue → admin bucket) | Completed |
+| 128 — Structured Logging: Instrument the Data-Quality Control Plane (pilot) | Completed |
 
 ## Arcs
 

@@ -66,24 +66,23 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — data-quality arc.** 108→114 + 123/124 + 125/126 complete. **No spec is open.**
-- **LIVE VERIFICATION IS OWED — 124 is now built, so the arc is due its one smoke pass** (user
-  decision 2026-07-21). 114, 123 and 124 are merged and deployed **unproven against real
-  SQS/SFN/Cognito/S3** — scenarios are in each spec's Phase 2. Three changes most deserve it: 114's
-  `reportKey` Pass-state seeding (the SPEC-108 smoke test has caught that class before), 123's
-  **conditional-put CAS** (unit tests can only check it against a hand-written *model* of S3), and
-  124's dashboard enqueue, whose whole path to SQS has only ever run against a mock. **126 owes its
-  own live check too** — hand-place a malformed body on the data-quality DLQ with a valid token and
-  confirm one "couldn't be started" notification arrives (now within one **~10-min sweep**, not
-  seconds — the drain is a scheduled sweep since #270/PR2) naming no path from the body.
-- **SPEC-125 owes a shared-space smoke run** (create → add-member → leave → delete). It attached the
-  `cpcommon` layer to all 8 verbs, and a shared layer's import-time `_require` fails at **cold
-  start** — the one failure mode no unit test can reach (PR #196). Check the 8 functions' first
-  invoke after deploy before trusting the arc.
+**Current work — none. No spec is open.**
+
+- **LIVE VERIFICATION STILL OWED for 114/123/125/126 — unchanged by the 127/128 work.** SPEC-127/128
+  were verified live on 2026-07-23 (cold start on all 10 new/changed functions, routing,
+  partitioning, path-injection containment, decorator order). That probe invoked the nine verbs
+  with synthetic payloads which were **rejected at validation**, so **no data-quality run
+  executed** — it did *not* exercise 114's `reportKey` seeding or 123's CAS. **125** still owes its
+  shared-space smoke run (create → add-member → leave → delete; a shared layer's import-time
+  `_require` fails at **cold start**, PR #196). **126** still owes its malformed-DLQ-body check
+  (one notification within a ~10-min sweep, naming no path from the body).
+- **SPEC-128 owes one real run.** Because the probe payloads were rejected, `request_id` was
+  correctly *absent* from every span. FR-002's join key is proven by unit test but **not** by a
+  live run — that needs a real check started from the UI.
 - **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
   includes every line of the minority file **plus every header** — the check compares against the
-  *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when files
-  agree. Two findings double-reporting one cause.
+  *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when
+  files agree. Two findings double-reporting one cause.
 
 ---
 
@@ -110,6 +109,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. `TerminalError` gained `tokens` (user-facing; `detail` stays operator-only). FR-005's alarms were **removed** → **SPEC-126**.
 - **Control-plane DLQ drain (126):** one shared Lambda **sweeps** all four request DLQs on a **10-min EventBridge schedule** (was four SQS event-source mappings whose idle long-polling burned the SQS free tier) and turns each dead-lettered request into a user notification — recipient from the **verified token** (expiry relaxed via a separately-named `cpcommon.auth` entry point), **nothing from the untrusted body** in the message, every path total (it **deletes every message it reads**, so nothing redelivers). The **notifications DLQ stays undrained** (circular). No redrive, no alarms.
+- **Structured logging (127/128):** `log-foundry` (pinned **exactly**, core not `[aws]`) in the `cpcommon` layer; `cpcommon.observability` = `init`/`flush`/`traced`. `LOGS_QUEUE_URL` is **optional** (`environ.get`, never `_require`) so a function missing it logs to stdout instead of crashing a whole plane at cold start. The logs queue is the repo's only **standard** (non-FIFO) queue — `SQSSink` sends no `MessageGroupId` — and it is **swept** on a 5-min schedule, never long-polled (#270/#271). `service` = the **control plane**, and it is untrusted input on an S3 key: anything failing `^[a-z][a-z0-9-]{2,62}$` goes to `logs/_unrouted/`. Put-then-delete (at-least-once; duplicates collapse on `log_id`). Partitions come from the **event's** timestamp. `logs/` is retained **forever**. `@traced` goes **outermost, above `@notifies_on_failure`**, or failed invocations close their span as `ok`. One run = **nine traces**, joined on `fields.request_id`.
 - **Control-plane table creation = TBAC (070/111 correction):** LF **admin does NOT grant `CREATE_TABLE`**. A `portal-managed` LF-Tag on every DB + one tag-policy grant per execution role + static per-bucket `DATA_LOCATION_ACCESS`. (Distinct from the per-user isolation tag.)
 - **No ASL state decodes an error Cause (#252, control-plane-wide):** `States.StringToJson($.error.Cause)` raises `States.Runtime`, **uncatchable anywhere**. Carry raw `$.error`; decode via `cpcommon.errors.failure_reason`.
 - **IaC:** OpenTofu; `infra/modules/` bounded-context; IAM policies are `.tftpl` rendered with `templatefile()`.
