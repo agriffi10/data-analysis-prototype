@@ -66,7 +66,7 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — SPEC-133 (DLQ-drain narrative). Infra applied; code phases next. 134→137 follow.**
+**Current work — SPEC-134 (shared-space narrative) in flight. 135→137 follow, one `Plane()` row each.**
 
 - **ONE LIVE RUN DISCHARGES FOUR DEBTS.** A real data-quality check started **from the UI** is
   owed by **114** (`reportKey` seeding), **123** (the index CAS), **128** (FR-002's `request_id`
@@ -76,9 +76,11 @@ down elsewhere — when a spec closes, prune it rather than appending.**
   synthetic payloads were **rejected at validation**, so no run executed and `request_id` was
   correctly absent from every span.
 - **Also owed live:** **125**'s shared-space smoke run (create → add-member → leave → delete; a
-  shared layer's import-time `_require` fails at **cold start**, PR #196), and **126**'s
-  malformed-DLQ-body check — which **133's Phase 5 discharges**, since putting a malformed message
-  on a request DLQ tests both the notification and the new `logs/service=dlq-drain/` forensic copy.
+  shared layer's import-time `_require` fails at **cold start**, PR #196 — **134's narrative makes
+  that run far more legible**, and the two should be done together), and **133's Phase 5**: a
+  malformed message on one request DLQ, confirming the user is notified, the message is gone, and
+  the redacted body is in `logs/service=dlq-drain/`. That discharges **126**'s owed malformed-body
+  check too.
 - **OPEN DECISION blocking nothing but shaping 134→137 — `error.stack` carries file contents.**
   `log-foundry`'s `end_event` attaches `traceback.format_exception` to **every** failed span
   unconditionally, walking the `__cause__` chain — so a polars parse error quoting a user's cell
