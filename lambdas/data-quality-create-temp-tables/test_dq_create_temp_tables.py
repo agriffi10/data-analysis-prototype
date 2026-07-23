@@ -305,3 +305,57 @@ def _raise(exc):
         raise exc
 
     return _fn
+
+
+# -- SPEC-132: the narrative ------------------------------------------------------------
+
+
+def test_it_narrates_what_it_created(ran, captured_events):
+    """FR-001: reading the events must say what the verb FOUND, not only that it ran."""
+    v.handler(_event(), None)
+
+    created = captured_events.messages("created temp tables")
+    assert len(created) == 1
+    fields = created[0]["fields"]
+    assert fields["database"] and fields["table"]
+    assert fields["columns"] > 0
+    assert fields["format"] == "csv"
+    # Whether the raw-line table exists decides whether a ragged finding is even possible
+    # downstream, so its absence must be distinguishable from a ragged check that failed.
+    assert fields["raw_table"], "a CSV source must report its raw-line table"
+    assert fields["verb"] == "create-temp-tables"
+
+
+def test_json_reports_no_raw_table(monkeypatch, ran, captured_events):
+    _install_manifest(monkeypatch, _manifest(fmt="json"))
+
+    v.handler(_event(format="json"), None)
+
+    assert captured_events.messages("created temp tables")[0]["fields"]["raw_table"] is None
+
+
+def test_each_ddl_gets_its_own_child_span(ran, captured_events):
+    """FR-002: two creates for CSV, so the second one's cost is visible on its own."""
+    v.handler(_event(), None)
+
+    assert len(captured_events.spans("run-ddl")) == 2
+    parent = captured_events.spans("create-temp-tables")[0]
+    assert all(s["parent_span_id"] == parent["span_id"] for s in captured_events.spans("run-ddl"))
+
+
+def test_a_terminal_names_its_reason_token_and_not_the_prose(monkeypatch, ran, captured_events):
+    """FR-003: `reason` is the messages constant's own value, never scraped from the text."""
+    with pytest.raises(TerminalError):
+        v.handler(_event(space={"kind": "public", "bucket": BUCKET, "prefix": "x/"}), None)
+
+    failed = captured_events.messages("create-temp-tables failed")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["reason"] == messages.INVALID_REQUEST
+    assert failed[0]["fields"]["error_type"] == "TerminalError"
+
+
+def test_a_successful_run_emits_no_error_events(ran, captured_events):
+    """FR-003: a run that succeeded must not contain error events, or the level is useless."""
+    v.handler(_event(), None)
+
+    assert [e for e in captured_events.levels() if e["level"] == "ERROR"] == []

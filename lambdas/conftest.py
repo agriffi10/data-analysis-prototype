@@ -68,6 +68,64 @@ for _name, _value in _REQUIRED_ENV.items():
     os.environ.setdefault(_name, _value)
 
 
+class _CapturingSink:
+    """Collects emitted events so a verb test can assert on what it narrated."""
+
+    def __init__(self):
+        self.events = []
+
+    def emit(self, batch):
+        self.events.extend(batch)
+
+    def close(self):
+        pass
+
+    def messages(self, message):
+        return [e for e in self.events if e["message"] == message]
+
+    def levels(self):
+        """Everything that is not a span boundary — the narrative proper."""
+        return [e for e in self.events if e["message"] not in ("span.start", "span.end")]
+
+    def spans(self, function):
+        return [
+            e
+            for e in self.events
+            if e["message"] == "span.start" and e["function"] == function
+        ]
+
+
+@pytest.fixture
+def captured_events():
+    """Capture one test's structured events (SPEC-132 FR-001).
+
+    Lives here rather than in each verb's test file because all nine data-quality verbs need
+    it, and SPEC-133→137 will need it for four more control planes — nine copies of a sink
+    harness is how three of them end up subtly different.
+
+    Retiring the worker is the part that is easy to miss: log-foundry builds it lazily from
+    whatever sink was configured at the first flush and caches it for the process, so
+    reconfiguring alone would send every event to the sink a previous test installed.
+    """
+    import log_foundry as lf
+    from log_foundry import config as lf_config
+    from log_foundry import decorator as lf_decorator
+
+    def _swap(sink):
+        worker = getattr(lf_decorator, "_worker", None)
+        if worker is not None:
+            worker.shutdown()
+            lf_decorator._worker = None
+        lf.configure(service="test", version="0", env="test", sink=sink)
+
+    saved = lf_config._config
+    sink = _CapturingSink()
+    _swap(sink)
+    yield sink
+    _swap(_CapturingSink())  # quiet, and never the previous test's collector
+    lf_config._config = saved
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _drain_log_foundry_before_capture_closes():
     """Retire log-foundry's worker while pytest's captured streams are still open.

@@ -146,6 +146,7 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     return location
 
 
+@observability.step("list-objects")
 def _list_objects(bucket: str, prefix: str) -> list[tuple[str, int]]:
     """Return the non-ignored data objects under ``prefix`` as ``(key, size)``.
 
@@ -184,6 +185,7 @@ def _enforce_caps(objects: list[tuple[str, int]]) -> None:
             )
 
 
+@observability.step("resolve-format")
 def _resolve_format(objects: list[tuple[str, int]], location: str) -> str:
     """Return the single canonical format of ``objects``, or raise a terminal.
 
@@ -380,12 +382,33 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
         ) from exc
 
 
+@observability.step("probe-columns")
+def _probe_all(bucket: str, objects: list[tuple[str, int]], fmt: str) -> list[dict]:
+    """Probe every object's columns, as ONE step.
+
+    EVERY file is probed, not one sample: the per-file column lists are what SPEC-112's
+    cross-file agreement check compares, and a single sample cannot show disagreement.
+
+    The span wraps the WHOLE loop rather than :func:`_probe_columns`, which runs once per
+    object. SPEC-132 FR-002's table names ``probe-columns`` as a step and the same FR forbids a
+    step on a per-file function, and this is what satisfies both — a folder of 900 objects
+    would otherwise mint 900 child spans, each an SQS message and a line in a day object the
+    sweep rewrites in full. One span still answers the question the step exists for: how much
+    of the verb's time went into reading headers.
+    """
+    return [
+        {"key": key, "size": size, "columns": _probe_columns(bucket, key, fmt)}
+        for key, size in objects
+    ]
+
+
 def _relative_dirs(key: str, listing_prefix: str) -> list[str]:
     """Return ``key``'s directory segments beneath ``listing_prefix``."""
     rel = key[len(listing_prefix):] if key.startswith(listing_prefix) else key
     return rel.split("/")[:-1]
 
 
+@observability.step("detect-partitions")
 def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) -> list[dict]:
     """Return the ordered Hive partition keys + their observed values, or [] if flat.
 
@@ -465,6 +488,7 @@ def _manifest_key(report_prefix: str) -> str:
     return f"{report_prefix.rstrip('/')}/{MANIFEST_BASENAME}"
 
 
+@observability.step("write-manifest")
 def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
     """Write the manifest to S3, canonically and compactly.
 
@@ -505,12 +529,7 @@ def _inspect(event: dict) -> dict:
     fmt = _resolve_format(objects, location)
     partition_keys = _detect_partition_keys(objects, listing_prefix)
 
-    # EVERY file is probed, not one sample: the per-file column lists are what SPEC-112's
-    # cross-file agreement check compares, and a single sample cannot show disagreement.
-    files = [
-        {"key": key, "size": size, "columns": _probe_columns(bucket, key, fmt)}
-        for key, size in objects
-    ]
+    files = _probe_all(bucket, objects, fmt)
 
     manifest_key = _manifest_key(report_prefix)
     _write_manifest(
@@ -533,6 +552,23 @@ def _inspect(event: dict) -> dict:
         len(files),
         [k["name"] for k in partition_keys],
         manifest_key,
+    )
+    # Column NAMES and partition-key NAMES are logged deliberately, reversing the instinct to
+    # be cautious with anything that came out of a file: a name is SCHEMA, and schema is what
+    # a schema bug is *about* (SPEC-132 FR-004). Column VALUES would be file contents and are
+    # never logged anywhere in this plane.
+    observability.info(
+        "inspected source",
+        prefix=listing_prefix,
+        bucket=bucket,
+        objects=len(files),
+        bytes=sum(size for _key, size in objects),
+        format=fmt,
+        column_names=sorted({c["name"] for f in files for c in f["columns"]}),
+        columns=len({c["name"] for f in files for c in f["columns"]}),
+        partition_key_names=[k["name"] for k in partition_keys],
+        capped=len(objects) >= config.DQ_MAX_OBJECTS,
+        manifest_key=manifest_key,
     )
 
     # The state output THREADS the request object and adds four small keys. The file list
@@ -561,4 +597,26 @@ def _inspect(event: dict) -> dict:
 @notify.notifies_on_failure("inspect-source")
 def handler(event, context) -> dict:
     """Inspect the authorized location, write the manifest, and pass its KEY onward."""
-    return _inspect(event)
+    try:
+        return _inspect(event)
+    except TerminalError as err:
+        observability.error(
+            "inspect-source failed",
+            error_type=type(err).__name__,
+            reason=err.reason,
+            tokens=err.tokens or {},
+            # `detail` IS OMITTED HERE, and this is the one place in the front half where it
+            # is (SPEC-132 FR-003's file-contents exception). `_probe_columns`'s catch-all
+            # builds its detail as f"could not read the schema of {key}: {exc}", where `exc`
+            # is a polars parse error — and polars quotes the offending value in its message
+            # ("could not parse 'ACME, Inc' as dtype i64"). That is a cell out of a user's
+            # file wearing an error message, in a store retained forever. The reason token and
+            # the exception type answer "why did it stop"; the specific bad value is in
+            # CloudWatch, which is not retained forever, for the operator who needs it.
+            #
+            # Suppressed for EVERY terminal from this verb rather than only the unreadable
+            # ones: the alternative is a denylist of reasons, which the next reason added is
+            # added without.
+            detail_suppressed=True,
+        )
+        raise

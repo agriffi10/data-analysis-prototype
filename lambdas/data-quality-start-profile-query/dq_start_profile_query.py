@@ -20,6 +20,7 @@ import logging
 
 from cpcommon import athena, config as cpconfig, events
 from cpcommon import observability
+from cpcommon.errors import TerminalError
 from dqcommon import manifest as manifest_store, messages, notify, sql
 
 logger = logging.getLogger()
@@ -67,6 +68,7 @@ def _start(name: str, query: str, event: dict, database: str, results: str) -> s
     )
 
 
+@observability.step("start-queries")
 def _start_queries(event: dict) -> dict:
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
@@ -139,6 +141,19 @@ def _start_queries(event: dict) -> dict:
         database,
         table,
     )
+    started = ["profile", "duplicates"] + (["ragged"] if out["ragged"] else [])
+    observability.info(
+        "started queries",
+        queries=len(started),
+        # WHICH of the optional ones were applicable, not merely how many ran: `ragged` is
+        # null for JSON/Parquet because the concept does not apply there, and that is a
+        # different thing from a ragged check that was attempted and degraded.
+        started=sorted(started),
+        ragged_applicable=out["ragged"] is not None,
+        database=database,
+        table=table,
+        format=fmt,
+    )
     return out
 
 
@@ -150,4 +165,19 @@ def _start_queries(event: dict) -> dict:
 @notify.notifies_on_failure("start-profile-query")
 def handler(event, context) -> dict:
     """Start the three queries and thread their execution ids onward."""
-    return _start_queries(event)
+    try:
+        return _start_queries(event)
+    except TerminalError as err:
+        # This verb raises no terminal of its own — every one arrives from `events.require`
+        # or `athena.start_query`. It is narrated anyway, because "which verb stopped the run
+        # and why" is the question, and a verb that only ever borrows its failures is exactly
+        # the one whose silence looks like it was never reached.
+        observability.error(
+            "start-profile-query failed",
+            step="start-queries",
+            error_type=type(err).__name__,
+            reason=err.reason,
+            detail=err.detail,
+            tokens=err.tokens or {},
+        )
+        raise

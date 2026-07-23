@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import dq_validate_authorize as v  # noqa: E402
 from cpcommon.errors import TerminalError  # noqa: E402
+from dqcommon import messages  # noqa: E402
 
 USER_BUCKET = "dq-user-bkt"
 SHARED_BUCKET = "dq-shared-bkt"
@@ -207,3 +208,99 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# -- SPEC-132: the narrative ------------------------------------------------------------
+
+
+def test_it_narrates_the_actor_the_space_and_the_normalized_location(captured_events):
+    """FR-001: the four things an operator needs before they can go and look."""
+    _setup(actor="alice")
+
+    v.handler(_event(), None)
+
+    authorized = captured_events.messages("authorized")
+    assert len(authorized) == 1
+    fields = authorized[0]["fields"]
+    assert fields["actor"] == "alice"
+    assert fields["space"] == "alice"
+    assert fields["space_kind"] == "own"
+    assert fields["location"] == "alice/sales"
+    assert fields["report_prefix"].endswith("/")
+    assert fields["verb"] == "validate-authorize"
+
+
+def test_a_shared_check_is_distinguishable_from_a_personal_one(captured_events):
+    """A shared check turned on a registry membership lookup that could itself be the thing
+    that went wrong; a personal one can only ever read the actor's own prefix.
+    """
+    _setup(actor="alice", spaces={"team_data": {"status": "active", "members": ["alice"]}})
+
+    v.handler(
+        _event(
+            space={"kind": "shared", "bucket": SHARED_BUCKET, "prefix": "team_data/"},
+            location="team_data/sales/",
+        ),
+        None,
+    )
+
+    assert captured_events.messages("authorized")[0]["fields"]["space_kind"] == "shared"
+
+
+def test_both_authorization_phases_get_their_own_child_span(captured_events):
+    _setup(actor="alice")
+
+    v.handler(_event(), None)
+
+    parent = captured_events.spans("validate-authorize")[0]
+    for step in ("authorize", "validate-destination"):
+        spans = captured_events.spans(step)
+        assert spans, f"no {step} span"
+        assert spans[0]["parent_span_id"] == parent["span_id"]
+
+
+def test_a_refusal_names_its_reason_token(captured_events):
+    """FR-003: countable across runs, which prose is not."""
+    _setup(actor="alice")
+
+    _expect_reason(_event(location="bob/secrets/"), messages.FORBIDDEN)
+
+    failed = captured_events.messages("authorization failed")
+    assert failed and failed[0]["level"] == "ERROR"
+    assert failed[0]["fields"]["reason"] == messages.FORBIDDEN
+    assert failed[0]["fields"]["actor"] == "alice"
+
+
+def test_a_refusal_says_nothing_about_which_space_exists(captured_events):
+    """The membership oracle the raise site is careful about must not reopen here: one
+    reason for "no such space" and for "not a member", in the events as in the message.
+    """
+    _setup(actor="mallory", spaces={"team_data": {"status": "active", "members": ["alice"]}})
+
+    _expect_reason(
+        _event(
+            space={"kind": "shared", "bucket": SHARED_BUCKET, "prefix": "team_data/"},
+            location="team_data/sales/",
+        ),
+        messages.FORBIDDEN,
+    )
+    _setup(actor="mallory", spaces={})
+    _expect_reason(
+        _event(
+            space={"kind": "shared", "bucket": SHARED_BUCKET, "prefix": "no_such_space/"},
+            location="no_such_space/sales/",
+        ),
+        messages.FORBIDDEN,
+    )
+
+    reasons = {e["fields"]["reason"] for e in captured_events.messages("authorization failed")}
+    assert reasons == {messages.FORBIDDEN}, "the events distinguish two cases the message does not"
+
+
+def test_no_event_from_this_verb_carries_the_id_token(captured_events):
+    """The one thing in the envelope that is a credential rather than a name."""
+    _setup(actor="alice")
+
+    v.handler(_event(), None)
+
+    assert "stub-token" not in json.dumps(captured_events.events)
