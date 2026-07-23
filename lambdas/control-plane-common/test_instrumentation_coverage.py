@@ -124,6 +124,10 @@ def _emitter_calls(path):
 CONTENTS_DENYLIST = {
     "value", "values", "sample", "samples", "row", "rows", "cell", "content", "contents",
     "preview", "head", "text", "token", "id_token",
+    # SPEC-137 FR-005. `email` is obvious; the other three are the mechanical hazard — a
+    # Cognito trigger event carries request.userAttributes.email, so logging the EVENT, or its
+    # attributes map, publishes an address without any field ever being named `email`.
+    "email", "event", "attributes", "user_attributes",
 }
 
 #: Credential-shaped keyword names, banned on any emitter or baggage call.
@@ -201,6 +205,28 @@ def test_every_verb_narrates_and_not_only_traces(plane, path):
     assert list(_emitter_calls(path)), (
         f"{path.name} opens a span and says nothing inside it — see SPEC-132 FR-001"
     )
+
+
+def test_the_denylist_still_covers_every_name_a_spec_put_on_it():
+    """The tripwire is DORMANT until someone trips it, so nothing else here fails when an
+    entry is quietly deleted — a mutation removing SPEC-137's four names survived every other
+    test in this module.
+
+    This asserts the RULE rather than its effect: each name is on the list because a spec put
+    it there, so removing one has to be a decision someone makes in the open.
+    """
+    required = {
+        # SPEC-132 FR-004 — data read out of a user's file.
+        "value", "values", "sample", "samples", "row", "rows", "cell",
+        "content", "contents", "preview", "head", "text",
+        # SPEC-130 FR-005 — credentials, never metadata.
+        "token", "id_token",
+        # SPEC-137 FR-005 — the email address, and the three shapes that carry one nested
+        # where a field-name check cannot see it.
+        "email", "event", "attributes", "user_attributes",
+    }
+    missing = required - CONTENTS_DENYLIST
+    assert not missing, f"a spec put these on the denylist and they were removed: {sorted(missing)}"
 
 
 @pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)

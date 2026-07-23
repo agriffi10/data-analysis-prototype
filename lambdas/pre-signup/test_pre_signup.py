@@ -4,6 +4,7 @@ Runs under pytest or as a plain script (`python3 test_pre_signup.py`); the JS CI
 not run a Python interpreter.
 """
 
+import pytest
 from contextlib import contextmanager
 
 from pre_signup import handler
@@ -93,3 +94,45 @@ if __name__ == "__main__":
         fn()
         print(f"ok - {fn.__name__}")
     print(f"\n{len(fns)} passed")
+
+
+# -- SPEC-137 FR-005: an email address reaches no event ---------------------------------
+
+
+def test_no_emitted_event_contains_the_signup_email(captured_events):
+    """Checked against the SERIALIZED event, not a field allowlist.
+
+    The leak arrives nested — `info("signup", event=event)` publishes
+    request.userAttributes.email without any field ever being named `email`, which is
+    exactly what a field-name check cannot see. So this asserts on the bytes.
+    """
+    import json
+
+    address = "recognisable.person@mailinator.com"
+    event = {
+        "userName": "alice",
+        "request": {"userAttributes": {"email": address, "sub": "abc-123"}},
+    }
+
+    with pytest.raises(Exception):
+        handler(event, None)
+
+    dumped = json.dumps(captured_events.events)
+    assert address not in dumped, "the signup email reached a store retained forever"
+    assert "recognisable.person" not in dumped, "the local part leaked on its own"
+    # The DOMAIN is permitted and is the thing the rule turns on — assert it IS there, so
+    # this test cannot pass by the verb having simply gone silent.
+    rejected = captured_events.messages("signup rejected")
+    assert rejected and rejected[0]["fields"]["domain"] == "mailinator.com"
+    assert rejected[0]["fields"]["username"] == "alice"
+
+
+def test_a_valid_signup_emits_no_email_either(captured_events):
+    import json
+
+    address = "fine.person@example.com"
+    event = {"userName": "alice", "request": {"userAttributes": {"email": address}}}
+
+    handler(event, None)
+
+    assert address not in json.dumps(captured_events.events)

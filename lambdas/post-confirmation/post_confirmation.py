@@ -44,6 +44,11 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+from cpcommon import observability  # noqa: E402 - after the logger, before any handler
+
+# `service` is "auth", shared with pre-signup: one signup touches both triggers.
+observability.init(service="auth")
+
 glue = boto3.client("glue")
 lf = boto3.client("lakeformation")
 
@@ -128,6 +133,7 @@ def provision_user(username):
     _tag_database(username)
 
 
+@observability.traced("post-confirmation")
 def handler(event, context):
     """Cognito Post-Confirmation trigger: provision the confirmed user's Glue database.
 
@@ -145,5 +151,19 @@ def handler(event, context):
     except Exception as exc:  # noqa: BLE001 - never block sign-up on a provisioning error
         # Logged for the operator to re-run backfill.py; sign-up still completes.
         logger.error("Failed to provision user=%s: %s", username, exc)
+        # A user who signed up successfully and has NO Glue database — the whole reason
+        # backfill.py exists. It is swallowed on purpose (never block sign-up), so without
+        # this event the only trace is a CloudWatch line in a log group nobody is watching.
+        observability.error(
+            "provisioning failed; user has no database",
+            username=username,
+            error_type=type(exc).__name__,
+            reason="provisioning-failed",
+            remediation="backfill",
+        )
+        return event
 
+    # The username is permitted metadata — it IS the Glue database name (SPEC-033). The
+    # trigger event is NOT logged: it carries request.userAttributes.email.
+    observability.info("user provisioned", username=username, database=username)
     return event

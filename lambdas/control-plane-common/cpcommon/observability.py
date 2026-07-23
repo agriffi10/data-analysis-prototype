@@ -48,6 +48,13 @@ run needs to reach the object (user decision, 2026-07-23).
   operator records, carries no operational meaning here, and would be the only personal contact
   detail in a prefix retained forever.
 
+  The email hazard is specific and mechanical rather than hypothetical (SPEC-137 FR-005). A
+  Cognito trigger event carries ``request.userAttributes.email``, so a single
+  ``info("signup", event=event)`` — the most natural line anyone writes while debugging a
+  trigger — publishes it. **Never log a raw trigger event, an attributes map, or any dict you
+  did not build field by field**: the leak arrives nested, where a field-name check cannot see
+  it.
+
 **The emitters do not enforce that rule at runtime, deliberately.** It turns on *provenance* — did
 this value come from inside a user's file — and no filter over a field name or a value shape can
 see provenance. A filter that looked like enforcement would be worse than none, because it would

@@ -13,7 +13,17 @@ use throwaway inbox services to clear the email-verification step.
 Pure validation — no AWS API calls. The execution role grants logs only.
 """
 
+import logging
 import re
+
+from cpcommon import observability
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# `service` is "auth" for both Cognito triggers: they are not a control plane and not verbs,
+# and one signup touches both, so one queryable set is the useful grouping.
+observability.init(service="auth")
 
 USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 
@@ -36,6 +46,7 @@ DISPOSABLE_DOMAINS = frozenset(
 )
 
 
+@observability.traced("pre-signup")
 def handler(event, context):
     """Reject invalid usernames and disposable email domains; otherwise pass through.
 
@@ -54,7 +65,15 @@ def handler(event, context):
     # requires email, so this shouldn't happen).
     email = event.get("request", {}).get("userAttributes", {}).get("email", "")
     domain = email.split("@")[-1].lower() if "@" in email else ""
+    # THE DOMAIN, NEVER THE ADDRESS (SPEC-137 FR-005). The domain is what the rule turns on
+    # and is shared by every user of that provider; the local part is what makes an address a
+    # personal contact detail, and `logs/` is retained forever. The raw `event` is never
+    # logged either — it carries request.userAttributes.email, so logging it publishes the
+    # address without any field ever being named `email`.
     if domain and domain in DISPOSABLE_DOMAINS:
+        observability.warning(
+            "signup rejected", username=username, reason="disposable-domain", domain=domain
+        )
         raise Exception(
             "Sign-ups from temporary email addresses are not allowed. "
             "Please use a permanent email address."

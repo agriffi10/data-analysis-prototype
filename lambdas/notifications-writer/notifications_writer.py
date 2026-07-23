@@ -25,6 +25,14 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+from cpcommon import observability  # noqa: E402 - after the logger, before any handler
+
+# THE DELIVERY CHANNEL FOR EVERY FAILURE NOTIFICATION IN THE SYSTEM, and the notifications DLQ
+# is deliberately left undrained — draining it would ask the queue that just failed to deliver
+# to deliver the news about itself (SPEC-126 FR-006). A message that dies here dies silently by
+# design, so these events are the only account of it that exists.
+observability.init(service="notifications")
+
 VALID_ACTIONS = frozenset({"create", "markRead", "markAllRead"})
 USER_ACTIONS = frozenset({"markRead", "markAllRead"})
 
@@ -252,9 +260,16 @@ def handler(event, context):
     """
     records = event.get("Records", []) if isinstance(event, dict) else []
     if not records:
+        observability.error("no SQS records in event", reason="malformed-event")
         raise ValidationError("no SQS records in event")
     record = records[0]
     req = _parse_record(record)
     result = process(req)
     logger.info("notifications %(action)s for %(username)s -> %(count)d", result)
+    observability.info(
+        "notification written",
+        action=result.get("action"),
+        recipient=result.get("username"),
+        notifications=result.get("count"),
+    )
     return result
