@@ -99,6 +99,80 @@ def test_no_verb_enables_argument_or_return_capture(path):
         assert banned not in source, f"{path.name} enables {banned} — see FR-003"
 
 
+# -- SPEC-132 FR-006: a verb that traces but never narrates -----------------------------
+
+
+def _emitter_calls(path):
+    """Every `observability.info/warning/error(...)` call in the module, as AST nodes.
+
+    AST rather than a substring search, so a mention inside a docstring or a comment cannot
+    satisfy the guard — the point is that the verb *emits*, not that it talks about emitting.
+    """
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Call) and ast.unparse(node.func) in (
+            "observability.info",
+            "observability.warning",
+            "observability.error",
+        ):
+            yield node
+
+
+@pytest.mark.parametrize("path", VERB_MODULES, ids=lambda p: p.parent.name)
+def test_every_verb_narrates_and_not_only_traces(path):
+    """A verb that traces but never narrates is worse than one that does neither.
+
+    In a query filtered to narrative events it looks exactly like a verb that never ran — the
+    same "8 of 9 looks truncated" failure the tracing guard above exists for, one level down.
+    """
+    assert list(_emitter_calls(path)), (
+        f"{path.name} opens a span and says nothing inside it — see SPEC-132 FR-001"
+    )
+
+
+# -- SPEC-132 FR-004: the contents tripwire ---------------------------------------------
+
+#: Field names that would carry data read out of a user's file. Name-based and therefore
+#: IMPERFECT — the real rule turns on provenance (did this value come from inside a file),
+#: which no name test can see. This is a tripwire for the obvious mistake, not the enforcement;
+#: enforcement is review plus the per-call-site criteria in SPEC-132 FR-004.
+CONTENTS_DENYLIST = {
+    "value",
+    "values",
+    "sample",
+    "samples",
+    "row",
+    "rows",
+    "cell",
+    "content",
+    "contents",
+    "preview",
+    "head",
+    "text",
+    "token",
+    "id_token",
+}
+
+
+@pytest.mark.parametrize("path", VERB_MODULES, ids=lambda p: p.parent.name)
+def test_no_emitter_passes_a_contents_shaped_field(path):
+    """This plane's whole job is reading users' files, so the rule is live here, not formal.
+
+    byte-scan decodes user bytes, assemble-report reads Athena result rows, inspect-source
+    parses headers — every one of them holds file contents in memory at the moment an author
+    would reach for a debugging field. `logs/` is retained forever.
+    """
+    offenders = [
+        f"{ast.unparse(node.func)}({kw.arg}=...)"
+        for node in _emitter_calls(path)
+        for kw in node.keywords
+        if kw.arg and kw.arg.lower() in CONTENTS_DENYLIST
+    ]
+    assert not offenders, (
+        f"{path.name} logs a contents-shaped field: {offenders} — column NAMES are schema and "
+        "are permitted; column VALUES are file contents and are not (SPEC-132 FR-004)"
+    )
+
+
 @pytest.mark.parametrize("path", VERB_MODULES, ids=lambda p: p.parent.name)
 def test_no_verb_puts_a_token_into_a_log_field(path):
     """No ID token, or any part of one, is ever a log field (same posture as SPEC-126 FR-004).

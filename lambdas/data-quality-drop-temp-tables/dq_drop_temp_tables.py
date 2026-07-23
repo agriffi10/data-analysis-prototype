@@ -31,6 +31,7 @@ logger.setLevel(logging.INFO)
 observability.init(service="data-quality")
 
 
+@observability.step("drop-table")
 def _drop(database: str, table: str, output_location: str) -> bool:
     """Drop one table. Returns True if the DROP ran, False if it failed (logged).
 
@@ -57,11 +58,20 @@ def _drop(database: str, table: str, output_location: str) -> bool:
         )
         logger.info("dropped %s.%s", database, table)
         return True
-    except Exception:  # noqa: BLE001 - cleanup is best-effort by design (see docstring)
+    except Exception as exc:  # noqa: BLE001 - cleanup is best-effort by design (see docstring)
         logger.exception(
             "LEAKED TEMP TABLE: could not drop %s.%s — it must be removed by hand",
             database,
             table,
+        )
+        # WARNING, not error: the request did not fail and must not read as though it did
+        # (SPEC-132 FR-003). What it costs is one leaked table, by design — so the event says
+        # which one, because the recovery is a human running a DROP by hand.
+        observability.warning(
+            "temp table leaked",
+            database=database,
+            table=table,
+            error_type=type(exc).__name__,
         )
         return False
 
@@ -81,6 +91,7 @@ def _cleanup(event: dict) -> dict:
             database,
             tables,
         )
+        observability.info("nothing to drop", tables=0, dropped=0, failed=0, skipped=True)
         out["cleanup"] = {"dropped": [], "failed": [], "skipped": True}
         return out
 
@@ -92,6 +103,16 @@ def _cleanup(event: dict) -> dict:
     for table in tables:
         (dropped if _drop(database, table, ddl_output) else failed).append(table)
 
+    observability.info(
+        "cleaned up",
+        database=database,
+        tables=len(tables),
+        # Named, not just counted: recovering a leaked table means running a DROP by hand,
+        # and a count does not say which one.
+        dropped=dropped,
+        failed=failed,
+        skipped=False,
+    )
     out["cleanup"] = {"dropped": dropped, "failed": failed, "skipped": False}
     return out
 

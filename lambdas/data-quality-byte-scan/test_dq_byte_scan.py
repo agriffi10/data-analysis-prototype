@@ -16,6 +16,7 @@ test; the REAL constants are exercised by the pure-planning tests over _regions,
 no I/O at all.
 """
 
+import json
 import os
 import sys
 
@@ -586,3 +587,53 @@ def test_the_request_object_is_threaded_through(monkeypatch):
     assert out["requestId"] == "req-1"
     assert out["actor"] == "alice"
     assert out["manifestKey"] == MANIFEST_KEY
+
+
+# -- SPEC-132 FR-004: the highest-risk emitter in the plane ------------------------------
+
+
+def test_it_narrates_offsets_and_never_the_bytes_at_them(monkeypatch, captured_events):
+    """The verb's whole purpose is holding a user's raw bytes, and the natural debugging
+    instinct is to log the sequence that failed to decode. That sequence IS the file, and
+    `logs/` is retained forever. An offset and a key are enough to go and look.
+    """
+    bad = b"id,name\nx," + b"\xff\xfe" + b"payload-SECRET-BYTES\n"
+    fake = _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": len(bad)}], content={"alice/s/a.csv": bad})
+    assert fake
+
+    v.handler(_event(), None)
+
+    scanned = captured_events.messages("scanned bytes")
+    assert len(scanned) == 1
+    fields = scanned[0]["fields"]
+    assert fields["invalid"] >= 1, "the fixture must actually contain invalid UTF-8"
+    assert fields["offsets"], "offsets are positions and ARE logged"
+    assert fields["offset_keys"] == ["alice/s/a.csv"]
+    assert all(isinstance(o, int) for o in fields["offsets"])
+
+    dumped = json.dumps(captured_events.events)
+    assert "SECRET-BYTES" not in dumped, "decoded file content reached a forever-retained store"
+    assert "\\u00ff" not in dumped and "xff" not in dumped, "raw bytes reached the events"
+
+
+def test_the_scan_is_one_span_however_many_files_and_regions(monkeypatch, captured_events):
+    """FR-002: this verb iterates per file AND per region within a file, so a step one level
+    down mints thousands of child spans for one invocation.
+    """
+    _shrink(monkeypatch, total=4096, min_sample=64)
+    files = [{"key": f"alice/s/f{n}.csv", "size": 8192} for n in range(12)]
+    _setup(monkeypatch, files)
+
+    v.handler(_event(), None)
+
+    assert len(captured_events.spans("scan")) == 1
+
+
+def test_a_skipped_scan_says_why(monkeypatch, captured_events):
+    _setup(monkeypatch, [{"key": "alice/s/a.parquet", "size": 10 * GIB}], fmt="parquet")
+
+    v.handler(_event(fmt="parquet"), None)
+
+    skipped = captured_events.messages("scan skipped")
+    assert skipped and skipped[0]["fields"]["reason"] == v.SKIP_BINARY
+    assert skipped[0]["fields"]["format"] == "parquet"

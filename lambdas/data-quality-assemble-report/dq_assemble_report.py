@@ -65,6 +65,7 @@ def _read(bucket: str, key: str) -> bytes:
         raise
 
 
+@observability.step("read-results")
 def _result_rows(block) -> list[dict]:
     """Return one query's result rows, or [] when it produced no readable result.
 
@@ -94,6 +95,7 @@ def _result_rows(block) -> list[dict]:
     return report.parse_result(_read(bucket, found))
 
 
+@observability.step("find-result")
 def _find_result(bucket: str, prefix: str) -> str:
     """First ``.csv`` under ``prefix`` — the fallback when the constructed key misses.
 
@@ -113,6 +115,7 @@ def _find_result(bucket: str, prefix: str) -> str:
     return keys[0] if keys else ""
 
 
+@observability.step("write-report")
 def _write(bucket: str, key: str, document: dict) -> None:
     body = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
     try:
@@ -171,6 +174,19 @@ def _assemble(event: dict) -> dict:
         document["exact"]["rowCount"],
         len(document["topIssues"]),
     )
+    # COUNTS AND THE KEY, never a result row (SPEC-132 FR-004). This verb holds the parsed
+    # Athena result set in memory, so every figure below is derived from user data and none
+    # of it IS user data — a row count is a measurement, a row is the file.
+    observability.info(
+        "assembled report",
+        report_key=key,
+        verdict=document["verdict"],
+        files=document["fileCount"],
+        row_count=document["exact"]["rowCount"],
+        findings=len(document["topIssues"]),
+        approximate=document["hasApproximateFigures"],
+        incomplete=document["hasIncompleteFigures"],
+    )
 
     return out
 
@@ -191,7 +207,21 @@ def handler(event, context) -> dict:
     notification can never link to a report that does not exist; if the write fails this
     line is never reached and the failure path notifies instead.
     """
-    out = _assemble(event)
+    try:
+        out = _assemble(event)
+    except TerminalError as err:
+        # `detail` is safe for every raise site in this verb: MissingProfileError's message is
+        # a literal ("the profile result carried no total row") and the other names a bucket
+        # and prefix. Neither quotes a result row — audited for SPEC-132 FR-003.
+        observability.error(
+            "assemble-report failed",
+            step="read-results",
+            error_type=type(err).__name__,
+            reason=err.reason,
+            detail=err.detail,
+            tokens=err.tokens or {},
+        )
+        raise
     notify.emit_completed(out)
 
     # ORDER IS THE CONTRACT, AND IT IS THREE-DEEP: report object, then notification, then
