@@ -18,11 +18,16 @@ consistent with the SPEC-055/070 routing.
 import logging
 
 from tscommon import athena as athena_mod
-from cpcommon import config
+from cpcommon import config, observability
 from tscommon import ddl, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
+# recipient Map fan-out), and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
+observability.init(service="table-share")
 
 
 def _results_location(recipient: dict, actor: str) -> str:
@@ -30,6 +35,10 @@ def _results_location(recipient: dict, actor: str) -> str:
     return f"s3://{recipient['destBucket']}/{recipient['database']}/athenaresults/{actor}/"
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("create-table")
 @notify.notifies_on_failure("create")
 def handler(event, context) -> dict:
     """Recipient-Map entry point: create the cloned table in the recipient database.
@@ -59,6 +68,15 @@ def handler(event, context) -> dict:
     )
 
     logger.info("created table %s.%s for %s", database, table_name, request.get("actor"))
+    # The recipient DATABASE is the field that matters: this plane creates tables in databases
+    # it does not own, via the same TBAC grant whose absence caused table-builder's
+    # silent-create incident (SPEC-070/111).
+    observability.info(
+        "recipient table created",
+        database=database,
+        table=table_name,
+        actor=request.get("actor"),
+    )
     # Terminal success — tell the sender AND the success target (user recipient
     # directly; space recipient via its owner) (SPEC-094 FR-001/FR-002).
     notify.emit_recipient_success(event)

@@ -16,7 +16,7 @@ Emits the validated, normalized request the next states consume:
 
 import logging
 
-from cpcommon import auth, config, events
+from cpcommon import auth, config, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from tscommon import cognito as cog
@@ -25,6 +25,11 @@ from tscommon.config import RECIPIENT_KINDS, SHARE_MAX_RECIPIENTS
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
+# recipient Map fan-out), and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
+observability.init(service="table-share")
 
 
 def _authorize_source(source, actor) -> dict:
@@ -115,6 +120,10 @@ def _annotate_recipients(recipients) -> list:
     return annotated
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
     """SFN entry point: parse → verify → authorize → validate → annotate the share request.
@@ -162,5 +171,19 @@ def _validate_and_authorize(event) -> dict:
         actor,
         len(recipients),
         sum(1 for r in recipients if r["valid"]),
+    )
+    # Requested vs VALID, because they diverge silently: a share to five recipients where two
+    # resolve to nothing is not a failure and not a clean success, and the count alone cannot
+    # say which. Recipient NAMES are space/user names — permitted metadata, and the whole
+    # question when someone asks why they did not receive a table.
+    observability.info(
+        "share validated",
+        actor=actor,
+        source_database=source["database"],
+        source_table=source["table"],
+        table=table_name,
+        recipients_requested=len(recipients),
+        recipients_valid=sum(1 for r in recipients if r["valid"]),
+        invalid_recipients=[r.get("name") for r in recipients if not r["valid"]],
     )
     return validated

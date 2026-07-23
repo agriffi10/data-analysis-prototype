@@ -15,13 +15,18 @@ Emits the item state with the recipient enriched:
 
 import logging
 
-from cpcommon import clients, config
+from cpcommon import clients, config, observability
 from tscommon import notify
 from tscommon import glue as glue_mod
 from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
+# recipient Map fan-out), and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
+observability.init(service="table-share")
 
 
 def _resolve_destination(recipient: dict, table_name: str) -> dict:
@@ -48,6 +53,10 @@ def _prefix_is_empty(bucket: str, prefix: str) -> bool:
     return page.get("KeyCount", 0) == 0
 
 
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("check-target-absent")
 @notify.notifies_on_failure("check")
 def handler(event, context) -> dict:
     """Recipient-Map entry point: verify the target table is absent in this recipient.
@@ -91,5 +100,16 @@ def _check_target_absent(event) -> dict:
         resolved["name"],
         resolved["destBucket"],
         resolved["destPrefix"],
+    )
+    # The verdict as an explicit boolean, like table-builder's: this is a PUSH with no consent
+    # step, so "the destination was empty before we wrote to it" is the only record that a
+    # share did not silently land on top of something.
+    observability.info(
+        "target absent",
+        recipient=resolved["name"],
+        recipient_kind=resolved["kind"],
+        dest_bucket=resolved["destBucket"],
+        dest_prefix=resolved["destPrefix"],
+        exists=False,
     )
     return {"recipient": resolved, "request": request}

@@ -11,6 +11,8 @@ foreign data. No object bytes pass through the Lambda.
 
 import logging
 
+from cpcommon import observability
+
 from tscommon import copy as copy_mod
 from tscommon import copy_plan
 from tscommon import notify
@@ -18,7 +20,16 @@ from tscommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
+# recipient Map fan-out), and they are only one queryable set if they share a service name
+# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
+observability.init(service="table-share")
 
+
+# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
+# so if it were outermost the span would close status="ok" on an invocation that
+# actually failed and notified.
+@observability.traced("copy-objects")
 @notify.notifies_on_failure("copy")
 def handler(event, context) -> dict:
     """Recipient-Map entry point: copy the source objects into the recipient's prefix.
@@ -50,5 +61,15 @@ def handler(event, context) -> dict:
         copied,
         recipient.get("destBucket"),
         recipient.get("destPrefix"),
+    )
+    # PER RECIPIENT, never per object. This verb runs inside the SFN's recipient Map, so it is
+    # already once per recipient — and a folder can hold thousands of objects, each of which
+    # would be an SQS message and a line in a day object the sweep rewrites in full.
+    observability.info(
+        "objects copied",
+        recipient=recipient.get("name"),
+        dest_bucket=recipient.get("destBucket"),
+        dest_prefix=recipient.get("destPrefix"),
+        objects=copied,
     )
     return {"recipient": recipient, "request": request, "copiedObjects": copied}
