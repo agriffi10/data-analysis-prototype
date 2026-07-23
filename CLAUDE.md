@@ -66,7 +66,7 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — SPEC-137 (singletons) in flight; it closes the observability arc. Every Lambda in the fleet is then in the pipe.**
+**Current work — none. The observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What remains is the three live checks below.**
 
 - **ONE LIVE RUN DISCHARGES FOUR DEBTS.** A real data-quality check started **from the UI** is
   owed by **114** (`reportKey` seeding), **123** (the index CAS), **128** (FR-002's `request_id`

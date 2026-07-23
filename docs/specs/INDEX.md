@@ -142,7 +142,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 134 — Structured Logging: Instrument the Shared-Space Control Plane | Completed |
 | 135 — Structured Logging: Instrument the Table-Builder Control Plane | Completed |
 | 136 — Structured Logging: Instrument the Table-Share Control Plane | Completed |
-| 137 — Structured Logging: Instrument the Singleton Lambdas | Draft |
+| 137 — Structured Logging: Instrument the Singleton Lambdas | Completed |
 
 ## Arcs
 
