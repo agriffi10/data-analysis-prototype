@@ -12,10 +12,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pytest  # noqa: E402
-
-from cpcommon import events  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+import pytest
+from cpcommon import events
+from cpcommon.errors import TerminalError
 
 REASON = "unauthorized"
 

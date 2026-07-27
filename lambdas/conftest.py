@@ -24,9 +24,9 @@ for _dir in _LAYER_DIRS:
         sys.path.insert(0, _path)
 
 
-import importlib  # noqa: E402
+import importlib
 
-import pytest  # noqa: E402
+import pytest
 
 # The shared cpcommon modules that verb tests globally patch (config.X = …,
 # clients._s3 = fake, s3_listing.list_data_objects = stub, registry.load = …,
@@ -45,7 +45,7 @@ def _restore_cpcommon_modules():
     for name in _SHARED_MODULES:
         try:
             module = importlib.import_module(name)
-        except Exception:  # noqa: BLE001 - a suite that never imports it needs no reset
+        except Exception:  # noqa: BLE001, S112 - a suite that never imports it needs no reset
             continue
         saved[module] = dict(vars(module))
     yield
@@ -144,5 +144,5 @@ def _drain_log_foundry_before_capture_closes():
         import log_foundry
 
         log_foundry.shutdown()
-    except Exception:  # noqa: BLE001 — teardown hygiene must never fail a green suite
+    except Exception:  # noqa: BLE001, S110 — teardown hygiene must never fail a green suite
         pass

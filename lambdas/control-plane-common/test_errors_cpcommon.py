@@ -10,9 +10,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pytest  # noqa: E402
-
-from cpcommon import errors  # noqa: E402
+import pytest
+from cpcommon import errors
 
 
 class _FakeClientError(Exception):
@@ -91,7 +90,8 @@ def test_error_code_is_defensive_against_malformed_responses():
         response = None
 
     class _ErrorNone(Exception):
-        response = {"Error": None}
+        # Mirrors botocore's ClientError.response shape; never mutated.
+        response = {"Error": None}  # noqa: RUF012
 
     class _ResponseNotDict(Exception):
         response = "nope"

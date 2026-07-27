@@ -25,7 +25,7 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from cpcommon import observability  # noqa: E402 - after the logger, before any handler
+from cpcommon import observability  # after the logger, before any handler
 
 # THE DELIVERY CHANNEL FOR EVERY FAILURE NOTIFICATION IN THE SYSTEM, and the notifications DLQ
 # is deliberately left undrained — draining it would ask the queue that just failed to deliver
@@ -97,7 +97,7 @@ def verified_username(id_token):
             issuer=_ISSUER,
             options={"require": ["exp", "iss", "aud"]},
         )
-    except Exception as exc:  # noqa: BLE001 - any verify failure = untrusted
+    except Exception as exc:  # any verify failure = untrusted
         raise AuthorizationError(f"token verification failed: {exc}") from exc
 
     if claims.get("token_use") != "id":

@@ -7,11 +7,10 @@ no-op. Shared objects/tables are left intact (membership only). Returns {removed
 
 import logging
 
-from cpcommon import observability
-
 import cache
 import membership
 import registry as reg
+from cpcommon import observability
 from notify import emit_notification
 
 logger = logging.getLogger()

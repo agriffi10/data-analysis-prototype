@@ -4,9 +4,9 @@ Runs under pytest or as a plain script (`python3 test_pre_signup.py`); the JS CI
 not run a Python interpreter.
 """
 
-import pytest
 from contextlib import contextmanager
 
+import pytest
 from pre_signup import handler
 
 
@@ -114,7 +114,9 @@ def test_no_emitted_event_contains_the_signup_email(captured_events):
         "request": {"userAttributes": {"email": address, "sub": "abc-123"}},
     }
 
-    with pytest.raises(Exception):
+    # The handler raises bare Exception on purpose (Cognito reads only the message),
+    # so there is no narrower type to catch here.
+    with pytest.raises(Exception):  # noqa: B017
         handler(event, None)
 
     dumped = json.dumps(captured_events.events)

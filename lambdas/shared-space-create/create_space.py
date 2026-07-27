@@ -12,13 +12,12 @@ add-members.
 
 import logging
 
-from cpcommon import config as cpconfig, observability
-
-import config
-from cpcommon import clients
 import cache
+import config
 import membership
 import registry as reg
+from cpcommon import clients, observability
+from cpcommon import config as cpconfig
 from notify import emit_notification
 
 logger = logging.getLogger()
@@ -117,7 +116,7 @@ def create_space(name, actor, request_id):
     """
     try:
         outcome = reg.reserve(name, actor, request_id)  # may raise "name already taken"
-    except Exception as exc:  # noqa: BLE001 - record + notify the actor, then fail
+    except Exception as exc:  # record + notify the actor, then fail
         # Reserve is handled outside the provisioning try/except on purpose: a name
         # collision must NOT rewrite the registry — the name belongs to the space's real
         # owner. The actor's OWN cache is theirs to correct: the validator wrote a
@@ -130,7 +129,7 @@ def create_space(name, actor, request_id):
             cache.upsert_entry(
                 actor, {"name": name, "role": "owner", "status": "failed", "reason": friendly}
             )
-        except Exception:  # noqa: BLE001 - best-effort failure recording
+        except Exception:  # best-effort failure recording
             logger.exception("failed to mark reserve-collision failure in cache for %s", name)
         emit_notification(
             actor,
@@ -159,7 +158,7 @@ def create_space(name, actor, request_id):
         created_at = (reg.load(name) or {}).get("createdAt")
         cache.write_owner_projection(actor, name, [actor], [], created_at)
         reg.finalize(name, actor, request_id, "active")
-    except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
+    except Exception as exc:  # record failure, don't leave it dangling
         reason = str(exc)  # raw — kept in logs + the registry `failed` record
         friendly = _user_reason(exc)
         logger.error("create %s failed for %s: %s", name, actor, reason)
@@ -171,17 +170,17 @@ def create_space(name, actor, request_id):
             # toward the actor's membership cap. Idempotent: clear_slot only clears the
             # slot holding `name`, and is a no-op if none was assigned yet.
             membership.clear_slot(actor, name)
-        except Exception:  # noqa: BLE001 - best-effort failure recording
+        except Exception:  # best-effort failure recording
             logger.exception("failed to roll back membership slot for %s", name)
         try:
             reg.finalize(name, actor, request_id, "failed", reason)
-        except Exception:  # noqa: BLE001 - best-effort failure recording
+        except Exception:  # best-effort failure recording
             logger.exception("failed to record registry failure for %s", name)
         try:
             cache.upsert_entry(
                 actor, {"name": name, "role": "owner", "status": "failed", "reason": friendly}
             )
-        except Exception:  # noqa: BLE001 - best-effort failure recording
+        except Exception:  # best-effort failure recording
             logger.exception("failed to record cache failure for %s", name)
         # Emitted after the terminal `failed` status is recorded; best-effort — never
         # changes the Fail outcome. Friendly reason only (raw stays in log + registry).

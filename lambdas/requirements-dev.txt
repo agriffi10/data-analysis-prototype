@@ -4,6 +4,14 @@
 #   pip install -r lambdas/table-builder-infer-schema/requirements.txt   # polars: infer-schema,
 #                                                                       # cpcommon.type_mapping +
 #                                                                       # data-quality inspect-source
-ruff>=0.6
+# ruff is BOUNDED TO A MINOR, not left open. This repo has no ruff config, so it lints on
+# ruff's DEFAULT rule set — and 0.16.0 widened that default from 59 rules to 413, turning a
+# green main red overnight with 500 findings in files nobody had touched. An unpinned linter
+# means any release can do that again, to every open PR at once. The upper bound makes the
+# next widening an explicit, reviewable bump instead of a surprise.
+#
+# If the default set is ever not what we want, the fix is a [tool.ruff.lint] select in a
+# config file — then the rule set is ours and the version bound matters less.
+ruff>=0.16,<0.17
 pytest>=8
 pytest-cov>=5

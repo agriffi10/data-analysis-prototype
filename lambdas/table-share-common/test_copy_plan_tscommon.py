@@ -7,6 +7,7 @@ import io
 import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,11 +19,10 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import pytest  # noqa: E402
-
-from cpcommon import clients  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
-from tscommon import copy_plan  # noqa: E402
+import pytest
+from cpcommon import clients
+from cpcommon.errors import TerminalError, TransientError
+from tscommon import copy_plan
 
 REQUEST = {
     "actor": "alice",
@@ -45,14 +45,14 @@ class _FakeS3:
         self.body = body
         self.puts = []
 
-    def put_object(self, Bucket, Key, Body, **kw):  # noqa: N803
+    def put_object(self, Bucket, Key, Body, **kw):
         if self.error:
             raise self.error
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body})
         self.store[Key] = Body
         return {}
 
-    def get_object(self, Bucket, Key):  # noqa: N803
+    def get_object(self, Bucket, Key):
         if self.error:
             raise self.error
         if self.body is not None:
@@ -122,9 +122,11 @@ def test_the_key_sits_under_the_prefix_the_infra_contracts_name():
 def test_the_prefix_matches_what_the_iam_grant_and_lifecycle_rule_use():
     """Read from infra/ so the three cannot drift apart silently."""
     here = os.path.dirname(os.path.abspath(__file__))
-    policy = open(os.path.join(here, "..", "..", "infra", "modules", "table-share",
-                               "policies", "execution.json.tftpl")).read()
-    lifecycle = open(os.path.join(here, "..", "..", "infra", "modules", "analytics", "s3.tf")).read()
+    policy = Path(here, "..", "..", "infra", "modules", "table-share",
+                  "policies", "execution.json.tftpl").read_text(encoding="utf-8")
+    lifecycle = Path(here, "..", "..", "infra", "modules", "analytics", "s3.tf").read_text(
+        encoding="utf-8"
+    )
 
     assert f"/{copy_plan.PREFIX}/*" in policy, "IAM grant does not cover the plan prefix"
     assert f'prefix = "{copy_plan.PREFIX}/"' in lifecycle, "lifecycle rule does not expire the plan prefix"

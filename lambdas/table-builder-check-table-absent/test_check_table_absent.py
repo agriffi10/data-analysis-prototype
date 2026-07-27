@@ -12,9 +12,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
-import check_table_absent as c  # noqa: E402
-from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+import check_table_absent as c
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
 
 
 class _FakeSqs:
@@ -59,7 +59,7 @@ class _FakeGlue:
         self._behaviour = behaviour
         self.calls = []
 
-    def get_table(self, DatabaseName, Name):  # noqa: N803 - boto3 kwarg names
+    def get_table(self, DatabaseName, Name):  # boto3 kwarg names
         self.calls.append((DatabaseName, Name))
         if self._behaviour == "found":
             return {"Table": {"Name": Name}}

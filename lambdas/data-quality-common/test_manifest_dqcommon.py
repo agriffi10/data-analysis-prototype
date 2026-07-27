@@ -12,9 +12,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import pytest  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
-from dqcommon import manifest, messages  # noqa: E402
+import pytest
+from cpcommon.errors import TerminalError, TransientError
+from dqcommon import manifest, messages
 
 MANIFEST = {"format": "csv", "partitionKeys": [], "files": [{"key": "a.csv", "size": 1, "columns": []}]}
 
@@ -45,7 +45,7 @@ class _FakeS3:
         self._error = error
         self.calls = []
 
-    def get_object(self, Bucket, Key):  # noqa: N803 - boto3 kwarg casing
+    def get_object(self, Bucket, Key):  # boto3 kwarg casing
         self.calls.append((Bucket, Key))
         if self._error:
             raise self._error

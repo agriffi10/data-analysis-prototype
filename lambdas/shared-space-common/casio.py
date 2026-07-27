@@ -30,7 +30,7 @@ MAX_CAS_ATTEMPTS = 6
 #: Re-exported from cpcommon (SPEC-125) — this module kept its own copy, and cpcommon's
 #: docstring literally said it "mirrors shared-space-common/casio.error_code". Kept in this
 #: namespace so `casio.error_code` call sites don't move.
-__all__ = ["error_code", "is_precondition", "cas_mutate", "MAX_CAS_ATTEMPTS"]
+__all__ = ["MAX_CAS_ATTEMPTS", "cas_mutate", "error_code", "is_precondition"]
 
 
 def is_precondition(exc):
@@ -60,7 +60,7 @@ def cas_mutate(read, apply, write, *, label="object", max_attempts=MAX_CAS_ATTEM
         try:
             write(updated, etag)
             return updated
-        except Exception as exc:  # noqa: BLE001 — re-raised unless it's a precondition
+        except Exception as exc:  # re-raised unless it's a precondition
             if not is_precondition(exc):
                 raise  # a real write error — propagate, never a silent overwrite
             # a concurrent writer won; loop to re-read and re-apply (or exhaust below)

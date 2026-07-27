@@ -6,10 +6,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-from cpcommon import clients  # noqa: E402
-from cpcommon import config as cpconfig  # noqa: E402
-import remove_members as r  # noqa: E402
-from fakes import install  # noqa: E402
+import remove_members as r
+from cpcommon import clients
+from cpcommon import config as cpconfig
+from fakes import install
 
 
 def _enable_notifications():
@@ -35,7 +35,7 @@ def _seed_reg(s3, reg):
 
 
 def test_remove_members_clears_slot_registry_and_cache_leaves_data():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
     reg = _active_reg(members=["alice", "bob"])
     _seed_reg(s3, reg)
@@ -57,7 +57,7 @@ def test_remove_members_clears_slot_registry_and_cache_leaves_data():
 
 def test_remove_members_fans_reduced_roster_to_remaining_members():
     # SPEC-075 FR-002: a remaining member (cara)'s cache reflects the reduced roster.
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "cara": {"custom:shared_space_1": "sales"}}
     reg = _active_reg(members=["alice", "bob", "cara"])
     _seed_reg(s3, reg)
@@ -69,7 +69,7 @@ def test_remove_members_fans_reduced_roster_to_remaining_members():
 
 
 def test_remove_members_idempotent_for_non_member():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
     reg = _active_reg(members=["alice"])
     _seed_reg(s3, reg)
@@ -79,7 +79,7 @@ def test_remove_members_idempotent_for_non_member():
 
 
 def test_remove_members_never_removes_the_owner():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     reg = _active_reg(members=["alice", "bob"])
     _seed_reg(s3, reg)
 
@@ -90,7 +90,7 @@ def test_remove_members_never_removes_the_owner():
 
 
 def test_handler_uses_validated_context():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
     reg = _active_reg(members=["alice", "bob"])
     _seed_reg(s3, reg)
@@ -101,7 +101,7 @@ def test_handler_uses_validated_context():
 
 
 def test_remove_members_notifies_each_removed_member():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     sqs = _enable_notifications()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
     reg = _active_reg(members=["alice", "bob"])
@@ -121,7 +121,7 @@ def test_remove_members_notifies_each_removed_member():
 
 
 def test_remove_members_noop_notifies_nothing():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     sqs = _enable_notifications()
     cognito.users = {"bob": {}}
     reg = _active_reg(members=["alice"])  # bob isn't a member

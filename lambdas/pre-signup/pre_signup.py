@@ -56,7 +56,9 @@ def handler(event, context):
     """
     username = event.get("userName", "")
     if not USERNAME_PATTERN.fullmatch(username):
-        raise Exception(
+        # Cognito surfaces only the message, never the type, so a bespoke exception
+        # class would add a name nothing reads. See the docstring.
+        raise Exception(  # noqa: TRY002
             "Username must be 3-63 characters, start with a letter, and use only "
             "lowercase letters, numbers, and underscores"
         )
@@ -74,7 +76,7 @@ def handler(event, context):
         observability.warning(
             "signup rejected", username=username, reason="disposable-domain", domain=domain
         )
-        raise Exception(
+        raise Exception(  # noqa: TRY002 - message-only, as above
             "Sign-ups from temporary email addresses are not allowed. "
             "Please use a permanent email address."
         )

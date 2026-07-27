@@ -61,8 +61,8 @@ _fake_boto3.client = lambda name, *a, **k: {
 }[name]
 sys.modules["boto3"] = _fake_boto3
 
-import post_confirmation  # noqa: E402  (must follow the boto3 stub above)
-import backfill  # noqa: E402
+import backfill
+import post_confirmation
 
 
 def _reset():

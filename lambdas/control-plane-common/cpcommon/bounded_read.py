@@ -94,7 +94,7 @@ class S3RangeReader(io.RawIOBase):
                 self._size = clients.s3().head_object(Bucket=self._bucket, Key=self._key)[
                     "ContentLength"
                 ]
-            except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+            except Exception as err:  # retryable faults mapped; the rest propagate
                 errors.raise_if_transient(err, f"head {self._bucket}/{self._key}")
                 raise
         return self._size
@@ -131,7 +131,7 @@ class S3RangeReader(io.RawIOBase):
             body = clients.s3().get_object(
                 Bucket=self._bucket, Key=self._key, Range=f"bytes={self._pos}-{end}"
             )["Body"]
-        except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+        except Exception as err:  # retryable faults mapped; the rest propagate
             errors.raise_if_transient(err, f"get {self._bucket}/{self._key}")
             raise
         try:
@@ -174,7 +174,7 @@ def read_head(
     """
     try:
         body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"get {bucket}/{key}")
         raise
     out = bytearray()
@@ -217,7 +217,7 @@ def stream_gzip_head(
     """
     try:
         body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"]
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"get {bucket}/{key}")
         raise
     decompressor = zlib.decompressobj(_GZIP_WBITS)

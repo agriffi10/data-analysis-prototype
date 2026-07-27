@@ -19,9 +19,9 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-from cpcommon import clients, config  # noqa: E402
-from tscommon import messages, notify  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
+from tscommon import messages, notify
 
 QUEUE = "https://sqs.us-east-1.amazonaws.com/123/dat-prod-notifications-requests.fifo"
 

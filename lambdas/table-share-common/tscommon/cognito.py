@@ -18,5 +18,5 @@ def user_exists(username: str) -> bool:
         return True
     except client.exceptions.UserNotFoundException:
         return False
-    except Exception as exc:  # noqa: BLE001 - throttle/5xx → retry, never a false "unknown user"
+    except Exception as exc:  # throttle/5xx → retry, never a false "unknown user"
         raise TransientError(f"AdminGetUser failed for {username!r}: {exc}") from exc

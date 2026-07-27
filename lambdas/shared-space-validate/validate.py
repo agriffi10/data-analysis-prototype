@@ -14,12 +14,11 @@ on; verbs trust it and never re-verify the token or re-authorize.
 import json
 import logging
 
-from cpcommon import observability
-
-import config
 import auth
 import cache
+import config
 import registry as reg
+from cpcommon import observability
 from notify import emit_notification
 
 logger = logging.getLogger()
@@ -50,7 +49,7 @@ def _record_intent(action, actor, space, request_id):
     write, template, tag = _INTENT[action]
     try:
         write(actor, space)
-    except Exception:  # noqa: BLE001 - never block the action on a cache write
+    except Exception:  # never block the action on a cache write
         logger.warning("intent cache write failed for %s %s/%s", action, actor, space, exc_info=True)
     emit_notification(actor, template.format(space=space), dedup_id=f"{request_id}:{tag}:{actor}")
 

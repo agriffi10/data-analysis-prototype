@@ -16,12 +16,10 @@ measured reason (inline, the Map's state reached 95% of the 256 KB payload limit
 import json
 import logging
 
-from cpcommon import s3_listing, observability
+from cpcommon import observability, s3_listing
 from cpcommon.errors import TerminalError
-from tscommon import config
-from tscommon import copy_plan
+from tscommon import config, copy_plan, notify
 from tscommon import glue as glue_mod
-from tscommon import notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

@@ -9,12 +9,12 @@ skippedAtLimit}.
 
 import logging
 
-from cpcommon import clients, observability
 import cache
 import membership
 import registry as reg
-from registry import ProvisioningError
+from cpcommon import clients, observability
 from notify import emit_notification
+from registry import ProvisioningError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

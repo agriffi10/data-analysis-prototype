@@ -42,7 +42,7 @@ def is_ignored(key: str, size: int, prefix: str) -> bool:
     ``prefix`` is the request prefix; ``rel`` is ``key`` relative to it. ``size`` is the
     object's byte size (zero-byte = folder placeholder).
     """
-    rel = key[len(prefix):] if key.startswith(prefix) else key
+    rel = key.removeprefix(prefix)
     if rel.startswith(_IGNORED_SUBTREES):
         return True
     base = _basename(key)
@@ -54,9 +54,7 @@ def is_ignored(key: str, size: int, prefix: str) -> bool:
     # excludes the object (FR-003 — extends tbcommon's basename-only check).
     if any(segment.startswith(("_", ".")) for segment in rel.split("/") if segment):
         return True
-    if size == 0:
-        return True
-    return False
+    return size == 0
 
 
 def list_data_objects(bucket: str, prefix: str, relative: bool = False) -> Iterator[tuple[str, int]]:

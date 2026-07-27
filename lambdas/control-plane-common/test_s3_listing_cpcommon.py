@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import clients, s3_listing  # noqa: E402
+from cpcommon import clients, s3_listing
 
 
 class _FakeS3:

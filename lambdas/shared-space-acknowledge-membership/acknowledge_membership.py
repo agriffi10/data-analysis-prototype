@@ -11,11 +11,10 @@ membership (member-only, owner-exempt); the guards here are defence in depth.
 
 import logging
 
-from cpcommon import observability
-
 import cache
 import registry as reg
 from auth import AuthorizationError
+from cpcommon import observability
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

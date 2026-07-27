@@ -10,12 +10,11 @@ blocks the owner; the guard here is defence in depth.
 
 import logging
 
-from cpcommon import observability
-
 import cache
 import membership
 import registry as reg
 from auth import AuthorizationError
+from cpcommon import observability
 from notify import emit_notification
 
 logger = logging.getLogger()

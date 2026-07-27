@@ -16,13 +16,12 @@ No notification — a self-service action with immediate UI feedback.
 
 import logging
 
-from cpcommon import observability
-
 import cache
 import membership
 import registry as reg
 import teardown
 from auth import AuthorizationError
+from cpcommon import observability
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

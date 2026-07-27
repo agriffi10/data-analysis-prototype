@@ -10,9 +10,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
-from dqcommon import messages, notify  # noqa: E402
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
+from dqcommon import messages, notify
 
 QUEUE = "https://sqs.test/dat-prod-notifications-requests.fifo"
 

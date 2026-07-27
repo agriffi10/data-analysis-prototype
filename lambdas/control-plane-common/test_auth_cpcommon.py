@@ -16,12 +16,11 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import jwt  # noqa: E402
-from cryptography.hazmat.primitives import serialization  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
-
-from cpcommon import auth, clients, config  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+import jwt
+from cpcommon import auth, clients, config
+from cpcommon.errors import TerminalError
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _PRIVATE_PEM = _KEY.private_bytes(

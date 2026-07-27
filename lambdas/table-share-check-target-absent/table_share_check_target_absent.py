@@ -16,9 +16,9 @@ Emits the item state with the recipient enriched:
 import logging
 
 from cpcommon import clients, config, observability
-from tscommon import notify
-from tscommon import glue as glue_mod
 from cpcommon.errors import TerminalError, TransientError
+from tscommon import glue as glue_mod
+from tscommon import notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -48,7 +48,7 @@ def _prefix_is_empty(bucket: str, prefix: str) -> bool:
     s3 = clients.s3()
     try:
         page = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
-    except Exception as exc:  # noqa: BLE001 - a failed check must retry, never pass
+    except Exception as exc:  # a failed check must retry, never pass
         raise TransientError(f"list {bucket}/{prefix} failed: {exc}") from exc
     return page.get("KeyCount", 0) == 0
 

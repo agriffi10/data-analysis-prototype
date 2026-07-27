@@ -221,7 +221,7 @@ def _append_day(key, new_lines):
                 bytes=len(existing) + len(payload),
             )
             return True
-        except Exception as err:  # noqa: BLE001 - every failure path is total (see handler)
+        except Exception as err:  # every failure path is total (see handler)
             if _is_precondition(err):
                 logger.info(
                     "log-sweep: %s changed under us (attempt %d/%d); re-reading",

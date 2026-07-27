@@ -61,7 +61,7 @@ def emit_notification(
         if dedup_id:
             kwargs["MessageDeduplicationId"] = dedup_id
         clients.sqs().send_message(**kwargs)
-    except Exception:  # noqa: BLE001 - best-effort; never fail the pipeline outcome
+    except Exception:  # best-effort; never fail the pipeline outcome
         logger.exception("emit_notification failed for %s", username)
 
 
@@ -95,7 +95,7 @@ def notifies_on_failure(step: str, emit_unexpected, emit_terminal=None):
                 if emit_terminal is not None:
                     emit_terminal(event, err, step)
                 raise
-            except Exception:  # noqa: BLE001 - notify then re-raise, never swallow
+            except Exception:  # notify then re-raise, never swallow
                 logger.exception("unexpected failure in %s step", step)
                 emit_unexpected(event, step)
                 raise

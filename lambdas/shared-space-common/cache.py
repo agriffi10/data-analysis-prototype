@@ -16,9 +16,9 @@ means a concurrent writer won, so re-read and retry.
 import json
 import logging
 
-from cpcommon import observability, config as cpconfig
-from cpcommon import clients
 import casio
+from cpcommon import clients, observability
+from cpcommon import config as cpconfig
 
 logger = logging.getLogger()
 

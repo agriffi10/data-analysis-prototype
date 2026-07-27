@@ -23,11 +23,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import pytest  # noqa: E402
-from cpcommon.errors import TransientError  # noqa: E402
-from dqcommon import config  # noqa: E402
-
-import dq_byte_scan as v  # noqa: E402
+import dq_byte_scan as v
+import pytest
+from cpcommon.errors import TransientError
+from dqcommon import config
 
 BUCKET = "dq-user-bkt"
 MANIFEST_KEY = "alice/_data-quality-reports/req-1/manifest.json"
@@ -85,7 +84,7 @@ class _FakeS3:
         self.gets = []
         self.bytes_served = 0
 
-    def get_object(self, Bucket, Key, Range=None):  # noqa: N803 - boto3's kwarg casing
+    def get_object(self, Bucket, Key, Range=None):  # boto3's kwarg casing
         if self.error:
             raise self.error
         span = Range.removeprefix("bytes=")

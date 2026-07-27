@@ -19,8 +19,8 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import table_share_create_table as m  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+import table_share_create_table as m
+from cpcommon.errors import TerminalError
 
 
 class _FakeRunDdl:

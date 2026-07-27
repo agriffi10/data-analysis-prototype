@@ -25,10 +25,10 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from cpcommon import clients, errors, events
-from cpcommon import observability
+from cpcommon import clients, errors, events, observability
 from cpcommon.errors import TerminalError
-from dqcommon import index_store, manifest as manifest_store, messages, notify, report
+from dqcommon import index_store, messages, notify, report
+from dqcommon import manifest as manifest_store
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -60,7 +60,7 @@ def _split_uri(uri: str) -> tuple[str, str]:
 def _read(bucket: str, key: str) -> bytes:
     try:
         return clients.s3().get_object(Bucket=bucket, Key=key)["Body"].read()
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"get {bucket}/{key}")
         raise
 
@@ -82,7 +82,7 @@ def _result_rows(block) -> list[dict]:
     key = f"{prefix}{block['queryExecutionId']}{_RESULT_SUFFIX}"
     try:
         return report.parse_result(_read(bucket, key))
-    except Exception as err:  # noqa: BLE001 - transients already re-raised inside _read
+    except Exception as err:  # transients already re-raised inside _read
         if errors.error_code(err) not in ("NoSuchKey", "404"):
             raise
         logger.warning("result %s not at the expected key — listing %s", key, prefix)
@@ -105,7 +105,7 @@ def _find_result(bucket: str, prefix: str) -> str:
     """
     try:
         listed = clients.s3().list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents") or []
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         # The fallback path needs the same mapping as every other S3 call here: a SlowDown
         # arriving as a bare ClientError is not in the Retry list, so a one-off throttle
         # would permanently fail a request that has already paid for three Athena queries.
@@ -122,7 +122,7 @@ def _write(bucket: str, key: str, document: dict) -> None:
         clients.s3().put_object(
             Bucket=bucket, Key=key, Body=body, ContentType="application/json"
         )
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         # Losing the report to a one-off SlowDown must not fail the request after every
         # query has run: the key is a pure function of requestId, so a Retry rewrites it.
         errors.raise_if_transient(err, f"put {bucket}/{key}")

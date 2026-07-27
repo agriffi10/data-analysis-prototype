@@ -16,8 +16,8 @@ sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "data-quality-common"))
 sys.path.insert(0, _HERE)
 
-import dq_notify_failure as nf  # noqa: E402
-from cpcommon import clients, config  # noqa: E402
+import dq_notify_failure as nf
+from cpcommon import clients, config
 
 QUEUE = "https://sqs.test/dat-prod-notifications-requests.fifo"
 

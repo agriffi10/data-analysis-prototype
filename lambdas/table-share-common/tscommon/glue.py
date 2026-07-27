@@ -20,7 +20,7 @@ def get_table(database: str, table: str) -> dict:
     client = clients.glue()
     try:
         return client.get_table(DatabaseName=database, Name=table)["Table"]
-    except Exception as exc:  # noqa: BLE001 - mapped by error code below
+    except Exception as exc:  # mapped by error code below
         code = errors.error_code(exc)
         if code == "EntityNotFoundException":
             raise TerminalError("source_not_found", f"{database}.{table}") from exc
@@ -41,7 +41,7 @@ def table_exists(database: str, table: str) -> bool:
     try:
         client.get_table(DatabaseName=database, Name=table)
         return True
-    except Exception as exc:  # noqa: BLE001 - mapped by error code below
+    except Exception as exc:  # mapped by error code below
         code = errors.error_code(exc)
         if code == "EntityNotFoundException":
             return False

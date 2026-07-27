@@ -166,7 +166,7 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
             _write(bucket, key, updated, etag)
             logger.info("recorded run %s in %s/%s", entry["requestId"], bucket, key)
             return True
-        except Exception as err:  # noqa: BLE001 - convenience write; never fails the check
+        except Exception as err:  # convenience write; never fails the check
             if not _is_precondition(err):
                 logger.exception("could not write the runs index at %s/%s", bucket, key)
                 return False

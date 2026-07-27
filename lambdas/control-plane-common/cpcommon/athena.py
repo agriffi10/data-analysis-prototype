@@ -22,7 +22,7 @@ poll bounds. The per-verb wrappers (``table-builder-execute-ddl/athena_run.py``,
 import logging
 import time
 
-from cpcommon import clients, observability, errors
+from cpcommon import clients, errors, observability
 from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
@@ -84,7 +84,7 @@ def start_query(
 
     try:
         started = clients.athena().start_query_execution(**params)
-    except Exception as exc:  # noqa: BLE001 - classify: transient → retry, else terminal
+    except Exception as exc:  # classify: transient → retry, else terminal
         errors.raise_if_transient(exc, "Athena")
         raise TerminalError(fail_reason, f"could not start query: {exc}") from exc
 
@@ -114,7 +114,7 @@ def describe_query(query_execution_id, *, fail_reason):
     """
     try:
         resp = clients.athena().get_query_execution(QueryExecutionId=query_execution_id)
-    except Exception as exc:  # noqa: BLE001 - transient poll error → retry the verb
+    except Exception as exc:  # transient poll error → retry the verb
         errors.raise_if_transient(exc, "Athena")
         raise TerminalError(
             fail_reason, f"could not poll query {query_execution_id}: {exc}"
@@ -168,7 +168,7 @@ def run_ddl(
             WorkGroup=workgroup,
             ResultConfiguration={"OutputLocation": output_location},
         )
-    except Exception as exc:  # noqa: BLE001 - classify: transient → retry, else terminal
+    except Exception as exc:  # classify: transient → retry, else terminal
         errors.raise_if_transient(exc, "Athena")
         raise TerminalError(fail_reason, f"could not start query: {exc}") from exc
 
@@ -185,7 +185,7 @@ def run_ddl(
         polls += 1
         try:
             resp = athena.get_query_execution(QueryExecutionId=qid)
-        except Exception as exc:  # noqa: BLE001 - transient poll error → retry the verb
+        except Exception as exc:  # transient poll error → retry the verb
             errors.raise_if_transient(exc, "Athena")
             raise TerminalError(fail_reason, f"could not poll query {qid}: {exc}") from exc
 

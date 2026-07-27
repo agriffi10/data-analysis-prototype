@@ -267,8 +267,8 @@ def test_no_verb_puts_a_credential_into_a_log_field(plane, path):
         if not isinstance(node, ast.Call):
             continue
         func = ast.unparse(node.func)
-        if not (func.startswith("lf.") or func.endswith("set_baggage") or ".info" in func
-                or func.startswith("observability.")):
+        if not (func.startswith(("lf.", "observability."))
+                or func.endswith("set_baggage") or ".info" in func):
             continue
         for kw in node.keywords:
             if kw.arg and kw.arg.lower().replace("-", "_") in CREDENTIAL_NAMES:

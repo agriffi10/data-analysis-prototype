@@ -6,9 +6,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-import acknowledge_membership as ack  # noqa: E402
-from auth import AuthorizationError  # noqa: E402
-from fakes import install, raises  # noqa: E402
+import acknowledge_membership as ack
+from auth import AuthorizationError
+from fakes import install, raises
 
 
 def _seed(s3, name="sales", members=("alice", "bob"), acknowledged=None):
@@ -33,7 +33,7 @@ def _owner_members(s3, owner="alice"):
 
 
 def test_acknowledge_flips_pending_member_to_active():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=[])  # bob was added as pending
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
 
@@ -50,7 +50,7 @@ def test_acknowledge_flips_pending_member_to_active():
 
 
 def test_acknowledge_idempotent_when_already_active():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=["bob"])
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     before = s3.store[("user-bkt", "alice/user_settings/shared-connections.json")]
@@ -63,7 +63,7 @@ def test_acknowledge_idempotent_when_already_active():
 
 
 def test_acknowledge_legacy_member_is_noop():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=None)  # pre-073 record: members are all-active by back-compat
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     before = s3.store[("user-bkt", "alice/user_settings/shared-connections.json")]
@@ -75,7 +75,7 @@ def test_acknowledge_legacy_member_is_noop():
 
 
 def test_acknowledge_rejects_owner():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=[])
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     raises(
@@ -86,7 +86,7 @@ def test_acknowledge_rejects_owner():
 
 
 def test_acknowledge_noop_for_non_member():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=[])
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     out = ack.acknowledge_membership("sales", "carol", "req-a", reg)
@@ -94,7 +94,7 @@ def test_acknowledge_noop_for_non_member():
 
 
 def test_handler_uses_validated_context():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=[])
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     out = ack.handler({"space": "sales", "actor": "bob", "requestId": "req-a", "registry": reg}, None)

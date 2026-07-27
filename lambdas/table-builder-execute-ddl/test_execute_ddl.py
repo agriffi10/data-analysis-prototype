@@ -11,12 +11,13 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
-import pytest  # noqa: E402
-import json  # noqa: E402
-import athena_run  # noqa: E402
-import execute_ddl as e  # noqa: E402
-from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+import json
+
+import athena_run
+import execute_ddl as e
+import pytest
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
 
 BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -64,7 +65,7 @@ class _FakeAthena:
         self.start_calls.append(kwargs)
         return {"QueryExecutionId": "q-123"}
 
-    def get_query_execution(self, QueryExecutionId):  # noqa: N803 - boto3 kwarg name
+    def get_query_execution(self, QueryExecutionId):  # boto3 kwarg name
         if self._poll_error is not None:
             raise self._poll_error
         # RUNNING forever once the scripted states are exhausted (timeout path).

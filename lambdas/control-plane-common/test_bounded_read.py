@@ -13,8 +13,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import bounded_read, clients  # noqa: E402
-from cpcommon.errors import TransientError  # noqa: E402
+from cpcommon import bounded_read, clients
+from cpcommon.errors import TransientError
 
 
 class _FakeClientError(Exception):
@@ -141,7 +141,7 @@ class _RangeS3:
         self.head_calls += 1
         return {"ContentLength": len(self.blob)}
 
-    def get_object(self, Bucket=None, Key=None, Range=None):  # noqa: N803 - boto3 casing
+    def get_object(self, Bucket=None, Key=None, Range=None):  # boto3 casing
         self.ranges.append(Range)
         start, end = Range.split("=")[1].split("-")
         return {"Body": io.BytesIO(self.blob[int(start): int(end) + 1])}

@@ -6,11 +6,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-from cpcommon import clients  # noqa: E402
-from cpcommon import config as cpconfig  # noqa: E402
-import delete_space as d  # noqa: E402
-import teardown  # noqa: E402
-from fakes import install, raises  # noqa: E402
+import delete_space as d
+import teardown
+from cpcommon import clients
+from cpcommon import config as cpconfig
+from fakes import install, raises
 
 
 def _enable_notifications():
@@ -63,7 +63,7 @@ def test_delete_cascades_files_tables_db_members_and_registry_frees_name():
 
 
 def test_delete_idempotent_tolerant_of_partial_prior_progress():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     glue.databases.discard("sales")
@@ -79,7 +79,7 @@ def test_delete_idempotent_tolerant_of_partial_prior_progress():
 
 
 def test_delete_records_failure_and_reraises_without_deleting_registry():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     orig = teardown.drop_database
@@ -98,7 +98,7 @@ def test_delete_records_failure_and_reraises_without_deleting_registry():
 
 
 def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
     sqs = _enable_notifications()
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
@@ -118,7 +118,7 @@ def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message()
 
 
 def test_delete_failure_notifies_owner_with_reason():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     sqs = _enable_notifications()
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
@@ -146,7 +146,7 @@ def test_delete_failure_notifies_owner_with_reason():
 
 
 def test_delete_swallows_emit_failure_and_still_succeeds():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     _enable_notifications()
 
@@ -162,7 +162,7 @@ def test_delete_swallows_emit_failure_and_still_succeeds():
 
 
 def test_handler_uses_validated_context():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     out = d.handler({"space": "sales", "actor": "alice", "requestId": "req-d", "registry": reg}, None)

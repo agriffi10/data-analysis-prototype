@@ -11,14 +11,14 @@ import importlib
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import log_foundry as lf  # noqa: E402
-
-from cpcommon import observability  # noqa: E402
+import log_foundry as lf
+from cpcommon import observability
 
 
 class RecordingSink:
@@ -119,7 +119,7 @@ def test_import_succeeds_with_logs_queue_url_explicitly_absent(monkeypatch):
 
 def test_logs_queue_url_is_read_with_environ_get_never_require():
     """FR-003: `_require` on this variable would crash every attaching verb at cold start."""
-    source = open(observability.__file__).read()
+    source = Path(observability.__file__).read_text(encoding="utf-8")
     # The call form, not the bare word — the module docstring legitimately explains why
     # `config._require` is the thing being avoided.
     assert '_require("LOGS_QUEUE_URL")' not in source
@@ -224,7 +224,7 @@ def test_traced_preserves_name_and_docstring(sink):
     @observability.traced("inspect-source")
     def handler(event, context):
         """Original docstring."""
-        return None
+        return
 
     assert handler.__name__ == "handler"
     assert handler.__doc__ == "Original docstring."
@@ -279,7 +279,6 @@ def test_baggage_does_not_leak_between_invocations(sink):
     def handler(event, context):
         if event.get("requestId"):
             lf_mod.set_baggage(request_id=event["requestId"])
-        return None
 
     handler({"requestId": "run-1"}, None)
     handler({}, None)  # second run sets nothing
@@ -458,7 +457,6 @@ def test_child_span_inherits_both_verb_and_request_id(sink):
     @observability.traced("inspect-source")
     def handler(event, context):
         probe()
-        return None
 
     handler({"requestId": "run-1"}, None)
 
@@ -510,7 +508,7 @@ def test_verb_is_not_a_span_default(sink):
     removed to fix would be invisible — the root span would still carry the verb from the
     default, so only a child span would reveal which mechanism was actually doing the work.
     """
-    source = open(observability.__file__).read()
+    source = Path(observability.__file__).read_text(encoding="utf-8")
     assert 'defaults={"verb"' not in source
 
 
@@ -537,7 +535,6 @@ def test_emitter_attaches_its_event_to_the_enclosing_span(sink):
     @observability.traced("inspect-source")
     def handler(event, context):
         observability.info("listed source", objects=142, format="csv")
-        return None
 
     handler({"requestId": "run-1"}, None)
 
@@ -565,7 +562,6 @@ def test_each_level_emits_at_its_own_level(sink, emit, level):
     @observability.traced("v")
     def handler(event, context):
         emit()
-        return None
 
     handler({}, None)
 
@@ -647,7 +643,6 @@ def test_step_is_parented_to_the_handler_span(sink):
     @observability.traced("inspect-source")
     def handler(event, context):
         probe()
-        return None
 
     handler({}, None)
 
@@ -766,8 +761,9 @@ def test_echo_passed_as_a_field_is_dropped_and_warned(sink, caplog):
 
     @observability.traced("v")
     def handler(event, context):
-        observability.info("appended", **{"echo": True}, events=12)
-        return None
+        # Keyword spelled via ** so this file does not match the repo-wide grep in
+        # test_the_console_echo_is_used_nowhere_in_the_lambdas_tree.
+        observability.info("appended", **{"echo": True}, events=12)  # noqa: PIE804
 
     handler({}, None)
 

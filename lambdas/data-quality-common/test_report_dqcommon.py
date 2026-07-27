@@ -14,8 +14,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pytest  # noqa: E402
-from dqcommon import config, report  # noqa: E402
+import pytest
+from dqcommon import config, report
 
 COMPLETED = "2026-07-20T14:32:11Z"
 
@@ -541,8 +541,10 @@ def test_top_issues_put_structural_findings_before_statistical_ones():
     assert document["topIssues"] == [
         "part-2.csv is missing the column `note` that the other 2 files have",
         "37 rows have the wrong number of fields (approximate)",
-        "4 invalid text encodings found, in the part examined — this data may have been "
-        "exported in the wrong character set",
+        (
+            "4 invalid text encodings found, in the part examined — this data may have been "
+            "exported in the wrong character set"
+        ),
         "`amount` has 412 values that aren't numbers in an otherwise numeric column",
         "812 duplicate rows",
     ]

@@ -28,8 +28,7 @@ with no notification at all. A null value is fine; a missing key is fatal.
 import logging
 import posixpath
 
-from cpcommon import auth, config, events
-from cpcommon import observability
+from cpcommon import auth, config, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from dqcommon import messages, notify

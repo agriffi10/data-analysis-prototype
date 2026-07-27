@@ -10,11 +10,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-from cpcommon import clients  # noqa: E402
-from cpcommon import config as cpconfig  # noqa: E402
-import create_space as c  # noqa: E402
-import registry as reg  # noqa: E402
-from fakes import install, raises  # noqa: E402
+import create_space as c
+import registry as reg
+from cpcommon import clients
+from cpcommon import config as cpconfig
+from fakes import install, raises
 
 
 def _enable_notifications():
@@ -90,7 +90,7 @@ def test_create_replay_same_request_is_idempotent():
 
 
 def test_create_slot_full_fails_and_records_failure():
-    s3, glue, lf, cognito = install(
+    s3, glue, _lf, _cognito = install(
         cognito_attrs={"custom:shared_space_1": "a", "custom:shared_space_2": "b"},
         max_memberships=2,
     )

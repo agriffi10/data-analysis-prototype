@@ -14,8 +14,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import clients  # noqa: E402
-from dqcommon import config, index_store  # noqa: E402
+from cpcommon import clients
+from dqcommon import config, index_store
 
 BUCKET = "dat-prod-user-space"
 PREFIX = "alice/_data-quality-reports/r-1/"

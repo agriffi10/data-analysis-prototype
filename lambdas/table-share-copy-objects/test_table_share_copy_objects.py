@@ -18,12 +18,11 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import pytest  # noqa: E402
-
-import table_share_copy_objects as m  # noqa: E402
-from cpcommon import clients  # noqa: E402
-from tscommon import copy as copy_mod  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+import pytest
+import table_share_copy_objects as m
+from cpcommon import clients
+from cpcommon.errors import TerminalError, TransientError
+from tscommon import copy as copy_mod
 
 GIB = 1024**3
 

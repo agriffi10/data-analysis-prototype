@@ -8,10 +8,9 @@ Kept in the shared layer so the two verbs share one implementation.
 
 import logging
 
-from cpcommon import config as cpconfig
-
 import config
 from cpcommon import clients
+from cpcommon import config as cpconfig
 
 logger = logging.getLogger()
 

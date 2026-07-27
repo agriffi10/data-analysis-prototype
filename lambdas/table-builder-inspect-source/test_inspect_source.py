@@ -11,10 +11,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
-import json  # noqa: E402
-import inspect_source as i  # noqa: E402
-from cpcommon import clients, config, s3_listing  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+import json
+
+import inspect_source as i
+from cpcommon import clients, config, s3_listing
+from cpcommon.errors import TerminalError, TransientError
 
 
 class _FakeClientError(Exception):
@@ -216,7 +217,7 @@ class _FakePaginator:
     def __init__(self, pages):
         self._pages = pages
 
-    def paginate(self, Bucket, Prefix):  # noqa: N803 - boto3 kwarg names
+    def paginate(self, Bucket, Prefix):  # boto3 kwarg names
         return iter(self._pages)
 
 

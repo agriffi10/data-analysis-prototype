@@ -29,7 +29,6 @@ polluting the recorded outcome.
 import logging
 
 from cpcommon import observability
-
 from cpcommon.errors import failure_reason
 from dqcommon import messages, notify
 

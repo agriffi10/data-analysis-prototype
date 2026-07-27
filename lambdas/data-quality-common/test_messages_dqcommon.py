@@ -9,9 +9,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import messages as cpmessages  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
-from dqcommon import config, messages  # noqa: E402
+from cpcommon import messages as cpmessages
+from cpcommon.errors import TerminalError
+from dqcommon import config, messages
 
 # Every reason code the data-quality verbs raise today (SPEC-109 + SPEC-110).
 INSPECT_SOURCE_REASONS = (
@@ -105,8 +105,8 @@ def test_unknown_reason_falls_back_without_leaking_the_code():
 # (see the docstring on test_inspect_source_reasons_are_in_dqcommons_own_table), and the
 # second renders "{count} found" to a user while every assertion still passes.
 
-import ast  # noqa: E402
-import re  # noqa: E402
+import ast
+import re
 
 _ARC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 _MARKER = re.compile(r"\{(\w+)\}")
