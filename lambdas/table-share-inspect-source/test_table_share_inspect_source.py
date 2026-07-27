@@ -18,11 +18,10 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import table_share_inspect_source as m  # noqa: E402
-import pytest  # noqa: E402
-
-from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+import pytest
+import table_share_inspect_source as m
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
 
 USER_BUCKET = config.USER_SPACE_BUCKET
 

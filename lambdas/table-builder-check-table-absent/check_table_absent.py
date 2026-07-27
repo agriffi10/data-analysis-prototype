@@ -17,8 +17,8 @@ failing silently, and re-raised for the SFN Catch.
 import logging
 
 from cpcommon import clients, errors, events, observability
-from tbcommon import notify
 from cpcommon.errors import TerminalError
+from tbcommon import notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -65,7 +65,7 @@ def _check_table_absent(event: dict) -> dict:
             "target table absent", database=database, table=table, exists=False
         )
         return event
-    except Exception as err:  # noqa: BLE001 - a throttle is retryable; the rest propagate
+    except Exception as err:  # a throttle is retryable; the rest propagate
         # A Glue ThrottlingException is NOT EntityNotFoundException, so it would otherwise
         # propagate as a bare ClientError the CheckTableAbsent Retry list does not name —
         # permanently failing the build. Map it to TransientError (paired with adding it

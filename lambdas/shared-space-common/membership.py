@@ -7,10 +7,9 @@ portal role is scoped to). This module owns assigning and clearing those slots â
 UserNotFoundException). All operations are idempotent / replay-safe.
 """
 
-from cpcommon import config as cpconfig
-
 import config
 from cpcommon import clients, observability
+from cpcommon import config as cpconfig
 from registry import ProvisioningError
 
 

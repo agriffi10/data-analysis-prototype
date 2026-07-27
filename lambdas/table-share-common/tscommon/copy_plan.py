@@ -26,7 +26,8 @@ lifecycle rule in ``analytics/s3.tf`` expires it.
 import hashlib
 import json
 
-from cpcommon import clients, config as cpconfig, errors
+from cpcommon import clients, errors
+from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 
 # Imported for its SIDE EFFECT as well as its constants: tscommon.messages registers this
@@ -97,7 +98,7 @@ def write(request: dict, objects: list) -> str:
         clients.s3().put_object(
             Bucket=cpconfig.ADMIN_BUCKET, Key=key, Body=body, ContentType="application/json"
         )
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
         raise
     return key
@@ -115,7 +116,7 @@ def load(key: str) -> list:
     """
     try:
         body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"get {cpconfig.ADMIN_BUCKET}/{key}")
         raise TerminalError("copy_failed", f"could not read copy plan {key}: {err}") from err
 

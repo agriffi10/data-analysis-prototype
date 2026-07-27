@@ -37,7 +37,7 @@ def load(bucket: str, key: str) -> dict:
     """
     try:
         body = clients.s3().get_object(Bucket=bucket, Key=key)["Body"].read()
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"get {bucket}/{key}")
         raise TerminalError(
             messages.INVALID_REQUEST, f"could not read manifest {key}: {err}"

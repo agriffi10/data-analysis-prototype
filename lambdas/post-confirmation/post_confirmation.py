@@ -44,7 +44,7 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from cpcommon import observability  # noqa: E402 - after the logger, before any handler
+from cpcommon import observability  # after the logger, before any handler
 
 # `service` is "auth", shared with pre-signup: one signup touches both triggers.
 observability.init(service="auth")

@@ -20,16 +20,21 @@ from cpcommon.errors import TerminalError
 from cpcommon.notify import emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
-from .messages import failure_message, recipient_user_message, space_owner_message, success_message
+from .messages import (
+    failure_message,
+    recipient_user_message,
+    space_owner_message,
+    success_message,
+)
 
 logger = logging.getLogger()
 
 # Re-exported so verbs (and tests) can keep calling ``notify.emit_notification``.
 __all__ = [
-    "emit_notification",
     "emit_failure",
-    "emit_unexpected",
+    "emit_notification",
     "emit_recipient_success",
+    "emit_unexpected",
     "notifies_on_failure",
 ]
 
@@ -81,7 +86,7 @@ def emit_unexpected(event, step: str) -> None:
 
     Best-effort; the generic "unexpected_error" reason (no leaked internals).
     """
-    actor, source_table, table_name, recipient = _context(event)
+    actor, source_table, _table_name, recipient = _context(event)
     recipient = recipient or {}
     emit_notification(
         actor,
@@ -125,7 +130,7 @@ def emit_recipient_success(event: dict) -> None:
         return
     try:
         owner = (reg.load(name) or {}).get("owner") or ""
-    except Exception:  # noqa: BLE001 - owner lookup is best-effort (FR-002)
+    except Exception:  # owner lookup is best-effort (FR-002)
         logger.exception("owner lookup failed for space %s; skipping owner notification", name)
         return
     if not owner:

@@ -47,7 +47,7 @@ def _verify(id_token: str, missing_token_detail: str, *, verify_exp: bool) -> di
             # the one asked for.
             options={"require": ["exp", "iss", "aud"], "verify_exp": verify_exp},
         )
-    except Exception as exc:  # noqa: BLE001 - any verify failure = untrusted
+    except Exception as exc:  # any verify failure = untrusted
         raise AuthError(f"token verification failed: {exc}") from exc
 
     if claims.get("token_use") != "id":

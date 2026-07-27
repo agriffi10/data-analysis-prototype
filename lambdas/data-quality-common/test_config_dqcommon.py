@@ -12,9 +12,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pytest  # noqa: E402
-
-from dqcommon import config  # noqa: E402
+import pytest
+from dqcommon import config
 
 
 def test_caps_are_positive_ints():

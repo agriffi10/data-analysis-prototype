@@ -17,9 +17,8 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import pytest  # noqa: E402
-
-from tscommon import config, messages  # noqa: E402
+import pytest
+from tscommon import config, messages
 
 #: Any {marker} left in rendered text — the bug this file exists for.
 _MARKER = re.compile(r"\{[a-zA-Z_]+\}")

@@ -26,14 +26,14 @@ from .messages import UNEXPECTED_ERROR, failure_message, success_message
 logger = logging.getLogger()
 
 __all__ = [
-    "emit_notification",
-    "emit_failure",
-    "emit_unexpected",
-    "emit_completed",
-    "notifies_on_failure",
-    "report_link",
     "FAILURE_STEP",
     "SUCCESS_STEP",
+    "emit_completed",
+    "emit_failure",
+    "emit_notification",
+    "emit_unexpected",
+    "notifies_on_failure",
+    "report_link",
 ]
 
 # ── FIFO dedup steps ─────────────────────────────────────────────────────────

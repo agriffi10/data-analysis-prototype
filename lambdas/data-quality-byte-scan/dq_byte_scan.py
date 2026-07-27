@@ -25,9 +25,9 @@ them would measure the compressor rather than the user's text.
 import codecs
 import logging
 
-from cpcommon import clients, errors, events
-from cpcommon import observability
-from dqcommon import config, manifest as manifest_store, messages, notify
+from cpcommon import clients, errors, events, observability
+from dqcommon import config, messages, notify
+from dqcommon import manifest as manifest_store
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -140,7 +140,7 @@ def _scan_region(bucket: str, key: str, start: int, length: int, at_eof: bool) -
             decodable, pending = _split_trailing_partial(pending + chunk)
             _decode(decodable, base)
             base += len(decodable)
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         if errors.error_code(err) == _INVALID_RANGE:
             # The object shrank or was replaced between inspect-source's listing and now,
             # so this range is past its end. Losing the whole check over one file that

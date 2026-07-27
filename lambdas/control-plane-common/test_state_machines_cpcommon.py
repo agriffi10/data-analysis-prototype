@@ -16,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pytest  # noqa: E402
+import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _INFRA = os.path.join(_HERE, "..", "..", "infra", "modules")
@@ -305,7 +305,7 @@ def test_a_failure_seed_supplies_every_key_the_failure_terminal_reads(path):
     for seed_name, seed in seeds.items():
         supplied = set(seed.get("Parameters", {}))
         # "error.$" supplies "error"; a literal null key supplies itself.
-        supplied = {name[:-2] if name.endswith(".$") else name for name in supplied}
+        supplied = {name.removesuffix(".$") for name in supplied}
 
         # Walk forward from the seed to every Pass state it can reach, collecting what they
         # read. A Task in between only ADDS keys (ResultPath) — it never removes one — so

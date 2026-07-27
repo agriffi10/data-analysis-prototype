@@ -11,11 +11,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import pytest  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
-from dqcommon import messages  # noqa: E402
-
-import dq_check_query as v  # noqa: E402
+import dq_check_query as v
+import pytest
+from cpcommon.errors import TerminalError
+from dqcommon import messages
 
 
 def _block(qid, status="QUEUED"):

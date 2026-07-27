@@ -23,10 +23,10 @@ import logging
 import re
 
 from cpcommon import bounded_read, clients, errors, events, observability
-from tbcommon import notify
-from cpcommon.errors import TerminalError, TransientError
 from cpcommon.ddl import build_create_table_ddl
+from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
+from tbcommon import notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -65,7 +65,7 @@ def _check_access(bucket, key):
     """
     try:
         clients.s3().head_object(Bucket=bucket, Key=key)
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, "S3 head probe")
         raise
 
@@ -164,7 +164,7 @@ def _infer(event: dict) -> dict:
         # swallowed below and reported as an unreadable file — a permanent verdict on a
         # fault the SFN would happily have retried.
         raise
-    except Exception as exc:  # noqa: BLE001 - any scan/parse failure = terminal
+    except Exception as exc:  # any scan/parse failure = terminal
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
 
     partition_keys = event.get("partitionKeys") or []

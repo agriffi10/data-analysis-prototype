@@ -11,12 +11,11 @@ with a reason) for the screen's Retry affordance, then re-raises -> Fail.
 
 import logging
 
-from cpcommon import observability
-
 import cache
 import membership
 import registry as reg
 import teardown
+from cpcommon import observability
 from notify import emit_notification
 
 logger = logging.getLogger()
@@ -43,7 +42,7 @@ def delete_space(space, actor, request_id, registry):
             membership.clear_slot(member, space)
             cache.remove_entry(member, space)
         reg.delete(space)  # LAST — the name is now free to reuse
-    except Exception as exc:  # noqa: BLE001 - record failure, don't leave it dangling
+    except Exception as exc:  # record failure, don't leave it dangling
         reason = str(exc)  # raw — kept in logs + the registry `failed` record
         # SPEC-106 FR-009: teardown failures are all raw AWS/boto text, so the
         # user-facing reason (cache + notification) is a generic friendly clause.
@@ -51,13 +50,13 @@ def delete_space(space, actor, request_id, registry):
         logger.error("delete %s failed: %s", space, reason)
         try:
             reg.set_status(registry, "failed", request_id, reason)
-        except Exception:  # noqa: BLE001 - best-effort failure recording
+        except Exception:  # best-effort failure recording
             logger.exception("failed to record registry delete failure for %s", space)
         try:
             cache.upsert_entry(
                 owner, {"name": space, "role": "owner", "status": "failed", "reason": friendly}
             )
-        except Exception:  # noqa: BLE001 - best-effort failure recording
+        except Exception:  # best-effort failure recording
             logger.exception("failed to record cache delete failure for %s", space)
         # Notify the owner of the failure — the delete card's Retry affordance reads the
         # failed cache entry, and the success fan-out below is never reached.

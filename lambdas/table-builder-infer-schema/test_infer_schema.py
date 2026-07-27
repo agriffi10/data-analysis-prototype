@@ -24,12 +24,12 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import polars as pl  # noqa: E402
+import json
 
-import json  # noqa: E402
-import infer_schema as i  # noqa: E402
-from cpcommon import clients, config  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
+import infer_schema as i
+import polars as pl
+from cpcommon import clients, config
+from cpcommon.errors import TerminalError, TransientError
 
 
 class _FakeClientError(Exception):
@@ -72,8 +72,9 @@ _TMP = tempfile.mkdtemp()
 
 def _use_fixture(path):
     # Parquet seam: hand polars a local file object (it seeks either the same way) and
-    # no-op the S3 access probe.
-    i._parquet_source = lambda bucket, key: open(path, "rb")
+    # no-op the S3 access probe. The handle is the seam's return value — polars reads it
+    # after the lambda returns, so a context manager would close it too early (SIM115).
+    i._parquet_source = lambda bucket, key: open(path, "rb")  # noqa: SIM115
     i._check_access = lambda bucket, key: None
 
 
@@ -169,7 +170,9 @@ def test_parquet_preserves_native_types():
         "order_id": pl.Series([1, 2], dtype=pl.Int64),
         "amount": pl.Series([1.5, 2.5], dtype=pl.Float64),
         "d": pl.Series([dt.date(2026, 1, 1), dt.date(2026, 1, 2)]),
-        "ts": pl.Series([dt.datetime(2026, 1, 1, 12), dt.datetime(2026, 1, 2, 12)]),
+        # Naive on purpose: a tz-aware value makes polars write Datetime(tz), which is a
+        # different Parquet logical type than the one this test asserts on.
+        "ts": pl.Series([dt.datetime(2026, 1, 1, 12), dt.datetime(2026, 1, 2, 12)]),  # noqa: DTZ001
         "note": pl.Series(["a", "b"], dtype=pl.String),
     }).write_parquet(path)
     _use_fixture(path)

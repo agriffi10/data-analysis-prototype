@@ -6,12 +6,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-import auth  # noqa: E402
-import cache  # noqa: E402
-from cpcommon import clients  # noqa: E402
-from cpcommon import config as cpconfig  # noqa: E402
-import validate as v  # noqa: E402
-from fakes import install, raises  # noqa: E402
+import auth
+import cache
+import validate as v
+from cpcommon import clients
+from cpcommon import config as cpconfig
+from fakes import install, raises
 
 
 def _enable_notifications():

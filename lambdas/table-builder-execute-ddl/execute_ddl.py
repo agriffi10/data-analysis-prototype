@@ -20,10 +20,9 @@ A throttling / 5xx Athena error is raised as ``TransientError`` for the SFN ``Re
 
 import logging
 
+import athena_run
 from cpcommon import config, observability
 from tbcommon import notify
-
-import athena_run
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

@@ -16,9 +16,8 @@ never an error at the line that would have used the value.
 import importlib
 import os
 
-from cpcommon import config as cpconfig
-
 import config
+from cpcommon import config as cpconfig
 
 
 def _requires(module, name):

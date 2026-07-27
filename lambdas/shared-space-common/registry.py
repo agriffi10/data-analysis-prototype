@@ -16,9 +16,9 @@ the change to the *freshly-read* record, and ``PutObject`` conditioned on that E
 import json
 from datetime import datetime, timezone
 
-from cpcommon import config as cpconfig
-from cpcommon import clients
 import casio
+from cpcommon import clients
+from cpcommon import config as cpconfig
 
 
 class ProvisioningError(Exception):
@@ -132,7 +132,7 @@ def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: d
             try:
                 _put(name, record, None)
                 return "created"
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if casio.is_precondition(exc):
                     continue
                 raise
@@ -144,7 +144,7 @@ def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: d
             try:
                 _put(name, record, etag)
                 return "created"
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if casio.is_precondition(exc):
                     continue  # a sibling retry won; re-read and re-evaluate
                 raise

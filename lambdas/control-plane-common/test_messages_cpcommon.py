@@ -5,10 +5,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pytest  # noqa: E402
-
-from cpcommon import messages  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+import pytest
+from cpcommon import messages
+from cpcommon.errors import TerminalError
 
 
 def test_base_codes_are_known():

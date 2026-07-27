@@ -12,9 +12,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import dq_validate_authorize as v  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
-from dqcommon import messages  # noqa: E402
+import dq_validate_authorize as v
+from cpcommon.errors import TerminalError
+from dqcommon import messages
 
 USER_BUCKET = "dq-user-bkt"
 SHARED_BUCKET = "dq-shared-bkt"

@@ -18,8 +18,8 @@ Two properties make it safe to call from anywhere:
 
 import logging
 
-from cpcommon import athena, config as cpconfig
-from cpcommon import observability
+from cpcommon import athena, observability
+from cpcommon import config as cpconfig
 from dqcommon import messages, notify, sql
 
 logger = logging.getLogger()
@@ -58,7 +58,7 @@ def _drop(database: str, table: str, output_location: str) -> bool:
         )
         logger.info("dropped %s.%s", database, table)
         return True
-    except Exception as exc:  # noqa: BLE001 - cleanup is best-effort by design (see docstring)
+    except Exception as exc:  # cleanup is best-effort by design (see docstring)
         logger.exception(
             "LEAKED TEMP TABLE: could not drop %s.%s — it must be removed by hand",
             database,

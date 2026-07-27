@@ -21,10 +21,9 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-from tscommon.config import SHARE_MAX_RECIPIENTS  # noqa: E402
-
-import table_share_validate_authorize as v  # noqa: E402
-from cpcommon.errors import TerminalError  # noqa: E402
+import table_share_validate_authorize as v
+from cpcommon.errors import TerminalError
+from tscommon.config import SHARE_MAX_RECIPIENTS
 
 
 def _setup(actor="alice", spaces=None, users=None):

@@ -192,7 +192,9 @@ def _notify_one(record: dict) -> None:
     try:
         body = json.loads(raw)
         if not isinstance(body, dict):
-            raise ValueError("body is not a JSON object")
+            # ValueError, not TypeError: it unifies with what json.loads raises above, and
+            # the handler below is the single except for both.
+            raise ValueError("body is not a JSON object")  # noqa: TRY004
     except Exception:  # noqa: BLE001 - an unparseable body is expected input here
         # THE ONE THING WORTH KEEPING IS THE BODY ITSELF. It cannot be redacted (there is no
         # structure to redact), and it cannot be notified about (there is no token to
@@ -224,7 +226,7 @@ def _notify_one(record: dict) -> None:
         username = auth.verified_username_ignoring_expiry(
             body.get(token_field) or "", missing_token_detail=f"missing {token_field}"
         )
-    except Exception:  # noqa: BLE001 - no verifiable actor = no trustworthy recipient
+    except Exception:  # no verifiable actor = no trustworthy recipient
         # Guessing a recipient from the body would be worse than silence: it would route a
         # notification wherever an attacker asked. Mirrors tbcommon/notify's pre-identity
         # posture and SPEC-114 FR-004.
@@ -295,7 +297,7 @@ def _guarded_notify(record) -> None:
     """Call _notify_one so it can never raise — the belt to _notify_one's own braces (FR-005)."""
     try:
         _notify_one(record if isinstance(record, dict) else {})
-    except Exception:  # noqa: BLE001 - a per-message throw must never stop the batch/sweep
+    except Exception:  # a per-message throw must never stop the batch/sweep
         logger.exception("dlq-drain record handling failed")
 
 
@@ -303,7 +305,7 @@ def _dlq_arns() -> list[str]:
     """The DLQ ARNs to sweep, from DLQ_ARNS (a JSON list mirroring the drain's IAM read scope)."""
     try:
         arns = json.loads(os.environ.get("DLQ_ARNS", "[]"))
-    except Exception:  # noqa: BLE001 - a malformed env is a deploy error; sweep nothing, don't crash
+    except Exception:  # a malformed env is a deploy error; sweep nothing, don't crash
         logger.exception("DLQ_ARNS is not valid JSON; sweeping nothing")
         # The handler then sweeps NOTHING and returns {"drained": 0}, which is indistinguishable
         # from a healthy idle sweep in every field it reports. A deploy error that disables the
@@ -347,7 +349,7 @@ def _sweep_one_queue(queue_arn: str) -> int:
                 WaitTimeSeconds=_RECEIVE_WAIT_SECONDS,
                 AttributeNames=["ApproximateReceiveCount"],
             )
-        except Exception:  # noqa: BLE001 - a receive failure is transient; the next sweep retries
+        except Exception:  # a receive failure is transient; the next sweep retries
             logger.exception("could not receive from %s; leaving it for the next sweep", queue_arn)
             observability.error(
                 "could not receive from a queue", reason="receive-failed", queue_arn=queue_arn
@@ -365,7 +367,7 @@ def _sweep_one_queue(queue_arn: str) -> int:
             # outside the notifications queue's 5-minute dedup window) rather than being lost.
             try:
                 sqs.delete_message(QueueUrl=url, ReceiptHandle=message.get("ReceiptHandle"))
-            except Exception:  # noqa: BLE001 - see above; a resurfaced message is deduped, not doubled
+            except Exception:  # see above; a resurfaced message is deduped, not doubled
                 logger.exception("could not delete a drained message; it will resurface next sweep")
                 # WARNING, and the consequence is stated: the message is not lost, it resurfaces
                 # on a later sweep — and may notify a second time, outside the notifications
@@ -383,7 +385,7 @@ def _sweep_one_queue(queue_arn: str) -> int:
 # @traced is the ONLY decorator here: there is no notifies_on_failure, because this function IS
 # the failure handler and has no upstream to notify through.
 @observability.traced("drain")
-def handler(event, context):  # noqa: ARG001 - context unused; Lambda supplies it
+def handler(event, context):  # context unused; Lambda supplies it
     """Notify the actor behind every dead-lettered request.
 
     On its EventBridge schedule the event carries no ``Records``, so the handler SWEEPS all four

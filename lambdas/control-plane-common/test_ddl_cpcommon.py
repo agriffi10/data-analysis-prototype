@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon.ddl import (  # noqa: E402
+from cpcommon.ddl import (
     Storage,
     build_create_table_ddl,
     default_storage,

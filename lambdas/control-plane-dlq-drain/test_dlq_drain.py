@@ -18,13 +18,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"))
 
-import pytest  # noqa: E402
-import jwt  # noqa: E402
-from cryptography.hazmat.primitives import serialization  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
-
-import dlq_drain  # noqa: E402
-from cpcommon import clients, config  # noqa: E402
+import dlq_drain
+import jwt
+import pytest
+from cpcommon import clients, config
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _PRIVATE_PEM = _KEY.private_bytes(
@@ -522,8 +521,8 @@ def test_the_service_name_survives_the_sweeps_routing_rule():
     function's events under logs/_unrouted/. Checked against the sweep's OWN pattern rather
     than against a human's reading of it.
     """
-    import re
     import pathlib
+    import re
 
     sweep = (pathlib.Path(dlq_drain.__file__).resolve().parent.parent / "log-sweep" / "log_sweep.py").read_text()
     pattern = re.search(r'SERVICE_RE = re\.compile\(r"(.+?)"\)', sweep).group(1)
@@ -792,7 +791,7 @@ class _RaisingSink:
     "event_factory",
     [
         lambda: {"Records": [_record({"requestId": "r", "idToken": _token("alice")})]},
-        lambda: {},
+        dict,
     ],
     ids=["records-shape", "schedule-shape"],
 )

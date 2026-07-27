@@ -19,7 +19,7 @@ from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 from .messages import failure_message, success_message
 
 # Re-exported so verbs (and tests) can keep calling ``notify.emit_notification``.
-__all__ = ["emit_notification", "emit_failure", "emit_unexpected", "emit_created", "notifies_on_failure"]
+__all__ = ["emit_created", "emit_failure", "emit_notification", "emit_unexpected", "notifies_on_failure"]
 
 
 def _dedup(request_id: str, step: str) -> str | None:

@@ -8,10 +8,9 @@ clients are faked here and installed onto ``clients._<name>``.
 
 import types
 
+import config
 from cpcommon import clients
 from cpcommon import config as cpconfig
-
-import config
 
 
 def raises(fn, exc_type, match=None):

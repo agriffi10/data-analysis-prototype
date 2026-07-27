@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tbcommon import messages  # noqa: E402
+from tbcommon import messages
 
 
 def test_access_denied_reasons_share_one_message_and_hide_the_name():
@@ -76,7 +76,7 @@ def test_malformed_event_reason_has_friendly_text():
 def test_literal_brace_in_body_does_not_raise():
     """SPEC-083 FR-005: a reason body containing a literal brace must not blow up the
     placeholder substitution (it no longer uses str.format)."""
-    messages._BODIES["_brace_probe"] = "weird {not_a_placeholder} body."  # noqa: SLF001 - test-only
+    messages._BODIES["_brace_probe"] = "weird {not_a_placeholder} body."  # test-only
     try:
         msg = messages.failure_message("_brace_probe", table_name="orders")
         assert msg == 'Couldn\'t create table "orders": weird {not_a_placeholder} body.'

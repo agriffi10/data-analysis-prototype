@@ -6,9 +6,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-import forget_space as f  # noqa: E402
-from auth import AuthorizationError  # noqa: E402
-from fakes import install, raises  # noqa: E402
+import forget_space as f
+from auth import AuthorizationError
+from fakes import install, raises
 
 
 def _seed_cache(s3, user, entries):
@@ -23,7 +23,7 @@ def _cache(s3, user):
 
 # Cache-only: collision phantom (no registry record for the actor to own).
 def test_forget_phantom_removes_only_actor_entry_and_slot():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
     _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed", "reason": "name already taken"}])
 
@@ -34,7 +34,7 @@ def test_forget_phantom_removes_only_actor_entry_and_slot():
 
 
 def test_forget_other_owner_entry_is_cache_only_and_leaves_their_space_intact():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     cognito.users = {"alice": {"custom:shared_space_2": "sales"}}
     _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed", "reason": "name already taken"}])
     # The real, healthy space owned by someone else.
@@ -52,7 +52,7 @@ def test_forget_other_owner_entry_is_cache_only_and_leaves_their_space_intact():
 
 # Teardown: the actor's own failed create.
 def test_forget_own_failed_space_tears_down_resources_and_frees_name():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, cognito = install()
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed", "reason": "boom"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
@@ -71,7 +71,7 @@ def test_forget_own_failed_space_tears_down_resources_and_frees_name():
 
 
 def test_forget_own_failed_space_with_no_resources_is_a_clean_teardown():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"alice": {}}  # slot-limit failure never assigned a slot
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed", "reason": "limit"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
@@ -85,7 +85,7 @@ def test_forget_own_failed_space_with_no_resources_is_a_clean_teardown():
 
 # Refuse: a healthy active space the actor belongs to.
 def test_forget_refuses_active_space_owner():
-    s3, glue, lf, cognito = install()
+    s3, glue, _lf, _cognito = install()
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
     glue.databases.add("sales")
@@ -96,13 +96,13 @@ def test_forget_refuses_active_space_owner():
 
 
 def test_forget_refuses_active_space_member():
-    s3, glue, lf, cognito = install()
+    _s3, _glue, _lf, _cognito = install()
     registry = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
     raises(lambda: f.forget_space("sales", "bob", "req-f", registry), AuthorizationError, "active")
 
 
 def test_handler_uses_validated_context():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"alice": {}}
     _seed_cache(s3, "alice", [{"name": "ghost", "role": "owner", "status": "failed"}])
     out = f.handler({"space": "ghost", "actor": "alice", "requestId": "req-f", "registry": None}, None)

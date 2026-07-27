@@ -18,8 +18,7 @@ WHERE THE THREE QUERIES DIVERGE (FR-004):
 
 import logging
 
-from cpcommon import athena
-from cpcommon import observability
+from cpcommon import athena, observability
 from cpcommon.errors import TerminalError
 from dqcommon import messages, notify
 

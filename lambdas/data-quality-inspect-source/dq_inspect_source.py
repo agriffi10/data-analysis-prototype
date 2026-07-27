@@ -23,8 +23,7 @@ import io
 import json
 import logging
 
-from cpcommon import bounded_read, clients, errors, events, s3_listing
-from cpcommon import observability
+from cpcommon import bounded_read, clients, errors, events, observability, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 from dqcommon import config, messages, notify
@@ -136,7 +135,7 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     """
     try:
         head = clients.s3().head_object(Bucket=bucket, Key=location)
-    except Exception as err:  # noqa: BLE001 - re-raised unless it is a plain "no such key"
+    except Exception as err:  # re-raised unless it is a plain "no such key"
         if errors.error_code(err) in _NOT_FOUND_CODES:
             return f"{location}/"
         errors.raise_if_transient(err, f"head {bucket}/{location}")
@@ -162,7 +161,7 @@ def _list_objects(bucket: str, prefix: str) -> list[tuple[str, int]]:
     """
     try:
         return list(s3_listing.list_data_objects(bucket, prefix))
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"list {bucket}/{prefix}")
         raise
 
@@ -244,7 +243,7 @@ def _check_access(bucket: str, key: str) -> None:
     """
     try:
         clients.s3().head_object(Bucket=bucket, Key=key)
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"head {bucket}/{key}")
         raise
 
@@ -374,7 +373,7 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
         # reported as "the columns couldn't be read" — a permanent verdict on a fault the
         # SFN would happily have retried.
         raise
-    except Exception as exc:  # noqa: BLE001 - a corrupt/mistyped object is terminal, not retryable
+    except Exception as exc:  # a corrupt/mistyped object is terminal, not retryable
         raise TerminalError(
             messages.UNREADABLE_HEADER,
             f"could not read the schema of {key}: {exc}",
@@ -404,7 +403,7 @@ def _probe_all(bucket: str, objects: list[tuple[str, int]], fmt: str) -> list[di
 
 def _relative_dirs(key: str, listing_prefix: str) -> list[str]:
     """Return ``key``'s directory segments beneath ``listing_prefix``."""
-    rel = key[len(listing_prefix):] if key.startswith(listing_prefix) else key
+    rel = key.removeprefix(listing_prefix)
     return rel.split("/")[:-1]
 
 
@@ -508,7 +507,7 @@ def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
         clients.s3().put_object(
             Bucket=bucket, Key=key, Body=body, ContentType="application/json"
         )
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         # Losing the manifest to a one-off SlowDown must not fail the request: the whole
         # verb is replay-safe (the key is a pure function of the request), so a Retry
         # simply rewrites it. Unmapped, this arrives as an unretried ClientError and the

@@ -16,11 +16,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-drop-temp-tables"))
 
-import pytest  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
-
-import dq_assemble_report as v  # noqa: E402
-import dq_drop_temp_tables as cleanup  # noqa: E402
+import dq_assemble_report as v
+import dq_drop_temp_tables as cleanup
+import pytest
+from cpcommon.errors import TerminalError, TransientError
 
 BUCKET = "dq-user-bkt"
 PREFIX = "alice/_data-quality-reports/req-1"
@@ -77,18 +76,18 @@ class _FakeS3:
         self.gets = []
         self.lists = []
 
-    def get_object(self, Bucket, Key):  # noqa: N803 - boto3's kwarg casing
+    def get_object(self, Bucket, Key):  # boto3's kwarg casing
         self.gets.append(Key)
         if Key in self.missing or Key not in self.objects:
             raise _FakeClientError("NoSuchKey")
         return {"Body": io.BytesIO(self.objects[Key])}
 
-    def put_object(self, Bucket, Key, Body, **kw):  # noqa: N803
+    def put_object(self, Bucket, Key, Body, **kw):
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body})
         self.objects[Key] = Body
         return {}
 
-    def list_objects_v2(self, Bucket, Prefix):  # noqa: N803
+    def list_objects_v2(self, Bucket, Prefix):
         self.lists.append(Prefix)
         return {
             "Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)]

@@ -6,10 +6,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
-from cpcommon import clients  # noqa: E402
-from cpcommon import config as cpconfig  # noqa: E402
-import add_members as a  # noqa: E402
-from fakes import install  # noqa: E402
+import add_members as a
+from cpcommon import clients
+from cpcommon import config as cpconfig
+from fakes import install
 
 
 def _enable_notifications():
@@ -42,7 +42,7 @@ def _seed_reg(s3, reg):
 
 
 def test_add_members_assigns_slot_registry_cache_and_owner_projection():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
     reg = _active_reg(members=["alice"])
     _seed_reg(s3, reg)
@@ -78,7 +78,7 @@ def test_add_members_assigns_slot_registry_cache_and_owner_projection():
 
 
 def test_add_members_ignores_unknown_users_silently():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
     reg = _active_reg(members=["alice"])
     _seed_reg(s3, reg)
@@ -89,7 +89,7 @@ def test_add_members_ignores_unknown_users_silently():
 
 
 def test_add_members_skips_at_limit_target_and_still_adds_others():
-    s3, glue, lf, cognito = install(max_memberships=2)
+    s3, _glue, _lf, cognito = install(max_memberships=2)
     cognito.users = {
         "full": {"custom:shared_space_1": "x", "custom:shared_space_2": "y"},
         "bob": {},
@@ -104,7 +104,7 @@ def test_add_members_skips_at_limit_target_and_still_adds_others():
 
 
 def test_add_members_idempotent_for_existing_member():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
     reg = _active_reg(members=["alice", "bob"])
     _seed_reg(s3, reg)
@@ -116,7 +116,7 @@ def test_add_members_idempotent_for_existing_member():
 
 def test_add_members_does_not_demote_active_member():
     # FR-002: re-adding an already-acknowledged (active) member keeps them active.
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
     reg = _active_reg(members=["alice", "bob"])
     reg["acknowledged"] = ["bob"]
@@ -131,7 +131,7 @@ def test_add_members_does_not_demote_active_member():
 
 
 def test_add_members_never_adds_the_owner():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, _cognito = install()
     reg = _active_reg(members=["alice"])
     _seed_reg(s3, reg)
 
@@ -140,7 +140,7 @@ def test_add_members_never_adds_the_owner():
 
 
 def test_add_member_notifies_added_user():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
     sqs = _enable_notifications()
     reg = _active_reg(members=["alice"])
@@ -151,7 +151,7 @@ def test_add_member_notifies_added_user():
 
 
 def test_add_unknown_notifies_owner():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
     sqs = _enable_notifications()
     reg = _active_reg(members=["alice"])
@@ -162,7 +162,7 @@ def test_add_unknown_notifies_owner():
 
 
 def test_add_at_limit_notifies_owner():
-    s3, glue, lf, cognito = install(max_memberships=2)
+    s3, _glue, _lf, cognito = install(max_memberships=2)
     cognito.users = {"full": {"custom:shared_space_1": "x", "custom:shared_space_2": "y"}}
     sqs = _enable_notifications()
     reg = _active_reg(members=["alice"])
@@ -175,7 +175,7 @@ def test_add_at_limit_notifies_owner():
 
 
 def test_bulk_add_emits_per_affected_user_and_silences_existing_members():
-    s3, glue, lf, cognito = install(max_memberships=2)
+    s3, _glue, _lf, cognito = install(max_memberships=2)
     cognito.users = {
         "bob": {},
         "carol": {},
@@ -200,7 +200,7 @@ def test_bulk_add_emits_per_affected_user_and_silences_existing_members():
 
 def test_add_members_fans_roster_to_existing_members():
     # SPEC-075 FR-002: adding cara refreshes an existing member (bob)'s roster too.
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "cara": {}}
     reg = _active_reg(members=["alice", "bob"])
     reg["acknowledged"] = ["bob"]
@@ -217,7 +217,7 @@ def test_add_members_fans_roster_to_existing_members():
 
 
 def test_handler_uses_validated_context():
-    s3, glue, lf, cognito = install()
+    s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
     reg = _active_reg(members=["alice"])
     _seed_reg(s3, reg)

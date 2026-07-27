@@ -13,11 +13,10 @@ import zlib
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import pytest  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
-from dqcommon import config, messages  # noqa: E402
-
-import dq_inspect_source as v  # noqa: E402
+import dq_inspect_source as v
+import pytest
+from cpcommon.errors import TerminalError, TransientError
+from dqcommon import config, messages
 
 BUCKET = "dq-user-bkt"
 LOCATION = "alice/sales"
@@ -49,13 +48,13 @@ class _FakeS3:
         self.head_calls = []
         self.puts = []
 
-    def head_object(self, Bucket, Key):  # noqa: N803 - boto3's kwarg casing
+    def head_object(self, Bucket, Key):  # boto3's kwarg casing
         self.head_calls.append(Key)
         if Key in self.keys:
             return {"ContentLength": 1}
         raise _FakeClientError("404")
 
-    def put_object(self, Bucket, Key, Body, **kw):  # noqa: N803
+    def put_object(self, Bucket, Key, Body, **kw):
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body, **kw})
         return {}
 
@@ -206,7 +205,7 @@ def test_a_zero_byte_object_at_the_location_is_a_folder_not_a_file():
     they never selected.
     """
     fake = _FakeS3()
-    fake.head_object = lambda Bucket, Key: {"ContentLength": 0}  # noqa: N803
+    fake.head_object = lambda Bucket, Key: {"ContentLength": 0}
     v.clients.s3 = lambda: fake
     listed = []
     v.s3_listing.list_data_objects = lambda bucket, prefix: (
@@ -233,7 +232,7 @@ def test_a_transient_head_error_is_retryable_not_a_folder():
     _setup([])
     fake = _FakeS3()
 
-    def _boom(Bucket, Key):  # noqa: N803
+    def _boom(Bucket, Key):
         raise _FakeClientError("SlowDown")
 
     fake.head_object = _boom
@@ -247,7 +246,7 @@ def test_a_non_transient_head_error_is_not_disguised_as_retryable():
     _setup([])
     fake = _FakeS3()
 
-    def _boom(Bucket, Key):  # noqa: N803
+    def _boom(Bucket, Key):
         raise _FakeClientError("AccessDenied")
 
     fake.head_object = _boom
@@ -410,7 +409,10 @@ def _probe_local(monkeypatch, path, fmt):
     """
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
     if fmt == "parquet":
-        monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))
+        # Seam handle: polars reads it after the lambda returns, so it must stay open.
+        monkeypatch.setattr(
+            v, "_parquet_source", lambda bucket, key: open(path, "rb")  # noqa: SIM115
+        )
     else:
         with open(path, "rb") as fh:
             data = fh.read()
@@ -531,7 +533,7 @@ def test_json_types_are_inferred_from_rows_beyond_a_wide_first_record():
     wide = b'{"a": null, "pad": "' + b"x" * 300_000 + b'"}\n'
     _install_body(wide + b"".join(b'{"a": %d, "pad": "y"}\n' % n for n in range(500)))
     head = v._read_plain_head("bkt", "some/a.ndjson")
-    assert dict((c["name"], c["type"]) for c in v._columns_from(io.BytesIO(head), "json")) == {
+    assert {c["name"]: c["type"] for c in v._columns_from(io.BytesIO(head), "json")} == {
         "a": "bigint",
         "pad": "string",
     }
@@ -550,7 +552,8 @@ def test_an_unmappable_dtype_is_a_terminal_not_a_crash(tmp_path, monkeypatch):
     path = str(tmp_path / "b.parquet")
     pl.DataFrame({"blob": pl.Series([b"\x00"], dtype=pl.Binary)}).write_parquet(path)
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
-    monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))
+    # Seam handle: polars reads it after the lambda returns, so it must stay open.
+    monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))  # noqa: SIM115
     with pytest.raises(TerminalError) as err:
         v._probe_columns("bkt", "alice/sales/b.parquet", "parquet")
     assert err.value.reason == messages.UNREADABLE_HEADER
@@ -569,7 +572,8 @@ def test_an_unreadable_header_fails_the_whole_request(tmp_path, monkeypatch):
     worst file in the folder."""
     path = _write(tmp_path, "broken.parquet", b"this is not parquet", binary=True)
     monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
-    monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))
+    # Seam handle: polars reads it after the lambda returns, so it must stay open.
+    monkeypatch.setattr(v, "_parquet_source", lambda bucket, key: open(path, "rb"))  # noqa: SIM115
     with pytest.raises(TerminalError) as err:
         v._probe_columns("bkt", "alice/sales/broken.parquet", "parquet")
     assert err.value.reason == messages.UNREADABLE_HEADER
@@ -636,11 +640,11 @@ def _install_ranged_object(path):
 
     class _S3:
         @staticmethod
-        def head_object(Bucket, Key):  # noqa: N803 - boto3's kwarg casing
+        def head_object(Bucket, Key):  # boto3's kwarg casing
             return {"ContentLength": size}
 
         @staticmethod
-        def get_object(Bucket, Key, Range=None):  # noqa: N803
+        def get_object(Bucket, Key, Range=None):
             with open(path, "rb") as fh:
                 if Range is None:
                     data = fh.read()
@@ -1058,7 +1062,7 @@ def test_a_throttled_manifest_write_is_retryable_not_terminal():
     """
     _, fake = _setup([("alice/sales/a.csv", 10)])
 
-    def _boom(Bucket, Key, Body, **kw):  # noqa: N803
+    def _boom(Bucket, Key, Body, **kw):
         raise _FakeClientError("SlowDown")
 
     fake.put_object = _boom
@@ -1069,7 +1073,7 @@ def test_a_throttled_manifest_write_is_retryable_not_terminal():
 def test_a_non_transient_manifest_write_error_is_not_disguised_as_retryable():
     _, fake = _setup([("alice/sales/a.csv", 10)])
 
-    def _boom(Bucket, Key, Body, **kw):  # noqa: N803
+    def _boom(Bucket, Key, Body, **kw):
         raise _FakeClientError("AccessDenied")
 
     fake.put_object = _boom
@@ -1096,7 +1100,7 @@ def test_a_throttled_access_probe_is_retryable():
     _, fake = _setup([("alice/sales/a.csv", 10)])
     calls = []
 
-    def _boom(Bucket, Key):  # noqa: N803
+    def _boom(Bucket, Key):
         calls.append(Key)
         raise _FakeClientError("Throttling")
 
@@ -1112,7 +1116,7 @@ def test_a_throttled_gzip_get_is_retryable_not_unreadable_header():
     permanently unreadable."""
     fake = _FakeS3()
     fake.get_object = lambda **kw: (_ for _ in ()).throw(_FakeClientError("SlowDown"))
-    fake.head_object = lambda Bucket, Key: {"ContentLength": 10}  # noqa: N803
+    fake.head_object = lambda Bucket, Key: {"ContentLength": 10}
     v.clients.s3 = lambda: fake
     with pytest.raises(TransientError):
         v._probe_columns(BUCKET, "alice/sales/a.csv.gz", "csv")
@@ -1134,7 +1138,7 @@ def test_non_transient_faults_propagate_unchanged_from_every_read_path():
 
     # access probe
     _, fake = _setup([("alice/sales/a.csv", 10)])
-    fake.head_object = lambda Bucket, Key: (_ for _ in ()).throw(denied)  # noqa: N803
+    fake.head_object = lambda Bucket, Key: (_ for _ in ()).throw(denied)
     with pytest.raises(_FakeClientError):
         v._check_access(BUCKET, "alice/sales/a.csv")
 

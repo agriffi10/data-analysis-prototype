@@ -7,15 +7,14 @@ here (it's stubbed in the validator's tests).
 
 import json
 
-import pytest
-
 import auth
 import cache
-from cpcommon import config as cpconfig
 import membership
 import notify
+import pytest
 import registry as reg
-from fakes import install, raises, FakeUserNotFound
+from cpcommon import config as cpconfig
+from fakes import FakeUserNotFound, install, raises
 
 REG = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
 
@@ -78,13 +77,13 @@ def test_reserve_creates_then_collides():
 
 
 def test_reserve_same_request_is_replay():
-    s3, *_ = install()
+    _s3, *_ = install()
     assert reg.reserve("sales", "alice", "req-1") == "created"
     assert reg.reserve("sales", "alice", "req-1") == "replay"
 
 
 def test_reserve_owner_can_retry_own_failed():
-    s3, *_ = install()
+    _s3, *_ = install()
     assert reg.reserve("sales", "alice", "req-1") == "created"
     reg.finalize("sales", "alice", "req-1", "failed", "boom")
     # The owner retrying after a failed create re-reserves the name (fresh request).
@@ -94,7 +93,7 @@ def test_reserve_owner_can_retry_own_failed():
 
 
 def test_reserve_failed_still_blocks_a_different_owner():
-    s3, *_ = install()
+    _s3, *_ = install()
     assert reg.reserve("sales", "alice", "req-1") == "created"
     reg.finalize("sales", "alice", "req-1", "failed", "boom")
     # A failed reservation is only retryable by its own owner; others still collide.
@@ -102,7 +101,7 @@ def test_reserve_failed_still_blocks_a_different_owner():
 
 
 def test_finalize_and_load_roundtrip():
-    s3, *_ = install()
+    _s3, *_ = install()
     reg.finalize("sales", "alice", "req-1", "active")
     loaded = reg.load("sales")
     assert loaded["status"] == "active" and loaded["members"] == ["alice"]
@@ -138,8 +137,8 @@ def test_registry_set_status_cas_preserves_concurrent_member_add():
     """FR-001: set_status's conditional write loses to a concurrent add-members that
     commits first, so it re-reads and re-applies its status change on the FRESH record —
     both changes survive (the add is not lost, and status still lands)."""
-    from fakes import FakeS3
     from cpcommon import clients
+    from fakes import FakeS3
 
     class RacyS3(FakeS3):
         _injected = False
@@ -164,8 +163,8 @@ def test_registry_set_status_cas_preserves_concurrent_member_add():
 def test_registry_save_members_cas_retries_and_preserves_untouched_field():
     """FR-001: save_members re-reads fresh on a 412, so a concurrent writer's change to
     a field it doesn't touch survives while its own members change still lands."""
-    from fakes import FakeS3
     from cpcommon import clients
+    from fakes import FakeS3
 
     class RacyS3(FakeS3):
         _injected = False
@@ -190,8 +189,8 @@ def test_registry_save_members_cas_retries_and_preserves_untouched_field():
 def test_registry_cas_exhausts_after_persistent_contention():
     """FR-001: unbounded contention raises a typed RuntimeError (non-swallowed), so the
     Step Function records a terminal failure rather than a silent success/lost write."""
-    from fakes import FakeS3
     from cpcommon import clients
+    from fakes import FakeS3
 
     class AlwaysRacyS3(FakeS3):
         def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
@@ -211,8 +210,8 @@ def test_reserve_failed_retry_is_conditional_under_contention():
     """FR-002: the owner's failed-create retry overwrites CONDITIONALLY, so a sibling
     retry that commits first makes this one 412 and re-read (not a blind double-write) —
     the loser gets a typed ProvisioningError and the sibling's record stands."""
-    from fakes import FakeS3
     from cpcommon import clients
+    from fakes import FakeS3
 
     def _as_bytes(body):
         return body if isinstance(body, (bytes, bytearray)) else body.encode()
@@ -390,8 +389,8 @@ def test_write_roster_to_all_fans_out_to_owner_and_every_member():
 def test_write_roster_to_all_is_best_effort_per_member():
     """FR-002: one member's cache write failing is logged and skipped, never aborting
     the fan-out — the remaining members and the owner still get the roster."""
-    from fakes import FakeS3, FakeClientError
     from cpcommon import clients
+    from fakes import FakeClientError, FakeS3
 
     class FlakyS3(FakeS3):
         def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
@@ -413,8 +412,8 @@ def test_cache_cas_retries_and_preserves_concurrent_write():
     lose-update. RacyS3 commits a competing entry between our read and our first
     write (advancing the ETag), so the conditional PutObject fails once; the CAS loop
     re-reads and reapplies, and BOTH entries survive."""
-    from fakes import FakeS3
     from cpcommon import clients
+    from fakes import FakeS3
 
     key = "bob/user_settings/shared-connections.json"
 
@@ -440,8 +439,8 @@ def test_cache_cas_retries_and_preserves_concurrent_write():
 def test_cache_read_treats_accessdenied_as_absent():
     """Hardening: when the role lacks s3:ListBucket, a missing object returns 403
     AccessDenied (not NoSuchKey). _read must treat that as absent and create."""
-    from fakes import FakeS3, FakeClientError
     from cpcommon import clients
+    from fakes import FakeClientError, FakeS3
 
     class NoListBucketS3(FakeS3):
         def get_object(self, Bucket, Key):
@@ -458,8 +457,8 @@ def test_cache_read_treats_accessdenied_as_absent():
 
 def test_cache_read_propagates_unexpected_error():
     """A non-absence S3 error must propagate (never silently overwrite real data)."""
-    from fakes import FakeS3, FakeClientError
     from cpcommon import clients
+    from fakes import FakeClientError, FakeS3
 
     class BrokenS3(FakeS3):
         def get_object(self, Bucket, Key):
@@ -482,9 +481,8 @@ def test_cache_remove_absent_writes_nothing():
 
 def test_notify_is_noop_when_queue_unset():
     install()  # NOTIFICATIONS_QUEUE_URL = ""
-    from fakes import FakeSqs
-
     from cpcommon import clients
+    from fakes import FakeSqs
 
     clients._sqs = FakeSqs()
     notify.emit_notification("alice", "hi")
@@ -493,9 +491,8 @@ def test_notify_is_noop_when_queue_unset():
 
 def test_notify_sends_when_queue_set():
     install()
-    from fakes import FakeSqs
-
     from cpcommon import clients
+    from fakes import FakeSqs
 
     clients._sqs = FakeSqs()
     cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
@@ -545,8 +542,8 @@ def test_a_failed_roster_fan_out_names_the_stale_member_and_the_counts(captured_
     slots, so this fan-out can emit at most ten events. The sweep's per-message count is
     unbounded AND it emits into the queue it drains.
     """
-    from fakes import FakeS3, FakeClientError
     from cpcommon import clients
+    from fakes import FakeClientError, FakeS3
 
     members = ["alice", "bob", "cara", "dan", "erin"]
 

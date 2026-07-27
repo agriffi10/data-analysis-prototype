@@ -20,10 +20,11 @@ collides with a real table name.
 
 import logging
 
-from cpcommon import athena, config as cpconfig, events
-from cpcommon import observability
+from cpcommon import athena, events, observability
+from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
-from dqcommon import manifest as manifest_store, messages, notify, sql
+from dqcommon import manifest as manifest_store
+from dqcommon import messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

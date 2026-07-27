@@ -12,9 +12,9 @@ are terminal with a specific reason; transient S3 errors propagate for the SFN R
 
 import logging
 
-from cpcommon import errors, s3_listing, events, observability
-from tbcommon import notify
+from cpcommon import errors, events, observability, s3_listing
 from cpcommon.errors import TerminalError
+from tbcommon import notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -107,7 +107,7 @@ def _inspect(event: dict) -> dict:
     # inspect-source sibling.
     try:
         objects = list(s3_listing.list_data_objects(bucket, prefix))
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"list {bucket}/{prefix}")
         raise
 
@@ -116,7 +116,7 @@ def _inspect(event: dict) -> dict:
         if fmt is None:
             unsupported = unsupported or key
             continue
-        rel = key[len(prefix):] if key.startswith(prefix) else key
+        rel = key.removeprefix(prefix)
         rel_dirs = rel.split("/")[:-1]
         _validate_layout(rel_dirs, declared_names)
 

@@ -8,12 +8,13 @@ numbers about a user's data, and the user acts on them.
 import os
 import re
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import pytest  # noqa: E402
-from dqcommon import config, sql  # noqa: E402
+import pytest
+from dqcommon import config, sql
 
 REQUEST_ID = "7f3ac19d-2b4e-4c8a-9f01-6d5e3a7b8c02"
 HEX32 = "7f3ac19d2b4e4c8a9f016d5e3a7b8c02"
@@ -145,7 +146,7 @@ def test_raw_table_delimiter_is_an_escape_sequence_never_a_literal_control_byte(
     assert "\\001" in ddl               # the four characters backslash-zero-zero-one
     assert "\x01" not in ddl            # never the actual control byte
     # And the same holds of the module source itself, which is where a bad paste lands.
-    source = open(sql.__file__, encoding="utf-8").read()
+    source = Path(sql.__file__).read_text(encoding="utf-8")
     assert "\x01" not in source
 
 

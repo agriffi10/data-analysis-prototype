@@ -15,10 +15,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import polars as pl  # noqa: E402
-import pytest  # noqa: E402
-
-from cpcommon.type_mapping import UnmappableTypeError, map_dtype  # noqa: E402
+import polars as pl
+import pytest
+from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 
 
 @pytest.mark.parametrize(

@@ -12,8 +12,7 @@ Emits the validated, normalized request the next states consume:
 
 import logging
 
-from cpcommon import auth, config, events, observability
-from cpcommon import errors
+from cpcommon import auth, config, errors, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from tbcommon import notify
@@ -40,7 +39,7 @@ def _load_registry(database: str):
     """
     try:
         return reg.load(database)
-    except Exception as err:  # noqa: BLE001 - retryable faults mapped; the rest propagate
+    except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"registry load {database}")
         raise
 

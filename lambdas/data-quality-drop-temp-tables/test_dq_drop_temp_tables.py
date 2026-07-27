@@ -11,11 +11,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
-import pytest  # noqa: E402
-from cpcommon.errors import TerminalError, TransientError  # noqa: E402
-from dqcommon import messages  # noqa: E402
-
-import dq_drop_temp_tables as v  # noqa: E402
+import dq_drop_temp_tables as v
+import pytest
+from cpcommon.errors import TerminalError, TransientError
+from dqcommon import messages
 
 BUCKET = "dq-user-bkt"
 REQUEST_ID = "7f3ac19d-2b4e-4c8a-9f01-6d5e3a7b8c02"

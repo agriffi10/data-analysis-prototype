@@ -17,8 +17,8 @@ consistent with the SPEC-055/070 routing.
 
 import logging
 
-from tscommon import athena as athena_mod
 from cpcommon import config, observability
+from tscommon import athena as athena_mod
 from tscommon import ddl, notify
 
 logger = logging.getLogger()

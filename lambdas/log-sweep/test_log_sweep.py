@@ -8,6 +8,7 @@ input on an S3 key path (so nothing escapes the logs/ prefix).
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -20,9 +21,8 @@ sys.path.insert(
 os.environ.setdefault("LOGS_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/1/dat-prod-logs")
 os.environ.setdefault("ADMIN_BUCKET", "dat-prod-athena-admin")
 
-import log_foundry as lf  # noqa: E402
-
-import log_sweep  # noqa: E402
+import log_foundry as lf
+import log_sweep
 
 
 class FakeSQS:
@@ -442,7 +442,7 @@ def test_the_handler_is_total_when_every_emit_raises(wired, _quiet_sink):
     the messages redeliver, and a sweep that always throws poison-loops the queue it exists to
     drain.
     """
-    sqs, s3 = wired([[_message(_event(), "a"), _message('{"bad": true}', "b")]])
+    sqs, _s3 = wired([[_message(_event(), "a"), _message('{"bad": true}', "b")]])
     _install_sink(RaisingSink())
 
     result = log_sweep.handler({}, None)
@@ -506,7 +506,7 @@ def test_every_existing_cloudwatch_message_is_still_in_the_source():
     Matched on the message literals rather than on formatted call sites, so reformatting the
     file cannot fail this while deleting a call still does.
     """
-    source = open(log_sweep.__file__).read()
+    source = Path(log_sweep.__file__).read_text(encoding="utf-8")
     for message in (
         "log-sweep: LOGS_QUEUE_URL or ADMIN_BUCKET unset",
         "log-sweep: no existing object at %s",
@@ -539,7 +539,7 @@ def test_a_failure_is_written_to_BOTH_accounts(wired, captured, caplog):
 
 
 def test_the_console_echo_is_not_used_here():
-    assert ("echo" + "=True") not in open(log_sweep.__file__).read()
+    assert ("echo" + "=True") not in Path(log_sweep.__file__).read_text(encoding="utf-8")
 
 
 # -- FR-007: sweep_id joins the two accounts -------------------------------------------
@@ -590,7 +590,7 @@ def test_two_successive_sweeps_carry_different_sweep_ids(wired, captured):
 
 
 def test_well_formed_event_lands_under_its_service_and_the_events_own_hour(wired):
-    sqs, s3 = wired([[_message(_event())]])
+    _sqs, s3 = wired([[_message(_event())]])
 
     log_sweep.handler({}, None)
 
@@ -601,7 +601,7 @@ def test_well_formed_event_lands_under_its_service_and_the_events_own_hour(wired
 
 def test_partition_comes_from_the_event_not_the_sweep_clock(wired):
     """A replayed event stamped with sweep time is invisible in the window it belongs to."""
-    sqs, s3 = wired([[_message(_event(ts="2026-07-01T03:00:00.000Z"))]])
+    _sqs, s3 = wired([[_message(_event(ts="2026-07-01T03:00:00.000Z"))]])
 
     log_sweep.handler({}, None)
 
@@ -610,7 +610,7 @@ def test_partition_comes_from_the_event_not_the_sweep_clock(wired):
 
 def test_service_path_traversal_cannot_escape_the_logs_prefix(wired):
     """`service` arrives in an untrusted body and becomes part of an S3 key."""
-    sqs, s3 = wired([[_message(_event(service="../../fallback-results"))]])
+    _sqs, s3 = wired([[_message(_event(service="../../fallback-results"))]])
 
     log_sweep.handler({}, None)
 
@@ -643,7 +643,7 @@ def test_unroutable_bodies_go_to_unrouted_and_are_deleted(wired, body, why):
 
 
 def test_unrouted_body_is_preserved_verbatim(wired):
-    sqs, s3 = wired([[_message("this is not json")]])
+    _sqs, s3 = wired([[_message("this is not json")]])
 
     log_sweep.handler({}, None)
 
@@ -685,7 +685,7 @@ def test_a_failed_put_does_not_abort_the_whole_sweep(wired, monkeypatch):
 
 def test_one_object_per_service_day_group(wired):
     """Grouping is per DAY now, not per hour — two events in the same day share one object."""
-    sqs, s3 = wired(
+    _sqs, s3 = wired(
         [
             [
                 _message(_event(service="data-quality", ts="2026-07-22T14:00:00Z"), "a"),
@@ -781,7 +781,7 @@ def test_a_read_failure_never_overwrites_an_existing_day(wired, monkeypatch):
 
 def test_sweep_short_polls_and_loops_until_a_round_is_empty(wired):
     """FakeSQS asserts WaitTimeSeconds==0; this covers the multi-round drain."""
-    sqs, s3 = wired([[_message(_event(), "a")], [_message(_event(), "b")]])
+    sqs, _s3 = wired([[_message(_event(), "a")], [_message(_event(), "b")]])
 
     result = log_sweep.handler({}, None)
 
@@ -790,7 +790,7 @@ def test_sweep_short_polls_and_loops_until_a_round_is_empty(wired):
 
 
 def test_empty_queue_completes_without_writing(wired):
-    sqs, s3 = wired([])
+    _sqs, s3 = wired([])
 
     assert log_sweep.handler({}, None) == {"swept": 0, "written": 0}
     assert s3.puts == []
@@ -800,7 +800,7 @@ def test_round_cap_truncates_and_says_so(wired, monkeypatch, caplog):
     """A silent cap reads as 'swept everything' when it didn't."""
     monkeypatch.setattr(log_sweep, "MAX_MESSAGES", 20)
     rounds = [[_message(_event(), f"r{i}-{n}") for n in range(10)] for i in range(5)]
-    sqs, s3 = wired(rounds)
+    _sqs, _s3 = wired(rounds)
 
     with caplog.at_level("WARNING"):
         result = log_sweep.handler({}, None)
@@ -814,7 +814,7 @@ def test_round_cap_truncates_and_says_so(wired, monkeypatch, caplog):
 
 def test_a_completely_malformed_message_does_not_raise(wired):
     """The sweep must return normally — a throw means redelivery forever."""
-    sqs, s3 = wired([[{"NoBodyKey": True}, _message(_event(), "ok")]])
+    _sqs, _s3 = wired([[{"NoBodyKey": True}, _message(_event(), "ok")]])
 
     result = log_sweep.handler({}, None)
 
@@ -822,7 +822,7 @@ def test_a_completely_malformed_message_does_not_raise(wired):
 
 
 def test_unparseable_timestamp_falls_back_and_is_counted(wired, caplog):
-    sqs, s3 = wired([[_message(_event(ts="not-a-timestamp"))]])
+    _sqs, s3 = wired([[_message(_event(ts="not-a-timestamp"))]])
 
     with caplog.at_level("WARNING"):
         log_sweep.handler({}, None)
