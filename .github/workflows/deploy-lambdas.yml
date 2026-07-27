@@ -33,6 +33,7 @@ jobs:
   # reuses the mechanism for heavier external libraries.
   layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -73,6 +74,12 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
+          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
+          # Three still retries a fast-failing transient; the slow case is bounded by
+          # `timeout-minutes` above, because v4 has no wall-clock option of its own
+          # (`action-timeout-s` arrived after it).
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -97,6 +104,7 @@ jobs:
   # 250 MB limit (SPEC-066 FR-003).
   polars_layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -145,6 +153,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -168,6 +177,7 @@ jobs:
   # modules, so its names don't collide with shared-space-common's under pytest.
   table_builder_layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -203,6 +213,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -227,6 +238,7 @@ jobs:
   # attach it (matrix `tscommon: true`).
   table_share_layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -262,6 +274,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -286,6 +299,7 @@ jobs:
   # modules, so its names don't collide with the domain layers' under pytest.
   cpcommon_layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -322,6 +336,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -345,6 +360,7 @@ jobs:
   # attach this alongside cpcommon.
   dqcommon_layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -378,6 +394,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -401,6 +418,7 @@ jobs:
   # so each arc's deploy-role grant stays name-scoped to its own arc.
   dq_polars_layer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -444,6 +462,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Publish layer version
         id: publish
@@ -462,6 +481,7 @@ jobs:
   deploy:
     needs: [layer, polars_layer, table_builder_layer, table_share_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -589,6 +609,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: Upload artifact and deploy
         run: |
