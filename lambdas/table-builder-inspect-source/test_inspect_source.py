@@ -68,7 +68,7 @@ def _stub_objects(objects):
 
 
 def _event(partition_keys=None, prefix=PREFIX):
-    ev = {
+    return {
         "actor": "alice",
         "space": {"kind": "personal", "bucket": BUCKET, "prefix": prefix, "database": "alice"},
         "tableName": "sales_2026",
@@ -76,7 +76,6 @@ def _event(partition_keys=None, prefix=PREFIX):
         "location": f"s3://{BUCKET}/{prefix}",
         "requestId": "r1",
     }
-    return ev
 
 
 def _keys(*names):

@@ -41,7 +41,7 @@ import os
 import re
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from cpcommon import clients, observability
 
@@ -112,11 +112,12 @@ def _partition(event):
     raw = event.get("timestamp") if isinstance(event, dict) else None
     if isinstance(raw, str):
         try:
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            # fromisoformat parses a trailing "Z" natively from 3.11 on; the floor is 3.12.
+            parsed = datetime.fromisoformat(raw)
             return parsed.strftime("%Y"), parsed.strftime("%m"), parsed.strftime("%d"), False
         except ValueError:
             pass
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return now.strftime("%Y"), now.strftime("%m"), now.strftime("%d"), True
 
 

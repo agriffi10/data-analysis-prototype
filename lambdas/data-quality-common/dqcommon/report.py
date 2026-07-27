@@ -240,7 +240,10 @@ def cross_file(files: list[dict]) -> dict:
             "missing": sorted(baseline - set(signature)),
             "extra": sorted(set(signature) - baseline),
         }
-        for entry, signature in zip(files, signatures)
+        # strict=False keeps today's behaviour explicit. strict=True would be the stronger
+        # claim, but it turns a length mismatch into a raise in the report path — a change
+        # worth making deliberately, with the callers characterised, not as a lint fix.
+        for entry, signature in zip(files, signatures, strict=False)
         if set(signature) != baseline
     ]
     return {"columnsAgree": not disagreements, "disagreements": disagreements}

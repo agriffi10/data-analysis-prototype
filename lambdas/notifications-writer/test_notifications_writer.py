@@ -56,7 +56,7 @@ def _setup(monkey_store=None):
     w.USER_SPACE_BUCKET = "user-bucket"
     w.NOTIFICATIONS_MAX = 200
     # Fake token verification: idToken == username.
-    w.verified_username = lambda token: token if token else _auth_fail()
+    w.verified_username = lambda token: token or _auth_fail()
     return s3
 
 
