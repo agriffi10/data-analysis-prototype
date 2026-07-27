@@ -44,4 +44,19 @@ PyJWT[crypto]>=2.8,<3
 # the logs queue had to be the one standard queue in this repo. SPEC-129 converts it to FIFO,
 # which makes 0.5.0 a hard floor rather than a nice-to-have: on 0.4.0 every batch would fail and
 # the events would be abandoned to stderr.
-log-foundry==0.5.0
+#
+# 0.6.0 (log-forge SPEC-017) makes an event safe by construction — every value is coerced and
+# size-bounded once at assembly, so a field JSON cannot serialize no longer raises. That matters
+# here because the fleet emits on the orphan path (a `stamp`/`info` outside a span emits
+# synchronously on the caller's thread), where an unserializable field raised TypeError INTO the
+# verb — a logging call breaking the request it was narrating. Inside a span the same field
+# destroyed the whole flattened batch, taking co-batched events from unrelated spans with it.
+# Also adds `error.message`/`error.module`, so filtering a message stops meaning substring-matching
+# the free-text `stack` blob.
+#
+# Two 0.6.0 changes were checked against this repo and do NOT reach it: `MultiSink` now re-raises
+# when every child fails (the sink here is SQSSink ALONE — SPEC-127, asserted), and datetime fields
+# now store as ISO-8601 strings in the non-JSON sinks (mongo/postgres/sqlite/clickhouse — none used).
+# `error.stack` keeps the cause's text: the new ceiling is a 32 KB tail-preserving clip, well above
+# a real traceback, and the SPEC-110 tripwire in test_dq_inspect_source.py still passes.
+log-foundry==0.6.0
