@@ -23,6 +23,7 @@ jobs:
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
@@ -46,6 +47,12 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
+          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
+          # Three still retries a fast-failing transient; the slow case is bounded by
+          # `timeout-minutes` above, because v4 has no wall-clock option of its own
+          # (`action-timeout-s` arrived after it).
+          retry-max-attempts: 3
 
       - name: OpenTofu init
         working-directory: infra
@@ -85,6 +92,7 @@ jobs:
   apply:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
@@ -103,6 +111,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
 
       - name: OpenTofu init
         working-directory: infra

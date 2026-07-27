@@ -7,6 +7,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write
       contents: read
@@ -48,6 +49,12 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
+          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
+          # Three still retries a fast-failing transient; the slow case is bounded by
+          # `timeout-minutes` above, because v4 has no wall-clock option of its own
+          # (`action-timeout-s` arrived after it).
+          retry-max-attempts: 3
 
       - name: Sync to S3
         run: aws s3 sync apps/portal/dist/ s3://${{ secrets.S3_STATIC_BUCKET }} --delete
