@@ -129,7 +129,7 @@ def test_tag_failure_surfaces_but_after_the_portal_grant():
     # provision_user raises so the operator/backfill sees it (the trigger swallows it).
     try:
         post_confirmation.provision_user("alice")
-        assert False, "expected provision_user to raise on a tag failure"
+        raise AssertionError("expected provision_user to raise on a tag failure")
     except RuntimeError as exc:
         assert "portal-managed" in str(exc)
     # Tagging runs LAST, so the user's own portal-role grant already happened — a tag

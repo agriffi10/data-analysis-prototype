@@ -23,7 +23,7 @@ nothing.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from cpcommon import clients, errors, events, observability
 from cpcommon.errors import TerminalError
@@ -144,7 +144,7 @@ def _assemble(event: dict) -> dict:
             _result_rows(event.get("ragged")),
             _result_rows(event.get("duplicates")),
             event.get("encoding") or {},
-            completed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            completed_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
     except report.MissingProfileError as err:
         # A failed check, never a clean one. Every exact figure comes from the profile

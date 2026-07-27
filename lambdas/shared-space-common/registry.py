@@ -14,7 +14,7 @@ the change to the *freshly-read* record, and ``PutObject`` conditioned on that E
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import casio
 from cpcommon import clients
@@ -33,7 +33,7 @@ def _key(name):
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _read(name: str) -> tuple[dict | None, str | None]:

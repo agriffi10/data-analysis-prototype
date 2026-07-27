@@ -20,3 +20,68 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+
+# ── ruff ─────────────────────────────────────────────────────────────────────
+# THE RULE SET IS CHOSEN HERE, NOT INHERITED.
+#
+# Before this block the repo had no ruff config, so it linted on ruff's DEFAULT set —
+# and 0.16.0 widened that default from 59 rules to 413 overnight, turning a green main
+# red with 500 findings in files nobody had touched (#311). Selecting explicitly means a
+# ruff release can still add rules *inside* a family we asked for, but it can no longer
+# decide which families we enforce. `lambdas/requirements-dev.txt` bounds the minor as
+# the second half of that guarantee.
+#
+# CI runs `ruff check lambdas/` from the repo root; this file is the project root ruff
+# resolves against.
+
+[tool.ruff]
+target-version = "py312"  # the Lambda runtime, and the floor of the CI matrix
+
+[tool.ruff.lint]
+select = [
+    "F",                    # pyflakes — real errors
+    "E4", "E7", "E9",       # pycodestyle errors. NOT E5: E501 line-too-long is unenforced
+                            # today and turning it on is 430+ reflows, a separate decision.
+    "W",                    # pycodestyle warnings
+    "I",                    # import sorting
+    "B",                    # bugbear
+    "UP",                   # pyupgrade — the floor is 3.12, so keep the syntax current
+    "SIM", "C4", "PIE", "RET", "FURB", "PERF",
+    "RUF",
+    "S",                    # bandit — this fleet handles tokens and user data
+    "BLE", "TRY",           # exception hygiene
+    "LOG", "G",             # logging call shape
+    "DTZ",                  # naive datetimes
+    "ASYNC", "YTT", "FLY", "INT", "TC", "FA", "PGH", "EXE", "ISC",
+]
+
+# Each entry is a decision, not a backlog. Anything merely unfixed belongs in a follow-up
+# PR, not here.
+ignore = [
+    "E402",     # every Lambda module and suite does the sys.path/layer dance before
+                # importing; the import position is structural here, not an oversight.
+    "TRY003",   # user-facing wording lives at the raise site or in cpcommon.messages;
+                # a bespoke exception class per message would add 149 empty names.
+    "TRY300",   # "return in else" — reads worse than the early return this code uses.
+    "TRY301",   # raise-within-try is how the parse-then-classify blocks are built.
+    "TRY400",   # observability.error carries structured fields; logger.exception would
+                # trade them for a stack string.
+    "SIM105",   # the try/except/pass sites carry a written reason; contextlib.suppress
+                # would hide it behind an import.
+    "PERF203",  # try/except inside a loop is deliberate — one bad message must never
+                # abort the rest of the batch (dlq_drain, log_sweep).
+    "PERF401",  # the flagged loops are conditional appends; list.extend is not clearer.
+    "S105", "S106", "S107",  # flags token/field NAMES ("idToken", "actor") as passwords.
+    "S608",     # dqcommon/sql.py builds Athena DDL deliberately, with its own escaping
+                # and identifier validation, which is that module's whole subject.
+    "RUF003",   # ambiguous-unicode in COMMENTS: this codebase writes ×, → and — on purpose.
+    "B904",     # `raise ... from` inside except. Worth doing, but it changes what lands
+                # in error.stack — a store retained forever, with a tripwire test on its
+                # contents (SPEC-110). Its own PR, not a side effect of a config change.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserts ARE the test framework, and a test may reach for stdlib random.
+"**/test_*.py" = ["S101", "S311"]
+"**/conftest.py" = ["S101"]
+"lambdas/shared-space-common/fakes.py" = ["S101"]  # test doubles, imported by suites only

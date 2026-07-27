@@ -196,7 +196,7 @@ def test_registry_cas_exhausts_after_persistent_contention():
         def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
             if IfMatch is not None and Key == "shared-spaces/sales.json":
                 current = json.loads(self.store[(Bucket, Key)])  # a competitor always wins first
-                current["members"] = current.get("members", []) + ["x"]
+                current["members"] = [*current.get("members", []), "x"]
                 super().put_object(Bucket=Bucket, Key=Key, Body=json.dumps(current).encode())
             return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
 
