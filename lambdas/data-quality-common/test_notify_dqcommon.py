@@ -119,52 +119,52 @@ def test_success_notification_for_a_shared_space_links_with_the_space():
 
 
 def test_success_notification_omits_the_link_when_none_can_be_built():
-    """The message must still be emitted — the user hears the verdict either way."""
+    """The message must still be emitted — the user is told the check finished either way."""
     fake = _arm()
     notify.emit_completed(_summary(space=_shared("alice")))
     assert len(fake.calls) == 1
     assert "link" not in fake.bodies()[0]
 
 
-def test_an_approximate_clean_result_is_never_reported_unqualified():
-    """FR-001's core promise: an unqualified 'clean' over a sampled scan is a lie."""
+def test_success_notification_names_the_location_and_says_it_finished():
+    """The whole content of the message: WHICH location, and that it is done."""
     fake = _arm()
-    notify.emit_completed(_summary(verdict="clean", hasApproximateFigures=True))
+    notify.emit_completed(_summary(location="alice/sales"))
     message = fake.bodies()[0]["message"]
-    assert "no issues found" in message
-    assert "estimates" in message
+    assert 'on "alice/sales"' in message
+    assert "finished" in message
 
 
-def test_a_skipped_or_failed_check_says_something_is_missing():
-    """hasIncompleteFigures is the flag that VARIES, so it gets the real warning."""
-    fake = _arm()
-    notify.emit_completed(_summary(hasIncompleteFigures=True))
-    assert "couldn't be completed" in fake.bodies()[0]["message"]
-
-
-def test_issues_found_names_the_top_issues_and_the_total():
+def test_success_notification_carries_no_breakdown_of_the_report():
+    """THE POINT OF THE MESSAGE BEING SHORT. Verdict, findings, counts and caveats belong
+    to the report the notification links to — restating them in an inbox line makes the
+    reader reconcile two summaries of the same run."""
     fake = _arm()
     notify.emit_completed(
-        _summary(verdict="issues_found", topIssues=["`a` has 3 empty values", "12 duplicate rows"])
+        _summary(
+            verdict="issues_found",
+            topIssues=["`a` has 3 empty values", "12 duplicate rows"],
+            hasApproximateFigures=True,
+            hasIncompleteFigures=True,
+        )
     )
     message = fake.bodies()[0]["message"]
-    assert "2 issues found" in message
-    assert "`a` has 3 empty values" in message
-    assert "12 duplicate rows" in message
+    for leaked in ("empty values", "duplicate rows", "issues found", "estimates", "couldn't be completed"):
+        assert leaked not in message
 
 
-def test_a_long_issue_list_is_truncated_but_the_count_is_not():
-    """Nothing is hidden: the message names two and states how many there are."""
-    fake = _arm()
-    notify.emit_completed(_summary(verdict="issues_found", topIssues=[f"issue {i}" for i in range(5)]))
-    message = fake.bodies()[0]["message"]
-    assert "5 issues found" in message
-    assert "(and 3 more)" in message
-    assert "issue 4" not in message
+def test_success_message_is_identical_whatever_the_verdict():
+    """A clean run and a failing-checks run produce the same line — the difference is in
+    the report, which is the only place it is stated."""
+    clean = _arm()
+    notify.emit_completed(_summary(verdict="clean"))
+    issues = _arm()
+    notify.emit_completed(_summary(verdict="issues_found", topIssues=["`a` has 3 empty values"]))
+    assert clean.bodies()[0]["message"] == issues.bodies()[0]["message"]
 
 
 def test_success_message_carries_no_report_document():
-    """The findings stay in the report; the notification carries the summary only."""
+    """The findings stay in the report; the notification carries neither them nor its figures."""
     fake = _arm()
     notify.emit_completed(_summary(exact={"rowCount": 5}, approximate={"encoding": {}}))
     assert "rowCount" not in fake.bodies()[0]["message"]

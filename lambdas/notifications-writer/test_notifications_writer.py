@@ -172,9 +172,10 @@ def test_mark_read_flips_matching_id():
         {"id": "b", "message": "b", "read": False, "timestamp": "2026-01-01T00:00:00.000Z"},
     ]
     s3 = _setup({("user-bucket", "alice/user_settings/notifications.json"): inbox})
-    w.handler(_msg({"action": "markRead", "id": "a", "idToken": "alice"}), None)
+    result = w.handler(_msg({"action": "markRead", "id": "a", "idToken": "alice"}), None)
     by_id = {n["id"]: n for n in _inbox(s3, "alice")}
     assert by_id["a"]["read"] is True and by_id["b"]["read"] is False
+    assert result["matched"] == 1
 
 
 def test_mark_read_absent_id_is_noop():
@@ -182,6 +183,22 @@ def test_mark_read_absent_id_is_noop():
     s3 = _setup({("user-bucket", "alice/user_settings/notifications.json"): inbox})
     w.handler(_msg({"action": "markRead", "id": "missing", "idToken": "alice"}), None)
     assert _inbox(s3, "alice")[0]["read"] is False
+
+
+def test_a_markread_that_changed_nothing_is_distinguishable_from_one_that_worked():
+    """The silent no-op is the exact signature of "mark as read did nothing", and it
+    still writes the inbox and reports a count — so without `matched` the two outcomes
+    are identical in the logs and the bug cannot be diagnosed from a live run."""
+    inbox = [{"id": "a", "message": "a", "read": False, "timestamp": "2026-01-01T00:00:00.000Z"}]
+    _setup({("user-bucket", "alice/user_settings/notifications.json"): inbox})
+    assert w.handler(_msg({"action": "markRead", "id": "missing", "idToken": "alice"}), None)["matched"] == 0
+
+
+def test_matched_is_absent_for_actions_that_cannot_miss():
+    """create/markAllRead have no id to miss, so they carry no `matched` field at all."""
+    _setup({("user-bucket", "alice/user_settings/notifications.json"): []})
+    assert "matched" not in w.handler(_msg({"action": "markAllRead", "idToken": "alice"}), None)
+    assert "matched" not in w.handler(_msg({"action": "create", "username": "alice", "message": "m"}), None)
 
 
 def test_mark_all_read():

@@ -124,20 +124,16 @@ def _is_plain_segment(value: str) -> bool:
 def emit_completed(event: dict) -> None:
     """Emit the actor-addressed SUCCESS notification, with the report link (best-effort).
 
-    Reads only the small summary ``assemble-report`` threads onward — never the report
-    document, which stays a file.
+    Reads only the location — never the report document, which stays a file. The verdict
+    and findings ``assemble-report`` threads onward are deliberately NOT read here: the
+    notification says which location finished and links to the report, and the report is
+    where the numbers live (see ``messages.success_message``).
     """
     space = event.get("space") or {}
     actor = event.get("actor", "")
     emit_notification(
         actor,
-        success_message(
-            event.get("location", ""),
-            event.get("verdict", ""),
-            event.get("topIssues") or [],
-            has_approximate=bool(event.get("hasApproximateFigures")),
-            has_incomplete=bool(event.get("hasIncompleteFigures")),
-        ),
+        success_message(event.get("location", "")),
         dedup_id=_dedup(event.get("requestId"), SUCCESS_STEP),
         link=report_link(actor, space, event.get("requestId", "")),
     )

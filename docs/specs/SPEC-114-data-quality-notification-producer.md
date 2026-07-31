@@ -44,11 +44,12 @@ Two requirements here are not boilerplate.
 #### Acceptance Criteria:
 
 - [ ] On a successful check, exactly **one** notification is emitted to the **actor** — the verified `cognito:username`, never a body value.
-- [ ] The message states the verdict (clean, or issues found), names the checked location, and **links to the SPEC-113 report view at `/data-quality/{space}/{requestId}`** — the space segment included, matching SPEC-113 FR-005's route exactly. A test asserts the link is present on every success message **and that it carries the space**.
+- [ ] The message **names the checked location and says the check finished — nothing more** — and **links to the SPEC-113 report view at `/data-quality/{space}/{requestId}`** — the space segment included, matching SPEC-113 FR-005's route exactly. A test asserts the link is present on every success message **and that it carries the space**.
+  - *Amended 2026-07-31 (post-completion, user decision).* This criterion originally required the message to state the verdict. The summary is now carried **only** by the report the notification links to: an inbox line that restates the findings is read and ignored in one glance, and it forced the reader to reconcile two summaries of the same run. The two criteria below are retired by the same change.
 - [ ] A comment records why the space is in the link and not just the `requestId`: the report lives at `{space}/_data-quality-reports/{requestId}/report.json`, so a link without the space **cannot locate a shared-space report** — the notification would deep-link the user to a permanent "not found", which is worse than no link at all. A test builds the link for a **shared-space** check and asserts it resolves.
 - [ ] The link builder honours SPEC-113 FR-005's **resolution precedence**: the actor's own username always resolves personal, and shared-space names are checked only when the segment ≠ the username — so the producer never mints a link the view would resolve to the wrong space.
-- [ ] When issues were found, the message carries the **top issues** from SPEC-112's summary — not the full report, which stays a file.
-- [ ] **When `hasApproximateFigures` is true, the message says so explicitly** — e.g. that the encoding check examined only a sample of a large file, or that the duplicate count could not be computed, or that type consistency was skipped on a Parquet source. A test asserts that a summary with `hasApproximateFigures: true` never produces an unqualified "clean" message.
+- [ ] ~~When issues were found, the message carries the **top issues** from SPEC-112's summary~~ — **retired 2026-07-31**: the top issues stay in the report only.
+- [ ] ~~**When `hasApproximateFigures` is true, the message says so explicitly**~~ — **retired 2026-07-31**. This existed to stop an unqualified "clean" reaching the user; the message now makes **no claim about the data at all**, so there is nothing to qualify. The report still marks approximate figures (SPEC-112).
 
 ### FR-002: Failure notification
 
@@ -127,7 +128,7 @@ The emitted SQS body — the producer side of the notification wire contract (th
 {
   "action": "create",                       // trusted-producer-only (SPEC-058)
   "username": "alice",                      // the verified actor — the recipient
-  "message": "Data quality check on alice/sales/ finished: issues found — …",
+  "message": "Data quality check on \"alice/sales/\" finished — open the report for details.",
   "link": "/data-quality/alice/7f3a…"       // in-app path only (SPEC-113 FR-008); space per the precedence rule
 }
 // MessageGroupId         = the recipient username  (per-user single-writer ordering, SPEC-058)

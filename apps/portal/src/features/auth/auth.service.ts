@@ -43,6 +43,13 @@ export async function getCurrentAuthUser(): Promise<ServiceResult<AuthUser>> {
   }
 }
 
+/**
+ * Amplify throws this instead of redirecting when a session already exists. It means
+ * "you are already signed in", not a failure — callers re-derive session state rather
+ * than surfacing it as an error.
+ */
+export const ALREADY_AUTHENTICATED = 'UserAlreadyAuthenticatedException';
+
 /** Begins the Hosted UI sign-in (full-page redirect to Cognito). */
 export async function startSignIn(): Promise<ServiceResult<void>> {
   try {

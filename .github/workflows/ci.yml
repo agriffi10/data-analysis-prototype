@@ -11,6 +11,10 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Both jobs run in 4-6 minutes; 12 bounds a hung run well clear of that without
+    # tripping on a slow runner. Without it a hang would sit against GitHub's 6h
+    # default — the same gap the deploy workflows closed in #314.
+    timeout-minutes: 12
 
     steps:
       - name: Checkout
@@ -38,6 +42,7 @@ jobs:
 
   lambdas:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
 
     steps:
       - name: Checkout

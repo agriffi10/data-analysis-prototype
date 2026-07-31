@@ -8,6 +8,10 @@ import {useAuth} from './useAuth';
 // the boundary it synchronizes with — the auth service (getCurrentAuthUser/startSign*),
 // the Amplify config flag, the return-path helper, and the Amplify `Hub` event bus.
 vi.mock('./auth.service', () => ({
+  // The real constant, not a stand-in: the provider compares an error code against it,
+  // and a mock that omitted it would leave the comparison matching `undefined` — i.e.
+  // every error without a code — which is the opposite of what the branch is for.
+  ALREADY_AUTHENTICATED: 'UserAlreadyAuthenticatedException',
   getCurrentAuthUser: vi.fn(),
   startSignIn: vi.fn(),
   startSignUp: vi.fn(),
@@ -129,6 +133,31 @@ describe('AuthProvider', () => {
 
     // A surfaced error never tips the provider out of a usable state.
     expect(status()).toBe('unauthenticated');
+  });
+
+  it('recovers instead of doing nothing when Amplify says the user is already signed in', async () => {
+    // The bug this covers: a Sign-in control only renders while we believe the user is
+    // signed out, but that belief can disagree with Amplify (a transient getCurrentUser
+    // failure over a live session). Amplify then refuses to redirect and throws
+    // UserAlreadyAuthenticatedException, which used to become a stored error string —
+    // invisible on the landing page, which renders no error banner and suppresses the
+    // app Header. The click did nothing at all. It must re-derive the session instead.
+    const user = userEvent.setup();
+    mockGetUser.mockResolvedValueOnce(fail('none')).mockResolvedValue(ok({username: 'dave'}));
+    mockStartSignIn.mockResolvedValue({
+      success: false,
+      error: {message: 'There is already a signed in user.', code: 'UserAlreadyAuthenticatedException'}
+    });
+
+    renderProvider();
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
+
+    await user.click(screen.getByText('signin'));
+
+    await waitFor(() => expect(status()).toBe('authenticated'));
+    expect(username()).toBe('dave');
+    // Being already signed in is not a failure, so it must not raise a banner.
+    expect(errorText()).toBe('');
   });
 
   it.each(['signedIn', 'signInWithRedirect'])('Hub "%s" re-derives the session to authenticated', async (event) => {
