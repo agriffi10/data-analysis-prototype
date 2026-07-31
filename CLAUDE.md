@@ -10,6 +10,7 @@ Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled 
 - `@docs/component-inventory.md` — **router** to the per-area inventories; read only the area(s) you need
 - `@docs/spec-delivery/SPEC-XXX-*.md` — what a past spec delivered (pull only when a dependency points to one)
 - `@docs/best-practices/INDEX.md` — domain coding rulebooks (React, accessibility, …); route here, then load only the section(s) you need
+- `@docs/transition_plan.md` — **single source of truth** for the client-environment transition (IdC federation, de-provisioning, Lake Formation re-keying); read before touching auth, provisioning or LF
 
 **Context discipline:** these are pointers, not a reading list. Pull a doc when a task needs it.
 
