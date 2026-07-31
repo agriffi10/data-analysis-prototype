@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {Hub} from 'aws-amplify/utils';
 import {AuthContext} from './authContext';
-import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
+import {ALREADY_AUTHENTICATED, getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
 import {isAmplifyConfigured} from '../../lib/amplify';
 import {toUserMessage} from '../../lib/errorMessages';
 import {setReturnPathIfAbsent} from '../../lib/returnPath';
@@ -70,23 +70,41 @@ export function AuthProvider({children}: {children: ReactNode}) {
     return unsubscribe;
   }, [refresh]);
 
+  // A Sign-in control is only rendered while we believe the user is signed out, but
+  // that belief can disagree with Amplify — a transient `getCurrentUser()` failure
+  // leaves `status` unauthenticated over a live session. Amplify then refuses to
+  // redirect and throws `UserAlreadyAuthenticatedException`, so the click produced a
+  // swallowed error and no visible effect (the landing page renders no error banner
+  // at all, and the app Header is suppressed on '/'). Treat it as what it is —
+  // already signed in — and re-derive state, which flips the UI to its authenticated
+  // form and lets the pending return path route the user on.
+  const recoverIfAlreadySignedIn = useCallback(
+    async (result: Awaited<ReturnType<typeof startSignIn>>) => {
+      if (result.success) return;
+      if (result.error.code === ALREADY_AUTHENTICATED) {
+        await refresh();
+        return;
+      }
+      // Map to friendly text here (the code is in scope) so the Header banner
+      // never shows the raw Cognito message (SPEC-106 FR-003).
+      setError(toUserMessage(result.error).message);
+    },
+    [refresh]
+  );
+
   const signIn = useCallback(async () => {
     setError(null);
     // Default the post-auth landing to /files without clobbering a specific
     // protected path the auth gate may have captured.
     setReturnPathIfAbsent('/files');
-    const result = await startSignIn();
-    // Map to friendly text here (the code is in scope) so the Header banner
-    // never shows the raw Cognito message (SPEC-106 FR-003).
-    if (!result.success) setError(toUserMessage(result.error).message);
-  }, []);
+    await recoverIfAlreadySignedIn(await startSignIn());
+  }, [recoverIfAlreadySignedIn]);
 
   const signUp = useCallback(async () => {
     setError(null);
     setReturnPathIfAbsent('/files');
-    const result = await startSignUp();
-    if (!result.success) setError(toUserMessage(result.error).message);
-  }, []);
+    await recoverIfAlreadySignedIn(await startSignUp());
+  }, [recoverIfAlreadySignedIn]);
 
   const signOut = useCallback(async () => {
     setError(null);

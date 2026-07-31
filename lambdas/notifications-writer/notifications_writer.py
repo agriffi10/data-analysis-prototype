@@ -181,11 +181,20 @@ def apply_create(notifications, message, link=None):
 
 
 def apply_mark_read(notifications, notification_id):
-    """Set read=true on the matching id (no-op if absent)."""
+    """Set read=true on the matching id; returns ``(notifications, matched)``.
+
+    An id that matches nothing is NOT an error — the inbox is capped, so a genuinely
+    old notification can age out between the browser reading it and the click landing.
+    But it is the one way a markRead can complete, write, and report success while
+    changing nothing, so the caller reports ``matched`` rather than letting the two
+    outcomes look identical in the logs.
+    """
+    matched = 0
     for note in notifications:
         if note.get("id") == notification_id:
             note["read"] = True
-    return notifications
+            matched += 1
+    return notifications, matched
 
 
 def apply_mark_all_read(notifications):
@@ -234,6 +243,7 @@ def process(req):
     """
     action = req["action"]
     username = _resolve_username(req)
+    matched = None
 
     if action == "create":
         message = req.get("message")
@@ -244,12 +254,15 @@ def process(req):
         notification_id = req.get("id")
         if not notification_id or not isinstance(notification_id, str):
             raise ValidationError("markRead requires an id")
-        updated = apply_mark_read(load_inbox(username), notification_id)
+        updated, matched = apply_mark_read(load_inbox(username), notification_id)
     else:  # markAllRead
         updated = apply_mark_all_read(load_inbox(username))
 
     saved = save_inbox(username, updated)
-    return {"action": action, "username": username, "count": len(saved)}
+    result = {"action": action, "username": username, "count": len(saved)}
+    if matched is not None:
+        result["matched"] = matched
+    return result
 
 
 @observability.traced("write")
@@ -267,10 +280,20 @@ def handler(event, context):
     req = _parse_record(record)
     result = process(req)
     logger.info("notifications %(action)s for %(username)s -> %(count)d", result)
+    # A markRead that matched nothing wrote the inbox back unchanged. It is not a failure
+    # (see apply_mark_read), but it is the signature of "mark as read did nothing", so it
+    # gets its own event rather than hiding inside an indistinguishable success.
+    if result.get("matched") == 0:
+        observability.warning(
+            "markRead matched no notification",
+            recipient=result.get("username"),
+            notifications=result.get("count"),
+        )
     observability.info(
         "notification written",
         action=result.get("action"),
         recipient=result.get("username"),
         notifications=result.get("count"),
+        matched=result.get("matched"),
     )
     return result
