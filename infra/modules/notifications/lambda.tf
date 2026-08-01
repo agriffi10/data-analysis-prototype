@@ -40,6 +40,12 @@ resource "aws_lambda_function" "writer" {
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
       NOTIFICATIONS_MAX     = tostring(var.notifications_max)
+      # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
+      # reads it with os.environ.get and never config._require — so a writer deployed without
+      # it logs to stdout instead of failing at cold start. The writer imports ONLY
+      # `observability` from cpcommon, which never reaches `config`, so the layer's
+      # import-time _require of six variables (PR #196) does not run for it.
+      LOGS_QUEUE_URL = var.logs_queue_url
     }
   }
 
@@ -48,8 +54,10 @@ resource "aws_lambda_function" "writer" {
   source_code_hash = data.archive_file.writer_placeholder.output_base64sha256
 
   lifecycle {
-    # CI owns the code — never revert it on apply.
-    ignore_changes = [filename, source_code_hash]
+    # CI owns the code AND the cpcommon layer attachment — never revert either on apply.
+    # `layers` was missing here while the code already imported cpcommon, so an apply
+    # landing after a deploy would have stripped the layer straight back off.
+    ignore_changes = [filename, source_code_hash, layers]
   }
 
   depends_on = [

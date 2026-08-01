@@ -28,6 +28,7 @@ resource "aws_iam_role_policy" "writer" {
     user_space_bucket_arn = local.user_space_bucket_arn
     request_queue_arn     = aws_sqs_queue.requests.arn
     lambda_log_group_arn  = local.lambda_log_group_arn
+    logs_queue_arn        = var.logs_queue_arn
   })
 }
 

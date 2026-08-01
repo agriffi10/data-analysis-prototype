@@ -39,6 +39,12 @@
         "logs:PutLogEvents"
       ],
       "Resource": "${lambda_log_group_arn}:*"
+    },
+    {
+      "Sid": "EmitStructuredLogs",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
     }
   ]
 }

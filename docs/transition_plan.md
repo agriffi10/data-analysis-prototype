@@ -2,7 +2,14 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-07-31
+**Last updated:** 2026-08-01
+**Strategy revision (2026-08-01):** the client environment is itself moving to a **successor
+account** this year. The portal will be **built fresh in that account as its first tenant**, and
+the client's data will be **synced over** with a freeze-and-cutover — rather than the portal
+deploying in place into the populated existing account (the 2026-07-31 decision, now superseded).
+§4 carries the reasoning; §6 and §7 are reworked around it. The identity model in §3 and the open
+fork in §5 are unchanged — they are account-agnostic, and the account move strengthens them:
+Identity Center principals survive an account change, IAM role ARNs do not.
 **Supersedes and replaces:** `docs/client-migration-plan.md` and
 `docs/spikes/idc-named-dataset-grants.md`, both deleted. Everything of value from the spike —
 the reasoning chain behind trusted identity propagation, the two-connection identity model, the
@@ -29,19 +36,24 @@ credential-plane split, the reconciler design and the surviving spike gates — 
 ## 1. What is changing
 
 Today this portal is a **closed system**. It owns the identity store, it provisions each user's
-resources, and it owns the Lake Formation configuration of its whole account. In the client
-environment it becomes an **access portal over resources it does not own**. That single sentence
-explains every change in this document.
+resources, and it owns the Lake Formation configuration of its whole account. Two moves are now
+happening at once: the client environment is transitioning to a **successor account**, and the
+portal is **stood up in that account first**, before the data arrives. The portal therefore
+remains the **resident, owning system of its account** — much closer to what this repo already is
+than the "access portal over resources it does not own" posture the previous strategy required.
+What changes instead is identity (Identity Center replaces self-service Cognito) and the arrival
+of the client's data via a **one-time sync and cutover** from the old account.
 
-| Concern | Today (this repo) | Client environment |
+| Concern | Today (this repo) | Successor account |
 |---|---|---|
 | Who authenticates | Cognito User Pool, self-service signup | IAM Identity Center, already the org's SSO |
 | Who can sign in | Anyone who registers | Everyone in the organization |
-| Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | Already exists, provisioned by the other repo |
-| Who creates the user's Glue database | `post_confirmation.py` | Already exists, provisioned by the other repo |
-| Per-user IAM identity | One shared role plus a `username` principal tag | Bespoke per-user roles today, to be retired |
-| Lake Formation grants | Issued by this app, keyed on the shared role | Issued by the client's reconciler, keyed on the bespoke role today, to be re-keyed on Identity Center principals |
-| Shared workspaces | Created and managed by this app's control plane | Provisioned by client IaC today; **to be adopted by this app and removed from their IaC** |
+| Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | The sync (initial population), then the client's automated process for new users. **Sign-in provisions nothing** |
+| Who creates the user's Glue database | `post_confirmation.py` | Sync initially, user automation thereafter (it already handles tagging); grants come from a separate permissions control plane (§8) |
+| Per-user IAM identity | One shared role plus a `username` principal tag | Same model, carried over. **Bespoke per-user roles are never created** |
+| Lake Formation grants | Issued by this app, keyed on the shared role | Same for personal and workspace scopes; core datasets keyed on Identity Center principals (§3), issued by a config-driven reconciler |
+| Shared workspaces | Created and managed by this app's control plane | Same — created by this app in the successor account, contents synced from the old account's workspaces |
+| The data itself | Created in place by users | **Synced from the old account**, re-encrypted under the successor account's KMS key, then cut over (§6.5) |
 
 ---
 
@@ -57,21 +69,34 @@ Treated as inputs. Do not re-litigate without new information.
    The "no backend" constraint is formally broken; record that honestly in `architecture.md`.
 3. **The per-user identifier is already catalog-safe and consistent.** The client's convention
    satisfies `^[a-z][a-z0-9_]{2,62}$` and is the same string for the S3 prefix and the Glue
-   database name. The core invariant of SPEC-012 and SPEC-033 survives.
-4. **Every organization user is provisioned.** A signed-in user without a workspace is a defect,
-   not a supported state. Build a defensive empty state; do not design around it.
-5. **Shared workspaces transfer ownership to this app.** Seed a manifest from the workspaces the
-   client's IaC has already built, then this app's control plane owns their lifecycle and the
-   client's IaC stops managing them.
-6. **Analytics is feature-flagged off for Phase 1.** File browser, notifications and shared
+   database name. The core invariant of SPEC-012 and SPEC-033 survives the sync unchanged.
+4. **Build in the successor account, as its first tenant.** Supersedes the 2026-07-31 decision to
+   deploy into the existing data account (§4). Data, catalog and portal co-locate there, which is
+   exactly what §4.1 requires.
+5. **The old account's data arrives by sync and cutover, not adoption.** Objects are copied and
+   re-encrypted; catalog and grants are rebuilt, never copied; the old account stays authoritative
+   until a freeze-and-cutover and survives afterwards as the rollback (§6.5).
+6. **Bespoke per-user roles are never recreated.** The previous strategy's retirement sequence
+   (dual-grant, verify, revoke, delete) is deleted along with them.
+7. **Sign-in no longer provisions.** The sync pre-creates every existing user's space and
+   database; the client's automated process creates them for new users thereafter — and that
+   automation **already handles tagging user databases**, while a **separate permissions control
+   plane manages the grants**. The Cognito triggers' provisioning logic is **deleted, not
+   reworked**, and `ensurePrefixMarker` goes with it. The contract items that remain: the
+   automation's tag taxonomy must line up with the portal's TBAC tag-policy grants, and the
+   permissions control plane must cover the grants `post_confirmation.py` issues today (§8). The
+   defensive empty state stays, because a new user can sign in during the gap before the process
+   has run for them.
+8. **Existing shared workspaces arrive via the sync, with the manifest written manually**; from
+   cutover the app **fully manages all shared spaces** — new ones through the `create` verb as
+   today. The seeding parity check in §6.4 is what makes that handover safe.
+9. **Analytics is feature-flagged off for Phase 1.** File browser, notifications and shared
    workspace browsing ship first.
-7. **Deploy into the existing data account.** A separate account was evaluated and rejected;
-   reasoning in §4. This makes §6.2's IaC ownership surgery mandatory rather than optional.
-8. **Hosting is ECS Fargate, not CloudFront.** The SPA is served from a container. The task role
-   supplies AWS credentials, which is what makes the token-exchange backend straightforward (§4.6).
-9. **The token-exchange backend runs in the same container as the SPA.** Same origin, so no CORS
-   for the backend, `httpOnly` session cookies work naturally, one artifact and one certificate
-   (§4.7).
+10. **Hosting is ECS Fargate, not CloudFront.** The SPA is served from a container. The task role
+    supplies AWS credentials, which is what makes the token-exchange backend straightforward (§4.6).
+11. **The token-exchange backend runs in the same container as the SPA.** Same origin, so no CORS
+    for the backend, `httpOnly` session cookies work naturally, one artifact and one certificate
+    (§4.7).
 
 ---
 
@@ -290,73 +315,83 @@ hand-rolled column security is the right trade.
 
 ## 4. Deployment topology
 
-**Decision: deploy into the existing data account.** A separate account was seriously evaluated
-and rejected. The reasoning is below because it will be asked about.
+**Decision: build in the successor account, as its first tenant.** This supersedes the
+2026-07-31 decision to deploy into the existing data account. The constraint that drove that
+decision has not moved — the new strategy satisfies it differently.
 
-### 4.1 The constraint that settles it
+### 4.1 The constraint that still settles it
 
 Lake Formation **cannot grant permissions to an Identity Center user or group on a Data Catalog
 resource in another account.** The attempt returns `Cross-account grants are not supported for
 the principal`. Grants to Identity Center principals may only be made in the account that owns
-the catalog resource.
+the catalog resource; an IAM role in an external account may act as the **carrier role**, but the
+grants themselves are local.
 
-What *is* permitted is the mirror image: an IAM role in an external account may act as the
-**carrier role**. So the session can be minted against a role anywhere, as long as the grants are
-issued in the account owning the catalog.
+**Therefore the portal, the Glue catalog and the data must all land in the same successor
+account.** That is confirmed as the intent. If the successor environment ever splits into
+multiple accounts, the portal follows the catalog — re-open this section before agreeing to any
+such split.
 
-**Therefore the Glue catalog must live with the data.** Any design that moves per-user or
-per-workspace databases into a separate account forfeits §3 entirely, because those databases
-could never be governed by Identity Center identity.
+The account move also quietly strengthens §3: Identity Center is an **organization-level**
+service, so users and groups keep their identifiers across the move, and a grant matrix keyed on
+Identity Center principals is **re-runnable against the new account unchanged**. Grants keyed on
+IAM role ARNs would all have gone stale, because role ARNs embed the account ID — one more reason
+the bespoke roles are not worth recreating.
 
-Once that is true, the split stops paying for itself. What would remain in a separate account is
-the SPA, Cognito and the control-plane compute — all of which exist to touch data in the data
-account. The boundary would sit in the middle of every data path rather than around a
-self-contained subsystem: coordination cost without isolation.
+### 4.2 What first tenancy buys, and what it obliges
 
-The org-wide Identity Center rollout strengthens this. If other accounts are adopting trusted
-identity propagation, the data account will have Lake Formation connected to Identity Center
-regardless. Deploying there makes the portal **one more consumer of a pattern the organization
-already runs** rather than a special case, which is a materially easier security review.
+Building where nothing yet exists deletes most of the coexistence work the previous strategy
+required:
 
-### 4.2 Recovering what the separate account would have bought
+- The portal's IaC **keeps** `aws_lakeformation_data_lake_settings`, the bucket registration and
+  the user-space bucket policy — there is no incumbent configuration to trample. The previous
+  strategy's removal surgery is dead; §6.2 records its ghost in case sequencing changes.
+- Shared workspaces are **created by this app's control plane from day one** — no ownership
+  transfer, no `tofu state rm`, no adoption tooling. Their contents arrive by sync (§6.4).
+- Bespoke per-user roles are **never created**, so the dual-grant/verify/revoke retirement
+  sequence (the previous §6.5 and Phase 6) disappears entirely.
 
-Its real advantage was reversibility — abandoning the work by closing an account. Recover most of
-that by obtaining a **non-production account in the same organization, sharing the same Identity
-Center organization instance**, and running every phase there before it touches production.
+The obligation in exchange: **the portal becomes the incumbent.** Whoever lands in the account
+later inherits the portal's account-wide Lake Formation settings, its Identity Center
+configuration and its bucket topology. Every singleton the portal creates must be recorded in the
+coordination contract as portal-owned, with a change process — otherwise a later tenant's IaC
+does to the portal exactly what §6.2 once feared this repo would do to the client.
 
-### 4.3 What this makes mandatory
+### 4.3 Reversibility
 
-Everything in §6.2 was avoidable in a fresh account. Here it is required work, and it comes first:
+The old account **is** the rollback. It stays authoritative until cutover, and it survives
+read-only through a quiet period afterwards; abandoning the strategy at any point before
+decommission means pointing users back at it. Do not decommission early to hit a date.
 
-- Remove `aws_lakeformation_data_lake_settings` from the portal's IaC.
-- Remove or convert `aws_lakeformation_resource` — the account already registered its buckets.
-- Remove the portal's ownership of the user-space bucket policy
-  (`infra/modules/data/policies/user-space-bucket-policy.json.tftpl`).
-- Treat the Lake Formation Identity Center configuration as a third account-wide singleton (§4.4).
+A separate **non-production account in the same organization, sharing the same Identity Center
+organization instance**, is still wanted for rehearsing every phase — including a full rehearsal
+of the sync and cutover (§6.5) on a real prefix.
 
-### 4.4 A third account-wide singleton
+### 4.4 The account-wide singletons are now portal-created
 
-An account has **one** Lake Formation Identity Center configuration. It is not created per
-consumer. It carries a list of AWS account IDs and organization or OU ARNs permitted to access
-the data it governs, and it is maintained through
-`UpdateLakeFormationIdentityCenterConfiguration`.
+An account has **one** Lake Formation Identity Center configuration, maintained through
+`UpdateLakeFormationIdentityCenterConfiguration`. Under this strategy the portal most likely
+**creates** it rather than joining an existing one. Still call
+`DescribeLakeFormationIdentityCenterConfiguration` first — another team may land earlier than
+planned — and record ownership in the contract either way: creating a second is not possible, and
+replacing an existing one breaks every other consumer.
 
-If the account already has one — or acquires one when another team adopts trusted identity
-propagation — the portal must be **added to the existing configuration's allow-list**. Creating a
-second is not possible; replacing the existing one would break every other consumer. Call
-`DescribeLakeFormationIdentityCenterConfiguration` early and find out whether one exists and who
-owns it.
+The same posture applies to `aws_lakeformation_data_lake_settings`: the portal now legitimately
+owns the account's data-lake administrator list, and later tenants are added through this repo's
+IaC, never by a competing apply.
 
-### 4.5 A third counterparty
+### 4.5 A third counterparty — unchanged
 
-The customer-managed application cannot be created from the data account. An organization
+The customer-managed application still cannot be created from the data account. An organization
 instance of Identity Center lives in the AWS Organizations **management account**, and only
 management-account administrators or a registered **delegated administrator** can create a
-customer-managed application and enable AWS account access for it.
+customer-managed application and enable AWS account access for it. Phase 5 therefore still
+depends on that relationship — establish it in Phase 0; it is the one most likely to be
+discovered late.
 
-Phase 5 therefore depends on three parties: this repo, the provisioning repo's team, and whoever
-administers the organization's Identity Center. Establish that third relationship in Phase 0 —
-it is the one most likely to be discovered late.
+One new item joins it: **confirm the successor account joins the same organization** (and so the
+same Identity Center organization instance). If it does not, every identity assumption in §3
+needs re-examination before anything else in this document is acted on.
 
 ### 4.6 Hosting moves from CloudFront to a container
 
@@ -438,9 +473,10 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
   configuration is finalised. This is the hosting workstream's one hard dependency on the auth
   phases.
 - **S3 bucket CORS must allow the new origin.** The browser calls S3, Athena, Glue and SQS
-  directly, so the bucket's CORS configuration needs the new origin added — and **the client owns
-  that bucket**, making this a change request to the provisioning repo. Easy to miss until the
-  first upload fails with an opaque browser error.
+  directly, so the bucket's CORS configuration needs the new origin added. Under the successor
+  strategy the portal owns the bucket, so this is this repo's own IaC rather than a change
+  request — but it is still easy to miss until the first upload fails with an opaque browser
+  error.
 
 **The deploy pipeline changes shape.** Build, push to a registry, update the service, replacing
 build, sync to S3, invalidate the distribution. New resource types mean the deploy role's
@@ -658,40 +694,47 @@ A related trap: **Cognito custom attributes can never be renamed or deleted.** G
 right before the client User Pool is created matters, because fixing it later means a new pool,
 which means every user's `sub` changes.
 
-### 6.2 The Lake Formation IaC is account-wide and will overwrite the client's configuration
+### 6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)
 
-`infra/modules/analytics/lakeformation.tf` line 14 declares
-`aws_lakeformation_data_lake_settings`. This resource is a **singleton for the entire AWS account
-and region**. It is not additive. Applying this module in the client account would:
+Under the previous strategy this section required stripping `aws_lakeformation_data_lake_settings`
+(`infra/modules/analytics/lakeformation.tf` line 14) and the bucket registration (line 67) before
+any apply, because the client's account already owned them. In a fresh account the danger
+**reverses**: the portal now creates those singletons, and later tenants threaten *it*.
+`aws_lakeformation_data_lake_settings` is still a singleton for the entire account and region,
+and still not additive — a later team applying their own copy replaces the portal's six-ARN admin
+list exactly as this repo once threatened to replace the client's.
 
-- Replace the client's data-lake administrator list with this repo's six ARNs.
-- Empty the `IAM_ALLOWED_PRINCIPALS` default permissions for newly created databases and tables.
+Guards: the coordination contract names the portal as owner of the data-lake settings, the Lake
+Formation Identity Center configuration (§4.4) and the user-space bucket policy, with all later
+additions made through this repo's IaC.
 
-In an account running a populated data lake, that blast radius covers every consumer in the
-environment. **This resource must be removed before any apply touches the client account.** The
-portal's control-plane roles are added to the admin list by the client's own IaC.
+**Hybrid mode is now a choice, not a discovery.** The portal registers the bucket itself and
+must choose **hybrid** mode, so the file browser's direct `ListObjectsV2` / `GetObject` path
+keeps working. The old risk — inheriting an enforced-mode registration that blocks direct S3 —
+returns only if sequencing changes.
 
-The same reasoning applies with lower severity to `aws_lakeformation_resource.user_space` (line
-67). If the client has already registered that bucket, re-registering it with a different role is
-disruptive. Convert to a data source or drop it.
+**If the portal turns out not to be first into the account**, the previous strategy's surgery
+reactivates in full: strip the data-lake settings, convert the bucket registration to a data
+source, surrender the bucket policy, and join the incumbent's Identity Center configuration
+allow-list. Keep this paragraph until the account's tenancy order is contractual.
 
-**Hybrid mode is load-bearing for Phase 1.** If the client registered their bucket in enforced
-(non-hybrid) mode, direct S3 IAM access is blocked and the file browser cannot read anything with
-plain `ListObjectsV2` and `GetObject` calls. Confirm this before writing any code — it determines
-whether Phase 1 is a configuration exercise or a rewrite of the file browser's credential path.
+### 6.3 Destructive code paths during the sync-and-seed window
 
-### 6.3 Destructive code paths pointed at client-owned data
-
-The app deletes things because it created them. Several of those paths now point at data it did
-not create and must never destroy.
+The app deletes things because it created them — and in the successor account that becomes true
+again, which retires most of the previous strategy's permanent guards. What remains is a
+**window**: between the first sync and a verified cutover, prefixes and workspaces hold the only
+in-account copy of the synced client data. A destructive path firing mid-seed destroys work that
+must be re-synced; the same path firing after cutover destroys the authoritative copy while the
+old account is already read-only. The guards below are scoped to that window rather than
+permanent.
 
 | Path | File | What it destroys | Guard |
 |---|---|---|---|
-| Shared-space `delete` verb | `lambdas/shared-space-delete/delete_space.py` | Calls the three teardown helpers below, in sequence | **Disable entirely until Phase 5.** During adoption this is the single highest-consequence code path in the repo. Re-enable only behind an allow-list of app-created workspaces. |
-| Teardown helpers | `lambdas/shared-space-common/teardown.py` — `delete_shared_prefix` (line 18), `revoke_portal_role`, `drop_database` | `delete_shared_prefix` **deletes every S3 object** under `{name}/`. The other two revoke LF grants and drop the Glue database with all its tables. | Gate all **three**. Gating only the two grant/catalog functions leaves the object deletion live. |
-| `forget` verb teardown branch | `lambdas/shared-space-forget/forget_space.py` line 48 | Full teardown when `owner == actor and status != "active"` — **any** non-active status, not only failed | Restrict to the cache-only branch during adoption. An adopted workspace mid-reconciliation could present as non-active. |
+| Shared-space `delete` verb | `lambdas/shared-space-delete/delete_space.py` | Calls the three teardown helpers below, in sequence | **Disable through the seeding window (Phase 3)**; re-enable at cutover, once the per-workspace inventory and the §6.4 parity check verify. From cutover the app fully manages all shared spaces, so delete is legitimate again. |
+| Teardown helpers | `lambdas/shared-space-common/teardown.py` — `delete_shared_prefix` (line 18), `revoke_portal_role`, `drop_database` | `delete_shared_prefix` **deletes every S3 object** under `{name}/`. The other two revoke LF grants and drop the Glue database with all its tables. | Gate all **three** during the window. Gating only the two grant/catalog functions leaves the object deletion live. |
+| `forget` verb teardown branch | `lambdas/shared-space-forget/forget_space.py` line 48 | Full teardown when `owner == actor and status != "active"` — **any** non-active status, not only failed | Restrict to the cache-only branch through the seeding window. A seeded workspace mid-sync could present as non-active. |
 | Data-quality temp tables | `lambdas/data-quality-create-temp-tables/`, `.../drop-temp-tables/` | Creates and drops `dq_tmp_*` tables in the user's or shared workspace's Glue database | Confirm **both** prefixes — `dq_tmp_` *and* `dq_tmp_raw_` (`dqcommon/sql.py` lines 40-41) — cannot collide with a client naming convention. |
-| Prefix marker write | `ensurePrefixMarker` (`features/file-browser/fileBrowser.service.ts` line 153), constants in `fileBrowser.constants.ts` (`PREFIX_MARKER_FILENAME` line 7, plus `prefixMarkerKey` and `PREFIX_MARKER_BODY`), sole app caller `routes/FilesPage.tsx` line 65 | Writes `{username}/DO_NOT_DELETE.txt` into a client-owned prefix | **Remove all of it** — the function, the three constants, the call site, the barrel re-export in `features/file-browser/index.ts` line 30, and the coverage in `fileBrowser.service.test.ts`, `FilesPage.test.tsx` and `FilesPage.a11y.test.tsx`. Deleting the function alone leaves a dangling call site. |
+| Prefix marker write | `ensurePrefixMarker` (`features/file-browser/fileBrowser.service.ts` line 153), constants in `fileBrowser.constants.ts` (`PREFIX_MARKER_FILENAME` line 7, plus `prefixMarkerKey` and `PREFIX_MARKER_BODY`), sole app caller `routes/FilesPage.tsx` line 65 | Writes `{username}/DO_NOT_DELETE.txt` into the user's prefix | **Remove all of it** (settled — sign-in provisions nothing, §2 item 7): the function, the three constants, the call site, the barrel re-export in `features/file-browser/index.ts` line 30, and the coverage in `fileBrowser.service.test.ts`, `FilesPage.test.tsx` and `FilesPage.a11y.test.tsx`. Deleting the function alone leaves a dangling call site. |
 | Table Share object copy | `lambdas/table-share-copy-objects/table_share_copy_objects.py` | Writes into `{recipient}/shared_tables/{tableName}/` | Confirm no collision with existing client data under a recipient's prefix. |
 | Table Share DDL | `lambdas/table-share-create-table/table_share_create_table.py` line 35 | Athena output to `s3://{destBucket}/{database}/athenaresults/{actor}/` — a different shape from the SPA's | Include in the Phase 4 workgroup audit. |
 
@@ -704,86 +747,117 @@ data:
 | The file-converter arc's blocklist (SPEC-116) | Kept in sync by comment only — locate and audit it |
 | `apps/portal/src/features/file-browser/protectedFolders.ts` line 24 (`PICKER_LOCKED_FOLDERS`) | `athenaresults`, `user_settings`, `_data-quality-reports` — missing `shared_tables` and `_fc-work` |
 
-Each name now sits inside a prefix that may already contain client data using the same name.
-Reconciling the three lists is worth doing on its own merits and gates the Phase 2 audit.
+Each name may collide with data arriving from the old account via the sync. Reconciling the
+three lists is worth doing on its own merits and gates the Phase 2 audit.
 
-### 6.4 Shared workspace adoption without data loss
+### 6.4 Shared workspace seeding (was: adoption — nothing is adopted anymore)
 
-The client's workspaces are real, tag-provisioned and hold real data. Transferring ownership from
-their IaC to this app's registry is the most delicate sequence in the plan.
+The registry (`s3://{admin-bucket}/shared-spaces/{name}.json`, written under ETag
+compare-and-swap by `lambdas/shared-space-common/registry.py`) is the source of truth, and from
+**cutover onwards the app fully manages all shared spaces** — `create` and the other verbs
+user-facing exactly as today. The already-existing spaces are seeded differently: **the sync
+creates them, and the manifest is written manually** — one registry object per old-account
+workspace, authored by hand rather than by the `create` verb.
 
-The app's source of truth is `s3://{admin-bucket}/shared-spaces/{name}.json`, written under ETag
-compare-and-swap by `lambdas/shared-space-common/registry.py`. Adoption means creating one
-registry object per existing workspace, populated from current tags and membership, **without
-touching the underlying S3 prefix, Glue database or data**.
+The risk that replaces adoption's: **a seeded workspace must be indistinguishable from one the
+control plane created**, or the verbs misbehave on it after cutover. The `create` verb normally
+produces four things at once — the registry entry, the workspace Glue database with its Lake
+Formation grants, the members' attribute slots, and the roster caches
+(`cache.write_roster_to_all`). Manual seeding must produce all four, not just the registry
+object. Before any verb is enabled on a seeded space, validate each one: the registry object
+parses against the schema the verbs expect, the Glue database and grants exist, every member's
+attribute slot and roster cache is populated, and a read-only roster fetch succeeds. The
+`tofu state rm` choreography, the ownership-transfer inventory and the "what physically grants
+membership" unknown are gone; this **parity check** is what stands in their place.
 
-The critical property: **removing a resource from OpenTofu management is not the same as
-destroying it.** The client's repo must use `tofu state rm` (or a `removed` block) so resources
-are forgotten by state, not deleted. A `tofu destroy` or plain resource deletion takes the data
-with it. Write this into the runbook and confirm it on a plan output before any apply.
+What does **not** disappear is the ceiling. Membership remains the Cognito custom attributes
+(`custom:shared_space_1..10`), and the ten-slot cap carries over. Enumerate old-account workspace
+membership in Phase 0: **if any user belongs to more than ten workspaces, redesign before the
+successor User Pool is created** — custom attributes can never be deleted or renamed, and fixing
+the schema later means a new pool and new `sub` values for every user. Passing gates P2 and P3
+(§5.4) replaces the attributes with Identity Center-sourced session tags and removes the ceiling
+entirely — one more reason the experiment runs first.
 
-Adoption must also answer what membership physically *is* in the client environment. Today it is
-a Cognito custom attribute (`custom:shared_space_1..10`) that becomes a principal tag unlocking an
-ABAC statement. If the client grants access another way — an Identity Center group, a resource
-tag, an entitlement record — the control plane's write path changes even though its verbs and UI
-do not. **This is the largest remaining unknown.**
+### 6.5 The sync and the cutover (was: retiring bespoke roles — deleted; they are never created)
 
-### 6.5 Retiring bespoke roles without an access gap
+The data sync is three layers, and only the first one copies:
 
-Users hold live Lake Formation grants against per-user IAM roles. The only safe sequence:
+1. **Objects.** S3 sync from the old account's buckets into the portal-created buckets,
+   re-encrypted under the successor account's **customer-managed KMS key** — required by Phase 5
+   regardless, since AWS managed keys do not support trusted identity propagation. DataSync or
+   S3 batch operations; per-prefix, resumable, verified by inventory comparison.
+2. **Catalog.** Glue databases and tables are rebuilt, never copied: per-user databases by the
+   sync initially and the client's automated process thereafter (§2 item 7), workspace databases
+   through seeding (§6.4), core-dataset tables from the dataset registry config (§3.8) pointed
+   at the new account.
+3. **Grants.** Re-issued, never copied. Core-dataset grants are a config re-run against
+   unchanged Identity Center identities (§4.1); personal-database grants come from the client's
+   separate permissions control plane (§2 item 7); workspace grants arise in §6.4's seeding.
+   Anything still keyed on an IAM role ARN would have been stale anyway — the ARNs embed the old
+   account ID.
 
-1. **Dual-grant.** The reconciler issues grants to the new principal — the shared portal role for
-   the base plane, or the Identity Center user for the catalog plane — **in addition to** the
-   existing bespoke-role grants. Nothing is revoked.
-2. **Verify.** Confirm through the portal *and* through direct AWS CLI access that every user
-   reaches everything they could before, using only the new principal. This wants a scripted
-   comparison of effective permissions per user, not spot checks.
-3. **Revoke.** Remove the bespoke-role grants in batches, with the reconciler able to re-grant.
-4. **Delete the roles.** Last, after a quiet period with no access failures.
+The sequence: repeated delta syncs while the portal is built and verified → a **freeze window**
+on the old account (writes stop) → final delta → verification inventory (object counts and
+checksums per prefix, catalog diff, per-user spot queries) → users flip to the new origin → old
+account read-only through a quiet period → decommission.
 
-The window between steps 1 and 3 is where both models are live. Plan for weeks, not days, and
-make sure nothing in either repo assumes exclusivity.
+Plan the freeze honestly: it is write downtime, and its length is set by the size of the final
+delta — so keep deltas small by syncing often. The stretch between first sync and cutover is
+where **drift** lives: every day of it, users write to the old account and the copy ages.
+Nothing on either side may assume the other is frozen until the freeze is actually called.
+Rehearse the entire sequence in the non-production account before doing it for real (§4.3).
 
 ---
 
 ## 7. Phases
 
-Each phase is independently shippable and independently reversible. Boundaries are chosen so that
-a failure never leaves the client environment needing forward-only recovery.
+Each phase is independently shippable and independently reversible. Until Phase 6's cutover the
+old account remains authoritative and untouched, so a failure anywhere leaves users exactly where
+they already were.
 
 ### Phase 0 — Discovery, contract and experiments (no product code)
 
-**Goal:** eliminate the unknowns in §8 and write down the interface between this repo and the
-provisioning repo.
+**Goal:** eliminate the unknowns in §8 and write down the successor-account contract.
 
-- **Run the §5.4 permission-set experiment.** Highest-value item in the phase: gates P2 and P3
+- **Run the §5.4 permission-set experiment.** Unchanged and still first: gates P2 and P3
   together decide whether Phase 1 needs the Cognito Identity Pool and the custom username
-  attribute at all. Running it after Phase 1 is built means throwing that work away.
+  attribute at all, and §6.4's membership ceiling turns on the same result.
 - Do **not** run the retired spike's G1 experiment. It is settled (§3.5).
-- Inventory the client environment: bucket names, prefix convention, Glue database naming, Lake
-  Formation registration mode, existing data-lake admins, workspace tags, the reconciler's
-  location and cadence.
-- Confirm the Lake Formation registration is hybrid. Go/no-go for Phase 2's shape.
-- Call `DescribeLakeFormationIdentityCenterConfiguration` (§4.4).
+- Confirm the successor account: does it exist yet, is it in the **same organization** (same
+  Identity Center organization instance — load-bearing, §4.5), who else is scheduled to land in
+  it and when, and is the portal's first-tenant ownership of the account singletons (§4.4)
+  agreed and written into the contract.
+- Call `DescribeLakeFormationIdentityCenterConfiguration` in the successor account (§4.4).
 - Identify the Identity Center administrators and their process for creating a customer-managed
   application (§4.5).
 - Confirm the exact Identity Center attribute carrying the catalog-safe username.
-- Enumerate existing shared workspaces and their membership — input to the adoption manifest.
-- Write the coordination contract with the provisioning repo: what they add (portal role and
-  control-plane roles to the bucket policy, Lake Formation admin list, data location grants), and
-  what they stop doing (shared workspace provisioning, eventually per-user roles).
+- Inventory the old account: buckets and data volumes, prefix conventions, per-user Glue
+  databases, shared workspaces and per-user membership counts (§6.4's ceiling check), core
+  datasets and the existing grant matrix.
+- **Write the provisioning contract** (settled mechanism, §2 item 7): extract the per-user
+  checklist from `post_confirmation.py` and map each item to its new owner — database creation
+  and tagging to the user automation (which already tags), grants to the separate permissions
+  control plane. Confirm the automation's tag key and values against what the portal's TBAC
+  tag-policy grants expect (`portal-managed` today — align one side or the other), and agree the
+  acceptable latency between a user existing in Identity Center and being provisioned.
+- Choose the sync tooling and rehearse one real prefix end-to-end in non-production, including
+  re-encryption under a customer-managed key (§6.5).
 
-**Exit criteria:** every question in §8 has an answer; P1 and P2 findings are written down and
+**Exit criteria:** every question in §8 has an answer; P1–P3 findings are written down and
 Phase 1's credential design is confirmed or revised in light of them.
 
-### Phase 1 — Federated login
+### Phase 1 — Stand up the portal in the successor account
 
-**Goal:** an organization user signs in with their existing SSO and lands in the portal with a
-correct `username` principal tag. Nothing else works yet, and that is fine.
+**Goal:** the portal runs in the successor account with federated login: an organization user
+signs in with their existing SSO and lands in an empty portal with a correct `username` principal
+tag. No data yet, and that is fine.
 
 *Revise this phase if gates P2 and P3 both passed — the Identity Pool and custom attribute items
 drop out.*
 
+- Apply the portal's IaC into the successor account — **including** the Lake Formation settings
+  and bucket registration it now legitimately owns (§4.2). Register the user-space bucket in
+  **hybrid** mode (§6.2).
 - Add Identity Center as a SAML identity provider on the User Pool (`infra/modules/auth/cognito.tf`).
 - Add the `custom:portal_username` attribute (or the Pre-Token-Generation trigger), map it from
   the Identity Center attribute, and **remove write permission from the app client** (§6.1).
@@ -807,7 +881,10 @@ drop out.*
   `AuthProvider.tsx` and `auth.types.ts`, the "Create account" / "Create your account" handlers in
   `routes/LandingPage.tsx` (lines 470, 509, 607), copy in `lib/returnPath.ts`, and the "automatic
   right after sign-up" empty state in `features/query/DatabaseNode.tsx`.
-- Remove the `pre-signup` and `post-confirmation` triggers and delete their provisioning logic.
+- Remove the `pre-signup` and `post-confirmation` triggers and delete their provisioning logic —
+  sign-in provisions nothing (settled, §2 item 7).
+- Remove `ensurePrefixMarker` and every other write the portal makes to establish a prefix (full
+  removal list in §6.3).
 - Compile out the `VITE_S3_DEV_UNAUTH` path for client builds.
 - Feature-flag off Query workspace, Table Builder, Table Share and Data Quality.
 - **Coordinate with the hosting workstream (§4.6):** the app client's callback and logout URLs
@@ -818,58 +895,61 @@ drop out.*
 expected `username` principal tag is stamped for each, and that neither can obtain the other's tag
 via `UpdateUserAttributes`.
 
-**Rollback:** revert the identity provider and app client configuration. No client data touched.
+**Rollback:** tear the stack down; the account was empty. Nothing in the old account changed.
 
-### Phase 2 — Attach to existing S3 resources
+### Phase 2 — First data sync: personal spaces
 
-**Goal:** the file browser and notifications work against the client's existing per-user prefixes.
+**Goal:** the file browser and notifications work in the successor account against synced copies
+of each user's data.
 
-- Strip `aws_lakeformation_data_lake_settings`, the bucket registration and the bucket-policy
-  ownership from the portal's IaC (§4.3). **Do this first.**
-- The client's repo adds the shared portal role and the notifications writer role to the bucket
-  policy and, if the bucket is Lake Formation registered, to the data location grants. Bespoke
-  per-user roles keep working untouched.
-- Remove `ensurePrefixMarker` and every other write the portal makes to establish a prefix.
-- Audit the reserved prefixes (§6.3) against real client data and resolve collisions.
-- Point the admin bucket (registry, logs) at a **portal-owned** bucket — app-internal state, not
-  client data.
+- Run the object sync (§6.5 layer 1) for personal prefixes, re-encrypting under the successor
+  account's customer-managed key.
+- Audit the reserved prefixes (§6.3) against the synced data **before** users arrive, and
+  resolve collisions while the copy is still disposable.
+- Verify the provisioning handoff: the sync's pre-created spaces pass the `post_confirmation.py`
+  checklist (database and tag from the user automation, grants from the permissions control
+  plane), and one user provisioned end-to-end by the ongoing machinery — or a rehearsal of it —
+  arrives identically.
+- Point the admin bucket (registry, logs) at the portal-owned bucket as usual; it is
+  app-internal state and takes no part in the sync.
 
-**Verification:** a real user uploads, downloads, renames and deletes within their own prefix, and
-is denied on another user's. Run the denial check with raw AWS CLI credentials pulled from the
-session, not through the UI — the UI is not the boundary.
+**Verification:** a real user uploads, downloads, renames and deletes within their own prefix,
+and is denied on another user's — run the denial check with raw AWS CLI credentials pulled from
+the session, not through the UI, because the UI is not the boundary. Inventory comparison (object
+counts and checksums per prefix) confirms the sync.
 
-**Rollback:** the client removes the portal role from the bucket policy. Nothing they own changed.
+**Rollback:** delete the synced copy and re-run. The old account remains authoritative.
 
-### Phase 3 — Shared workspace adoption
+### Phase 3 — Shared workspaces
 
-**Goal:** the app's registry becomes the source of truth for workspaces the client's IaC built,
-with zero data movement.
+**Goal:** every old-account workspace exists in the successor account — created by the sync,
+manifest written manually — and passes the §6.4 parity check, so the app can fully manage all
+shared spaces from cutover.
 
-- Ship the delete-verb kill switch (§6.3) **before anything else in this phase**.
-- Build the adoption tool: read the tag-provisioned workspaces, emit one
-  `shared-spaces/{name}.json` registry object each, members resolved from current membership.
-  Idempotent, re-runnable, read-only against everything except the registry.
-- Decide and implement the membership write path (§6.4). The verbs and UI stay; the mechanism
-  underneath changes.
-- Drop `create` and `delete` from the user-facing verb set for adopted workspaces.
-- The client's repo removes the workspaces from state with `tofu state rm`, verified against a
-  plan output showing no destroys.
+- Keep the destructive verbs disabled on seeded workspaces through this phase (§6.3); the app
+  takes over full management at cutover, after the parity check passes.
+- Seed per §6.4: sync each workspace's objects, author its registry object from the manifest,
+  create its Glue database and grants, and populate the members' attribute slots and roster
+  caches from the Phase 0 membership inventory (or Identity Center groups, if gates P2 and P3
+  passed and the mechanism moved). Idempotent and re-runnable.
+- Run the parity check (§6.4) against every seeded workspace before enabling any verb on it.
 
-**Verification:** compare a full inventory of workspace prefixes, objects and Glue databases
-before and after the state removal. They must be byte-identical.
+**Verification:** per-workspace inventory comparison, old account versus new; members see their
+workspaces, non-members are denied — raw-credential check again; parity check green on every
+seeded space.
 
-**Rollback:** delete the registry objects; the client re-imports into state. Because nothing was
-destroyed, this is genuinely reversible.
+**Rollback:** delete the seeded registry objects and synced data and re-run. The old account is
+untouched.
 
-### Phase 4 — Analytics on the existing model
+### Phase 4 — Analytics on the synced model
 
-**Goal:** re-enable the Query workspace and table arcs against the client's existing Glue
+**Goal:** re-enable the Query workspace and table arcs against the successor account's Glue
 databases, still on the shared role and principal tag.
 
 - Re-enable Query workspace first (read-only), then Table Builder, Table Share and Data Quality
-  one arc at a time.
-- The client's reconciler grants the shared portal role and each control-plane execution role what
-  they need — their `portal-managed` LF-Tag equivalent, or explicit named grants.
+  one arc at a time — each against its original spec's acceptance criteria.
+- The grant plumbing is this repo's existing model — the portal's IaC owns the LF admin list and
+  the `portal-managed` LF-Tag machinery (§4.2) — rather than a change request to another team.
 - Confirm the Athena workgroup and its enforced output location. The app writes results in
   **three shapes**: the SPA uses `s3://{bucket}/{username}/athenaresults/` (`query.service.ts`
   line 22), table-share uses `s3://{destBucket}/{database}/athenaresults/{actor}/`, and
@@ -877,13 +957,13 @@ databases, still on the shared role and principal tag.
   (`dq_start_profile_query.py` line 56). A workgroup enforcing an output location overrides all
   three, and any code reading results back from the path it requested will break.
 
-**Verification:** per-arc, the original spec's acceptance criteria, against client data in a
+**Verification:** per-arc, the original spec's acceptance criteria, against synced data in a
 non-production workspace.
 
 ### Phase 5 — Identity Center identities in Lake Formation
 
-**Goal:** Lake Formation grants keyed on the Identity Center user, not on any IAM role. The design
-is §3; the work items are here.
+**Goal:** core datasets governed by Lake Formation grants keyed on the Identity Center user, not
+on any IAM role. The design is §3; the work items are here.
 
 - Register the Cognito User Pool as a Trusted Token Issuer. Confirm the `aud` claim configuration
   and which claim maps uniquely to the Identity Center user (`email` is the usual choice).
@@ -892,19 +972,33 @@ is §3; the work items are here.
   identity-brokering capability is being pursued (§5.1).
 - Build the token-exchange backend with its session store (§3.5).
 - Create the catalog carrier role (§3.6).
+- Create the Lake Formation Identity Center configuration (§4.4) — under this strategy most
+  likely a create, not a join.
 - Create an Identity Center enabled Athena workgroup.
 - Add a connection kind in `useConnections` running under the identity-enhanced session.
-- The client's reconciler dual-grants Identity Center principals alongside the bespoke roles.
+- Stand up the core datasets: dataset registry config, data cell filters, and the reconciler
+  (§3.8) pointed at the successor account — a re-run of the existing grant matrix against
+  unchanged Identity Center principals (§4.1). No dual-granting: there are no bespoke roles to
+  grant alongside.
 - Prove gates G2 through G6 (§5.5).
 
 **Verification:** two users on the same carrier role see different data; a user with no grant is
 denied. Confirm with raw credentials, not through the UI. Separately, confirm no Identity Center
 token ever reaches the browser — inspect the network trace, not just the code.
 
-### Phase 6 — Retire bespoke roles
+### Phase 6 — Cutover and decommission
 
-**Goal:** the per-user IAM roles are deleted. Follow §6.5. Mostly waiting and verifying; do not
-rush it to hit a date.
+**Goal:** the successor account becomes authoritative; the old account is retired. Follow §6.5.
+Mostly verification and patience — do not rush the freeze or the decommission to hit a date.
+
+- Delta syncs until the final delta is small; call the freeze; run the final delta; run the full
+  verification inventory.
+- Flip users to the new origin; the old account goes read-only.
+- Hold through a quiet period with no access failures and no missing-data reports; then
+  decommission the old account.
+
+**Rollback (before decommission only):** point users back at the old account and lift the
+freeze. This is the whole reason the old account survives the quiet period.
 
 ---
 
@@ -913,38 +1007,50 @@ rush it to hit a date.
 **Gating Phase 0 to 1:**
 
 - Gates P1, P2 and P3 (§5.4). Everything about Phase 1's credential design depends on P2 and P3.
+- Does the successor account exist yet, and is it in the **same organization** — the same
+  Identity Center organization instance? §3 and §4.1 assume yes (§4.5).
+- Who else lands in the successor account, when, and is the portal's first-tenant ownership of
+  the account singletons (§4.4) contractual?
 - Which Identity Center attribute carries the catalog-safe username, and is it stable for the life
   of a user? It keys the S3 prefix, so a change strands data.
+- **The tag alignment** (mechanism settled, §2 item 7): the user automation already tags
+  databases — does its tag taxonomy match what the portal's TBAC tag-policy grants expect
+  (`portal-managed` today), or do the portal's `.tftpl` grants re-key to the client's existing
+  tag? Without an aligned tag, Table Builder, Table Share and Data Quality cannot create tables
+  in a user's database.
+- **The permissions control plane's coverage:** does it issue every grant `post_confirmation.py`
+  issues today, on what trigger and cadence, and does the portal consume its output anywhere or
+  simply trust that it has run?
+- **Provisioning latency:** how long between a new user existing in Identity Center and the
+  automated process provisioning them, and is the defensive empty state acceptable for that
+  window? Queries against a not-yet-created database must fail soft.
 - Does the client permit a Cognito User Pool at all, and is Managed Login v2 branding acceptable
   to their security review?
 - Session lifetime: Cognito refresh tokens can outlive an Identity Center session revocation, so a
   deprovisioned employee could hold a valid portal session. What window is acceptable, and does
   sign-out need single logout?
-- Who owns the provisioning repo, and what is the turnaround on a change request? Every phase from
-  2 onward depends on them.
 
 **Gating Phase 2:**
 
-- Is the Lake Formation registration hybrid or enforced? Enforced blocks direct S3 access and
-  reshapes the file browser.
-- How many **user-space** buckets are there? `CLAUDE.md` line 137 says "no multi-bucket support
-  (initial)", but that is a stale scope note rather than a live fence — the repo already runs
-  several buckets. The real constraint is exactly one *user-space* bucket.
-- Do the reserved prefixes collide with existing client data (§6.3)?
-- Is Object Ownership set to *Bucket owner enforced*, and does bucket encryption use a customer
-  managed KMS key? AWS managed keys do not support trusted identity propagation at all, which
-  would block Phase 5.
+- Sync tooling and cadence (§6.5): what runs it, who operates it, and how a delta is verified.
+- How is the old account's user list enumerated for the sync's pre-creation pass?
+- Do the reserved prefixes — including both `dq_tmp_` and `dq_tmp_raw_` table prefixes (§6.3) —
+  collide with data arriving from the old account?
+- Bucket topology in the successor account: names, exactly one *user-space* bucket (`CLAUDE.md`
+  line 137's "no multi-bucket support (initial)" is a stale scope note — the repo already runs
+  several buckets; the live constraint is one user-space bucket), Object Ownership set to
+  *Bucket owner enforced*, and a **customer-managed KMS key** for re-encryption — AWS managed
+  keys do not support trusted identity propagation at all, which would block Phase 5.
 
 **Gating Phase 3:**
 
-- **What physically grants shared workspace membership in the client environment?** The strongest
-  candidate for the biggest surprise in this migration.
-- **How many workspaces can one user belong to?** The app hard-caps at ten
-  (`custom:shared_space_1..10`, `var.max_shared_memberships`). A tag-provisioned environment could
-  put a user in dozens. Cognito allows fifty custom attributes and **they cannot be deleted once
-  created**. If the real number exceeds ten, redesign before the client pool is created, not after.
-  Note that passing gates P2 and P3 (§5.4) remove this ceiling entirely.
-- Are workspace names catalog-safe under the same regex? They become Glue database names.
+- **How many workspaces can one user belong to in the old account?** The app hard-caps at ten
+  (`custom:shared_space_1..10`, `var.max_shared_memberships`), Cognito allows fifty custom
+  attributes and **they cannot be deleted once created**. If the real number exceeds ten,
+  redesign before the successor pool is created, not after. Passing gates P2 and P3 (§5.4)
+  removes this ceiling entirely.
+- Are all old-account workspace names catalog-safe under `^[a-z][a-z0-9_]{2,62}$`? They become
+  Glue database names in the successor account.
 
 **Gating the hosting workstream (§4.6, §4.7):**
 
@@ -955,24 +1061,29 @@ rush it to hit a date.
   one-file change made later, on evidence rather than up front.
 - Who owns TLS and DNS for the new origin, and what is the turnaround on getting a certificate?
   The origin must be settled before Phase 1's Cognito callback URLs are finalised.
-- Who updates the client bucket's CORS configuration to allow the new origin (§4.6)? The client
-  owns that bucket, so this is a change request to the provisioning repo.
 - What is the session cookie's lifetime relative to the Cognito session and the Identity Center
-  refresh token — the three clocks in §4.7?
+  refresh token — the three clocks in §4.7? (Bucket CORS is now this repo's own configuration —
+  §4.6 — so the old change-request dependency is gone.)
 
 **Gating Phase 5:**
 
-- Does the account already have a Lake Formation Identity Center configuration, and who owns it
-  (§4.4)?
+- Does the successor account already have a Lake Formation Identity Center configuration by the
+  time Phase 5 starts, and if so who created it (§4.4)?
 - Who administers the organization's Identity Center, and what is their process (§4.5)?
 - Is the refresh-token grant available on the customer-managed application? The session-state
   design (§3.5) depends on it.
-- Can the portal's control-plane roles be Lake Formation data-lake admins, or will the client's
-  security posture refuse? Table Builder, Table Share and Data Quality depend on admin status.
-  Identity Center users and groups **cannot** be data lake administrators, so this stays an
-  IAM-role question regardless.
+- Where does the core-dataset grant matrix live after the move, and who reviews changes to it
+  (§3.8)? The reconciler is now portal-adjacent rather than a client system.
+- Control-plane roles as Lake Formation data-lake admins is now the portal's own design choice
+  as first tenant — but Identity Center users and groups **cannot** be data lake administrators,
+  so it stays an IAM-role question regardless.
 - Cross-plane joins: a query joining a personal database against a core dataset almost certainly
   will not work (§3.4). Confirm this is acceptable.
+
+**Gating Phase 6:**
+
+- How long a write-freeze window is tolerable, and in which calendar window does it land (§6.5)?
+- How long must the old account survive read-only before decommission?
 
 ---
 
@@ -980,23 +1091,32 @@ rush it to hit a date.
 
 Code that becomes dead and should be deleted rather than left to rot:
 
-- `lambdas/pre-signup/` entirely.
-- `lambdas/post-confirmation/` provisioning logic, `backfill.py`, and
-  `scripts/backfill-portal-managed-tag.sh`.
+**"Leaves behind" means at cutover, not now.** Everything below is load-bearing in this repo until
+the successor account is live, and one of these has already been broken *because* it was mentally
+retired: `pre-signup` shipped for nine days unable to import its own Lambda layer, failing real
+sign-ups, and nothing noticed (2026-08-01, PR #317 — the Correction section of SPEC-137's delivery
+doc). Deleting this code is a **cutover** task; keeping it working is a **today** task.
+
+- `lambdas/pre-signup/` entirely, and `lambdas/post-confirmation/` with its provisioning logic —
+  sign-in provisions nothing (§2 item 7). `backfill.py` and
+  `scripts/backfill-portal-managed-tag.sh` go with them. Extract the provisioning checklist from
+  `post_confirmation.py` into the coordination contract **before** deleting it — it is the
+  specification the user automation and the permissions control plane must jointly satisfy.
+- `ensurePrefixMarker`, its constants in `fileBrowser.constants.ts`, its call site in
+  `routes/FilesPage.tsx`, the barrel re-export in `features/file-browser/index.ts`, and its
+  tests (§6.3 has the full list).
 - `startSignUp` / `signUp` across `auth.service.ts`, `AuthProvider.tsx`, `auth.types.ts`,
   `test/authFixtures.ts`, and their tests.
 - Sign-up copy in `routes/LandingPage.tsx`, `lib/returnPath.ts` and
   `features/query/DatabaseNode.tsx`.
-- `ensurePrefixMarker`, its constants in `fileBrowser.constants.ts`, its call site in
-  `routes/FilesPage.tsx`, the barrel re-export in `features/file-browser/index.ts`, and its
-  tests (§6.3 has the full list).
-- The `create` verb in the shared-space control plane, once adoption completes.
-- `aws_lakeformation_data_lake_settings` and the bucket registration in
-  `infra/modules/analytics/lakeformation.tf`.
 - If gates P2 and P3 pass: the Cognito Identity Pool, its principal-tag mapping, and the
   `custom:shared_space_*` attribute schema.
 - The CloudFront distribution, its origin access configuration, the static-hosting bucket, any
   response headers policy, and the cache-invalidation step in CI (§4.6).
+
+**No longer removed** — reversals from the previous strategy: `aws_lakeformation_data_lake_settings`,
+the bucket registration, the user-space bucket policy template, and the shared-space `create`
+verb all **stay**. The portal owns them in the successor account (§4.2).
 
 Documentation to rewrite when this lands: `docs/architecture.md` (Authentication Flow,
 Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions.md`

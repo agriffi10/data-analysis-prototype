@@ -2,13 +2,16 @@
 #
 # PyJWT[crypto] — Cognito ID-token verification against the User Pool JWKS.
 #
-# SPEC-125: this file is now only for the NON-LAYER functions (pre-signup /
-# post-confirmation / notifications-writer), which install it into their own package.
-# Every control-plane verb — including the eight shared-space ones, which used to get
-# PyJWT from the shared-space-common layer — now gets it from the cpcommon layer, whose
-# own requirements.txt is the single declaration for the layered path.
+# NOTHING IN THE DEPLOY MATRIX INSTALLS THIS ANY MORE, and the file is kept anyway.
 #
-# The three non-layer functions use only the standard library and don't import PyJWT, so
-# their bundled copy is harmless (well under the Lambda size limit); it is kept because
-# the build step installs this file whenever a function attaches no code layer.
+# SPEC-125 left it for the three non-layer functions (pre-signup / post-confirmation /
+# notifications-writer), which bundled it because deploy-lambdas.yml installs this file
+# whenever a function attaches no code layer. Those three now attach the cpcommon layer
+# (SPEC-137 FR-005, landed late — see the matrix comment), so that branch is never taken
+# and PyJWT reaches every function from lambdas/control-plane-common/requirements.txt,
+# the single declaration for the layered path.
+#
+# It stays because ci.yml still installs it for the test job, and because a future
+# function that attaches no layer would silently get no dependencies without it. If a
+# fourth declaration of PyJWT ever looks tempting, it belongs in the cpcommon layer.
 PyJWT[crypto]>=2.8,<3
