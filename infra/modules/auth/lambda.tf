@@ -55,7 +55,8 @@ resource "aws_iam_role_policy" "pre_signup_logs" {
   role = aws_iam_role.pre_signup.id
 
   policy = templatefile("${path.module}/policies/pre-signup-permissions.json.tftpl", {
-    log_group_arn = aws_cloudwatch_log_group.pre_signup.arn
+    log_group_arn  = aws_cloudwatch_log_group.pre_signup.arn
+    logs_queue_arn = var.logs_queue_arn
   })
 }
 
@@ -78,9 +79,26 @@ resource "aws_lambda_function" "pre_signup" {
   filename         = data.archive_file.pre_signup_placeholder.output_path
   source_code_hash = data.archive_file.pre_signup_placeholder.output_base64sha256
 
+  # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
+  # reads it with os.environ.get and never config._require — so a trigger deployed without
+  # it logs to stdout instead of failing at cold start. Set here so it is set in practice,
+  # and the trigger's narrative lands in logs/service=auth/ with post-confirmation's.
+  #
+  # NONE of the six variables cpcommon/config.py _require()s is set here, deliberately:
+  # this function imports only `observability`, which never reaches `config`, so the
+  # import-time fail-fast (PR #196) does not run for it.
+  environment {
+    variables = {
+      LOGS_QUEUE_URL = var.logs_queue_url
+    }
+  }
+
   lifecycle {
-    # CI owns the code — never revert it on apply.
-    ignore_changes = [filename, source_code_hash]
+    # CI owns the code AND the cpcommon layer attachment — never revert either on apply.
+    # `layers` was missing here while the code already imported cpcommon, so an apply
+    # landing after a deploy would have stripped the layer straight back off and
+    # re-broken signup.
+    ignore_changes = [filename, source_code_hash, layers]
   }
 
   depends_on = [
@@ -139,9 +157,10 @@ resource "aws_iam_role_policy" "post_confirmation" {
   role = aws_iam_role.post_confirmation.id
 
   policy = templatefile("${path.module}/policies/post-confirmation-permissions.json.tftpl", {
-    aws_region    = var.aws_region
-    account_id    = var.account_id
-    log_group_arn = aws_cloudwatch_log_group.post_confirmation.arn
+    aws_region     = var.aws_region
+    account_id     = var.account_id
+    log_group_arn  = aws_cloudwatch_log_group.post_confirmation.arn
+    logs_queue_arn = var.logs_queue_arn
   })
 }
 
@@ -162,16 +181,20 @@ resource "aws_lambda_function" "post_confirmation" {
   filename         = data.archive_file.post_confirmation_placeholder.output_path
   source_code_hash = data.archive_file.post_confirmation_placeholder.output_base64sha256
 
-  # The shared portal role the LF grant targets (SPEC-033 FR-002/FR-003).
+  # The shared portal role the LF grant targets (SPEC-033 FR-002/FR-003), plus the logs
+  # queue (SPEC-137 FR-005 — see the pre-signup function for why no config variable
+  # joins them).
   environment {
     variables = {
       PORTAL_ROLE_ARN = var.portal_role_arn
+      LOGS_QUEUE_URL  = var.logs_queue_url
     }
   }
 
   lifecycle {
-    # CI owns the code — never revert it on apply.
-    ignore_changes = [filename, source_code_hash]
+    # CI owns the code AND the cpcommon layer attachment — never revert either on apply
+    # (see pre-signup).
+    ignore_changes = [filename, source_code_hash, layers]
   }
 
   depends_on = [

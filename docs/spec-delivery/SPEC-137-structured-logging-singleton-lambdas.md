@@ -59,3 +59,50 @@ name a spec put there is a decision made in the open.
 `ruff check lambdas/` clean; `pytest lambdas/` 1384 passed / 2 skipped. Four mutations, all
 observed to fail: logging the address instead of the domain; the domain field holding the whole
 address; the verb going silent; a denylist entry deleted.
+
+---
+
+## Correction (2026-08-01): FR-005 shipped only its code half, and it broke sign-up
+
+**What actually landed on 2026-07-23 was the instrumented Python and nothing else.** FR-005's
+infra half — the `cpcommon` layer attachment in `deploy-lambdas.yml`, the `logs_queue_url`
+variables on `modules/auth` and `modules/notifications`, `LOGS_QUEUE_URL`, and the producer IAM —
+was written into the spec's acceptance criteria and never implemented. FR-001's proof (the
+scrubbed-environment subprocess test, the AST check, the `__init__.py` comment) did not land
+either; the empirical check above was run by hand and then not kept.
+
+So all three functions deployed `from cpcommon import observability` with **no `cpcommon` layer
+attached**, and raised `ModuleNotFoundError` at cold start. On `pre-signup` that is a Cognito
+trigger, so it failed real sign-ups — reported by a test user on 2026-08-01, nine days later.
+
+**Why nine days.** Every gate that could have caught it was blind to this specific failure, and
+each for a reason that still holds:
+
+- `pytest` puts every layer package root on `sys.path` (`lambdas/conftest.py`), so the import that
+  fails in Lambda succeeds under test **by design**.
+- `update-function-code` succeeds against a function that cannot import; the Deploy Lambdas job
+  went green on the very run that broke sign-up.
+- `test_instrumentation_coverage.py` asserts these modules **are** instrumented — it was satisfied
+  by exactly the import that could not resolve.
+- Nothing invokes sign-up on a schedule, and FR-006's Phase 4 live check ("sign up one test user")
+  had not been run.
+
+**Also found while fixing it:** neither `modules/auth` nor `modules/notifications` carried
+`layers` in `ignore_changes`. Even with the attachment added, the next `tofu apply` would have
+stripped it back off — the same break, arriving later and looking unrelated.
+
+### What now guards it
+
+`lambdas/test_deploy_matrix.py` parses the deploy matrix and joins it against what each function
+actually imports, so an import of a layer package whose flag is unset fails the suite. It is the
+only place where a Lambda's *packaging* is asserted rather than its behaviour, and it covers every
+layer, not just `cpcommon`. FR-001's proof landed alongside it as
+`test_layer_import_safety.py`.
+
+### The transferable lesson
+
+A spec whose FRs span code and infra can be **half-implemented and still look complete**, because
+the code half is what the tests and the delivery doc are written about. The observability arc's
+convention — the Lambda code and its layer attachment are owned by different systems (Terraform
+vs. `deploy-lambdas.yml`) — is what makes the halves separable in the first place. Where that
+split exists, the join has to be asserted somewhere, by something that reads both sides.

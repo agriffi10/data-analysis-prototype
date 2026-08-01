@@ -63,3 +63,22 @@ variable "dlq_max_receive_count" {
   type        = number
   default     = 3
 }
+
+# ── SPEC-137 structured logging ──────────────────────────────────────────────
+
+variable "logs_queue_arn" {
+  description = "Structured-logging queue ARN — the writer's ONLY sqs:SendMessage scope (SPEC-137 FR-005). The writer imports only `observability` from the cpcommon layer, so no cpcommon.config variable joins this pair."
+  type        = string
+}
+
+variable "logs_queue_url" {
+  description = <<-EOT
+    Structured-logging queue URL, set as LOGS_QUEUE_URL on the writer.
+
+    Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
+    os.environ.get and never config._require, so a writer deployed without it logs to
+    stdout instead of failing at cold start (PR #196). Passed here so it is set in
+    practice.
+  EOT
+  type        = string
+}

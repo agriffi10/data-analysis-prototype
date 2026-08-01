@@ -9,6 +9,12 @@
         "logs:PutLogEvents"
       ],
       "Resource": "${log_group_arn}:*"
+    },
+    {
+      "Sid": "EmitStructuredLogs",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
     }
   ]
 }

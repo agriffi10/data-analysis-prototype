@@ -67,8 +67,18 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — none. The observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What remains is the three live checks below.**
+**Current work — none. The observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What remains is the live checks below.**
 
+- **SPEC-137 shipped half of FR-005 and broke sign-up for nine days (fixed 2026-08-01, PR #317).**
+  The instrumented code landed; the `cpcommon` layer attachment, `LOGS_QUEUE_URL` and the producer
+  IAM did not — so all three singleton Lambdas raised `ModuleNotFoundError` at cold start, and on
+  `pre-signup` that is a Cognito trigger. **Every gate was blind**: `conftest.py` puts the layer on
+  `sys.path`, `update-function-code` succeeds against a function that cannot import, and the
+  instrumentation harness was *satisfied by* the unresolvable import. `lambdas/test_deploy_matrix.py`
+  now joins the deploy matrix against what each function imports — **the check that the code/infra
+  split needs and had nowhere else.** Full account: the Correction section of 137's delivery doc.
+  **Still owed live: 137's Phase 4** — sign up one test user, confirm the trigger succeeds and
+  `logs/service=auth/` carries both spans.
 - **ONE LIVE RUN DISCHARGES FOUR DEBTS.** A real data-quality check started **from the UI** is
   owed by **114** (`reportKey` seeding), **123** (the index CAS), **128** (FR-002's `request_id`
   join key) and **129** (the append at real volume — every sweep so far has appended 2 events),

@@ -101,6 +101,20 @@ locals {
   # module.notifications depends_on module.data) is preserved.
   notifications_writer_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-notifications-writer-role"
 
+  # Logs queue (SPEC-127) name/ARN/URL, constructed cycle-free like the role ARNs above —
+  # and here the cycle is REAL, not merely avoided: module.observability consumes
+  # module.auth's user_pool_id, so module.auth referencing module.observability's outputs
+  # is a module cycle Tofu rejects outright. The Cognito triggers need the queue (SPEC-137
+  # FR-005), so they get these strings. Must match modules/observability/locals.tf's
+  # logs_queue_name and the queue's own url/arn attributes.
+  #
+  # Nothing is lost by constructing them: an IAM policy does not validate that its resource
+  # exists, and LOGS_QUEUE_URL is read with os.environ.get, so a trigger invoked before the
+  # queue exists logs to stdout rather than failing.
+  logs_queue_name = "${var.project_name}-${var.environment}-logs.fifo"
+  logs_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.logs_queue_name}"
+  logs_queue_url  = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.logs_queue_name}"
+
   # Notifications queue ARN/URL (SPEC-058), constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-requests.fifo").
   # SPEC-061 feeds these into module.shared_spaces — the FIRST trusted producer: the
@@ -201,6 +215,12 @@ module "auth" {
   # SPEC-056: drives the ten custom:shared_space_1..N user-pool attributes + the
   # Identity-Pool shared_space_1..N principal-tag mappings.
   max_shared_memberships = var.max_shared_memberships
+
+  # SPEC-137 FR-005: both triggers attach the cpcommon layer for `observability` and emit
+  # under service="auth". CONSTRUCTED strings, not module.observability's outputs — that
+  # module consumes user_pool_id from this one, so a real reference is a module cycle.
+  logs_queue_arn = local.logs_queue_arn
+  logs_queue_url = local.logs_queue_url
 
   # The deploy role grants itself the cognito-idp permissions (modules/base
   # policies). Without this ordering, Tofu's parallel apply can call
@@ -423,6 +443,13 @@ module "notifications" {
   # before data, which this module already depends on).
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
+
+  # SPEC-137 FR-005: the writer attaches the cpcommon layer for `observability` and emits
+  # under service="notifications". A real reference is safe here (unlike module.auth's —
+  # module.observability does not consume anything from this module), so it also orders
+  # the queue's creation before the grant that scopes to it.
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for
   # this module (SPEC-058 PR 1/2, already applied); data creates the portal role this

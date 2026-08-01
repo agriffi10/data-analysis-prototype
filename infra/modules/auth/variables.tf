@@ -44,3 +44,26 @@ variable "max_shared_memberships" {
   type        = number
   default     = 10
 }
+
+# ── SPEC-137 structured logging ──────────────────────────────────────────────
+# Both Cognito triggers attach the cpcommon layer for ONE import — `observability` —
+# and emit under service="auth". These two are the whole infra surface that needs: no
+# config variable joins them, because `observability` never reaches `cpcommon.config`
+# and so its import-time _require of six variables (PR #196) never runs here.
+
+variable "logs_queue_arn" {
+  description = "Structured-logging queue ARN — the ONLY sqs:SendMessage scope granted to either trigger's exec role (SPEC-137 FR-005). A CONSTRUCTED string from the root locals, not module.observability's output: module.observability consumes this module's user_pool_id, so a real reference here is a module cycle."
+  type        = string
+}
+
+variable "logs_queue_url" {
+  description = <<-EOT
+    Structured-logging queue URL, set as LOGS_QUEUE_URL on both triggers.
+
+    Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
+    os.environ.get and never config._require, so a trigger deployed without it logs to
+    stdout instead of failing at cold start (PR #196). Passed here so it is set in
+    practice. Constructed at the root for the cycle reason in logs_queue_arn.
+  EOT
+  type        = string
+}
