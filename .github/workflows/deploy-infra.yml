@@ -1,12 +1,16 @@
 name: Deploy Infrastructure
 
 on:
+  # The workflow file itself is in the path filter: a change to how we plan, validate or
+  # SCAN the infrastructure must re-run against the real infrastructure. Without it this
+  # workflow can be edited — including the IAM scan below — and merged having never once
+  # executed, which is how a security check ships broken and looks fine.
   pull_request:
     branches: [main]
-    paths: ['infra/**']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
   push:
     branches: [main]
-    paths: ['infra/**']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
   # can silently DROP a push event (it did for the SPEC-111 merge 930c12e — zero
   # workflow runs were created, so the apply never happened and the deployed state
