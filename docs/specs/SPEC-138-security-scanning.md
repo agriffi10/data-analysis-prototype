@@ -1,7 +1,7 @@
 # Spec: Security Scanning — SAST, Dependencies, Secrets, IaC and DAST
 
 **ID:** SPEC-138
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-02
 **Depends On:** SPEC-004 (the CI workflow this sits beside), SPEC-005 (the deployed URL DAST targets)
 

@@ -70,6 +70,14 @@ down elsewhere — when a spec closes, prune it rather than appending.**
 
 **Current work — none. The observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What remains is the live checks below.**
 
+- **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
+  `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
+  per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
+  and can be flipped to `block` with no remediation at all. Five cheap infra fixes fall out of
+  Checkov (S3 versioning, multipart-abort lifecycle, CloudFront response-headers policy, Athena
+  workgroup enforcement) plus two non-breaking npm bumps. **Still owed live: the first ZAP baseline**
+  — it runs only on the weekly schedule or by dispatch, so nothing has scanned the deployed origin yet.
+
 - **SPEC-137 shipped half of FR-005 and broke sign-up for nine days (fixed 2026-08-01, PR #317).**
   The instrumented code landed; the `cpcommon` layer attachment, `LOGS_QUEUE_URL` and the producer
   IAM did not — so all three singleton Lambdas raised `ModuleNotFoundError` at cold start, and on
@@ -142,6 +150,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Responsive (095):** mobile-first, only `tablet:` (≥900) / `desktop:` (≥1300) compile; reflow on **one** tree (a `*Mobile`/`*Desktop` twin is a smell); `useIsMobile` for mount-gating only, never styling.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
+- **Security scanning (138):** `security.yml` runs Semgrep / `npm audit` ×2 scopes / `pip-audit` / gitleaks / Checkov / ZAP, all **`report`** via one `GATE_*` value each (bad value = hard error); the two ESLint security plugins run in the **blocking** lint instead. Every scanner **version-pinned** (#311). "Did not run" is never "clean" — a broken scanner fails the job even under `report`. No CodeQL/Security tab (private repo, personal account). Checkov cannot see `.tftpl` IAM. Findings + dispositions: `docs/security-baseline.md`.
 
 ## Out of Scope (don't build)
 
