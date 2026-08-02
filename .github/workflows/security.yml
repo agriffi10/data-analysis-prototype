@@ -1,0 +1,655 @@
+name: Security
+
+# Security scanning across all three surfaces: the SPA (apps/portal), the Lambdas
+# (lambdas/) and the IaC (infra/). SPEC-138.
+#
+# NOT on push to main. `main` builds and deploys — it does not lint or test (see the
+# comment at the top of ci.yml). Drift between merges is covered by the weekly schedule.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays, 06:17 UTC. Off the hour on purpose: GitHub's scheduler queues the top of
+    # the hour heavily, and a security sweep has no reason to sit in that queue.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ── THE GATE ───────────────────────────────────────────────────────────────────
+  # `report` — the scanner runs, publishes to the job summary and an artifact, and the
+  #            job concludes green.
+  # `block`  — a finding fails the job, and therefore the PR.
+  #
+  # Anything else is a hard error (.github/scripts/apply-gate.sh); a typo must never
+  # silently mean "report".
+  #
+  # SPEC-138 ships every scanner as `report`. That is the deliberate first step: with an
+  # unmeasured finding set — and 10 Dependabot advisories already open — a day-one gate
+  # either reddens main or forces a fix-everything change too large to review honestly.
+  # docs/security-baseline.md records the first run and proposes the threshold at which
+  # each of these should flip.
+  #
+  # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003) run
+  # in ci.yml's existing `npm run lint`, which already blocks. Injection sinks in code
+  # being written now stop the PR; they do not become baseline entries.
+  GATE_SEMGREP: report
+  GATE_NPM_AUDIT: report
+  GATE_PIP_AUDIT: report
+  GATE_GITLEAKS: report
+  GATE_CHECKOV: report
+  GATE_ZAP: report
+
+  # ── VERSIONS ───────────────────────────────────────────────────────────────────
+  # EVERY SCANNER IS PINNED. Not caution for its own sake: ruff 0.16.0 widened its
+  # default rule set from 59 rules to 413 and turned a green main red with 500 findings
+  # in files nobody had touched (#311, recorded in pyproject.toml). A security scanner
+  # that gains rules on release does exactly that, to every open PR at once, with a
+  # scarier label on it. Unpinned, this workflow would be a recurring outage.
+  #
+  # Bumping one of these is a deliberate, reviewable PR whose diff is the new findings.
+  SEMGREP_VERSION: '1.172.0'
+  PIP_AUDIT_VERSION: '2.10.1'
+  CHECKOV_VERSION: '3.3.9'
+  GITLEAKS_VERSION: '8.30.1'
+
+jobs:
+  # Fails the run before any scanner burns a minute if a GATE_* value is not one this
+  # workflow understands. Every scanner `needs: gates`, so a typo cannot reach a state
+  # where the workflow is green and enforcing nothing.
+  gates:
+    name: Validate gate configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate every gate value
+        run: |
+          chmod +x .github/scripts/apply-gate.sh
+          for name in SEMGREP NPM_AUDIT PIP_AUDIT GITLEAKS CHECKOV ZAP; do
+            var="GATE_${name}"
+            .github/scripts/apply-gate.sh "$name" "${!var}" 0
+          done
+
+      - name: Record the gate configuration in the summary
+        run: |
+          {
+            echo "## Security scan"
+            echo
+            echo "| Scanner | Gate |"
+            echo "|---|---|"
+            for name in SEMGREP NPM_AUDIT PIP_AUDIT GITLEAKS CHECKOV ZAP; do
+              var="GATE_${name}"
+              echo "| ${name} | \`${!var}\` |"
+            done
+            echo
+            echo "\`report\` scanners publish findings and conclude green (SPEC-138)."
+            echo "There is no GitHub Security tab on this repository — this summary and the"
+            echo "uploaded artifacts are where findings live."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── SAST ─────────────────────────────────────────────────────────────────────────
+  # Semgrep OSS. Registry rulesets rather than hand-written rules: p/owasp-top-ten is the
+  # OWASP coverage this spec was asked for, and the per-language sets carry the framework
+  # idioms. No account or token is needed for registry rulesets.
+  sast:
+    name: SAST (Semgrep)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Semgrep
+        run: pip install "semgrep==${SEMGREP_VERSION}"
+
+      - name: Scan the SPA
+        # --metrics=off: semgrep's default ("auto") phones home when registry rules are
+        # used. This is a private repository; its file paths and rule hits are not usage
+        # telemetry we are choosing to send.
+        #
+        # Vendored code and build output are excluded. A vulnerable dependency is
+        # npm audit's finding (FR-004), not SAST's, and scanning node_modules would bury
+        # the handful of real results under thousands of them.
+        #
+        # Test files ARE scanned. A hard-coded credential-shaped string in a test is worth
+        # seeing even if the disposition ends up "accepted".
+        run: |
+          set +e
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/react \
+            --config p/typescript \
+            --config p/javascript \
+            --metrics=off \
+            --json --output semgrep-portal.json \
+            --exclude=node_modules --exclude=dist --exclude=coverage \
+            apps/portal/src
+          rc=$?
+          set -e
+          # 0 = clean, 1 = findings, >=2 = semgrep itself failed. A scanner that could not
+          # run must fail the job even under gate=report: "0 findings" from a broken
+          # scanner is worse than no scanner, because it reads as evidence. This repo has
+          # already paid for that once — SPEC-137 shipped behind three gates that were all
+          # satisfied by an import that could never resolve.
+          if [ $rc -ge 2 ]; then
+            echo "::error title=Semgrep::semgrep exited $rc — the scan did not complete."
+            exit $rc
+          fi
+
+      - name: Scan the Lambdas
+        run: |
+          set +e
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/python \
+            --metrics=off \
+            --json --output semgrep-lambdas.json \
+            --exclude=__pycache__ \
+            lambdas
+          rc=$?
+          set -e
+          if [ $rc -ge 2 ]; then
+            echo "::error title=Semgrep::semgrep exited $rc — the scan did not complete."
+            exit $rc
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          total=0
+          for pair in "SPA:semgrep-portal.json" "Lambdas:semgrep-lambdas.json"; do
+            label="${pair%%:*}"; file="${pair##*:}"
+            [ -f "$file" ] || { echo "::warning::$file missing — the $label scan did not produce output."; continue; }
+
+            count=$(jq '.results | length' "$file")
+            : > body.md
+            if [ "$count" -gt 0 ]; then
+              {
+                echo "| Severity | Rule | Location |"
+                echo "|---|---|---|"
+                # Capped, and the cap is stated rather than silent — a truncated table
+                # that looks complete is how a reviewer concludes they have seen
+                # everything. The artifact always holds the full set.
+                jq -r '.results[] | "| \(.extra.severity) | `\(.check_id)` | `\(.path):\(.start.line)` |"' "$file" | head -100
+                if [ "$count" -gt 100 ]; then
+                  echo
+                  echo "_Showing the first 100 of ${count}. The full set is in the \`semgrep\` artifact._"
+                fi
+              } > body.md
+            fi
+            .github/scripts/summary-section.sh "Semgrep — $label" "$count" body.md
+            total=$((total + count))
+
+            # PARSE COVERAGE, reported separately and always. Semgrep downgrades a file it
+            # cannot fully parse to a warning and carries on, so a region of code can be
+            # silently unscanned while the job prints "0 findings". That number is only
+            # meaningful next to this one. (At time of writing: 5 test files, on the
+            # `vi.fn<...>()` explicit-type-argument syntax.)
+            errs=$(jq '.errors | length' "$file")
+            if [ "$errs" -gt 0 ]; then
+              {
+                echo "> **$errs file(s) parsed only partially** — regions of these were not scanned, so the finding count above does not cover them:"
+                echo ">"
+                jq -r '[.errors[].path] | unique | .[] | "> - `\(.)`"' "$file"
+                echo
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          echo "SEMGREP_FINDINGS=$total" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep
+          path: semgrep-*.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-0}"
+
+  # ── DEPENDENCIES (npm) ───────────────────────────────────────────────────────────
+  # Two scopes, reported SEPARATELY, because for a static SPA they mean different things:
+  #   --omit=dev  is what actually reaches a user's browser. This is the gating candidate.
+  #   full        adds the build toolchain — a supply-chain concern, but not a runtime one.
+  # Today that distinction is live: react-router (high) ships to the browser, while
+  # postcss and brace-expansion (also high) are build-time only. One combined number would
+  # lose exactly the fact that decides what to fix first.
+  deps-npm:
+    name: Dependencies (npm audit)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit
+        run: |
+          set +e
+          npm audit --json --omit=dev > npm-audit-runtime.json
+          npm audit --json > npm-audit-full.json
+          set -e
+          # npm audit exits non-zero merely because vulnerabilities exist, which under
+          # gate=report is not a failure. What IS a failure is unparseable output — that
+          # means the audit did not run, and a missing total must never read as zero.
+          for f in npm-audit-runtime.json npm-audit-full.json; do
+            if ! jq -e '.metadata.vulnerabilities.total' "$f" >/dev/null 2>&1; then
+              echo "::error title=npm audit::$f is not valid audit output — the audit did not complete."
+              exit 1
+            fi
+          done
+
+      - name: Summarize
+        if: always()
+        run: |
+          total=0
+          for pair in "Runtime (--omit=dev — ships to the browser):npm-audit-runtime.json" \
+                      "Full (adds the build toolchain):npm-audit-full.json"; do
+            label="${pair%%:*}"; file="${pair##*:}"
+            [ -f "$file" ] || continue
+            count=$(jq '.metadata.vulnerabilities.total' "$file")
+            : > body.md
+            if [ "$count" -gt 0 ]; then
+              {
+                echo "| Severity | Package | Vulnerable range | Fix |"
+                echo "|---|---|---|---|"
+                jq -r '.vulnerabilities | to_entries[] | "| \(.value.severity) | `\(.key)` | `\(.value.range)` | " +
+                       (if .value.fixAvailable == true then "available"
+                        elif .value.fixAvailable == false then "**none**"
+                        else "`\(.value.fixAvailable.name)@\(.value.fixAvailable.version)`" +
+                             (if .value.fixAvailable.isSemVerMajor then " (breaking)" else "" end)
+                        end) + " |"' "$file"
+              } > body.md
+            fi
+            .github/scripts/summary-section.sh "npm audit — $label" "$count" body.md
+            total=$((total + count))
+          done
+          # The gate reads the RUNTIME total. A build-time advisory is real but it is not
+          # the thing a user is exposed to, and gating both on one number would make the
+          # runtime signal impossible to act on independently. The full-scope count is
+          # published above regardless.
+          echo "NPM_FINDINGS=$(jq '.metadata.vulnerabilities.total' npm-audit-runtime.json)" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: npm-audit-*.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh "npm audit" "$GATE_NPM_AUDIT" "${NPM_FINDINGS:-0}"
+
+  # ── DEPENDENCIES (Python) ────────────────────────────────────────────────────────
+  deps-python:
+    name: Dependencies (pip-audit)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pip-audit
+        run: pip install "pip-audit==${PIP_AUDIT_VERSION}"
+
+      - name: Audit every requirements file
+        # DISCOVERED BY GLOB, never listed. A new layer's requirements.txt must be audited
+        # the day it is added — this fleet grows a layer per control plane, and a list here
+        # would silently stop covering the newest one. That is how ci.yml's install block
+        # has to be maintained by hand; this does not.
+        run: |
+          args=()
+          while IFS= read -r req; do
+            echo "auditing: $req"
+            args+=(-r "$req")
+          done < <(find lambdas -name 'requirements*.txt' | sort)
+          if [ ${#args[@]} -eq 0 ]; then
+            echo "::error title=pip-audit::no requirements files found under lambdas/ — the glob is wrong."
+            exit 1
+          fi
+          set +e
+          pip-audit "${args[@]}" --format json --progress-spinner off > pip-audit.json
+          rc=$?
+          set -e
+          if ! jq -e '.dependencies' pip-audit.json >/dev/null 2>&1; then
+            echo "::error title=pip-audit::exited $rc without valid output — the audit did not complete."
+            exit 1
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          count=$(jq '[.dependencies[] | select(.vulns | length > 0)] | length' pip-audit.json)
+          audited=$(jq '.dependencies | length' pip-audit.json)
+          : > body.md
+          if [ "$count" -gt 0 ]; then
+            {
+              echo "| Package | Installed | Advisory | Fixed in |"
+              echo "|---|---|---|---|"
+              jq -r '.dependencies[] | select(.vulns | length > 0) | . as $d | .vulns[] |
+                     "| `\($d.name)` | `\($d.version)` | \(.id) | " +
+                     (if (.fix_versions | length) > 0 then "`\(.fix_versions | join(", "))`" else "**none**" end) + " |"' \
+                     pip-audit.json
+            } > body.md
+          fi
+          .github/scripts/summary-section.sh "pip-audit — $audited package(s) audited" "$count" body.md
+          echo "PIP_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit
+          path: pip-audit.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh pip-audit "$GATE_PIP_AUDIT" "${PIP_FINDINGS:-0}"
+
+  # ── SECRETS ──────────────────────────────────────────────────────────────────────
+  secrets:
+    name: Secrets (gitleaks)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # FULL HISTORY. A credential committed in one PR and "removed" in the next is
+          # still in the pack file and still valid; scanning only the diff would miss every
+          # secret this repo has ever actually had. Measured at 357 commits / 9.5 MB in
+          # 1.6s, so there is no reason to scan anything narrower.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        # The binary directly, not gitleaks-action: that action requires a GITLEAKS_LICENSE
+        # for organization accounts. This repo is on a personal account today, and coupling
+        # the secret scan to that fact would break it the day the repo moves to an org.
+        run: |
+          curl -sSLo gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+
+      - name: Scan
+        # --redact: a secret scanner that prints the secret into a CI log has widened the
+        # exposure, not closed it. The repo's own field rule (decisions.md — tokens and
+        # emails never leave the process) applies to CI output for the same reason.
+        run: |
+          set +e
+          ./gitleaks git --redact --report-format json --report-path gitleaks.json .
+          rc=$?
+          set -e
+          # 0 = clean, 1 = leaks found, anything else = gitleaks failed.
+          if [ $rc -gt 1 ]; then
+            echo "::error title=gitleaks::exited $rc — the scan did not complete."
+            exit $rc
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          count=0
+          [ -f gitleaks.json ] && count=$(jq 'length' gitleaks.json)
+          : > body.md
+          if [ "$count" -gt 0 ]; then
+            {
+              echo "| Rule | File | Line | Commit |"
+              echo "|---|---|---|---|"
+              # Deliberately no Secret/Match column — the finding is actionable from its
+              # location, and reproducing the value here would undo --redact.
+              jq -r '.[] | "| \(.RuleID) | `\(.File)` | \(.StartLine) | `\(.Commit[0:8])` |"' gitleaks.json
+            } > body.md
+          fi
+          .github/scripts/summary-section.sh "gitleaks — full history" "$count" body.md
+          echo "GITLEAKS_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks
+          path: gitleaks.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-0}"
+
+  # ── IaC ──────────────────────────────────────────────────────────────────────────
+  #
+  # ⚠ KNOWN BLIND SPOT — READ THIS BEFORE TRUSTING A GREEN CHECKOV JOB.
+  #
+  # Checkov parses `.tf`. The IAM policies that implement this system's ENTIRE isolation
+  # model live in `.tftpl` templates rendered by templatefile() at plan time, and Checkov
+  # sees those as opaque strings. The ${aws:PrincipalTag/username} conditions, the shared
+  # portal role's scoping, the per-bucket DATA_LOCATION_ACCESS grants, the control-plane
+  # role boundaries — NONE of that is covered here.
+  #
+  # A green job on this step means "no resource-level misconfiguration in the HCL". It is
+  # not, and must not be read as, evidence that the authorization model is sound.
+  #
+  # Closing it means scanning a `tofu plan` JSON (`checkov -f plan.json`), which contains
+  # the rendered policy documents. That needs AWS credentials and couples this workflow to
+  # deploy-infra.yml, so it is a separate decision — see SPEC-138 Out of Scope.
+  iac:
+    name: IaC (Checkov)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Checkov
+        run: pip install "checkov==${CHECKOV_VERSION}"
+
+      - name: Scan infra/
+        # --soft-fail: checkov exits 1 merely because checks failed, which under
+        # gate=report is not a job failure. The count comes from the JSON instead, and the
+        # "did it actually run" question is answered by the JSON being parseable — not by
+        # an exit code that means two different things.
+        #
+        # OpenTofu's .tf parses as terraform; there is no separate framework for it.
+        run: |
+          checkov -d infra \
+            --framework terraform \
+            --skip-path '.terraform' \
+            --output json --compact --quiet --soft-fail > checkov.json || true
+          if ! jq -e '(if type=="array" then .[0] else . end) | .summary.failed' checkov.json >/dev/null 2>&1; then
+            echo "::error title=Checkov::output is not valid — the scan did not complete."
+            exit 1
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          norm='(if type=="array" then .[0] else . end)'
+          count=$(jq "$norm | .summary.failed" checkov.json)
+          passed=$(jq "$norm | .summary.passed" checkov.json)
+          parse_errs=$(jq "$norm | .summary.parsing_errors" checkov.json)
+          : > body.md
+          if [ "$count" -gt 0 ]; then
+            {
+              # GROUPED BY RULE, not one row per resource. 305 failures across 25 rules is
+              # the real shape here — 32 Lambdas each missing the same VPC check is one
+              # decision to make, not 32. A flat list would be unreadable and would hide
+              # the handful of rules that matter among the ones that do not apply.
+              echo "| Count | Check | Rule | Example resource |"
+              echo "|---|---|---|---|"
+              jq -r "$norm | .results.failed_checks | group_by(.check_id) | sort_by(-length) | .[] |
+                     \"| \(length) | \`\(.[0].check_id)\` | \(.[0].check_name) | \`\(.[0].resource)\` |\"" checkov.json
+              echo
+              echo "_${passed} check(s) passed. Per-resource detail is in the \`checkov\` artifact._"
+              echo
+              echo "> **Coverage gap:** the IAM policies in \`.tftpl\` templates are opaque to Checkov."
+              echo "> A green result here says nothing about the \`\${aws:PrincipalTag/username}\` isolation model."
+            } > body.md
+          fi
+          .github/scripts/summary-section.sh "Checkov — infra/" "$count" body.md
+
+          # Unparsed HCL is unscanned HCL. Same failure shape as Semgrep's partial parses:
+          # the failure count is only meaningful if everything was actually read.
+          if [ "$parse_errs" -gt 0 ]; then
+            echo "::error title=Checkov::$parse_errs file(s) failed to parse — infra/ was not fully scanned."
+            exit 1
+          fi
+          echo "CHECKOV_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov
+          path: checkov.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh Checkov "$GATE_CHECKOV" "${CHECKOV_FINDINGS:-0}"
+
+  # ── DAST ─────────────────────────────────────────────────────────────────────────
+  # OWASP ZAP baseline against the deployed portal.
+  #
+  # NOT on pull_request: a PR has not been deployed, so scanning would hit whatever main
+  # last shipped and attribute the result to the wrong change — worse than not scanning.
+  #
+  # The scan is UNAUTHENTICATED and passive. It spiders and reports; it does not attack.
+  # Against a Cognito-gated SPA that means it reaches the static shell and the CloudFront
+  # response headers, so what it can find is essentially OWASP A05 Security
+  # Misconfiguration: CSP, HSTS, X-Content-Type-Options, X-Frame-Options, cookie flags.
+  # A green run here is NOT evidence about anything behind the login.
+  dast:
+    name: DAST (OWASP ZAP baseline)
+    needs: gates
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve the target
+        id: target
+        run: |
+          url="${{ vars.VITE_APP_URL }}"
+          if [ -z "$url" ]; then
+            # Skip loudly rather than fail, and never fall back to a default target —
+            # scanning a host we did not mean to scan is worse than not scanning.
+            echo "::warning title=ZAP::vars.VITE_APP_URL is not set — skipping the DAST scan."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "url=$url" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ZAP baseline scan
+        if: steps.target.outputs.skip == 'false'
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: ${{ steps.target.outputs.url }}
+          # The action opens a GitHub issue per run by default. On a report-only baseline
+          # that is a weekly issue restating the same response headers.
+          allow_issue_writing: false
+          cmd_options: '-a -J zap-report.json'
+          fail_action: false
+
+      - name: Summarize
+        if: always() && steps.target.outputs.skip == 'false'
+        run: |
+          count=0
+          : > body.md
+          report=$(find . -name 'zap-report.json' -o -name 'report_json.json' | head -1)
+          if [ -n "$report" ] && [ -s "$report" ]; then
+            count=$(jq '[.site[]?.alerts[]?] | length' "$report")
+            if [ "$count" -gt 0 ]; then
+              {
+                echo "| Risk | Alert | Instances |"
+                echo "|---|---|---|"
+                jq -r '[.site[]?.alerts[]?] | .[] | "| \(.riskdesc) | \(.alert) | \(.instances | length) |"' "$report"
+                echo
+                echo "> Unauthenticated scan of the pre-login surface only. Says nothing about pages behind Cognito."
+              } > body.md
+            fi
+          else
+            echo "::warning title=ZAP::no JSON report produced — reporting 0, which may not mean clean."
+          fi
+          .github/scripts/summary-section.sh "OWASP ZAP baseline — ${{ steps.target.outputs.url }}" "$count" body.md
+          echo "ZAP_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always() && steps.target.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap
+          path: |
+            zap-report.json
+            report_html.html
+            report_json.json
+            report_md.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always() && steps.target.outputs.skip == 'false'
+        run: .github/scripts/apply-gate.sh ZAP "$GATE_ZAP" "${ZAP_FINDINGS:-0}"

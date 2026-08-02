@@ -1,12 +1,13 @@
 # GitHub Actions Workflows
 
-This directory contains four workflows:
+This directory contains five workflows:
 
 | File | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Push to any branch; PR → `main` | Web app: lint + unit/component tests + production build. Lambdas: `ruff` lint + `pytest` (separate `lambdas` job) |
 | `deploy-app.yml` | Push to `main` | Build SPA with env vars, sync to S3, invalidate CloudFront |
 | `deploy-infra.yml` | PR → `main` (paths: `infra/**`); push to `main` (paths: `infra/**`) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
+| `security.yml` | PR → `main`; weekly (Mon 06:17 UTC); manual dispatch | Security scanning: Semgrep SAST, `npm audit` (runtime + full), `pip-audit`, gitleaks, Checkov, OWASP ZAP baseline. All **report-only** — see the `GATE_*` block in the workflow and `docs/security-baseline.md` (SPEC-138) |
 | `deploy-lambdas.yml` | Push to `main` (paths: `lambdas/**`); manual dispatch | Build each Python Lambda package, upload to the artifacts bucket, `update-function-code` (SPEC-012) |
 
 All deploy workflows authenticate to AWS via GitHub OIDC — no long-lived credentials are stored.
