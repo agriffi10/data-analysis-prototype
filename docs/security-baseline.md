@@ -29,12 +29,12 @@ CI run reproduces them.
 
 ## Coverage gaps — these are not findings, they are things nothing here checks
 
-1. **The IAM policies are unscanned.** Checkov parses `.tf`; every policy that implements the
-   isolation model lives in a `.tftpl` rendered by `templatefile()` and is an opaque string to it.
-   `${aws:PrincipalTag/username}` scoping, the shared portal role, `DATA_LOCATION_ACCESS`, the
-   control-plane role boundaries — none of it is covered. Closing this means
-   `checkov -f plan.json` against a `tofu plan`, which needs AWS credentials.
-   **This is the largest gap in the spec and the first thing the follow-up should address.**
+1. ~~**The IAM policies are unscanned.**~~ **CLOSED by SPEC-139** — `deploy-infra.yml` now scans
+   the rendered `tofu show -json` plan, where the policies are real documents rather than
+   `templatefile()` calls. 55 IAM resources, 431 IAM checks evaluated (previously zero). See the
+   plan-scan section below. **Residual limitation:** the plan scan runs only on PRs touching
+   `infra/**` or that workflow, so it is not part of the weekly sweep — correct, since IAM cannot
+   change without an `infra/**` change and Checkov is version-pinned.
 2. **ZAP is unauthenticated.** It reaches the pre-login shell and the CloudFront response headers.
    Nothing behind Cognito is exercised, so no ZAP result is evidence about the authenticated app.
 3. **No GitHub code scanning.** The repo is private on a personal account, so CodeQL, SARIF upload
@@ -172,3 +172,74 @@ What the follow-up spec should implement, per scanner.
 
 Two of these — gitleaks and pip-audit — are at zero **today** and could be flipped in the same PR
 that fixes the five Checkov items. That is the natural next change.
+
+
+---
+
+# Addendum — Rendered-Plan IAM Scan (SPEC-139)
+
+**Taken:** 2026-08-02, from the `deploy-infra.yml` `plan` job on PR #319 (run 30758960179).
+
+Checkov over `tofu show -json`, `--framework terraform_plan`. This is the scan that reads the
+isolation model; the `.tf` scan above cannot.
+
+| | |
+|---|---|
+| Resources scanned | 226 |
+| Failed / passed | 239 / 733 |
+| Parsing errors | 0 |
+| **IAM resources in plan** | **55** |
+| **IAM checks evaluated** | **431** (the `.tf` scan evaluates **0**) |
+| **IAM findings** | **6** |
+
+## The headline: the isolation model is clean
+
+All 6 IAM findings are on **deploy roles**. Every policy implementing per-user isolation — the
+portal role, the shared-space grants, the analytics scoping — passed all 431 IAM checks.
+`portal-role-permissions` has three statements and **zero** `Resource: "*"`.
+
+That is the result this scan existed to produce, and it could not have been stated before SPEC-139.
+
+## The 6 findings
+
+| Check | Resource | Disposition |
+|---|---|---|
+| CKV_AWS_290 — write access without constraints | `module.base.aws_iam_policy.deploy_control_plane_dlq_drain` | **fix via condition key** |
+| CKV_AWS_355 — `*` resource for restrictable actions | `module.base.aws_iam_policy.deploy_control_plane_dlq_drain` | as above |
+| CKV_AWS_290 | `module.base.aws_iam_policy.deploy_notifications` | as above |
+| CKV_AWS_355 | `module.base.aws_iam_policy.deploy_notifications` | as above |
+| CKV_AWS_290 | `module.base.aws_iam_role_policy.github_actions_deploy` | as above |
+| CKV_AWS_355 | `module.base.aws_iam_role_policy.github_actions_deploy` | as above |
+
+All six are one cause: the `lambda:*EventSourceMapping` statements use `Resource: "*"`.
+
+**This is not a lazy wildcard.** `lambda:CreateEventSourceMapping` does not support resource-level
+permissions — the mapping's UUID does not exist until it is created, so AWS requires `*`. It is an
+instance of the "non-scopable actions" trap that `CLAUDE.md`'s infra rule already warns about, and
+narrowing `Resource` is not available.
+
+**The hardening that *is* available** is a condition key rather than a resource scope: constrain the
+statements with `lambda:FunctionArn` so the deploy role can only attach event-source mappings to
+this fleet's own functions. That is a small, well-scoped change, and it is the right follow-up —
+but it touches the deploy role, so it wants its own PR and a careful plan review rather than being
+bundled here.
+
+Scope note: these are **CI deploy** permissions, not runtime user permissions. The blast radius is
+"a compromised GitHub Actions OIDC session could manage event-source mappings on any Lambda in the
+account", which matters, but is a different and smaller thing than a user-facing isolation hole.
+
+## The two scans are complementary, not redundant
+
+Neither subsumes the other, so both stay:
+
+- Only the **`.tf` scan** reports CKV_AWS_50 (Lambda X-Ray), CKV_AWS_115, CKV_AWS_18, CKV_AWS_82,
+  CKV_AWS_86, CKV2_AWS_40/42/61 — and it runs on every PR and on the weekly sweep.
+- Only the **plan scan** evaluates IAM policy documents at all, and it resolves interpolated values,
+  so some `.tf` findings correctly disappear here.
+
+## Proposed gate
+
+`GATE_CHECKOV_PLAN`: **`block` on IAM findings only**, once the `lambda:FunctionArn` condition lands.
+Gating the 239 total would mean suppressing the same mostly-inapplicable rules already triaged above.
+The IAM subset is the part worth defending, it is already down to one fixable cause, and the
+summary already counts it separately.

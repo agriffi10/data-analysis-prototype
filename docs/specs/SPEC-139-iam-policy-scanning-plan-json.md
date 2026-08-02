@@ -1,7 +1,7 @@
 # Spec: Scan the Rendered IAM Policies (Checkov over the plan JSON)
 
 **ID:** SPEC-139
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-02
 **Depends On:** SPEC-138 (the gate + summary scripts and the report-only convention), SPEC-005 (`deploy-infra.yml`, which already produces the plan)
 
