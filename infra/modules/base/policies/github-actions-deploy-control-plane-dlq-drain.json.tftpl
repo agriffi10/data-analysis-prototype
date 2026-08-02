@@ -26,19 +26,6 @@
       "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-control-plane-dlq-drain"
     },
     {
-      "Sid": "DlqDrainEventSourceMappingManage",
-      "Effect": "Allow",
-      "Action": [
-        "lambda:CreateEventSourceMapping",
-        "lambda:GetEventSourceMapping",
-        "lambda:UpdateEventSourceMapping",
-        "lambda:DeleteEventSourceMapping",
-        "lambda:ListEventSourceMappings",
-        "lambda:ListTags"
-      ],
-      "Resource": "*"
-    },
-    {
       "Sid": "DlqDrainRolesManage",
       "Effect": "Allow",
       "Action": [

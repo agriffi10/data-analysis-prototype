@@ -79,10 +79,15 @@ resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
 # managed policy (separate 6,144-char budget, off the inline aggregate). Covers the
 # notifications module's resource types: the FIFO request queue + DLQ, the
 # notifications-writer Lambda + its role (incl. scoped iam:PassRole), and the log
-# group — all scoped by {project_name}-*-notifications-* name patterns. The SQS
-# event-source-mapping actions are NOT resource-scopable (they authorize on a
-# yet-unknown mapping UUID ARN), so they are isolated to their own "*" statement per
-# the architecture.md "adding a new resource type" trap list.
+# group — all scoped by {project_name}-*-notifications-* name patterns.
+#
+# The event-source-mapping actions are still not RESOURCE-scopable (they authorize on
+# a yet-unknown mapping UUID ARN), but Create/Get/Update/Delete are CONDITION-scopable
+# on `lambda:FunctionArn`, so they are constrained to the writer function rather than
+# to every Lambda in the account. `ListEventSourceMappings` is the one that genuinely
+# cannot be narrowed — AWS defines no resource types and no condition keys for it, so
+# it keeps a bare "*" in its own statement. Conditioning it would deny the call
+# outright: the "unknown-ARN-in-list" trap from architecture.md.
 resource "aws_iam_policy" "deploy_notifications" {
   name        = "${var.project_name}-deploy-notifications"
   description = "Deploy-role grants for the SPEC-058 notifications write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
@@ -247,7 +252,7 @@ resource "aws_iam_role_policy_attachment" "deploy_data_quality" {
 # PR (the deploy-perms-before-resources rule), so there is no self-grant race.
 resource "aws_iam_policy" "deploy_control_plane_dlq_drain" {
   name        = "${var.project_name}-deploy-control-plane-dlq-drain"
-  description = "Deploy-role grants for the SPEC-126 control-plane DLQ drain (one Lambda + execution role + log group + four SQS event-source mappings), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the SPEC-126 control-plane DLQ drain (one Lambda + execution role + log group + the EventBridge sweep schedule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-dlq-drain.json.tftpl", {
     project_name = var.project_name

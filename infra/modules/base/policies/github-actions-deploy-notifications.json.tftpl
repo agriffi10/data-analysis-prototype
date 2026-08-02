@@ -49,9 +49,20 @@
         "lambda:CreateEventSourceMapping",
         "lambda:GetEventSourceMapping",
         "lambda:UpdateEventSourceMapping",
-        "lambda:DeleteEventSourceMapping",
-        "lambda:ListEventSourceMappings",
-        "lambda:ListTags"
+        "lambda:DeleteEventSourceMapping"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-notifications-writer"
+        }
+      }
+    },
+    {
+      "Sid": "NotificationsEventSourceMappingList",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListEventSourceMappings"
       ],
       "Resource": "*"
     },
