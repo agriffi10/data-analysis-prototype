@@ -181,9 +181,21 @@ this list before merging:
   `s3:ListMultipartUploadParts`; create/upload/complete ride on `s3:PutObject`.
 - **Refresh-before-policy-update deadlock.** Once a resource is in state, `tofu apply` **refreshes**
   it (using the role's *current* policy) before applying the policy fix — so a scope fix that the
-  refresh itself needs can never land. Break-glass: temporarily attach the missing read on `*` to the
-  role out-of-band (`aws iam put-role-policy`), let the apply reconcile the real policy, then remove
-  the temp policy.
+  refresh itself needs can never land. **Break-glass (preferred): dispatch `Deploy Infrastructure`
+  with `skip_refresh=true`**, which applies from cached state; then dispatch again *normally*, because
+  an apply that skipped refresh has proved nothing about drift. Out-of-band `aws iam put-role-policy`
+  remains the fallback when even that cannot run.
+  - **TIGHTENING a grant deadlocks exactly like widening one.** SPEC-139's follow-up removed
+    `lambda:ListTags` from an event-source-mapping statement, believing the function-scoped grant
+    covered it. It does not — a **mapping ARN and a function ARN are different resource types** — and
+    the next refresh needed the permission the pending fix restored, so plan, apply *and revert* all
+    failed identically. Least-privilege edits to the deploy role's own policies carry this risk;
+    check AWS's service reference for **every** resource type an action accepts, not just the one you
+    have in mind.
+  - **A green `plan` is not proof the apply will work.** During this incident `plan` passed twice
+    while `apply` failed on the same call with no policy change in between — IAM is eventually
+    consistent, so requests can be evaluated against either policy version for a while. Don't
+    conclude from one green plan that a permission problem is resolved.
 - **Resource policies (bucket/KMS) can lock out the deploy role too.** Always **except the deploy role**
   from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
   provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same

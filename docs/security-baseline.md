@@ -334,3 +334,44 @@ none has an applicable condition key.
 **Revised gate proposal.** `GATE_CHECKOV_PLAN` cannot go to a blanket `block` — 2 permanent,
 unfixable findings remain. Gate by **check ID plus resource**, or accept a documented suppression for
 `github_actions_deploy` on CKV_AWS_290/355 and block on everything else.
+
+---
+
+# Addendum — Outcome and the Lockout It Caused, 2026-08-02
+
+**IAM findings 6 → 2, applied and verified on `main`** (`Apply complete! Resources: 0 added,
+0 changed, 0 destroyed` on a normal, refresh-enabled run). IAM checks evaluated rose 431 → 432.
+
+## What shipped
+
+- **DLQ drain:** `DlqDrainEventSourceMappingManage` deleted — dead permission for a control plane
+  that has had no event-source mapping since SPEC-126. That policy now has **zero** wildcards.
+- **Notifications:** the four scopable actions are condition-scoped on `lambda:FunctionArn`;
+  `ListEventSourceMappings` keeps a bare `"*"` because AWS defines no resource types or condition
+  keys for it; `lambda:ListTags` sits in its own statement scoped to
+  `arn:aws:lambda:${aws_region}:*:event-source-mapping:*`.
+
+## The lockout, recorded because it will happen again
+
+The first attempt removed `lambda:ListTags` from the mapping statement, reasoning it was redundant
+with the function-scoped grant in `NotificationsWriterLambdaManage`. **It is not — a mapping ARN and
+a function ARN are different resource types**, and AWS's service reference lists both under
+`ListTags`. That broke `main`: the next refresh needed the permission the pending fix restored, so
+plan, apply *and revert* all failed on the same `AccessDenied`.
+
+Recovered with the new `skip_refresh` dispatch lever (`decisions.md`), then confirmed with an
+ordinary refresh-enabled run.
+
+Two things worth carrying forward:
+
+- **Tightening a grant deadlocks exactly like widening one.** Least-privilege edits to the deploy
+  role's own policies need the same care as new grants.
+- **A green `plan` proved nothing.** `plan` passed twice while `apply` failed on the identical call
+  with no policy change between — IAM is eventually consistent, so the deadlock can look
+  intermittent. Only a normal, refresh-enabled **apply** settles it.
+
+## Revised gate proposal (supersedes the one above)
+
+`GATE_CHECKOV_PLAN` **cannot** become a blanket `block`: 2 permanent findings remain on
+`github_actions_deploy`, and neither has a resource ARN to name or a condition key to apply. Gate by
+**check ID + resource**, or carry a documented suppression for those two and block on everything else.
