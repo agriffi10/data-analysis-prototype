@@ -30,19 +30,24 @@ env:
   # Anything else is a hard error (.github/scripts/apply-gate.sh); a typo must never
   # silently mean "report".
   #
-  # SPEC-138 ships every scanner as `report`. That is the deliberate first step: with an
-  # unmeasured finding set — and 10 Dependabot advisories already open — a day-one gate
-  # either reddens main or forces a fix-everything change too large to review honestly.
-  # docs/security-baseline.md records the first run and proposes the threshold at which
-  # each of these should flip.
+  # SPEC-138 shipped every scanner as `report` — a deliberate first step, because with an
+  # unmeasured finding set a day-one gate either reddens main or forces a fix-everything
+  # change too large to review honestly. docs/security-baseline.md recorded that first run
+  # and proposed a threshold per scanner.
+  #
+  # GITLEAKS and PIP_AUDIT are now `block`. Both measured ZERO — no secret across all 357
+  # commits, no advisory across 13 packages — so turning them on cost no remediation at
+  # all, and there is no defensible reason to accept a first committed secret or a first
+  # vulnerable Python dependency. The rest stay `report` pending the fixes the baseline
+  # names; flipping one is still a single-value edit here.
   #
   # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003) run
   # in ci.yml's existing `npm run lint`, which already blocks. Injection sinks in code
   # being written now stop the PR; they do not become baseline entries.
   GATE_SEMGREP: report
   GATE_NPM_AUDIT: report
-  GATE_PIP_AUDIT: report
-  GATE_GITLEAKS: report
+  GATE_PIP_AUDIT: block
+  GATE_GITLEAKS: block
   GATE_CHECKOV: report
   GATE_ZAP: report
 
