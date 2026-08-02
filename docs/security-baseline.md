@@ -162,10 +162,10 @@ What the follow-up spec should implement, per scanner.
 
 | Scanner | Proposed gate | Rationale |
 |---|---|---|
-| `gitleaks` | **`block` immediately** | Already at zero. There is no cost to turning it on and no defensible reason to accept a committed secret. **Do this first.** |
-| `pip-audit` | **`block` immediately** | Already at zero across 13 packages. Same argument. |
+| `gitleaks` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 357 commits; flipped to `block`. No remediation was needed. |
+| `pip-audit` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 13 packages; flipped to `block`. |
 | Semgrep | `block` after excluding the Flask rule | One known false positive stands between here and zero. |
-| `npm audit` (runtime) | `block` at **high** once `react-router` is bumped | The runtime scope is the one users are exposed to. Gate this scope only — never the combined count. |
+| `npm audit` (runtime) | still `report` | `react-router` was bumped (below) but one advisory survives that only a **v8 major** clears. Gating at `high` would block on an inapplicable RSC issue. Revisit with the v8 migration, or gate by advisory ID. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
 | Checkov | `block` only on an **explicit allow-list of check IDs** | 305 failures over 25 rules, most not applicable. Gating the total would mean suppressing 20 rules to enforce 5. Pick the five in the FIX rows, gate those by ID, leave the rest reporting. |
 | ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. |
@@ -243,3 +243,43 @@ Neither subsumes the other, so both stay:
 Gating the 239 total would mean suppressing the same mostly-inapplicable rules already triaged above.
 The IAM subset is the part worth defending, it is already down to one fixable cause, and the
 summary already counts it separately.
+
+
+---
+
+# Addendum — Remediation, 2026-08-02
+
+## Gates flipped
+
+`GATE_GITLEAKS` and `GATE_PIP_AUDIT` are now **`block`**. Both measured zero — no secret in any of
+357 commits, no advisory across 13 Python packages — so this cost no remediation and closes the two
+classes where a first finding should never be merged.
+
+The rest remain `report` pending the fixes named above.
+
+## `react-router` 7.17.0 → 7.18.2
+
+**Four of the five advisories cleared.** The declared floor in `apps/portal/package.json` moved to
+`^7.18.2` so a lockfile regeneration cannot resolve back below the fix.
+
+| Advisory | Status |
+|---|---|
+| GHSA-wrjc-x8rr-h8h6 — open redirect via backslash in `<Link>`/`useNavigate` | **cleared** |
+| GHSA-chx6-hx7r-mcp5 — DoS via inefficient route matching | **cleared** |
+| GHSA-h8fp-f39c-q6mh — RSCErrorHandler XSS | **cleared** |
+| GHSA-337j-9hxr-rhxg — SSR hydration constructor injection | **cleared** |
+| GHSA-qwww-vcr4-c8h2 — RSC-mode CSRF bypass | **remains** — accepted |
+
+The one that cleared and mattered is the **open redirect**: it was the only react-router advisory
+with a plausible path in this app, and the app-level defence in `notificationLink.ts` is no longer
+the single thing standing in front of it.
+
+**The survivor needs react-router v8** (`>8.2.0`); `react-router-dom@7.18.2` still depends on
+`react-router@7.18.2`, so no 7.x release can clear it. Accepted rather than migrated: the advisory is
+an **RSC-mode** issue, and this is a client-only SPA with no React Server Components and no server
+at all. A v8 major upgrade to fix an inapplicable finding is not a good trade.
+
+Correction to the original triage above, which called this bump a straightforward fix: it clears
+what matters, not everything. The residual is real, inapplicable, and needs a major.
+
+Verified: lint (`--max-warnings 0`), format, build, and 161 files / 1186 tests green on 7.18.2.

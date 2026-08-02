@@ -73,9 +73,11 @@ down elsewhere — when a spec closes, prune it rather than appending.**
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
-  and can be flipped to `block` with no remediation at all. Five cheap infra fixes fall out of
-  Checkov (S3 versioning, multipart-abort lifecycle, CloudFront response-headers policy, Athena
-  workgroup enforcement) plus two non-breaking npm bumps. **Still owed live: the first ZAP baseline**
+  and **have now been flipped to `block` (2026-08-02)**. `react-router` is on 7.18.2, which cleared
+  four of its five advisories including the open redirect; the survivor is an **RSC-mode** issue
+  needing a **v8 major**, accepted as inapplicable to a client-only SPA. Still open: four Checkov
+  fixes (S3 versioning, multipart-abort lifecycle, CloudFront response-headers policy, Athena
+  workgroup enforcement) plus the build-time `postcss` / `brace-expansion` bumps. **Still owed live: the first ZAP baseline**
   — it runs only on the weekly schedule or by dispatch, so nothing has scanned the deployed origin yet.
 - **SPEC-139 closed the IAM blind spot, and the isolation model came back clean.** 431 IAM checks
   against 55 resources on the rendered plan; `portal-role-permissions` has zero `Resource: "*"`.
