@@ -167,14 +167,27 @@ jobs:
           [ -f checkov-plan.json ] || { echo "::error::checkov-plan.json missing."; exit 1; }
           count=$(jq "$norm | .summary.failed" checkov-plan.json)
           passed=$(jq "$norm | .summary.passed" checkov-plan.json)
+          # Recorded FIRST, before any analysis that could fail. If a later line in this
+          # step errors, the gate must still see the real count — `${VAR:-0}` turning a
+          # broken summary into a clean-looking zero is the failure mode this whole
+          # workflow exists to prevent.
+          echo "CHECKOV_PLAN_FINDINGS=$count" >> "$GITHUB_ENV"
           parse_errs=$(jq "$norm | .summary.parsing_errors" checkov-plan.json)
 
           # THE POINT OF THE EXERCISE, asserted rather than assumed. If the plan carries
           # IAM policies but no IAM check was evaluated against them, this has silently
           # regressed to the state SPEC-138 was stuck in — and a regressed run looks
           # exactly like a clean one.
-          iam_resources=$(jq '[.planned_values.root_module | .. | .resources? // empty | .[] |
-                               select(.type | test("^aws_iam_(policy|role_policy|role|group_policy|user_policy)$"))] | length' plan.json)
+          # Select resource BLOCKS structurally (an object carrying both `type` and
+          # `address`) rather than trusting any key named `resources` to hold them. The
+          # first version walked `.. | .resources?` and blew up on a real plan —
+          # `Cannot index string with string "type"` — because some resource's own
+          # attributes include a `resources` list of plain strings. Fixture plans never
+          # had one, so it passed every local test and failed on the first plan that
+          # actually had changes in it.
+          iam_resources=$(jq '[.planned_values.root_module | .. | objects
+                               | select((.type? | type) == "string" and (.address? | type) == "string")
+                               | select(.type | test("^aws_iam_(policy|role_policy|role|group_policy|user_policy)$"))] | length' plan.json)
           iam_evaluated=$(jq "$norm | [(.results.failed_checks // [])[], (.results.passed_checks // [])[]] |
                                map(select(.resource | test(\"(^|[.])aws_iam_\"))) | length" checkov-plan.json)
           iam_failed=$(jq "$norm | (.results.failed_checks // []) |
@@ -205,7 +218,7 @@ jobs:
             echo "::error title=Checkov (plan)::$parse_errs parsing error(s) — the plan was not fully scanned."
             exit 1
           fi
-          echo "CHECKOV_PLAN_FINDINGS=$count" >> "$GITHUB_ENV"
+          echo "CHECKOV_PLAN_FINDINGS already recorded above"
 
       # The Checkov RESULT is publishable. The plan that produced it is not — see the
       # cleanup step below.
