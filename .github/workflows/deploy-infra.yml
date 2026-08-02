@@ -19,6 +19,16 @@ on:
   # holds. It plans nothing (that is a PR-only check) — it applies, exactly like a
   # push does, so the risk profile is identical to the existing main-applies design.
   workflow_dispatch:
+    inputs:
+      skip_refresh:
+        description: >-
+          Apply with -refresh=false. RECOVERY ONLY. Use when tofu cannot refresh because
+          the deploy role is missing a permission that only this apply can grant — the
+          refresh deadlock in architecture.md's trap list. It applies from cached state,
+          so anything changed outside tofu since the last run will not be seen.
+        type: boolean
+        default: false
+        required: false
 
 env:
   # SPEC-139. Checkov over the RENDERED plan, which is the only way this repo's IAM
@@ -278,7 +288,21 @@ jobs:
 
       - name: OpenTofu apply
         working-directory: infra
-        run: tofu apply -auto-approve
+        # -refresh=false is a RECOVERY LEVER, off by default and only reachable via
+        # workflow_dispatch. It exists because a deploy role can lock itself out: tighten
+        # one of its own grants, and the next refresh needs the permission the pending
+        # change would restore, so plan/apply/revert all fail identically. Applying from
+        # cached state installs the fix and unblocks normal runs.
+        #
+        # Every use should be followed by an ordinary run to confirm the refresh works
+        # again — an apply that skipped refresh has proved nothing about drift.
+        run: |
+          REFRESH_FLAG=""
+          if [ "${{ inputs.skip_refresh }}" = "true" ]; then
+            REFRESH_FLAG="-refresh=false"
+            echo "::warning title=Recovery mode::Applying with -refresh=false. State is NOT refreshed; drift will not be detected. Run this workflow again normally afterwards."
+          fi
+          tofu apply -auto-approve $REFRESH_FLAG
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
           TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
