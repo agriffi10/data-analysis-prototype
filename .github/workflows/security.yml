@@ -229,3 +229,239 @@ jobs:
       - name: Apply gate
         if: always()
         run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-0}"
+
+  # ── DEPENDENCIES (npm) ───────────────────────────────────────────────────────────
+  # Two scopes, reported SEPARATELY, because for a static SPA they mean different things:
+  #   --omit=dev  is what actually reaches a user's browser. This is the gating candidate.
+  #   full        adds the build toolchain — a supply-chain concern, but not a runtime one.
+  # Today that distinction is live: react-router (high) ships to the browser, while
+  # postcss and brace-expansion (also high) are build-time only. One combined number would
+  # lose exactly the fact that decides what to fix first.
+  deps-npm:
+    name: Dependencies (npm audit)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit
+        run: |
+          set +e
+          npm audit --json --omit=dev > npm-audit-runtime.json
+          npm audit --json > npm-audit-full.json
+          set -e
+          # npm audit exits non-zero merely because vulnerabilities exist, which under
+          # gate=report is not a failure. What IS a failure is unparseable output — that
+          # means the audit did not run, and a missing total must never read as zero.
+          for f in npm-audit-runtime.json npm-audit-full.json; do
+            if ! jq -e '.metadata.vulnerabilities.total' "$f" >/dev/null 2>&1; then
+              echo "::error title=npm audit::$f is not valid audit output — the audit did not complete."
+              exit 1
+            fi
+          done
+
+      - name: Summarize
+        if: always()
+        run: |
+          total=0
+          for pair in "Runtime (--omit=dev — ships to the browser):npm-audit-runtime.json" \
+                      "Full (adds the build toolchain):npm-audit-full.json"; do
+            label="${pair%%:*}"; file="${pair##*:}"
+            [ -f "$file" ] || continue
+            count=$(jq '.metadata.vulnerabilities.total' "$file")
+            : > body.md
+            if [ "$count" -gt 0 ]; then
+              {
+                echo "| Severity | Package | Vulnerable range | Fix |"
+                echo "|---|---|---|---|"
+                jq -r '.vulnerabilities | to_entries[] | "| \(.value.severity) | `\(.key)` | `\(.value.range)` | " +
+                       (if .value.fixAvailable == true then "available"
+                        elif .value.fixAvailable == false then "**none**"
+                        else "`\(.value.fixAvailable.name)@\(.value.fixAvailable.version)`" +
+                             (if .value.fixAvailable.isSemVerMajor then " (breaking)" else "" end)
+                        end) + " |"' "$file"
+              } > body.md
+            fi
+            .github/scripts/summary-section.sh "npm audit — $label" "$count" body.md
+            total=$((total + count))
+          done
+          # The gate reads the RUNTIME total. A build-time advisory is real but it is not
+          # the thing a user is exposed to, and gating both on one number would make the
+          # runtime signal impossible to act on independently. The full-scope count is
+          # published above regardless.
+          echo "NPM_FINDINGS=$(jq '.metadata.vulnerabilities.total' npm-audit-runtime.json)" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: npm-audit-*.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh "npm audit" "$GATE_NPM_AUDIT" "${NPM_FINDINGS:-0}"
+
+  # ── DEPENDENCIES (Python) ────────────────────────────────────────────────────────
+  deps-python:
+    name: Dependencies (pip-audit)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pip-audit
+        run: pip install "pip-audit==${PIP_AUDIT_VERSION}"
+
+      - name: Audit every requirements file
+        # DISCOVERED BY GLOB, never listed. A new layer's requirements.txt must be audited
+        # the day it is added — this fleet grows a layer per control plane, and a list here
+        # would silently stop covering the newest one. That is how ci.yml's install block
+        # has to be maintained by hand; this does not.
+        run: |
+          args=()
+          while IFS= read -r req; do
+            echo "auditing: $req"
+            args+=(-r "$req")
+          done < <(find lambdas -name 'requirements*.txt' | sort)
+          if [ ${#args[@]} -eq 0 ]; then
+            echo "::error title=pip-audit::no requirements files found under lambdas/ — the glob is wrong."
+            exit 1
+          fi
+          set +e
+          pip-audit "${args[@]}" --format json --progress-spinner off > pip-audit.json
+          rc=$?
+          set -e
+          if ! jq -e '.dependencies' pip-audit.json >/dev/null 2>&1; then
+            echo "::error title=pip-audit::exited $rc without valid output — the audit did not complete."
+            exit 1
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          count=$(jq '[.dependencies[] | select(.vulns | length > 0)] | length' pip-audit.json)
+          audited=$(jq '.dependencies | length' pip-audit.json)
+          : > body.md
+          if [ "$count" -gt 0 ]; then
+            {
+              echo "| Package | Installed | Advisory | Fixed in |"
+              echo "|---|---|---|---|"
+              jq -r '.dependencies[] | select(.vulns | length > 0) | . as $d | .vulns[] |
+                     "| `\($d.name)` | `\($d.version)` | \(.id) | " +
+                     (if (.fix_versions | length) > 0 then "`\(.fix_versions | join(", "))`" else "**none**" end) + " |"' \
+                     pip-audit.json
+            } > body.md
+          fi
+          .github/scripts/summary-section.sh "pip-audit — $audited package(s) audited" "$count" body.md
+          echo "PIP_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit
+          path: pip-audit.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh pip-audit "$GATE_PIP_AUDIT" "${PIP_FINDINGS:-0}"
+
+  # ── SECRETS ──────────────────────────────────────────────────────────────────────
+  secrets:
+    name: Secrets (gitleaks)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # FULL HISTORY. A credential committed in one PR and "removed" in the next is
+          # still in the pack file and still valid; scanning only the diff would miss every
+          # secret this repo has ever actually had. Measured at 357 commits / 9.5 MB in
+          # 1.6s, so there is no reason to scan anything narrower.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        # The binary directly, not gitleaks-action: that action requires a GITLEAKS_LICENSE
+        # for organization accounts. This repo is on a personal account today, and coupling
+        # the secret scan to that fact would break it the day the repo moves to an org.
+        run: |
+          curl -sSLo gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+
+      - name: Scan
+        # --redact: a secret scanner that prints the secret into a CI log has widened the
+        # exposure, not closed it. The repo's own field rule (decisions.md — tokens and
+        # emails never leave the process) applies to CI output for the same reason.
+        run: |
+          set +e
+          ./gitleaks git --redact --report-format json --report-path gitleaks.json .
+          rc=$?
+          set -e
+          # 0 = clean, 1 = leaks found, anything else = gitleaks failed.
+          if [ $rc -gt 1 ]; then
+            echo "::error title=gitleaks::exited $rc — the scan did not complete."
+            exit $rc
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          count=0
+          [ -f gitleaks.json ] && count=$(jq 'length' gitleaks.json)
+          : > body.md
+          if [ "$count" -gt 0 ]; then
+            {
+              echo "| Rule | File | Line | Commit |"
+              echo "|---|---|---|---|"
+              # Deliberately no Secret/Match column — the finding is actionable from its
+              # location, and reproducing the value here would undo --redact.
+              jq -r '.[] | "| \(.RuleID) | `\(.File)` | \(.StartLine) | `\(.Commit[0:8])` |"' gitleaks.json
+            } > body.md
+          fi
+          .github/scripts/summary-section.sh "gitleaks — full history" "$count" body.md
+          echo "GITLEAKS_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks
+          path: gitleaks.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-0}"
