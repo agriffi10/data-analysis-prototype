@@ -479,9 +479,12 @@ jobs:
   # A green job on this step means "no resource-level misconfiguration in the HCL". It is
   # not, and must not be read as, evidence that the authorization model is sound.
   #
-  # Closing it means scanning a `tofu plan` JSON (`checkov -f plan.json`), which contains
-  # the rendered policy documents. That needs AWS credentials and couples this workflow to
-  # deploy-infra.yml, so it is a separate decision — see SPEC-138 Out of Scope.
+  # THAT GAP IS NOW COVERED ELSEWHERE (SPEC-139): deploy-infra.yml's plan job scans the
+  # rendered `tofu show -json` plan, where the policies are real documents. It evaluates
+  # 431 IAM checks against 55 IAM resources; this step evaluates zero. Read the two
+  # together — they are complementary, and neither subsumes the other. This one runs on
+  # every PR and weekly; that one runs only when infra/** changes, which is the only way
+  # an IAM policy can change.
   iac:
     name: IaC (Checkov)
     needs: gates

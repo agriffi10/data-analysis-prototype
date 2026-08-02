@@ -1,12 +1,16 @@
 name: Deploy Infrastructure
 
 on:
+  # The workflow file itself is in the path filter: a change to how we plan, validate or
+  # SCAN the infrastructure must re-run against the real infrastructure. Without it this
+  # workflow can be edited — including the IAM scan below — and merged having never once
+  # executed, which is how a security check ships broken and looks fine.
   pull_request:
     branches: [main]
-    paths: ['infra/**']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
   push:
     branches: [main]
-    paths: ['infra/**']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
   # can silently DROP a push event (it did for the SPEC-111 merge 930c12e — zero
   # workflow runs were created, so the apply never happened and the deployed state
@@ -15,6 +19,25 @@ on:
   # holds. It plans nothing (that is a PR-only check) — it applies, exactly like a
   # push does, so the risk profile is identical to the existing main-applies design.
   workflow_dispatch:
+
+env:
+  # SPEC-139. Checkov over the RENDERED plan, which is the only way this repo's IAM
+  # policies get scanned at all: they are produced by templatefile() from .tftpl, so in
+  # security.yml's .tf scan the `policy` attribute is an unevaluated function call and
+  # every IAM check is skipped. Measured — the .tf scan's 305 findings contain zero IAM
+  # policy-document checks; a plan JSON with one rendered wildcard policy fires nine.
+  #
+  # Pinned to the same version as security.yml, for the same reason (#311).
+  CHECKOV_VERSION: '3.3.9'
+  # `report` | `block`, applied by .github/scripts/apply-gate.sh. Ships report-only,
+  # consistent with every other scanner (SPEC-138); the proposed threshold lives in
+  # docs/security-baseline.md.
+  GATE_CHECKOV_PLAN: report
+  # Normalises Checkov's three output shapes to one with .summary and .results — see the
+  # comment at the scan step. Declared once so the validation and the summary cannot drift.
+  CHECKOV_NORM: >-
+    (if type=="array" then .[0] else . end)
+    | (if has("summary") then . else {summary: ., results: {failed_checks: [], passed_checks: []}} end)
 
 jobs:
   # fmt-check / validate / plan are PR-only checks. main does not re-run them —
@@ -68,7 +91,10 @@ jobs:
 
       - name: OpenTofu plan
         working-directory: infra
-        run: tofu plan -no-color 2>&1 | tee /tmp/plan.txt
+        # -out saves the plan so `tofu show -json` can render it for Checkov (SPEC-139).
+        # The human-readable output still streams to stdout, so /tmp/plan.txt and the PR
+        # comment below are byte-for-byte what they were.
+        run: tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
           TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
@@ -88,6 +114,122 @@ jobs:
               repo: context.repo.repo,
               body: `## OpenTofu Plan\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
             });
+
+      # ── IAM POLICY SCAN (SPEC-139) ──────────────────────────────────────────────
+      # This is the ONLY place the isolation model gets scanned. security.yml runs
+      # Checkov over the .tf tree, where every `policy` attribute is a templatefile()
+      # call it cannot evaluate — so `${aws:PrincipalTag/username}`, the shared portal
+      # role's scoping and the DATA_LOCATION_ACCESS grants are opaque strings there.
+      # `tofu show -json` renders them, and the terraform_plan framework reads them as
+      # IAM. Placed after the PR comment so a scanner problem never costs the reviewer
+      # their plan.
+      - name: Render the plan as JSON
+        working-directory: infra
+        run: |
+          tofu show -json tfplan > plan.json
+          if ! jq -e '.planned_values' plan.json >/dev/null 2>&1; then
+            echo "::error title=Checkov (plan)::plan.json is not valid plan output — refusing to report zero."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Checkov
+        run: pip install "checkov==${CHECKOV_VERSION}"
+
+      - name: Scan the rendered plan
+        working-directory: infra
+        # No --quiet: it strips passed_checks from the JSON, and without those the
+        # IAM-coverage assertion below cannot tell "no IAM check ran" from "every IAM
+        # check passed". Those two must never look alike — the first is the bug this
+        # spec exists to prevent recurring.
+        run: |
+          checkov -f plan.json \
+            --framework terraform_plan \
+            --output json --compact --soft-fail > checkov-plan.json || true
+          # Checkov emits THREE shapes: a list (multi-framework), an object with .summary
+          # and .results, or — when it found nothing to scan — a BARE summary object with
+          # no .summary key at all. The third is the dangerous one: naive parsing yields
+          # null, and `[ null -gt 0 ]` is a shell error, not a zero. Normalise all three.
+          if ! jq -e "$CHECKOV_NORM | .summary.failed" checkov-plan.json >/dev/null 2>&1; then
+            echo "::error title=Checkov (plan)::output is not valid — the scan did not complete."
+            exit 1
+          fi
+
+      - name: Summarize
+        if: always()
+        working-directory: infra
+        run: |
+          norm="$CHECKOV_NORM"
+          [ -f checkov-plan.json ] || { echo "::error::checkov-plan.json missing."; exit 1; }
+          count=$(jq "$norm | .summary.failed" checkov-plan.json)
+          passed=$(jq "$norm | .summary.passed" checkov-plan.json)
+          parse_errs=$(jq "$norm | .summary.parsing_errors" checkov-plan.json)
+
+          # THE POINT OF THE EXERCISE, asserted rather than assumed. If the plan carries
+          # IAM policies but no IAM check was evaluated against them, this has silently
+          # regressed to the state SPEC-138 was stuck in — and a regressed run looks
+          # exactly like a clean one.
+          iam_resources=$(jq '[.planned_values.root_module | .. | .resources? // empty | .[] |
+                               select(.type | test("^aws_iam_(policy|role_policy|role|group_policy|user_policy)$"))] | length' plan.json)
+          iam_evaluated=$(jq "$norm | [(.results.failed_checks // [])[], (.results.passed_checks // [])[]] |
+                               map(select(.resource | test(\"(^|[.])aws_iam_\"))) | length" checkov-plan.json)
+          iam_failed=$(jq "$norm | (.results.failed_checks // []) |
+                            map(select(.resource | test(\"(^|[.])aws_iam_\"))) | length" checkov-plan.json)
+
+          : > body.md
+          if [ "$count" -gt 0 ]; then
+            {
+              echo "**${iam_failed} of these are IAM policy findings** — the class security.yml cannot see."
+              echo
+              echo "| Count | Check | Rule | Example resource |"
+              echo "|---|---|---|---|"
+              jq -r "$norm | .results.failed_checks | group_by(.check_id) | sort_by(-length) | .[] |
+                     \"| \(length) | \`\(.[0].check_id)\` | \(.[0].check_name) | \`\(.[0].resource)\` |\"" checkov-plan.json
+              echo
+              echo "_${passed} check(s) passed. Scanned the RENDERED plan, so policy documents were read as IAM._"
+            } > body.md
+          fi
+          ../.github/scripts/summary-section.sh "Checkov — rendered plan (IAM)" "$count" body.md
+
+          if [ "$iam_resources" -gt 0 ] && [ "$iam_evaluated" -eq 0 ]; then
+            echo "::error title=Checkov (plan)::the plan holds $iam_resources IAM resource(s) but NO IAM check was evaluated. The policies went unread — this is the SPEC-138 blind spot returning."
+            exit 1
+          fi
+          echo "IAM resources in plan: $iam_resources; IAM checks evaluated: $iam_evaluated; IAM findings: $iam_failed"
+
+          if [ "$parse_errs" -gt 0 ]; then
+            echo "::error title=Checkov (plan)::$parse_errs parsing error(s) — the plan was not fully scanned."
+            exit 1
+          fi
+          echo "CHECKOV_PLAN_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      # The Checkov RESULT is publishable. The plan that produced it is not — see the
+      # cleanup step below.
+      - name: Upload Checkov result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-plan
+          path: infra/checkov-plan.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh "Checkov (plan)" "$GATE_CHECKOV_PLAN" "${CHECKOV_PLAN_FINDINGS:-0}"
+
+      # A rendered plan is strictly more revealing than the .tf it came from: resolved
+      # ARNs, account identifiers, and every policy document in full. SPEC-138 uploads
+      # each scanner's raw input; this one deliberately does not, and the files are
+      # removed so a step added to this job later cannot pick them up by accident.
+      - name: Remove the plan files
+        if: always()
+        working-directory: infra
+        run: rm -f plan.json tfplan
 
   apply:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'

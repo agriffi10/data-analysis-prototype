@@ -144,6 +144,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 136 — Structured Logging: Instrument the Table-Share Control Plane | Completed |
 | 137 — Structured Logging: Instrument the Singleton Lambdas | Completed |
 | 138 — Security Scanning (SAST, dependencies, secrets, IaC, OWASP ZAP) | Completed |
+| 139 — IAM Policy Scanning (Checkov over the rendered plan JSON) | Completed |
 
 ## Arcs
 

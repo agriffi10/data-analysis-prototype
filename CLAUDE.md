@@ -77,6 +77,12 @@ down elsewhere — when a spec closes, prune it rather than appending.**
   Checkov (S3 versioning, multipart-abort lifecycle, CloudFront response-headers policy, Athena
   workgroup enforcement) plus two non-breaking npm bumps. **Still owed live: the first ZAP baseline**
   — it runs only on the weekly schedule or by dispatch, so nothing has scanned the deployed origin yet.
+- **SPEC-139 closed the IAM blind spot, and the isolation model came back clean.** 431 IAM checks
+  against 55 resources on the rendered plan; `portal-role-permissions` has zero `Resource: "*"`.
+  The 6 findings are all one cause — deploy-role `lambda:*EventSourceMapping` on `Resource: "*"`,
+  which AWS does not allow to be resource-scoped. **The owed follow-up is a `lambda:FunctionArn`
+  condition key** on those three deploy policies; it touches the deploy role, so it wants its own PR
+  and a read of the plan diff. Doing it clears the way for `GATE_CHECKOV_PLAN: block` on IAM findings.
 
 - **SPEC-137 shipped half of FR-005 and broke sign-up for nine days (fixed 2026-08-01, PR #317).**
   The instrumented code landed; the `cpcommon` layer attachment, `LOGS_QUEUE_URL` and the producer
@@ -151,6 +157,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
 - **Security scanning (138):** `security.yml` runs Semgrep / `npm audit` ×2 scopes / `pip-audit` / gitleaks / Checkov / ZAP, all **`report`** via one `GATE_*` value each (bad value = hard error); the two ESLint security plugins run in the **blocking** lint instead. Every scanner **version-pinned** (#311). "Did not run" is never "clean" — a broken scanner fails the job even under `report`. No CodeQL/Security tab (private repo, personal account). Checkov cannot see `.tftpl` IAM. Findings + dispositions: `docs/security-baseline.md`.
+- **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead — 431 IAM checks / 55 resources. Renaming `.tftpl`→`.json` was **measured and rejected** (Checkov ignores standalone policy files entirely). The scan **asserts its own coverage** and fails if IAM resources are present but no IAM check ran. Isolation policies are clean; the 6 findings are deploy-role non-scopable `lambda:*EventSourceMapping`.
 
 ## Out of Scope (don't build)
 
