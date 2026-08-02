@@ -211,18 +211,17 @@ That is the result this scan existed to produce, and it could not have been stat
 | CKV_AWS_290 | `module.base.aws_iam_role_policy.github_actions_deploy` | as above |
 | CKV_AWS_355 | `module.base.aws_iam_role_policy.github_actions_deploy` | as above |
 
-All six are one cause: the `lambda:*EventSourceMapping` statements use `Resource: "*"`.
+**Correction (2026-08-02): these are NOT one cause.** The original triage said all six were the
+`lambda:*EventSourceMapping` wildcard. Reading the policies showed two distinct causes:
 
-**This is not a lazy wildcard.** `lambda:CreateEventSourceMapping` does not support resource-level
-permissions — the mapping's UUID does not exist until it is created, so AWS requires `*`. It is an
-instance of the "non-scopable actions" trap that `CLAUDE.md`'s infra rule already warns about, and
-narrowing `Resource` is not available.
-
-**The hardening that *is* available** is a condition key rather than a resource scope: constrain the
-statements with `lambda:FunctionArn` so the deploy role can only attach event-source mappings to
-this fleet's own functions. That is a small, well-scoped change, and it is the right follow-up —
-but it touches the deploy role, so it wants its own PR and a careful plan review rather than being
-bundled here.
+- **4 findings** (2 checks × 2 policies) — the `lambda:*EventSourceMapping` statements on
+  `deploy_notifications` and `deploy_control_plane_dlq_drain`. **Fixed**, see the addendum below.
+- **2 findings** on `github_actions_deploy` — a different set of wildcards entirely:
+  `cloudfront:CreateDistribution`, `cognito-idp:CreateUserPool`, `cognito-identity:CreateIdentityPool`,
+  `logs:DescribeLogGroups` and the Lake Formation account-level actions. These are **genuinely
+  non-scopable**: there is no resource ARN to name before the resource exists, and Lake Formation's
+  settings/permissions actions are account-scoped by design. **Accepted** — no condition key exists
+  for them either.
 
 Scope note: these are **CI deploy** permissions, not runtime user permissions. The blast radius is
 "a compromised GitHub Actions OIDC session could manage event-source mappings on any Lambda in the
@@ -283,3 +282,55 @@ Correction to the original triage above, which called this bump a straightforwar
 what matters, not everything. The residual is real, inapplicable, and needs a major.
 
 Verified: lint (`--max-warnings 0`), format, build, and 161 files / 1186 tests green on 7.18.2.
+
+---
+
+# Addendum — `lambda:FunctionArn` Condition, 2026-08-02
+
+The 4 event-source-mapping findings are fixed. Reading the policies first changed the fix twice.
+
+## The DLQ drain statement was dead permission
+
+`DlqDrainEventSourceMappingManage` granted the four mapping actions on `Resource: "*"` — for a
+control plane that **has no event-source mapping**. SPEC-126 replaced the four SQS mappings with a
+single 10-minute EventBridge schedule, and the grant was never removed; the resource description
+still said "four SQS event-source mappings".
+
+**Deleted rather than conditioned.** Least privilege by removal beats least privilege by condition.
+Its `lambda:ListTags` was redundant — already granted, function-scoped, in `DlqDrainLambdaManage`.
+
+That policy now has **zero** wildcard statements.
+
+## The notifications statement is split, because only part of it can be narrowed
+
+One real mapping exists (`aws_lambda_event_source_mapping.writer`). AWS's own service reference
+settles what is possible:
+
+| Action | Resource types | Condition keys |
+|---|---|---|
+| `CreateEventSourceMapping` | none | **`lambda:FunctionArn`** |
+| `Get`/`Update`/`DeleteEventSourceMapping` | `eventSourceMapping` | **`lambda:FunctionArn`** |
+| `ListEventSourceMappings` | **none** | **none** |
+
+So the statement became two:
+
+- `NotificationsEventSourceMappingManage` — the four scopable actions, `Resource: "*"` with
+  `ArnLike lambda:FunctionArn = arn:aws:lambda:${aws_region}:*:function:${project_name}-*-notifications-writer`.
+  The deploy role can no longer attach a mapping to an arbitrary Lambda in the account.
+- `NotificationsEventSourceMappingList` — `ListEventSourceMappings` alone, bare `"*"`, **deliberately
+  unconditioned**. AWS defines no resource types and no condition keys for it, so a condition would
+  deny the call outright — the "unknown-ARN-in-list" trap from architecture.md. This one is a
+  documented accept, not an oversight.
+
+`lambda:ListTags` was dropped here too, for the same redundancy reason.
+
+## What remains, and why it is not fixable
+
+The 2 findings on `github_actions_deploy` are a different cause and stay: `cloudfront:CreateDistribution`,
+`cognito-idp:CreateUserPool`, `cognito-identity:CreateIdentityPool`, `logs:DescribeLogGroups` and the
+Lake Formation account-level actions. None has a resource ARN to name before the resource exists, and
+none has an applicable condition key.
+
+**Revised gate proposal.** `GATE_CHECKOV_PLAN` cannot go to a blanket `block` — 2 permanent,
+unfixable findings remain. Gate by **check ID plus resource**, or accept a documented suppression for
+`github_actions_deploy` on CKV_AWS_290/355 and block on everything else.
