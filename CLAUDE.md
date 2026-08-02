@@ -39,6 +39,7 @@ AWS directly with scoped credentials. Status: greenfield, no production users ye
 | Routing / state | `react-router-dom` v7; TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — render real hooks/children, mock only the AWS service boundary; shared harness `src/test/renderWithProviders.tsx`. Rules: `best-practices/react/react.md` §21 |
 | IaC | OpenTofu (HCL, S3 remote state) |
+| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `npm audit` / `pip-audit` / gitleaks / Checkov / OWASP ZAP in `security.yml` (**report-only**, SPEC-138). Every scanner version-pinned — see the VERSIONS block and #311 |
 
 Don't add dependencies without noting them here first.
 

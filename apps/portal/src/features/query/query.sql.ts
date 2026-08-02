@@ -45,6 +45,13 @@ export function stripTrailingSemicolons(sql: string): string {
  * comment is still detected.
  */
 export function isSchemaChangingSql(sql: string): boolean {
+  // safe-regex flags the star height (\s+ inside an optional group), not measured
+  // backtracking. Each optional group is anchored by a literal (`or`, `replace`,
+  // `external`), so a failing alternative is rejected in O(1) and there is no ambiguous
+  // split to explore. Measured linear: 200k chars of whitespace, or of repeated `or `,
+  // matches in <0.3ms. The input IS user-typed SQL (SPEC-035 editor), so this was
+  // verified rather than argued.
+  // eslint-disable-next-line security/detect-unsafe-regex
   return /^(create|drop|alter)\s+(or\s+replace\s+)?(external\s+|temporary\s+)?(table|view)\b/i.test(
     stripLeadingSqlComments(sql)
   );
@@ -58,6 +65,10 @@ const QUALIFIED_BASE_TABLE = /\b(?:from|join)\s+([a-z_][a-z0-9_]*)\s*\.\s*[a-z_]
 // The fully-qualified `database.` right after TABLE/VIEW in a DDL statement
 // (optionally through IF [NOT] EXISTS), e.g. CREATE EXTERNAL TABLE db.t / DROP
 // VIEW db.v / ALTER TABLE db.t. Only the `db` capture group is used.
+// Same as isSchemaChangingSql: star height, not backtracking. The optional group is
+// anchored by `if`/`not`/`exists`, and `[a-z0-9_]*` is followed by `\s*` over a disjoint
+// character class, so no input can be split two ways. Measured linear at 200k chars.
+// eslint-disable-next-line security/detect-unsafe-regex
 const DDL_QUALIFIED_TARGET = /\b(?:table|view)\s+(?:if\s+(?:not\s+)?exists\s+)?([a-z_][a-z0-9_]*)\s*\./i;
 
 /**

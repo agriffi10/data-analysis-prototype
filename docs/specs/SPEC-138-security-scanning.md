@@ -135,6 +135,13 @@ would bury the real findings.
       detected and reported, and the job still concludes green.
 - [ ] Test files are scanned, not excluded — a test that hard-codes a credential-shaped string is a
       finding worth seeing, even if the disposition is "accepted".
+- [ ] **Partial-parse warnings are reported separately and always.** Semgrep downgrades a file it
+      cannot fully parse to a warning and carries on, so a region can be silently unscanned while
+      the job prints "0 findings"; the count is only meaningful next to the parse-coverage number.
+      Five test files do this today, on the `vi.fn<...>()` explicit-type-argument syntax.
+- [ ] A semgrep exit code ≥ 2 (the scan itself failed) fails the job **even under `gate=report`**.
+      A zero from a scanner that could not run is worse than no scanner, because it reads as
+      evidence — the SPEC-137 failure mode exactly.
 
 ### FR-003: The UI lint pass gains security rules
 

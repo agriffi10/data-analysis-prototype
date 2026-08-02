@@ -98,3 +98,134 @@ jobs:
             echo "uploaded artifacts are where findings live."
             echo
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── SAST ─────────────────────────────────────────────────────────────────────────
+  # Semgrep OSS. Registry rulesets rather than hand-written rules: p/owasp-top-ten is the
+  # OWASP coverage this spec was asked for, and the per-language sets carry the framework
+  # idioms. No account or token is needed for registry rulesets.
+  sast:
+    name: SAST (Semgrep)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Semgrep
+        run: pip install "semgrep==${SEMGREP_VERSION}"
+
+      - name: Scan the SPA
+        # --metrics=off: semgrep's default ("auto") phones home when registry rules are
+        # used. This is a private repository; its file paths and rule hits are not usage
+        # telemetry we are choosing to send.
+        #
+        # Vendored code and build output are excluded. A vulnerable dependency is
+        # npm audit's finding (FR-004), not SAST's, and scanning node_modules would bury
+        # the handful of real results under thousands of them.
+        #
+        # Test files ARE scanned. A hard-coded credential-shaped string in a test is worth
+        # seeing even if the disposition ends up "accepted".
+        run: |
+          set +e
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/react \
+            --config p/typescript \
+            --config p/javascript \
+            --metrics=off \
+            --json --output semgrep-portal.json \
+            --exclude=node_modules --exclude=dist --exclude=coverage \
+            apps/portal/src
+          rc=$?
+          set -e
+          # 0 = clean, 1 = findings, >=2 = semgrep itself failed. A scanner that could not
+          # run must fail the job even under gate=report: "0 findings" from a broken
+          # scanner is worse than no scanner, because it reads as evidence. This repo has
+          # already paid for that once — SPEC-137 shipped behind three gates that were all
+          # satisfied by an import that could never resolve.
+          if [ $rc -ge 2 ]; then
+            echo "::error title=Semgrep::semgrep exited $rc — the scan did not complete."
+            exit $rc
+          fi
+
+      - name: Scan the Lambdas
+        run: |
+          set +e
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/python \
+            --metrics=off \
+            --json --output semgrep-lambdas.json \
+            --exclude=__pycache__ \
+            lambdas
+          rc=$?
+          set -e
+          if [ $rc -ge 2 ]; then
+            echo "::error title=Semgrep::semgrep exited $rc — the scan did not complete."
+            exit $rc
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          total=0
+          for pair in "SPA:semgrep-portal.json" "Lambdas:semgrep-lambdas.json"; do
+            label="${pair%%:*}"; file="${pair##*:}"
+            [ -f "$file" ] || { echo "::warning::$file missing — the $label scan did not produce output."; continue; }
+
+            count=$(jq '.results | length' "$file")
+            : > body.md
+            if [ "$count" -gt 0 ]; then
+              {
+                echo "| Severity | Rule | Location |"
+                echo "|---|---|---|"
+                # Capped, and the cap is stated rather than silent — a truncated table
+                # that looks complete is how a reviewer concludes they have seen
+                # everything. The artifact always holds the full set.
+                jq -r '.results[] | "| \(.extra.severity) | `\(.check_id)` | `\(.path):\(.start.line)` |"' "$file" | head -100
+                if [ "$count" -gt 100 ]; then
+                  echo
+                  echo "_Showing the first 100 of ${count}. The full set is in the \`semgrep\` artifact._"
+                fi
+              } > body.md
+            fi
+            .github/scripts/summary-section.sh "Semgrep — $label" "$count" body.md
+            total=$((total + count))
+
+            # PARSE COVERAGE, reported separately and always. Semgrep downgrades a file it
+            # cannot fully parse to a warning and carries on, so a region of code can be
+            # silently unscanned while the job prints "0 findings". That number is only
+            # meaningful next to this one. (At time of writing: 5 test files, on the
+            # `vi.fn<...>()` explicit-type-argument syntax.)
+            errs=$(jq '.errors | length' "$file")
+            if [ "$errs" -gt 0 ]; then
+              {
+                echo "> **$errs file(s) parsed only partially** — regions of these were not scanned, so the finding count above does not cover them:"
+                echo ">"
+                jq -r '[.errors[].path] | unique | .[] | "> - `\(.)`"' "$file"
+                echo
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          echo "SEMGREP_FINDINGS=$total" >> "$GITHUB_ENV"
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep
+          path: semgrep-*.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Apply gate
+        if: always()
+        run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-0}"
