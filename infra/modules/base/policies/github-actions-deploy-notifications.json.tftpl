@@ -67,6 +67,14 @@
       "Resource": "*"
     },
     {
+      "Sid": "NotificationsEventSourceMappingTags",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:${aws_region}:*:event-source-mapping:*"
+    },
+    {
       "Sid": "NotificationsRolesManage",
       "Effect": "Allow",
       "Action": [
