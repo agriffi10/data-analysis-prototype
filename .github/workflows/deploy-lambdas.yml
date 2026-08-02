@@ -13,9 +13,14 @@ name: Deploy Lambdas
 # and shared-space-common carries DOMAIN code only, with no external deps of its own.
 
 on:
+  # The workflow file itself is in the path filter, for the reason SPEC-139 added it to
+  # deploy-infra.yml: without it this workflow can be edited and merged having never run.
+  # That is not hypothetical — #320 bumped every action in the repo off the EOL node20
+  # runtime, and this file's eight `configure-aws-credentials` call sites went to main
+  # completely unexercised, because changing a workflow is not changing `lambdas/**`.
   push:
     branches: [main]
-    paths: ['lambdas/**']
+    paths: ['lambdas/**', '.github/workflows/deploy-lambdas.yml']
   workflow_dispatch:
 
 # Resource names are derived deterministically from the same project/environment
