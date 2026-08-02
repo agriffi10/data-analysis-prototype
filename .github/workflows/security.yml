@@ -1,0 +1,100 @@
+name: Security
+
+# Security scanning across all three surfaces: the SPA (apps/portal), the Lambdas
+# (lambdas/) and the IaC (infra/). SPEC-138.
+#
+# NOT on push to main. `main` builds and deploys — it does not lint or test (see the
+# comment at the top of ci.yml). Drift between merges is covered by the weekly schedule.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays, 06:17 UTC. Off the hour on purpose: GitHub's scheduler queues the top of
+    # the hour heavily, and a security sweep has no reason to sit in that queue.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ── THE GATE ───────────────────────────────────────────────────────────────────
+  # `report` — the scanner runs, publishes to the job summary and an artifact, and the
+  #            job concludes green.
+  # `block`  — a finding fails the job, and therefore the PR.
+  #
+  # Anything else is a hard error (.github/scripts/apply-gate.sh); a typo must never
+  # silently mean "report".
+  #
+  # SPEC-138 ships every scanner as `report`. That is the deliberate first step: with an
+  # unmeasured finding set — and 10 Dependabot advisories already open — a day-one gate
+  # either reddens main or forces a fix-everything change too large to review honestly.
+  # docs/security-baseline.md records the first run and proposes the threshold at which
+  # each of these should flip.
+  #
+  # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003) run
+  # in ci.yml's existing `npm run lint`, which already blocks. Injection sinks in code
+  # being written now stop the PR; they do not become baseline entries.
+  GATE_SEMGREP: report
+  GATE_NPM_AUDIT: report
+  GATE_PIP_AUDIT: report
+  GATE_GITLEAKS: report
+  GATE_CHECKOV: report
+  GATE_ZAP: report
+
+  # ── VERSIONS ───────────────────────────────────────────────────────────────────
+  # EVERY SCANNER IS PINNED. Not caution for its own sake: ruff 0.16.0 widened its
+  # default rule set from 59 rules to 413 and turned a green main red with 500 findings
+  # in files nobody had touched (#311, recorded in pyproject.toml). A security scanner
+  # that gains rules on release does exactly that, to every open PR at once, with a
+  # scarier label on it. Unpinned, this workflow would be a recurring outage.
+  #
+  # Bumping one of these is a deliberate, reviewable PR whose diff is the new findings.
+  SEMGREP_VERSION: '1.172.0'
+  PIP_AUDIT_VERSION: '2.10.1'
+  CHECKOV_VERSION: '3.3.9'
+  GITLEAKS_VERSION: '8.30.1'
+
+jobs:
+  # Fails the run before any scanner burns a minute if a GATE_* value is not one this
+  # workflow understands. Every scanner `needs: gates`, so a typo cannot reach a state
+  # where the workflow is green and enforcing nothing.
+  gates:
+    name: Validate gate configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate every gate value
+        run: |
+          chmod +x .github/scripts/apply-gate.sh
+          for name in SEMGREP NPM_AUDIT PIP_AUDIT GITLEAKS CHECKOV ZAP; do
+            var="GATE_${name}"
+            .github/scripts/apply-gate.sh "$name" "${!var}" 0
+          done
+
+      - name: Record the gate configuration in the summary
+        run: |
+          {
+            echo "## Security scan"
+            echo
+            echo "| Scanner | Gate |"
+            echo "|---|---|"
+            for name in SEMGREP NPM_AUDIT PIP_AUDIT GITLEAKS CHECKOV ZAP; do
+              var="GATE_${name}"
+              echo "| ${name} | \`${!var}\` |"
+            done
+            echo
+            echo "\`report\` scanners publish findings and conclude green (SPEC-138)."
+            echo "There is no GitHub Security tab on this repository — this summary and the"
+            echo "uploaded artifacts are where findings live."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
