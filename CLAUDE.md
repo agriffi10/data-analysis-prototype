@@ -134,10 +134,11 @@ enforcing CSP and the full security header set. What remains is the live checks 
   `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
   starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
   the test deleted. Full reasoning: `decisions.md`.
-- **Known bug (114/112):** on a folder whose files disagree about columns, the ragged-row count
-  includes every line of the minority file **plus every header** — the check compares against the
-  *union* column count, and `report.py`'s "a header is never ragged" assumption only holds when
-  files agree. Two findings double-reporting one cause.
+- **Known bug (114/112) — now specced as SPEC-142 (Draft).** On a folder whose files disagree about
+  columns, the ragged-row count includes every line of the minority file **plus every header** — the
+  check compares against the *union* column count (`dq_start_profile_query.py:81,109`), and
+  `sql.py`'s "a header is never ragged" claim only holds per file. Two findings double-reporting one
+  cause. Fix is a `CASE` on Athena's `"$path"` giving each line its own file's expected count.
 
 ---
 

@@ -51,6 +51,11 @@ effect" and applies nothing, so a verification pass reports zero violations whet
 occurred. Chrome and Firefox honour report-only without one, which is exactly why a Chromium harness
 cannot surface it. Fixed in #331; the signed-in pass was then clean across every route.
 
+**Confirmed after enforcement (2026-08-03):** `/query` exercised signed-in against the live
+enforcing policy — Monaco mounts and statements run. That closes the one gap the report-only pass
+structurally could not cover, since `frame-ancestors` and `upgrade-insecure-requests` are inert in
+report-only mode and were live for the first time under enforcement.
+
 **Results:** ZAP 20 alerts → 13. Every Medium and six of eight Lows cleared. Three findings remain
 by decision — COEP, timestamp disclosure (bundle noise), and the new `style-src unsafe-inline`
 Medium. Checkov `CKV2_AWS_32` cleared; `CKV_AWS_259` accepted. Deploy-role IAM findings held at the
