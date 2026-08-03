@@ -119,9 +119,22 @@ The app's real requirements, established by reading the source rather than assum
 #### Description
 
 The CSP ships first as `Content-Security-Policy-Report-Only`, is exercised against the **deployed**
-app, and is only then promoted to the enforcing header. There is no backend and therefore no
-`report-uri` collector; verification is manual browser-console inspection, and the spec says so
+app, and is only then promoted to the enforcing header. There is no backend and therefore nothing
+that receives reports; verification is manual browser-console inspection, and the spec says so
 rather than implying automated collection.
+
+**A reporting endpoint is nonetheless required, for a reason that is not about collection.**
+Safari refuses to evaluate a report-only policy that names no endpoint — it logs *"the policy will
+have no effect"* and applies nothing, so a verification pass in Safari reports zero violations
+whether or not any occurred. That is a silent false-clean, the same class of failure as a scanner
+that did not run. Chrome and Firefox honour report-only without an endpoint, which is precisely why
+a Chromium-based local harness cannot surface this. The policy therefore carries `report-uri`,
+`report-to` and a `Reporting-Endpoints` header whose reports go nowhere — what is consumed is the
+console violation, which fires regardless of whether delivery succeeds.
+
+The endpoint URLs are **relative**: `Reporting-Endpoints` conventionally carries an absolute URL,
+but the policy resource cannot reference `aws_cloudfront_distribution.portal.domain_name` — the
+distribution references the policy, so that would be a dependency cycle.
 
 #### Acceptance Criteria
 
@@ -129,8 +142,13 @@ rather than implying automated collection.
       enforcing `Content-Security-Policy`.
 - [ ] Every route in FR-002's list is exercised by hand against that deploy, and the observed console
       violations (or their absence) are recorded in the delivery doc.
+- [ ] The deployed policy names a reporting endpoint, and the browser used for verification does
+      **not** log "the policy will have no effect" — an inert policy makes a clean pass meaningless.
 - [ ] Promotion to the enforcing header is a **separate commit** from the one that introduced
       Report-Only, so the enforcing change can be reverted without reverting the policy.
+- [ ] Phase 4 **removes** `report-uri`, `report-to` and the `Reporting-Endpoints` header. An
+      enforcing policy is evaluated without an endpoint, so they would be pure noise — and a
+      `report-uri` left pointing at a path that 405s is worse than none.
 - [ ] If a violation is found, the CSP is corrected and Report-Only is re-verified before promotion —
       a violation is never resolved by widening to `'unsafe-inline'` for scripts.
 

@@ -63,6 +63,23 @@ locals {
     "form-action 'self'",
     "frame-ancestors 'none'",
     "upgrade-insecure-requests",
+    # Report-only ONLY. Safari refuses to evaluate a report-only policy that
+    # names no reporting endpoint — it logs "the policy will have no effect"
+    # and applies nothing, so a Phase 3 pass in Safari reports zero violations
+    # whether or not there are any. A silent false-clean, and the reason this
+    # is here. Chrome and Firefox honour report-only without it, which is why
+    # the Chromium-based local harness did not surface this.
+    #
+    # Nothing receives the reports: there is no backend, and the distribution
+    # only allows GET/HEAD, so the POST is rejected. That is fine — what we
+    # consume is the console violation, which fires regardless of whether
+    # delivery succeeds. Both spellings are sent because report-uri is the
+    # deprecated-but-broadly-supported one and report-to is its replacement.
+    #
+    # Phase 4 DROPS these two directives: an enforcing policy is evaluated
+    # without an endpoint, so they would be pure noise.
+    "report-uri /csp-report",
+    "report-to csp-endpoint",
   ])
 }
 
@@ -112,6 +129,14 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
     items {
       header   = "Content-Security-Policy-Report-Only"
       value    = local.content_security_policy
+      override = true
+    }
+
+    # Names the group the CSP's `report-to` refers to. Report-only scaffolding;
+    # removed in Phase 4 alongside the two report-* directives.
+    items {
+      header   = "Reporting-Endpoints"
+      value    = "csp-endpoint=\"/csp-report\""
       override = true
     }
 
