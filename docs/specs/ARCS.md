@@ -242,6 +242,13 @@ data-quality reports as source data), and the **CI layer-size guard** becomes a 
 overflow). `shared-space-common` is deliberately **not** folded in. **107 ships as two PRs** (the layer is a new resource; the
 deploy-role grant must apply first). **Build 107 before either arc below.**
 
+> **THE FILE-CONVERTER ARC (115 → 122) IS CANCELLED (2026-08-03, user decision).** A data converter
+> is not a feature this product will carry. Nothing was built — no infra, no Lambdas, no IAM — so
+> there is nothing to unwind; the eight specs stay in the repo as `Cancelled` for the design record
+> only. **Do not build them, and do not treat the arc narrative below as pending work.** The
+> `docs/file-converter-architecture.md` record is likewise historical. Everything the text below says
+> about *data quality* (108 → 114) still stands and shipped — the two arcs were always independent.
+
 **Data-quality arc (108 → 114)** and **file-converter arc (115 → 121)** — filed 2026-07-11 from
 `docs/data-quality-architecture.md` and `docs/file-converter-architecture.md`, both **re-architected (v3)** after the review in
 `docs/architecture-review-2026-07-11.md` **and** the 250 GB source-file requirement. Two **independent** dedicated async control

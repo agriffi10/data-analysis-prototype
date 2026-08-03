@@ -1,7 +1,7 @@
 # Spec: File Converter — Foundation Infrastructure + Layers + Athena Workgroup
 
 **ID:** SPEC-115
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon` layer + the combined layer-size guard), SPEC-032 (Athena/Glue/Lake Formation foundation), SPEC-088 (the mirrored control-plane precedent), SPEC-066 (the polars-layer packaging approach)
 

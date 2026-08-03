@@ -1,7 +1,7 @@
 # Spec: File Converter — `finalize` + Terminal States
 
 **ID:** SPEC-119
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (foundation), SPEC-116 (authorization), SPEC-117 (the target schema), SPEC-118 (the `UNLOAD` path — `finalize` verifies its output)
 

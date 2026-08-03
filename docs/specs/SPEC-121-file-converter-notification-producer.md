@@ -1,7 +1,7 @@
 # Spec: File Converter — Notification Producer
 
 **ID:** SPEC-121
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.notify` / `messages`), SPEC-115 (the `notify-failure` placeholder this spec wires), SPEC-119 (the summary payload), SPEC-120 (the UI that starts the conversion)
 

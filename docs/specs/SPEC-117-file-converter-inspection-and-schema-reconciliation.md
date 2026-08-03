@@ -1,7 +1,7 @@
 # Spec: File Converter — Source Inspection + Schema Reconciliation
 
 **ID:** SPEC-117
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (foundation), SPEC-116 (request contract + authorization)
 
