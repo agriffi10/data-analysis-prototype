@@ -25,7 +25,7 @@ CI run reproduces them.
 | Lambda deps | `pip-audit`, 13 packages | 0 |
 | Repo | `gitleaks`, 357 commits / 9.5 MB | **0** |
 | `infra/` | `checkov`, 224 resources | 305 failed / 439 passed / 0 parse errors |
-| Deployed portal | OWASP ZAP baseline | not yet run — first execution is the weekly schedule |
+| Deployed portal | OWASP ZAP baseline | **2026-08-03** — 0 fail / 20 alerts (2 Medium, 8 Low, 10 Informational) / 55 rules passed |
 
 ## Coverage gaps — these are not findings, they are things nothing here checks
 
@@ -154,6 +154,41 @@ Grouped by rule; the count is the number of resources.
 response-headers policy, the Athena workgroup enforcement, and the two cheap npm bumps. None is
 large; together they are a good first follow-up.
 
+### DAST — OWASP ZAP baseline (first live run, 2026-08-03)
+
+**Run:** [30819001441](https://github.com/agriffi10/data-analysis-prototype/actions/runs/30819001441),
+`workflow_dispatch` on `main` at `ea3ddc4`, target `https://d1kbh4bnvh1je8.cloudfront.net`.
+`FAIL-NEW: 0  WARN-NEW: 15  PASS: 55` — 20 alerts in the JSON report.
+
+The scheduled run earlier the same day produced identical findings but concluded `failure` for a
+workflow reason with no security content: `cmd_options` passed a second `-J`, which redirected the
+JSON output away from the filename `zaproxy/action-baseline` reads back, and that read failure is
+`core.setFailed` *outside* the `fail_action` guard. Fixed in #327. **Recorded because it is the
+failure mode this file warns about generally — a scanner that "did not run" must never read as
+clean, and here a scanner that *did* run read as broken.**
+
+| Risk | Alert | Instances | Disposition |
+|---|---|---|---|
+| **Medium** | Content Security Policy (CSP) Header Not Set | 3 | **FIX** — SPEC-140 |
+| **Medium** | Missing Anti-clickjacking Header | 3 | **FIX** — SPEC-140 |
+| Low | Strict-Transport-Security Header Not Set | 5 | **FIX** — SPEC-140 |
+| Low | Server Leaks Version Information (`server: AmazonS3`) | 5 | **FIX** — SPEC-140, header removal |
+| Low | X-Content-Type-Options Header Missing | 5 | **FIX** — SPEC-140 |
+| Low | Permissions Policy Header Not Set | 5 | **FIX** — SPEC-140 |
+| Low | Cross-Origin-Resource-Policy Missing or Invalid | 3 | **FIX** — SPEC-140 |
+| Low | Cross-Origin-Opener-Policy Missing or Invalid | 3 | **FIX** — SPEC-140 |
+| Low | Cross-Origin-Embedder-Policy Missing or Invalid | 3 | **accept** — `require-corp` buys cross-origin isolation this app has no use for (no `SharedArrayBuffer`, no high-resolution timers) and risks breaking subresource loads for it. Reasoned in SPEC-140. |
+| Low | Timestamp Disclosure — Unix | 5 | **accept** — digit sequences inside the minified bundle matched as timestamps. Not a header, and not real. |
+| Info | Storable and Cacheable Content · Retrieved from Cache · Re-examine Cache-control Directives | 8 | **defer** — the SPA shell is served with **no** `Cache-Control` at all under `Managed-CachingOptimized` (24h default TTL), so a deploy can be shadowed by a stale `index.html`. That is a correctness bug, not header hygiene, and it needs a second cache behavior splitting `/assets/*` (hashed, immutable) from `index.html` (no-cache). Explicitly **out of scope** for SPEC-140. |
+| Info | Base64 Disclosure · Suspicious Comments | 10 | **accept** — inside the minified vendor bundle. |
+| Info | Modern Web Application | 3 | **accept** — informational by design; fires on any SPA. |
+| Info | Sec-Fetch-{Dest,Mode,Site,User} Header Missing | 12 | **accept — not a server finding.** These are *request* headers; the alert fires because ZAP's spider does not send them. Nothing on the origin can fix it. |
+
+**Two scanners, one cause:** every Medium and six of the eight Lows are the CKV2_AWS_32 gap above.
+SPEC-140 closes both rows at once. Two findings survive it by decision (COEP, timestamp
+disclosure), so **a green ZAP run will never be zero-alert** — the target is zero Medium and zero
+Low other than those two.
+
 ---
 
 ## Proposed blocking thresholds
@@ -168,7 +203,7 @@ What the follow-up spec should implement, per scanner.
 | `npm audit` (runtime) | still `report` | `react-router` was bumped (below) but one advisory survives that only a **v8 major** clears. Gating at `high` would block on an inapplicable RSC issue. Revisit with the v8 migration, or gate by advisory ID. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
 | Checkov | `block` only on an **explicit allow-list of check IDs** | 305 failures over 25 rules, most not applicable. Gating the total would mean suppressing 20 rules to enforce 5. Pick the five in the FIX rows, gate those by ID, leave the rest reporting. |
-| ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. |
+| ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. **Measured 2026-08-03:** 0 fail, 2 Medium, 8 Low. After SPEC-140 two Lows survive by decision, so a total-count gate is wrong here — gate by **risk level** (`riskcode >= 2`) if at all. |
 
 Two of these — gitleaks and pip-audit — are at zero **today** and could be flipped in the same PR
 that fixes the five Checkov items. That is the natural next change.
