@@ -147,6 +147,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 139 — IAM Policy Scanning (Checkov over the rendered plan JSON) | Completed |
 | 140 — CloudFront Response Headers Policy (CSP, HSTS, framing, header strip) | Completed |
 | 141 — Cache-Control for the SPA Shell and Hashed Assets | Draft |
+| 142 — Ragged Rows Counted Per File, Not Against the Union | Draft |
 
 ## Arcs
 
