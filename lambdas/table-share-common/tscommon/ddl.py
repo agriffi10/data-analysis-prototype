@@ -5,7 +5,7 @@ keys, SerDe/formats, and TBLPROPERTIES (projection.* included) verbatim; this mo
 re-renders them as a single ``CREATE EXTERNAL TABLE IF NOT EXISTS`` statement with
 LOCATION repointed to the recipient's shared_tables prefix — an exact clone, so a
 projection-partitioned table is queryable immediately (no MSCK) and a flat table
-selects the copied rows as-is (docs/table-share-architecture.md §6).
+selects the copied rows as-is (docs/architecture.md, Control Planes -> Table Share).
 """
 
 

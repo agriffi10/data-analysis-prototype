@@ -243,7 +243,7 @@ A results chart should use the `accent` as series 1 and extend with analogous hu
 
 ## 7. Shared connections (Bucket 2)
 
-The third surface — collaborative **shared connections** (SPEC-050→056) — reuses every token and component above; **no new tokens**. The companion file `shared-connections.html` is its live realization. Connections are created/managed through an **asynchronous pipeline** (see `docs/shared-spaces-architecture.md`), so the UI's defining trait is **status**: a connection or member can be *provisioning*, *active*, or *failed*, and changes apply on the next credential refresh. The design must make that state legible and never present a pending resource as ready.
+The third surface — collaborative **shared connections** (SPEC-050→056) — reuses every token and component above; **no new tokens**. The companion file `shared-connections.html` is its live realization. Connections are created/managed through an **asynchronous pipeline** (see `docs/architecture.md` → *Control Planes → Shared Spaces*), so the UI's defining trait is **status**: a connection or member can be *provisioning*, *active*, or *failed*, and changes apply on the next credential refresh. The design must make that state legible and never present a pending resource as ready.
 
 ### Status treatment (the shared-surface primitive)
 A connection's state renders as a **status pill/dot** that is never color-only: **provisioning** = a `warning`/neutral pill with a small spinner + "Provisioning…"; **active** = a `success` dot (or no pill — the default ready state); **failed** = a `danger` pill + a short reason, with **Dismiss** and (where applicable) **Retry** text actions. The same vocabulary is used in the sidebar dot, the connections list, the selector, and the member list.

@@ -97,7 +97,7 @@ The full envelope is defined in SPEC-089; for this smoke test any JSON body with
 ### Notes
 
 - The five verbs share **one execution role** (`dat-prod-table-share-execution-role`)
-  from day one (user decision, `docs/table-share-architecture.md` §7). At SPEC-088 its
+  from day one (user decision, `docs/architecture.md` → *Control Planes → Table Share*). At SPEC-088 its
   policy is **logs-only**; the LF-admin / Glue / Athena / S3 / Cognito / registry /
   notifications grants land with the spec that first needs each (SPEC-089/090/092/094).
 - The `Failed` state is a plain `Fail`; SPEC-089→092 add the structured

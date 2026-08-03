@@ -528,7 +528,7 @@ module "table_builder" {
 # and create a clone table in each recipient database. Mirrors the table-builder
 # control-plane PATTERN with ONE shared execution role (logs-only at this stage;
 # grants land with SPEC-089→092). Foundation only here (plumbing + Lambda stubs);
-# decision record: docs/table-share-architecture.md. Standalone-deployable: names
+# decision record: docs/architecture.md (Control Planes -> Table Share). Standalone-deployable: names
 # derive from {project}-{environment} inside the module. The deploy-role grants this
 # module needs landed + applied in SPEC-088 PR1, so no in-module time_sleep guard is
 # required. SPEC-092: the shared execution role is on the analytics LF admins list
@@ -585,7 +585,7 @@ module "table_share" {
 # source. Mirrors the table-builder/table-share control-plane PATTERN with ONE shared
 # execution role — logs-only at this stage (S3 lands in SPEC-109; Glue/Athena/LF admin in
 # SPEC-111). Foundation only here (plumbing + Lambda stubs); decision record:
-# docs/data-quality-architecture.md.
+# docs/architecture.md (Control Planes -> Data Quality).
 #
 # The engine is ATHENA, not Lambda: a full pass over a 250 GB source is impossible inside
 # Lambda's 900 s ceiling, so a short Lambda STARTS the query and the STATE MACHINE waits
@@ -596,7 +596,7 @@ module "table_share" {
 # even for an LF-admin role (SPEC-111 live finding). TRADEOFF: the portal workgroup's scan
 # cutoff now applies to data-quality's profile queries, so a check over a source larger
 # than the cutoff fails until it is raised — tracked with the deferred DML-timeout quota
-# increase (data-quality-architecture.md §7.2, §10).
+# increase (architecture.md, Control Planes -> Data Quality).
 #
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
 # deploy-role grants this module needs landed + applied in SPEC-108 PR1, so no in-module

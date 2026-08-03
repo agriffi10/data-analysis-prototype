@@ -14,7 +14,7 @@ locals {
   sfn_role_name       = "${var.project_name}-${var.environment}-table-share-sfn-role"
 
   # ONE shared execution role for all five verb Lambdas (user decision, recorded in
-  # docs/table-share-architecture.md §7 — mirrors the table-builder's post-SPEC-072
+  # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's post-SPEC-072
   # consolidated model; per-verb roles are NOT used). Its permission policy
   # (execution.json.tftpl) grows with the arc: logs (088) + registry/Cognito/Glue
   # reads (089) + source-bucket listing (090); the copy/create + LF-admin grants

@@ -2,7 +2,8 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-03 (reconciled against the folded `architecture.md` — control-plane
+records now live there; SPEC-140/141 header and caching facts updated in §4.6, §6.3, §9)
 **Strategy revision (2026-08-01):** the client environment is itself moving to a **successor
 account** this year. The portal will be **built fresh in that account as its first tenant**, and
 the client's data will be **synced over** with a freeze-and-cutover — rather than the portal
@@ -397,7 +398,9 @@ needs re-examination before anything else in this document is acted on.
 
 The SPA will be served from Docker rather than CloudFront over an S3 origin. Producing the image
 is trivial — a Vite build served by nginx — but CloudFront was doing more than serving files, and
-each of those jobs now needs an owner. This is a **parallel workstream**, independent of the auth
+each of those jobs now needs an owner. (nginx here means the **web server**, actively maintained
+by F5 — not Kubernetes' community *Ingress NGINX* controller, which retired March 2026 and is
+easily confused with it. No Kubernetes is involved in this plan; confirmed 2026-08-03.) This is a **parallel workstream**, independent of the auth
 phases, with one hard coupling noted below.
 
 #### Configuration: build-time versus runtime
@@ -460,10 +463,10 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 | Job | What it needs in the container |
 |---|---|
 | SPA routing fallback | CloudFront mapped 404 to `index.html` for client-side routes. nginx needs `try_files $uri $uri/ /index.html`, or every deep link 404s. |
-| Cache headers and busting | Long immutable cache on hashed assets, `no-store` on `index.html`. Get this wrong and users silently run stale bundles after a deploy — intermittent and very hard to diagnose. |
+| Cache headers and busting | Long immutable cache on hashed assets, revalidate-always (`no-cache`) on `index.html` — the exact per-class scheme is **SPEC-141**, and nginx must reproduce it (SPEC-141 also records *why*: heuristic browser caching plus `--delete` produces a white screen, not stale content). Get this wrong and users silently run stale bundles after a deploy — intermittent and very hard to diagnose. |
 | Compression | CloudFront gzipped and brotli'd automatically. nginx must be told to. |
 | TLS and certificate | An ALB with ACM, or ingress TLS. **Cognito requires HTTPS callback URLs.** |
-| Security headers | Any CloudFront response headers policy moves into the nginx config. |
+| Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *Infrastructure & Deployment*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
 | Health check | The load balancer or orchestrator needs an endpoint to probe. |
 
 **Two coupling points that reach outside this workstream:**
@@ -744,8 +747,12 @@ data:
 | Location | Contents |
 |---|---|
 | `lambdas/data-quality-common/dqcommon/config.py` line 27 (`RESERVED_PREFIXES`) | `user_settings`, `athenaresults`, `_data-quality-reports`, `shared_tables`, `_fc-work` |
-| The file-converter arc's blocklist (SPEC-116) | Kept in sync by comment only — locate and audit it |
+| `apps/portal/src/features/file-browser/protectedFolders.ts` line 21 (`HIDDEN_BROWSER_FOLDERS`) | `user_settings`, `_data-quality-reports` — the SPA's listing filter; diverges from both other lists |
 | `apps/portal/src/features/file-browser/protectedFolders.ts` line 24 (`PICKER_LOCKED_FOLDERS`) | `athenaresults`, `user_settings`, `_data-quality-reports` — missing `shared_tables` and `_fc-work` |
+
+(A fourth list this table previously named — the SPEC-116 file-converter blocklist — **never
+existed in code**; that arc was cancelled 2026-08-03 with nothing built, and its architecture
+record was removed.)
 
 Each name may collide with data arriving from the old account via the sync. Reconciling the
 three lists is worth doing on its own merits and gates the Phase 2 audit.
@@ -1036,9 +1043,9 @@ freeze. This is the whole reason the old account survives the quiet period.
 - How is the old account's user list enumerated for the sync's pre-creation pass?
 - Do the reserved prefixes — including both `dq_tmp_` and `dq_tmp_raw_` table prefixes (§6.3) —
   collide with data arriving from the old account?
-- Bucket topology in the successor account: names, exactly one *user-space* bucket (`CLAUDE.md`
-  line 137's "no multi-bucket support (initial)" is a stale scope note — the repo already runs
-  several buckets; the live constraint is one user-space bucket), Object Ownership set to
+- Bucket topology in the successor account: names, exactly one *user-space* bucket (the live
+  constraint — several other buckets exist; `CLAUDE.md`'s Out-of-Scope note now states it this
+  way), Object Ownership set to
   *Bucket owner enforced*, and a **customer-managed KMS key** for re-encryption — AWS managed
   keys do not support trusted identity propagation at all, which would block Phase 5.
 
@@ -1111,8 +1118,10 @@ doc). Deleting this code is a **cutover** task; keeping it working is a **today*
   `features/query/DatabaseNode.tsx`.
 - If gates P2 and P3 pass: the Cognito Identity Pool, its principal-tag mapping, and the
   `custom:shared_space_*` attribute schema.
-- The CloudFront distribution, its origin access configuration, the static-hosting bucket, any
-  response headers policy, and the cache-invalidation step in CI (§4.6).
+- The CloudFront distribution, its origin access configuration, the static-hosting bucket, the
+  **SPEC-140 response headers policy** (its header set moves into nginx — §4.6), and the
+  deploy-app sync and cache-invalidation CI steps — including SPEC-141's per-class
+  `Cache-Control` passes, once landed (§4.6).
 
 **No longer removed** — reversals from the previous strategy: `aws_lakeformation_data_lake_settings`,
 the bucket registration, the user-space bucket policy template, and the shared-space `create`
@@ -1122,7 +1131,7 @@ Documentation to rewrite when this lands: `docs/architecture.md` (Authentication
 Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions.md`
 (auth, shared-space and Lake Formation material, plus a new entry for the federated claim — the
 file is one flat heading with no `##` sections, so locating passages means reading it),
-`docs/shared-spaces-architecture.md` (ownership model), and the in-app help content per the
+`docs/architecture.md` → *Control Planes → Shared Spaces* (ownership model), and the in-app help content per the
 SPEC-074 rule.
 
 ---

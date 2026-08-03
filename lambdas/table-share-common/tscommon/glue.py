@@ -4,7 +4,7 @@ get_table fetches the source table; clone_definition validates it is a shareable
 shape (base EXTERNAL_TABLE, flat or partition-projection) and captures its
 definition verbatim — columns, partition keys, SerDe/formats, carried
 TBLPROPERTIES — with LOCATION and catalog identity stripped (the recipient step
-sets its own, docs/table-share-architecture.md §4).
+sets its own, docs/architecture.md Control Planes -> Table Share).
 """
 
 from cpcommon import clients, config, errors

@@ -47,7 +47,7 @@ resource "aws_cognito_identity_pool" "portal" {
 # A slot the user isn't in carries no claim → the tag isn't stamped → the portal
 # role's templated statement for that slot matches nothing (implicit deny). Grant/
 # revoke takes effect on the NEXT token refresh (forced by SPEC-052's Refresh control),
-# not instantly (shared-spaces-architecture.md §3 propagation note).
+# not instantly (architecture.md, Bucket 2 membership-slot propagation note).
 # `identity_provider_name` is built from `var.aws_region`, NOT `data.aws_region.current.name`,
 # and that is load-bearing rather than stylistic.
 #

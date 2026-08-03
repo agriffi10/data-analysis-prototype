@@ -4,7 +4,7 @@
 # five single-task verb Lambdas (validate-authorize → inspect-source → Map(recipients):
 # check-target-absent → copy-objects → create-table) on ONE shared execution role.
 # Mirrors the table-builder control plane PATTERN (not its resources); decision
-# record: docs/table-share-architecture.md.
+# record: docs/architecture.md (Control Planes -> Table Share).
 #
 # SPEC-088 is FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
 # action semantics (those land in SPEC-089→092). Cross-module ARNs are CONSTRUCTED

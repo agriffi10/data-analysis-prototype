@@ -1,6 +1,6 @@
 # ── Control-plane IAM roles (SPEC-088) ───────────────────────────────────────
 # ONE shared execution role for all five verb Lambdas (user decision,
-# docs/table-share-architecture.md §7 — mirrors the table-builder's consolidated
+# docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's consolidated
 # model; per-verb roles are NOT used), plus the Step Function role and the Pipe
 # role. Trust + permission policies are .tftpl templates rendered with
 # templatefile() (no inline jsonencode IAM, per architecture.md).

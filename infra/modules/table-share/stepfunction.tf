@@ -2,7 +2,7 @@
 # Standard state machine — validate-authorize → inspect-source once per request,
 # then a Map over $.recipients running check-target-absent → copy-objects →
 # create-table PER RECIPIENT with a per-item Catch (one recipient's failure never
-# aborts its siblings — docs/table-share-architecture.md §2). The per-step bodies
+# aborts its siblings — docs/architecture.md Control Planes -> Table Share). The per-step bodies
 # are STUBS here (pass-through) — the real logic + the structured recorded-failure
 # outcomes land in SPEC-089→092.
 #

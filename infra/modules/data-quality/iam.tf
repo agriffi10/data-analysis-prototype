@@ -18,7 +18,7 @@
 # that could re-enqueue its own work is a loop), and not the DLQ.
 #
 # THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (SPEC-111 FR-006,
-# data-quality-architecture.md §0/§7) — this is a decision, not drift, and it is the
+# architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
 # largest privilege the arc spends. Up to SPEC-110 this role could not touch the Glue
 # catalog at all. It now can, because the pipeline's whole design is "let Athena read the
 # 250 GB, not a Lambda", and Athena reads through a Glue external table. The temp tables

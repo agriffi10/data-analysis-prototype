@@ -2,7 +2,7 @@
 # Five single-task verb Lambdas — validate-authorize / inspect-source /
 # check-target-absent / copy-objects / create-table — orchestrated by the Step
 # Function (stepfunction.tf). All five share ONE execution role (iam.tf; user
-# decision, docs/table-share-architecture.md §7) and each gets its task's real
+# decision, docs/architecture.md Control Planes -> Table Share) and each gets its task's real
 # timeout/memory (locals.tf; a small validator ≠ a long parallel S3 copy,
 # lambdas.md §4).
 #

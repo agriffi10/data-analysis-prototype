@@ -163,6 +163,12 @@ distribution references the policy, so that would be a dependency cycle.
       against checkov 3.3.9). Emitting `preload` without submitting to hstspreload.org would make
       the header assert an intent we do not have, on a domain a custom domain will replace. Revisit
       when that custom domain lands.
+
+      *Amended 2026-08-03, post-completion.* The decision above was **reversed**: `preload` is now
+      set (`infra/modules/app/cloudfront.tf:100`), clearing `CKV_AWS_259`. The flag is inert without
+      an hstspreload.org submission, and the in-code comment carries the standing instruction to
+      **never submit this `*.cloudfront.net` domain**. The original reasoning is kept above for the
+      record; the code comment and the Key Decisions entry are authoritative.
 - [ ] `X-Frame-Options: DENY`, alongside `frame-ancestors 'none'` from FR-002.
 - [ ] `X-Content-Type-Options: nosniff`.
 - [ ] `Referrer-Policy: strict-origin-when-cross-origin`.

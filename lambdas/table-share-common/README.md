@@ -15,4 +15,4 @@ they are filled in as the verb logic lands:
 - SPEC-091 — `copy.py` parallel server-side CopyObject (multipart > 5 GiB)
 - SPEC-094 — `notify.py` (best-effort `create` emit to the notifications queue)
 
-Decision record: `docs/table-share-architecture.md`.
+Decision record: `docs/architecture.md` → *Control Planes → Table Share*.

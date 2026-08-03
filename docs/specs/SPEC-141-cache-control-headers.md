@@ -32,8 +32,12 @@ different mechanism, and a much narrower fix.
 ### In Scope
 
 - `Cache-Control` set at **upload time** in `.github/workflows/deploy-app.yml`, per file class.
-- `/assets/*` (content-hashed by Vite) → immutable, one year.
-- `index.html`, `favicon.svg`, `icons.svg` → revalidate on every use.
+- `/assets/*` (content-hashed by Vite) → immutable, one year. The rule must be a **path prefix**,
+  never an extension list: `dist/assets/` currently holds ~108 files including a font
+  (`codicon-*.ttf`, from Monaco) that a js/css rule would miss.
+- `index.html`, `favicon.svg`, `icons.svg` → revalidate on every use. (`icons.svg` is referenced by
+  **nothing** — no source file or `index.html` mention. Verify, and prefer deleting it from
+  `public/` over headering a dead file; if kept, it gets the shell's header.)
 - Preserving `--delete` semantics safely across a multi-pass sync.
 - Verifying the SPA-fallback path (`custom_error_response` → `/index.html`) carries the shell's
   header and not an asset's.
@@ -104,9 +108,25 @@ Splitting one `aws s3 sync` into per-class passes introduces a specific hazard: 
 destination objects absent from the source, and `--exclude` makes files *look* absent. A pass that
 excludes `index.html` while carrying `--delete` will delete it from the bucket.
 
+Two further properties of `aws s3 sync` shape the design and must not be discovered mid-build.
+**Ordering:** the `/*` invalidation runs only after all passes, so a delete pass that removes old
+chunks before the new shell is uploaded widens the 404 window for in-flight users — upload assets
+first, then the shell, and reconcile deletions last. **Skip detection:** `sync` compares size and
+modification time, and a fresh build changes every file's mtime — so a second pass over
+already-uploaded assets will **re-upload them with that pass's `--cache-control`**, silently
+overwriting the immutable header. Pass scoping must guarantee no file is touched by two passes.
+Because `--exclude`/`--include` also filter the *destination* side of `--delete`, one pass cannot
+both be scoped and reconcile the whole bucket; the spec accepts whichever orphan class the chosen
+shape leaves (stale root files or stale chunks) and the delivery doc names it.
+
 #### Acceptance Criteria
 
 - [ ] Exactly one sync pass carries `--delete`.
+- [ ] The passes run in the stated order — assets before shell, deletions reconciled last — and no
+      file is uploaded by more than one pass (the mtime re-upload trap above); verified by checking
+      the headers on an asset **after** a full deploy, not after the assets pass alone.
+- [ ] The orphan class the chosen pass shape tolerates is named in `deploy-app.yml`'s comment and
+      the delivery doc.
 - [ ] That pass's excludes are verified to protect, not endanger, the files they name — checked by
       running the deploy and confirming every file in `dist/` is present in the bucket afterwards.
 - [ ] A deploy run end-to-end leaves the site loading: shell, assets and icons all resolve 200.

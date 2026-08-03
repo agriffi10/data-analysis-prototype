@@ -66,7 +66,7 @@ the role per shared DB, IAM tag is the gate — same shape as the personal `user
 truth = an **S3 control-object registry** in the analytics admin bucket (`shared-spaces/` prefix,
 pipeline-only); each user's `{username}/user_settings/shared-connections.json` is a UI **cache** the pipeline
 writes (pending/active/failed status). Shared-DB query results route to the shared prefix. Decision record:
-`docs/shared-spaces-architecture.md` (reverses the "no backend" decision for shared-space mutations only).
+`docs/architecture.md` → *Control Planes → Shared Spaces* (reverses the "no backend" decision for shared-space mutations only).
 build order is **050 → 056 → 051 → 052 → 053 → 054 → 055 → 057**: 050 = foundation plumbing (buckets, SQS/Pipe/Step
 Function skeleton, orchestrator role, deploy IAM); 056 = access model + request contract (membership tags,
 portal-role slots, LF registration, actor binding) — split from 050 so the IAM/access wiring applies separately;
@@ -112,7 +112,7 @@ the monolith role. **Behavior, the request contract (056), the membership-tag mo
 unchanged** — structure only — plus two clarifications: **create stays creator-only** (no member-add at create; adds go
 through 053 from the Connections tab), and each verb **emits its SPEC-061 notifications inline** via the shared helper.
 The old provisioner function/role/tests are removed at cutover. Follows `docs/best-practices/lambdas/lambdas.md`;
-decision recorded in `docs/shared-spaces-architecture.md`.
+decision recorded in `docs/architecture.md` → *Control Planes → Shared Spaces*.
 
 **Query-editor UX, round 4 (063→065, user-feedback one-offs)** — three independent presentation/editor refinements
 on the SPEC-034→049 workspace, no data-layer/IAM change: **063** restructures the schema rail into a **tree** — each
@@ -131,7 +131,7 @@ was written.)*
 **dedicated** async control plane (its own FIFO **SQS → EventBridge Pipe → Step Function**, **single-task Lambdas**
 with per-verb least-privilege roles) that turns a folder of data files into a Glue/Athena **external table** in the
 database the space maps to (personal = username; shared = space name). Decision record:
-`docs/table-builder-architecture.md` (read first). Reuses the **pattern** of the shared-spaces control plane
+`docs/architecture.md` → *Control Planes → Table Builder* (read first). Reuses the **pattern** of the shared-spaces control plane
 (SPEC-050) and the dedicated-pipeline precedent of notifications (SPEC-058), **not** their resources. The browser
 only gains `sqs:SendMessage`; authorization reuses the **ID-token actor** + shared-spaces **registry** membership
 model (any active member may create — not owner-only). The Step Function orchestrates five verbs:
@@ -178,7 +178,7 @@ download it** via the existing presigned-URL flow (both authenticated + read-onl
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
 
-**Table-Share arc (088 → 089 → 090 → 091 → 092 → 093, + 094 producer)** — filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/table-share-architecture.md` (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
+**Table-Share arc (088 → 089 → 090 → 091 → 092 → 093, + 094 producer)** — filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/architecture.md` → *Control Planes → Table Share* (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
 
 **App-shell / schema-rail UX one-offs (085, 086)** — filed 2026-07-02, both presentation-only (no data-layer/IAM/infra).
 **085** adds a **collapsible side nav**: the Files spaces `Sidebar` and the Query `SchemaBrowser` share the same 248px rail
@@ -246,12 +246,11 @@ deploy-role grant must apply first). **Build 107 before either arc below.**
 > is not a feature this product will carry. Nothing was built — no infra, no Lambdas, no IAM — so
 > there is nothing to unwind; the eight specs stay in the repo as `Cancelled` for the design record
 > only. **Do not build them, and do not treat the arc narrative below as pending work.** The
-> `docs/file-converter-architecture.md` record is likewise historical. Everything the text below says
+> file-converter architecture record has been removed (never built). Everything the text below says
 > about *data quality* (108 → 114) still stands and shipped — the two arcs were always independent.
 
 **Data-quality arc (108 → 114)** and **file-converter arc (115 → 121)** — filed 2026-07-11 from
-`docs/data-quality-architecture.md` and `docs/file-converter-architecture.md`, both **re-architected (v3)** after the review in
-`docs/architecture-review-2026-07-11.md` **and** the 250 GB source-file requirement. Two **independent** dedicated async control
+their architecture decision records (data-quality since folded into `docs/architecture.md` → *Control Planes → Data Quality*; the file-converter record and the 2026-07-11 review doc are removed), both **re-architected (v3)** after that review **and** the 250 GB source-file requirement. Two **independent** dedicated async control
 planes (FIFO SQS + DLQ → EventBridge Pipe → Standard Step Function → single-task verb Lambdas on **one shared execution role**).
 Either may go first; both depend on **107**. **Data quality** = *diagnose* a file or folder (per-column type consistency, null
 ratios, duplicates, row counts, ragged rows, encoding, cross-file column agreement) and write a report — read-only, never
@@ -490,3 +489,202 @@ scrubbed environment**, because `conftest`'s env baseline is exactly what hid th
 uneven: the writer is how every other plane's failures reach a person, and its own DLQ is deliberately undrained (circular),
 so its events are the only account of its silence. 137 also closes the loop — its harness entries assert that **every** Lambda
 in the repo is registered or explicitly excluded.
+
+---
+
+## Refresh-table arc (SPEC-143 → 144 → 145)
+
+Filed 2026-08-03 (user request). **Table Builder writes a schema once and never looks again.** It infers columns from a
+bounded read of one sample file, issues `CREATE EXTERNAL TABLE`, and stops. When files with new columns land in the same
+folder afterwards, Athena keeps returning the old columns and the new data is simply invisible — no error, no warning,
+just a narrower answer than the data supports. The only remedy today is to drop the table and rebuild it from the Files
+browser, which means leaving the Query workspace and **retyping partition keys that are recorded nowhere but on the table
+itself**. This arc is the missing second half of Table Builder, reached from the same table-options menu (SPEC-044) the
+user is already in.
+
+**No new control plane, and that is the arc's central decision.** A refresh *is* `inspect-source` plus `infer-schema` run
+against a table that already exists — the two expensive verbs, one of which carries the 240 MB polars layer. So the arc
+extends the **existing** table-builder plane: same FIFO queue, same Pipe, same Step Function, same shared execution role,
+with a `mode: "create" | "refresh"` field on the envelope and a `Choice` around a shared spine. `MessageGroupId` stays the
+target database, so a refresh and a build on the same database serialize against each other for free.
+
+**Eligibility turns on shape, not on a marker.** A refresh must faithfully rebuild a table it did not create in this run, so
+`load-table-definition` refuses a view, a managed table, and a catalog-partitioned table whose partition metadata it would
+silently discard — the checks
+`clone_definition` already makes for table-share, and the reason that function **moves to `cpcommon.glue` unchanged**, with
+`tscommon.glue` re-exporting it and the refresh path **mapping** its four reason codes at its own call site (`source_is_view
+→ cannot_refresh_view`, and so on). The stems differ, so a prefix parameter cannot produce the refresh names, and mapping
+leaves table-share byte-for-byte intact. A `portal.managed` TBLPROPERTY *is* introduced (143 FR-007) but deliberately is
+**not** the eligibility test: every pre-existing table lacks it, and it is user-writable via `ALTER TABLE SET
+TBLPROPERTIES`, so it can be neither a fact nor a permission. A tripwire test fails if any verb reads it. (It is also one
+character from the unrelated **`portal-managed` LF-Tag on databases**; both sites carry a comment saying so.) One check is
+**not** inherited: `clone_definition` validates only the location's **bucket**, so `load-table-definition` adds its own
+**prefix**-within-the-authorized-space check (`table_outside_space`). The catalog is not the authorization boundary, and a
+table pointing into another user's prefix has a perfectly legitimate bucket.
+
+**`load-table-definition` exists because the shared spine is not generic**, and this is the constraint most likely to be
+re-discovered mid-build. `inspect-source` lists `space.bucket` + `space.prefix` — it has no `location` input — and
+`infer-schema` hands its partition keys straight to `build_create_table_ddl`, which requires the **SPEC-069 declared
+shape** (`type ∈ {integer,date,string}` plus `range`/`values`/`format`) and raises a bare `ValueError`, not a
+`TerminalError`, on a Glue-shaped key. So the verb **normalises**: it rewrites `space.prefix` from the catalog and
+**reconstructs** the declared keys from the table's `projection.*` properties, refusing with
+`projection_not_reconstructable` rather than guessing. Only data columns are re-derived; a folder whose `key=value/` layout
+has drifted fails with the existing `partition_layout_mismatch` rather than quietly adopting the drift.
+
+**The removals design is the part to read before proposing an alternative** (144 FR-003). The requirement was *warn, then
+require explicit confirmation*, and the textbook implementation — a dry run that returns a diff and waits — does not fit a
+fire-and-forget plane with no synchronous return channel. A plan-artifact pair (new artifact, new index, new view, new IAM,
+two async round trips for one button) and a browser-side preview (the browser cannot infer types; that is what the polars
+layer is *for*) were both considered and rejected. What ships instead: an `allowRemovals` flag, default false, and a
+terminal `columns_removed` failure that **names the removed columns in the notification and changes nothing**. The refusal
+*is* the warning. What it guarantees is stated carefully rather than overclaimed: the specific columns are named to the
+user in a durable notification before any removal can happen — it does not guarantee they read it. So SPEC-145's dialog
+carries an **always-present, always-unchecked** opt-in with explicit consequence copy, and the `columns_removed`
+notification carries an **in-app link** (`/query?refreshTable=…&removed=…`, every component a catalog-safe identifier and
+so URL-safe and re-validatable) that opens the dialog with the specific names rendered and confirm gated until the box is
+ticked. The link matters because a `Notification` in this repo is `{id, message, read, timestamp, link?}` and **carries no
+structure at all** — an earlier draft of 145 proposed deriving the outcome from the inbox, which would have meant parsing
+prose. The link is the only channel that exists, and SPEC-144 mints it because it owns the message layer.
+
+**The apply is a drop and a recreate**, through Athena, back to back with nothing between them. Safe only because the table
+is **external**: dropping it removes a catalog entry and touches no objects, and the execution role's explicit
+`Deny s3:DeleteObject` stays exactly as it is. That property is load-bearing and is written into the spec as such — if a
+table-builder table ever becomes non-external, the apply becomes destructive. IAM gains one action (`glue:DeleteTable`);
+Lake Formation needs nothing, because the `portal-managed` tag-policy grants already carry `DROP` at both database and
+table level. `ALTER TABLE ADD COLUMNS` was rejected: it cannot retype, cannot remove, and behaves inconsistently across the
+three SerDes in play, so it would be a fourth code path covering only the easiest case. Two sharp edges in `cpcommon/ddl.py`
+shape the apply: its `storage=` parameter is a `Storage` NamedTuple carrying a **pre-rendered** clause string, not a bag of
+SerDe fields, and the builder emits `CREATE EXTERNAL TABLE **IF NOT EXISTS**` — which on this path would turn a recreate
+after a silently-failed drop into a successful no-op, so 144 adds `if_not_exists=False` and a post-condition `GetTable`
+(SPEC-135's lesson: this plane's canonical failure was a verb that *completed* while the table was not created). The honest
+cost is a **window** of a second or two in which the table does not exist, and the one genuinely bad outcome — drop
+succeeds, recreate fails — gets its own reason code and its own wording, because a user who reads "refresh failed" will
+assume nothing happened.
+
+**The message layer needs more work than the feature looks like it should need**, and it is in 144's scope for a reason:
+`tbcommon/messages.py` is a *failure* table whose renderer hard-codes `Couldn't create table "{name}": …`,
+`success_message` takes no reason and hard-codes *"is ready to query"*, and `emit_failure` never reads
+`TerminalError.tokens` — which `cpcommon/errors.py` documents as deliberate, tokens having been added so that table-builder
+and table-share stayed untouched. Every one of those is correct for a plane that only created tables and every one is in
+the way now. 144 also assigns the **no-op notification** to `diff-schema`: the state machine has no notification state,
+every emit in this plane is in-Lambda, and on the unchanged path no Lambda runs after it. And because `emit_failure` passes
+no `link=` today and `TerminalError` has no link field, 144 has `emit_failure` **construct** the `columns_removed` link
+itself from the context it already holds — rather than growing a transport field on `TerminalError` for one caller.
+
+**Two infra traps worth carrying into the build.** `lambda.tf` is `for_each` over the function map, so a new verb needs only
+a `locals.tf` entry — but **`stepfunction.tf` passes an explicit per-function `_function_arn` map to `templatefile()`**, so
+a new ASL state without a key there fails at *plan* time. And `clone_definition` copies **all** Glue `Parameters`, so a
+partitioned table's captured properties always include `projection.*` — which `_tblproperties` regenerates — so 144 strips
+them before merging or every partitioned refresh emits each projection key twice.
+
+**Explicitly not built:** propagating a refresh to table-share recipient copies (a share is a one-time snapshot with **no
+provenance link in either direction**, so the linkage would have to be invented first), changing partition keys, refreshing
+views, and any scheduled or automatic refresh. Build order **143 → 144 → 145**; 143 ships the branch ending in a typed
+`not_implemented` stub so the whole path is exercised live before it can change anything. Browser surface is 145 only, and
+it adds no IAM, no env var and no new AWS call. Per `transition_plan.md` §2 item 9 the table arcs are feature-flagged off
+for Phase 1 of the client transition and re-enabled in Phase 4 against their original acceptance criteria; nothing in this
+arc reads the `cognito:username` claim outside `cpcommon.auth`, so it survives unchanged.
+
+---
+
+## Username-directory arc (SPEC-146 → 147 → 148)
+
+Filed 2026-08-03 (user request). **Every flow that asks a user to name another user asks by free text.** `AddMembersDialog`
+is a textarea, `TableShareDialog` is an input with chips; both run `parseMemberInput`, which silently drops anything failing
+the catalog-safe pattern, and neither checks that a name belongs to anyone — the browser has never had a way to know.
+
+**What happens next is better than this repo's own comments claim, and the arc was nearly specced on the wrong premise.**
+`add_members.py` catches `UserNotFoundException` and queues a notification to the space **owner** naming the user it could
+not add (pinned by `test_add_unknown_notifies_owner`); table-share reports unresolved recipients too, and
+`TableShareDialog`'s inline help already says so. Meanwhile **`add_members.py`'s module docstring and
+`parseMemberInput`'s docstring both still say unknown users are "silently ignored"** — stale since the notification landed,
+and exactly the kind of wrong comment about error handling that a later design gets built on. Correcting both is in
+SPEC-146's scope. The real cost is therefore not silence but **latency and asymmetry**: the report arrives minutes later,
+only the owner sees it, the person you were adding still is not in the space, and every typo costs a full round trip
+through an async control plane to learn something the browser could have flagged as you typed. The arc replaces
+remembering with picking.
+
+**The source is S3 common prefixes on the user-space bucket, not Cognito `ListUsers`** — settled 2026-08-03 after reading
+`transition_plan.md`, and the reasoning inverts the obvious answer. *Today* Cognito is complete and S3 is not: the personal
+prefix is created **by the browser** on first visit to `/files` (`ensurePrefixMarker`, SPEC-014 — a deliberate
+no-backend decision), so a confirmed user who never opened the file browser has no prefix. *After the transition* it
+reverses: §2 item 7 settles that **sign-in provisions nothing** — the sync pre-creates every space and `ensurePrefixMarker`
+is deleted outright (§6.3) — while federated login makes `cognito:username` a synthetic `identitycenter_<subject>` value
+(§6.1) and users appear in the pool only after first sign-in. So S3 becomes complete and Cognito becomes both incomplete and
+wrong-keyed. Choosing the source that is right on the far side of a migration already in flight beats the one right today,
+especially when today's gap is bounded (pre-production, no production users) and the failure mode is a missing suggestion in
+a field that still accepts free text. **Do not add a Cognito union "to be safe"** — a second source with different
+completeness properties is a second thing to reason about every time the directory looks wrong.
+
+**One shared object, one new grant.** A daily `rate(24 hours)` Lambda in a new `infra/modules/user-directory/` module lists
+the bucket's top-level `CommonPrefixes`, filters through `CATALOG_IDENTIFIER_RE`, and publishes a sorted JSON document to
+`_directory/usernames.json`. `_directory` is the first deliberate exception to the bucket's "every top-level prefix is a
+username" invariant, and it is safe for one precise reason: the regex requires a leading lowercase letter, so that name can
+never *be* a username — which is why it was chosen. The portal role gains **one** statement, `GetObject` on `_directory/*`,
+with no `ListBucket` and no write. Two traps are in scope rather than discovered: the builder role must join the
+**user-space bucket policy's principal allowlist** as a constructed string in root `locals` (#241, which has bitten this
+repo three times), and the deploy-role `.tftpl` applies as **PR 1** before the module as PR 2 (with function-prefixed Sids, matching the
+observability policy's convention, and **no new S3 statement** — the deploy role already holds `s3:*` on that bucket).
+Guards worth naming: an empty listing **never overwrites** a non-empty document (a bad list would otherwise erase the
+directory, and an empty directory is indistinguishable from a broken feature); the event count is O(1) in users, mirroring
+SPEC-131's rule for the same reason; and the builder role's `ListBucket` is **deliberately unconditioned** — an
+`s3:prefix = ""` condition is the obvious tightening and is rejected because whether botocore even emits that context key
+is an implementation detail that would fail closed, and `simulate-custom-policy` would simply agree with whatever the
+author assumed. It is safe unconditioned because the role holds **no `GetObject` anywhere**: it can learn that a prefix
+exists — though, stated accurately, it can also enumerate every object *key* under every prefix, since `Delimiter="/"` is a
+property of the Lambda's code and not of the grant. Accepted: no `GetObject` anywhere, key names are metadata under the
+field rule, and it is a Lambda role with no user-assumable path. If that ever stops being comfortable the fix is a separate
+bucket, not an unverifiable condition key.
+
+**The trie lives in the browser, not in the artifact.** The published document is a flat sorted array precisely so the
+consumer can choose its own index; 147 builds a character trie from it once per session. A serialised trie would be several
+times larger, unreadable when debugging, coupled to one consumer, and pointless — the browser walks the whole document to
+build any index at all. Prefix matching alone is not enough (someone hunting `bob_smith` types `smith`), so ranking is
+exact → prefix → substring, alphabetical within each band, deterministic, with no fuzzy matching and no recency. **The
+substring band is honestly linear** and says so in its own JSDoc — no single-pass structure answers arbitrary substring
+queries sub-linearly — so it short-circuits at the result limit and is skipped entirely when the prefix band already filled
+it. The hook hands out a stable **`search` callback** rather than the index itself, which is what makes the lazy build
+invisible and stops a consumer holding a half-built structure.
+
+**The most important behaviour is that an unknown name is never blocked.** The directory is up to a day stale, misses
+not-yet-provisioned users, and is **never an authorization input** — a tripwire test fails if any control-plane verb reads
+it, and every existence check stays `admin_get_user` against the User Pool. A combobox that refused an unlisted name would
+convert a stale cache into a hard failure, in a flow where an unlisted name is a slower path and not a lost one. So:
+suggestions are suggestions, free text always commits, and the "not in the directory" note is neutral, non-blocking, and
+**absent entirely** while the directory is loading or unavailable — a note arriving a second after a name was accepted
+reads as a delayed rejection, and telling a user their colleague "was not found" because a background fetch failed is worse
+than saying nothing. The hook collapses "errored" and "empty" into one `unavailable` status so no consumer has to remember
+to handle both.
+
+**The combobox is not the `Menu` primitive**, and that is the easy mistake: `Menu` is `role="menu"` with arrow-key roving,
+correct for a menu and wrong here — a combobox keeps focus in the input and moves `aria-activedescendant`. **Escape is not
+free either.** `Modal` has no `closeOnEscape` prop, `Drawer`'s is a caller-supplied opt-out a leaf cannot reach, and
+`useEscapeKey` is an unconditional `document` listener inspecting neither `defaultPrevented` nor any stop flag — so
+"first Escape closes the list, second closes the dialog" rests on React's root delegation and must be **verified**, with a
+`defaultPrevented` guard on `useEscapeKey` as an in-scope fallback. The order is tested in the real composition, which is a
+field inside a **Modal** inside a **Drawer** (`ManageMembersDrawer` renders `AddMembersDialog`), not the other way round —
+and the fixture has to reproduce that drawer's `closeOnEscape={!addOpen && !removing}` gate, because with a bare nesting
+both surfaces' document listeners fire on one keydown and the order the shipped app has is simply unreachable.
+No dependency is added; if the implementation reaches for a combobox or positioning library, that is a Tech Stack change
+requiring a note first.
+
+**148 replaces two inputs and nothing else** — both dialogs enqueue the same fields with the same values, asserted
+field-by-field against the pre-spec expectation (not byte-identity: `requestId` is a fresh UUID per call). The two dialogs
+take **different** components, because `TableShareDialog` renders **one combined chip list** mixing user and space kinds
+with badges: handing chip rendering to `UsernameChipsField` would grow a second list beside it, so it takes the
+single-value `UsernameCombobox` and keeps its own list, while `AddMembersDialog` — which has no list today, only a
+textarea — takes the chips field outright. The combobox carries an optional **`onCommitMany`** for the same reason:
+table-share's user entry is a *bulk* field today (`parseMemberInput(entry)`, placeholder `e.g. bob, cara`), and a
+strictly single-value component would have quietly deleted that. The arc also fixes a small long-standing wrong: an invalid pasted token stays in
+the input with the existing `CATALOG_IDENTIFIER_RULE` sentence instead of vanishing, via `parseMemberInputDetailed`, which
+lands in **147** (its paste handling depends on it) and leaves `parseMemberInput`'s contract untouched. `TableShareDialog`'s
+**space** kind keeps its free-text path with suggestions off — space names are a different list from a different bucket
+with different membership semantics, and one field pretending to serve both nouns would be worse than serving one well.
+
+**Explicitly not built:** a shared-space directory, display names or emails (an email is not metadata under the field rule
+and has no place in a document every authenticated user can read), server-side search, fuzzy matching, and any
+authorization use. The all-users disclosure is **accepted and recorded** rather than left implicit: a username already *is*
+the S3 prefix, the principal tag and the Glue database name (SPEC-033), it is already on every shared-space roster
+(SPEC-075), and a prefix-search feature discloses the set by construction. Build order **146 → 147 → 148**; 146 ships as
+two PRs; 147 and 148 add no IAM, no AWS resource and no env var — 147 derives the object's location from the existing
+`userSpaceBucket()` helper, so the four-point `VITE_*` wiring dance is avoided across the whole arc.
