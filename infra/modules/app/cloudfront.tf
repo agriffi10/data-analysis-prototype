@@ -16,12 +16,13 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
 # bucket would have to be found and edited by hand during the client-environment
 # transition (docs/transition_plan.md).
 #
-# NOTE ON THE PHASING: the CSP ships as Content-Security-Policy-REPORT-ONLY
-# first, as a custom header, because CloudFront's first-class
-# `content_security_policy` field emits the enforcing header only. A CSP that is
-# wrong about `worker-src` or `style-src` breaks the Monaco editor in production
-# and nowhere else — no unit test observes a CSP. Promotion to enforcing is a
-# separate change (SPEC-140 Phase 4) so it can be reverted on its own.
+# The CSP is ENFORCING (Phase 4). It shipped report-only first, and that was not
+# ceremony: a CSP wrong about `worker-src` or `style-src` breaks the Monaco
+# editor in production and nowhere else, because no unit test observes a CSP.
+# Report-only earned its keep twice — it caught the fonts.googleapis.com
+# omission below, and it exposed that Safari will not evaluate a report-only
+# policy naming no reporting endpoint (so an unverified CSP would have looked
+# verified). Promotion happened as its own commit, revertible alone.
 
 locals {
   # Every AWS endpoint the SPA talks to directly. There is no backend, so this
@@ -48,8 +49,8 @@ locals {
     # fonts.googleapis.com is NOT optional: src/index.css line 1 is
     # `@import url('https://fonts.googleapis.com/css2?family=Inter…')`, and Vite
     # leaves remote @imports in the built CSS. Without this the app loses its
-    # typeface site-wide — caught by the Phase 3 harness, which is the entire
-    # reason the CSP ships report-only first.
+    # typeface site-wide — caught by the Phase 3 harness before it ever reached
+    # an enforcing policy.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data:",
     # The Google stylesheet above serves its actual font files from gstatic.
@@ -61,25 +62,16 @@ locals {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    # These two are INERT in report-only by spec — Safari says so out loud
+    # ("directive is ignored when delivered in a report-only policy"). They
+    # take effect only now that the policy is enforcing, so report-only never
+    # tested them. Both were assessed instead of assumed:
+    #   frame-ancestors — its enforcing twin X-Frame-Options: DENY has been
+    #     live since Phase 2 and nothing broke, so framing is already proven.
+    #   upgrade-insecure-requests — every subresource is already https
+    #     (same-origin assets, Google Fonts, AWS endpoints), so it is a no-op.
     "frame-ancestors 'none'",
     "upgrade-insecure-requests",
-    # Report-only ONLY. Safari refuses to evaluate a report-only policy that
-    # names no reporting endpoint — it logs "the policy will have no effect"
-    # and applies nothing, so a Phase 3 pass in Safari reports zero violations
-    # whether or not there are any. A silent false-clean, and the reason this
-    # is here. Chrome and Firefox honour report-only without it, which is why
-    # the Chromium-based local harness did not surface this.
-    #
-    # Nothing receives the reports: there is no backend, and the distribution
-    # only allows GET/HEAD, so the POST is rejected. That is fine — what we
-    # consume is the console violation, which fires regardless of whether
-    # delivery succeeds. Both spellings are sent because report-uri is the
-    # deprecated-but-broadly-supported one and report-to is its replacement.
-    #
-    # Phase 4 DROPS these two directives: an enforcing policy is evaluated
-    # without an endpoint, so they would be pure noise.
-    "report-uri /csp-report",
-    "report-to csp-endpoint",
   ])
 }
 
@@ -121,25 +113,18 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
       referrer_policy = "strict-origin-when-cross-origin"
       override        = true
     }
+
+    # ENFORCING as of SPEC-140 Phase 4, after a signed-in pass against the
+    # report-only deploy reported no violations — sign-in and the Query editor
+    # running a statement included, which is the path exercising Monaco's
+    # worker, its runtime style injection and the Athena/Glue endpoints.
+    content_security_policy {
+      content_security_policy = local.content_security_policy
+      override                = true
+    }
   }
 
   custom_headers_config {
-    # Phase 2 ships the CSP in report-only form. Phase 4 moves this value into
-    # security_headers_config.content_security_policy and drops this header.
-    items {
-      header   = "Content-Security-Policy-Report-Only"
-      value    = local.content_security_policy
-      override = true
-    }
-
-    # Names the group the CSP's `report-to` refers to. Report-only scaffolding;
-    # removed in Phase 4 alongside the two report-* directives.
-    items {
-      header   = "Reporting-Endpoints"
-      value    = "csp-endpoint=\"/csp-report\""
-      override = true
-    }
-
     # No first-class CloudFront field exists for these three.
     items {
       header   = "Permissions-Policy"
