@@ -619,7 +619,13 @@ jobs:
           # The action opens a GitHub issue per run by default. On a report-only baseline
           # that is a weekly issue restating the same response headers.
           allow_issue_writing: false
-          cmd_options: '-a -J zap-report.json'
+          # NO `-J` HERE. The action already passes `-J report_json.json` and appends
+          # cmd_options after it, so a second `-J` wins on argparse and the file the
+          # action then reads back is never written — it fails the step with "File
+          # report_json.json does not exist", *outside* the `fail_action` guard. That
+          # is what reddened the 2026-08-03 scan, which had otherwise completed
+          # cleanly (FAIL-NEW: 0, WARN-NEW: 15). `-a` alone is what we actually want.
+          cmd_options: '-a'
           fail_action: false
 
       - name: Summarize
@@ -627,7 +633,7 @@ jobs:
         run: |
           count=0
           : > body.md
-          report=$(find . -name 'zap-report.json' -o -name 'report_json.json' | head -1)
+          report=report_json.json
           if [ -n "$report" ] && [ -s "$report" ]; then
             count=$(jq '[.site[]?.alerts[]?] | length' "$report")
             if [ "$count" -gt 0 ]; then
@@ -651,7 +657,6 @@ jobs:
         with:
           name: zap
           path: |
-            zap-report.json
             report_html.html
             report_json.json
             report_md.md
