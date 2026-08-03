@@ -1,7 +1,7 @@
 # Spec: CloudFront Response Headers Policy
 
 **ID:** SPEC-140
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-138 (security scanning — produced the findings), SPEC-139 (rendered-plan IaC scan)
 
