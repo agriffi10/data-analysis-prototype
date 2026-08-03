@@ -140,6 +140,11 @@ rather than implying automated collection.
 
 - [ ] `Strict-Transport-Security: max-age=31536000; includeSubDomains` — `preload` is **not** set
       (the domain is a shared `*.cloudfront.net`; preloading it is not ours to request).
+      **This fails Checkov `CKV_AWS_259`, accepted deliberately.** `preload` is the *only* thing
+      that check objects to — max-age, `include_subdomains` and `override` all satisfy it (verified
+      against checkov 3.3.9). Emitting `preload` without submitting to hstspreload.org would make
+      the header assert an intent we do not have, on a domain a custom domain will replace. Revisit
+      when that custom domain lands.
 - [ ] `X-Frame-Options: DENY`, alongside `frame-ancestors 'none'` from FR-002.
 - [ ] `X-Content-Type-Options: nosniff`.
 - [ ] `Referrer-Policy: strict-origin-when-cross-origin`.
@@ -220,6 +225,11 @@ the gap stop reporting it.
 #### Acceptance Criteria
 
 - [ ] Checkov no longer reports `CKV2_AWS_32` against the distribution.
+- [ ] The only **new** Checkov finding introduced by the policy is `CKV_AWS_259` (the accepted
+      `preload` decision in FR-004), recorded in `docs/security-baseline.md`. Any other new check
+      failing on `aws_cloudfront_response_headers_policy.portal` is a real regression, not noise —
+      note that the total failure count is a poor signal here, since CKV2_AWS_32 clearing and
+      CKV_AWS_259 appearing cancelled out at 305.
 - [ ] A dispatched `Security` run shows ZAP with **zero Medium** findings and **zero Low** findings
       other than the two accepted in `docs/security-baseline.md` (COEP, Timestamp Disclosure).
 - [ ] `FAIL-NEW` remains 0 and no **new** alert class appears that was not in the 2026-08-03 baseline.
