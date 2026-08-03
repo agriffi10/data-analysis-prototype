@@ -173,6 +173,13 @@ module "app" {
   source = "./modules/app"
 
   project_name = var.project_name
+
+  # CSP connect-src inputs (SPEC-140). Constructed strings from locals, NOT
+  # module.data/module.shared_spaces outputs — this module is upstream of
+  # base -> data, so a module reference here would be a dependency cycle.
+  aws_region               = var.aws_region
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
 }
 
 module "base" {
