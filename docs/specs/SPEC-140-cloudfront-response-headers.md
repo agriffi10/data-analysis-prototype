@@ -1,7 +1,7 @@
 # Spec: CloudFront Response Headers Policy
 
 **ID:** SPEC-140
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-138 (security scanning — produced the findings), SPEC-139 (rendered-plan IaC scan)
 
@@ -42,12 +42,12 @@ that risk before enforcement, not around writing the policy.
 
 ### Out of Scope
 
-- **`Cache-Control` and the cache-behavior split.** The SPA shell is currently served with no
-  `Cache-Control` under `Managed-CachingOptimized`, so a deploy can be shadowed by a stale
-  `index.html` for up to 24h. That is a real correctness bug and it produces three of ZAP's
-  Informational findings — but it is a *cache policy* change (a second behavior splitting hashed
-  `/assets/*` from `index.html`), not a headers-policy change, and conflating them risks breaking
-  asset caching while chasing header hygiene. Separate spec.
+- **`Cache-Control`.** The SPA shell is served with no `Cache-Control` at all, which produces three
+  of ZAP's Informational findings and a real correctness bug underneath them. Split out as
+  **SPEC-141**. *(This bullet originally claimed a 24h stale-shell window via
+  `Managed-CachingOptimized`'s default TTL. That is wrong — `deploy-app.yml:63` already invalidates
+  `/*` on every deploy. SPEC-141 corrects it: the bug is browser-side heuristic caching combined
+  with `--delete`, which invalidation cannot reach.)*
 - **`Cross-Origin-Embedder-Policy`.** Deliberately not set — see FR-006.
 - **CloudFront WAF, access logging, custom domain / TLS cert, geo restriction** — the other Checkov
   CloudFront rows, all previously dispositioned `defer` or `accept` in `docs/security-baseline.md`.
@@ -248,8 +248,16 @@ the gap stop reporting it.
       failing on `aws_cloudfront_response_headers_policy.portal` is a real regression, not noise —
       note that the total failure count is a poor signal here, since CKV2_AWS_32 clearing and
       CKV_AWS_259 appearing cancelled out at 305.
-- [ ] A dispatched `Security` run shows ZAP with **zero Medium** findings and **zero Low** findings
-      other than the two accepted in `docs/security-baseline.md` (COEP, Timestamp Disclosure).
+- [ ] A dispatched `Security` run shows ZAP with **zero Low** findings other than the two accepted in
+      `docs/security-baseline.md` (COEP, Timestamp Disclosure), and **zero Medium other than
+      `CSP: style-src unsafe-inline`**.
+
+      *Amended after the Phase 5 run.* This criterion originally said zero Medium outright. That was
+      written before knowing ZAP grades the CSP we add: rule 10055 flags the `'unsafe-inline'` in
+      `style-src`, which FR-002 requires for Monaco's runtime style injection and which Out of Scope
+      already accepted. Removing it needs per-response nonces — impossible on a static S3+CloudFront
+      origin without Lambda@Edge. Recorded as an amendment rather than left as a criterion quietly
+      not met; `script-src` carries no such allowance, which is the one that matters.
 - [ ] `FAIL-NEW` remains 0 and no **new** alert class appears that was not in the 2026-08-03 baseline.
 - [ ] `docs/security-baseline.md` is updated with the post-fix counts.
 
