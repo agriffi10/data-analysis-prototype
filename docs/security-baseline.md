@@ -25,7 +25,7 @@ CI run reproduces them.
 | Lambda deps | `pip-audit`, 13 packages | 0 |
 | Repo | `gitleaks`, 357 commits / 9.5 MB | **0** |
 | `infra/` | `checkov`, 224 resources | 305 failed / 439 passed / 0 parse errors |
-| Deployed portal | OWASP ZAP baseline | **2026-08-03** — 0 fail / 20 alerts (2 Medium, 8 Low, 10 Informational) / 55 rules passed |
+| Deployed portal | OWASP ZAP baseline | **2026-08-03** — 20 alerts (2 Medium, 8 Low) → **13 after SPEC-140** (1 Medium, 2 Low, 10 Informational); 0 fail throughout |
 
 ## Coverage gaps — these are not findings, they are things nothing here checks
 
@@ -185,10 +185,28 @@ clean, and here a scanner that *did* run read as broken.**
 | Info | Modern Web Application | 3 | **accept** — informational by design; fires on any SPA. |
 | Info | Sec-Fetch-{Dest,Mode,Site,User} Header Missing | 12 | **accept — not a server finding.** These are *request* headers; the alert fires because ZAP's spider does not send them. Nothing on the origin can fix it. |
 
-**Two scanners, one cause:** every Medium and six of the eight Lows are the CKV2_AWS_32 gap above.
-SPEC-140 closes both rows at once. Two findings survive it by decision (COEP, timestamp
-disclosure), so **a green ZAP run will never be zero-alert** — the target is zero Medium and zero
-Low other than those two.
+**Two scanners, one cause:** every Medium and six of the eight Lows were the CKV2_AWS_32 gap above.
+SPEC-140 closed both rows at once. **A green ZAP run will never be zero-alert** — the Informational
+rows stay, and three findings survive by decision.
+
+### Post-SPEC-140 (run [30830319012](https://github.com/agriffi10/data-analysis-prototype/actions/runs/30830319012), enforcing CSP)
+
+**20 alerts → 13.** Cleared: CSP-not-set, Missing Anti-clickjacking, HSTS, X-Content-Type-Options,
+Permissions-Policy, COOP, CORP, and the `Server` banner — replacing `AmazonS3` with CloudFront's own
+value is enough for rule 10036, which had been an open question.
+
+What remains, and why:
+
+| Risk | Alert | Disposition |
+|---|---|---|
+| **Medium** | `CSP: style-src unsafe-inline` | **accept — NEW, and introduced by the fix.** ZAP grades the CSP we added. `'unsafe-inline'` in `style-src` is monaco-editor's requirement (it injects `<style>` at runtime); removing it needs per-response nonces, impossible on a static S3+CloudFront origin without Lambda@Edge. **`script-src` carries no such allowance**, which is the one that matters — this is a CSS-injection weakening, not a script one, and it needs an existing HTML injection vector to exploit. SPEC-140 FR-009 was amended to name it rather than leave a criterion quietly unmet. |
+| Low | Cross-Origin-Embedder-Policy | accept — unchanged, see above |
+| Low | Timestamp Disclosure — Unix | accept — unchanged, bundle noise |
+| Info | ×10 rows | unchanged; the cache rows are **SPEC-141** |
+
+**The lesson worth keeping:** fixing a finding can create one. The total dropping 20 → 13 is the
+real improvement, but "zero Medium" was never reachable once we shipped a CSP with a style
+allowance — and the criterion that said so was written before we knew ZAP would grade our own work.
 
 ---
 

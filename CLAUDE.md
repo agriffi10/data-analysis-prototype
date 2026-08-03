@@ -68,28 +68,29 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — SPEC-140 (Draft, not started): the CloudFront response-headers policy.** The
-observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What
-remains is the live checks below.
+**Current work — SPEC-141 (Draft, not started): `Cache-Control` for the shell and hashed assets.**
+The observability arc (127→137) is COMPLETE. SPEC-140 is COMPLETE — the portal now ships an
+enforcing CSP and the full security header set. What remains is the live checks below.
 
-- **SPEC-140 is written and ready to build.** It closes CKV2_AWS_32 and the ZAP header findings
-  together. Two traps it already owns: the deploy role has **no** `cloudfront:*ResponseHeadersPolicy`
-  action today, so Phase 1 is an IAM-only apply; and the CSP ships **Report-Only first** because a
-  wrong `worker-src`/`style-src` breaks the Monaco Query editor in production only. Two ZAP findings
-  survive it **by decision** (COEP, timestamp disclosure) — a zero-alert ZAP run is not the target.
+- **SPEC-141 is written and ready to build**, and it is a **browser**-cache bug, not a CDN one:
+  `deploy-app.yml` already invalidates `/*`, so the CDN is fine. Nothing carries `Cache-Control`, so
+  browsers apply heuristic freshness to `index.html`; combined with `sync --delete` removing the old
+  hashed bundles, a returning browser can request a chunk that no longer exists — **a white screen,
+  not stale content**. Fix is `deploy-app.yml` only; no Terraform, no IAM. The trap it owns: `--delete`
+  treats `--exclude`'d files as absent and will delete `index.html` from the bucket.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
   and **have now been flipped to `block` (2026-08-02)**. `react-router` is on 7.18.2, which cleared
   four of its five advisories including the open redirect; the survivor is an **RSC-mode** issue
-  needing a **v8 major**, accepted as inapplicable to a client-only SPA. Still open: four Checkov
-  fixes (S3 versioning, multipart-abort lifecycle, CloudFront response-headers policy, Athena
-  workgroup enforcement) plus the build-time `postcss` / `brace-expansion` bumps. **The first ZAP
-  baseline ran 2026-08-03** — 0 fail / 2 Medium / 8 Low / 55 passed, all recorded with dispositions
-  in `security-baseline.md`; the CloudFront row is now SPEC-140. Its scheduled run went red for a
-  **workflow** reason with no security content (a duplicate `-J` broke the action's report read-back,
-  outside the `fail_action` guard — #327): a scanner that ran can still read as broken, which is the
-  mirror of this file's "did not run is never clean" rule.
+  needing a **v8 major**, accepted as inapplicable to a client-only SPA. Still open: **three** Checkov
+  fixes (S3 versioning, multipart-abort lifecycle, Athena workgroup enforcement — the CloudFront one
+  closed with SPEC-140) plus the build-time `postcss` / `brace-expansion` bumps. **ZAP now stands at
+  13 alerts (1 Medium, 2 Low, 10 Info), down from 20**, every remaining non-Info row accepted with
+  reasoning in `security-baseline.md`. Its first scheduled run went red for a **workflow** reason with
+  no security content (a duplicate `-J` broke the action's report read-back, outside the
+  `fail_action` guard — #327): a scanner that ran can still read as broken, the mirror of this file's
+  "did not run is never clean" rule.
 - **SPEC-139 closed the IAM blind spot, and the isolation model came back clean.** 431 IAM checks
   against 55 resources on the rendered plan; `portal-role-permissions` has zero `Resource: "*"`.
   **The event-source-mapping findings are fixed (2026-08-02):** the DLQ drain's grant was dead
@@ -172,6 +173,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Responsive (095):** mobile-first, only `tablet:` (≥900) / `desktop:` (≥1300) compile; reflow on **one** tree (a `*Mobile`/`*Desktop` twin is a smell); `useIsMobile` for mount-gating only, never styling.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
+- **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + HSTS (no `preload`) + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped. CSP built from **variables** (root locals, not module outputs — `modules/app` is upstream of `base → data`); `connect-src` **is** the app's network surface. **Report-only first**, always: it caught the Google-Fonts `@import` and Safari's refusal to evaluate an endpoint-less report-only policy. Verify a CSP with a **same-origin page script + a negative control** — CDP eval bypasses page CSP. Three findings **accepted, not silenced** (COEP, `preload`/`CKV_AWS_259`, `style-src 'unsafe-inline'` for Monaco). **Diff findings per check ID, never by total** — 140 saw both scanners' counts mislead.
 - **Security scanning (138):** `security.yml` runs Semgrep / `npm audit` ×2 scopes / `pip-audit` / gitleaks / Checkov / ZAP, all **`report`** via one `GATE_*` value each (bad value = hard error); the two ESLint security plugins run in the **blocking** lint instead. Every scanner **version-pinned** (#311). "Did not run" is never "clean" — a broken scanner fails the job even under `report`. No CodeQL/Security tab (private repo, personal account). Checkov cannot see `.tftpl` IAM. Findings + dispositions: `docs/security-baseline.md`.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead — 431 IAM checks / 55 resources. Renaming `.tftpl`→`.json` was **measured and rejected** (Checkov ignores standalone policy files entirely). The scan **asserts its own coverage** and fails if IAM resources are present but no IAM check ran. Isolation policies are clean; the 6 findings are deploy-role non-scopable `lambda:*EventSourceMapping`.
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and the next refresh needs the permission the pending change restores, so plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input (`-refresh=false`) to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent. Fallback: out-of-band `put-role-policy`.
