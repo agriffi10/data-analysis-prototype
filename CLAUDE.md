@@ -83,9 +83,13 @@ enforcing CSP and the full security header set. What remains is the live checks 
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
   and **have now been flipped to `block` (2026-08-02)**. `react-router` is on 7.18.2, which cleared
   four of its five advisories including the open redirect; the survivor is an **RSC-mode** issue
-  needing a **v8 major**, accepted as inapplicable to a client-only SPA. Still open: **three** Checkov
-  fixes (S3 versioning, multipart-abort lifecycle, Athena workgroup enforcement — the CloudFront one
-  closed with SPEC-140) plus the build-time `postcss` / `brace-expansion` bumps. **ZAP now stands at
+  needing a **v8 major**, accepted as inapplicable to a client-only SPA. The build-time `postcss` /
+  `brace-expansion` advisories are **fixed (2026-08-03)** — both resolved by `npm update` inside the
+  existing caret ranges, no `package.json` change and no `overrides` needed; npm audit 6 → 4, and the
+  two remaining highs are the accepted `react-router` pair. Still open: **two** Checkov fixes
+  (multipart-abort lifecycle, Athena workgroup enforcement). **S3 versioning is deferred by decision
+  (2026-08-03)** — pre-production, no real user data. Revisit before any real data lands, because the
+  exposure it covers is unrecoverable loss on a failed `CopyObject`+`DeleteObject`. **ZAP now stands at
   13 alerts (1 Medium, 2 Low, 10 Info), down from 20**, every remaining non-Info row accepted with
   reasoning in `security-baseline.md`. Its first scheduled run went red for a **workflow** reason with
   no security content (a duplicate `-J` broke the action's report read-back, outside the
@@ -111,14 +115,10 @@ enforcing CSP and the full security header set. What remains is the live checks 
   split needs and had nowhere else.** Full account: the Correction section of 137's delivery doc.
   **Still owed live: 137's Phase 4** — sign up one test user, confirm the trigger succeeds and
   `logs/service=auth/` carries both spans.
-- **ONE LIVE RUN DISCHARGES FOUR DEBTS.** A real data-quality check started **from the UI** is
-  owed by **114** (`reportKey` seeding), **123** (the index CAS), **128** (FR-002's `request_id`
-  join key) and **129** (the append at real volume — every sweep so far has appended 2 events),
-  and it is **132's Phase 4** (the nine traces carry the narrative, join on `request_id`, and a
-  successful run contains **no** `error` events). The 2026-07-23 probe cannot stand in for it: its
-  synthetic payloads were **rejected at validation**, so no run executed and `request_id` was
-  correctly absent from every span.
-- **Also owed live:** **125**'s shared-space smoke run (create → add-member → leave → delete; a
+- **DISCHARGED (2026-08-03): the data-quality live run.** A real check was run end to end from the
+  UI, clearing what **114** (`reportKey` seeding), **123** (the index CAS), **128** (`request_id` as
+  the join key), **129** (the append at real volume) and **132's Phase 4** all owed.
+- **Still owed live:** **125**'s shared-space smoke run (create → add-member → leave → delete; a
   shared layer's import-time `_require` fails at **cold start**, PR #196 — **134's narrative makes
   that run far more legible**, and the two should be done together), and **133's Phase 5**: a
   malformed message on one request DLQ, confirming the user is notified, the message is gone, and
@@ -173,7 +173,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Responsive (095):** mobile-first, only `tablet:` (≥900) / `desktop:` (≥1300) compile; reflow on **one** tree (a `*Mobile`/`*Desktop` twin is a smell); `useIsMobile` for mount-gating only, never styling.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
-- **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + HSTS (no `preload`) + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped. CSP built from **variables** (root locals, not module outputs — `modules/app` is upstream of `base → data`); `connect-src` **is** the app's network surface. **Report-only first**, always: it caught the Google-Fonts `@import` and Safari's refusal to evaluate an endpoint-less report-only policy. Verify a CSP with a **same-origin page script + a negative control** — CDP eval bypasses page CSP. Three findings **accepted, not silenced** (COEP, `preload`/`CKV_AWS_259`, `style-src 'unsafe-inline'` for Monaco). **Diff findings per check ID, never by total** — 140 saw both scanners' counts mislead.
+- **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + HSTS (no `preload`) + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped. CSP built from **variables** (root locals, not module outputs — `modules/app` is upstream of `base → data`); `connect-src` **is** the app's network surface. **Report-only first**, always: it caught the Google-Fonts `@import` and Safari's refusal to evaluate an endpoint-less report-only policy. Verify a CSP with a **same-origin page script + a negative control** — CDP eval bypasses page CSP. Two findings **accepted, not silenced** (COEP, `style-src 'unsafe-inline'` for Monaco); `preload` was flipped on 2026-08-03, clearing `CKV_AWS_259` — it is inert without an hstspreload.org submission, so **never submit this `*.cloudfront.net` domain**. **Diff findings per check ID, never by total** — 140 saw both scanners' counts mislead.
 - **Security scanning (138):** `security.yml` runs Semgrep / `npm audit` ×2 scopes / `pip-audit` / gitleaks / Checkov / ZAP, all **`report`** via one `GATE_*` value each (bad value = hard error); the two ESLint security plugins run in the **blocking** lint instead. Every scanner **version-pinned** (#311). "Did not run" is never "clean" — a broken scanner fails the job even under `report`. No CodeQL/Security tab (private repo, personal account). Checkov cannot see `.tftpl` IAM. Findings + dispositions: `docs/security-baseline.md`.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead — 431 IAM checks / 55 resources. Renaming `.tftpl`→`.json` was **measured and rejected** (Checkov ignores standalone policy files entirely). The scan **asserts its own coverage** and fails if IAM resources are present but no IAM check ran. Isolation policies are clean; the 6 findings are deploy-role non-scopable `lambda:*EventSourceMapping`.
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and the next refresh needs the permission the pending change restores, so plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input (`-refresh=false`) to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent. Fallback: out-of-band `put-role-policy`.

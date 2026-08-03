@@ -1,7 +1,7 @@
 # Spec: File Converter — The Athena `UNLOAD` Path
 
 **ID:** SPEC-118
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (foundation, incl. the polling loop + the workgroup env vars), SPEC-116 (authorization + S3 grants), SPEC-117 (the manifest + target schema), SPEC-032 (Athena/Glue/LF), SPEC-069/070 (table-builder's DDL + projection machinery, reused here)
 

@@ -1,7 +1,7 @@
 # Spec: File Converter — "Create table from the converted files" (chain to Table Builder)
 
 **ID:** SPEC-122
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-115→121 (the file-converter arc must work end to end first), SPEC-066→072 (Table Builder — this spec extends its request contract), SPEC-058 (notifications)
 

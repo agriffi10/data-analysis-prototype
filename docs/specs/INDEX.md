@@ -120,14 +120,14 @@ Add a row when a spec is created; update its status on completion (status only �
 | 112 — Data Quality: byte-scan + Report Assembly | Completed |
 | 113 — Data Quality: File-Browser UI + Report View | Completed |
 | 114 — Data Quality: Notification Producer | Completed |
-| 115 — File Converter: Foundation Infrastructure + Layers + Athena Workgroup | Draft |
-| 116 — File Converter: Request Contract, Enqueue & validate-authorize | Draft |
-| 117 — File Converter: Source Inspection + Schema Reconciliation | Draft |
-| 118 — File Converter: The Athena UNLOAD Path | Draft |
-| 119 — File Converter: finalize + Terminal States | Draft |
-| 120 — File Converter: File-Browser UI | Draft |
-| 121 — File Converter: Notification Producer | Draft |
-| 122 — File Converter: Create Table From Converted Files (chain to Table Builder) | Draft |
+| 115 — File Converter: Foundation Infrastructure + Layers + Athena Workgroup | Cancelled |
+| 116 — File Converter: Request Contract, Enqueue & validate-authorize | Cancelled |
+| 117 — File Converter: Source Inspection + Schema Reconciliation | Cancelled |
+| 118 — File Converter: The Athena UNLOAD Path | Cancelled |
+| 119 — File Converter: finalize + Terminal States | Cancelled |
+| 120 — File Converter: File-Browser UI | Cancelled |
+| 121 — File Converter: Notification Producer | Cancelled |
+| 122 — File Converter: Create Table From Converted Files (chain to Table Builder) | Cancelled |
 | 123 — Data Quality: Runs Dashboard (`/data-quality` list + nav + runs index) | Completed |
 | 124 — Data Quality: Start a Check from the Dashboard (space + folder/file target picker) | Completed |
 | 125 — Fold `shared-space-common` onto the `cpcommon` layer | Completed |

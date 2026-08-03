@@ -1,7 +1,7 @@
 # Spec: File Converter — File-Browser "Convert to Parquet" UI
 
 **ID:** SPEC-120
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-116 (enqueue service + contract), SPEC-118/119 (the pipeline actually converts), SPEC-095 (responsive foundation), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help content)
 

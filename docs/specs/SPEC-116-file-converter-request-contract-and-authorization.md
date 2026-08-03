@@ -1,7 +1,7 @@
 # Spec: File Converter — Request Contract, Browser Enqueue & `validate-authorize`
 
 **ID:** SPEC-116
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-07-13
 **Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (file-converter foundation), SPEC-056 (shared-space access model)
 

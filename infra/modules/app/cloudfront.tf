@@ -83,20 +83,21 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
     strict_transport_security {
       access_control_max_age_sec = 31536000
       include_subdomains         = true
-      # `preload` is deliberately NOT set, and this FAILS Checkov CKV_AWS_259 —
-      # the only thing that check objects to (max-age, include_subdomains and
-      # override all satisfy it; verified against checkov 3.3.9).
+      # `preload` satisfies Checkov CKV_AWS_259, which objects to nothing else
+      # (max-age, include_subdomains and override all pass it already).
       #
-      # Accepted rather than silenced. The directive is a declaration of intent
-      # to be submitted to hstspreload.org, which we are not doing; this is a
-      # shared-suffix *.cloudfront.net name that a custom domain will replace
-      # (CKV2_AWS_42 is already accepted for that same reason); and preload is
-      # close to irreversible once granted. Asserting it here would make the
-      # header say something untrue to buy a green check.
+      # It is INERT on its own: browsers act on the preload list, and entry to
+      # that list requires a manual submission at hstspreload.org that we have
+      # not made and are not making. So this directive changes no behaviour
+      # today — it states an intent, and the cost of stating it is that someone
+      # could act on it later.
       #
-      # Revisit when a custom domain lands — at that point preload becomes a
-      # real choice rather than a scanner-appeasing one.
-      preload  = false
+      # THE ONE THING TO KNOW: preload is close to irreversible once granted,
+      # and this is a shared-suffix *.cloudfront.net name that a custom domain
+      # will eventually replace (see CKV2_AWS_42). Do NOT submit this domain to
+      # hstspreload.org. When the custom domain lands, decide submission there
+      # on its own merits.
+      preload  = true
       override = true
     }
 

@@ -60,8 +60,8 @@ The runtime/build split is the whole point of auditing at two scopes.
 | medium | `react-router` | **runtime** | GHSA-wrjc-x8rr-h8h6 — open redirect via backslash in `<Link>`/`useNavigate` | **fix**, see below |
 | medium | `dompurify` | runtime (via monaco) | GHSA-cmwh-pvxp-8882 — `ALLOWED_ATTR` pollution | **defer** |
 | low | `dompurify` | runtime (via monaco) | GHSA-c2j3-45gr-mqc4, GHSA-vxr8-fq34-vvx9 | **defer** |
-| high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | **fix** (cheap) |
-| high | `brace-expansion` | build | GHSA-mh99-v99m-4gvg — OOM via unbounded expansion | **fix** (cheap) |
+| high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | ~~fix~~ **DONE 2026-08-03** — 8.5.15 → 8.5.25 |
+| high | `brace-expansion` | build | GHSA-mh99-v99m-4gvg — OOM via unbounded expansion | ~~fix~~ **DONE 2026-08-03** — 5.0.7 → 5.0.9 |
 
 Notes that change the priority order:
 
@@ -82,6 +82,16 @@ Notes that change the priority order:
 - **`postcss` and `brace-expansion` are build-time.** Both exploits need untrusted input — a
   hostile stylesheet, a hostile glob — and both inputs are this repo's own source. Real supply-chain
   hygiene, no runtime exposure. Both have non-breaking fixes, so they are cheap to clear.
+
+  **Cleared 2026-08-03, and the mechanism is worth recording.** Neither needed a `package.json`
+  edit or an `overrides` block: `apps/portal` already declared `vite ^8.0.12` and `eslint ^10.3.0`,
+  caret ranges that *already permitted* the fixed transitives (vite 8.2.0 requires `postcss ^8.5.23`;
+  minimatch 10.2.6 requires `brace-expansion ^5.0.8`, resolving 5.0.9). The lockfile was simply
+  pinned to stale resolutions, so `npm update` inside the existing ranges was the whole fix —
+  lockfile-only, no manifest change. **An `overrides` block was tried first and silently did
+  nothing**, including for a deliberately invalid version string, so npm never re-resolved; reach
+  for `npm update` before `overrides` when the declared range already allows the fix. npm audit
+  6 → 4; the two remaining highs are the accepted `react-router` pair.
 
 ### Dependencies — Python
 
@@ -132,7 +142,7 @@ Grouped by rule; the count is the number of resources.
 | 32 | CKV_AWS_173 | Lambda env var encryption (CMK) | **defer** — env vars hold queue URLs and bucket names, not secrets. |
 | 32 | CKV_AWS_115 | Lambda reserved concurrency | **defer** — genuinely worth considering for SQS-fronted control planes. Follow-up. |
 | 32 | CKV_AWS_272 | Lambda code signing | **defer** — needs a signing profile and a deploy-pipeline change. |
-| 5 | CKV_AWS_21 | S3 versioning | **FIX** — the strongest finding here. S3 has no atomic move, so rename/move is `CopyObject` + `DeleteObject` (architecture.md, Known Constraints). Without versioning a failure between those two steps is unrecoverable user data loss. |
+| 5 | CKV_AWS_21 | S3 versioning | **DEFERRED (2026-08-03, user decision)** — pre-production, no real user data, so the exposure is theoretical today. The reasoning stands and does not expire: S3 has no atomic move, so rename/move is `CopyObject` + `DeleteObject` (architecture.md, Known Constraints), and without versioning a failure between those two steps is **unrecoverable user data loss**. **Revisit before any real data lands.** |
 | 5 | CKV_AWS_144 | Cross-region replication | **accept** — single-region system by design. |
 | 5 | CKV_AWS_145 | S3 KMS CMK | **defer** — SSE-S3 today. |
 | 5 | CKV_AWS_18 | S3 access logging | **defer** — cost vs. value; `logs/` already narrates control-plane activity. |
@@ -140,7 +150,7 @@ Grouped by rule; the count is the number of resources.
 | 4 | CKV_AWS_284 | Step Functions X-Ray | **accept** — same reasoning as CKV_AWS_50. |
 | 2 | CKV_AWS_300 | Abort incomplete multipart uploads | **FIX** — cheap lifecycle rule. Multipart upload is SPEC-020; an abandoned upload leaves orphaned parts that are billed and invisible. |
 | 1 | CKV2_AWS_32 | CloudFront response headers policy | ~~**FIX**~~ **CLEARED by SPEC-140** — was the CSP / HSTS / `X-Frame-Options` gap, and the one finding ZAP reported independently. Two scanners, one cause. |
-| 1 | CKV_AWS_259 | Response header policy enforces HSTS | **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
+| 1 | CKV_AWS_259 | Response header policy enforces HSTS | ~~accept~~ **FIXED 2026-08-03** — `preload` flipped to `true`, check passes. It is inert without a manual hstspreload.org submission, which we have not made; **do not submit this `*.cloudfront.net` domain**, since preload is near-irreversible and a custom domain will replace it. Original reasoning for declining, retained: **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
 | 1 | CKV_AWS_82 | Athena workgroup enforces configuration | **FIX** — cheap, and it stops a client overriding the result location or its encryption (SPEC-032/034). |
 | 1 | CKV_AWS_68 | CloudFront WAF | **defer** — real cost, and this is a pre-production system. |
 | 1 | CKV2_AWS_47 | WAF managed rules for Log4Shell | **accept** — follows from CKV_AWS_68; also no Java anywhere. |
