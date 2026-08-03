@@ -68,8 +68,15 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — none. The observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What remains is the live checks below.**
+**Current work — SPEC-140 (Draft, not started): the CloudFront response-headers policy.** The
+observability arc (127→137) is COMPLETE: every Lambda in the fleet emits structured narrative. What
+remains is the live checks below.
 
+- **SPEC-140 is written and ready to build.** It closes CKV2_AWS_32 and the ZAP header findings
+  together. Two traps it already owns: the deploy role has **no** `cloudfront:*ResponseHeadersPolicy`
+  action today, so Phase 1 is an IAM-only apply; and the CSP ships **Report-Only first** because a
+  wrong `worker-src`/`style-src` breaks the Monaco Query editor in production only. Two ZAP findings
+  survive it **by decision** (COEP, timestamp disclosure) — a zero-alert ZAP run is not the target.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
@@ -77,8 +84,12 @@ down elsewhere — when a spec closes, prune it rather than appending.**
   four of its five advisories including the open redirect; the survivor is an **RSC-mode** issue
   needing a **v8 major**, accepted as inapplicable to a client-only SPA. Still open: four Checkov
   fixes (S3 versioning, multipart-abort lifecycle, CloudFront response-headers policy, Athena
-  workgroup enforcement) plus the build-time `postcss` / `brace-expansion` bumps. **Still owed live: the first ZAP baseline**
-  — it runs only on the weekly schedule or by dispatch, so nothing has scanned the deployed origin yet.
+  workgroup enforcement) plus the build-time `postcss` / `brace-expansion` bumps. **The first ZAP
+  baseline ran 2026-08-03** — 0 fail / 2 Medium / 8 Low / 55 passed, all recorded with dispositions
+  in `security-baseline.md`; the CloudFront row is now SPEC-140. Its scheduled run went red for a
+  **workflow** reason with no security content (a duplicate `-J` broke the action's report read-back,
+  outside the `fail_action` guard — #327): a scanner that ran can still read as broken, which is the
+  mirror of this file's "did not run is never clean" rule.
 - **SPEC-139 closed the IAM blind spot, and the isolation model came back clean.** 431 IAM checks
   against 55 resources on the rendered plan; `portal-role-permissions` has zero `Resource: "*"`.
   **The event-source-mapping findings are fixed (2026-08-02):** the DLQ drain's grant was dead

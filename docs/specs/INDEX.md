@@ -145,6 +145,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 137 — Structured Logging: Instrument the Singleton Lambdas | Completed |
 | 138 — Security Scanning (SAST, dependencies, secrets, IaC, OWASP ZAP) | Completed |
 | 139 — IAM Policy Scanning (Checkov over the rendered plan JSON) | Completed |
+| 140 — CloudFront Response Headers Policy (CSP, HSTS, framing, header strip) | Draft |
 
 ## Arcs
 
