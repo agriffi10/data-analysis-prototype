@@ -32,6 +32,15 @@ _BODIES = {
     "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",
     "ddl_timeout": "creating the table failed. Please try again or contact the Administrator.",
     "malformed_event": "the request was malformed. Please try again.",
+    # Refresh-path reasons (SPEC-143). Deliberately create-shaped wording: failure_message()
+    # below still frames every outcome as a create, and SPEC-144 FR-009 owns teaching this
+    # layer to talk about refreshes. `not_implemented` gets no body — the SPEC-143 stub is
+    # an ASL Pass state, so nothing raises it in Python and nothing renders it.
+    "invalid_mode": "the request was malformed. Please try again.",
+    "partition_keys_not_refreshable": (
+        "a refresh keeps the table's existing partition keys - to change them, drop the "
+        "table and build it again."
+    ),
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the actor.
     "unexpected_error": "something went wrong. Please try again.",

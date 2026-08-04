@@ -1,8 +1,9 @@
 # ── table-builder module variables (SPEC-066) ────────────────────────────────
 # Bounded-context module for the "create table from a folder" control plane: a
 # DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
-# five single-task verb Lambdas (validate-authorize → check-table-absent →
-# inspect-source → infer-schema → execute-ddl). Mirrors the shared-spaces control
+# single-task verb Lambdas (validate-authorize → {check-table-absent |
+# load-table-definition} → inspect-source → infer-schema → execute-ddl, SPEC-143's two
+# branches over one shared spine). Mirrors the shared-spaces control
 # plane PATTERN (not its resources), but with PER-VERB least-privilege roles.
 #
 # SPEC-066 is FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no

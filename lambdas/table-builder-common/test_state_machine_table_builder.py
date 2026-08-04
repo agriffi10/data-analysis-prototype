@@ -1,0 +1,233 @@
+"""The table-builder machine's two branches over one shared spine (SPEC-143 FR-003).
+
+The repo-wide invariants — reachability, no throwing intrinsic in a Parameters block, the
+failure-seed rule — live in ``control-plane-common/test_state_machines_cpcommon.py`` and
+cover this machine along with the other three. What is asserted HERE is what only this
+machine has: that `mode` routes to the right verb on both sides, that the branch cannot
+strand an execution, and that the new Task carries the same retry contract as its
+siblings.
+
+Reads the deployed template rather than a copy, so drift fails rather than passes.
+Runnable under pytest or directly: python3 test_state_machine_table_builder.py.
+"""
+
+import json
+import os
+import re
+import sys
+
+import pytest
+
+_TFTPL = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+)
+
+#: The uniform Retry contract every Task state carries. The three middle names are
+#: `Lambda.`-prefixed IN THE SHIPPED ASL, and an unprefixed name matches nothing — a
+#: silently-never-retried Task looks identical to one that never needed retrying.
+_RETRY_ERRORS = [
+    "Lambda.ServiceException",
+    "Lambda.TooManyRequestsException",
+    "Lambda.AWSLambdaException",
+    "Lambda.SdkClientException",
+    "TransientError",
+]
+
+
+def _asl():
+    with open(_TFTPL) as handle:
+        return json.loads(re.sub(r"\$\{[^}]+\}", "ARN", handle.read()))
+
+
+def _states():
+    return _asl()["States"]
+
+
+def _matches(rule, state):
+    """Evaluate one Choice rule against ``state`` — the And/IsPresent/StringEquals subset."""
+    if "And" in rule:
+        return all(_matches(conjunct, state) for conjunct in rule["And"])
+    present = rule["Variable"] == "$.mode" and "mode" in state
+    if "IsPresent" in rule:
+        return present is rule["IsPresent"]
+    return present and state["mode"] == rule["StringEquals"]
+
+
+def _route(states, choice_name, state):
+    """Where ``choice_name`` sends ``state`` — its Default when no rule matches."""
+    choice = states[choice_name]
+    for rule in choice["Choices"]:
+        if _matches(rule, state):
+            return rule["Next"]
+    return choice["Default"]
+
+
+def _mode(mode):
+    """A threaded state carrying ``mode``, or carrying nothing when it is None."""
+    return {} if mode is None else {"mode": mode}
+
+
+def test_validate_authorize_hands_off_to_the_mode_router():
+    states = _states()
+
+    assert states["ValidateAuthorize"]["Next"] == "RouteByMode"
+    assert states["RouteByMode"]["Type"] == "Choice"
+
+
+def test_the_head_choice_routes_a_refresh_to_load_table_definition_and_all_else_to_create():
+    states = _states()
+
+    assert _route(states, "RouteByMode", _mode("refresh")) == "LoadTableDefinition"
+    assert _route(states, "RouteByMode", _mode("create")) == "CheckTableAbsent"
+
+
+def test_the_tail_choice_routes_a_refresh_away_from_execute_ddl():
+    """The whole safety property of shipping 143 before 144: a refresh reaches the
+    inspection verbs but CANNOT reach the state that issues DDL."""
+    states = _states()
+
+    assert states["InferSchema"]["Next"] == "RouteTailByMode"
+    assert _route(states, "RouteTailByMode", _mode("refresh")) == "RefreshNotImplemented"
+    assert _route(states, "RouteTailByMode", _mode("create")) == "ExecuteDdl"
+
+
+def test_an_absent_mode_reaches_the_create_path_rather_than_killing_the_execution():
+    """FR-003 AC2, and the reason each rule is an And with IsPresent rather than a bare
+    StringEquals.
+
+    A Choice rule whose Variable path is ABSENT raises States.Runtime — uncatchable, so
+    the execution dies with no recorded outcome and no notification. `Default` does not
+    cover that: it covers a value that is PRESENT and matches no rule. So the one input
+    Default exists for — an envelope from a producer that predates this spec, or a create
+    in flight while the infra and Lambda deploys land out of order — is exactly the input
+    that would have killed it.
+    """
+    states = _states()
+
+    assert _route(states, "RouteByMode", _mode(None)) == "CheckTableAbsent"
+    assert _route(states, "RouteTailByMode", _mode(None)) == "ExecuteDdl"
+
+
+def test_both_choices_declare_a_default_at_all():
+    """A Choice with no Default raises States.NoChoiceMatched, which also strands the
+    execution — a separate failure from the absent-field one above."""
+    states = _states()
+
+    assert states["RouteByMode"]["Default"] == "CheckTableAbsent"
+    assert states["RouteTailByMode"]["Default"] == "ExecuteDdl"
+
+
+def test_neither_choice_tests_anything_but_mode():
+    """A Choice that grew a second Variable would make the branch depend on state the
+    tests below don't model, and both branches share every downstream verb."""
+
+    def _variables(rule):
+        return {v for c in rule.get("And", [rule]) for v in [c["Variable"]]}
+
+    for name in ("RouteByMode", "RouteTailByMode"):
+        variables = {v for rule in _states()[name]["Choices"] for v in _variables(rule)}
+
+        assert variables == {"$.mode"}, f"{name} tests {variables}"
+
+
+def test_the_two_branches_rejoin_at_inspect_source_and_run_the_same_spine():
+    """FR-003 AC3 — the reason this arc adds no second control plane."""
+    states = _states()
+
+    assert states["CheckTableAbsent"]["Next"] == "InspectSource"
+    assert states["LoadTableDefinition"]["Next"] == "InspectSource"
+    assert states["InspectSource"]["Next"] == "InferSchema"
+
+
+def test_load_table_definition_carries_the_same_retry_and_catch_contract_as_its_siblings():
+    """FR-003 AC5. Compared against a SIBLING rather than a literal, so a fleet-wide change
+    to the retry contract cannot leave this one state silently behind."""
+    states = _states()
+    new, sibling = states["LoadTableDefinition"], states["CheckTableAbsent"]
+
+    assert new["Retry"] == sibling["Retry"]
+    assert new["Retry"][0]["ErrorEquals"] == _RETRY_ERRORS
+    assert new["Catch"] == [
+        {"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "RecordFailure"}
+    ]
+    assert new["OutputPath"] == "$.Payload"
+
+
+def test_the_not_implemented_stub_records_a_failure_instead_of_ending_the_execution():
+    """FR-008 AC1. A `Fail` state is the obvious spelling and the wrong one — it terminates
+    immediately, so the structured { status:'failed', … } outcome is never recorded and
+    nothing downstream can tell a refused refresh from a crashed one.
+
+    The stub instead produces exactly what a Task's Catch produces: an {Error, Cause}
+    object merged onto `$.error`, which RecordFailure already knows how to shape.
+    """
+    stub = _states()["RefreshNotImplemented"]
+
+    assert stub["Type"] == "Pass"
+    assert stub["ResultPath"] == "$.error"
+    assert stub["Next"] == "RecordFailure"
+    assert set(stub["Result"]) == {"Error", "Cause"}
+
+
+def test_the_stub_cause_decodes_to_the_reason_a_verb_would_have_raised():
+    """The Cause is hand-written JSON, so nothing but this test connects it to the decoder
+    that has to read it — and a malformed one degrades silently to the SFN error NAME."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
+    from cpcommon import errors
+
+    assert errors.failure_reason(_states()["RefreshNotImplemented"]["Result"]) == "not_implemented"
+
+
+def test_record_success_carries_the_mode_but_still_hard_codes_created():
+    """FR-003 AC7. Nothing before SPEC-144 can produce a refresh SUCCESS, so `status` is
+    deliberately untouched here — 144 FR-007 owns making it mode-dependent."""
+    parameters = _states()["RecordSuccess"]["Parameters"]
+
+    assert parameters["mode.$"] == "$.mode"
+    assert parameters["status"] == "created"
+
+
+def test_record_failure_is_unchanged_and_reads_no_mode():
+    """RecordFailure is reachable from ValidateFailureSeed, which seeds identity fields
+    BEFORE `mode` exists — a `$.mode` read there would hit an absent key and raise an
+    uncatchable States.Runtime on the failure path, where the user hears nothing."""
+    parameters = _states()["RecordFailure"]["Parameters"]
+
+    assert "mode.$" not in parameters
+    assert set(parameters) == {"requestId.$", "actor.$", "database.$", "tableName.$", "status", "error.$"}
+
+
+def _strings(value, key=None):
+    """Every string in a parsed state definition, skipping Comment prose."""
+    if key == "Comment":
+        return
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for name, nested in value.items():
+            yield from _strings(nested, name)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _strings(nested)
+
+
+def test_no_state_uses_states_stringtojson_anywhere_in_its_definition():
+    """FR-003 AC6, and stronger than the fleet-wide guard, which walks Parameters only.
+
+    Walks the PARSED states, not the raw template: the literal string already appears in
+    RecordFailure's Comment (explaining why the decode moved to Python, #252), so a
+    string-containment check over the file fails on day one against the shipped machine.
+    """
+    offenders = [
+        f"{name}: {found}"
+        for name, state in _states().items()
+        for found in _strings(state)
+        if "States.StringToJson" in found
+    ]
+
+    assert not offenders, f"States.Runtime is uncatchable anywhere: {offenders}"
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))

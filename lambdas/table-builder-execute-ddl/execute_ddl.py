@@ -77,6 +77,13 @@ def handler(event: dict, context) -> dict:
     logger.info("created table %s.%s for %s", database, event["tableName"], actor)
     out = dict(event)
     out["status"] = "created"
+    # RecordSuccess reads $.mode, and a Pass state's JSONPath raises an UNCATCHABLE
+    # States.Runtime on an absent key. Only a create reaches this verb, so defaulting here
+    # closes the one window where the key can be missing: an execution that starts after
+    # the state machine deploys but before validate-authorize's code does (the two run as
+    # separate workflows), which would otherwise die AFTER the table was created and the
+    # actor was told so.
+    out.setdefault("mode", "create")
     # Terminal success — tell the actor the table is ready (SPEC-072 FR-004).
     notify.emit_created(event)
     return out
