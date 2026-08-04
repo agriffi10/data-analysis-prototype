@@ -4,6 +4,21 @@ on:
   push:
     branches: [main]
 
+# SERIALIZE DEPLOYS. Without this, two merges close together run two jobs in parallel and
+# job A's "Reconcile deletions" pass lists assets/ at ITS execution time, deleting every
+# key absent from A's dist/ — including the chunks B has just uploaded — while B's
+# index.html is already live at the root. That is the exact white screen SPEC-141 exists to
+# fix, arriving by a different route. The window is not theoretical: the delete pass runs
+# ~47 s into the job.
+#
+# cancel-in-progress is FALSE, unlike security.yml's scanner runs. Cancelling a deploy
+# mid-sync leaves the bucket half-updated — a new index.html pointing at chunks the
+# cancelled job never uploaded — which is worse than the queueing it saves. Every push to
+# main must complete; the last one to run wins, which is the correct outcome for a deploy.
+concurrency:
+  group: deploy-app-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

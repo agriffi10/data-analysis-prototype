@@ -95,12 +95,13 @@ have. The site loads with a clean console.
 **Found by the fresh-context review, after merge:** the `--exclude`/`--delete` mechanism was stated
 **backwards** in four places (the workflow comment, this doc, the decision register, and the spec
 itself, which was the origin). Corrected against the CLI source; the implementation was never
-affected. A related gap the review also caught: a **missing `concurrency:` guard** on `Deploy App`.
-Two merges in quick succession run two jobs in parallel, and job A's delete pass can remove job B's
-freshly-uploaded chunks while B's `index.html` is already live — the same white screen this spec
-fixes. Pre-existing in kind, but the three-step split moves the delete decision two steps further
-from the upload and widens the window. **Not fixed here** — it is new scope, and `security.yml:19`
-shows the house pattern (`concurrency:`) to follow.
+affected. A related gap the review also caught, **now fixed**: `Deploy App` had no `concurrency:` guard, so
+two merges in quick succession ran two jobs in parallel and job A's delete pass could remove job B's
+freshly-uploaded chunks while B's `index.html` was already live — the same white screen this spec
+fixes, by a different route. Pre-existing in kind, but the three-pass split moved the delete two
+steps further from the upload. `cancel-in-progress` is **false**, unlike `security.yml`'s scanners:
+cancelling a deploy mid-sync leaves a new `index.html` pointing at chunks the cancelled job never
+uploaded, which is worse than the queueing it saves.
 
 **Not covered:** the `--delete` pass's deletion behaviour was not exercised — this build was
 byte-identical to the previous one, so there was nothing stale to remove. The next deploy that
