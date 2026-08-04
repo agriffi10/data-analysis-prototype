@@ -87,7 +87,7 @@ PLANES = [
     Plane(
         service="table-builder",
         glob="table-builder-*",
-        verb_count=6,
+        verb_count=7,
         notifies_on_failure=True,
         not_verbs=frozenset({"table-builder-common", "table-builder-polars"}),
     ),

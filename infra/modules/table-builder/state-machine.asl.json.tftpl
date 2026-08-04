@@ -180,10 +180,56 @@
             { "Variable": "$.mode", "IsPresent": true },
             { "Variable": "$.mode", "StringEquals": "refresh" }
           ],
-          "Next": "RefreshNotImplemented"
+          "Next": "DiffSchema"
         }
       ],
       "Default": "ExecuteDdl"
+    },
+    "DiffSchema": {
+      "Type": "Task",
+      "Comment": "SPEC-144. Classifies the change into added/removed/retyped/unchanged and enforces the removal opt-in. A removal without allowRemovals is a TERMINAL failure that changes nothing and names the columns in its notification — the refusal IS the warning. This verb also emits the no-change notification itself: the machine has no notification state, and on the unchanged path no Lambda runs after this one.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${diff_schema_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "RouteByChange"
+    },
+    "RouteByChange": {
+      "Type": "Choice",
+      "Comment": "An unchanged schema succeeds WITHOUT issuing any DDL — no drop, no create. IsPresent guards the read for the same reason the mode Choices do: a Choice rule whose Variable path is absent raises States.Runtime, which no Catch can catch.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.diff.changed", "IsPresent": true },
+            { "Variable": "$.diff.changed", "BooleanEquals": true }
+          ],
+          "Next": "RefreshNotImplemented"
+        }
+      ],
+      "Default": "RecordSuccess"
     },
     "RefreshNotImplemented": {
       "Type": "Pass",
@@ -229,14 +275,14 @@
     },
     "RecordSuccess": {
       "Type": "Pass",
-      "Comment": "Shape the terminal SUCCESS outcome SPEC-072 notifies from. The threaded object always carries these fields after execute-ddl. `status` stays the literal 'created' — only a create can reach this state before SPEC-144, which owns making it mode-dependent; `mode` rides alongside it so a reader of the record never has to infer which branch produced it.",
+      "Comment": "Shape the terminal SUCCESS outcome SPEC-072 notifies from. `status` is now THREADED rather than hard-coded (SPEC-144): execute-ddl sets 'created', diff-schema sets 'unchanged' on the no-op path, apply-refresh sets 'refreshed'. Every state that can reach here sets it — which it must, because a Pass state's JSONPath raises an UNCATCHABLE States.Runtime on an absent key, and it would raise it AFTER the work succeeded.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "database.$": "$.space.database",
         "tableName.$": "$.tableName",
         "mode.$": "$.mode",
-        "status": "created"
+        "status.$": "$.status"
       },
       "Next": "Succeeded"
     },

@@ -13,7 +13,7 @@ unknown value fails as a typed terminal here instead of falling through the stat
 machine's Choice default into a create.
 
 Emits the validated, normalized request the next states consume:
-{mode, actor, space, tableName, partitionKeys, location, requestId}.
+{mode, allowRemovals, actor, space, tableName, partitionKeys, location, requestId}.
 """
 
 import logging
@@ -64,6 +64,22 @@ def _validate_mode(mode):
     if mode not in ("create", "refresh"):
         raise TerminalError("invalid_mode", f"{mode!r}")
     return mode
+
+
+def _validate_allow_removals(flag, mode):
+    """Normalize the removal opt-in to a bool; it is meaningful only on a refresh.
+
+    Rejected rather than ignored when it rides a create: a request that asks for something
+    the mode cannot do is a producer bug, and silently dropping the flag would let a future
+    caller believe removals were opted into when nothing read the field.
+    """
+    if flag is None:
+        return False
+    if not isinstance(flag, bool):
+        raise TerminalError("removals_flag_not_applicable", f"allowRemovals must be a boolean, got {flag!r}")
+    if flag and mode != "refresh":
+        raise TerminalError("removals_flag_not_applicable", f"allowRemovals is not valid for mode {mode!r}")
+    return flag
 
 
 def _normalize_prefix(prefix):
@@ -165,6 +181,7 @@ def _validate_and_authorize(event) -> dict:
     # (best-effort) before the SFN Catch records it.
     try:
         mode = _validate_mode(req.get("mode"))
+        allow_removals = _validate_allow_removals(req.get("allowRemovals"), mode)
         # Runs identically for both modes: the catalog is not the authorization boundary,
         # so the prefix the producer BELIEVES the table points at is authorized here, and
         # load-table-definition re-checks the location it actually finds.
@@ -204,6 +221,7 @@ def _validate_and_authorize(event) -> dict:
     bucket = space.get("bucket")
     validated = {
         "mode": mode,
+        "allowRemovals": allow_removals,
         "actor": actor,
         "space": {
             "kind": space.get("kind"),
@@ -223,6 +241,7 @@ def _validate_and_authorize(event) -> dict:
     observability.info(
         "validated",
         mode=mode,
+        allow_removals=allow_removals,
         actor=actor,
         space=(space or {}).get("name"),
         database=(space or {}).get("database"),
