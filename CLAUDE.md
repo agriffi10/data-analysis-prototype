@@ -73,11 +73,16 @@ The observability arc (127→137) is COMPLETE. SPEC-140 and SPEC-141 are COMPLET
 an enforcing CSP, the full security header set, and explicit `Cache-Control` on every response.
 What remains is the live checks below.
 
-- **SPEC-141 left one manual cleanup and one untested path.** Its single `--delete` pass is scoped
-  to `assets/`, so **stale root-level objects are never removed** — `icons.svg` is one today and
-  needs a one-off `aws s3 rm s3://<static-bucket>/icons.svg`. And the first deploy was
-  byte-identical to its predecessor, so **the delete pass has never actually deleted anything**;
-  the next deploy that changes a bundle hash is its first real test.
+- **SPEC-141 left three things live.** (1) **`Deploy App` has no `concurrency:` guard** — two merges
+  close together run two jobs in parallel, and job A's delete pass can remove job B's freshly
+  uploaded chunks while B's `index.html` is already live: **the exact white screen 141 fixed**.
+  Pre-existing in kind, but the three-pass split moves the delete two steps further from the upload.
+  `security.yml:19` has the house pattern. (2) Its single `--delete` is scoped to `assets/`, so
+  **stale root-level objects are never removed** — `icons.svg` is one today, needing a one-off
+  `aws s3 rm s3://<static-bucket>/icons.svg`. That orphan class is a **spec choice, not a CLI
+  constraint** (see the decisions entry). (3) Both deploys since the split were byte-identical to
+  their predecessor, so **the delete pass has still never deleted anything**; the next deploy that
+  changes a bundle hash is its first real test.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —

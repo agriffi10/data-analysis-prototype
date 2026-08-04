@@ -75,7 +75,7 @@ jobs:
       # The consequence that shapes these passes: a pass that excludes a prefix can never
       # RECONCILE that prefix. `--delete --exclude 'assets/*'` would keep every stale chunk
       # forever. So one pass cannot both write a single --cache-control value and reconcile
-      # the whole bucket, and exactly one orphan class has to be accepted (see below).
+      # the whole bucket — which is why the deletions live on their own pass (see below).
       #
       # Scope by PREFIX (dist/assets/ -> s3://…/assets/) rather than by exclude, so each
       # pass owns a disjoint set of keys and no file is uploaded by more than one pass — a
@@ -89,12 +89,16 @@ jobs:
       # so a stale ROOT-level object (a favicon we stop shipping) is never removed from
       # the bucket and must be deleted by hand.
       #
-      # The other shape is real and was weighed: `sync dist/ s3://…/ --delete
-      # --exclude 'assets/*' --cache-control no-cache` reconciles root files while
-      # PROTECTING every asset key (see the interaction note above). It is not taken
-      # because it retains every superseded bundle forever, and SPEC-141 puts retaining
-      # them out of scope — bounding that growth needs an S3 lifecycle rule and a
-      # retention policy. Adopt it only WITH that rule, never instead of it.
+      # THAT IS A SPEC CHOICE, NOT A CLI CONSTRAINT, and the distinction matters because an
+      # earlier version of this comment presented it as the latter. Adding --delete to the
+      # shell pass above WOULD reconcile stale root objects, and --exclude would protect
+      # every asset key from that same deletion (verified against the CLI's dst_patterns);
+      # the assets pass below still reconciles chunks, so nothing would be retained. The
+      # only thing forbidding it is SPEC-141's acceptance criterion "exactly one sync pass
+      # carries --delete" — written on the mistaken reading of --exclude that this comment
+      # block now corrects. Revisit the AC deliberately if the manual cleanup becomes
+      # annoying; the cost to weigh is that a root-scoped --delete removes anything in the
+      # bucket not produced by dist/ (nothing else writes it today).
       - name: Sync hashed assets to S3 (immutable)
         run: |
           aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \

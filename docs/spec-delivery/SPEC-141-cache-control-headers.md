@@ -37,13 +37,15 @@ existed — **a white screen, not stale content**.
 
 ### Deliberate deviations
 
-- **The orphan class this tolerates: stale root-level objects.** Scoping the one `--delete` to
-  `assets/` means a root file we stop shipping is never removed. The alternative is real and was
-  weighed: `sync dist/ s3://…/ --delete --exclude 'assets/*' --cache-control no-cache` reconciles
-  root files while *protecting* every asset key. It is not taken because it retains every superseded
-  bundle forever, and the spec puts retaining them **out of scope** — bounding that growth needs an
-  S3 lifecycle rule and a retention policy. Adopt it only *with* that rule, never instead of it.
-  Named at the call site in `deploy-app.yml`.
+- **The orphan class this tolerates: stale root-level objects — and it is a spec choice, not a CLI
+  constraint.** Scoping the one `--delete` to `assets/` means a root file we stop shipping is never
+  removed. Adding `--delete` to the shell pass **would** reconcile those, with `--exclude`
+  protecting every asset key from that same deletion (verified by executing the CLI's filter), while
+  the assets pass still reconciles chunks — so nothing would be retained. What forbids it is the
+  spec's own AC, *"exactly one sync pass carries `--delete`"*, which was written on the mistaken
+  reading of `--exclude` corrected below. Left as-is here rather than changed silently: it alters
+  shipped deploy behaviour and widens `--delete`'s blast radius to anything in the bucket not
+  produced by `dist/` (nothing else writes it today). Named at the call site in `deploy-app.yml`.
 - **`icons.svg`'s bucket copy is now exactly that orphan.** It still serves 200 with no
   `Cache-Control`. Remove it once, by hand:
 
@@ -97,7 +99,7 @@ affected. A related gap the review also caught: a **missing `concurrency:` guard
 Two merges in quick succession run two jobs in parallel, and job A's delete pass can remove job B's
 freshly-uploaded chunks while B's `index.html` is already live — the same white screen this spec
 fixes. Pre-existing in kind, but the three-step split moves the delete decision two steps further
-from the upload and widens the window. **Not fixed here** — it is new scope, and `security.yml:20`
+from the upload and widens the window. **Not fixed here** — it is new scope, and `security.yml:19`
 shows the house pattern (`concurrency:`) to follow.
 
 **Not covered:** the `--delete` pass's deletion behaviour was not exercised — this build was

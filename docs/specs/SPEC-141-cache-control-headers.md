@@ -2,7 +2,7 @@
 
 **ID:** SPEC-141
 **Status:** Completed
-**Last Updated:** 2026-08-03
+**Last Updated:** 2026-08-04
 **Depends On:** SPEC-140 (response headers policy — shares `cloudfront.tf` and the deploy path)
 
 ## Overview
@@ -100,7 +100,7 @@ never be served from a browser cache without a revalidation round-trip.
 - [ ] A second request with `If-None-Match` returns `304`, confirming revalidation works rather than
       the header merely disabling caching outright.
 
-### FR-003: The sync cannot delete the shell
+### FR-003: The multi-pass sync reconciles safely
 
 #### Description
 
