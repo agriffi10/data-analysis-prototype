@@ -167,9 +167,10 @@ def test_record_success_threads_status_and_every_path_that_reaches_it_sets_one()
     predecessors = {
         name for name, state in states.items() if "RecordSuccess" in set(_targets(state))
     }
-    # ExecuteDdl sets "created"; RouteByChange is fed by DiffSchema, which sets "unchanged"
-    # on exactly the branch that reaches here. A new predecessor must set one too.
-    assert predecessors == {"ExecuteDdl", "RouteByChange"}, predecessors
+    # ExecuteDdl sets "created", ApplyRefresh sets "refreshed", and RouteByChange is fed by
+    # DiffSchema, which sets "unchanged" on exactly the branch that reaches here. A new
+    # predecessor must set one too.
+    assert predecessors == {"ExecuteDdl", "RouteByChange", "ApplyRefresh"}, predecessors
 
 
 def test_an_absent_mode_reaches_the_create_path_rather_than_killing_the_execution():
@@ -234,29 +235,28 @@ def test_load_table_definition_carries_the_same_retry_and_catch_contract_as_its_
     assert new["OutputPath"] == "$.Payload"
 
 
-def test_the_not_implemented_stub_records_a_failure_instead_of_ending_the_execution():
-    """FR-008 AC1. A `Fail` state is the obvious spelling and the wrong one — it terminates
-    immediately, so the structured { status:'failed', … } outcome is never recorded and
-    nothing downstream can tell a refused refresh from a crashed one.
+def test_the_stub_is_gone_and_apply_refresh_took_its_place():
+    """SPEC-143's not_implemented Pass existed to exercise the branch before it could
+    change anything. It is deleted here, not left unreachable — a dead state that once
+    meant "safe" is worse than none."""
+    states = _states()
 
-    The stub instead produces exactly what a Task's Catch produces: an {Error, Cause}
-    object merged onto `$.error`, which RecordFailure already knows how to shape.
-    """
-    stub = _states()["RefreshNotImplemented"]
-
-    assert stub["Type"] == "Pass"
-    assert stub["ResultPath"] == "$.error"
-    assert stub["Next"] == "RecordFailure"
-    assert set(stub["Result"]) == {"Error", "Cause"}
+    assert "RefreshNotImplemented" not in states
+    assert _route_by_change(states, _changed(True)) == "ApplyRefresh"
+    assert states["ApplyRefresh"]["Next"] == "RecordSuccess"
 
 
-def test_the_stub_cause_decodes_to_the_reason_a_verb_would_have_raised():
-    """The Cause is hand-written JSON, so nothing but this test connects it to the decoder
-    that has to read it — and a malformed one degrades silently to the SFN error NAME."""
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
-    from cpcommon import errors
+def test_apply_refresh_carries_the_same_retry_and_catch_contract_as_its_siblings():
+    """Compared against a SIBLING rather than a literal, so a fleet-wide change to the
+    retry contract cannot leave the one destructive verb behind."""
+    states = _states()
+    new_state, sibling = states["ApplyRefresh"], states["ExecuteDdl"]
 
-    assert errors.failure_reason(_states()["RefreshNotImplemented"]["Result"]) == "not_implemented"
+    assert new_state["Retry"] == sibling["Retry"]
+    assert new_state["Retry"][0]["ErrorEquals"] == _RETRY_ERRORS
+    assert new_state["Catch"] == [
+        {"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "RecordFailure"}
+    ]
 
 
 def test_record_success_still_carries_the_mode():

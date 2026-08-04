@@ -1,5 +1,5 @@
 {
-  "Comment": "Table-builder control plane (SPEC-070, extended by SPEC-143). TWO branches over ONE spine: validate-authorize → {check-table-absent | load-table-definition} → inspect-source → infer-schema → {execute-ddl → RecordSuccess → Succeeded | the SPEC-144 refresh tail}. inspect-source and infer-schema are SHARED by both and know nothing about mode — load-table-definition normalises the state into exactly what a create would have handed them (rewritten prefix, reconstructed declared partition keys), which is why a refresh needed a second entry verb rather than a flag. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the success twin, whose `status` is THREADED from the verb that produced it ('created' | 'unchanged' | 'refreshed'). A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
+  "Comment": "Table-builder control plane (SPEC-070, extended by SPEC-143). TWO branches over ONE spine: validate-authorize → {check-table-absent | load-table-definition} → inspect-source → infer-schema → {execute-ddl | diff-schema → apply-refresh} → RecordSuccess → Succeeded. inspect-source and infer-schema are SHARED by both and know nothing about mode — load-table-definition normalises the state into exactly what a create would have handed them (rewritten prefix, reconstructed declared partition keys), which is why a refresh needed a second entry verb rather than a flag. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the success twin, whose `status` is THREADED from the verb that produced it ('created' | 'unchanged' | 'refreshed'). A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -173,7 +173,7 @@
     },
     "RouteTailByMode": {
       "Type": "Choice",
-      "Comment": "SPEC-143. The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144's diff-schema, which classifies the change and enforces the removal opt-in; the apply behind it is still SPEC-143's not_implemented stub until SPEC-144 Phase 3 replaces it.",
+      "Comment": "SPEC-143. The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144: diff-schema classifies the change and enforces the removal opt-in, and apply-refresh rebuilds the table behind it.",
       "Choices": [
         {
           "And": [
@@ -226,7 +226,7 @@
             { "Variable": "$.diff.changed", "IsPresent": true },
             { "Variable": "$.diff.changed", "BooleanEquals": true }
           ],
-          "Next": "RefreshNotImplemented"
+          "Next": "ApplyRefresh"
         },
         {
           "And": [
@@ -248,15 +248,37 @@
       "ResultPath": "$.error",
       "Next": "RecordFailure"
     },
-    "RefreshNotImplemented": {
-      "Type": "Pass",
-      "Comment": "SPEC-143 FR-008 — REPLACED WHOLESALE BY SPEC-144. Shaped exactly like a Task Catch's output (a {Error, Cause} object merged onto $.error via ResultPath) so RecordFailure needs no special case and cpcommon.errors.failure_reason decodes 'not_implemented' from the Cause the same way it decodes a real verb's. A Fail state would have been the obvious spelling and is the wrong one: it ends the execution immediately, so the structured { status:'failed', reason } outcome would never be recorded. THE EQUIVALENCE IS TO THE RECORD, NOT TO THE NOTIFICATION: every user-facing message on this plane is emitted from inside a verb (notifies_on_failure), and a Pass runs no Lambda, so a refresh stopping here tells the user nothing. That is acceptable only because nothing but a hand-crafted SQS message can reach it before SPEC-144 replaces the state with a real verb.",
-      "Result": {
-        "Error": "TerminalError",
-        "Cause": "{\"errorType\":\"TerminalError\",\"errorMessage\":\"not_implemented: the refresh diff and apply land in SPEC-144\"}"
+    "ApplyRefresh": {
+      "Type": "Task",
+      "Comment": "SPEC-144. DROP TABLE IF EXISTS then CREATE EXTERNAL TABLE, both through Athena, in that order with nothing between them. The table is EXTERNAL, so the drop removes a catalog entry and no data object — the property the whole design rests on, and why the execution role keeps its explicit Deny on s3:DeleteObject. The window in which the table does not exist is NOT closed by the FIFO MessageGroupId: the Pipe starts executions FIRE_AND_FORGET, so the group id serializes delivery, not execution, and two requests on one database can overlap. Both statements carry an idempotency token so a Retry re-attaches rather than re-dropping.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${apply_refresh_function_arn}",
+        "Payload.$": "$"
       },
-      "ResultPath": "$.error",
-      "Next": "RecordFailure"
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "RecordSuccess"
     },
     "ExecuteDdl": {
       "Type": "Task",

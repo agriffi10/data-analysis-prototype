@@ -23,6 +23,7 @@ import logging
 import athena_run
 from cpcommon import config, observability
 from tbcommon import notify
+from tbcommon.results import results_location
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -31,14 +32,6 @@ logger.setLevel(logging.INFO)
 # they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
 # identity rides as the `verb` field.
 observability.init(service="table-builder")
-
-
-def _results_location(space, actor):
-    """The actor's Athena results prefix within the target space (SPEC-070 FR-001 /
-    architecture §5): ``s3://{bucket}/{database}/athenaresults/{actor}/``. Personal ⇒
-    the user's own prefix; shared ⇒ under the space's DB root, consistent with the
-    SPEC-055 shared-results routing (``{database}/athenaresults/{username}/``)."""
-    return f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"
 
 
 # @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
@@ -71,7 +64,7 @@ def handler(event: dict, context) -> dict:
         query=event["ddl"],
         database=database,
         workgroup=config.ATHENA_WORKGROUP,
-        output_location=_results_location(space, actor),
+        output_location=results_location(space, actor),
     )
 
     logger.info("created table %s.%s for %s", database, event["tableName"], actor)

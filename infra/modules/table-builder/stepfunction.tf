@@ -31,6 +31,7 @@ resource "aws_sfn_state_machine" "table_builder" {
     inspect_source_function_arn        = aws_lambda_function.functions["inspect-source"].arn
     infer_schema_function_arn          = aws_lambda_function.functions["infer-schema"].arn
     diff_schema_function_arn           = aws_lambda_function.functions["diff-schema"].arn
+    apply_refresh_function_arn         = aws_lambda_function.functions["apply-refresh"].arn
     execute_ddl_function_arn           = aws_lambda_function.functions["execute-ddl"].arn
   })
 
