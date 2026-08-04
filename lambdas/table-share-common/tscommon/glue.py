@@ -5,14 +5,19 @@ shape (base EXTERNAL_TABLE, flat or partition-projection) and captures its
 definition verbatim — columns, partition keys, SerDe/formats, carried
 TBLPROPERTIES — with LOCATION and catalog identity stripped (the recipient step
 sets its own, docs/architecture.md Control Planes -> Table Share).
+
+clone_definition MOVED to cpcommon.glue in SPEC-143 (the table-builder refresh path
+asks the catalog the same shape question) and is re-exported here unchanged, so every
+tscommon caller and test keeps working against ``glue_mod.clone_definition``. The two
+verbs below stay: their reason codes (source_not_found / target_not_readable) are
+table-share's own request vocabulary, not shape checks.
 """
 
-from cpcommon import clients, config, errors
+from cpcommon import clients, errors
 from cpcommon.errors import TerminalError, TransientError
+from cpcommon.glue import clone_definition  # re-export, SPEC-143 FR-004
 
-# Source-only parameters never carried into the clone: Hive bookkeeping and the
-# implicit EXTERNAL flag (the recipient CREATE re-establishes it).
-_EXCLUDED_PARAMETERS = frozenset({"transient_lastDdlTime", "EXTERNAL"})
+__all__ = ["clone_definition", "get_table", "table_exists"]
 
 
 def get_table(database: str, table: str) -> dict:
@@ -48,82 +53,3 @@ def table_exists(database: str, table: str) -> bool:
         if code == "AccessDeniedException":
             raise TerminalError("target_not_readable", f"{database}.{table}: {exc}") from exc
         raise TransientError(f"GetTable failed for {database}.{table}: {exc}") from exc
-
-
-def _parse_location(location: str) -> dict:
-    """Resolve the table LOCATION to a single listable prefix in a known bucket.
-
-    The rule (architecture §12, nailed here): it must parse as s3://bucket/prefix,
-    the bucket must be one of the two LF-registered data buckets, and the prefix is
-    normalized to a trailing slash (an object-level LOCATION simply lists empty and
-    fails as source_empty downstream).
-    """
-    if not isinstance(location, str) or not location.startswith("s3://"):
-        raise TerminalError("source_location_unsupported", f"unresolvable LOCATION {location!r}")
-    rest = location[len("s3://"):]
-    bucket, _, prefix = rest.partition("/")
-    if not bucket or not prefix:
-        raise TerminalError("source_location_unsupported", f"unresolvable LOCATION {location!r}")
-    if bucket not in (config.USER_SPACE_BUCKET, config.SHARED_SPACE_BUCKET):
-        raise TerminalError(
-            "source_location_unsupported",
-            f"LOCATION bucket {bucket!r} is outside the portal's data buckets",
-        )
-    if not prefix.endswith("/"):
-        prefix += "/"
-    return {"bucket": bucket, "prefix": prefix}
-
-
-def clone_definition(table: dict) -> tuple[dict, dict, bool]:
-    """Validate the source shape and return (tableDefinition, location, partitioned).
-
-    Rejections are whole-request terminal failures: views (no data files), managed/
-    non-external tables, and catalog-partitioned sources (partition keys without
-    projection props — the clone would declare partitions with zero registered
-    entries and return nothing; copying partition metadata is deferred).
-    """
-    name = table.get("Name", "?")
-    table_type = table.get("TableType", "")
-    if table_type == "VIRTUAL_VIEW":
-        raise TerminalError("source_is_view", f"{name}: views can't be shared (no data files)")
-    if table_type != "EXTERNAL_TABLE":
-        raise TerminalError(
-            "source_not_external",
-            f"{name}: only base external tables can be shared (TableType {table_type or 'unset'!r})",
-        )
-
-    sd = table.get("StorageDescriptor") or {}
-    location = _parse_location(sd.get("Location"))
-
-    parameters = {
-        k: v for k, v in (table.get("Parameters") or {}).items() if k not in _EXCLUDED_PARAMETERS
-    }
-    partition_keys = table.get("PartitionKeys") or []
-    projection = parameters.get("projection.enabled", "").lower() == "true"
-    if partition_keys and not projection:
-        raise TerminalError(
-            "source_catalog_partitioned",
-            f"{name}: only flat or partition-projection tables can be shared; "
-            "catalog-registered partitions are not supported (v1)",
-        )
-
-    def _columns(cols):
-        return [
-            {"name": c.get("Name"), "type": c.get("Type"), **({"comment": c["Comment"]} if c.get("Comment") else {})}
-            for c in cols
-        ]
-
-    serde = sd.get("SerdeInfo") or {}
-    definition = {
-        "columns": _columns(sd.get("Columns") or []),
-        "partitionKeys": _columns(partition_keys),
-        "serde": {
-            "serializationLibrary": serde.get("SerializationLibrary"),
-            "parameters": serde.get("Parameters") or {},
-        },
-        "inputFormat": sd.get("InputFormat"),
-        "outputFormat": sd.get("OutputFormat"),
-        "tableType": "EXTERNAL_TABLE",
-        "tableProperties": parameters,
-    }
-    return definition, location, bool(partition_keys)
