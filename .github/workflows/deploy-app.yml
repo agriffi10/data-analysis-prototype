@@ -65,13 +65,21 @@ jobs:
       # the deploy already invalidates /*, so the CDN never serves a stale shell. The bug
       # is entirely in the browser cache, which invalidation cannot reach.
       #
-      # THE `--delete` / `--exclude` TRAP: --exclude filters the DESTINATION side of
-      # --delete too, so an excluded file looks ABSENT and gets deleted from the bucket.
-      # A pass carrying both --delete and `--exclude 'assets/*'` would therefore leave
-      # every stale chunk in place while deleting nothing useful. Scope by PREFIX
-      # (dist/assets/ -> s3://…/assets/) instead of by exclude, so each pass owns a
-      # disjoint set of keys and no file is uploaded by more than one pass — a second
-      # pass over an already-uploaded file would re-upload it with THAT pass's
+      # THE `--delete` / `--exclude` INTERACTION, stated the right way round: --exclude
+      # PROTECTS destination keys from --delete. The CLI filters the reverse (destination)
+      # generator with the same patterns re-rooted at the destination — awscli
+      # customizations/s3/filters.py builds `dst_patterns` alongside `patterns`, and
+      # subcommands.py gives `rev_generator` its own filter — so an excluded object is
+      # never a deletion candidate at all.
+      #
+      # The consequence that shapes these passes: a pass that excludes a prefix can never
+      # RECONCILE that prefix. `--delete --exclude 'assets/*'` would keep every stale chunk
+      # forever. So one pass cannot both write a single --cache-control value and reconcile
+      # the whole bucket, and exactly one orphan class has to be accepted (see below).
+      #
+      # Scope by PREFIX (dist/assets/ -> s3://…/assets/) rather than by exclude, so each
+      # pass owns a disjoint set of keys and no file is uploaded by more than one pass — a
+      # second pass over an already-uploaded file would re-upload it with THAT pass's
       # --cache-control, silently overwriting the immutable header.
       #
       # ORDER: assets up first (so a new shell never points at a chunk that isn't there
@@ -79,8 +87,14 @@ jobs:
       #
       # THE ORPHAN CLASS THIS TOLERATES: the single --delete pass is scoped to assets/,
       # so a stale ROOT-level object (a favicon we stop shipping) is never removed from
-      # the bucket and must be deleted by hand. That is the safe half of the trade — the
-      # other shape leaves stale CHUNKS, which is the white-screen bug itself.
+      # the bucket and must be deleted by hand.
+      #
+      # The other shape is real and was weighed: `sync dist/ s3://…/ --delete
+      # --exclude 'assets/*' --cache-control no-cache` reconciles root files while
+      # PROTECTING every asset key (see the interaction note above). It is not taken
+      # because it retains every superseded bundle forever, and SPEC-141 puts retaining
+      # them out of scope — bounding that growth needs an S3 lifecycle rule and a
+      # retention policy. Adopt it only WITH that rule, never instead of it.
       - name: Sync hashed assets to S3 (immutable)
         run: |
           aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
@@ -98,9 +112,11 @@ jobs:
       #
       # THE RESIDUAL RACE, accepted rather than fixed: a user with the SPA ALREADY OPEN
       # who triggers a lazy import after this pass has removed the old chunk still gets a
-      # 404 inside a Suspense boundary. /query (Monaco, SPEC-035) is the real case. The
-      # fix is retaining superseded bundles behind an S3 lifecycle rule, which needs
-      # object lifecycle management and a retention policy — out of scope for SPEC-141.
+      # 404 inside a Suspense boundary. BOTH lazy routes are exposed — /query (App.tsx:17,
+      # which also lazy-loads Monaco's SqlEditor beneath it, SPEC-035) and /connections
+      # (App.tsx:20) — so a fix must not be scoped to Monaco. The fix is retaining
+      # superseded bundles behind an S3 lifecycle rule, which needs object lifecycle
+      # management and a retention policy — out of scope for SPEC-141.
       # Once the shell revalidates (the pass above), a reload recovers.
       - name: Reconcile deletions
         run: |

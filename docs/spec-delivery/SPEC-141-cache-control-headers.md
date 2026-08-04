@@ -16,10 +16,14 @@ existed — **a white screen, not stale content**.
 
 ### The pass shape, and why it is this shape
 
-- **Scoped by prefix, not by `--exclude`.** `--exclude` filters the **destination** side of
-  `--delete` too, so an excluded file looks *absent* and gets deleted from the bucket. A pass
-  carrying both `--delete` and `--exclude 'assets/*'` would delete `index.html` while leaving every
-  stale chunk in place.
+- **Scoped by prefix, not by `--exclude`.** `--exclude` **protects** destination keys from
+  `--delete`: the CLI filters the reverse (destination) generator with the same patterns re-rooted
+  at the destination (`awscli/customizations/s3/filters.py` builds `dst_patterns` beside `patterns`;
+  `subcommands.py` gives `rev_generator` its own filter), so an excluded object is never a deletion
+  candidate. The consequence that shapes the passes: **a pass that excludes a prefix can never
+  reconcile it**, so `--delete --exclude 'assets/*'` would keep every stale chunk forever. One pass
+  therefore cannot both write a single `Cache-Control` value and reconcile the whole bucket, which
+  is what forces exactly one orphan class to be accepted.
 - **No file is uploaded by two passes.** `sync` compares size and mtime, and a fresh CI checkout
   makes every local mtime newer than the bucket's — so a second pass over the same files *would*
   re-upload them with that pass's `--cache-control`, silently overwriting the immutable header. The
@@ -33,11 +37,13 @@ existed — **a white screen, not stale content**.
 
 ### Deliberate deviations
 
-- **The orphan class this tolerates: stale root-level objects.** Because `--exclude` filters
-  `--delete`'s destination side, one pass cannot both be scoped and reconcile the whole bucket, and
-  the spec requires exactly one `--delete`. Scoping it to `assets/` means a root file we stop
-  shipping is never removed. That is the safe half of the trade — the other shape leaves stale
-  *chunks*, which is the white-screen bug itself. Named at the call site in `deploy-app.yml`.
+- **The orphan class this tolerates: stale root-level objects.** Scoping the one `--delete` to
+  `assets/` means a root file we stop shipping is never removed. The alternative is real and was
+  weighed: `sync dist/ s3://…/ --delete --exclude 'assets/*' --cache-control no-cache` reconciles
+  root files while *protecting* every asset key. It is not taken because it retains every superseded
+  bundle forever, and the spec puts retaining them **out of scope** — bounding that growth needs an
+  S3 lifecycle rule and a retention policy. Adopt it only *with* that rule, never instead of it.
+  Named at the call site in `deploy-app.yml`.
 - **`icons.svg`'s bucket copy is now exactly that orphan.** It still serves 200 with no
   `Cache-Control`. Remove it once, by hand:
 
@@ -46,11 +52,13 @@ existed — **a white screen, not stale content**.
   ```
 
 - **FR-004's superseded-chunk race is documented, not fixed.** A tab already open that triggers a
-  lazy import after pass 3 removed the old chunk still 404s inside a `Suspense` boundary; `/query`
-  (Monaco, SPEC-035) is the real case. FR-002 shrinks the window — once the shell revalidates, a
-  reload recovers — but does not close it for an open tab. The fix is retaining superseded bundles
-  behind an S3 lifecycle rule, which needs object lifecycle management and a retention policy.
-  Recorded as a comment beside the `--delete` pass.
+  lazy import after pass 3 removed the old chunk still 404s inside a `Suspense` boundary. **Both**
+  lazy routes are exposed — `/query` (`App.tsx:17`, which lazy-loads Monaco's `SqlEditor` beneath it,
+  SPEC-035) and `/connections` (`App.tsx:20`) — so a future fix must not be scoped to Monaco.
+  FR-002 shrinks the window (once the shell revalidates, a reload recovers) but does not close it
+  for an open tab. The fix is retaining superseded bundles behind an S3 lifecycle rule, which needs
+  object lifecycle management and a retention policy. Recorded as a comment beside the `--delete`
+  pass.
 
 ## What changed from earlier specs?
 
@@ -81,6 +89,16 @@ FR-003 is proven by the deploy log rather than inferred: pass 1 uploaded **108**
 `dist/assets/`), pass 2 uploaded exactly **2** (`index.html`, `favicon.svg`), pass 3 uploaded and
 deleted **0**. Every file in `dist/` is in the bucket, and no pass deleted anything it should not
 have. The site loads with a clean console.
+
+**Found by the fresh-context review, after merge:** the `--exclude`/`--delete` mechanism was stated
+**backwards** in four places (the workflow comment, this doc, the decision register, and the spec
+itself, which was the origin). Corrected against the CLI source; the implementation was never
+affected. A related gap the review also caught: a **missing `concurrency:` guard** on `Deploy App`.
+Two merges in quick succession run two jobs in parallel, and job A's delete pass can remove job B's
+freshly-uploaded chunks while B's `index.html` is already live — the same white screen this spec
+fixes. Pre-existing in kind, but the three-step split moves the delete decision two steps further
+from the upload and widens the window. **Not fixed here** — it is new scope, and `security.yml:20`
+shows the house pattern (`concurrency:`) to follow.
 
 **Not covered:** the `--delete` pass's deletion behaviour was not exercised — this build was
 byte-identical to the previous one, so there was nothing stale to remove. The next deploy that
