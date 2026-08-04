@@ -138,6 +138,50 @@ def _projection_props(key):
     return props
 
 
+def partition_hive_type(declared_type: str) -> str | None:
+    """The Hive column type ``PARTITIONED BY`` renders for a declared partition type.
+
+    The refresh path needs this to check the OTHER direction (SPEC-143 FR-005): Athena
+    lets a projection sit on a wider set of column types than this builder writes — an
+    `integer` projection is legal on a `string` column, and zero-padded partitions are
+    exactly why someone would declare one that way. Such a table reconstructs cleanly from
+    its projection properties alone and would then be REBUILT with a different column
+    type, silently, so the refresh path compares the live column type against this.
+    """
+    return _PARTITION_HIVE.get(declared_type)
+
+
+def projection_properties(key) -> dict:
+    """The ``projection.*`` properties one declared partition key renders to, as a dict.
+
+    The public door onto ``_projection_props`` for the refresh path, which has to go the
+    OTHER way — reading a live table's projection properties back into a declared key
+    (SPEC-143 FR-005). That reconstruction is only trustworthy if it re-renders to exactly
+    the properties it read, and it can only check that against the renderer the create path
+    actually uses. A second copy of this mapping in the refresh verb is the one thing that
+    would make the check meaningless.
+    """
+    return dict(_projection_props(key))
+
+
+#: SerDe library -> the format key this repo's inference reports. The refresh path compares
+#: the two: a folder that now holds JSON under a table declared with OpenCSVSerde has
+#: changed in a way re-deriving columns cannot fix (SPEC-143 FR-006). Both JSON SerDes are
+#: listed because the two arcs deliberately disagree on which to write (see the module
+#: docstring) and a refresh may meet either.
+SERDE_FORMATS = {
+    "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe": "parquet",
+    "org.apache.hadoop.hive.serde2.OpenCSVSerde": "csv",
+    "org.openx.data.jsonserde.JsonSerDe": "json",
+    "org.apache.hive.hcatalog.data.JsonSerDe": "json",
+}
+
+
+def format_of_serde(library) -> str | None:
+    """The format ``library`` corresponds to, or None if it is not one this repo writes."""
+    return SERDE_FORMATS.get(library)
+
+
 def _tblproperties(storage, partition_keys):
     """Ordered (k, v) TBLPROPERTIES: the storage's own props, then projection props."""
     props = list(storage.tblproperties)
