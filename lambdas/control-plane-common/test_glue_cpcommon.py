@@ -8,6 +8,7 @@ that is what this file is for.
 Runnable under pytest or directly: python3 test_glue_cpcommon.py.
 """
 
+import ast
 import os
 import subprocess
 import sys
@@ -211,6 +212,72 @@ def test_the_shape_refusals_are_raisable_without_the_table_share_layer():
         "source_location_unsupported",
         "source_catalog_partitioned",
     ]
+
+
+def test_the_creation_marker_is_never_carried_into_a_clone():
+    """SPEC-143 FR-007 AC2. Inheriting it would have a copy claim it was created by the
+    call that created its SOURCE — the marker records who built THIS table."""
+    table = _table(Parameters={"portal.managed": "true", "skip.header.line.count": "1"})
+
+    definition, _location, _partitioned = glue.clone_definition(table)
+
+    assert definition["tableProperties"] == {"skip.header.line.count": "1"}
+
+
+def test_no_verb_reads_the_creation_marker_to_decide_anything():
+    """SPEC-143 FR-007 AC4, and the guard that keeps the marker honest.
+
+    Refresh eligibility turns on SHAPE, never on this property, and the reasons are
+    permanent: every table created before SPEC-143 lacks it, and TBLPROPERTIES are
+    user-writable through ALTER TABLE SET TBLPROPERTIES — so it can be trusted neither as
+    a permission nor as a fact. The moment a verb branches on it, a user can grant
+    themselves whatever that branch guards.
+
+    Scans the whole Lambda tree, so this holds for verbs not yet written, and scans the
+    parsed CODE rather than the text. Two reasons, each of which broke a simpler version:
+
+    * ``PORTAL_MANAGED`` is a public name in ``cpcommon.ddl``, so importing it is the most
+      natural way a future verb would reach the marker — and it contains no matching
+      string literal, so a literal-only grep waves it straight through.
+    * A text scan reports every COMMENT that merely names the property, including the ones
+      warning readers not to confuse it with the hyphenated Lake Formation tag. Discussing
+      the marker is not reading it. (``PORTAL_MANAGED_TAG_KEY``, that unrelated tag's
+      constant, is one character away and correctly ignored — it is a different name.)
+    """
+    allowed = {
+        os.path.join("control-plane-common", "cpcommon", "ddl.py"),      # writes it
+        os.path.join("control-plane-common", "cpcommon", "glue.py"),     # excludes it
+        os.path.join("control-plane-common", "test_ddl_cpcommon.py"),
+        os.path.join("control-plane-common", "test_glue_cpcommon.py"),
+    }
+    lambdas = os.path.dirname(_HERE)
+
+    def _references(tree):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and node.value == "portal.managed":
+                return True
+            if isinstance(node, ast.Name) and node.id == "PORTAL_MANAGED":
+                return True
+            if isinstance(node, ast.Attribute) and node.attr == "PORTAL_MANAGED":
+                return True
+        return False
+
+    offenders = []
+    for root, _dirs, files in os.walk(lambdas):
+        if "__pycache__" in root:
+            continue
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            relative = os.path.relpath(path, lambdas)
+            if relative in allowed:
+                continue
+            with open(path) as handle:
+                if _references(ast.parse(handle.read())):
+                    offenders.append(relative)
+
+    assert not offenders, f"the marker is referenced outside its two homes: {offenders}"
 
 
 def test_table_share_still_reaches_clone_definition_through_its_own_module():

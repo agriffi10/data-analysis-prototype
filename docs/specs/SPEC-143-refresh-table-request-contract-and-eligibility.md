@@ -28,7 +28,7 @@ This spec builds the front half of the pipeline — how a refresh is requested, 
 ## Amends
 
 - **SPEC-067 (request contract).** The envelope gains an optional `mode` field. Absent or `"create"` reproduces today's behaviour byte for byte; `"refresh"` selects the new branch. Existing producers are unchanged and unbroken — this is additive by construction, and a test pins that an envelope with no `mode` still routes to create.
-- **SPEC-069 / SPEC-070 (DDL generation).** `cpcommon.ddl.build_create_table_ddl` starts emitting a `portal.managed = 'true'` table property. This is a marker for the future, **not** the eligibility test — see FR-004 for why eligibility turns on shape rather than on the marker.
+- **SPEC-069 / SPEC-070 (DDL generation).** `cpcommon.ddl.build_create_table_ddl` starts emitting a `portal.managed = 'true'` table property, under a new `mark: bool = True` argument a caller sets `False` for a table that is not a durable user table. This is a marker for the future, **not** the eligibility test — see FR-004 for why eligibility turns on shape rather than on the marker.
 - **SPEC-090 (table-share `inspect-source`).** `clone_definition` moves from `tscommon.glue` to `cpcommon.glue` **with its signature and its reason codes unchanged**, and `tscommon.glue` re-exports it. Table-share's behaviour, its tests and its `SHARE_MAX_DEFINITION_BYTES` constant are untouched — see FR-004 AC9 for why the refresh path maps reason codes at its own call site rather than parameterising them.
 
 ---
@@ -42,7 +42,7 @@ This spec builds the front half of the pipeline — how a refresh is requested, 
 - **A `Choice` state in the table-builder state machine** branching on `mode`, with `InspectSource` and `InferSchema` **shared by both branches** and reached from either.
 - **A new verb `table-builder-load-table-definition`** — reads the live Glue table, decides refreshability, **rewrites `space.prefix` to the table's own location**, and **reconstructs declared partition keys** from the table's projection properties.
 - **The location comes from the table, not from the request.** The request still carries a prefix and it is still authorized (FR-004 AC7 explains why both checks are needed and neither is redundant).
-- **`portal.managed = 'true'`** written into `TBLPROPERTIES` by `cpcommon.ddl.build_create_table_ddl` for every newly created table, and added to table-share's excluded-parameters list.
+- **`portal.managed = 'true'`** written into `TBLPROPERTIES` by `cpcommon.ddl.build_create_table_ddl` for every durable user table it builds (data-quality's temp tables opt out via `mark=False`), and added to `clone_definition`'s excluded-parameters list — which lives in `cpcommon.glue` after this spec's own Phase 1 move, not in table-share.
 - **`clone_definition` moved to `cpcommon.glue`**, unchanged, re-exported from `tscommon.glue`.
 - **Terminal reason codes** for every refusal, registered with `cpcommon.messages.register_reasons`.
 - **A `not_implemented` stub terminal** at the end of the refresh branch, replaced by SPEC-144.
@@ -175,8 +175,8 @@ Not the eligibility test (FR-004 is), but worth having: a durable, queryable ans
 
 #### Acceptance Criteria:
 
-- [ ] `cpcommon.ddl.build_create_table_ddl` emits `'portal.managed' = 'true'` in `TBLPROPERTIES` for every table it builds.
-- [ ] The property is added to `clone_definition`'s `_EXCLUDED_PARAMETERS`, so a shared copy does not inherit the source's marker as though the share had created it — a copy is marked by its own creating call, not by the clone.
+- [ ] `cpcommon.ddl.build_create_table_ddl` emits `'portal.managed' = 'true'` in `TBLPROPERTIES` for every table it builds **with the default storage — i.e. when no `storage=` override is supplied.** *(Narrowed during build, 2026-08-04.)* The builder has exactly two production callers: table-builder, which omits `storage` and creates the durable user tables this marker is a record of, and data-quality, which supplies one for `dq_tmp_*` tables it drops at the end of the same run. Marking those would put a permanent-sounding claim on something ephemeral **and** would change a shipped statement in an arc this spec does not touch.
+- [ ] The property is added to `clone_definition`'s `_EXCLUDED_PARAMETERS`, so a shared copy does not inherit the source's marker as though the share had created it. **Correction (2026-08-04): the original rationale — "a copy is marked by its own creating call" — does not hold.** Table-share renders its recipient `CREATE` from `tscommon.ddl`, which never calls `build_create_table_ddl`, so a shared copy carries no marker at all. The exclusion is still required (inheriting one would be a false claim); marking share copies is table-share's to decide, not this arc's.
 - [ ] A test asserts the property appears exactly once in generated DDL for each of the three formats (Parquet, CSV, JSON) and does not disturb the `projection.*` or `skip.header.line.count` properties.
 - [ ] No verb reads this property to make a decision. A test greps the Lambda tree and fails if `portal.managed` appears outside `ddl.py`, `glue.py`'s exclusion list, and their tests.
 - [ ] A comment at both `portal.managed` and `portal-managed` sites distinguishes them.

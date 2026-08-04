@@ -25,9 +25,15 @@ vocabulary at its call site, SPEC-143 FR-004).
 from . import config, messages
 from .errors import TerminalError
 
-# Source-only parameters never carried into the clone: Hive bookkeeping and the implicit
-# EXTERNAL flag (the recipient CREATE re-establishes it).
-_EXCLUDED_PARAMETERS = frozenset({"transient_lastDdlTime", "EXTERNAL"})
+# Source-only parameters never carried into the clone: Hive bookkeeping, the implicit
+# EXTERNAL flag (the recipient CREATE re-establishes it), and the portal's own creation
+# marker — inheriting it would have a copy claim it was built by the call that built its
+# SOURCE (SPEC-143 FR-007).
+#
+# NOTE 'portal.managed' (a table TBLPROPERTY, dotted) is NOT 'portal-managed' (the Lake
+# Formation tag on DATABASES, hyphenated — infra/modules/analytics/lakeformation.tf).
+# Unrelated jobs, one character apart.
+_EXCLUDED_PARAMETERS = frozenset({"transient_lastDdlTime", "EXTERNAL", "portal.managed"})
 
 # Shape refusals raised below. Registered at import so they are valid TerminalError
 # reasons in ANY control plane that imports this module — see the module docstring.
@@ -80,12 +86,16 @@ def clone_definition(table: dict) -> tuple[dict, dict, bool]:
     """
     name = table.get("Name", "?")
     table_type = table.get("TableType", "")
+    # The DETAILS are operator-facing and deliberately say nothing about sharing: two arcs
+    # read them now, and a refresh failure in logs/service=table-builder/ explaining that a
+    # table "can't be shared" sends its reader to the wrong control plane. The USER-facing
+    # wording stays per-domain (tscommon/tbcommon messages.py), where it can say either.
     if table_type == "VIRTUAL_VIEW":
-        raise TerminalError("source_is_view", f"{name}: views can't be shared (no data files)")
+        raise TerminalError("source_is_view", f"{name}: a view has no data files")
     if table_type != "EXTERNAL_TABLE":
         raise TerminalError(
             "source_not_external",
-            f"{name}: only base external tables can be shared (TableType {table_type or 'unset'!r})",
+            f"{name}: not a base external table (TableType {table_type or 'unset'!r})",
         )
 
     sd = table.get("StorageDescriptor") or {}
@@ -99,8 +109,8 @@ def clone_definition(table: dict) -> tuple[dict, dict, bool]:
     if partition_keys and not projection:
         raise TerminalError(
             "source_catalog_partitioned",
-            f"{name}: only flat or partition-projection tables can be shared; "
-            "catalog-registered partitions are not supported (v1)",
+            f"{name}: partition keys with no projection properties; only flat or "
+            "partition-projection tables are supported (v1)",
         )
 
     def _columns(cols):

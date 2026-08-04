@@ -215,6 +215,9 @@ def build_temp_table_ddl(
         fmt,
         location,
         storage=storage,
+        # A temp table dropped at the end of this run is not something the portal
+        # MANAGES — the marker is a durable claim about a user's table (SPEC-143 FR-007).
+        mark=False,
     )
 
 
@@ -237,6 +240,8 @@ def build_raw_table_ddl(database: str, table_name: str, location: str) -> str:
         "csv",
         location,
         storage=RAW_LINE_SERDE,
+        # Same: temp, and it must emit NO TBLPROPERTIES at all (SPEC-111 FR-002).
+        mark=False,
     )
 
 

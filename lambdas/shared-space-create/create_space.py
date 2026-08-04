@@ -38,6 +38,8 @@ _GENERIC_REASON = "please try again or contact the Administrator"
 # (table-builder / table-share / data-quality) get CREATE_TABLE on it via TBAC — those
 # roles are granted on this tag, not per-DB (infra/modules/analytics/lakeformation.tf).
 # Key/value MUST match aws_lakeformation_lf_tag.portal_managed there.
+# NOT `portal.managed` (dotted), which is a table TBLPROPERTY recording that the
+# portal created a table and grants nothing (cpcommon/ddl.py, SPEC-143 FR-007).
 PORTAL_MANAGED_TAG_KEY = "portal-managed"
 PORTAL_MANAGED_TAG_VALUE = "true"
 
