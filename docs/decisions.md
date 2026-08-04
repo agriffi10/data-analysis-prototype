@@ -4,8 +4,11 @@ The settled architectural decisions, in full. **Don't re-litigate these.** `CLAU
 one-line digest of each; this file carries the reasoning, the constraints, and the explicit
 "do NOT build" fences. Pull the entry you need — you rarely need them all.
 
-When a spec settles a *new* decision: full entry here, one line in `CLAUDE.md` (completion-ritual
-step 5).
+When a spec settles a *new* decision: full entry here **first**, then one line in `CLAUDE.md`
+(completion-ritual step 5) — the digest line is never the only home of a fact. One `###` heading per
+entry, label matching the CLAUDE.md bold label, listed in the Contents. When a decision **reverses an
+earlier one**, update the old entry in place *and* add a superseded marker (short blockquote) at every
+other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections).
 
 ## Contents
 
