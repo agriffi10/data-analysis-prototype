@@ -260,3 +260,44 @@ explicit `mark` argument, never inferred from `storage is None`.** That inferenc
 against today's two callers and is wrong for the next: SPEC-144's `apply-refresh` is a `DROP` +
 `CREATE` supplying a rebuilt `Storage`, so inference would strip the marker from every table a
 refresh touched. Full account: `docs/spec-delivery/SPEC-143-refresh-table-contract-and-eligibility.md`.
+
+### Removing a column requires an explicit opt-in, and the refusal IS the warning (SPEC-144)
+
+A refresh that would drop a column does **nothing** and fails terminally with `columns_removed`,
+naming the columns in the notification. The user re-submits with `allowRemovals: true`. Removal is
+singled out because it is the one class of change that breaks things somewhere the person who ran
+the refresh is not looking: every saved query, view and dashboard referencing the column starts
+failing, and nothing tells them.
+
+**Two designs were rejected, and they are the two a later reader will propose.** *A plan-then-apply
+pair* — run one writes a plan artifact into the user's prefix, notifies, the user clicks Apply, run
+two references the plan. The textbook shape, and it costs a new artifact, a new index, a new view, a
+new IAM surface and two async round trips for what the user experiences as one button. *A
+browser-side preview* — the browser can already read the table's Glue columns and list the folder,
+but it **cannot infer types**: that needs polars over a bounded Parquet footer or CSV head, which is
+why `infer-schema` exists and carries a 240 MB layer. A preview showing guessed types would be a
+preview of something other than what the apply does.
+
+**What the chosen design guarantees, stated honestly:** the *specific columns* are named to the user
+in a durable notification before any removal happens. It does **not** guarantee they read it —
+SPEC-145's dialog requires an explicit tick with explicit consequence copy, and names the columns
+when it can via the notification's link. Do not overclaim this as consent.
+
+**Three things about the mechanism are load-bearing.** (1) **`allowRemovals` is validated, not
+coerced** — a non-boolean is refused, because truthiness reads the string `"false"` as opting *in*,
+on the one flag that authorises data loss. (2) It is **persisted nowhere** — not on the table, not in
+a registry, not in an index; a test greps the Lambda tree for it. The flag authorises one run, and a
+stored copy would carry that authorisation into a refresh nobody opted into. (3) **The notification
+link is the only channel that names the columns to the browser**, and its column names are
+**percent-encoded** — column names are NOT catalog-safe (`infer-schema` reads them verbatim from a
+file header and nothing validates them), so `Order ID` puts a raw space in a URL and `&` invents a
+query parameter. SPEC-145 must not re-validate them as identifiers: `CATALOG_IDENTIFIER_RE` rejects
+`id`, `ts` and `Amount`, which would discard the whole link for most real tables.
+
+**The apply is a DROP + CREATE, and what that costs is recorded in SPEC-144 FR-004** — table
+identity, `Description`/`Owner` and any table-level Lake Formation grant are destroyed with the
+catalog entry (column comments are carried). `ALTER TABLE ADD COLUMNS` cannot retype or remove, so it
+would cover only the easiest third; **`glue:UpdateTable`, which replaces the definition in place, is
+the alternative and has its own spec** — it matters most if the portal ever moves to Iceberg, where a
+drop-and-recreate destroys the snapshot history that is most of the reason to adopt it. Full account:
+`docs/spec-delivery/SPEC-144-refresh-table-schema-diff-and-apply.md`.

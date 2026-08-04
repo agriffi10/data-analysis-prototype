@@ -25,7 +25,7 @@ authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc
 - File-converter arc (SPEC-115 → 122 — cancelled)
 - Data-quality arc (SPEC-108 → 114, + 123 → 124 — shipped)
 - Observability arc (SPEC-127 → 137, fleet-complete)
-- Refresh-table arc (SPEC-143 → 144 → 145 — active)
+- Refresh-table arc (SPEC-143 → 144 → 145 — active; 143 and 144 COMPLETE, an in-place-rebuild spec sequenced before 145)
 - Username-directory arc (SPEC-146 → 147 → 148 — active)
 
 ---
@@ -606,7 +606,7 @@ in the repo is registered or explicitly excluded.
 
 ---
 
-## Refresh-table arc (SPEC-143 → 144 → 145 — active)
+## Refresh-table arc (SPEC-143 → 144 → 145 — active; 143 and 144 COMPLETE)
 
 Filed 2026-08-03 (user request). **Table Builder writes a schema once and never looks again.** It infers columns from a
 bounded read of one sample file, issues `CREATE EXTERNAL TABLE`, and stops. When files with new columns land in the same
@@ -674,6 +674,16 @@ after a silently-failed drop into a successful no-op, so 144 adds `if_not_exists
 cost is a **window** of a second or two in which the table does not exist, and the one genuinely bad outcome — drop
 succeeds, recreate fails — gets its own reason code and its own wording, because a user who reads "refresh failed" will
 assume nothing happened.
+
+> **Superseded in part while building 144 (2026-08-04).** The window is **not** closed by the FIFO queue as 144 FR-006 AC1
+> claimed: the Pipe starts executions `FIRE_AND_FORGET`, so `MessageGroupId` serializes delivery, not execution, and two
+> refreshes on one database overlap. What actually bounds the damage is narrower — the statements are back to back, both
+> carry an Athena idempotency token so a Retry re-attaches rather than re-dropping, and they share one poll budget so
+> Lambda cannot be killed between them. Recorded, not fixed. The drop also **destroys catalog metadata**: table identity,
+> `Description`/`Owner` and any table-level Lake Formation grant (column comments *are* carried). **`glue:UpdateTable`,
+> which replaces the definition in place, has its own spec and is sequenced BEFORE 145** — it closes both the window and
+> the metadata loss, and it is what an eventual move to Iceberg would need, since a drop-and-recreate destroys the
+> snapshot history that is most of the reason to adopt Iceberg.
 
 **The message layer needs more work than the feature looks like it should need**, and it is in 144's scope for a reason:
 `tbcommon/messages.py` is a *failure* table whose renderer hard-codes `Couldn't create table "{name}": …`,

@@ -1,8 +1,8 @@
 # Spec: Refresh Table — Schema Diff & Apply
 
 **ID:** SPEC-144
-**Status:** Draft
-**Last Updated:** 2026-08-03
+**Status:** Completed
+**Last Updated:** 2026-08-04
 **Depends On:** SPEC-143 (the `mode` branch, `load-table-definition`, and the normalised state this spec diffs against), SPEC-069 (polars inference — reused unchanged), SPEC-070 (`cpcommon.athena.run_ddl` and the terminal-state pair), SPEC-111 (the drop-and-recreate precedent — data-quality's temp tables), SPEC-114 (`TerminalError.tokens` and the notification-is-the-completion-channel rule)
 
 > **Reference:** `docs/architecture.md` → *Control Planes → Table Builder* (DDL + projection). Second of the refresh-table arc (143 → **144** → 145).
