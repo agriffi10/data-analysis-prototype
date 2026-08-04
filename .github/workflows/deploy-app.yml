@@ -56,8 +56,56 @@ jobs:
           # (`action-timeout-s` arrived after it).
           retry-max-attempts: 3
 
-      - name: Sync to S3
-        run: aws s3 sync apps/portal/dist/ s3://${{ secrets.S3_STATIC_BUCKET }} --delete
+      # Three passes, and the shape is load-bearing (SPEC-141).
+      #
+      # WHY NOT ONE PASS: nothing carried Cache-Control, so browsers applied HEURISTIC
+      # freshness to index.html. Combined with `--delete` removing the superseded hashed
+      # bundles, a returning browser asks for /assets/index-<oldhash>.js — which no longer
+      # exists — and gets a WHITE SCREEN, not stale content. CloudFront is not involved:
+      # the deploy already invalidates /*, so the CDN never serves a stale shell. The bug
+      # is entirely in the browser cache, which invalidation cannot reach.
+      #
+      # THE `--delete` / `--exclude` TRAP: --exclude filters the DESTINATION side of
+      # --delete too, so an excluded file looks ABSENT and gets deleted from the bucket.
+      # A pass carrying both --delete and `--exclude 'assets/*'` would therefore leave
+      # every stale chunk in place while deleting nothing useful. Scope by PREFIX
+      # (dist/assets/ -> s3://…/assets/) instead of by exclude, so each pass owns a
+      # disjoint set of keys and no file is uploaded by more than one pass — a second
+      # pass over an already-uploaded file would re-upload it with THAT pass's
+      # --cache-control, silently overwriting the immutable header.
+      #
+      # ORDER: assets up first (so a new shell never points at a chunk that isn't there
+      # yet), then the shell, then deletions. The invalidation runs after all three.
+      #
+      # THE ORPHAN CLASS THIS TOLERATES: the single --delete pass is scoped to assets/,
+      # so a stale ROOT-level object (a favicon we stop shipping) is never removed from
+      # the bucket and must be deleted by hand. That is the safe half of the trade — the
+      # other shape leaves stale CHUNKS, which is the white-screen bug itself.
+      - name: Sync hashed assets to S3 (immutable)
+        run: |
+          aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
+            --cache-control 'public, max-age=31536000, immutable'
+
+      - name: Sync the shell to S3 (revalidate always)
+        run: |
+          aws s3 sync apps/portal/dist/ s3://${{ secrets.S3_STATIC_BUCKET }}/ \
+            --exclude 'assets/*' --cache-control 'no-cache'
+
+      # Byte-for-byte the assets pass above plus --delete: everything it would upload is
+      # already uploaded, so this only reconciles deletions. Repeating the SAME
+      # --cache-control is the point — if it ever does re-upload a file, the header it
+      # writes is the one that file should have had anyway.
+      #
+      # THE RESIDUAL RACE, accepted rather than fixed: a user with the SPA ALREADY OPEN
+      # who triggers a lazy import after this pass has removed the old chunk still gets a
+      # 404 inside a Suspense boundary. /query (Monaco, SPEC-035) is the real case. The
+      # fix is retaining superseded bundles behind an S3 lifecycle rule, which needs
+      # object lifecycle management and a retention policy — out of scope for SPEC-141.
+      # Once the shell revalidates (the pass above), a reload recovers.
+      - name: Reconcile deletions
+        run: |
+          aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
+            --delete --cache-control 'public, max-age=31536000, immutable'
 
       - name: Invalidate CloudFront cache
         run: aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
