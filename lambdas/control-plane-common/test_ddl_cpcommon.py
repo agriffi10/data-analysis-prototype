@@ -103,6 +103,23 @@ def test_string_enum_partition_key():
     )
 
 
+def test_a_column_comment_is_rendered_and_escaped():
+    """SPEC-144: a rebuild carries the comment forward, so the builder has to emit one.
+
+    The create path never sets a comment — inference has nothing to say about what a column
+    MEANS — so every golden string above is unaffected, which is the point.
+    """
+    ddl = build_create_table_ddl(
+        "alice", "t",
+        [{"name": "id", "type": "bigint", "comment": "the shop's own id"},
+         {"name": "plain", "type": "string"}],
+        [], "parquet", LOC,
+    )
+
+    assert "`id` bigint COMMENT 'the shop\\'s own id'" in ddl
+    assert "`plain` string," in ddl or "`plain` string)" in ddl
+
+
 def test_data_column_colliding_with_partition_key_is_dropped():
     keys = [{"name": "year", "type": "integer", "range": [2000, 2100]}]
     ddl = build_create_table_ddl(

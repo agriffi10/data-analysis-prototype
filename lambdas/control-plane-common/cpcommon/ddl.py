@@ -92,6 +92,17 @@ def quote(identifier: str) -> str:
     return f"`{identifier}`"
 
 
+def literal(value: str) -> str:
+    """Single-quoted DDL string literal with backslash/quote escapes.
+
+    The same rule ``tscommon.ddl._lit`` applies to a cloned column comment — a comment is
+    free text a user wrote, so an apostrophe in it must not end the literal and turn the
+    rest of the statement into syntax.
+    """
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def quote_dml(identifier: str) -> str:
     """Double-quote a catalog identifier for a DML statement (SELECT and friends).
 
@@ -120,6 +131,20 @@ def default_storage(fmt: str) -> Storage:
         return _DEFAULT_STORAGE[fmt]
     except KeyError:
         raise ValueError(f"unknown format {fmt!r}") from None
+
+
+def _column(column: dict) -> str:
+    """One column body entry, carrying its COMMENT when it has one.
+
+    A comment is the one piece of column metadata a USER writes, and a DROP + CREATE
+    rebuild is where it would silently disappear (SPEC-144). The create path never sets
+    one — inference has nothing to say about a column's meaning — so this renders
+    identically for every table this repo has created so far.
+    """
+    rendered = f"{quote(column['name'])} {column['type']}"
+    if column.get("comment"):
+        rendered += f" COMMENT {literal(column['comment'])}"
+    return rendered
 
 
 def _projection_props(key):
@@ -375,9 +400,7 @@ def build_create_table_ddl(
     resolved = storage if storage is not None else default_storage(fmt)
 
     part_names = {k["name"] for k in partition_keys}
-    body = ", ".join(
-        f"{quote(c['name'])} {c['type']}" for c in columns if c["name"] not in part_names
-    )
+    body = ", ".join(_column(c) for c in columns if c["name"] not in part_names)
 
     exists_clause = "IF NOT EXISTS " if if_not_exists else ""
     stmt = f"CREATE EXTERNAL TABLE {exists_clause}{quote(database)}.{quote(table_name)} ({body})"

@@ -45,6 +45,28 @@ logger.setLevel(logging.INFO)
 observability.init(service="table-builder")
 
 
+def _with_carried_comments(columns: list[dict], existing: list[dict]) -> list[dict]:
+    """Re-attach each surviving column's COMMENT from the table being replaced.
+
+    A rebuild takes its names and types from fresh inference, which has nothing to say
+    about what a column MEANS — so a comment a user wrote is metadata only the old table
+    holds, and a DROP + CREATE is exactly where it would silently disappear. Matched on the
+    folded name, like every other comparison on this path, because Athena's Hive-backed DDL
+    stores what it creates in lower case.
+
+    A column that is new, or whose comment was never set, is returned untouched.
+    """
+    comments = {
+        c["name"].casefold(): c["comment"] for c in existing if c.get("comment")
+    }
+    return [
+        {**c, "comment": comments[c["name"].casefold()]}
+        if c["name"].casefold() in comments
+        else c
+        for c in columns
+    ]
+
+
 def _carried_properties(table_properties: dict) -> dict:
     """The captured properties worth writing back, minus the ones we regenerate.
 
@@ -137,6 +159,7 @@ def _apply(event: dict) -> dict:
     fmt = events.require(event, "format")
 
     partition_keys = event.get("partitionKeys") or []
+    columns = _with_carried_comments(columns, event.get("existingColumns") or [])
     storage = ddl.storage_from_definition(event.get("storage") or {})
     statement = ddl.build_create_table_ddl(
         database,
