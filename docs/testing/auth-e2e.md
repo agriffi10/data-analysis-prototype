@@ -21,6 +21,7 @@ checklist for any future auth change.
 
 - [ ] The infra is applied, **including the SPEC-009 `verification_message_template`** (run `tofu apply` in `infra/`, or merge to `main` so `deploy-infra.yml` applies it).
 - [ ] The app is deployed to CloudFront via `deploy-app.yml` with the four Cognito build vars set (`VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID`, `VITE_COGNITO_DOMAIN`, `VITE_APP_URL` = the CloudFront URL).
+- [ ] **Any change to the response-headers policy (SPEC-140) counts as an auth change** — the CSP's `connect-src` must list the Hosted UI domain, because Amplify's code exchange `fetch`es `https://$HOSTED_UI/oauth2/token`. Check it before starting: `curl -sSI $APP_URL | grep -io "connect-src[^;]*"`. **Run these steps signed out, in a clean profile:** an existing session refreshes via `cognito-idp` and stays healthy even when fresh sign-in is completely broken (2026-08-04).
 - [ ] A **real email inbox** you control for the test account (default Cognito sender allows ~50 emails/day — sufficient).
 - [ ] AWS CLI configured against the same account/region for the cleanup step.
 

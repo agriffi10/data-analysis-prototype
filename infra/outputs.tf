@@ -36,6 +36,17 @@ output "cognito_user_pool_client_id" {
 output "cognito_domain" {
   description = "Cognito Hosted UI domain. Set VITE_COGNITO_DOMAIN to this value."
   value       = module.auth.user_pool_domain
+
+  # The CSP's connect-src allows local.cognito_hosted_ui_domain, but the app
+  # actually fetches the domain THIS output names (via VITE_COGNITO_DOMAIN). If
+  # the two ever disagree the authorization-code exchange is blocked and sign-in
+  # breaks with no failing test anywhere — that outage happened once already
+  # (2026-08-04). A precondition is a hard error at plan time; a `check` block
+  # would only warn, which is how this class of bug goes unnoticed.
+  precondition {
+    condition     = module.auth.user_pool_domain == local.cognito_hosted_ui_domain
+    error_message = "CSP/Hosted UI drift: connect-src allows ${local.cognito_hosted_ui_domain} but the user pool domain is ${module.auth.user_pool_domain}. Sign-in would be blocked. Reconcile local.cognito_hosted_ui_domain in main.tf with modules/auth."
+  }
 }
 
 output "s3_user_space_bucket_name" {
