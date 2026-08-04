@@ -33,6 +33,10 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `useQueryHistory(username \| null)` | `useQueryHistory.ts` | History list + `appendEntry`/`updateEntry` mutations (cache-seeding). |
 | `getSavedQueries` / `upsertSavedQuery` / `removeSavedQuery` | `savedQueries.service.ts` | Per-user saved-queries JSON store at `{username}/user_settings/saved-queries.json`; PutObject overwrite only (remove rewrites, never an S3 delete), missing-file → empty store, `ServiceResult` (SPEC-043). |
 | `useSavedQueries(username \| null)` | `useSavedQueries.ts` | Saved-queries list + `upsert`/`remove` mutations (cache-seeding), `queryKeys.savedQueries` (SPEC-043). |
+| `buildSqlCompletions`, `createSqlCompletionProvider`, `DatabaseSchema` | `sqlCompletions.ts` | Pure, Monaco-free builder mapping `DatabaseSchema[]` (per-DB tables) → completion descriptors: **fully-qualified** `database.table` for tables/views, bare de-duped columns with type detail; plus the Monaco provider factory reading a live `schemaRef`. Feeds multi-database autocomplete (SPEC-065/077). |
+| `deriveViewTargetDatabase(body)`, `schemaChangingDatabase(sql)` | `query.sql.ts` | Pure SQL heuristics: the single database of a view body's fully-qualified base tables (error when ambiguous/none), and the target DB of a schema-changing DDL statement — both used now that there's no active database (SPEC-077). |
+| `splitSqlStatements(buffer)`, `resolveRunStatements(buffer, stmts, sel, cursor)`, `isResultProducingSql(sql)`, `statementHint(sql)` | `query.sql.ts` | Pure multi-statement helpers (SPEC-078): split a buffer into `ParsedStatement[]` (string/comment/backtick-aware, source offsets); resolve Run Statement's scope (selection → cursor statement → sole); classify row-returning statements; short label for result tabs. |
+| `useResultsPageSize(username)`, `clampPageSize(n)` | `useResultsPageSize.ts` | Workspace-global "Rows per page" value (default 100, clamped 1–1000), per-user sessionStorage persistence (defensive read, degrade-safe); `clampPageSize` is the pure validator (null for non-integers) (SPEC-087). |
 
 ### Workspace UI (SPEC-035)
 
@@ -66,9 +70,12 @@ Public barrel: `features/query/index.ts`. Data layer for the Athena query worksp
 | `CreateViewDialog` | `CreateViewDialog.tsx` | Name-prompt modal for Create view; validates the catalog-safe identifier rule; busy-locks while the background `CREATE OR REPLACE VIEW` runs (SPEC-048). |
 | `getTableDdl` / `runStatementToCompletion` | `query.service.ts` | `SHOW CREATE TABLE` (or `SHOW CREATE VIEW` when `isView`) → assembled DDL; run-and-poll-to-terminal helper for background statements (View DDL, Drop, Create view) (SPEC-044/048). |
 | `CATALOG_IDENTIFIER_RE` / `stripTrailingSemicolons` | `query.constants.ts` / `query.sql.ts` | Shared catalog-safe identifier rule (`^[a-z][a-z0-9_]{2,62}$`, = SPEC-033 username rule); strip trailing `;`/whitespace for embedding a SELECT as a view body (SPEC-048). |
+| `CATALOG_IDENTIFIER_RULE` | `query.constants.ts` | Human-readable form of `CATALOG_IDENTIFIER_RE` (the "Use 3–63 characters…" hint); one source of truth for the view/table/connection/partition dialogs (SPEC-106). |
 | `QueryTab`, `QueryTabsState`, `QUERY_TABS_MAX`, `DEFAULT_SQL` | `query.types.ts` / `query.constants.ts` | Tab data types, the soft tab cap, and the shared first-tab boilerplate (SPEC-041). |
 | `formatBytes` / `formatDurationMs` / `formatRelativeTime` | `query.format.ts` | Display formatters for scanned-bytes / duration / relative timestamps. |
 | `queryKeys` | `queryKeys.ts` | Key factory (`schema`/`execution`/`results`/`history`/`savedQueries`/`connections`) — never hand-build keys. |
 | `QueryState`, `QueryStatus`, `QueryColumn`, `QueryResultPage`, `GlueColumn`, `GlueTableSummary`, `QueryHistoryEntry`, `QueryHistory` | `query.types.ts` | Feature data types. |
 | `POLL_INTERVAL_MS`, `MAX_POLL_DURATION_MS`, `DEFAULT_MAX_ROWS`, `QUERY_HISTORY_MAX` | `query.constants.ts` | Polling cadence/guard, default page size, history cap. |
+| `ResultTabs` | `ResultTabs.tsx` | Result-tab strip for a "tab per statement" script run (SPEC-078): WAI-ARIA tablist (roving tabindex, Arrow/Home/End), one labeled tab per `ResultTab`, controlled `activeIndex`/`onSelect`. |
+| `ResultsPageSizeControl` | `ResultsPageSizeControl.tsx` | Labeled "Rows per page" integer input for the results header: commit on blur/Enter (never per keystroke), Escape abandons the draft, invalid input reverts / out-of-range clamps, `disabled` renders non-interactive but visible (SPEC-087). |
 

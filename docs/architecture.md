@@ -9,6 +9,22 @@ Pointers (don't duplicate these here):
 - IAM policies → the `.tftpl` templates under `infra/modules/*/policies/`
 - Amplify / S3 client wiring → `apps/portal/src/lib/amplify.ts`, `src/lib/s3Client.ts`
 
+**Contents** — jump straight to the section a task needs:
+
+- **System Overview** — orientation; the no-backend + principal-tag model in one paragraph.
+- **Authentication Flow** — read when touching login, the token→credential exchange, or refresh.
+- **Authorization Model** — read when touching IAM/isolation: user space, shared-space slots, analytics (TBAC).
+- **Control Planes** — read *The shared pattern* before any plane work; each plane section is its decision record:
+  - **Control Planes → Shared Spaces** — space lifecycle, registry, per-user caches, roster.
+  - **Control Planes → Table Builder** — create-table-from-folder, inference, partition projection.
+  - **Control Planes → Table Share** — snapshot push, clone-not-re-infer, recipient Map.
+  - **Control Planes → Data Quality** — Athena-computed checks, report/index discovery, cost.
+- **Known Constraints** — read before building on S3/LF/deploy semantics: non-atomic move, no versioning, pagination, LF hybrid mode, parallel-deploy conflict, the depends_on/ForceNew rule.
+- **Infrastructure & Deployment** — read when touching IaC layout, CI/CD, CORS, or LF-admin ordering.
+  - **Deploy-role IAM — adding a new resource type** — read before any spec adding new infra (self-grant propagation, scopability, refresh deadlocks).
+  - **Lambda code/infra split** — read before adding or rewiring a Lambda or layer.
+- **Deferred / Future Scope** — read when scoping: what is recorded as deliberately not built.
+
 ---
 
 ## System Overview
@@ -317,26 +333,18 @@ source.
   to attach its layers fails with `ResourceConflictException: An update is in progress for
   resource: <arn>`. Nothing is wrong with the code — re-running the failed job after the apply
   settles succeeds. It bites any spec that changes Lambda **env** and Lambda **code** in one push
-  (seen on SPEC-129, which moved all nine data-quality functions to a new queue URL). If it
-  recurs often enough to be worth fixing, the fix is a `needs:` edge or a retry around
-  `update-function-configuration`, not a change to either spec.
-- **A module-level `depends_on` defers every data source inside that module to apply time**,
-  whenever the dependency has a pending change — the data source's attributes then read
-  `(known after apply)` at plan time. If such a value feeds a **ForceNew** attribute, the plan
-  says *"must be replaced"* on PRs that touch nothing in that module. This bit `module.auth`
-  (`depends_on = [module.base]`, and `module.base` changes on most PRs because it holds the
-  deploy-role policies): `data.aws_region.current.name` fed
-  `aws_cognito_identity_pool_provider_principal_tag.username`'s `identity_provider_name`, so
-  every infra apply destroyed and recreated the principal-tag mapping the whole ABAC isolation
-  model rests on. Fixed by referencing `var.aws_region` — identical by construction
-  (`providers.tf` sets `region = var.aws_region`) and known at plan time. **The rule: inside a
-  module with a module-level `depends_on`, prefer a variable over a data source for anything
-  feeding a ForceNew attribute.** `ignore_changes` is the wrong tool here — nothing drifts; the
-  value is correct and constant, it was merely unknowable at plan time. (Contrast the
-  `aws_lakeformation_permissions` case in `decisions.md`, where the API genuinely reads back
-  different values than were written and `ignore_changes` is correct.) The two `archive_file`
-  placeholders in `modules/auth` are deferred by the same mechanism but are harmless, because
-  the functions carry `ignore_changes = [filename, source_code_hash]`.
+  (seen on SPEC-129, which moved all nine data-quality functions to a new queue URL); a real fix,
+  if ever needed, is a `needs:` edge or a retry, not a spec change.
+- **Inside a module with a module-level `depends_on`, prefer a variable over a data source for
+  anything feeding a ForceNew attribute** — a pending change in the dependency defers the data
+  source to apply time, and `(known after apply)` on a ForceNew attribute plans *"must be
+  replaced"*. This had every infra apply destroying and recreating `module.auth`'s identity-pool
+  principal-tag mapping (the ABAC keystone) until `data.aws_region.current.name` became
+  `var.aws_region`; `ignore_changes` is the wrong tool — nothing drifts (contrast
+  `aws_lakeformation_permissions`, where the API genuinely reads back different values and
+  `ignore_changes` is correct). The two `archive_file` placeholders in `modules/auth` defer the
+  same way but are harmless (`ignore_changes = [filename, source_code_hash]`). Full narrative:
+  the comment above the resource in `infra/modules/auth/identity-pool.tf`.
 
 ## Infrastructure & Deployment
 
@@ -349,7 +357,9 @@ infra must expand the deploy-role policy** as in-scope work. The SPA deploys as 
 CloudFront (OAC origin; custom error responses 403/404 → `/index.html` for SPA routing; a
 response-headers policy carries the enforcing CSP + security header set — SPEC-140, `decisions.md`). Build-time
 `VITE_*` vars are GitHub Actions variables (see `.github/workflows/README.md`); resource→spec mapping
-and current values come from `tofu -chdir=infra output`.
+and current values come from `tofu -chdir=infra output`. Security scanning: `security.yml` runs the
+report-only scanner suite (SPEC-138); `deploy-infra.yml`'s plan job Checkov-scans the **rendered**
+`tofu show -json` plan for IAM (SPEC-139) — details in `docs/decisions.md` + `docs/security-baseline.md`.
 
 > **CORS:** both browser-facing buckets need CORS or all SDK calls fail — the most common first-time
 > setup issue. Managed in the bucket modules' `.tftpl`/`s3.tf`.
@@ -390,17 +400,11 @@ this list before merging:
   with `skip_refresh=true`**, which applies from cached state; then dispatch again *normally*, because
   an apply that skipped refresh has proved nothing about drift. Out-of-band `aws iam put-role-policy`
   remains the fallback when even that cannot run.
-  - **TIGHTENING a grant deadlocks exactly like widening one.** SPEC-139's follow-up removed
-    `lambda:ListTags` from an event-source-mapping statement, believing the function-scoped grant
-    covered it. It does not — a **mapping ARN and a function ARN are different resource types** — and
-    the next refresh needed the permission the pending fix restored, so plan, apply *and revert* all
-    failed identically. Least-privilege edits to the deploy role's own policies carry this risk;
-    check AWS's service reference for **every** resource type an action accepts, not just the one you
-    have in mind.
-  - **A green `plan` is not proof the apply will work.** During this incident `plan` passed twice
-    while `apply` failed on the same call with no policy change in between — IAM is eventually
-    consistent, so requests can be evaluated against either policy version for a while. Don't
-    conclude from one green plan that a permission problem is resolved.
+  - **Tightening a grant deadlocks exactly like widening one** (the SPEC-139 follow-up). Two
+    imperatives: (a) a **mapping ARN and a function ARN are different resource types** — check
+    every resource type an action accepts before scoping, not just the one you have in mind;
+    (b) **a green `plan` is not proof the apply will work** — IAM is eventually consistent.
+    Narrative: `decisions.md` → *Deploy-role refresh deadlock*.
 - **Resource policies (bucket/KMS) can lock out the deploy role too.** Always **except the deploy role**
   from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
   provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same

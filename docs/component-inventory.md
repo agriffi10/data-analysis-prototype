@@ -17,25 +17,25 @@ whole new area appears.
 
 ## Shared (read when building anything)
 
-| Area | File | Symbols | What's in it |
-|---|---|---|---|
-| Foundations | `component-inventory/foundations.md` | 16 | `src/lib/` — AWS clients, credentials, `ServiceResult` adapters, `toUserMessage`, FIFO enqueue skeleton, query client |
-| Shared components | `component-inventory/shared-components.md` | 31 | `src/components/` — Modal, ConfirmDialog, Drawer, Pager, Menu, MobileActionBar, Button/Input/Badge/Banner, ErrorBanner, Toast |
-| Shared types | `component-inventory/shared-types.md` | 3 | `src/types/` |
-| Shared hooks | `component-inventory/shared-hooks.md` | 2 | `src/hooks/` |
-| UI primitive utility | `component-inventory/ui-primitive-utility.md` | 3 | `src/lib/` styling/primitive helpers |
-| Test utilities | `component-inventory/test-utilities.md` | 1 | `src/test/` — `renderWithProviders` |
+| Area | File | What's in it |
+|---|---|---|
+| Foundations | `component-inventory/foundations.md` | `src/lib/` — AWS clients, credentials, `ServiceResult` adapters, `toUserMessage`, FIFO enqueue skeleton, query client |
+| Shared components | `component-inventory/shared-components.md` | `src/components/` — Modal, ConfirmDialog, Drawer, Pager, Menu, MobileActionBar, Button/Input/Badge/Banner, ErrorBanner, Toast |
+| Shared types | `component-inventory/shared-types.md` | `src/types/` |
+| Shared hooks | `component-inventory/shared-hooks.md` | `src/hooks/` |
+| UI primitive utility | `component-inventory/ui-primitive-utility.md` | `src/lib/` styling/primitive helpers |
+| Test utilities | `component-inventory/test-utilities.md` | `src/test/` — `renderWithProviders` |
 
 ## Features (read the one you're working in)
 
-| Feature | File | Symbols |
-|---|---|---|
-| File browser | `component-inventory/file-browser-feature.md` | 61 |
-| Query | `component-inventory/query-feature.md` | 55 |
-| Notifications | `component-inventory/notifications-feature.md` | 17 |
-| Shared spaces | `component-inventory/shared-spaces-feature.md` | 17 |
-| Data quality | `component-inventory/data-quality-feature.md` | 9 |
-| Table builder | `component-inventory/table-builder-feature.md` | 7 |
-| Help | `component-inventory/help-feature.md` | 7 |
-| Auth | `component-inventory/auth-feature.md` | 5 |
-| Table share | `component-inventory/table-share-feature.md` | 4 |
+| Feature | File |
+|---|---|
+| File browser | `component-inventory/file-browser-feature.md` |
+| Query | `component-inventory/query-feature.md` |
+| Notifications | `component-inventory/notifications-feature.md` |
+| Shared spaces | `component-inventory/shared-spaces-feature.md` |
+| Data quality | `component-inventory/data-quality-feature.md` |
+| Table builder | `component-inventory/table-builder-feature.md` |
+| Help | `component-inventory/help-feature.md` |
+| Auth | `component-inventory/auth-feature.md` |
+| Table share | `component-inventory/table-share-feature.md` |
