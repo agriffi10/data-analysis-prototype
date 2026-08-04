@@ -45,6 +45,18 @@ PARQUET_STORED = "STORED AS PARQUET"
 #: counts every physical line, SPEC-111 FR-002).
 CSV_SKIP_HEADER = ("skip.header.line.count", "1")
 
+#: "This portal created this table" — a durable, queryable answer available from the first
+#: table created after SPEC-143 (greenfield with no production users is exactly when to
+#: start writing it). NOT the refresh eligibility test, and it must never become one: every
+#: table predating this spec lacks it, and TBLPROPERTIES are user-writable through ALTER
+#: TABLE, so it can be trusted neither as a permission nor as a fact. Eligibility turns on
+#: SHAPE (cpcommon.glue.clone_definition), and a test enforces that no verb reads this.
+#:
+#: NOTE 'portal.managed' (this, a table TBLPROPERTY, dotted) is NOT 'portal-managed' (the
+#: Lake Formation tag on DATABASES, hyphenated — infra/modules/analytics/lakeformation.tf).
+#: Unrelated jobs, one character apart.
+PORTAL_MANAGED = ("portal.managed", "true")
+
 
 class Storage(NamedTuple):
     """A format's storage clause plus the TBLPROPERTIES that clause requires.
@@ -182,9 +194,14 @@ def format_of_serde(library) -> str | None:
     return SERDE_FORMATS.get(library)
 
 
-def _tblproperties(storage, partition_keys):
-    """Ordered (k, v) TBLPROPERTIES: the storage's own props, then projection props."""
-    props = list(storage.tblproperties)
+def _tblproperties(storage, partition_keys, *, mark):
+    """Ordered (k, v) TBLPROPERTIES: the marker, the storage's own props, then projection.
+
+    The marker leads; the storage-then-projection order the golden strings pin is
+    unchanged either way, so this is a reading choice — identity before behaviour.
+    """
+    props = [PORTAL_MANAGED] if mark else []
+    props += list(storage.tblproperties)
     if partition_keys:
         props.append(("projection.enabled", "true"))
         for key in partition_keys:
@@ -200,6 +217,7 @@ def build_create_table_ddl(
     fmt: str,
     location: str,
     storage: Storage | None = None,
+    mark: bool = True,
 ) -> str:
     """Build a valid CREATE EXTERNAL TABLE IF NOT EXISTS statement (string).
 
@@ -220,6 +238,14 @@ def build_create_table_ddl(
         storage: Explicit storage clause + its properties. Omit for the table-builder
             defaults; supply one when the domain's SerDe choice differs (data-quality's
             Hive JSON SerDe, its raw-line LazySimpleSerDe — SPEC-111 FR-001/FR-002).
+        mark: Whether to emit the ``portal.managed`` marker (SPEC-143 FR-007). Default on,
+            and A SEPARATE ARGUMENT FROM ``storage`` DELIBERATELY. Inferring it from
+            ``storage is None`` would read correctly against today's two callers and be
+            wrong for the next one: SPEC-144's ``apply-refresh`` supplies a Storage rebuilt
+            from the live table, so an inferred rule would strip the marker from every
+            table a refresh touches — erasing exactly what FR-007 exists to record, on the
+            tables most likely to be asked about. Pass ``False`` for a table that is not a
+            durable user table (data-quality's ``dq_tmp_*``, dropped in the same run).
 
     Returns:
         The full statement as one line.
@@ -241,7 +267,7 @@ def build_create_table_ddl(
 
     stmt += f" {resolved.clause} LOCATION '{location}'"
 
-    props = _tblproperties(resolved, partition_keys)
+    props = _tblproperties(resolved, partition_keys, mark=mark)
     if props:
         rendered = ", ".join(f"'{k}'='{v}'" for k, v in props)
         stmt += f" TBLPROPERTIES ({rendered})"

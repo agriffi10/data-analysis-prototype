@@ -4,10 +4,11 @@ No AWS / polars — asserts the exact generated CREATE EXTERNAL TABLE for flat
 Parquet, partitioned CSV (integer projection + OpenCSVSerde all-string), partitioned
 JSON, and a string enum partition key. Runnable under pytest or directly.
 
-The first five tests are UNCHANGED from table-builder's ``test_ddl.py``, deliberately:
-they are what proves the module move did not alter that arc's shipped output. Only the
-import line differs. The tests below them cover the ``storage`` override SPEC-111 added
-for the data-quality arc's divergent SerDes.
+The first five tests came UNCHANGED from table-builder's ``test_ddl.py``, deliberately:
+they are what proved the module move did not alter that arc's shipped output. Their
+golden strings gained ``portal.managed`` in SPEC-143 — the one intended change to that
+output since. The tests below them cover the ``storage`` override SPEC-111 added for the
+data-quality arc's divergent SerDes.
 """
 
 import os
@@ -24,6 +25,7 @@ from cpcommon.ddl import (
 )
 
 LOC = "s3://dat-prod-user-space/alice/sales/2026/"
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def test_flat_parquet_no_partitions():
@@ -35,7 +37,8 @@ def test_flat_parquet_no_partitions():
     assert ddl == (
         "CREATE EXTERNAL TABLE IF NOT EXISTS `alice`.`sales_2026` "
         "(`order_id` bigint, `amount` double) "
-        "STORED AS PARQUET LOCATION 's3://dat-prod-user-space/alice/sales/2026/'"
+        "STORED AS PARQUET LOCATION 's3://dat-prod-user-space/alice/sales/2026/' "
+        "TBLPROPERTIES ('portal.managed'='true')"
     )
 
 
@@ -57,7 +60,8 @@ def test_partitioned_csv_integer_projection_all_string():
         "WITH SERDEPROPERTIES ('separatorChar'=',', 'quoteChar'='\"', 'escapeChar'='\\\\') "
         "STORED AS TEXTFILE "
         "LOCATION 's3://dat-prod-user-space/alice/sales/2026/' "
-        "TBLPROPERTIES ('skip.header.line.count'='1', 'projection.enabled'='true', "
+        "TBLPROPERTIES ('portal.managed'='true', 'skip.header.line.count'='1', "
+        "'projection.enabled'='true', "
         "'projection.year.type'='integer', 'projection.year.range'='2000,2100', 'projection.year.digits'='4', "
         "'projection.month.type'='integer', 'projection.month.range'='1,12', 'projection.month.digits'='2')"
     )
@@ -76,7 +80,8 @@ def test_partitioned_json_date_projection():
         "PARTITIONED BY (`dt` date) "
         "ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE "
         "LOCATION 's3://dat-prod-user-space/alice/sales/2026/' "
-        "TBLPROPERTIES ('projection.enabled'='true', 'projection.dt.type'='date', "
+        "TBLPROPERTIES ('portal.managed'='true', 'projection.enabled'='true', "
+        "'projection.dt.type'='date', "
         "'projection.dt.range'='2020-01-01,2025-12-31', 'projection.dt.format'='yyyy-MM-dd')"
     )
 
@@ -90,7 +95,8 @@ def test_string_enum_partition_key():
         "CREATE EXTERNAL TABLE IF NOT EXISTS `alice`.`t` (`id` bigint) "
         "PARTITIONED BY (`region` string) "
         "STORED AS PARQUET LOCATION 's3://dat-prod-user-space/alice/sales/2026/' "
-        "TBLPROPERTIES ('projection.enabled'='true', 'projection.region.type'='enum', "
+        "TBLPROPERTIES ('portal.managed'='true', 'projection.enabled'='true', "
+        "'projection.region.type'='enum', "
         "'projection.region.values'='us-east-1,eu-west-1')"
     )
 
@@ -137,7 +143,7 @@ def test_storage_override_can_drop_the_csv_header_skip():
     )
     ddl = build_create_table_ddl(
         "alice", "dq_tmp_raw_abc", [{"name": "line", "type": "string"}], [], "csv", LOC,
-        storage=raw,
+        storage=raw, mark=False,
     )
     assert "skip.header.line.count" not in ddl
     assert "TBLPROPERTIES" not in ddl
@@ -155,6 +161,81 @@ def test_storage_override_still_gets_projection_properties():
     assert "'projection.enabled'='true'" in ddl
     assert "'projection.region.values'='eu,us'" in ddl
     assert "skip.header.line.count" not in ddl
+
+
+# ── The creation marker (SPEC-143 FR-007) ────────────────────────────────────
+
+
+def test_every_table_builder_format_is_marked_exactly_once():
+    """Once, not twice: the marker leads the property list and the projection props are
+    appended after it, so a second copy would mean the two paths both added one."""
+    for fmt in ("parquet", "csv", "json"):
+        ddl = build_create_table_ddl(
+            "alice", "t", [{"name": "id", "type": "bigint"}],
+            [{"name": "region", "type": "string", "values": ["eu", "us"]}], fmt, LOC,
+        )
+
+        assert ddl.count("'portal.managed'='true'") == 1, fmt
+
+
+def test_the_marker_does_not_disturb_the_properties_that_change_behaviour():
+    """It is a record, not a setting — the CSV header skip and the projection props must
+    read exactly as they did before it existed."""
+    ddl = build_create_table_ddl(
+        "alice", "t", [{"name": "id", "type": "string"}],
+        [{"name": "year", "type": "integer", "range": [2000, 2100], "digits": 4}], "csv", LOC,
+    )
+
+    assert "'skip.header.line.count'='1'" in ddl
+    assert "'projection.enabled'='true'" in ddl
+    assert "'projection.year.range'='2000,2100'" in ddl
+    assert "'projection.year.digits'='4'" in ddl
+
+
+def test_opting_out_is_what_leaves_a_table_unmarked_not_supplying_a_storage():
+    """THE DISTINCTION THIS ARGUMENT EXISTS FOR, and it is not hypothetical.
+
+    Inferring "unmarked" from `storage is not None` reads correctly against today's two
+    callers — table-builder omits it, data-quality supplies one — and is wrong for the
+    next: SPEC-144's `apply-refresh` supplies a Storage rebuilt from the live table. Under
+    the inferred rule, every table a refresh touched would come back UNMARKED, silently
+    erasing the record FR-007 exists to create, on exactly the tables most likely to be
+    asked about.
+
+    So the two are asserted apart: a supplied storage is still marked, and only an
+    explicit opt-out is not.
+    """
+    hive_json = Storage("ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'")
+    args = ("alice", "t", [{"name": "id", "type": "string"}], [], "json", LOC)
+
+    assert "'portal.managed'='true'" in build_create_table_ddl(*args, storage=hive_json)
+    assert "portal.managed" not in build_create_table_ddl(*args, storage=hive_json, mark=False)
+    assert "portal.managed" not in build_create_table_ddl(*args, mark=False)
+
+
+def test_data_quality_opts_its_temp_tables_out():
+    """Read from the caller, not restated here: a temp table dropped at the end of the same
+    run must not carry a durable "the portal manages this" claim."""
+    import ast
+
+    # Read from disk rather than imported: the data-quality layer root is only on sys.path
+    # under `pytest lambdas/`, and this file is also meant to run standalone.
+    path = os.path.join(
+        os.path.dirname(_HERE), "data-quality-common", "dqcommon", "sql.py"
+    )
+    with open(path) as handle:
+        tree = ast.parse(handle.read())
+
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func).endswith("build_create_table_ddl")
+    ]
+
+    assert calls, "no build_create_table_ddl calls found — the scan went stale"
+    for call in calls:
+        opts_out = [k for k in call.keywords if k.arg == "mark" and k.value.value is False]
+        assert opts_out, f"a data-quality temp table is marked portal.managed (line {call.lineno})"
 
 
 def test_default_storage_rejects_an_unknown_format():

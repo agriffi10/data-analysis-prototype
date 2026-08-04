@@ -118,6 +118,11 @@ locals {
   ]))
 }
 
+# NOTE `portal-managed` (this, a Lake Formation tag on DATABASES, hyphenated) is NOT
+# `portal.managed` (a table TBLPROPERTY, dotted — cpcommon/ddl.py, SPEC-143 FR-007). This
+# one GRANTS: it is how the control-plane roles get CREATE_TABLE in dynamic databases.
+# That one only RECORDS that the portal created a table, and nothing reads it to decide
+# anything. One character apart, unrelated jobs.
 resource "aws_lakeformation_lf_tag" "portal_managed" {
   key    = "portal-managed"
   values = ["true"]
