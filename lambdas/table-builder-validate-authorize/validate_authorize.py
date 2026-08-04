@@ -190,6 +190,11 @@ def _validate_and_authorize(event) -> dict:
                 "tableName": req.get("tableName"),
                 "space": {"database": space.get("database")},
                 "requestId": req.get("requestId"),
+                # From the REQUEST, not the local `mode`, which is unbound when
+                # _validate_mode is what raised. Without it every failure this verb
+                # notifies reads "Couldn't create table" — including
+                # partition_keys_not_refreshable, which only a refresh can reach.
+                "mode": req.get("mode"),
             },
             err,
             "validate",

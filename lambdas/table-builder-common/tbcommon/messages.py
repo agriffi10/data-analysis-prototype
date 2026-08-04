@@ -8,6 +8,9 @@ unchanged); it registers the table-builder domain reason codes with cpcommon at 
 so they pass ``TerminalError``'s raise-time validation (SPEC-107 FR-005).
 """
 
+import json
+import re
+
 from cpcommon import messages as _cpmessages
 
 # Reasons that mean "not allowed" — no table name is surfaced (the request may not
@@ -32,10 +35,8 @@ _BODIES = {
     "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",
     "ddl_timeout": "creating the table failed. Please try again or contact the Administrator.",
     "malformed_event": "the request was malformed. Please try again.",
-    # Refresh-path reasons (SPEC-143). Deliberately create-shaped wording: failure_message()
-    # below still frames every outcome as a create, and SPEC-144 FR-009 owns teaching this
-    # layer to talk about refreshes. `not_implemented` gets no body — the SPEC-143 stub is
-    # an ASL Pass state, so nothing raises it in Python and nothing renders it.
+    # Refresh-path reasons (SPEC-143/144). failure_message() picks the "create"/"refresh"
+    # prefix from the request's mode, so these read correctly under either.
     "invalid_mode": "the request was malformed. Please try again.",
     "partition_keys_not_refreshable": (
         "a refresh keeps the table's existing partition keys - to change them, drop the "
@@ -53,30 +54,125 @@ _BODIES = {
     ),
     "definition_too_large": "that table has too many columns to refresh.",
     "format_changed": "the folder's file format no longer matches the table's - build a new table instead.",
+    # SPEC-144. `columns_removed` is the only body that reads a token, and it is the
+    # WARNING itself: nothing has changed, and the specific names are what makes the
+    # opt-in an informed one rather than a dare.
+    "columns_removed": (
+        "these columns are no longer in the data and would be removed: {removed}. Nothing "
+        "was changed - refresh again and confirm the removal to apply it."
+    ),
+    "removals_flag_not_applicable": "the request was malformed. Please try again.",
+    "drop_failed": "the table couldn't be replaced. Nothing was changed. Please try again or contact the Administrator.",
+    # DELIBERATELY NOT "refresh failed". The table IS GONE at this point, and a user told a
+    # refresh failed will reasonably assume nothing happened. FR-006.
+    "recreate_failed": (
+        'the old table was removed and the new one couldn\'t be created in "{database}". '
+        "Your files are untouched - build the table again from the Files browser."
+    ),
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the actor.
     "unexpected_error": "something went wrong. Please try again.",
 }
 
 
-def failure_message(reason: str, table_name: str = "", database: str = "") -> str:
+#: Every `{marker}` any body declares, read off the bodies rather than listed, so a new one
+#: is blanked-when-absent automatically instead of shipping literally the first time a
+#: caller forgets it. The pattern matches ANY brace group, not `[a-z_]+`: the surrounding
+#: code is camelCase throughout, so a `{removedCount}` would otherwise be missed by the
+#: discovery and rendered raw to the user — the exact failure this exists to prevent.
+_MARKERS = frozenset(re.findall(r"\{([^{}]*)\}", " ".join(_BODIES.values())))
+
+#: Longest list of column names named in a body or carried in a link, so neither a
+#: notification nor a URL is unbounded by a user's schema.
+MAX_NAMED_COLUMNS = 20
+
+
+def removed_tokens(names: list[str]) -> dict:
+    """The tokens a ``columns_removed`` TerminalError carries.
+
+    Both halves are built HERE so the cap and the encoding cannot drift apart: `removed` is
+    the display string the body renders (capped, with an "and N more" tail), and
+    `removedNames` is the machine-readable list the notification link is built from.
+
+    Two separate values rather than one re-split string, because splitting the display
+    string back apart is wrong twice over — the tail is not a column name, and **column
+    names are not catalog-safe**. They come verbatim from a file header or a Glue column
+    (`infer_schema` and `load_table_definition` never validate them), so one containing a
+    comma, a space or an ampersand would be silently mangled. JSON is the separator-free
+    encoding that makes the round trip exact.
+    """
+    shown = list(names)[:MAX_NAMED_COLUMNS]
+    display = ", ".join(shown)
+    remaining = len(names) - len(shown)
+    if remaining > 0:
+        display += f", and {remaining} more"
+    return {"removed": display, "removedNames": json.dumps(shown)}
+
+
+def failure_message(
+    reason: str,
+    table_name: str = "",
+    database: str = "",
+    mode: str = "create",
+    tokens: dict | None = None,
+) -> str:
     """Map a terminal reason (+ context) to the message the actor sees.
 
-    An unknown reason falls back to a generic couldn't-create line rather than
-    leaking the code. No raw AWS/Athena text is ever interpolated (SPEC-106 FR-008).
+    An unknown reason falls back to a generic couldn't-{verb} line rather than leaking the
+    code. No raw AWS/Athena text is ever interpolated (SPEC-106 FR-008).
+
+    ``mode`` picks the verb. It reaches the access-denied short-circuit too, and that is
+    not a detail: `forbidden` is the ORDINARY outcome of refreshing from a stale schema
+    rail, so a create-only line would tell a user they can't *create* a table they were
+    trying to refresh — about the most confusing thing this layer could say.
     """
+    verb = "refresh" if mode == "refresh" else "create"
     if reason in _ACCESS_DENIED:
-        return "You don't have access to create a table here."
+        return f"You don't have access to {verb} a table here."
     name = table_name or "your table"
     body = _BODIES.get(reason, "something went wrong.")
-    # Substitute the one known placeholder directly (never str.format) so a body that
-    # ever contains a literal brace can't raise KeyError/ValueError (SPEC-083 FR-005).
-    body = body.replace("{database}", database)
-    return f'Couldn\'t create table "{name}": {body}'
+    # str.replace, never str.format (SPEC-083 FR-005). Every DECLARED marker is
+    # substituted, not just the supplied ones — an absent token must leave a sentence
+    # rather than a literal "{removed}" on the user's screen.
+    # The trusted context wins over the payload: tokens come from a raise site and must
+    # not be able to shadow the database this layer was told about.
+    values = {**(tokens or {}), "database": database}
+    for marker in _MARKERS:
+        body = body.replace("{" + marker + "}", values.get(marker) or "")
+    return f'Couldn\'t {verb} table "{name}": {body}'
 
 
-def success_message(table_name: str, database: str) -> str:
-    """Return the ready-to-query message emitted on execute-ddl success."""
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def success_message(
+    table_name: str,
+    database: str,
+    status: str = "created",
+    added: int = 0,
+    retyped: int = 0,
+    removed: int = 0,
+) -> str:
+    """The message emitted on a successful terminal outcome.
+
+    ``unchanged`` reads differently from ``refreshed`` on purpose (FR-002): a refresh that
+    found nothing must not look like one that changed something, or a user concludes the
+    button is broken — and the counts are what make "it worked" checkable rather than
+    merely reassuring.
+    """
+    if status == "unchanged":
+        return f'Table "{table_name}" is already up to date - no schema changes were found.'
+    if status == "refreshed":
+        parts = []
+        if added:
+            parts.append(f"{_plural(added, 'column')} added")
+        if retyped:
+            parts.append(f"{_plural(retyped, 'column')} retyped")
+        if removed:
+            parts.append(f"{_plural(removed, 'column')} removed")
+        changes = ", ".join(parts) if parts else "schema updated"
+        return f'Table "{table_name}" was refreshed in "{database}": {changes}.'
     return f'Table "{table_name}" is ready to query in "{database}".'
 
 

@@ -206,6 +206,120 @@ def test_wrapper_tolerates_non_dict_event():
     assert fake.calls == []
 
 
+# ── The refresh channel (SPEC-144 FR-009) ────────────────────────────────────
+
+
+def test_the_mode_on_the_event_picks_the_failure_verb():
+    fake = _install()
+    notify.emit_failure(_event(mode="refresh"), TerminalError("table_not_found", "d"), "load")
+    body = json.loads(fake.calls[0]["MessageBody"])
+
+    assert body["message"].startswith('Couldn\'t refresh table "orders":')
+
+
+def test_tokens_reach_the_message():
+    """The channel `cpcommon.errors` documents as deliberately unused by this plane until
+    now — FR-003's warning is nothing without it, since the message must NAME the columns."""
+    fake = _install()
+    notify.emit_failure(
+        _event(mode="refresh"),
+        TerminalError("columns_removed", "2 columns", notify.removed_tokens(["legacy_id", "old_total"])),
+        "diff",
+    )
+    body = json.loads(fake.calls[0]["MessageBody"])
+
+    assert "legacy_id, old_total" in body["message"]
+
+
+def test_columns_removed_carries_a_link_that_names_the_columns():
+    fake = _install()
+    notify.emit_failure(
+        _event(mode="refresh"),
+        TerminalError("columns_removed", "2 columns", notify.removed_tokens(["legacy_id", "old_total"])),
+        "diff",
+    )
+    body = json.loads(fake.calls[0]["MessageBody"])
+
+    assert body["link"] == "/query?refreshTable=sales.orders&removed=legacy_id,old_total"
+
+
+def test_a_column_name_that_is_not_catalog_safe_cannot_corrupt_the_link():
+    """COLUMN NAMES ARE NOT CATALOG-SAFE — the database and table are, and it is easy to
+    assume the names are too. They come verbatim from a file header (`infer_schema` reads
+    the CSV header / polars schema and validates nothing), so an ordinary spreadsheet
+    export produces `Order ID`, and `&` or `#` in a header is entirely possible.
+
+    Unencoded, `&` invents a query parameter and `#` truncates the rest into a fragment —
+    the link would name the wrong columns or lose them, silently.
+    """
+    link = notify._columns_removed_link(
+        "sales", "orders", notify.removed_tokens(["Order ID", "a&b", "x#y", "co,mma"])
+    )
+
+    assert link == (
+        "/query?refreshTable=sales.orders&removed=Order%20ID,a%26b,x%23y,co%2Cmma"
+    )
+    # Exactly one `&` (the separator this link owns) and one `?`; the comma still
+    # separates names because only the names themselves are encoded.
+    assert link.count("&") == 1 and link.count("?") == 1
+    assert link.split("removed=")[1].count(",") == 3
+
+
+def test_the_link_satisfies_the_browsers_own_safety_rule():
+    """`isSafeInAppPath` (SPEC-061) lives in TypeScript and is NOT applied server-side —
+    `emit_notification` says so explicitly, because duplicating the rule would give two
+    places to keep in step. The constant `/q` prefix decides it, so this is cheap; the
+    parameter tests above are the ones doing real work.
+    """
+    link = notify._columns_removed_link("sales", "orders", notify.removed_tokens(["a", "b"]))
+
+    assert link.startswith("/")
+    assert link[1] not in ("/", "\\")
+
+
+def test_every_other_failure_reason_still_emits_without_a_link():
+    fake = _install()
+    for reason in ("table_exists", "no_data_files", "recreate_failed", "unexpected_error"):
+        notify.emit_failure(_event(mode="refresh"), TerminalError(reason, "d"), "diff")
+
+    for call in fake.calls:
+        assert "link" not in json.loads(call["MessageBody"])
+
+
+def test_the_link_is_capped_and_omitted_when_there_is_nothing_to_name():
+    tokens = notify.removed_tokens([f"col_{i}" for i in range(30)])
+    link = notify._columns_removed_link("sales", "orders", tokens)
+
+    assert link.split("removed=")[1].count(",") == notify.MAX_NAMED_COLUMNS - 1
+    assert notify._columns_removed_link("sales", "orders", {}) is None
+    assert notify._columns_removed_link("", "orders", notify.removed_tokens(["a"])) is None
+    # A malformed token must not raise inside a best-effort notify path.
+    assert notify._columns_removed_link("sales", "orders", {"removedNames": "not json"}) is None
+
+
+def test_the_display_string_is_capped_with_a_tail_and_never_re_split():
+    """The tail is the reason the link reads a SEPARATE token: `and 10 more` is not a
+    column name, and splitting the display string back apart would put it in the URL."""
+    tokens = notify.removed_tokens([f"col_{i}" for i in range(30)])
+
+    assert tokens["removed"].endswith(", and 10 more")
+    assert len(json.loads(tokens["removedNames"])) == notify.MAX_NAMED_COLUMNS
+    assert "and 10 more" not in notify._columns_removed_link("sales", "orders", tokens)
+
+
+def test_both_refresh_outcomes_share_one_dedup_token():
+    """Per OUTCOME, not per verb (SPEC-114): a run yields `refreshed` or `unchanged`, never
+    both, and the two are emitted by different verbs on different branches."""
+    fake = _install()
+    notify.emit_refresh_outcome(_event(), "unchanged")
+    notify.emit_refresh_outcome(_event(), "refreshed", {"added": [{"name": "c"}]})
+
+    assert [c["MessageDeduplicationId"] for c in fake.calls] == ["r1:refresh", "r1:refresh"]
+    messages = [json.loads(c["MessageBody"])["message"] for c in fake.calls]
+    assert "no schema changes were found" in messages[0]
+    assert "1 column added" in messages[1]
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

@@ -3,6 +3,7 @@
 Pure functions — no AWS. Runnable under pytest or directly: python3 test_messages.py.
 """
 
+import json
 import os
 import sys
 
@@ -86,6 +87,208 @@ def test_literal_brace_in_body_does_not_raise():
 
 def test_success_message():
     assert messages.success_message("orders", "sales") == 'Table "orders" is ready to query in "sales".'
+
+
+# ── The refresh vocabulary (SPEC-144 FR-009) ─────────────────────────────────
+
+#: Every failure message this layer rendered BEFORE SPEC-144, captured verbatim — the 14
+#: pre-SPEC-143 create reasons AND the 12 SPEC-143 refresh reasons, which also shipped and
+#: also render today. The gate for the whole message-layer change: `mode` and `tokens` are
+#: additive, so a message that moved by one character is a regression. Deliberately a
+#: literal table rather than a loop over `_BODIES` — generating the expectations from the
+#: thing under test would assert nothing.
+_CREATE_MESSAGES = {
+    "invalid_table_name": 'Couldn\'t create table "sales": the name isn\'t a valid table name.',
+    "invalid_partition_keys": 'Couldn\'t create table "sales": the partition keys aren\'t valid (check names, types, and ranges).',
+    "table_exists": 'Couldn\'t create table "sales": a table with that name already exists in "alice".',
+    "no_data_files": 'Couldn\'t create table "sales": no supported data files were found in that folder.',
+    "mixed_formats": 'Couldn\'t create table "sales": the folder mixes file formats - use a single format.',
+    "unsupported_format": 'Couldn\'t create table "sales": that file format isn\'t supported (use Parquet, CSV, or JSON).',
+    "unexpected_partitioning": 'Couldn\'t create table "sales": the folder is partitioned but no partition keys were provided.',
+    "partition_layout_mismatch": 'Couldn\'t create table "sales": the partition keys don\'t match the folder layout (check names and order).',
+    "schema_inference_failed": 'Couldn\'t create table "sales": the data schema couldn\'t be read.',
+    "unmappable_type": 'Couldn\'t create table "sales": the data schema couldn\'t be read.',
+    "ddl_execution_failed": 'Couldn\'t create table "sales": creating the table failed. Please try again or contact the Administrator.',
+    "ddl_timeout": 'Couldn\'t create table "sales": creating the table failed. Please try again or contact the Administrator.',
+    "malformed_event": 'Couldn\'t create table "sales": the request was malformed. Please try again.',
+    "unexpected_error": 'Couldn\'t create table "sales": something went wrong. Please try again.',
+    # Shipped by SPEC-143, rendered under the create prefix until this spec gave them a
+    # mode. Pinned here so the prefix change is the ONLY thing that moved.
+    "invalid_mode": 'Couldn\'t create table "sales": the request was malformed. Please try again.',
+    "partition_keys_not_refreshable": 'Couldn\'t create table "sales": a refresh keeps the table\'s existing partition keys - to change them, drop the table and build it again.',
+    "table_not_found": 'Couldn\'t create table "sales": no table named that exists in "alice".',
+    "cannot_refresh_view": 'Couldn\'t create table "sales": a view has no data files to re-read.',
+    "cannot_refresh_managed_table": 'Couldn\'t create table "sales": only tables the portal created over files in your space can be refreshed.',
+    "cannot_refresh_catalog_partitioned": 'Couldn\'t create table "sales": tables with catalog-registered partitions can\'t be refreshed.',
+    "cannot_refresh_location_unsupported": 'Couldn\'t create table "sales": that table\'s data location isn\'t one this portal can read.',
+    "table_outside_space": 'Couldn\'t create table "sales": that table\'s data is outside the space you\'re refreshing it from.',
+    "projection_not_reconstructable": 'Couldn\'t create table "sales": that table\'s partition settings can\'t be read back - drop the table and build it again to change them.',
+    "definition_too_large": 'Couldn\'t create table "sales": that table has too many columns to refresh.',
+    "format_changed": 'Couldn\'t create table "sales": the folder\'s file format no longer matches the table\'s - build a new table instead.',
+}
+
+
+def test_the_gate_covers_every_body_that_shipped_before_this_spec():
+    """Guards the table above against silently shrinking: a body added without an
+    expectation would otherwise be pinned by nothing, which is how the 12 SPEC-143 reasons
+    came to be uncovered in the first place."""
+    new_in_this_spec = {"columns_removed", "drop_failed", "recreate_failed", "removals_flag_not_applicable"}
+    uncovered = set(messages._BODIES) - set(_CREATE_MESSAGES) - new_in_this_spec
+
+    assert not uncovered, f"bodies with no byte-for-byte expectation: {sorted(uncovered)}"
+
+
+def test_every_pre_existing_failure_message_is_byte_for_byte_unchanged():
+    for reason, expected in _CREATE_MESSAGES.items():
+        assert messages.failure_message(reason, "sales", "alice") == expected, reason
+
+
+def test_a_body_with_no_token_markers_is_unaffected_by_the_tokens_channel():
+    """The additive claim, asserted rather than assumed: passing tokens to a body that
+    references none must render identically to passing none."""
+    for reason, expected in _CREATE_MESSAGES.items():
+        with_tokens = messages.failure_message(
+            reason, "sales", "alice", "create", {"removed": "a, b", "unused": "x"}
+        )
+        assert with_tokens == expected, reason
+
+
+def test_the_prefix_follows_the_mode():
+    created = messages.failure_message("no_data_files", "sales", "alice", "create")
+    refreshed = messages.failure_message("no_data_files", "sales", "alice", "refresh")
+
+    assert created.startswith('Couldn\'t create table "sales":')
+    assert refreshed.startswith('Couldn\'t refresh table "sales":')
+    # Only the verb differs — the body is the same sentence.
+    assert created.split(":", 1)[1] == refreshed.split(":", 1)[1]
+
+
+def test_access_denied_is_mode_aware_too():
+    """The short-circuit runs BEFORE the prefix is chosen, so it needs its own branch.
+
+    `forbidden` is the ORDINARY outcome of refreshing from a stale schema rail — the table
+    was dropped, or the space membership changed — so a create-only line would tell a user
+    they can't create a table they were trying to refresh.
+    """
+    for reason in ("unauthorized", "forbidden"):
+        assert messages.failure_message(reason, "sales", "alice", "create") == (
+            "You don't have access to create a table here."
+        )
+        assert messages.failure_message(reason, "sales", "alice", "refresh") == (
+            "You don't have access to refresh a table here."
+        )
+
+
+def test_columns_removed_names_the_columns_and_says_nothing_changed():
+    msg = messages.failure_message(
+        "columns_removed", "sales", "alice", "refresh", {"removed": "legacy_id, old_total"}
+    )
+
+    assert "legacy_id, old_total" in msg
+    assert "Nothing was changed" in msg
+    assert msg.startswith('Couldn\'t refresh table "sales":')
+
+
+def test_an_unfilled_token_marker_renders_empty_rather_than_literally():
+    """A missing token must not leave `{removed}` on screen — the body is still a sentence."""
+    msg = messages.failure_message("columns_removed", "sales", "alice", "refresh")
+
+    assert "{removed}" not in msg
+
+
+def test_recreate_failed_does_not_say_the_refresh_merely_failed():
+    """FR-006. The table IS GONE at this point. A user told 'refresh failed' will assume
+    nothing happened, and something did — so the wording says so and points at the remedy."""
+    msg = messages.failure_message("recreate_failed", "sales", "alice", "refresh")
+
+    assert "removed" in msg and "files are untouched" in msg
+    assert "alice" in msg
+
+
+def test_drop_failed_says_nothing_was_changed():
+    assert "Nothing was changed" in messages.failure_message("drop_failed", "sales", "alice", "refresh")
+
+
+def test_success_message_still_defaults_to_the_created_wording():
+    assert messages.success_message("sales", "alice") == 'Table "sales" is ready to query in "alice".'
+
+
+def test_the_unchanged_outcome_reads_differently_from_a_refresh_that_changed_something():
+    """FR-002 AC4 — a refresh that found nothing must not look like one that did work, or a
+    user concludes the button is broken."""
+    unchanged = messages.success_message("sales", "alice", "unchanged")
+    refreshed = messages.success_message("sales", "alice", "refreshed", added=1)
+
+    assert "no schema changes were found" in unchanged
+    assert unchanged != refreshed
+
+
+def test_the_refreshed_message_names_the_counts_and_pluralises():
+    one = messages.success_message("sales", "alice", "refreshed", added=1)
+    many = messages.success_message("sales", "alice", "refreshed", added=2, retyped=1, removed=3)
+
+    assert "1 column added" in one
+    assert "2 columns added" in many and "1 column retyped" in many and "3 columns removed" in many
+
+
+def test_a_refresh_that_changed_something_uncounted_still_reads_as_a_sentence():
+    """Defensive: the counts come from a diff, and a caller that passes none must not
+    produce 'was refreshed in "alice": .'"""
+    assert messages.success_message("sales", "alice", "refreshed") == (
+        'Table "sales" was refreshed in "alice": schema updated.'
+    )
+
+
+def test_every_marker_any_body_declares_is_discovered():
+    """The discovery regex decides what gets blanked when a token is absent, and a marker
+    it misses is rendered LITERALLY to a user. An earlier version matched `[a-z_]+` only —
+    so a `{removedCount}` would have shipped raw, and the surrounding code is camelCase
+    throughout. Asserted against the bodies rather than against the pattern.
+    """
+    import re
+
+    declared = set(re.findall(r"\{([^{}]*)\}", " ".join(messages._BODIES.values())))
+
+    assert declared == set(messages._MARKERS)
+    assert declared, "the discovery found no markers at all — the pattern has gone stale"
+
+
+def test_a_token_cannot_shadow_the_database():
+    """Tokens come from a raise site and the database from this layer's own caller; the
+    trusted value must win, not the payload."""
+    msg = messages.failure_message(
+        "table_exists", "sales", "alice", "create", {"database": "SPOOFED"}
+    )
+
+    assert "alice" in msg and "SPOOFED" not in msg
+
+
+def test_removed_tokens_caps_the_display_and_keeps_the_names_exact():
+    tokens = messages.removed_tokens(["a", "b"])
+
+    assert tokens["removed"] == "a, b"
+    assert json.loads(tokens["removedNames"]) == ["a", "b"]
+
+    many = messages.removed_tokens([f"c{i}" for i in range(25)])
+    assert many["removed"].endswith(", and 5 more")
+    assert len(json.loads(many["removedNames"])) == messages.MAX_NAMED_COLUMNS
+
+
+def test_removed_tokens_survives_a_name_containing_the_display_separator():
+    """The reason the link reads `removedNames` rather than re-splitting `removed`: a
+    column literally called `a, b` is indistinguishable from two columns once joined."""
+    tokens = messages.removed_tokens(["a, b"])
+
+    assert json.loads(tokens["removedNames"]) == ["a, b"]
+
+
+def test_every_new_reason_is_a_registered_terminal_reason():
+    """A body nobody registered is a body TerminalError refuses to raise — the failure
+    lands as a ValueError inside the constructor, not as the reason it names."""
+    from cpcommon import messages as cpmessages
+
+    for reason in ("columns_removed", "drop_failed", "recreate_failed", "removals_flag_not_applicable"):
+        assert cpmessages.is_known_reason(reason), reason
 
 
 if __name__ == "__main__":
