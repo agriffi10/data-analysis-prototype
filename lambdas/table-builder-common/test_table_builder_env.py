@@ -74,7 +74,7 @@ def test_the_new_refresh_verb_is_in_the_map_that_grants_that_environment():
     assert "load-table-definition" in suffixes
     assert suffixes == {
         "validate-authorize", "check-table-absent", "load-table-definition",
-        "inspect-source", "infer-schema", "diff-schema", "execute-ddl",
+        "inspect-source", "infer-schema", "diff-schema", "apply-refresh", "execute-ddl",
     }
 
 

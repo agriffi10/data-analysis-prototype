@@ -7,10 +7,22 @@
 #
 # The execution policy (execution.json.tftpl) is the UNION of every verb's needs:
 #   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
-#   - Glue Describe + CREATE on the account catalog (check-table-absent + execute-ddl,
-#     and GetTable for load-table-definition — SPEC-143 needs NO IAM change, which is
-#     recorded here rather than left as an absence: the refresh entry verb only READS the
-#     catalog, and SPEC-144's ALTER/UpdateTable is the change that will need one)
+#   - Glue Describe + CREATE + DELETE on the account catalog (check-table-absent +
+#     execute-ddl; GetTable for load-table-definition, which only READS; and DeleteTable
+#     for apply-refresh, SPEC-144's DROP + CREATE rebuild — scoped to the SAME catalog +
+#     database/* + table/*/* as the other Glue actions, not wider)
+#
+# WHY A DROP IS SAFE ALONGSIDE THE EXPLICIT `Deny s3:DeleteObject` (Sid NoDataObjectDelete,
+# untouched): every table this plane creates is EXTERNAL, so dropping it removes a CATALOG
+# ENTRY and no data object. That Deny is what makes the claim enforceable rather than
+# merely intended — apply-refresh could not delete a user's files even if its DDL tried.
+# THE DAY A TABLE-BUILDER TABLE STOPS BEING EXTERNAL, THAT APPLY BECOMES DESTRUCTIVE and
+# this grant must be revisited (SPEC-144 FR-005).
+#
+# Lake Formation needs NO change for the drop, and the absence is recorded so the next
+# reader does not go looking for a missing grant: the `portal-managed` tag-policy grants
+# already give every control-plane execution role DROP at both DATABASE and TABLE level
+# (infra/modules/analytics/lakeformation.tf).
 #   - Athena run + LF data-access + Athena-results write (execute-ddl), delete denied
 #   - logs to every table-builder function log group (wildcard)
 # The role is ALSO the table-builder Lake Formation admin (analytics data_lake_settings,

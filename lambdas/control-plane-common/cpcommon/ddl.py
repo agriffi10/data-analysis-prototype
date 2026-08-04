@@ -194,19 +194,127 @@ def format_of_serde(library) -> str | None:
     return SERDE_FORMATS.get(library)
 
 
-def _tblproperties(storage, partition_keys, *, mark):
-    """Ordered (k, v) TBLPROPERTIES: the marker, the storage's own props, then projection.
+def _serde_properties(parameters: dict) -> str:
+    rendered = ", ".join(f"'{k}'='{v}'" for k, v in sorted(parameters.items()))
+    return f" WITH SERDEPROPERTIES ({rendered})" if rendered else ""
+
+
+#: Glue reports these on tables this repo created, and they say nothing about how the data
+#: is parsed — Hive writes them itself. Ignoring them is what lets a capture still match
+#: the clause it came from.
+_INCIDENTAL_SERDE_PARAMETERS = frozenset({"serialization.format"})
+
+
+def _clause_matches_capture(clause: str, serde: str, storage_state: dict) -> bool:
+    """True when ``clause`` really is what produced this capture.
+
+    Compares the SerDe library and every meaningful SerDe parameter. The comparison is on
+    the RENDERED clause rather than a second table of expected values, so it cannot drift
+    from what the clause actually says.
+
+    A backslash needs care and is the reason this is not a plain equality: the DDL source
+    writes ``'escapeChar'='\\\\'``, Hive unescapes it, and Glue hands back a single
+    backslash — so the captured value is compared against the UNESCAPED form.
+
+    A clause using the ``STORED AS`` shorthand (Parquet) names no SerDe and carries no
+    properties, so there is nothing to compare it against: the library already matched by
+    lookup, and the only honest extra check is that the capture carries no meaningful SerDe
+    parameters either.
+    """
+    declares_serde = "ROW FORMAT SERDE" in clause
+    if declares_serde and f"'{serde}'" not in clause:
+        return False
+    for key, value in ((storage_state or {}).get("parameters") or {}).items():
+        if key in _INCIDENTAL_SERDE_PARAMETERS:
+            continue
+        if not declares_serde:
+            # A shorthand clause can express no parameters, so any real one is a divergence.
+            return False
+        if key in _INCIDENTAL_SERDE_PARAMETERS:
+            continue
+        if f"'{key}'='{value}'" in clause:
+            continue
+        # The escaped spelling, for a value Hive unescaped on the way out.
+        if f"'{key}'='{value.replace(chr(92), chr(92) * 2)}'" in clause:
+            continue
+        return False
+    return True
+
+
+def storage_from_definition(storage_state: dict) -> Storage:
+    """Turn SPEC-143's captured storage into a ``Storage`` a rebuild can render.
+
+    WHERE THE CAPTURE MATCHES A FORMAT THIS REPO WRITES, THE CREATE PATH'S OWN CLAUSE IS
+    RETURNED RATHER THAN RE-RENDERED, and that is not a shortcut — a verbatim re-render
+    produces a DIFFERENT statement in two measured ways:
+
+    * ``CSV_OPEN_SERDE`` writes ``'escapeChar'='\\\\'`` in DDL source. Hive unescapes it, so
+      Glue reads the property back as a single backslash, and re-rendering that yields
+      ``'escapeChar'='\\'`` — a different statement for the same table.
+    * Parquet's shipped clause is the short ``STORED AS PARQUET``; the captured input and
+      output formats render as the long ``STORED AS INPUTFORMAT … OUTPUTFORMAT …`` form.
+      Equivalent to Athena, textually different.
+
+    Returning the create path's clause keeps the two paths producing ONE statement rather
+    than two that happen to behave alike. The long form is the fallback for a SerDe this
+    repo does not write — a hand-created table that is still shape-compatible.
+
+    THE SHORTCUT IS TAKEN ONLY WHEN THE CAPTURE REALLY IS THAT CLAUSE. Matching on the
+    SerDe library alone would rebuild a tab-separated table with ``separatorChar=','``, and
+    would rebuild a table using the **Hive** JSON SerDe with the **OpenX** one — which this
+    module documents as potentially non-deterministic around nulls, and which is the whole
+    reason data-quality picks the other. So the captured parameters are checked against
+    what the clause actually contains, and anything that disagrees renders long instead.
+    """
+    serde = (storage_state or {}).get("serializationLibrary")
+    known = format_of_serde(serde)
+    if known is not None:
+        candidate = default_storage(known)
+        if _clause_matches_capture(candidate.clause, serde, storage_state):
+            return candidate
+
+    parameters = (storage_state or {}).get("parameters") or {}
+    clause = f"ROW FORMAT SERDE '{serde}'{_serde_properties(parameters)}"
+    input_format = (storage_state or {}).get("inputFormat")
+    output_format = (storage_state or {}).get("outputFormat")
+    if input_format and output_format:
+        clause += f" STORED AS INPUTFORMAT '{input_format}' OUTPUTFORMAT '{output_format}'"
+    return Storage(clause)
+
+
+def _tblproperties(storage, partition_keys, *, mark, carried=None):
+    """Ordered (k, v) TBLPROPERTIES: the marker, the storage's own props, the carried
+    properties, then projection.
 
     The marker leads; the storage-then-projection order the golden strings pin is
     unchanged either way, so this is a reading choice — identity before behaviour.
+
+    DE-DUPLICATED BY KEY, first occurrence winning. A rebuild carries the properties it
+    captured from the live table, and a format's own required property is usually among
+    them — CSV's ``skip.header.line.count`` is captured AND regenerated. Emitting a key
+    twice inside one ``TBLPROPERTIES (…)`` is at best redundant and at worst rejected, and
+    the caller cannot always know which keys the format will contribute.
     """
     props = [PORTAL_MANAGED] if mark else []
+    # CARRIED FIRST, so a rebuild reproduces the table it is replacing. The format's own
+    # default is a guess about a table that does not exist yet; a capture is a fact about
+    # one that does. A CSV table whose owner set skip.header.line.count=0 for headerless
+    # files must not be silently rebuilt with 1, which would drop the first row of every
+    # file from every query.
+    props += sorted((carried or {}).items())
     props += list(storage.tblproperties)
     if partition_keys:
         props.append(("projection.enabled", "true"))
         for key in partition_keys:
             props.extend(_projection_props(key))
-    return props
+
+    seen, deduped = set(), []
+    for key, value in props:
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((key, value))
+    return deduped
 
 
 def build_create_table_ddl(
@@ -218,6 +326,9 @@ def build_create_table_ddl(
     location: str,
     storage: Storage | None = None,
     mark: bool = True,
+    *,
+    if_not_exists: bool = True,
+    table_properties: dict | None = None,
 ) -> str:
     """Build a valid CREATE EXTERNAL TABLE IF NOT EXISTS statement (string).
 
@@ -247,6 +358,17 @@ def build_create_table_ddl(
             tables most likely to be asked about. Pass ``False`` for a table that is not a
             durable user table (data-quality's ``dq_tmp_*``, dropped in the same run).
 
+        if_not_exists: Whether to emit ``IF NOT EXISTS``. The create path keeps the
+            default; a REBUILD passes False, and it matters more than it looks: after a
+            drop that silently did not take, ``IF NOT EXISTS`` turns the recreate into a
+            successful no-op and the user is told their table was refreshed when its
+            schema is unchanged.
+        table_properties: Properties captured from a live table, merged with the storage's
+            own and de-duplicated by key. THE CALLER MUST STRIP ``projection.*`` FIRST:
+            ``clone_definition`` copies every Glue parameter, so a partitioned table's
+            capture always carries them, and this builder regenerates the same keys from
+            ``partition_keys``.
+
     Returns:
         The full statement as one line.
     """
@@ -257,7 +379,8 @@ def build_create_table_ddl(
         f"{quote(c['name'])} {c['type']}" for c in columns if c["name"] not in part_names
     )
 
-    stmt = f"CREATE EXTERNAL TABLE IF NOT EXISTS {quote(database)}.{quote(table_name)} ({body})"
+    exists_clause = "IF NOT EXISTS " if if_not_exists else ""
+    stmt = f"CREATE EXTERNAL TABLE {exists_clause}{quote(database)}.{quote(table_name)} ({body})"
 
     if partition_keys:
         part_cols = ", ".join(
@@ -267,7 +390,7 @@ def build_create_table_ddl(
 
     stmt += f" {resolved.clause} LOCATION '{location}'"
 
-    props = _tblproperties(resolved, partition_keys, mark=mark)
+    props = _tblproperties(resolved, partition_keys, mark=mark, carried=table_properties)
     if props:
         rendered = ", ".join(f"'{k}'='{v}'" for k, v in props)
         stmt += f" TBLPROPERTIES ({rendered})"

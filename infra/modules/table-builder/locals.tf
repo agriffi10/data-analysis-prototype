@@ -45,6 +45,7 @@ locals {
     "inspect-source"        = { handler = "inspect_source.handler", timeout = 60, memory = 512 }
     "infer-schema"          = { handler = "infer_schema.handler", timeout = 120, memory = 1024 }
     "diff-schema"           = { handler = "diff_schema.handler", timeout = 15, memory = 256 }
+    "apply-refresh"         = { handler = "apply_refresh.handler", timeout = 300, memory = 512 }
     "execute-ddl"           = { handler = "execute_ddl.handler", timeout = 300, memory = 512 }
   }
 

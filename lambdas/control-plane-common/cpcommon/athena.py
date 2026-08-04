@@ -136,6 +136,7 @@ def run_ddl(
     sleep=time.sleep,
     poll_interval_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
     max_poll_duration_seconds=DEFAULT_MAX_POLL_DURATION_SECONDS,
+    client_request_token=None,
 ):
     """Run a DDL statement to a terminal state.
 
@@ -151,6 +152,14 @@ def run_ddl(
         sleep: Sleep seam (tests inject a no-op advancing the fake clock).
         poll_interval_seconds: Delay between ``GetQueryExecution`` polls.
         max_poll_duration_seconds: Wall-clock cap before raising ``timeout_reason``.
+        client_request_token: Athena's idempotency key (32-128 chars). SUPPLY IT for any
+            statement whose re-execution is not free — ``start_query`` has carried this
+            warning since SPEC-111 and this function did not offer it. Without one, a Step
+            Functions ``Retry`` after a transient error that arrived AFTER submission runs
+            the statement a SECOND time; with one, Athena returns the original execution id
+            and the retry re-attaches. On a DROP + CREATE pair that is the difference
+            between a retry re-reading its own work and a retry dropping the table it just
+            rebuilt.
 
     Returns:
         The ``QueryExecutionId`` on ``SUCCEEDED``.
@@ -162,12 +171,15 @@ def run_ddl(
     """
     athena = clients.athena()
     try:
-        started = athena.start_query_execution(
-            QueryString=query,
-            QueryExecutionContext={"Database": database},
-            WorkGroup=workgroup,
-            ResultConfiguration={"OutputLocation": output_location},
-        )
+        params = {
+            "QueryString": query,
+            "QueryExecutionContext": {"Database": database},
+            "WorkGroup": workgroup,
+            "ResultConfiguration": {"OutputLocation": output_location},
+        }
+        if client_request_token:
+            params["ClientRequestToken"] = client_request_token
+        started = athena.start_query_execution(**params)
     except Exception as exc:  # classify: transient → retry, else terminal
         errors.raise_if_transient(exc, "Athena")
         raise TerminalError(fail_reason, f"could not start query: {exc}") from exc
