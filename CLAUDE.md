@@ -68,10 +68,11 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141 and
-142 — the portal ships an enforcing CSP, the full security header set, explicit `Cache-Control` on
-every response, and a ragged-row count judged per file. The Refresh Table arc (143→145) is the next
-written work. What remains below is the live checks that are owed.
+**No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
+and now **143** — the first of the Refresh Table arc. **SPEC-144 (schema diff + apply) is the next
+work**; the refresh branch is live in the deployed state machine and ends at a typed
+`not_implemented`, reachable only by a hand-crafted SQS message (no browser surface until 145).
+What remains below is the live checks that are owed.
 
 - **SPEC-141 left two things live.** (1) Its single `--delete` is scoped to `assets/`, so
   **stale root-level objects are never removed** — `icons.svg` is one today, needing a one-off
@@ -136,6 +137,15 @@ written work. What remains below is the live checks that are owed.
   `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
   starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
   the test deleted. Full reasoning: `decisions.md`.
+- **SPEC-143's Phase 4 is owed live, and it is the arc's real test.** Two hand-enqueued refresh
+  requests (`mode: "refresh"` on the table-builder FIFO queue) — one against a flat portal-created
+  table, one against a **partitioned** one — each expected to reach `Failed` with `not_implemented`,
+  with `load-table-definition`, `inspect-source` and `infer-schema` all `ok` in CloudWatch and
+  `logs/service=table-builder/`. **The partitioned run is the one that matters:** FR-005's
+  reconstruction is unit-tested against fixtures built from the same renderer it re-renders through,
+  so a table the pipeline did not write in this run is the only thing that tests the assumption
+  rather than the arithmetic. SPEC-137 is the precedent — instrumented code shipped whose layer
+  attachment was missing, and every gate was blind to it.
 - **SPEC-142 fixed the ragged/union bug; its Phase 4 is owed live.** Ragged rows are now judged
   against each file's own header via a `CASE` on `"$path"`. Still to run from the UI: a check over a
   folder whose files deliberately disagree (expect the cross-file finding and **no** ragged count),
@@ -178,6 +188,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
 - **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + the full header set, `Server` stripped; CSP built from **variables** (root locals, never module outputs); `connect-src` **is** the app's network surface. **Report-only first, always**; verify with a **same-origin page script + a negative control** (CDP eval bypasses page CSP). COEP and Monaco's `style-src 'unsafe-inline'` accepted; `preload` is on but inert — **never submit this `*.cloudfront.net` domain** to hstspreload.org. **Diff findings per check ID, never by total.**
+- **Refresh eligibility = shape, not marker (143):** a refresh is judged by what Glue reports (`cpcommon.glue.clone_definition`, moved from `tscommon`), **never** by the `portal.managed` TBLPROPERTY it also starts writing — pre-143 tables lack it and users can set it; a test forbids any verb reading it. Reconstructed partition keys must **round-trip through the create path's renderer AND match the live column type**; a reconstruction that can't be performed is a **refusal, not a guess**. A `Choice` on an **absent** path raises uncatchable `States.Runtime` — `Default` does not cover it, so guard with `IsPresent`. `portal.managed` (table property, dotted) ≠ `portal-managed` (LF tag on databases, hyphenated).
 - **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header). Accepted orphan class: **stale root files**.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead, and **asserts its own coverage** (fails if IAM resources are present but no IAM check ran). Isolation policies are clean; the residual findings are non-scopable deploy-role actions.
