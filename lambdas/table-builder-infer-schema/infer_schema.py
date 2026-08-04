@@ -23,6 +23,7 @@ import logging
 import re
 
 from cpcommon import bounded_read, clients, errors, events, observability
+from cpcommon import ddl as ddl_mod
 from cpcommon.ddl import build_create_table_ddl
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
@@ -139,8 +140,32 @@ def handler(event: dict, context) -> dict:
     return _infer(event)
 
 
+def _check_format_matches_storage(storage, fmt):
+    """Refuse a folder whose format no longer matches the table's declared SerDe.
+
+    Runs on the presence of ``storage``, which ONLY load-table-definition puts on the state
+    — so this verb still knows nothing about `mode` and the create path is untouched
+    (SPEC-143 FR-006). It runs here rather than in inspect-source because this is the first
+    point where both facts exist: inspect-source reports the folder's format, and the
+    table's SerDe came from the catalog two states earlier.
+
+    A SerDe this repo does not write is refused the same way. It means the same thing —
+    the table and the folder cannot be reconciled by re-deriving columns — and guessing a
+    format for it would produce a rebuilt table that reads the files wrongly.
+    """
+    library = (storage or {}).get("serializationLibrary")
+    declared = ddl_mod.format_of_serde(library)
+    if declared != fmt:
+        raise TerminalError(
+            "format_changed",
+            f"table SerDe {library!r} ({declared or 'unrecognised'}) but the folder holds {fmt}",
+        )
+
+
 def _infer(event: dict) -> dict:
     fmt = events.require(event, "format")
+    if event.get("storage"):
+        _check_format_matches_storage(event["storage"], fmt)
     bucket = events.require(event, "space", "bucket")
     sample_key = events.require(event, "sampleObjectKey")
     database = events.require(event, "space", "database")

@@ -450,6 +450,83 @@ def test_malformed_event_is_terminal_and_notifies():
     assert len(q.calls) == 1 and q.calls[0]["MessageGroupId"] == "alice"
 
 
+# ── The refresh cross-check (SPEC-143 FR-006) ────────────────────────────────
+
+_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde"
+_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe"
+_PARQUET_SERDE = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+
+
+def _storage(library):
+    return {"serializationLibrary": library, "parameters": {}}
+
+
+def test_a_folder_whose_format_no_longer_matches_the_table_is_terminal():
+    """The failure a refresh must not paper over: re-deriving columns cannot fix a table
+    declared with OpenCSVSerde over a folder that now holds JSON."""
+    event = {**_event("json"), "storage": _storage(_CSV_SERDE)}
+    try:
+        i.handler(event, None)
+    except TerminalError as exc:
+        assert exc.reason == "format_changed", exc.reason
+        return
+    raise AssertionError("expected TerminalError(format_changed)")
+
+
+def test_a_serde_this_repo_does_not_write_is_refused_rather_than_guessed():
+    event = {**_event("csv"), "storage": _storage("com.example.MysterySerDe")}
+    try:
+        i.handler(event, None)
+    except TerminalError as exc:
+        assert exc.reason == "format_changed", exc.reason
+        assert "unrecognised" in exc.detail
+        return
+    raise AssertionError("expected TerminalError(format_changed)")
+
+
+def test_a_matching_serde_passes_the_cross_check_for_every_format_this_repo_writes():
+    """Runs the check in isolation: the full handler would then go on to read S3."""
+    for library, fmt in ((_CSV_SERDE, "csv"), (_JSON_SERDE, "json"), (_PARQUET_SERDE, "parquet")):
+        i._check_format_matches_storage(_storage(library), fmt)
+
+
+def test_a_refresh_whose_format_still_matches_infers_as_normal():
+    """And the create path stays invisible to the guard: every OTHER test in this file is
+    a create with no `storage` at all, so their continuing to pass is the coverage that
+    the check is gated on presence rather than on format."""
+    _use_s3_fixture(b"order_id,amount\n1,2.50\n")
+    event = {**_event("csv"), "storage": _storage(_CSV_SERDE)}
+
+    out = i.handler(event, None)
+
+    assert [c["name"] for c in out["columns"]] == ["order_id", "amount"]
+
+
+def test_the_shared_verbs_never_learn_about_mode():
+    """FR-006 AC4. The branch is the state machine's business: the moment either shared
+    verb reads `mode`, the claim that a refresh reuses them UNCHANGED stops being true and
+    the two branches start drifting apart inside one file.
+
+    An AST scan for the string LITERAL, so prose about mode (this file's own docstrings
+    included) cannot trip it and neither quote style can slip past.
+    """
+    import ast
+
+    verbs = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for path in (
+        os.path.join(verbs, "table-builder-inspect-source", "inspect_source.py"),
+        os.path.join(verbs, "table-builder-infer-schema", "infer_schema.py"),
+    ):
+        with open(path) as handle:
+            tree = ast.parse(handle.read())
+        literals = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and node.value == "mode"
+        ]
+
+        assert not literals, f"{os.path.basename(path)} reads mode (line {literals[0].lineno})"
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

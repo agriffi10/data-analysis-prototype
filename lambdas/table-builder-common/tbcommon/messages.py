@@ -41,6 +41,18 @@ _BODIES = {
         "a refresh keeps the table's existing partition keys - to change them, drop the "
         "table and build it again."
     ),
+    "table_not_found": 'no table named that exists in "{database}".',
+    "cannot_refresh_view": "a view has no data files to re-read.",
+    "cannot_refresh_managed_table": "only tables the portal created over files in your space can be refreshed.",
+    "cannot_refresh_catalog_partitioned": "tables with catalog-registered partitions can't be refreshed.",
+    "cannot_refresh_location_unsupported": "that table's data location isn't one this portal can read.",
+    "table_outside_space": "that table's data is outside the space you're refreshing it from.",
+    "projection_not_reconstructable": (
+        "that table's partition settings can't be read back - drop the table and build it "
+        "again to change them."
+    ),
+    "definition_too_large": "that table has too many columns to refresh.",
+    "format_changed": "the folder's file format no longer matches the table's - build a new table instead.",
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the actor.
     "unexpected_error": "something went wrong. Please try again.",

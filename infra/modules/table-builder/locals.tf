@@ -35,7 +35,9 @@ locals {
   # 15 s / 256 MB. lambda.tf needs no edit for a new entry: it is entirely for_each over
   # this map, so the function, its log group and its placeholder zip all follow.
   # stepfunction.tf DOES need one — its templatefile() call passes an explicit per-function
-  # map, not a loop.
+  # map, not a loop. The DEPLOY role needs none either: modules/base's
+  # github-actions-deploy-table-builder policy scopes to {project}-*-table-builder-*, which
+  # already covers this function and its log group.
   table_builder_functions = {
     "validate-authorize"    = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
     "check-table-absent"    = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }

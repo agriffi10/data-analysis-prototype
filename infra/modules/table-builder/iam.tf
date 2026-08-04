@@ -7,7 +7,10 @@
 #
 # The execution policy (execution.json.tftpl) is the UNION of every verb's needs:
 #   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
-#   - Glue Describe + CREATE on the account catalog (check-table-absent + execute-ddl)
+#   - Glue Describe + CREATE on the account catalog (check-table-absent + execute-ddl,
+#     and GetTable for load-table-definition — SPEC-143 needs NO IAM change, which is
+#     recorded here rather than left as an absence: the refresh entry verb only READS the
+#     catalog, and SPEC-144's ALTER/UpdateTable is the change that will need one)
 #   - Athena run + LF data-access + Athena-results write (execute-ddl), delete denied
 #   - logs to every table-builder function log group (wildcard)
 # The role is ALSO the table-builder Lake Formation admin (analytics data_lake_settings,

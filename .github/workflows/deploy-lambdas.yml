@@ -530,6 +530,7 @@ jobs:
           # (SPEC-070) + `notify` (SPEC-072), so it needs the layer too.
           - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true, cpcommon: true }
+          - { name: table-builder-load-table-definition, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true, cpcommon: true }
           - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
