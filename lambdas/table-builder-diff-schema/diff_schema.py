@@ -30,12 +30,31 @@ logger.setLevel(logging.INFO)
 observability.init(service="table-builder")
 
 
+def _by_folded_name(columns: list[dict], partition_key_names: set[str]) -> dict:
+    """``{folded name: column}``, excluding partition keys (also matched folded)."""
+    excluded = {name.casefold() for name in partition_key_names}
+    return {
+        c["name"].casefold(): c for c in columns if c["name"].casefold() not in excluded
+    }
+
+
 def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names: set[str]) -> dict:
     """Classify the change between two column lists. Pure — no AWS calls.
 
-    Matched by name, CASE-SENSITIVELY: Athena treats ``Amount`` and ``amount`` as distinct
-    columns, so a case-insensitive match would report ``unchanged`` for a pair the engine
-    considers a rename — the silent wrong answer this whole feature exists to prevent.
+    MATCHED CASE-INSENSITIVELY, and this reverses SPEC-144 FR-001 as written (amended
+    2026-08-04). Its premise — that Athena treats ``Amount`` and ``amount`` as distinct —
+    is not what this pipeline sees: the create path issues ``CREATE EXTERNAL TABLE``
+    through Athena, whose Hive-backed DDL FOLDS column names, so a CSV header of
+    ``Amount`` is stored in Glue as ``amount``. Nothing here normalises them —
+    ``infer-schema`` reads the header verbatim and ``load-table-definition`` reads Glue
+    verbatim — so a case-sensitive match would report every column of every mixed-case
+    table as BOTH added and removed, on a folder where nothing changed. Worse, it would be
+    unescapable: opting into the removal rebuilds with ``Amount``, Athena folds it again,
+    and the next refresh says the same thing.
+
+    A true rename (``amount`` → ``total``) is still caught; the only thing this cannot see
+    is a pure case change, which under those same Hive semantics is not a change at all.
+    Names are REPORTED as they appear, so the message names what the user would recognise.
 
     IT EXCLUDES PARTITION KEYS ITSELF rather than assuming an upstream verb did.
     ``infer-schema`` emits the FULL inferred list, and the partition-collision drop happens
@@ -46,17 +65,17 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
     ``unchanged`` is a count rather than a list: it is the one part nobody needs by name,
     and on a wide table it would dominate the state payload.
     """
-    old = {c["name"]: c["type"] for c in existing if c["name"] not in partition_key_names}
-    new = {c["name"]: c["type"] for c in inferred if c["name"] not in partition_key_names}
+    old = _by_folded_name(existing, partition_key_names)
+    new = _by_folded_name(inferred, partition_key_names)
 
-    added = [{"name": name, "type": new[name]} for name in new if name not in old]
-    removed = [{"name": name, "type": old[name]} for name in old if name not in new]
+    added = [{"name": new[k]["name"], "type": new[k]["type"]} for k in new if k not in old]
+    removed = [{"name": old[k]["name"], "type": old[k]["type"]} for k in old if k not in new]
     retyped = [
-        {"name": name, "from": old[name], "to": new[name]}
-        for name in new
-        if name in old and old[name] != new[name]
+        {"name": new[k]["name"], "from": old[k]["type"], "to": new[k]["type"]}
+        for k in new
+        if k in old and old[k]["type"] != new[k]["type"]
     ]
-    unchanged = sum(1 for name in new if name in old and old[name] == new[name])
+    unchanged = sum(1 for k in new if k in old and old[k]["type"] == new[k]["type"])
 
     return {
         "changed": bool(added or removed or retyped),

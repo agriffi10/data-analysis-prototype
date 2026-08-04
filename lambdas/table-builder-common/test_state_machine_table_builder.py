@@ -120,15 +120,26 @@ def test_an_unchanged_schema_reaches_success_without_passing_through_any_ddl_sta
     assert states["DiffSchema"]["Next"] == "RouteByChange"
     assert _route_by_change(states, _changed(False)) == "RecordSuccess"
     assert _route_by_change(states, _changed(True)) != "RecordSuccess"
+    # Both outcomes are EXPLICIT rules, so the Default is free to be a failure.
+    assert len(states["RouteByChange"]["Choices"]) == 2
 
 
-def test_the_change_choice_defaults_and_guards_an_absent_diff():
-    """Same trap as the mode Choices: a rule whose Variable path is ABSENT raises an
-    uncatchable States.Runtime rather than falling to Default."""
+def test_an_absent_diff_records_a_failure_instead_of_stranding():
+    """The Default is a FAILURE here, unlike the mode Choices, and the difference is the
+    point.
+
+    An absent `$.mode` has an obvious correct reading — create. An absent `$.diff.changed`
+    means diff-schema returned something this machine cannot interpret, and defaulting THAT
+    to RecordSuccess would hand it to a Pass state reading `$.status`, raising the same
+    uncatchable States.Runtime one state later with no recorded outcome at all. The
+    IsPresent guard alone only moves the failure; recording one is what removes it.
+    """
     states = _states()
 
-    assert states["RouteByChange"]["Default"] == "RecordSuccess"
-    assert _route_by_change(states, _changed(None)) == "RecordSuccess"
+    assert states["RouteByChange"]["Default"] == "DiffMissingSeed"
+    assert _route_by_change(states, _changed(None)) == "DiffMissingSeed"
+    assert states["DiffMissingSeed"]["Next"] == "RecordFailure"
+    assert states["DiffMissingSeed"]["ResultPath"] == "$.error"
 
 
 def test_record_success_threads_status_and_every_path_that_reaches_it_sets_one():
@@ -140,12 +151,21 @@ def test_record_success_threads_status_and_every_path_that_reaches_it_sets_one()
 
     assert states["RecordSuccess"]["Parameters"]["status.$"] == "$.status"
 
+    def _targets(state):
+        """Every state this one can transition to, by ANY edge type.
+
+        Catch is included deliberately: it is the edge written by hand on every Task, so
+        it is the one most likely to gain a target nobody thought of as a predecessor.
+        """
+        yield state.get("Next")
+        yield state.get("Default")
+        for choice in state.get("Choices", []) or []:
+            yield choice.get("Next")
+        for catch in state.get("Catch", []) or []:
+            yield catch.get("Next")
+
     predecessors = {
-        name
-        for name, state in states.items()
-        if state.get("Next") == "RecordSuccess"
-        or state.get("Default") == "RecordSuccess"
-        or any(c.get("Next") == "RecordSuccess" for c in state.get("Choices", []) or [])
+        name for name, state in states.items() if "RecordSuccess" in set(_targets(state))
     }
     # ExecuteDdl sets "created"; RouteByChange is fed by DiffSchema, which sets "unchanged"
     # on exactly the branch that reaches here. A new predecessor must set one too.

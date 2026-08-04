@@ -59,7 +59,9 @@ The apply itself is a drop and a recreate. The table is external, so the data is
 
 #### Description
 
-A pure comparison of two column lists, matched by name, case-sensitively — Athena treats `Amount` and `amount` as distinct, so a case-insensitive match would report `unchanged` for a pair the engine considers a rename, which is exactly the silent-wrong-answer this feature exists to prevent.
+A pure comparison of two column lists, matched by name.
+
+**AMENDED DURING BUILD (2026-08-04): the match is CASE-INSENSITIVE, reversing this FR as first written.** The original premise — that Athena treats `Amount` and `amount` as distinct — is not what this pipeline sees. The create path issues `CREATE EXTERNAL TABLE` through Athena, whose Hive-backed DDL **folds column names**, so a CSV header of `Amount` is stored in Glue as `amount`. Neither side normalises: `infer-schema` reads the header verbatim, `load-table-definition` reads Glue verbatim. Case-sensitively, **every column of every mixed-case table would be reported as both added and removed** on a folder where nothing changed — firing FR-003's data-loss warning over the user's entire schema — and it would be unescapable, because opting into the removal rebuilds with `Amount`, Athena folds it again, and the next refresh repeats it. The repo already recorded the correct behaviour in two places (`pre-signup/test_pre_signup.py`, `control-plane-common/test_state_machines_cpcommon.py`). A true rename (`amount` → `total`) is still caught; the only undetectable change is a pure case change, which under those semantics is not a change. Names are **reported** as they appear.
 
 #### Acceptance Criteria:
 
@@ -203,6 +205,7 @@ Two details in `cpcommon/ddl.py` need care because its real shape differs from w
 
 - [ ] `npm run lint` and the Python suite pass.
 - [ ] Tests cover: the diff across added / removed / retyped / unchanged / all-four-at-once; partition-key exclusion **inside `compute_diff`** with a colliding-column fixture; the no-op short circuit issuing no DDL and emitting exactly one notification; `columns_removed` blocking with names in `tokens` and issuing no DDL; the link's shape, its `isSafeInAppPath` result, and that it reaches `emit_notification` while every other reason emits `link=None`; the opt-in proceeding; `removals_flag_not_applicable`; **the `storage_from_definition` round trip per format**; **each `projection.*` key emitted exactly once on a partitioned refresh**; the absence of `IF NOT EXISTS` on the refresh statement and its presence on the create statement; drop-then-create ordering; the post-condition mismatch raising `recreate_failed`; `drop_failed`; throttle → `TransientError`; a reserved-word table name; `unauthorized` / `forbidden` wording in both modes; `RecordSuccess` still reporting `"created"` on the create path; and every existing table-builder failure message unchanged.
+- [ ] **The casing premise is confirmed in the live check** (added 2026-08-04): build a table from a CSV whose header carries a mixed-case name such as `Amount`, then `GetTable` and read back what Glue actually stored. If it comes back folded, FR-001's amendment is confirmed; if it comes back verbatim, the fold is harmless but the reasoning should be corrected. No unit test can settle this — the fixtures on both sides are written by us.
 - [ ] A live check is owed and recorded in the delivery doc: build a table from a CSV folder, add a file with a new column, refresh, confirm the column appears and the data is queryable; remove a column from the source, refresh, confirm the block and its named columns and the link; then refresh with the opt-in and confirm the column is gone.
 
 ---
@@ -309,8 +312,9 @@ def compute_diff(
     inferred: list[dict],
     partition_key_names: set[str],
 ) -> dict:
-    """Pure. No AWS calls. Matched by name, CASE-SENSITIVELY — Athena treats `Amount`
-    and `amount` as distinct columns.
+    """Pure. No AWS calls. Matched by name, CASE-INSENSITIVELY (amended 2026-08-04 —
+    Athena's Hive-backed DDL folds column names, so the create path's own output comes
+    back lowercase; see FR-001). Names are REPORTED as they appear.
 
     It excludes partition-key names ITSELF. infer-schema emits the full inferred list;
     the partition-collision drop happens inside build_create_table_ddl and affects only

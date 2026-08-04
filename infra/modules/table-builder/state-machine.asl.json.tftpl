@@ -1,5 +1,5 @@
 {
-  "Comment": "Table-builder control plane (SPEC-070, extended by SPEC-143). TWO branches over ONE spine: validate-authorize → {check-table-absent | load-table-definition} → inspect-source → infer-schema → {execute-ddl → RecordSuccess → Succeeded | the SPEC-144 refresh tail}. inspect-source and infer-schema are SHARED by both and know nothing about mode — load-table-definition normalises the state into exactly what a create would have handed them (rewritten prefix, reconstructed declared partition keys), which is why a refresh needed a second entry verb rather than a flag. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the status:'created' twin. A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
+  "Comment": "Table-builder control plane (SPEC-070, extended by SPEC-143). TWO branches over ONE spine: validate-authorize → {check-table-absent | load-table-definition} → inspect-source → infer-schema → {execute-ddl → RecordSuccess → Succeeded | the SPEC-144 refresh tail}. inspect-source and infer-schema are SHARED by both and know nothing about mode — load-table-definition normalises the state into exactly what a create would have handed them (rewritten prefix, reconstructed declared partition keys), which is why a refresh needed a second entry verb rather than a flag. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the success twin, whose `status` is THREADED from the verb that produced it ('created' | 'unchanged' | 'refreshed'). A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -173,7 +173,7 @@
     },
     "RouteTailByMode": {
       "Type": "Choice",
-      "Comment": "SPEC-143. The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144; until then the refresh branch records a typed not_implemented so the whole branch is exercised end to end before it can change anything.",
+      "Comment": "SPEC-143. The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144's diff-schema, which classifies the change and enforces the removal opt-in; the apply behind it is still SPEC-143's not_implemented stub until SPEC-144 Phase 3 replaces it.",
       "Choices": [
         {
           "And": [
@@ -219,7 +219,7 @@
     },
     "RouteByChange": {
       "Type": "Choice",
-      "Comment": "An unchanged schema succeeds WITHOUT issuing any DDL — no drop, no create. IsPresent guards the read for the same reason the mode Choices do: a Choice rule whose Variable path is absent raises States.Runtime, which no Catch can catch.",
+      "Comment": "An unchanged schema succeeds WITHOUT issuing any DDL — no drop, no create. BOTH outcomes are explicit rules and the Default is a FAILURE, which is the opposite of the mode Choices and deliberately so: those default to the create path because an absent mode has an obvious correct reading, whereas an absent $.diff.changed means diff-schema returned something this machine cannot interpret. Defaulting that to RecordSuccess would hand it to a Pass state that reads $.status — raising the same uncatchable States.Runtime one state later, with the execution stranded and NO recorded outcome. So it records one instead.",
       "Choices": [
         {
           "And": [
@@ -227,9 +227,26 @@
             { "Variable": "$.diff.changed", "BooleanEquals": true }
           ],
           "Next": "RefreshNotImplemented"
+        },
+        {
+          "And": [
+            { "Variable": "$.diff.changed", "IsPresent": true },
+            { "Variable": "$.diff.changed", "BooleanEquals": false }
+          ],
+          "Next": "RecordSuccess"
         }
       ],
-      "Default": "RecordSuccess"
+      "Default": "DiffMissingSeed"
+    },
+    "DiffMissingSeed": {
+      "Type": "Pass",
+      "Comment": "Unreachable while diff-schema always emits $.diff — which is the only reason a seed is cheap enough to be worth having. Same shape as a Task Catch's output so RecordFailure needs no special case.",
+      "Result": {
+        "Error": "TerminalError",
+        "Cause": "{\"errorType\":\"TerminalError\",\"errorMessage\":\"unexpected_error: diff-schema returned no diff\"}"
+      },
+      "ResultPath": "$.error",
+      "Next": "RecordFailure"
     },
     "RefreshNotImplemented": {
       "Type": "Pass",

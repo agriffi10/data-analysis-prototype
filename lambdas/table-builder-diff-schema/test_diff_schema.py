@@ -101,14 +101,50 @@ def test_unchanged_is_a_count_not_a_list():
     assert diff["unchanged"] == 50
 
 
-def test_names_are_matched_case_sensitively():
-    """Athena treats `Amount` and `amount` as distinct columns. A case-insensitive match
-    would report `unchanged` for a pair the engine considers a rename — the silent wrong
-    answer this feature exists to prevent."""
-    diff = m.compute_diff(_cols(("Amount", "string")), _cols(("amount", "string")), set())
+def test_a_mixed_case_header_is_not_reported_as_a_full_table_rewrite():
+    """THE REASON FR-001 WAS AMENDED (2026-08-04), and it would have been unescapable.
 
-    assert diff["added"] == [{"name": "amount", "type": "string"}]
-    assert diff["removed"] == [{"name": "Amount", "type": "string"}]
+    The spec assumed Athena treats `Amount` and `amount` as distinct. It does not for
+    anything this pipeline creates: the create path issues CREATE EXTERNAL TABLE through
+    Athena, whose Hive-backed DDL folds column names, so a CSV header of `Amount,Region`
+    is stored in Glue as `amount, region`. Nothing normalises either side — infer-schema
+    reads the header verbatim, load-table-definition reads Glue verbatim.
+
+    Case-sensitively, every column of every mixed-case table would be reported as BOTH
+    added and removed on a folder where nothing changed — firing the data-loss warning
+    over the user's whole schema. And ticking the opt-in would not help: the rebuild
+    writes `Amount`, Athena folds it again, and the next refresh says the same thing.
+    """
+    diff = m.compute_diff(
+        _cols(("amount", "string"), ("region", "string")),
+        _cols(("Amount", "string"), ("Region", "string")),
+        set(),
+    )
+
+    assert diff == {"changed": False, "added": [], "removed": [], "retyped": [], "unchanged": 2}
+
+
+def test_a_real_rename_is_still_caught():
+    """Folding must not cost the detection FR-001 was actually guarding."""
+    diff = m.compute_diff(_cols(("amount", "string")), _cols(("total", "string")), set())
+
+    assert diff["added"] == [{"name": "total", "type": "string"}]
+    assert diff["removed"] == [{"name": "amount", "type": "string"}]
+
+
+def test_a_retype_under_a_changed_casing_reports_the_name_the_user_would_recognise():
+    """Matching folds; REPORTING does not. The message should name what is in the file."""
+    diff = m.compute_diff(_cols(("amount", "int")), _cols(("Amount", "bigint")), set())
+
+    assert diff["retyped"] == [{"name": "Amount", "from": "int", "to": "bigint"}]
+
+
+def test_partition_keys_are_excluded_case_insensitively_too():
+    """The keys are catalog-safe (lowercase) but the data file's header is not, so a
+    `Year` column against a `year` partition key is the same collision."""
+    diff = m.compute_diff(_cols(("amount", "double")), _cols(("Year", "bigint"), ("amount", "double")), {"year"})
+
+    assert diff == {"changed": False, "added": [], "removed": [], "retyped": [], "unchanged": 1}
 
 
 def test_partition_keys_are_excluded_by_compute_diff_itself():
