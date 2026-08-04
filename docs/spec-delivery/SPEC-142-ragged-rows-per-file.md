@@ -75,9 +75,38 @@ not earn is the same defect wearing different clothes.
 - The size guard's trip is proved by **constructing a manifest with keys long enough to breach it**,
   not by monkey-patching the constant (FR-003), plus the negative: 1000 files with realistic keys
   still render inside the cap.
-- `test_files_that_disagree_about_columns_yield_ONE_finding_not_two` reproduces the reported
-  scenario through `report.build` and asserts a ragged count of zero alongside a populated
-  `crossFile` — and that the disagreeing column is named in `topIssues` exactly once.
+- `test_a_folder_whose_files_disagree_reports_ZERO_ragged_rows` — the FR-005 regression test, in
+  `test_sql_dqcommon.py` where the rule is emitted. It parses the rendered `CASE` back into
+  `{path: expected count}` and applies it to physical lines the way Athena would, asserting both
+  that each file gets **its own** count and that the folder yields zero ragged rows. **Verified to
+  fail against the pre-fix commit** (`200e338`) in a scratch worktree — see the correction below for
+  why that check matters.
+
+### Correction — the first FR-005 test was a tautology
+
+The fresh-context review caught it, and proved it by running the test against the pre-fix commit,
+where it **passed**. The original test asserted `raggedRows.count == 0` from `report.build` — but
+`report.build` does not compute that number, it reads `ragged_rows` out of the Athena result rows
+the test itself supplies. It asserted that the report renders a zero when handed a zero, which is
+true of the buggy builder too.
+
+It is now two tests with honest scopes: the real regression lives in `test_sql_dqcommon.py` and
+fails against the old code; the report-level test is renamed
+`test_a_disagreeing_folder_with_no_ragged_rows_reports_the_disagreement_ONCE` and its docstring
+states outright that it cannot pin the fix, so nobody reads it as coverage it is not.
+
+The general shape, worth remembering: **a test whose fixture supplies the value under test proves
+nothing.** The cheap check is to run a new regression test against the commit before the fix — if it
+passes there, it is not a regression test.
+
+Four smaller review findings were also fixed: the `not_computed` wording no longer blames the file
+count (the guard measures rendered bytes, and a count is a poor proxy for key length — 300 files
+with 800-character keys trip it while 900 short-named files do not); the warning event carries both
+`files` and `files_mapped` rather than one field holding whichever number was in scope; FR-004 has a
+real test that feeds an unmapped path's malformed lines through the emitted rule instead of
+substring-matching `ELSE false END`; and the "a header is never ragged" docstring now names the one
+case that defeats it — a quoted comma in a header, which polars counts as one column and `split`
+counts as two.
 
 **Deferred to a live run (the spec's Phase 4, still owed):** a data-quality check from the UI over a
 folder whose files deliberately disagree, confirming the report shows the cross-file finding with no

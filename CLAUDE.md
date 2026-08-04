@@ -135,11 +135,12 @@ What remains is the live checks below.
   `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
   starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
   the test deleted. Full reasoning: `decisions.md`.
-- **Known bug (114/112) — now specced as SPEC-142 (Draft).** On a folder whose files disagree about
-  columns, the ragged-row count includes every line of the minority file **plus every header** — the
-  check compares against the *union* column count (`dq_start_profile_query.py:81,109`), and
-  `sql.py`'s "a header is never ragged" claim only holds per file. Two findings double-reporting one
-  cause. Fix is a `CASE` on Athena's `"$path"` giving each line its own file's expected count.
+- **SPEC-142 fixed the ragged/union bug; its Phase 4 is owed live.** Ragged rows are now judged
+  against each file's own header via a `CASE` on `"$path"`. Still to run from the UI: a check over a
+  folder whose files deliberately disagree (expect the cross-file finding and **no** ragged count),
+  and one whose files agree (expect the same numbers as before). That live run is also the only
+  thing that can confirm the assumption underneath the fix — that `"$path"` on the raw-line table
+  returns the same `s3://bucket/key` form the manifest is keyed to.
 
 ---
 

@@ -1,7 +1,7 @@
 # Spec: Ragged Rows Counted Per File, Not Against the Union
 
 **ID:** SPEC-142
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-110 (the manifest this reads), SPEC-112 (the ragged + cross-file checks), SPEC-114 (the report the numbers land in)
 

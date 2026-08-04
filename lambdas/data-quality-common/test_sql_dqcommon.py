@@ -343,12 +343,91 @@ def test_ragged_query_renders_branches_in_sorted_order():
     assert forward == reversed_
 
 
+# ── Evaluating the emitted rule (SPEC-142 FR-004/FR-005) ────────────────────
+#
+# A golden string proves the query is the one we meant to write. It does NOT prove the
+# query counts the right lines — and that is the whole of SPEC-142. So these two helpers
+# parse the emitted CASE back out and apply it to physical lines, exactly as Athena would.
+#
+# The parse is the load-bearing half: against the pre-fix builder (which took a scalar and
+# rendered no branches at all) `_rendered_rule` returns {}, so any test asserting the rule
+# fails there rather than passing vacuously. A test for this bug that passes against the
+# bug is worse than no test.
+
+_BRANCH = re.compile(r"WHEN '([^']+)' THEN cardinality\(split\(\"line\", ','\)\) <> (\d+)")
+
+JAN = "s3://bkt/alice/sales/jan.csv"
+FEB = "s3://bkt/alice/sales/feb.csv"
+
+
+def _rendered_rule(query: str) -> dict:
+    """The emitted CASE, parsed back into {s3 path: expected field count}."""
+    return {path: int(count) for path, count in _BRANCH.findall(query)}
+
+
+def _ragged_lines(rule: dict, lines_by_path: dict) -> int:
+    """Apply the emitted rule to physical lines the way the SQL does.
+
+    Mirrors all three clauses: the blank-line exclusion, the per-path expected count, and
+    the ``ELSE false`` that leaves an unmapped path unjudged.
+    """
+    return sum(
+        1
+        for path, lines in lines_by_path.items()
+        for line in lines
+        if line and path in rule and len(line.split(",")) != rule[path]
+    )
+
+
 def test_a_scanned_path_with_no_manifest_entry_is_never_ragged():
     """FR-004 — the raw-line table scans the folder while the mapping comes from the
-    manifest, so the two can disagree. There is no expected count for such a line and
-    therefore no basis on which to judge it; unjudgeable is not ragged."""
-    q = sql.build_ragged_query("alice", "raw", ONE_FILE)
+    manifest, so the two can disagree: an object written between the inspection and the
+    query, or one whose header could not be probed. There is no expected count for such a
+    line and therefore no basis on which to judge it; unjudgeable is not ragged."""
+    q = sql.build_ragged_query("alice", "raw", {JAN: 3})
+    rule = _rendered_rule(q)
+    assert rule == {JAN: 3}
     assert "ELSE false END" in q
+
+    stray = "s3://bkt/alice/sales/appeared-late.csv"
+    counted = _ragged_lines(
+        rule,
+        {JAN: ["id,amount,region", "1,10,north"], stray: ["a,b,c,d,e,f", "x", "y,z"]},
+    )
+    assert counted == 0, "an unmapped path must fall to ELSE false, however malformed"
+
+
+def test_a_folder_whose_files_disagree_reports_ZERO_ragged_rows():
+    """THE BUG SPEC-142 EXISTS FOR (FR-005), pinned where it actually lives.
+
+    Two files that disagree about their columns, every line well-formed WITHIN ITS OWN
+    FILE. The union column count is 3; under the old comparison every line of the narrower
+    file — its two data rows AND its header — came back ragged, so the user was handed a
+    count of 3 for a folder with nothing malformed in it, next to a cross-file finding that
+    had already told them the truth.
+    """
+    jan_lines = ["id,amount,region", "1,10,north", "2,20,south"]
+    feb_lines = ["id,amount", "3,30", "4,40"]
+
+    rule = _rendered_rule(sql.build_ragged_query("alice", "raw", {JAN: 3, FEB: 2}))
+
+    # Each file's own header count — NOT the union's 3 for both.
+    assert rule == {JAN: 3, FEB: 2}
+    assert _ragged_lines(rule, {JAN: jan_lines, FEB: feb_lines}) == 0
+
+    # And what the union comparison produced, so the regression is legible rather than
+    # asserted-by-assertion: the whole of feb.csv, header included.
+    union = len({"id", "amount", "region"})
+    assert sum(1 for line in feb_lines if len(line.split(",")) != union) == 3
+
+
+def test_the_common_path_is_unchanged_when_every_file_agrees():
+    """FR-001's first criterion — this fix must be INVISIBLE where the files agree, and a
+    genuinely ragged row must still be counted."""
+    rule = _rendered_rule(sql.build_ragged_query("alice", "raw", {JAN: 3, FEB: 3}))
+
+    assert _ragged_lines(rule, {JAN: ["id,amount,region", "1,10,north"]}) == 0
+    assert _ragged_lines(rule, {FEB: ["id,amount,region", "2,20"]}) == 1
 
 
 def test_ragged_query_with_no_files_judges_nothing():
