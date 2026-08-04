@@ -122,6 +122,22 @@ def test_flat_source_succeeds_with_one_query():
     assert out["actor"] == "alice"
 
 
+def test_mode_is_guaranteed_on_the_state_record_success_reads():
+    """SPEC-143. RecordSuccess does `"mode.$": "$.mode"`, and a Pass state's JSONPath
+    raises an UNCATCHABLE States.Runtime on an absent key — after the table exists and the
+    actor has already been told it does.
+
+    The key can only be missing in one window: an execution that starts after the state
+    machine deploys but before validate-authorize's code does, since the two are separate
+    workflows. Only a create reaches this verb, so defaulting here closes it exactly.
+    """
+    _install(_FakeAthena(["SUCCEEDED"]))
+    assert e.handler(_event(), None)["mode"] == "create"
+
+    _install(_FakeAthena(["SUCCEEDED"]))
+    assert e.handler({**_event(), "mode": "create"}, None)["mode"] == "create"
+
+
 def test_partitioned_source_succeeds_with_the_same_single_create():
     # A partitioned source uses projection — NO second MSCK REPAIR StartQueryExecution.
     athena = _install(_FakeAthena(["SUCCEEDED"]))

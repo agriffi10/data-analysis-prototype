@@ -8,4 +8,4 @@ export {PartitionKeysField} from './PartitionKeysField';
 export {enqueueTableBuild, suggestTableName, isValidTableName} from './tableBuild.service';
 export {buildPartitionKeys, buildPartitionKey, validateDraftKey, emptyDraftKey, parseValues} from './partitionKeys';
 export type {DraftPartitionKey, PartitionKeyErrors, PartitionType, PartitionKeysResult} from './partitionKeys';
-export type {PartitionKey, TableBuildRequest} from './tableBuild.types';
+export type {PartitionKey, TableBuildRequest, TableBuildSpace, TableBuildMode} from './tableBuild.types';

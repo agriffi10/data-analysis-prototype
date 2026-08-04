@@ -1,5 +1,5 @@
 {
-  "Comment": "Table-builder control plane (SPEC-070). A LINEAR pipeline — validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl → RecordSuccess → Succeeded — orchestrated by the Step Function, not in-Lambda code. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the status:'created' twin. A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
+  "Comment": "Table-builder control plane (SPEC-070, extended by SPEC-143). TWO branches over ONE spine: validate-authorize → {check-table-absent | load-table-definition} → inspect-source → infer-schema → {execute-ddl → RecordSuccess → Succeeded | the SPEC-144 refresh tail}. inspect-source and infer-schema are SHARED by both and know nothing about mode — load-table-definition normalises the state into exactly what a create would have handed them (rewritten prefix, reconstructed declared partition keys), which is why a refresh needed a second entry verb rather than a flag. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the status:'created' twin. A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -31,7 +31,52 @@
           "Next": "ValidateFailureSeed"
         }
       ],
-      "Next": "CheckTableAbsent"
+      "Next": "RouteByMode"
+    },
+    "RouteByMode": {
+      "Type": "Choice",
+      "Comment": "SPEC-143. A refresh is a re-run of inspect-source + infer-schema against a table that already EXISTS, so it takes the mirror image of check-table-absent: load-table-definition, which reads the live Glue table, decides whether it is refreshable, and rewrites space.prefix to the table's own location so the two shared verbs need no mode branch. THE IsPresent CONJUNCT IS NOT DECORATION: a Choice rule whose Variable path is absent raises States.Runtime, which no Catch anywhere can catch, so a bare StringEquals would KILL an execution rather than fall through to Default on the very input Default exists for — an envelope written before this spec, or one in flight while the two deploy workflows land out of order.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.mode", "IsPresent": true },
+            { "Variable": "$.mode", "StringEquals": "refresh" }
+          ],
+          "Next": "LoadTableDefinition"
+        }
+      ],
+      "Default": "CheckTableAbsent"
+    },
+    "LoadTableDefinition": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${load_table_definition_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "InspectSource"
     },
     "CheckTableAbsent": {
       "Type": "Task",
@@ -124,7 +169,31 @@
           "Next": "RecordFailure"
         }
       ],
-      "Next": "ExecuteDdl"
+      "Next": "RouteTailByMode"
+    },
+    "RouteTailByMode": {
+      "Type": "Choice",
+      "Comment": "SPEC-143. The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144; until then the refresh branch records a typed not_implemented so the whole branch is exercised end to end before it can change anything.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.mode", "IsPresent": true },
+            { "Variable": "$.mode", "StringEquals": "refresh" }
+          ],
+          "Next": "RefreshNotImplemented"
+        }
+      ],
+      "Default": "ExecuteDdl"
+    },
+    "RefreshNotImplemented": {
+      "Type": "Pass",
+      "Comment": "SPEC-143 FR-008 — REPLACED WHOLESALE BY SPEC-144. Shaped exactly like a Task Catch's output (a {Error, Cause} object merged onto $.error via ResultPath) so RecordFailure needs no special case and cpcommon.errors.failure_reason decodes 'not_implemented' from the Cause the same way it decodes a real verb's. A Fail state would have been the obvious spelling and is the wrong one: it ends the execution immediately, so the structured { status:'failed', reason } outcome would never be recorded. THE EQUIVALENCE IS TO THE RECORD, NOT TO THE NOTIFICATION: every user-facing message on this plane is emitted from inside a verb (notifies_on_failure), and a Pass runs no Lambda, so a refresh stopping here tells the user nothing. That is acceptable only because nothing but a hand-crafted SQS message can reach it before SPEC-144 replaces the state with a real verb.",
+      "Result": {
+        "Error": "TerminalError",
+        "Cause": "{\"errorType\":\"TerminalError\",\"errorMessage\":\"not_implemented: the refresh diff and apply land in SPEC-144\"}"
+      },
+      "ResultPath": "$.error",
+      "Next": "RecordFailure"
     },
     "ExecuteDdl": {
       "Type": "Task",
@@ -160,12 +229,13 @@
     },
     "RecordSuccess": {
       "Type": "Pass",
-      "Comment": "Shape the terminal SUCCESS outcome SPEC-072 notifies from. The threaded object always carries these fields after execute-ddl.",
+      "Comment": "Shape the terminal SUCCESS outcome SPEC-072 notifies from. The threaded object always carries these fields after execute-ddl. `status` stays the literal 'created' — only a create can reach this state before SPEC-144, which owns making it mode-dependent; `mode` rides alongside it so a reader of the record never has to infer which branch produced it.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "database.$": "$.space.database",
         "tableName.$": "$.tableName",
+        "mode.$": "$.mode",
         "status": "created"
       },
       "Next": "Succeeded"

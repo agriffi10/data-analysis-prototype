@@ -6,8 +6,14 @@ and in-space location. Read-only — no provisioning side effects. A failed chec
 raises TerminalError with a stable reason, so the state machine's Catch records the
 failure and no downstream verb runs.
 
+Both MODES land here (SPEC-143): a create and a refresh are authorized identically —
+same actor, same space, same database — and only the partition-key rule differs, since a
+refresh declares none. The mode is validated rather than defaulted silently, so an
+unknown value fails as a typed terminal here instead of falling through the state
+machine's Choice default into a create.
+
 Emits the validated, normalized request the next states consume:
-{actor, space, tableName, partitionKeys, location, requestId}.
+{mode, actor, space, tableName, partitionKeys, location, requestId}.
 """
 
 import logging
@@ -42,6 +48,22 @@ def _load_registry(database: str):
     except Exception as err:  # retryable faults mapped; the rest propagate
         errors.raise_if_transient(err, f"registry load {database}")
         raise
+
+
+def _validate_mode(mode):
+    """Normalize the request mode to a literal; absent means the shipped create path.
+
+    Returns the literal string (never ``None``) so the state machine's Choice always has a
+    field to test — a missing ``$.mode`` would fall to its Default, which is create, but
+    relying on that would make an unknown mode indistinguishable from an old producer's
+    envelope. SPEC-067's envelope carries no ``mode`` at all and must keep routing to
+    create, which is why absent is accepted rather than required.
+    """
+    if mode is None:
+        return "create"
+    if mode not in ("create", "refresh"):
+        raise TerminalError("invalid_mode", f"{mode!r}")
+    return mode
 
 
 def _normalize_prefix(prefix):
@@ -142,10 +164,25 @@ def _validate_and_authorize(event) -> dict:
     # From here the actor is known, so a terminal validation failure notifies the actor
     # (best-effort) before the SFN Catch records it.
     try:
+        mode = _validate_mode(req.get("mode"))
+        # Runs identically for both modes: the catalog is not the authorization boundary,
+        # so the prefix the producer BELIEVES the table points at is authorized here, and
+        # load-table-definition re-checks the location it actually finds.
         prefix = _authorize_space(space, actor)
         table_name = req.get("tableName")
         _validate_table_name(table_name)
-        partition_keys = _validate_partition_keys(req.get("partitionKeys"))
+        if mode == "refresh":
+            # A refresh that accepted keys would be offering to CHANGE them, which the
+            # arc forbids: they were user-declared at create time and are recorded
+            # nowhere but on the table, so load-table-definition reconstructs them.
+            if req.get("partitionKeys"):
+                raise TerminalError(
+                    "partition_keys_not_refreshable",
+                    "a refresh reconstructs the table's existing partition keys",
+                )
+            partition_keys = []
+        else:
+            partition_keys = _validate_partition_keys(req.get("partitionKeys"))
     except TerminalError as err:
         notify.emit_failure(
             {
@@ -161,6 +198,7 @@ def _validate_and_authorize(event) -> dict:
 
     bucket = space.get("bucket")
     validated = {
+        "mode": mode,
         "actor": actor,
         "space": {
             "kind": space.get("kind"),
@@ -179,6 +217,7 @@ def _validate_and_authorize(event) -> dict:
     # to, and "which database did this request aim at" was the first thing nobody could answer.
     observability.info(
         "validated",
+        mode=mode,
         actor=actor,
         space=(space or {}).get("name"),
         database=(space or {}).get("database"),

@@ -1,14 +1,15 @@
 # ── Control-plane Lambdas (SPEC-066 skeleton) ────────────────────────────────
-# Five single-task verb Lambdas — validate-authorize / check-table-absent /
-# inspect-source / infer-schema / execute-ddl — orchestrated by the Step Function
-# (stepfunction.tf) as a linear pipeline. All five share ONE execution role (iam.tf;
+# Single-task verb Lambdas — validate-authorize / check-table-absent /
+# load-table-definition / inspect-source / infer-schema / execute-ddl — orchestrated by
+# the Step Function (stepfunction.tf) as two branches over one shared spine. All share
+# ONE execution role (iam.tf;
 # user decision, mirroring shared-spaces) and each gets its task's real timeout/memory
 # (locals.tf; a small validator ≠ the polars infer step, lambdas.md §4).
 #
 # Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
 # (lambdas/table-builder-<suffix>/) AND publishes + attaches the layers: the shared
-# cpcommon layer + the tbcommon domain layer on all five, plus the polars layer on
+# cpcommon layer + the tbcommon domain layer on all of them, plus the polars layer on
 # infer-schema (SPEC-107). `ignore_changes` keeps `tofu apply` from reverting CI's code
 # OR layers.
 
@@ -47,7 +48,7 @@ resource "aws_lambda_function" "functions" {
   memory_size   = each.value.memory
 
   # EVERY variable tbcommon/config.py _require()s at import must be COMMON to all
-  # five verbs: the shared layer's config runs its fail-fast (SPEC-083 FR-001) on
+  # verbs: the shared layer's config runs its fail-fast (SPEC-083 FR-001) on
   # any `from tbcommon import …` chain (every verb imports notify → config), so a
   # verb missing ANY required var crashes at cold start — the 2026-07-05 production
   # break (check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset). Per-verb

@@ -13,7 +13,7 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-table-builder-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-table-builder-sfn-role"
 
-  # ONE shared execution role for all five verb Lambdas (user decision — reverses the
+  # ONE shared execution role for every verb Lambda (user decision — reverses the
   # SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
   # SPEC-062). Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
   # and it is the table-builder Lake Formation admin (analytics data_lake_settings) so
@@ -23,18 +23,26 @@ locals {
   execution_role_name = "${var.project_name}-${var.environment}-table-builder-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-builder-execution-role"
 
-  # The five single-task verb Lambdas, in pipeline order. Keyed by the function
-  # SUFFIX (= the lambdas/table-builder-<suffix>/ subdir AND the deploy-lambdas.yml
-  # matrix name "table-builder-<suffix>"); value = the handler + the task's real
+  # The single-task verb Lambdas, in pipeline order. Keyed by the function SUFFIX
+  # (= the lambdas/table-builder-<suffix>/ subdir AND the deploy-lambdas.yml matrix
+  # name "table-builder-<suffix>"); value = the handler + the task's real
   # timeout/memory need (a small validator ≠ the polars infer step — lambdas.md §4).
-  # All five share ONE execution role (execution_role above); the Step Function
-  # orchestrates them as a LINEAR sequence (stepfunction.tf).
+  # All share ONE execution role (execution_role above); the Step Function orchestrates
+  # them as two branches over one shared spine (stepfunction.tf).
+  #
+  # load-table-definition (SPEC-143) is the refresh branch's entry verb and mirrors
+  # check-table-absent in the negative — one Glue GetTable, no S3 — so it takes the same
+  # 15 s / 256 MB. lambda.tf needs no edit for a new entry: it is entirely for_each over
+  # this map, so the function, its log group and its placeholder zip all follow.
+  # stepfunction.tf DOES need one — its templatefile() call passes an explicit per-function
+  # map, not a loop.
   table_builder_functions = {
-    "validate-authorize" = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
-    "check-table-absent" = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }
-    "inspect-source"     = { handler = "inspect_source.handler", timeout = 60, memory = 512 }
-    "infer-schema"       = { handler = "infer_schema.handler", timeout = 120, memory = 1024 }
-    "execute-ddl"        = { handler = "execute_ddl.handler", timeout = 300, memory = 512 }
+    "validate-authorize"    = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
+    "check-table-absent"    = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }
+    "load-table-definition" = { handler = "load_table_definition.handler", timeout = 15, memory = 256 }
+    "inspect-source"        = { handler = "inspect_source.handler", timeout = 60, memory = 512 }
+    "infer-schema"          = { handler = "infer_schema.handler", timeout = 120, memory = 1024 }
+    "execute-ddl"           = { handler = "execute_ddl.handler", timeout = 300, memory = 512 }
   }
 
   table_builder_function_names = {
@@ -64,7 +72,7 @@ locals {
 
   # The shared execution role writes to EVERY verb's log group, so its policy scopes
   # logs to the /aws/lambda/{project}-{env}-table-builder-* wildcard (one statement
-  # covering all five function log groups) rather than a per-verb ARN.
+  # covering every function log group) rather than a per-verb ARN.
   table_builder_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-builder-*"
 
   # polars Lambda layer — CI builds + publishes it (deploy-lambdas.yml), exactly like

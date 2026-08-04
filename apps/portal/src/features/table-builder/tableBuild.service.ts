@@ -21,6 +21,9 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
     queueUrl: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
     notConfiguredMessage: 'Table creation is not configured',
     build: (idToken) => ({
+      // The body is built field by field, so a new request field is NOT forwarded by
+      // being added to the type: `mode` (SPEC-143) is deliberately absent here, and the
+      // server reads its absence as 'create'. SPEC-145 adds it with the refresh caller.
       body: {
         idToken,
         space: req.space,

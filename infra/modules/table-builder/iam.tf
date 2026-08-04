@@ -1,5 +1,5 @@
 # ── Control-plane IAM roles ──────────────────────────────────────────────────
-# ONE shared execution role for all five verb Lambdas (user decision — reverses the
+# ONE shared execution role for every verb Lambda (user decision — reverses the
 # SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
 # SPEC-062), plus the Step Function role and the Pipe role. Trust + permission policies
 # are .tftpl templates rendered with templatefile() (no inline jsonencode IAM, per

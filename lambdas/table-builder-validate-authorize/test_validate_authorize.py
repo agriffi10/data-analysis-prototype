@@ -56,10 +56,12 @@ def _setup():
     v.reg.load = lambda name: None
 
 
-def _event(space, table_name="sales_2026", partition_keys=None, token="tok", request_id="r1"):
+def _event(space, table_name="sales_2026", partition_keys=None, token="tok", request_id="r1", mode=None):
     body = {"idToken": token, "space": space, "tableName": table_name, "requestId": request_id}
     if partition_keys is not None:
         body["partitionKeys"] = partition_keys
+    if mode is not None:
+        body["mode"] = mode
     return [{"body": json.dumps(body)}]
 
 
@@ -294,6 +296,115 @@ def test_non_transient_registry_error_propagates_unchanged():
         assert err.response["Error"]["Code"] == "AccessDenied"
         return
     raise AssertionError("expected the original ClientError to propagate")
+
+
+# ── mode: the create/refresh branch selector (SPEC-143 FR-001 / FR-002) ──────
+
+
+def test_an_envelope_with_no_mode_is_byte_for_byte_the_shipped_create():
+    """FR-001 AC2 — the additive-by-construction claim, asserted rather than asserted-to.
+
+    Every producer shipped before SPEC-143 sends SPEC-067's envelope, which has no `mode`
+    at all. This compares the WHOLE validated payload against an explicit `mode: "create"`
+    request, so a defaulting bug cannot hide in a field the other mode tests don't read.
+    """
+    _setup()
+    implicit = v.handler(_event(_personal()), None)
+    explicit = v.handler(_event(_personal(), mode="create"), None)
+
+    assert implicit == explicit
+    assert implicit["mode"] == "create"
+    # The SPEC-067 threaded state, pinned as a key set: `mode` is the ONLY addition, so a
+    # future field cannot arrive on this payload without a downstream state being taught
+    # to read it.
+    assert set(implicit) - {"mode"} == {
+        "actor", "space", "tableName", "partitionKeys", "location", "requestId",
+    }
+
+
+def test_a_refresh_is_authorized_exactly_like_a_create():
+    _setup()
+    out = v.handler(_event(_personal(), mode="refresh"), None)
+
+    assert out["mode"] == "refresh"
+    assert out["actor"] == "alice"
+    # validate-authorize still emits the request's own location; load-table-definition
+    # overwrites it from the catalog (FR-002 AC4).
+    assert out["location"] == "s3://dat-prod-user-space/alice/sales/2026/"
+    assert out["partitionKeys"] == []
+
+
+def test_an_unknown_mode_is_a_typed_terminal_not_a_silent_create():
+    """FR-001 AC3. The Choice's Default is create, so an unvalidated unknown mode would
+    quietly build a new table when the user asked to refresh an existing one.
+
+    Case-variants and a trailing space are in the list deliberately: the check is exact
+    equality, not a normalize-then-compare, so "Refresh" is a typo the user must see
+    rather than a spelling the system quietly accepts.
+    """
+    _setup()
+    for mode in ("", "Refresh", "REFRESH", "update", "create ", 1, True, [], {}):
+        _expect_reason(_event(_personal(), mode=mode), "invalid_mode")
+
+
+def test_a_refresh_carrying_partition_keys_is_refused():
+    """FR-002 AC1 — accepting them would be offering to CHANGE them, which the arc forbids."""
+    _setup()
+    keys = [{"name": "year", "type": "integer", "range": [2000, 2100]}]
+    _expect_reason(
+        _event(_personal(), partition_keys=keys, mode="refresh"), "partition_keys_not_refreshable"
+    )
+
+
+def test_a_refresh_without_partition_keys_emits_an_empty_list():
+    _setup()
+    for keys in (None, []):
+        out = v.handler(_event(_personal(), partition_keys=keys, mode="refresh"), None)
+
+        assert out["partitionKeys"] == []
+
+
+def test_a_refresh_outside_the_actors_space_still_raises_the_existing_forbidden():
+    """FR-002 AC3 — _authorize_space is UNCHANGED and runs identically for both modes.
+
+    The catalog is not the authorization boundary: the prefix the producer believes the
+    table points at is authorized here, before anything reads Glue.
+    """
+    _setup()
+    _expect_reason(_event(_personal(prefix="bob/secret/"), mode="refresh"), "forbidden")
+
+
+def test_create_partition_key_validation_is_untouched_by_the_mode_branch():
+    """FR-002 AC5 — pins that the refresh rule was added BESIDE the create rule, not
+    woven into it. Same reason code, same message, for a create with and without an
+    explicit mode."""
+    _setup()
+    bad = [{"name": "year", "type": "integer"}]  # integer with no range
+
+    reasons = []
+    for mode in (None, "create"):
+        try:
+            v.handler(_event(_personal(), partition_keys=bad, mode=mode), None)
+        except TerminalError as err:
+            reasons.append((err.reason, err.detail))
+
+    assert reasons == [("invalid_partition_keys", "year: range must be [min, max]")] * 2
+
+
+def test_mode_is_narrated_so_a_log_reader_can_tell_the_branches_apart():
+    """Two branches through one service name are only separable if the field is emitted."""
+    _setup()
+    events = []
+    # Restored explicitly: conftest's snapshot fixture covers config/clients/registry/auth,
+    # NOT observability, so an unrestored patch here would follow into every later test.
+    real_info = v.observability.info
+    v.observability.info = lambda message, **fields: events.append((message, fields))
+    try:
+        v.handler(_event(_personal(), mode="refresh"), None)
+    finally:
+        v.observability.info = real_info
+
+    assert events[0][1]["mode"] == "refresh"
 
 
 def test_validate_authorize_state_retries_TransientError():
