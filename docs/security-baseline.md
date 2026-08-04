@@ -21,7 +21,7 @@ CI run reproduces them.
 | SPA | `eslint-plugin-security`, `no-unsanitized` (**blocking**) | clean — 10 pre-existing violations resolved in SPEC-138 |
 | Lambdas | ruff `S` (bandit) — pre-existing, **blocking** | clean |
 | SPA deps | `npm audit --omit=dev` (runtime) | 4 |
-| SPA deps | `npm audit` (full) | 6 |
+| SPA deps | `npm audit` (full) | 6 → **4** (2026-08-03, `postcss` + `brace-expansion` cleared; see below) |
 | Lambda deps | `pip-audit`, 13 packages | 0 |
 | Repo | `gitleaks`, 357 commits / 9.5 MB | **0** |
 | `infra/` | `checkov`, 224 resources | 305 failed / 439 passed / 0 parse errors |
@@ -92,6 +92,13 @@ Notes that change the priority order:
   nothing**, including for a deliberately invalid version string, so npm never re-resolved; reach
   for `npm update` before `overrides` when the declared range already allows the fix. npm audit
   6 → 4; the two remaining highs are the accepted `react-router` pair.
+- **`undici` — appeared and was cleared the same day (2026-08-04, #341).** GHSA-4cwx-7wf7-3272
+  (HIGH, Cache-Control `private` parsing → cross-user disclosure in a shared cache) plus four
+  mediums, published after the snapshot above and taking full audit 4 → 5 for part of one day.
+  Dev-only and transitive: `jsdom` (the vitest DOM environment) is the sole consumer, and a build
+  of `apps/portal/dist/` contains no `undici`. Dependabot's 7.28.0 → 7.29.0 bump cleared it.
+  **Full and runtime now read the same 4** — every remaining advisory is in a runtime dependency,
+  so `--omit=dev` no longer subtracts anything.
 
 ### Dependencies — Python
 
