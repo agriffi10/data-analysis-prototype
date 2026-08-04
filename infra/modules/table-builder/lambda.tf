@@ -1,6 +1,7 @@
 # ── Control-plane Lambdas (SPEC-066 skeleton) ────────────────────────────────
 # Single-task verb Lambdas — validate-authorize / check-table-absent /
-# load-table-definition / inspect-source / infer-schema / execute-ddl — orchestrated by
+# load-table-definition / inspect-source / infer-schema / diff-schema / execute-ddl —
+# orchestrated by
 # the Step Function (stepfunction.tf) as two branches over one shared spine. All share
 # ONE execution role (iam.tf;
 # user decision, mirroring shared-spaces) and each gets its task's real timeout/memory

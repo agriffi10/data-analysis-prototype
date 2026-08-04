@@ -83,13 +83,93 @@ def test_the_head_choice_routes_a_refresh_to_load_table_definition_and_all_else_
 
 
 def test_the_tail_choice_routes_a_refresh_away_from_execute_ddl():
-    """The whole safety property of shipping 143 before 144: a refresh reaches the
-    inspection verbs but CANNOT reach the state that issues DDL."""
+    """A refresh reaches the inspection verbs but CANNOT reach ExecuteDdl — the create
+    path's DDL state is not shared, and the refresh tail issues its own statements."""
     states = _states()
 
     assert states["InferSchema"]["Next"] == "RouteTailByMode"
-    assert _route(states, "RouteTailByMode", _mode("refresh")) == "RefreshNotImplemented"
+    assert _route(states, "RouteTailByMode", _mode("refresh")) == "DiffSchema"
     assert _route(states, "RouteTailByMode", _mode("create")) == "ExecuteDdl"
+
+
+def _changed(value):
+    """A threaded state carrying `$.diff.changed`, or carrying no diff at all."""
+    return {} if value is None else {"diff": {"changed": value}}
+
+
+def _route_by_change(states, state):
+    choice = states["RouteByChange"]
+    for rule in choice["Choices"]:
+        present = "changed" in (state.get("diff") or {})
+        ok = True
+        for conjunct in rule.get("And", [rule]):
+            if "IsPresent" in conjunct:
+                ok = ok and present is conjunct["IsPresent"]
+            else:
+                ok = ok and present and state["diff"]["changed"] == conjunct["BooleanEquals"]
+        if ok:
+            return rule["Next"]
+    return choice["Default"]
+
+
+def test_an_unchanged_schema_reaches_success_without_passing_through_any_ddl_state():
+    """FR-002 AC1/AC3. The no-op is the common case once users get the habit, and it must
+    not drop the table to discover it has nothing to do."""
+    states = _states()
+
+    assert states["DiffSchema"]["Next"] == "RouteByChange"
+    assert _route_by_change(states, _changed(False)) == "RecordSuccess"
+    assert _route_by_change(states, _changed(True)) != "RecordSuccess"
+    # Both outcomes are EXPLICIT rules, so the Default is free to be a failure.
+    assert len(states["RouteByChange"]["Choices"]) == 2
+
+
+def test_an_absent_diff_records_a_failure_instead_of_stranding():
+    """The Default is a FAILURE here, unlike the mode Choices, and the difference is the
+    point.
+
+    An absent `$.mode` has an obvious correct reading — create. An absent `$.diff.changed`
+    means diff-schema returned something this machine cannot interpret, and defaulting THAT
+    to RecordSuccess would hand it to a Pass state reading `$.status`, raising the same
+    uncatchable States.Runtime one state later with no recorded outcome at all. The
+    IsPresent guard alone only moves the failure; recording one is what removes it.
+    """
+    states = _states()
+
+    assert states["RouteByChange"]["Default"] == "DiffMissingSeed"
+    assert _route_by_change(states, _changed(None)) == "DiffMissingSeed"
+    assert states["DiffMissingSeed"]["Next"] == "RecordFailure"
+    assert states["DiffMissingSeed"]["ResultPath"] == "$.error"
+
+
+def test_record_success_threads_status_and_every_path_that_reaches_it_sets_one():
+    """FR-007. `status` stopped being a literal, so an absent one is now an uncatchable
+    States.Runtime raised AFTER the work succeeded. The guard is that every state which can
+    reach RecordSuccess sets it — asserted structurally, by walking the graph backwards.
+    """
+    states = _states()
+
+    assert states["RecordSuccess"]["Parameters"]["status.$"] == "$.status"
+
+    def _targets(state):
+        """Every state this one can transition to, by ANY edge type.
+
+        Catch is included deliberately: it is the edge written by hand on every Task, so
+        it is the one most likely to gain a target nobody thought of as a predecessor.
+        """
+        yield state.get("Next")
+        yield state.get("Default")
+        for choice in state.get("Choices", []) or []:
+            yield choice.get("Next")
+        for catch in state.get("Catch", []) or []:
+            yield catch.get("Next")
+
+    predecessors = {
+        name for name, state in states.items() if "RecordSuccess" in set(_targets(state))
+    }
+    # ExecuteDdl sets "created"; RouteByChange is fed by DiffSchema, which sets "unchanged"
+    # on exactly the branch that reaches here. A new predecessor must set one too.
+    assert predecessors == {"ExecuteDdl", "RouteByChange"}, predecessors
 
 
 def test_an_absent_mode_reaches_the_create_path_rather_than_killing_the_execution():
@@ -179,13 +259,10 @@ def test_the_stub_cause_decodes_to_the_reason_a_verb_would_have_raised():
     assert errors.failure_reason(_states()["RefreshNotImplemented"]["Result"]) == "not_implemented"
 
 
-def test_record_success_carries_the_mode_but_still_hard_codes_created():
-    """FR-003 AC7. Nothing before SPEC-144 can produce a refresh SUCCESS, so `status` is
-    deliberately untouched here — 144 FR-007 owns making it mode-dependent."""
-    parameters = _states()["RecordSuccess"]["Parameters"]
-
-    assert parameters["mode.$"] == "$.mode"
-    assert parameters["status"] == "created"
+def test_record_success_still_carries_the_mode():
+    """`mode` on the record is what lets a reader tell which branch produced an outcome
+    without inferring it from `status`."""
+    assert _states()["RecordSuccess"]["Parameters"]["mode.$"] == "$.mode"
 
 
 def test_record_failure_is_unchanged_and_reads_no_mode():

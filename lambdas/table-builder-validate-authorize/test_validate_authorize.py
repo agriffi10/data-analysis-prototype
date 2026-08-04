@@ -56,12 +56,17 @@ def _setup():
     v.reg.load = lambda name: None
 
 
-def _event(space, table_name="sales_2026", partition_keys=None, token="tok", request_id="r1", mode=None):
+def _event(
+    space, table_name="sales_2026", partition_keys=None, token="tok", request_id="r1", mode=None,
+    allow_removals=None,
+):
     body = {"idToken": token, "space": space, "tableName": table_name, "requestId": request_id}
     if partition_keys is not None:
         body["partitionKeys"] = partition_keys
     if mode is not None:
         body["mode"] = mode
+    if allow_removals is not None:
+        body["allowRemovals"] = allow_removals
     return [{"body": json.dumps(body)}]
 
 
@@ -314,10 +319,10 @@ def test_an_envelope_with_no_mode_is_byte_for_byte_the_shipped_create():
 
     assert implicit == explicit
     assert implicit["mode"] == "create"
-    # The SPEC-067 threaded state, pinned as a key set: `mode` is the ONLY addition, so a
-    # future field cannot arrive on this payload without a downstream state being taught
-    # to read it.
-    assert set(implicit) - {"mode"} == {
+    # The SPEC-067 threaded state, pinned as a key set, so a future field cannot arrive on
+    # this payload without a downstream state being taught to read it. `mode` (SPEC-143)
+    # and `allowRemovals` (SPEC-144) are the only additions.
+    assert set(implicit) - {"mode", "allowRemovals"} == {
         "actor", "space", "tableName", "partitionKeys", "location", "requestId",
     }
 
@@ -405,6 +410,59 @@ def test_mode_is_narrated_so_a_log_reader_can_tell_the_branches_apart():
         v.observability.info = real_info
 
     assert events[0][1]["mode"] == "refresh"
+
+
+# ── allowRemovals: the removal opt-in (SPEC-144 FR-003) ──────────────────────
+
+
+def test_allow_removals_defaults_to_false_and_is_always_a_boolean():
+    _setup()
+    for mode in (None, "create", "refresh"):
+        out = v.handler(_event(_personal(), mode=mode), None)
+
+        assert out["allowRemovals"] is False
+
+
+def test_a_refresh_can_opt_into_removals():
+    _setup()
+    out = v.handler(_event(_personal(), mode="refresh", allow_removals=True), None)
+
+    assert out["allowRemovals"] is True
+
+
+def test_opting_into_removals_on_a_create_is_refused():
+    """A create has nothing to remove, so the flag is a producer bug. Refused rather than
+    ignored: dropping it silently would let a future caller believe removals were opted
+    into when nothing read the field."""
+    _setup()
+    for mode in (None, "create"):
+        _expect_reason(
+            _event(_personal(), mode=mode, allow_removals=True), "removals_flag_not_applicable"
+        )
+
+
+def test_a_non_boolean_allow_removals_is_refused_rather_than_coerced():
+    """`"false"` and `0` are the shapes a hand-crafted or mistyped producer sends, and
+    truthiness would read `"false"` as opting IN — the wrong way round on the one flag
+    that authorises data loss."""
+    _setup()
+    for flag in ("true", "false", 1, 0, [], {}):
+        _expect_reason(
+            _event(_personal(), mode="refresh", allow_removals=flag), "removals_flag_not_applicable"
+        )
+
+
+def test_the_opt_in_is_narrated():
+    _setup()
+    events = []
+    real_info = v.observability.info
+    v.observability.info = lambda message, **fields: events.append((message, fields))
+    try:
+        v.handler(_event(_personal(), mode="refresh", allow_removals=True), None)
+    finally:
+        v.observability.info = real_info
+
+    assert events[0][1]["allow_removals"] is True
 
 
 def test_validate_authorize_state_retries_TransientError():

@@ -533,6 +533,7 @@ jobs:
           - { name: table-builder-load-table-definition, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true, cpcommon: true }
+          - { name: table-builder-diff-schema, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
           # Table-share verbs (SPEC-088). `tscommon: true` attaches the table-share-common
           # layer — all five verbs share the tscommon package (stub namespaces now; real
