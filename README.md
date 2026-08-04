@@ -87,7 +87,10 @@ This is an **npm workspaces monorepo**.
 
 ### Prerequisites
 
-- **Node.js 22** and npm (CI builds on Node 22)
+- **Node.js 24** and npm — the version lives in `.nvmrc`, which is the single source of truth:
+  every workflow reads it via `node-version-file`, and `nvm use` / `fnm use` picks it up locally.
+  Matching it keeps `package-lock.json` stable, since npm's major writes different lockfile
+  metadata.
 - For IaC work: **OpenTofu `~1.8`** and the **AWS CLI** (configured with credentials for the
   target account)
 - For Lambda work: **Python 3.12**
