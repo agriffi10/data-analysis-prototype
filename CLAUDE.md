@@ -76,9 +76,10 @@ written work. What remains below is the live checks that are owed.
 - **SPEC-141 left two things live.** (1) Its single `--delete` is scoped to `assets/`, so
   **stale root-level objects are never removed** — `icons.svg` is one today, needing a one-off
   `aws s3 rm s3://<static-bucket>/icons.svg`. That orphan class is a **spec choice, not a CLI
-  constraint** (see the decisions entry). (2) Both deploys since the split were byte-identical to
-  their predecessor, so **the delete pass has still never deleted anything**; the next deploy that
-  changes a bundle hash is its first real test.
+  constraint** (see the decisions entry). (2) **Every** deploy since the split has been byte-identical to
+  its predecessor, so **the delete pass has still never deleted anything** (verified through run
+  30902923653: 108 assets + 2 root uploaded, 0 deleted). The next deploy that changes a bundle hash
+  is its first real test.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
