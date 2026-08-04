@@ -60,6 +60,12 @@ NOT_COMPUTED_RAGGED_LINE_TOO_LONG = (
     "a single line in this data was longer than the check can read (Athena's 200 MB limit)."
 )
 NOT_COMPUTED_RAGGED = "the ragged-row check couldn't be completed on this data."
+# The size guard (SPEC-142 FR-003). Says what the user can DO about it, because unlike the
+# two above this one has an action: the comparison is per file, so fewer files fits.
+NOT_COMPUTED_RAGGED_QUERY_TOO_LARGE = (
+    "this folder has too many files for the ragged-row check to compare each one against "
+    "its own columns. Please check a smaller folder."
+)
 NOT_COMPUTED_ENCODING = "the character-encoding check didn't produce a result."
 NOT_COMPUTED_DUPLICATES = (
     "finding duplicates means comparing every column across the whole dataset, and that "
@@ -292,11 +298,15 @@ def _ragged(block, rows: list[dict]) -> dict:
         # different things and the report must not blur them.
         return {"status": "skipped", "reason": SKIP_RAGGED_NOT_LINE_DELIMITED}
     if block.get("status") == "not_computed":
-        reason = (
-            NOT_COMPUTED_RAGGED_LINE_TOO_LONG
-            if _is_line_too_long(block.get("reason"))
-            else NOT_COMPUTED_RAGGED
-        )
+        # reasonCode FIRST: it is a marker this codebase wrote (start-profile-query's size
+        # guard), so it is authoritative. The line-too-long branch below is a text match
+        # against Athena's own wording, which is a guess by comparison.
+        if block.get("reasonCode") == sql.RAGGED_QUERY_TOO_LARGE:
+            reason = NOT_COMPUTED_RAGGED_QUERY_TOO_LARGE
+        elif _is_line_too_long(block.get("reason")):
+            reason = NOT_COMPUTED_RAGGED_LINE_TOO_LONG
+        else:
+            reason = NOT_COMPUTED_RAGGED
         return {"status": "not_computed", "reason": reason}
     return {"count": _int(rows[0], "ragged_rows") if rows else 0, "note": NOTE_RAGGED}
 

@@ -69,6 +69,65 @@ def _start(name: str, query: str, event: dict, database: str, results: str) -> s
     )
 
 
+def _expected_by_path(bucket: str, files: list[dict]) -> dict[str, int]:
+    """Manifest files -> ``{"s3://bucket/key": that file's own column count}`` (SPEC-142).
+
+    Keyed in the full ``s3://`` form because that is what Athena's ``"$path"``
+    pseudo-column returns; ``report._strip_scheme`` does the same mapping in reverse for
+    the per-file row counts.
+
+    A FILE WITH NO PROBED COLUMNS IS OMITTED rather than given a count of zero. Zero would
+    make every one of its lines ragged — a fabricated finding of exactly the kind this spec
+    exists to remove — where omission lets the query's ELSE branch treat them as
+    unjudgeable, which is what they are.
+    """
+    return {
+        f"s3://{bucket}/{entry['key']}": len(entry["columns"])
+        for entry in files
+        if entry.get("key") and entry.get("columns")
+    }
+
+
+def _ragged_block(
+    event: dict, files: list[dict], database: str, raw_table: str, results: str
+) -> dict:
+    """Start the ragged query, or return the degraded block when it cannot be rendered.
+
+    The guard's refusal is NOT a terminal (SPEC-111 FR-003): a ragged-row count is not
+    worth losing the null ratios, the type consistency and the row counts over. It takes
+    the same ``not_computed`` shape check-query produces for a ragged query that failed,
+    so every reader downstream — the poll's ``_describe``, assemble-report's result fetch,
+    the report's wording — already handles it.
+    """
+    bucket = event["space"]["bucket"]
+    try:
+        query = sql.build_ragged_query(database, raw_table, _expected_by_path(bucket, files))
+    except sql.RaggedQueryTooLargeError as err:
+        observability.warning(
+            "ragged query too large to render",
+            step="start-queries",
+            reason_code=sql.RAGGED_QUERY_TOO_LARGE,
+            detail=str(err),
+            files=len(files),
+        )
+        return {
+            "queryExecutionId": None,
+            "status": "not_computed",
+            # The code the report reads; `reason` stays operator-facing text, as it does on
+            # a degraded block from check-query.
+            "reasonCode": sql.RAGGED_QUERY_TOO_LARGE,
+            "reason": str(err),
+            "resultLocation": None,
+        }
+
+    return {
+        "queryExecutionId": _start("ragged", query, event, database, results),
+        "status": "QUEUED",
+        "resultLocation": f"{results}/ragged/",
+        "reason": None,
+    }
+
+
 @observability.step("start-queries")
 def _start_queries(event: dict) -> dict:
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
@@ -78,7 +137,11 @@ def _start_queries(event: dict) -> dict:
     fmt = events.require(event, "format", reason=messages.INVALID_REQUEST)
 
     manifest = manifest_store.load(bucket, manifest_key)
-    columns = sql.union_columns(manifest.get("files") or [])
+    files = manifest.get("files") or []
+    # The UNION is right for the external table's schema and for the profile query — a
+    # column present in only some files still has to be readable. It is NOT right for the
+    # ragged comparison, which is per file (SPEC-142).
+    columns = sql.union_columns(files)
     partition_keys = manifest.get("partitionKeys") or []
     results = _results_prefix(event)
 
@@ -103,18 +166,7 @@ def _start_queries(event: dict) -> dict:
 
     raw_table = event.get("tempRawTable")
     if raw_table:
-        out["ragged"] = {
-            "queryExecutionId": _start(
-                "ragged",
-                sql.build_ragged_query(database, raw_table, len(columns)),
-                event,
-                database,
-                results,
-            ),
-            "status": "QUEUED",
-            "resultLocation": f"{results}/ragged/",
-            "reason": None,
-        }
+        out["ragged"] = _ragged_block(event, files, database, raw_table, results)
     else:
         # JSON/Parquet have no raw-line table: rows are not line-delimited fields, so the
         # concept does not apply. null (not a not_computed block) says "never applicable"
@@ -134,23 +186,30 @@ def _start_queries(event: dict) -> dict:
         "reason": None,
     }
 
+    # A ragged block exists but carries no execution id when the size guard refused to
+    # render the query (SPEC-142 FR-003) — applicable, but never submitted.
+    ragged_started = bool((out["ragged"] or {}).get("queryExecutionId"))
+
     logger.info(
         "started profile=%s ragged=%s duplicates=%s for %s.%s",
         out["profile"]["queryExecutionId"],
-        (out["ragged"] or {}).get("queryExecutionId", "-"),
+        (out["ragged"] or {}).get("queryExecutionId") or "-",
         out["duplicates"]["queryExecutionId"],
         database,
         table,
     )
-    started = ["profile", "duplicates"] + (["ragged"] if out["ragged"] else [])
+    started = ["profile", "duplicates"] + (["ragged"] if ragged_started else [])
     observability.info(
         "started queries",
         queries=len(started),
         # WHICH of the optional ones were applicable, not merely how many ran: `ragged` is
         # null for JSON/Parquet because the concept does not apply there, and that is a
-        # different thing from a ragged check that was attempted and degraded.
+        # different thing from a ragged check that was attempted and degraded. Applicable
+        # and started are separate fields for the same reason — a CSV whose ragged query
+        # the size guard refused is applicable and not started.
         started=sorted(started),
         ragged_applicable=out["ragged"] is not None,
+        ragged_started=ragged_started,
         database=database,
         table=table,
         format=fmt,

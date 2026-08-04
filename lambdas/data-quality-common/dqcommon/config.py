@@ -121,6 +121,7 @@ def _validate_caps() -> None:
         ("DQ_MAX_GZIP_OBJECT_BYTES", DQ_MAX_GZIP_OBJECT_BYTES),
         ("DQ_MAX_PARTITION_VALUES", DQ_MAX_PARTITION_VALUES),
         ("DQ_MAX_COLUMNS", DQ_MAX_COLUMNS),
+        ("DQ_MAX_QUERY_BYTES", DQ_MAX_QUERY_BYTES),
         ("DQ_SCAN_TOTAL_BYTES", DQ_SCAN_TOTAL_BYTES),
         ("DQ_SCAN_SAMPLE_COUNT", DQ_SCAN_SAMPLE_COUNT),
         ("DQ_SCAN_MIN_SAMPLE_BYTES", DQ_SCAN_MIN_SAMPLE_BYTES),
@@ -156,6 +157,14 @@ def _validate_caps() -> None:
 # sample aggregate per column approaches that on a very wide table, so a source wider
 # than this is rejected with a clear message rather than emitting an unparseable query.
 DQ_MAX_COLUMNS = 200
+
+# Athena's hard cap on a query STRING, in bytes. Not a tuning knob — it is the engine's
+# documented limit, named here so the builders can check themselves against it instead of
+# repeating a magic 262_144 (dqcommon.sql's ragged guard, SPEC-142 FR-003, and the profile
+# query's size test). Athena rejects an over-length statement AFTER every bit of inspection
+# work has been paid for, which is why the checks are on the RENDERED length rather than on
+# a proxy like the file or column count.
+DQ_MAX_QUERY_BYTES = 262_144
 
 # SPEC-111 — a column's dominant parseable type must cover at least this share of its
 # NON-NULL values for the stragglers to be reported as a type-consistency issue.

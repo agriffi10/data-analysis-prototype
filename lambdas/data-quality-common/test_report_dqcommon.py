@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest
-from dqcommon import config, report
+from dqcommon import config, report, sql
 
 COMPLETED = "2026-07-20T14:32:11Z"
 
@@ -357,6 +357,71 @@ def test_a_line_length_failure_gets_its_specific_reason():
     figure = _build(request=request, ragged=[])["approximate"]["raggedRows"]
 
     assert figure["reason"] == report.NOT_COMPUTED_RAGGED_LINE_TOO_LONG
+
+
+def test_a_query_the_size_guard_refused_gets_its_own_actionable_reason():
+    """SPEC-142 FR-003 — the reasonCode is a marker this codebase wrote, so it wins over the
+    text match. The sentence says what the user can do, because unlike the other two
+    degradations this one has an action."""
+    request = _request(
+        ragged={
+            "queryExecutionId": None,
+            "status": "not_computed",
+            "reasonCode": sql.RAGGED_QUERY_TOO_LARGE,
+            "reason": "ragged query is 300000 bytes over 1000 files, past DQ_MAX_QUERY_BYTES=262144",
+        }
+    )
+
+    figure = _build(request=request, ragged=[])["approximate"]["raggedRows"]
+
+    assert figure["status"] == "not_computed"
+    assert figure["reason"] == report.NOT_COMPUTED_RAGGED_QUERY_TOO_LARGE
+    assert "DQ_MAX_QUERY_BYTES" not in figure["reason"]  # no internals (SPEC-106)
+
+
+def test_the_rest_of_the_report_still_lands_when_ragged_could_not_be_computed():
+    """FR-003 — a ragged figure that cannot be computed never fails the run (SPEC-111
+    FR-003). Every exact figure is still there."""
+    request = _request(
+        ragged={"status": "not_computed", "reasonCode": sql.RAGGED_QUERY_TOO_LARGE, "reason": "x"}
+    )
+
+    document = _build(request=request, ragged=[])
+
+    assert document["exact"]["rowCount"] == 100
+    assert document["exact"]["duplicateRows"] == 0
+    assert document["hasIncompleteFigures"] is True
+
+
+def test_files_that_disagree_about_columns_yield_ONE_finding_not_two():
+    """THE BUG SPEC-142 EXISTS FOR (FR-005). A folder whose files disagree about their
+    columns used to be reported twice: once correctly, as cross-file disagreement naming
+    the odd file out, and once again as a large ragged-row count describing nothing real —
+    because every line was compared against the UNION column count, so every data row of
+    the narrower file AND every file's header came back ragged.
+
+    With the comparison per file, a folder where every row is well-formed WITHIN ITS OWN
+    FILE reports zero ragged rows, and the disagreement keeps its single home.
+    """
+    manifest = _manifest(
+        [
+            _file("alice/sales/jan.csv", ["id", "amount", "region"]),
+            _file("alice/sales/feb.csv", ["id", "amount"]),
+        ]
+    )
+    document = _build(
+        manifest=manifest,
+        profile=[_profile_row(100, [{}, {}, {}])],
+        # What the per-file query now returns: nothing is ragged, though every line of
+        # feb.csv (and both headers) would have been under the union comparison.
+        ragged=[{"ragged_rows": 0, "total_lines": 102}],
+    )
+
+    assert document["approximate"]["raggedRows"]["count"] == 0
+    assert document["exact"]["crossFile"]["columnsAgree"] is False
+    assert document["exact"]["crossFile"]["disagreements"][0]["file"] == "alice/sales/feb.csv"
+    # And the user is told about it exactly once.
+    assert sum("region" in issue for issue in document["topIssues"]) == 1
 
 
 # ── Duplicates (FR-003) ──────────────────────────────────────────────────────
