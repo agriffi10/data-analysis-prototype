@@ -4,6 +4,21 @@ on:
   push:
     branches: [main]
 
+# SERIALIZE DEPLOYS. Without this, two merges close together run two jobs in parallel and
+# job A's "Reconcile deletions" pass lists assets/ at ITS execution time, deleting every
+# key absent from A's dist/ — including the chunks B has just uploaded — while B's
+# index.html is already live at the root. That is the exact white screen SPEC-141 exists to
+# fix, arriving by a different route. The window is not theoretical: the delete pass runs
+# ~47 s into the job.
+#
+# cancel-in-progress is FALSE, unlike security.yml's scanner runs. Cancelling a deploy
+# mid-sync leaves the bucket half-updated — a new index.html pointing at chunks the
+# cancelled job never uploaded — which is worse than the queueing it saves. Every push to
+# main must complete; the last one to run wins, which is the correct outcome for a deploy.
+concurrency:
+  group: deploy-app-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -65,13 +80,21 @@ jobs:
       # the deploy already invalidates /*, so the CDN never serves a stale shell. The bug
       # is entirely in the browser cache, which invalidation cannot reach.
       #
-      # THE `--delete` / `--exclude` TRAP: --exclude filters the DESTINATION side of
-      # --delete too, so an excluded file looks ABSENT and gets deleted from the bucket.
-      # A pass carrying both --delete and `--exclude 'assets/*'` would therefore leave
-      # every stale chunk in place while deleting nothing useful. Scope by PREFIX
-      # (dist/assets/ -> s3://…/assets/) instead of by exclude, so each pass owns a
-      # disjoint set of keys and no file is uploaded by more than one pass — a second
-      # pass over an already-uploaded file would re-upload it with THAT pass's
+      # THE `--delete` / `--exclude` INTERACTION, stated the right way round: --exclude
+      # PROTECTS destination keys from --delete. The CLI filters the reverse (destination)
+      # generator with the same patterns re-rooted at the destination — awscli
+      # customizations/s3/filters.py builds `dst_patterns` alongside `patterns`, and
+      # subcommands.py gives `rev_generator` its own filter — so an excluded object is
+      # never a deletion candidate at all.
+      #
+      # The consequence that shapes these passes: a pass that excludes a prefix can never
+      # RECONCILE that prefix. `--delete --exclude 'assets/*'` would keep every stale chunk
+      # forever. So one pass cannot both write a single --cache-control value and reconcile
+      # the whole bucket — which is why the deletions live on their own pass (see below).
+      #
+      # Scope by PREFIX (dist/assets/ -> s3://…/assets/) rather than by exclude, so each
+      # pass owns a disjoint set of keys and no file is uploaded by more than one pass — a
+      # second pass over an already-uploaded file would re-upload it with THAT pass's
       # --cache-control, silently overwriting the immutable header.
       #
       # ORDER: assets up first (so a new shell never points at a chunk that isn't there
@@ -79,8 +102,18 @@ jobs:
       #
       # THE ORPHAN CLASS THIS TOLERATES: the single --delete pass is scoped to assets/,
       # so a stale ROOT-level object (a favicon we stop shipping) is never removed from
-      # the bucket and must be deleted by hand. That is the safe half of the trade — the
-      # other shape leaves stale CHUNKS, which is the white-screen bug itself.
+      # the bucket and must be deleted by hand.
+      #
+      # THAT IS A SPEC CHOICE, NOT A CLI CONSTRAINT, and the distinction matters because an
+      # earlier version of this comment presented it as the latter. Adding --delete to the
+      # shell pass above WOULD reconcile stale root objects, and --exclude would protect
+      # every asset key from that same deletion (verified against the CLI's dst_patterns);
+      # the assets pass below still reconciles chunks, so nothing would be retained. The
+      # only thing forbidding it is SPEC-141's acceptance criterion "exactly one sync pass
+      # carries --delete" — written on the mistaken reading of --exclude that this comment
+      # block now corrects. Revisit the AC deliberately if the manual cleanup becomes
+      # annoying; the cost to weigh is that a root-scoped --delete removes anything in the
+      # bucket not produced by dist/ (nothing else writes it today).
       - name: Sync hashed assets to S3 (immutable)
         run: |
           aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
@@ -98,9 +131,11 @@ jobs:
       #
       # THE RESIDUAL RACE, accepted rather than fixed: a user with the SPA ALREADY OPEN
       # who triggers a lazy import after this pass has removed the old chunk still gets a
-      # 404 inside a Suspense boundary. /query (Monaco, SPEC-035) is the real case. The
-      # fix is retaining superseded bundles behind an S3 lifecycle rule, which needs
-      # object lifecycle management and a retention policy — out of scope for SPEC-141.
+      # 404 inside a Suspense boundary. BOTH lazy routes are exposed — /query (App.tsx:17,
+      # which also lazy-loads Monaco's SqlEditor beneath it, SPEC-035) and /connections
+      # (App.tsx:20) — so a fix must not be scoped to Monaco. The fix is retaining
+      # superseded bundles behind an S3 lifecycle rule, which needs object lifecycle
+      # management and a retention policy — out of scope for SPEC-141.
       # Once the shell revalidates (the pass above), a reload recovers.
       - name: Reconcile deletions
         run: |

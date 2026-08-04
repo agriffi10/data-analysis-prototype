@@ -1,8 +1,8 @@
 # Spec: Cache-Control for the SPA Shell and Hashed Assets
 
 **ID:** SPEC-141
-**Status:** Draft
-**Last Updated:** 2026-08-03
+**Status:** Completed
+**Last Updated:** 2026-08-04
 **Depends On:** SPEC-140 (response headers policy — shares `cloudfront.tf` and the deploy path)
 
 ## Overview
@@ -100,13 +100,21 @@ never be served from a browser cache without a revalidation round-trip.
 - [ ] A second request with `If-None-Match` returns `304`, confirming revalidation works rather than
       the header merely disabling caching outright.
 
-### FR-003: The sync cannot delete the shell
+### FR-003: The multi-pass sync reconciles safely
 
 #### Description
 
-Splitting one `aws s3 sync` into per-class passes introduces a specific hazard: `--delete` removes
-destination objects absent from the source, and `--exclude` makes files *look* absent. A pass that
-excludes `index.html` while carrying `--delete` will delete it from the bucket.
+Splitting one `aws s3 sync` into per-class passes introduces a specific hazard around `--delete`,
+which removes destination objects absent from the source.
+
+> **Corrected 2026-08-04 (SPEC-141 review, from the CLI source).** This paragraph originally claimed
+> that `--exclude` makes a file *look* absent, so a pass excluding `index.html` while carrying
+> `--delete` would delete it. **That is backwards.** `--exclude` **protects** destination keys from
+> `--delete`: the CLI filters the reverse (destination) generator with the same patterns re-rooted
+> at the destination, so an excluded object is never a deletion candidate. The real constraint is
+> the mirror image — **a pass that excludes a prefix can never reconcile it** — which is what forces
+> exactly one orphan class to be accepted, and it is the reason the rest of this FR still stands.
+> The implementation was never affected; only the stated reason was wrong.
 
 Two further properties of `aws s3 sync` shape the design and must not be discovered mid-build.
 **Ordering:** the `/*` invalidation runs only after all passes, so a delete pass that removes old
