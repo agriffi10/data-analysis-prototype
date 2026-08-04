@@ -143,6 +143,10 @@ type MobileQueryView =
   | {kind: 'results'; sql: string; title: string};
 ```
 
+> **Superseded as built:** the tab moved out of `home` into its own `MobileHomeTab` state. Holding it
+> inside a variant the results view replaces made Back's target a second source of truth, so Back
+> always returned to Saved. See `spec-delivery/SPEC-100-query-workspace-responsive.md`.
+
 ---
 
 ## File & Folder Structure

@@ -114,7 +114,7 @@ export function QueryHistoryRow({
           type="button"
           onClick={onReopen}
           aria-label={openAriaLabel}
-          className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          className="inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text tablet:min-h-6 hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           {openLabel}
         </button>
         <button
@@ -122,7 +122,7 @@ export function QueryHistoryRow({
           onClick={onRerun}
           disabled={rerunDisabled}
           aria-label={runAriaLabel}
-          className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          className="inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text tablet:min-h-6 hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           {runLabel}
         </button>
       </div>

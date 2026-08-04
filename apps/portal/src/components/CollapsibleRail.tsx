@@ -27,8 +27,8 @@ type CollapsibleRailProps = {
  *
  * Collapsing eases the panel's width to `0` (border removed) so `<main>` fills the
  * freed width, WITHOUT unmounting it, so in-rail expansion/selection state is preserved
- * and both controls' `aria-controls` stay valid. The inner content keeps a fixed 248px
- * width so it doesn't reflow as the panel narrows, and a `visibility` transition removes
+ * and both controls' `aria-controls` stay valid. The inner content keeps the panel's
+ * expanded width so it doesn't reflow as the panel narrows, and a `visibility` transition removes
  * it from the accessibility tree once collapsed (matching the previous `display:none`).
  * The collapsed choice is remembered per browser via `useRailCollapsed` (shared across
  * both rails).

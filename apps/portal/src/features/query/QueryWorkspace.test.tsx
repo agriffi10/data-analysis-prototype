@@ -884,6 +884,15 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055/077)', () => 
 
 // ── SPEC-100: responsive workspace ──────────────────────────────────────────
 describe('QueryWorkspace responsive (SPEC-100)', () => {
+  const savedFixture = (id: string, name: string) => ({
+    id,
+    name,
+    sql: `SELECT region FROM alice.${name.toLowerCase()}`,
+    database: 'alice',
+    createdAt: '2026-07-01T10:00:00.000Z',
+    updatedAt: '2026-07-01T10:00:00.000Z'
+  });
+
   /** Renders inside a NavRailProvider so the mobile drawer's contextual slot is observable. */
   function renderMobileWorkspace() {
     window.innerWidth = 390;
@@ -985,5 +994,177 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.getByRole('button', {name: 'Clear query'})).toBeInTheDocument();
     expect(screen.getByText('Run Statement')).toHaveClass('hidden', 'desktop:inline');
     expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
+  });
+
+  it('never shows one query’s results under another query’s name', async () => {
+    mockGetSaved.mockResolvedValue(
+      ok({version: 1, queries: [savedFixture('s1', 'Revenue'), savedFixture('s2', 'Costs')]})
+    );
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Back to queries'}));
+
+    // The second run never reaches Athena, so no run is installed on the tab.
+    mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Costs'}));
+
+    expect(await screen.findByRole('heading', {name: 'Costs'})).toBeInTheDocument();
+    expect(await screen.findByText('Query failed.')).toBeInTheDocument();
+    // Costs' failure must not be dressed in Revenue's succeeded status or rows.
+    expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
+  });
+
+  it('leaves the editor’s draft untouched when a card is run', async () => {
+    seedSingle('SELECT my_unsaved_draft');
+    mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    await waitFor(() => expect(mockRunQuery).toHaveBeenCalled());
+
+    // The draft is persisted state a wider screen owns — running here must not
+    // overwrite it (the run carries its own statements).
+    const persisted = JSON.parse(sessionStorage.getItem(`${QUERY_TABS_STORAGE_PREFIX}alice`) as string);
+    expect(persisted.tabs[0].sql).toBe('SELECT my_unsaved_draft');
+  });
+
+  it('stops claiming a query is running once its failure is dismissed', async () => {
+    mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+    mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    await user.click(await screen.findByRole('button', {name: 'Dismiss'}));
+
+    // The submit never reached Athena: with the banner gone there is nothing to
+    // report, and nothing may imply the query is still in flight.
+    expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Running your query…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Run'})).toBeEnabled();
+  });
+
+  it('holds an honest in-flight state between the tap and the run starting', async () => {
+    mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+    let startRun: (v: {success: true; data: {queryExecutionId: string}}) => void = () => {};
+    mockRunQuery.mockReturnValueOnce(new Promise((resolve) => (startRun = resolve)));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    // The run isn't installed on the tab yet — the view must say so, and must not
+    // invite a second tap while it does.
+    expect(await screen.findByText('Running your query…')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Run'})).toBeDisabled();
+
+    startRun(ok({queryExecutionId: 'q-1'}));
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+  });
+
+  it('reports a submit that throws instead of waiting on it forever', async () => {
+    mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+    // Services don't throw by contract; if one does, the outcome still has to settle.
+    mockRunQuery.mockRejectedValueOnce(new Error('socket hang up'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    expect(await screen.findByText('Query failed.')).toBeInTheDocument();
+    expect(screen.queryByText('Running your query…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Run'})).toBeEnabled();
+  });
+
+  it('runs a table’s data from the drawer into the mobile results view', async () => {
+    const {user} = renderMobileWorkspace();
+    const rail = await screen.findByLabelText('mobile nav rail');
+
+    await user.click(await within(rail).findByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(await screen.findByRole('menuitem', {name: 'View data'}));
+
+    // On a phone there is no editor tab to open into — the run has to land
+    // somewhere the user can see it.
+    expect(await screen.findByRole('heading', {name: 'sales_2026'})).toBeInTheDocument();
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+    expect(mockRunQuery).toHaveBeenCalledWith({sql: 'SELECT * FROM alice.sales_2026', username: 'alice'});
+  });
+
+  it('hands a tab back to the editor cleanly when the viewport grows past tablet', async () => {
+    seedSingle('SELECT my_unsaved_draft');
+    mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+    const {user, rerender} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+
+    // Rotate/resize past the breakpoint: `useBreakpoint` re-reads the width on
+    // the next render, so re-rendering the same tree crosses the tier.
+    window.innerWidth = 1400;
+    rerender(
+      <NavRailProvider>
+        <QueryWorkspace />
+        <NavRailProbe />
+      </NavRailProvider>
+    );
+
+    // The editor holds the draft, so it must not wear the mobile run's results —
+    // nor claim the run returned nothing. The run itself is still in history.
+    expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT my_unsaved_draft');
+    expect(screen.getByText('Run a query to see results.')).toBeInTheDocument();
+    expect(screen.queryByText('The run finished without returning rows.')).not.toBeInTheDocument();
+    expect(screen.queryByText('us-east')).not.toBeInTheDocument();
+  });
+
+  it('does not carry a failed mobile submit onto the editor shell — even when it fails after the crossing', async () => {
+    seedSingle('SELECT my_unsaved_draft');
+    mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+    let failRun: (v: {success: false; error: {message: string; code?: string}}) => void = () => {};
+    mockRunQuery.mockReturnValueOnce(new Promise((resolve) => (failRun = resolve)));
+    const {user, rerender} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByText('Running your query…')).toBeInTheDocument();
+
+    // Cross to the editor while the submit is still in flight, then let it fail:
+    // it installs no run, so nothing marks it as the phone's by the usual route.
+    window.innerWidth = 1400;
+    rerender(
+      <NavRailProvider>
+        <QueryWorkspace />
+        <NavRailProbe />
+      </NavRailProvider>
+    );
+    failRun(fail('Rate exceeded', 'ThrottlingException'));
+
+    expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT my_unsaved_draft');
+    await waitFor(() => expect(mockRunQuery).toHaveBeenCalled());
+    expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
+  });
+
+  it('returns to the list the run started from', async () => {
+    mockGetHistory.mockResolvedValue(
+      ok({
+        version: 1,
+        entries: [
+          {
+            queryExecutionId: 'q-old',
+            sql: 'SELECT 1',
+            database: 'alice',
+            submittedAt: '2026-07-01T10:00:00.000Z',
+            status: 'SUCCEEDED' as QueryState
+          }
+        ]
+      })
+    );
+    const {user} = renderMobileWorkspace();
+
+    await user.click(screen.getByRole('button', {name: 'History'}));
+    await user.click(await screen.findByRole('button', {name: 'Run this query'}));
+    await user.click(await screen.findByRole('button', {name: 'Back to queries'}));
+
+    expect(await screen.findByRole('button', {name: 'History'})).toHaveAttribute('aria-pressed', 'true');
   });
 });

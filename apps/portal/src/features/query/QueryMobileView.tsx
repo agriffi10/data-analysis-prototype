@@ -7,12 +7,12 @@ import {toUserMessage} from '../../lib/errorMessages';
 import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {formatRelativeTime} from './query.format';
-import type {QueryHistoryEntry, SavedQuery} from './query.types';
+import type {MobileHomeTab, QueryHistoryEntry, SavedQuery} from './query.types';
 
 type QueryMobileViewProps = {
-  /** Which list is showing; owned by the workspace so it survives a results round-trip. */
-  tab: 'saved' | 'history';
-  onTabChange: (tab: 'saved' | 'history') => void;
+  /** Which list is showing; owned by the workspace so Back returns to it. */
+  tab: MobileHomeTab;
+  onTabChange: (tab: MobileHomeTab) => void;
   savedQueries: SavedQuery[];
   savedLoading: boolean;
   /** Raw fetch error (or null); rendered via `toUserMessage`. */
@@ -28,13 +28,14 @@ type QueryMobileViewProps = {
   runDisabled: boolean;
 };
 
-const TABS: ReadonlyArray<{value: 'saved' | 'history'; label: string}> = [
+const TABS: ReadonlyArray<{value: MobileHomeTab; label: string}> = [
   {value: 'saved', label: 'Saved'},
   {value: 'history', label: 'History'}
 ];
 
+// ≥44px touch target on a phone (SPEC-100 Phase 4).
 const cardAction =
-  'inline-flex min-h-9 items-center rounded-sm px-2 py-1 text-sm font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
+  'inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-sm font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 function EmptyState({title, hint}: {title: string; hint: string}) {
   return (
@@ -114,6 +115,9 @@ export function QueryMobileView({
             );
           })}
         </div>
+        {/* Run is disabled because the tab is busy — say so rather than leaving
+            every card greyed out with no reason. */}
+        {runDisabled && <p className="pt-2 text-xs text-text-3">A query is running — Run is back when it finishes.</p>}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
