@@ -351,7 +351,11 @@ def test_a_ragged_query_the_guard_refused_is_applicable_but_not_started(started,
             "files": [
                 {"key": f"alice/{'k' * 900}/{i:04d}.csv", "size": 1, "columns": [{"name": "a", "type": "string"}]}
                 for i in range(1000)
-            ],
+            ]
+            # One unprobed file, so `files` and `files_mapped` are DIFFERENT NUMBERS. With
+            # every file mapped the two are equal and a regression wiring both to the same
+            # count — the exact ambiguity the second field exists to remove — would pass.
+            + [{"key": "alice/no-header.csv", "size": 0, "columns": []}],
         },
     )
 
@@ -365,6 +369,8 @@ def test_a_ragged_query_the_guard_refused_is_applicable_but_not_started(started,
     warned = captured_events.messages("ragged query too large to render")
     assert len(warned) == 1
     assert warned[0]["fields"]["reason_code"] == v.sql.RAGGED_QUERY_TOO_LARGE
+    assert warned[0]["fields"]["files"] == 1001
+    assert warned[0]["fields"]["files_mapped"] == 1000
 
 
 def test_the_submission_phase_gets_its_own_child_span(started, captured_events):

@@ -100,15 +100,20 @@ def _ragged_block(
     the report's wording — already handles it.
     """
     bucket = event["space"]["bucket"]
+    expected = _expected_by_path(bucket, files)
     try:
-        query = sql.build_ragged_query(database, raw_table, _expected_by_path(bucket, files))
+        query = sql.build_ragged_query(database, raw_table, expected)
     except sql.RaggedQueryTooLargeError as err:
         observability.warning(
             "ragged query too large to render",
             step="start-queries",
             reason_code=sql.RAGGED_QUERY_TOO_LARGE,
             detail=str(err),
+            # BOTH counts, because they differ whenever a file had no probed columns and
+            # the error text quotes the mapped one. One field named `files` carrying
+            # whichever number happened to be in scope is how a log stops being evidence.
             files=len(files),
+            files_mapped=len(expected),
         )
         return {
             "queryExecutionId": None,

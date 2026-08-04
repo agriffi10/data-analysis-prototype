@@ -463,6 +463,14 @@ def build_ragged_query(
     exactly ITS OWN file's column count by definition, so it is never ragged. It IS counted
     in ``total_lines``, which is why that figure is named for LINES and not rows.
 
+    ONE EXCEPTION, and it is caveat (1) above rather than a separate defect: the expected
+    count comes from inspect-source's polars parse, which honours quoting, while this query
+    splits raw text. A header like ``id,"last, first",amount`` is 3 columns to polars and 4
+    fields to ``split``, so that header counts as ragged on a folder where nothing is
+    wrong. Pre-existing — the union count was derived the same way — and inside the
+    ``approximate`` label the report already carries; noted so the "never ragged" claim
+    above is not read as stronger than it is.
+
     A PATH IN THE SCAN WITH NO MAPPING ENTRY falls to ``ELSE false`` and is never counted
     ragged (FR-004). The raw-line table reads the folder while the mapping comes from the
     manifest, so the two can disagree — an object written between the inspection and the
@@ -506,7 +514,7 @@ def build_ragged_query(
     rendered = len(query.encode())
     if rendered > config.DQ_MAX_QUERY_BYTES:
         raise RaggedQueryTooLargeError(
-            f"ragged query is {rendered} bytes over {len(expected_by_path)} files, "
+            f"ragged query is {rendered} bytes over {len(expected_by_path)} mapped files, "
             f"past DQ_MAX_QUERY_BYTES={config.DQ_MAX_QUERY_BYTES}"
         )
     return query
