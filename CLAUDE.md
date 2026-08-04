@@ -68,10 +68,10 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — SPEC-142 (Draft): ragged rows counted per file, not against the union.**
-The observability arc (127→137) is COMPLETE. SPEC-140 and SPEC-141 are COMPLETE — the portal ships
-an enforcing CSP, the full security header set, and explicit `Cache-Control` on every response.
-What remains is the live checks below.
+**No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141 and
+142 — the portal ships an enforcing CSP, the full security header set, explicit `Cache-Control` on
+every response, and a ragged-row count judged per file. The Refresh Table arc (143→145) is the next
+written work. What remains below is the live checks that are owed.
 
 - **SPEC-141 left two things live.** (1) Its single `--delete` is scoped to `assets/`, so
   **stale root-level objects are never removed** — `icons.svg` is one today, needing a one-off
