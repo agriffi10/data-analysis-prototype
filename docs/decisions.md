@@ -203,3 +203,60 @@ One `aws_cloudfront_response_headers_policy` on the distribution's default cache
 ### Static-asset caching = three prefix-scoped sync passes (SPEC-141)
 
 `deploy-app.yml` uploads `dist/` in **three passes**: hashed assets under `assets/` as `public, max-age=31536000, immutable`, then the shell and root files as `no-cache`, then a repeat of the assets pass carrying the **one** `--delete`. Four things make that shape non-negotiable. **(1) The bug was the BROWSER cache, not the CDN.** The deploy already invalidates `/*`, so CloudFront never served a stale shell; with no `Cache-Control` anywhere, browsers applied **heuristic freshness** to `index.html`, and `--delete` had already removed the hashed bundle that shell referenced — **a white screen, not stale content**, on exactly the users whose cache was warm, and unreproducible with devtools caching disabled. Reach for the origin object's headers, not an invalidation, when the symptom is "some users see a broken app after a deploy." **(2) `--exclude` PROTECTS destination keys from `--delete` — it does not endanger them.** The CLI filters the reverse (destination) generator with the same patterns re-rooted at the destination (`awscli/customizations/s3/filters.py` builds `dst_patterns` beside `patterns`; `subcommands.py` gives `rev_generator` its own filter), so an excluded object is never a deletion candidate. The consequence: **a pass that excludes a prefix can never reconcile it** — `--delete --exclude 'assets/*'` keeps every stale chunk forever. Scope passes by **prefix** (`dist/assets/` → `s3://…/assets/`) so each owns a disjoint key set. (*Corrected 2026-08-04 by the SPEC-141 review, which read the CLI source: the original entry, the workflow comment, and SPEC-141:108-109 itself all stated this backwards — claiming an excluded `index.html` would be deleted. The implementation was never affected; only the reason was wrong.*) **(3) No file may be uploaded by two passes.** `sync` compares size and mtime, and a fresh CI checkout makes every local mtime newer than the bucket's — the first deploy re-uploaded all 108 assets on a byte-identical build, confirming a second pass over the same files would overwrite the immutable header with that pass's `--cache-control`. **(4) Deletions therefore live on their own pass, and the surviving orphan class is a SPEC CHOICE rather than a CLI constraint.** `--delete` scoped to `assets/` leaves stale **root-level** objects behind (harmless, unreferenced, removable by hand). Adding `--delete` to the shell pass **would** reconcile those — `--exclude` protects every asset key from that same deletion (verified against the CLI's `dst_patterns`), and the assets pass still reconciles chunks, so nothing would be retained. What forbids it is SPEC-141's AC "exactly one sync pass carries `--delete`", **written on the same mistaken reading of `--exclude` corrected in (2)**. Revisit the AC deliberately if the manual cleanup becomes annoying; the cost to weigh is that a root-scoped `--delete` removes anything in the bucket not produced by `dist/` (nothing else writes it today). `icons.svg` is the first such orphan. The residual race is **accepted and documented**: a tab already open that lazy-imports after the delete pass still 404s inside `Suspense` — **both** lazy routes are exposed, `/query` (which loads Monaco beneath it) and `/connections`, so a fix must not be scoped to Monaco; closing it needs retained bundles behind an S3 lifecycle rule. Rule of thumb for the whole area: **a content-hashed URL is immutable, a stable URL must revalidate**, and prefer a path prefix over an extension list — `dist/assets/` carries a `.ttf` that a js/css rule would miss. Full account: `docs/spec-delivery/SPEC-141-cache-control-headers.md`.
+
+### Refresh eligibility turns on SHAPE, never on a marker (SPEC-143)
+
+A refresh reads a table this run did not create, so before re-deriving anything it must answer *can
+this be faithfully rebuilt from its own definition plus a fresh look at its files?* **It answers from
+what Glue reports, never from a `portal.managed` marker** — and the marker exists anyway, written by
+`cpcommon.ddl.build_create_table_ddl` from this spec onward. Both halves of that are deliberate.
+
+**Why not the marker.** Every table created before SPEC-143 lacks it, so a marker test refuses the
+entire existing estate. Worse, `TBLPROPERTIES` are user-writable through `ALTER TABLE SET
+TBLPROPERTIES` from the query workspace — so it can be trusted neither as a permission nor as a
+fact, and the moment a verb branches on it a user can grant themselves whatever that branch guards.
+A test scans the whole Lambda tree and fails if anything outside `ddl.py` (which writes it) and
+`glue.py` (which excludes it) so much as references it. That scan reads the **parsed AST**: a
+literal-only grep waves through `from cpcommon.ddl import PORTAL_MANAGED`, and a text scan flags the
+comments that warn against confusing `portal.managed` with `portal-managed`. **Those two names are
+one character apart and unrelated** — the dotted one is a table TBLPROPERTY that records and grants
+nothing; the hyphenated one is the Lake Formation tag on DATABASES that is how control-plane roles
+get `CREATE_TABLE` at all (`infra/modules/analytics/lakeformation.tf`). Every site of both carries a
+comment saying so.
+
+**What the shape checks are.** `cpcommon.glue.clone_definition` — moved here from `tscommon.glue`
+because table-share asks the identical question — refuses views, non-external tables, catalog-
+partitioned tables and unusable locations. The refresh path **maps** its four codes to its own
+vocabulary at its call site rather than parameterising them (the stems differ, so no substitution
+produces both sets), and asserts its mapping covers `clone_definition`'s whole set. That assertion
+is load-bearing: `cpcommon.glue` now registers those codes itself, because `TerminalError` validates
+at the raise site and they were previously registered only as an import side effect of
+`tscommon.messages`, which a table-builder Lambda never imports. Registration is what lets the
+refresh path speak — and its cost is that an **unmapped** code no longer explodes; it would sail
+through as a valid terminal and resolve to the generic `unexpected_error`.
+
+**Beyond the shape: the reconstruction needs two guards, and neither suffices alone.** SPEC-069's
+declared partition keys are recorded nowhere but on the table, as `projection.*` properties, and
+`build_create_table_ddl` requires the declared shape (it raises a bare `ValueError` on a Glue-shaped
+key). So the verb rebuilds them and then **re-renders each one through the create path's own
+renderer, demanding exact equality** — which catches a dropped property, a rewritten one (a
+zero-padded bound), and any extra `projection.*` option. What it structurally cannot see is the
+**column type**: Athena permits a projection over a wider set than this builder writes, and an
+`integer` projection on a `string` column is precisely how a zero-padded partition gets declared.
+That table round-trips *perfectly* and would be rebuilt as `int`, retyping the column while
+reporting success. Table-level `storage.location.template` is refused for the same reason — it sits
+outside the namespace the per-key round-trip compares. **The rule: a reconstruction that cannot be
+performed is a refusal, not a guess.**
+
+**Three ASL/marker traps worth carrying.** (1) **A `Choice` rule whose `Variable` path is ABSENT
+raises `States.Runtime`, which no Catch anywhere can catch — it does not fall through to `Default`,
+which covers only a value that is present and matching no rule.** So the one input `Default` exists
+for is the one a bare `StringEquals` kills; both rules are `And` + `IsPresent`. (2) The same hazard
+on the success side — `RecordSuccess` reads `$.mode` and a `Pass` state's JSONPath hard-fails the
+same way — is closed by `execute-ddl` defaulting the field, since only a create reaches it; the
+window is an execution starting after the state machine deploys but before the Lambda code does,
+which would otherwise die *after* the table was created and the actor notified. (3) **Marking is an
+explicit `mark` argument, never inferred from `storage is None`.** That inference reads correctly
+against today's two callers and is wrong for the next: SPEC-144's `apply-refresh` is a `DROP` +
+`CREATE` supplying a rebuilt `Storage`, so inference would strip the marker from every table a
+refresh touched. Full account: `docs/spec-delivery/SPEC-143-refresh-table-contract-and-eligibility.md`.

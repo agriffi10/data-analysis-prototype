@@ -188,15 +188,21 @@ added post-creation.
 - **LF:** the bucket is registered hybrid; create-space issues the per-DB grant to the shared portal
   role (as SPEC-033 does per personal DB).
 
-### Table Builder — SPEC-066→072
+### Table Builder — SPEC-066→072, extended by SPEC-143
 
 "Create table from this folder" in the file browser: create a Glue/Athena **external table** over a
 folder's data files in the database the space maps to. Data columns are **inferred**; partition keys
 are **user-declared** in the modal.
 
-- **SFN (linear):** validate-authorize → check-table-absent (Glue `GetTable`) → inspect-source →
-  infer-schema → execute-ddl. FIFO `MessageGroupId` = **target database** (same-DB creates
-  serialize; the duplicate-name race is closed by check-table-absent + `IF NOT EXISTS`).
+- **SFN — two branches over one shared spine** (was linear until SPEC-143): validate-authorize →
+  `RouteByMode` → {check-table-absent (Glue `GetTable`) | load-table-definition} → inspect-source →
+  infer-schema → `RouteTailByMode` → {execute-ddl | the refresh tail}. The `mode` field on the
+  envelope (`"create" | "refresh"`, absent ⇒ create) selects the branch; **inspect-source and
+  infer-schema are shared and know nothing about it**, because load-table-definition normalises the
+  state into exactly what a create would have handed them. FIFO `MessageGroupId` = **target
+  database** (same-DB creates *and refreshes* serialize; the duplicate-name race is closed by
+  check-table-absent + `IF NOT EXISTS`). Refresh eligibility and the reconstruction rules:
+  `decisions.md` → *Refresh eligibility turns on SHAPE*.
 - **Formats (v1):** Parquet, CSV, JSON/NDJSON — one consistent format per folder; ORC out (no
   native polars reader). **CSV is not type-inferred** — all columns `string` (names from the header;
   header + comma assumed) via OpenCSVSerde. Parquet/JSON infer types and parse dates.

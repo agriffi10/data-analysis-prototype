@@ -1,8 +1,8 @@
 # Spec: Refresh Table — Request Contract, Mode Branch & Table Eligibility
 
 **ID:** SPEC-143
-**Status:** Draft
-**Last Updated:** 2026-08-03
+**Status:** Completed
+**Last Updated:** 2026-08-04
 **Depends On:** SPEC-067 (the table-builder request envelope and `validate-authorize`), SPEC-068 (`check-table-absent`, the verb this one mirrors in the negative), SPEC-069 (the declared-partition-key shape this spec must reconstruct), SPEC-070 (`execute-ddl` and the terminal-state pair), SPEC-090 (`tscommon.glue.clone_definition` — the existing, tested reader of a live Glue table), SPEC-107 (`cpcommon`), SPEC-135 (the table-builder plane's observability)
 
 > **Reference:** `docs/architecture.md` → *Control Planes → Table Builder* (orchestration, authz, DDL + projection, infra). First of the refresh-table arc (143 → 144 → 145).
