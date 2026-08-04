@@ -100,3 +100,13 @@ of bug survives CI.
 
 **The rule this leaves behind:** enumerate `connect-src` from the **hosts the app fetches**, not the
 AWS services it uses, and verify auth changes with a **signed-out** browser session.
+
+**Discharged 2026-08-04:** applied on `main` (`a92a83a`); the live header carries
+`https://dat-prod-portal.auth.us-east-1.amazoncognito.com`, and a signed-out sign-in from a clean
+browser profile succeeded. The fix is confirmed by the flow itself, not by reading source.
+
+**Still open — the CSP and the app get their domain from unlinked sources.** The precondition ties
+`connect-src` to the *user pool*, but the app fetches whatever `VITE_COGNITO_DOMAIN` says, and that
+is a hand-maintained GitHub Actions variable (`deploy-app.yml`, populated by hand from
+`tofu output cognito_domain`). Hand-edit it and this outage returns with nothing failing. Closing it
+means sourcing the build var from the Terraform output rather than by hand.
