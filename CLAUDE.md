@@ -74,6 +74,14 @@ work**; the refresh branch is live in the deployed state machine and ends at a t
 `not_implemented`, reachable only by a hand-crafted SQS message (no browser surface until 145).
 What remains below is the live checks that are owed.
 
+- **SPEC-140's enforcing CSP broke fresh sign-in, and the fix is owed a live check.** `connect-src`
+  omitted the Cognito **Hosted UI domain**, which is where Amplify `fetch`es the authorization-code
+  exchange — so no session was ever established, every auth-gated route bounced home, and a second
+  Sign in click looked like a no-op. Fixed 2026-08-04 (PR #352), plus a `precondition` on the
+  `cognito_domain` output pinning the CSP's host to the user pool's. **Owed live after
+  `Deploy Infrastructure` applies: a sign-in from a CLEAN, SIGNED-OUT browser profile.** Nothing else
+  proves it — an existing session refreshes via `cognito-idp` and stays healthy while fresh sign-in
+  is completely broken, which is why the signed-in post-enforcement pass verified clean.
 - **SPEC-141 left two things live.** (1) Its single `--delete` is scoped to `assets/`, so
   **stale root-level objects are never removed** — `icons.svg` is one today, needing a one-off
   `aws s3 rm s3://<static-bucket>/icons.svg`. That orphan class is a **spec choice, not a CLI

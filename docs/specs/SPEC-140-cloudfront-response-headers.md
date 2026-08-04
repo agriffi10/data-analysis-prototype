@@ -101,10 +101,13 @@ The app's real requirements, established by reading the source rather than assum
 
 > **Superseded 2026-08-04 — the Hosted UI row is half the story, and the missing half broke sign-in.**
 > The *redirect* to Managed Login is indeed top-level navigation, but the return leg is not: Amplify
-> fetches `https://<hosted-ui-domain>/oauth2/token` to exchange the authorization code (and
-> `/oauth2/revoke` on sign-out). That host is **not** `cognito-idp`, so the enforcing CSP blocked the
-> exchange and no session was ever established. `connect-src` now carries the Hosted UI domain,
-> passed in as `var.cognito_hosted_ui_domain`.
+> fetches `https://<hosted-ui-domain>/oauth2/token` to exchange the authorization code. That host is
+> **not** `cognito-idp`, so the enforcing CSP blocked the exchange and no session was ever
+> established. `connect-src` now carries the Hosted UI domain, passed in as
+> `var.cognito_hosted_ui_domain`.
+>
+> The code exchange is the **only** fetch to that host — the `/logout` sign-out redirect is another
+> navigation, and both token refresh and `RevokeToken` are `cognito-idp` API calls.
 
 #### Acceptance Criteria
 

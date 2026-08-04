@@ -215,10 +215,14 @@ module "base" {
 module "auth" {
   source = "./modules/auth"
 
-  project_name          = var.project_name
-  environment           = var.environment
-  app_url               = var.app_url
-  cognito_domain_prefix = var.cognito_domain_prefix
+  project_name = var.project_name
+  environment  = var.environment
+  app_url      = var.app_url
+  # The RESOLVED prefix, not the raw var: the CSP allows a host built from this
+  # same local, so root has to be the one place the default is decided. Passing
+  # the raw var would leave the module's own ternary free to drift from the CSP's
+  # — silently allowing a host the user pool does not have.
+  cognito_domain_prefix = local.cognito_domain_prefix
 
   # SPEC-033 post-confirmation Lambda inputs. account_id/region scope the exec
   # role's Glue ARNs; portal_role_arn (constructed, cycle-free) is the LF grant

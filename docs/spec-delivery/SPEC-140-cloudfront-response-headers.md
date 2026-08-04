@@ -6,9 +6,10 @@
   the distribution's `default_cache_behavior`. Ships an **enforcing** CSP, HSTS, `X-Frame-Options`,
   `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP and CORP, and strips `Server` and
   `x-amz-server-side-encryption`.
-- `modules/app` gained `aws_region`, `user_space_bucket_name`, `shared_space_bucket_name` — passed
-  as **constructed strings from root locals**, not module outputs: `modules/app` is upstream of
-  `base → data`, so a module reference would be a dependency cycle.
+- `modules/app` gained `aws_region`, `user_space_bucket_name`, `shared_space_bucket_name` (and
+  `cognito_hosted_ui_domain` as of the 2026-08-04 correction below) — passed as **constructed
+  strings from root locals**, not module outputs: `modules/app` is upstream of `base → data`, so a
+  module reference would be a dependency cycle.
 - Deploy role gained the five `cloudfront:*ResponseHeadersPolicy` actions, applied in **its own run**
   ahead of the resource (self-grant-timing trap).
 
@@ -86,7 +87,16 @@ allowed all along. So a signed-in session kept working indefinitely and only a *
 broken; neither check performed one against the enforcing policy.
 
 **Fix:** `var.cognito_hosted_ui_domain`, derived in root locals the same cycle-free way as the bucket
-names (mirroring the auth module's `domain_prefix` default), added to `local.csp_connect_src`.
+names, added to `local.csp_connect_src`. Root is the single source of the prefix default — the
+**resolved** `local.cognito_domain_prefix` is passed into `modules/auth` rather than the raw
+variable, so the module's ternary can no longer drift from the CSP's. The code exchange is the only
+fetch to that host: both redirects are navigations, and refresh + `RevokeToken` go to `cognito-idp`.
+
+**Guard:** a `precondition` on the `cognito_domain` output asserts
+`module.auth.user_pool_domain == local.cognito_hosted_ui_domain`. The CSP allows one string and the
+app fetches another (`VITE_COGNITO_DOMAIN`, a hand-maintained Actions variable) — nothing connected
+them. A precondition fails the plan; a `check` block would only warn, which is exactly how this class
+of bug survives CI.
 
 **The rule this leaves behind:** enumerate `connect-src` from the **hosts the app fetches**, not the
 AWS services it uses, and verify auth changes with a **signed-out** browser session.
