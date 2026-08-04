@@ -103,7 +103,7 @@ passes there, it is not a regression test.
 FR-004 test carried the same defect one level down: `_ragged_lines` hard-coded the fallback as
 "a path with no branch is not ragged" instead of reading it from the query, so flipping the builder
 to `ELSE true` left the test green. It now parses the `ELSE` branch out of the emitted SQL —
-**verified by mutating `ELSE false` to `ELSE true`, which fails four tests** — and carries a
+**verified by mutation** — `ELSE false` → `ELSE true` fails 5 tests across `pytest lambdas/`, re-rendering one shared count for every branch (the original union bug) fails 3, and dropping the blank-line exclusion fails 3 — and carries a
 negative control proving the fallback assertion discriminates at all.
 
 Three smaller findings fixed alongside: the warning event carries both `files` and `files_mapped`,

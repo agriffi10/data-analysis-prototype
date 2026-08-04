@@ -338,9 +338,13 @@ def test_ragged_query_renders_branches_in_sorted_order():
     ClientRequestToken derived from the requestId, and Athena rejects a token replayed with
     different text — so a Retry that re-rendered the branches in another order would fail
     the resubmission instead of re-attaching to the original execution."""
-    forward = sql.build_ragged_query("alice", "raw", {"s3://bkt/a.csv": 3, "s3://bkt/b.csv": 5})
-    reversed_ = sql.build_ragged_query("alice", "raw", {"s3://bkt/b.csv": 5, "s3://bkt/a.csv": 3})
+    # EQUAL counts, deliberately: with 3-and-5 any sort key that happens to be total-ordered
+    # on the fixture passes, so a refactor keying the sort on the COUNT would slip through —
+    # and files that agree about their columns are the ordinary case.
+    forward = sql.build_ragged_query("alice", "raw", {"s3://bkt/a.csv": 3, "s3://bkt/b.csv": 3})
+    reversed_ = sql.build_ragged_query("alice", "raw", {"s3://bkt/b.csv": 3, "s3://bkt/a.csv": 3})
     assert forward == reversed_
+    assert forward.index("a.csv") < forward.index("b.csv")
 
 
 # ── Evaluating the emitted rule (SPEC-142 FR-004/FR-005) ────────────────────
@@ -349,12 +353,14 @@ def test_ragged_query_renders_branches_in_sorted_order():
 # query counts the right lines — and that is the whole of SPEC-142. So these helpers parse
 # the emitted predicate back out and apply it to physical lines the way the SQL does.
 #
-# EVERY CLAUSE IS DERIVED FROM THE QUERY, NEVER ASSUMED — the per-path counts AND the
-# fallback. An earlier revision hard-coded the fallback as "unmapped means not ragged",
-# which made the FR-004 test unable to fail: flipping the builder to `ELSE true` would have
-# left it green, because the helper was asserting the intended semantics rather than the
-# emitted ones. A test that models the rule instead of reading it is the same tautology as
-# a test that feeds in its own answer.
+# EVERY CLAUSE IS DERIVED FROM THE QUERY, NEVER ASSUMED — the per-path counts, the
+# fallback, AND the blank-line exclusion. Two earlier revisions each hard-coded one clause
+# and each became untestable in exactly the same way: the first assumed "unmapped means not
+# ragged", so `ELSE true` left the FR-004 test green; the second assumed blank lines are
+# skipped, so deleting the exclusion from the query left every derived test green. A helper
+# that models a clause instead of reading it is the same tautology as a test that feeds in
+# its own answer, and it is worth restating because this file has now made that mistake
+# twice.
 #
 # The parse is also what makes these fail against the pre-fix builder, which took a scalar
 # and rendered no branches at all: `_rendered_rule` returns an empty mapping there.
@@ -363,6 +369,8 @@ _BRANCH = re.compile(
     r"WHEN '((?:[^']|'')+)' THEN cardinality\(split\(\"line\", ','\)\) <> (\d+)"
 )
 _FALLBACK = re.compile(r"ELSE (true|false) END")
+#: The blank-line exclusion, as the builder emits it.
+_PRESENT = "\"line\" IS NOT NULL AND \"line\" <> ''"
 
 JAN = "s3://bkt/alice/sales/jan.csv"
 FEB = "s3://bkt/alice/sales/feb.csv"
@@ -385,18 +393,20 @@ def _rendered_rule(query: str) -> tuple[dict, bool]:
     return branches, fallback == "true"
 
 
-def _ragged_lines(rule: tuple[dict, bool], lines_by_path: dict) -> int:
+def _ragged_lines(query: str, lines_by_path: dict) -> int:
     """Apply the emitted predicate to physical lines the way the SQL does.
 
-    Mirrors all three clauses: the blank-line exclusion (``"line" IS NOT NULL AND
-    "line" <> ''``), the per-path expected count, and whatever the query's own fallback
-    says about a path with no branch.
+    Takes the QUERY, not a pre-parsed rule, so all three clauses come out of the emitted
+    text: the blank-line exclusion, the per-path expected count, and whatever the fallback
+    says about a path with no branch. Passing a rule in would let a caller supply semantics
+    the query does not have.
     """
-    branches, fallback = rule
+    branches, fallback = _rendered_rule(query)
+    skips_blank = _PRESENT in query
     counted = 0
     for path, lines in lines_by_path.items():
         for line in lines:
-            if not line:
+            if skips_blank and not line:
                 continue
             if path in branches:
                 counted += len(line.split(",")) != branches[path]
@@ -416,19 +426,17 @@ def test_a_scanned_path_with_no_manifest_entry_is_never_ragged():
     the string `ELSE false END` appears somewhere.
     """
     q = sql.build_ragged_query("alice", "raw", {JAN: 3})
-    rule = _rendered_rule(q)
-    assert rule == ({JAN: 3}, False)
+    assert _rendered_rule(q) == ({JAN: 3}, False)
 
     stray = "s3://bkt/alice/sales/appeared-late.csv"
     counted = _ragged_lines(
-        rule,
-        {JAN: ["id,amount,region", "1,10,north"], stray: ["a,b,c,d,e,f", "x", "y,z"]},
+        q, {JAN: ["id,amount,region", "1,10,north"], stray: ["a,b,c,d,e,f", "x", "y,z"]}
     )
     assert counted == 0, "an unmapped path must fall to the ELSE branch, however malformed"
 
-    # The negative control: the same lines under the opposite fallback. If this did not
-    # differ, the assertion above would be proving nothing about the fallback at all.
-    assert _ragged_lines(({JAN: 3}, True), {stray: ["a,b,c,d,e,f", "x", "y,z"]}) == 3
+    # The negative control, on a query carrying the OPPOSITE fallback. Without it the
+    # assertion above would hold just as well if nothing were being read at all.
+    assert _ragged_lines(q.replace("ELSE false", "ELSE true"), {stray: ["a,b,c", "x"]}) == 2
 
 
 def test_a_key_containing_an_apostrophe_round_trips_through_the_rule():
@@ -450,28 +458,32 @@ def test_a_folder_whose_files_disagree_reports_ZERO_ragged_rows():
     count of 3 for a folder with nothing malformed in it, next to a cross-file finding that
     had already told them the truth.
     """
+    # feb.csv carries a trailing blank line — the ordinary shape of a text export, and the
+    # clause whose coverage was otherwise a golden string away from being lost.
     jan_lines = ["id,amount,region", "1,10,north", "2,20,south"]
-    feb_lines = ["id,amount", "3,30", "4,40"]
+    feb_lines = ["id,amount", "3,30", "4,40", ""]
 
-    rule = _rendered_rule(sql.build_ragged_query("alice", "raw", {JAN: 3, FEB: 2}))
+    q = sql.build_ragged_query("alice", "raw", {JAN: 3, FEB: 2})
 
     # Each file's own header count — NOT the union's 3 for both.
-    assert rule == ({JAN: 3, FEB: 2}, False)
-    assert _ragged_lines(rule, {JAN: jan_lines, FEB: feb_lines}) == 0
+    assert _rendered_rule(q) == ({JAN: 3, FEB: 2}, False)
+    assert _ragged_lines(q, {JAN: jan_lines, FEB: feb_lines}) == 0
 
     # And what the union comparison produced, so the regression is legible rather than
-    # asserted-by-assertion: the whole of feb.csv, header included.
+    # asserted-by-assertion: the whole of feb.csv, header included. The blank line is
+    # excluded here for the same reason the query excludes it — the old comparison carried
+    # that clause too, so counting it would overstate the bug.
     union = len({"id", "amount", "region"})
-    assert sum(1 for line in feb_lines if len(line.split(",")) != union) == 3
+    assert sum(1 for line in feb_lines if line and len(line.split(",")) != union) == 3
 
 
 def test_the_common_path_is_unchanged_when_every_file_agrees():
     """FR-001's first criterion — this fix must be INVISIBLE where the files agree, and a
     genuinely ragged row must still be counted."""
-    rule = _rendered_rule(sql.build_ragged_query("alice", "raw", {JAN: 3, FEB: 3}))
+    q = sql.build_ragged_query("alice", "raw", {JAN: 3, FEB: 3})
 
-    assert _ragged_lines(rule, {JAN: ["id,amount,region", "1,10,north"]}) == 0
-    assert _ragged_lines(rule, {FEB: ["id,amount,region", "2,20"]}) == 1
+    assert _ragged_lines(q, {JAN: ["id,amount,region", "1,10,north"]}) == 0
+    assert _ragged_lines(q, {FEB: ["id,amount,region", "2,20"]}) == 1
 
 
 def test_ragged_query_with_no_files_judges_nothing():
@@ -479,6 +491,8 @@ def test_ragged_query_with_no_files_judges_nothing():
     q = sql.build_ragged_query("alice", "raw", {})
     assert "CASE" not in q
     assert "AND false) AS ragged_rows" in q
+    # Exercises _rendered_rule's no-CASE arm, which nothing else reaches.
+    assert _rendered_rule(q) == ({}, False)
 
 
 def test_ragged_query_escapes_a_quote_in_an_s3_key():
