@@ -269,7 +269,13 @@ def _load(event: dict) -> dict:
     _enforce_definition_cap(definition, database, table_name)
     partition_keys = _reconstruct_partition_keys(definition)
 
-    columns = [{"name": c["name"], "type": c["type"]} for c in definition["columns"]]
+    # The COMMENT rides along: it is the one piece of column metadata a user writes, and a
+    # refresh rebuilds by DROP + CREATE, so anything not carried here is destroyed
+    # (SPEC-144). Types and names come back from inference; comments cannot.
+    columns = [
+        {"name": c["name"], "type": c["type"], **({"comment": c["comment"]} if c.get("comment") else {})}
+        for c in definition["columns"]
+    ]
     serde = definition["serde"]
 
     out = dict(event)

@@ -358,6 +358,39 @@ def test_projection_properties_are_emitted_exactly_once_on_a_partitioned_refresh
     assert "'projection.year.range'='2000,2100'" in statement
 
 
+def test_a_column_comment_survives_the_rebuild():
+    """THE ONE PIECE OF COLUMN METADATA A USER WRITES, and a DROP + CREATE is exactly where
+    it disappears. Inference returns names and types; it has nothing to say about what a
+    column MEANS, so the comment is metadata only the old table holds.
+    """
+    athena, _glue, _sqs = _install()
+    existing = [
+        {"name": "order_id", "type": "string", "comment": "the shop's own id"},
+        {"name": "gone", "type": "string", "comment": "dropped upstream"},
+    ]
+
+    m.handler(_event(existingColumns=existing), None)
+
+    statement = athena.queries[1]["QueryString"]
+    # An apostrophe in free text must not end the literal and turn the rest into syntax.
+    assert "`order_id` string COMMENT 'the shop\\'s own id'" in statement
+    # A column that no longer exists carries nothing into the rebuild.
+    assert "dropped upstream" not in statement
+    # A newly inferred column simply has no comment.
+    assert "`amount` string," in statement or statement.count("`amount` string") == 1
+
+
+def test_a_comment_is_matched_case_insensitively_like_every_other_comparison():
+    """Athena's Hive-backed DDL stores what it creates in lower case, so the captured name
+    and the freshly inferred one can differ only by case — the same fold the diff uses."""
+    athena, _glue, _sqs = _install()
+    existing = [{"name": "Order_ID", "type": "string", "comment": "kept"}]
+
+    m.handler(_event(existingColumns=existing), None)
+
+    assert "COMMENT 'kept'" in athena.queries[1]["QueryString"]
+
+
 def test_a_carried_property_survives_the_rebuild():
     athena, _glue, _sqs = _install()
 
