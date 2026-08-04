@@ -63,3 +63,30 @@ permanent 2 throughout.
 
 **Not covered:** ZAP is unauthenticated and reaches only the pre-login shell. Nothing here is
 evidence about pages behind Cognito.
+
+## Correction (2026-08-04) — the enforcing CSP broke fresh sign-in
+
+`connect-src` never listed the Cognito **Hosted UI domain**
+(`<prefix>.auth.<region>.amazoncognito.com`). The spec's requirements table classified the Hosted UI
+as "top-level navigation, not a subresource" — true of the redirect *to* Managed Login, false of the
+return leg: Amplify exchanges the authorization code by `fetch`ing
+`https://<hosted-ui-domain>/oauth2/token`
+(`@aws-amplify/auth/.../oauth/completeOAuthFlow.mjs:53`), a host that is **not** `cognito-idp`.
+
+Under enforcement the exchange was blocked, so the returning `?code=` was never redeemed:
+`getCurrentUser()` kept failing, `AuthProvider` stayed `unauthenticated`, every auth-gated route
+bounced to the landing page, and clicking Sign in again round-tripped through a live Cognito session
+cookie and came back with another unredeemable code — a click that looked like it did nothing.
+
+**Why both gates missed it.** Report-only never blocks, so the pre-promotion pass proved only that
+sign-in still worked while the policy was inert, and the violation it raised went to a reporting
+endpoint nobody read. The post-enforcement pass (`/query`, 2026-08-03) was run **from an existing
+session** — and token *refresh* goes through `cognito-idp` (`refreshAuthTokens.mjs`), which was
+allowed all along. So a signed-in session kept working indefinitely and only a **fresh** sign-in was
+broken; neither check performed one against the enforcing policy.
+
+**Fix:** `var.cognito_hosted_ui_domain`, derived in root locals the same cycle-free way as the bucket
+names (mirroring the auth module's `domain_prefix` default), added to `local.csp_connect_src`.
+
+**The rule this leaves behind:** enumerate `connect-src` from the **hosts the app fetches**, not the
+AWS services it uses, and verify auth changes with a **signed-out** browser session.

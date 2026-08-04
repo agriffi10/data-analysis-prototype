@@ -50,6 +50,13 @@ locals {
   shared_space_bucket_name = var.shared_space_bucket_name != "" ? var.shared_space_bucket_name : "${var.project_name}-prod-shared-space"
   shared_space_bucket_arn  = "arn:aws:s3:::${local.shared_space_bucket_name}"
 
+  # Hosted UI domain, computed cycle-free like the names above (the auth module
+  # creates the domain; mirroring its default here avoids an app->auth reference).
+  # The CSP's connect-src must allow it: Amplify's authorization-code exchange
+  # POSTs to https://<this>/oauth2/token, so without it sign-in cannot complete.
+  cognito_domain_prefix    = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"
+  cognito_hosted_ui_domain = "${local.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
+
   # Shared-space orchestrator role ARN (SPEC-050), constructed cycle-free like the
   # other role ARNs (shared-spaces creates it as
   # "${project}-${env}-shared-space-orchestrator-role"). SPEC-056 adds it to the
@@ -180,6 +187,7 @@ module "app" {
   aws_region               = var.aws_region
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
+  cognito_hosted_ui_domain = local.cognito_hosted_ui_domain
 }
 
 module "base" {

@@ -32,6 +32,12 @@ locals {
     "'self'",
     "https://cognito-idp.${var.aws_region}.amazonaws.com",
     "https://cognito-identity.${var.aws_region}.amazonaws.com",
+    # The Hosted UI domain is NOT reachable via cognito-idp: Amplify's
+    # authorization-code exchange POSTs to https://<domain>/oauth2/token (and
+    # revokes at /oauth2/revoke on sign-out). Omitting it blocks the exchange,
+    # so the returning `?code=` is never redeemed, `getCurrentUser()` keeps
+    # failing, and the app sits signed-out over a live Cognito session.
+    "https://${var.cognito_hosted_ui_domain}",
     "https://${var.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
     "https://${var.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
     "https://athena.${var.aws_region}.amazonaws.com",

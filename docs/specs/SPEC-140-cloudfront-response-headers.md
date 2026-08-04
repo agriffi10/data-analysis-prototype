@@ -99,11 +99,19 @@ The app's real requirements, established by reading the source rather than assum
 | Monaco runtime-injected `<style>` elements | `monaco-editor` behaviour |
 | Cognito Hosted UI (Managed Login v2) | top-level navigation, **not** a subresource or form post |
 
+> **Superseded 2026-08-04 — the Hosted UI row is half the story, and the missing half broke sign-in.**
+> The *redirect* to Managed Login is indeed top-level navigation, but the return leg is not: Amplify
+> fetches `https://<hosted-ui-domain>/oauth2/token` to exchange the authorization code (and
+> `/oauth2/revoke` on sign-out). That host is **not** `cognito-idp`, so the enforcing CSP blocked the
+> exchange and no session was ever established. `connect-src` now carries the Hosted UI domain,
+> passed in as `var.cognito_hosted_ui_domain`.
+
 #### Acceptance Criteria
 
 - [ ] `default-src 'self'`.
 - [ ] `connect-src` lists the S3, `cognito-idp`, `cognito-identity`, `athena`, `glue` and `sqs`
-      endpoints for the configured region, each interpolated from a Terraform variable — the
+      endpoints for the configured region, **plus the Cognito Hosted UI domain** (corrected
+      2026-08-04 — see the superseded note above), each interpolated from a Terraform variable — the
       rendered policy contains **no** hardcoded region string, account id or bucket name.
 - [ ] `script-src 'self'` — no `'unsafe-inline'`, no `'unsafe-eval'`.
 - [ ] `style-src 'self' 'unsafe-inline'`, with an inline comment naming Monaco as the reason.
