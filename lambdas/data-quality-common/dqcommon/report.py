@@ -63,11 +63,11 @@ NOT_COMPUTED_RAGGED = "the ragged-row check couldn't be completed on this data."
 # The size guard (SPEC-142 FR-003). Says what the user can DO about it, because unlike the
 # two above this one has an action.
 #
-# DELIBERATELY DOES NOT BLAME THE FILE COUNT. The guard measures the RENDERED QUERY, and
-# the whole reason it does is that a count is a poor proxy for length — 300 files under a
-# deeply nested prefix with 800-character keys trips it while 900 files with short names do
-# not. "You have too many files" would be flatly untrue for the first user and would send
-# them to split a folder that is not too big.
+# NAMES BOTH CAUSES, because the guard measures the RENDERED QUERY and a file count is a
+# poor proxy for its length: 300 files under a deeply nested prefix with 800-character keys
+# trip it while 900 short-named files do not. Blaming the count alone would be flatly untrue
+# for the first user; naming only the length would confuse the ordinary case. The action is
+# the same either way, which is why one sentence can carry both.
 NOT_COMPUTED_RAGGED_QUERY_TOO_LARGE = (
     "this folder has too many files, or file names too long, for the ragged-row check to "
     "compare each file against its own columns. Please check a smaller folder."

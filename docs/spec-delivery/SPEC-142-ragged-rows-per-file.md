@@ -12,7 +12,7 @@
   number; the profile query's size test uses it too).
 - `dq_start_profile_query._ragged_block` turns the guard's refusal into a `not_computed` block;
   `report.NOT_COMPUTED_RAGGED_QUERY_TOO_LARGE` is its user-facing sentence.
-- One PR: #340.
+- Two PRs: #340 (the fix) and the follow-up carrying the review corrections below.
 
 The bug: the check compared every physical line against the **union** column count across the
 folder, so on files that disagreed about their columns every data row of a narrower file came back
@@ -68,7 +68,7 @@ not earn is the same defect wearing different clothes.
 
 ## Verification
 
-`ruff check lambdas/` clean; **1541 tests pass, 2 skipped**. New coverage:
+`ruff check lambdas/` clean; **1544 tests pass, 2 skipped**. New coverage:
 
 - Golden strings for the rendered `CASE`, per the module's convention that a subtly wrong query does
   not crash — it reports wrong numbers about a user's data.
@@ -99,14 +99,19 @@ The general shape, worth remembering: **a test whose fixture supplies the value 
 nothing.** The cheap check is to run a new regression test against the commit before the fix — if it
 passes there, it is not a regression test.
 
-Four smaller review findings were also fixed: the `not_computed` wording no longer blames the file
-count (the guard measures rendered bytes, and a count is a poor proxy for key length — 300 files
-with 800-character keys trip it while 900 short-named files do not); the warning event carries both
-`files` and `files_mapped` rather than one field holding whichever number was in scope; FR-004 has a
-real test that feeds an unmapped path's malformed lines through the emitted rule instead of
-substring-matching `ELSE false END`; and the "a header is never ragged" docstring now names the one
-case that defeats it — a quoted comma in a header, which polars counts as one column and `split`
-counts as two.
+**And the correction needed a correction.** The pre-merge review of the fix found the *replacement*
+FR-004 test carried the same defect one level down: `_ragged_lines` hard-coded the fallback as
+"a path with no branch is not ragged" instead of reading it from the query, so flipping the builder
+to `ELSE true` left the test green. It now parses the `ELSE` branch out of the emitted SQL —
+**verified by mutating `ELSE false` to `ELSE true`, which fails four tests** — and carries a
+negative control proving the fallback assertion discriminates at all.
+
+Three smaller findings fixed alongside: the warning event carries both `files` and `files_mapped`,
+with the guard's test now built from a manifest where those numbers **differ** (all-mapped fixtures
+made the second field unfalsifiable); the `not_computed` wording names both causes, since the guard
+measures rendered bytes and a file count is a poor proxy for key length; and the "a header is never
+ragged" docstring names the case that defeats it — a quoted comma in a header, which polars counts
+as one column and `split` counts as two.
 
 **Deferred to a live run (the spec's Phase 4, still owed):** a data-quality check from the UI over a
 folder whose files deliberately disagree, confirming the report shows the cross-file finding with no
