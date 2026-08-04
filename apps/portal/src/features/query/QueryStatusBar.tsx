@@ -75,11 +75,13 @@ export function QueryStatusBar({
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
 
+  // The bar wraps onto a second line on a phone (SPEC-100 FR-006); the shipped
+  // single-row bar is restored from `tablet:` up.
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex h-11 flex-none items-center gap-3 border-b border-border bg-surface px-5 text-sm">
+      className="flex min-h-11 flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-surface px-4 py-2 text-sm tablet:h-11 tablet:flex-nowrap tablet:px-5 tablet:py-0">
       {isInFlight && (
         <>
           <span className="inline-flex items-center gap-2 font-semibold text-accent-text">

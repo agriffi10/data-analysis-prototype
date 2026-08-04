@@ -239,6 +239,20 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Choose a destination space and a file name.',
           'The results export in the background, and a notification lets you know when they’re saved.'
         ]
+      },
+      {
+        id: 'query-on-a-phone',
+        title: 'Use Query on a phone',
+        subtitle: 'Run your saved queries and read the results on a small screen.',
+        intro:
+          'On a phone the Query tab drops the SQL editor and becomes a browse-first surface: your saved queries and your history, ready to run. Writing and editing SQL stays a job for a tablet or a desktop, where there’s room for the editor.',
+        steps: [
+          'Open the <b>Query</b> tab on your phone — it opens on <b>Saved</b>, with <b>History</b> a tap away.',
+          'Tap <b>Run</b> on any card to run that query, or <b>View</b> to read its SQL without running it.',
+          'Results show one card per row — each card lists every column and its value — with <b>Prev</b> and <b>Next</b> at the bottom to page through them.',
+          'Tap <b>Run</b> at the top of the results to run it again, or the back arrow to return to your lists.',
+          'Need the schema? Open the menu in the header — your databases and their tables are in the drawer.'
+        ]
       }
     ]
   },

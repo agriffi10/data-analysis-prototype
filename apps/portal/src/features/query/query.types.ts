@@ -79,6 +79,12 @@ export type ResultTab = {
   outputLocation?: string;
 };
 
+/**
+ * Which surface the mobile (`< tablet`) browse-first workspace is showing —
+ * local UI state, never persisted (SPEC-100 FR-004/006).
+ */
+export type MobileQueryView = {kind: 'home'; tab: 'saved' | 'history'} | {kind: 'results'; sql: string; title: string};
+
 export type ConnectionKind = 'personal' | 'shared';
 
 /**

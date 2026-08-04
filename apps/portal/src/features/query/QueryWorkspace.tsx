@@ -33,7 +33,11 @@ import {
   stripTrailingSemicolons
 } from './query.sql';
 import {ResultTabs} from './ResultTabs';
-import {SchemaBrowser} from './SchemaBrowser';
+import {SchemaBrowser, SchemaTree, type TableActions} from './SchemaBrowser';
+import {QueryMobileView} from './QueryMobileView';
+import {QueryResultsMobile} from './QueryResultsMobile';
+import {useIsMobile} from '../../lib/useBreakpoint';
+import {useProvideNavRail} from '../../components/navRailContext';
 import {TableShareDialog, useTableShare} from '../table-share';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
@@ -53,6 +57,7 @@ import {SaveQueryDialog} from './SaveQueryDialog';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from './query.types';
 import type {
+  MobileQueryView,
   ParsedStatement,
   QueryHistoryEntry,
   QueryStatus,
@@ -66,6 +71,10 @@ import type {
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
+
+// SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
+// actions fit the narrower main column; each button keeps its `aria-label`.
+const TOOLBAR_LABEL = 'hidden desktop:inline';
 
 // SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). SPEC-078 extends it to a sequential batch: the statements in
@@ -238,6 +247,15 @@ export function QueryWorkspace() {
   const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
+  // SPEC-100: below `tablet` the workspace is browse-first — no Monaco, no editor
+  // toolbar, no tab strip. Mount-gated (not CSS-hidden) because `hidden` would
+  // still instantiate the editor (react.md §20).
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState<MobileQueryView>({kind: 'home', tab: 'saved'});
+  // The SQL the mobile results view actually submitted — so a View-without-Run
+  // never adopts an earlier query's status or rows.
+  const [mobileRanSql, setMobileRanSql] = useState<string | null>(null);
+
   // Drawers are mutually exclusive (FR-010): opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
@@ -276,7 +294,15 @@ export function QueryWorkspace() {
   // async setRuns commits, which the runs/statuses render snapshot alone can miss.
   const submittingTabsRef = useRef<Set<string>>(new Set());
 
-  const {appendEntry, updateEntry} = useQueryHistory(username || null);
+  // The list fields feed the mobile browse-first home (SPEC-100 FR-004); the
+  // desktop drawer subscribes to the same cache key, so this adds no fetch.
+  const {
+    history,
+    isLoading: historyLoading,
+    error: historyError,
+    appendEntry,
+    updateEntry
+  } = useQueryHistory(username || null);
   const saved = useSavedQueries(username || null);
 
   // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the
@@ -838,6 +864,56 @@ export function QueryWorkspace() {
     onDropTable: (database: string, table: GlueTableSummary) => setDropping({database, table})
   };
 
+  // SPEC-100 FR-005: below `tablet` the inline rail is gone, so the same tree is
+  // fed into the mobile AppNavDrawer's contextual slot. The registered node must
+  // keep a stable identity (useProvideNavRail registers it in an effect), so the
+  // drawer's copy delegates through a ref to the current handlers rather than
+  // closing over the per-render `tableActions` object.
+  const tableActionsRef = useRef(tableActions);
+  useEffect(() => {
+    tableActionsRef.current = tableActions;
+  });
+  const railActions = useMemo<TableActions>(
+    () => ({
+      canViewSourceFiles: (table) => tableActionsRef.current.canViewSourceFiles(table),
+      onViewSourceFiles: (database, table) => tableActionsRef.current.onViewSourceFiles(database, table),
+      onViewDdl: (database, table) => tableActionsRef.current.onViewDdl(database, table),
+      onViewData: (database, table) => tableActionsRef.current.onViewData(database, table),
+      onShareTable: (database, table) => tableActionsRef.current.onShareTable(database, table),
+      onDropTable: (database, table) => tableActionsRef.current.onDropTable(database, table)
+    }),
+    []
+  );
+  const navRail = useMemo(
+    () =>
+      isMobile ? (
+        <div className="p-3">
+          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Databases</p>
+          <SchemaTree
+            connections={connections}
+            actions={railActions}
+          />
+        </div>
+      ) : null,
+    [isMobile, connections, railActions]
+  );
+  useProvideNavRail(navRail);
+
+  // SPEC-100 FR-004/006: run a saved/history entry from the mobile home through
+  // the SAME run path the editor uses, then show the results view; View opens it
+  // read-only without running.
+  const handleMobileRun = (sql: string, title: string) => {
+    tabs.setActiveSql(sql);
+    setMobileRanSql(sql);
+    setMobileView({kind: 'results', sql, title});
+    submitBatch(splitSqlStatements(sql), 'script-single');
+  };
+  const handleMobileView = (sql: string, title: string) => {
+    setMobileRanSql(null);
+    setMobileView({kind: 'results', sql, title});
+  };
+  const mobileHasRun = mobileView.kind === 'results' && mobileRanSql === mobileView.sql;
+
   // SPEC-048/077: turn the active tab's SQL into a named view, in the background
   // (the editor keeps showing the user's SELECT). The target database is derived
   // from the view body's fully-qualified base tables (FR-008), captured in
@@ -981,10 +1057,13 @@ export function QueryWorkspace() {
     // `overflow-auto` results region actually scroll; the schema rail already
     // scrolls itself (`overflow-y-auto`).
     <div className="flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 overflow-hidden">
-      <SchemaBrowser
-        connections={connections}
-        actions={tableActions}
-      />
+      {/* SPEC-100 FR-005: on a phone the rail lives in the nav drawer instead. */}
+      {!isMobile && (
+        <SchemaBrowser
+          connections={connections}
+          actions={tableActions}
+        />
+      )}
 
       {/* Background pollers — one per tab with an execution, so backgrounded
           queries finalize concurrently (FR-004). They render nothing. */}
@@ -1002,359 +1081,403 @@ export function QueryWorkspace() {
       <main
         id="main"
         className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <h1 className="sr-only">Query workspace</h1>
-        <QueryTabStrip
-          tabs={tabs.tabs}
-          activeTabId={activeTabId}
-          dirtyTabIds={dirtyTabIds}
-          onSelect={tabs.setActiveTab}
-          onClose={requestClose}
-          onNew={handleNewTab}
-          onOpenSaved={openSaved}
-          onOpenHistory={openHistory}
-        />
-
-        {/* The active tab's content (toolbar + editor + results) is the
-            tablist's panel, labelled by the active tab (WCAG 4.1.2). */}
-        <div
-          role="tabpanel"
-          id="query-tabpanel"
-          aria-labelledby={`query-tab-${activeTabId}`}
-          className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
-            <EditorLayoutControl
-              preset={layout.preset}
-              onChange={handleLayoutChange}
+        {isMobile ? (
+          mobileView.kind === 'home' ? (
+            <QueryMobileView
+              tab={mobileView.tab}
+              onTabChange={(tab) => setMobileView({kind: 'home', tab})}
+              savedQueries={saved.queries}
+              savedLoading={saved.isLoading}
+              savedError={saved.error}
+              history={history}
+              historyLoading={historyLoading}
+              historyError={historyError}
+              onRun={handleMobileRun}
+              onView={handleMobileView}
+              runDisabled={activeIsInFlight}
             />
-            <div className="flex-1" />
-            <Button
-              variant="ghost"
-              onClick={() => setClearOpen(true)}
-              disabled={!canClear}
-              aria-label="Clear query">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-4 w-4"
-                aria-hidden="true">
-                <path d="M3 6h18" />
-                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-              </svg>
-              Clear
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setSaveOpen(true)}
-              disabled={!canSave}
-              aria-label="Save query">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-4 w-4"
-                aria-hidden="true">
-                <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-                <path d="M9 4v5h6" />
-                <path d="M8 21v-7h8v7" />
-              </svg>
-              Save
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                // FR-008: derive the target database from the view body before
-                // opening the dialog; a non-derivable body raises a clear error
-                // and never silently picks a database.
-                const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
-                if ('error' in target) {
-                  toast.push({variant: 'danger', message: target.error});
-                  return;
-                }
-                setCreateViewDb(target.database);
-                setCreateViewOpen(true);
+          ) : (
+            <QueryResultsMobile
+              title={mobileView.title}
+              sql={mobileView.sql}
+              onBack={() => {
+                setMobileRanSql(null);
+                setMobileView({kind: 'home', tab: 'saved'});
               }}
-              disabled={!canSave}
-              aria-label="Create view">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-4 w-4"
-                aria-hidden="true">
-                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="3"
+              onRun={() => handleMobileRun(mobileView.sql, mobileView.title)}
+              runDisabled={activeIsInFlight}
+              status={activeStatus}
+              isInFlight={mobileHasRun && activeIsInFlight}
+              startedAt={activeRun?.startedAt ?? null}
+              hasResultSet={hasResultSet}
+              totalRowCount={rowCount.total}
+              hasRun={mobileHasRun}
+              errorMessage={mobileHasRun && showError ? errorMessage : null}
+              onDismissError={() => {
+                setRunErrors((e) => ({...e, [activeTabId]: null}));
+                setDismissed((d) => ({...d, [activeTabId]: true}));
+              }}
+              results={results}
+              displayExecutionId={mobileHasRun ? displayExecutionId : null}
+            />
+          )
+        ) : (
+          <>
+            <h1 className="sr-only">Query workspace</h1>
+            <QueryTabStrip
+              tabs={tabs.tabs}
+              activeTabId={activeTabId}
+              dirtyTabIds={dirtyTabIds}
+              onSelect={tabs.setActiveTab}
+              onClose={requestClose}
+              onNew={handleNewTab}
+              onOpenSaved={openSaved}
+              onOpenHistory={openHistory}
+            />
+
+            {/* The active tab's content (toolbar + editor + results) is the
+            tablist's panel, labelled by the active tab (WCAG 4.1.2). */}
+            <div
+              role="tabpanel"
+              id="query-tabpanel"
+              aria-labelledby={`query-tab-${activeTabId}`}
+              className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
+                <EditorLayoutControl
+                  preset={layout.preset}
+                  onChange={handleLayoutChange}
                 />
-              </svg>
-              Create view
-            </Button>
-            {activeIsInFlight ? (
-              <Button
-                variant="ghost"
-                onClick={handleStop}
-                aria-label="Stop the running query"
-                className="text-danger hover:bg-danger-soft hover:text-danger">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="h-4 w-4"
-                  aria-hidden="true">
-                  <rect
-                    x="6"
-                    y="6"
-                    width="12"
-                    height="12"
-                    rx="2"
-                  />
-                </svg>
-                Stop
-              </Button>
-            ) : (
-              // SPEC-078 FR-005: three distinct run scopes as a split button.
-              // Run Statement stays the primary action (⌘⏎); the two whole-script
-              // scopes — which differ only in how results are shown — live in an
-              // attached dropdown so the toolbar stays compact.
-              <div className="inline-flex items-stretch">
+                <div className="flex-1" />
                 <Button
-                  variant="primary"
-                  onClick={handleRunStatement}
-                  disabled={!canRun}
-                  title="Run the selection or the statement under the cursor (⌘⏎)"
-                  aria-label="Run statement"
-                  className="rounded-r-none">
+                  variant="ghost"
+                  onClick={() => setClearOpen(true)}
+                  disabled={!canClear}
+                  aria-label="Clear query">
                   <svg
                     viewBox="0 0 24 24"
-                    fill="currentColor"
-                    stroke="none"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
                     className="h-4 w-4"
                     aria-hidden="true">
-                    <path d="M7 5v14l11-7z" />
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                   </svg>
-                  Run Statement
+                  <span className={TOOLBAR_LABEL}>Clear</span>
                 </Button>
-                <Menu
-                  ariaLabel="More run options"
-                  align="right"
-                  trigger={({open, toggle, ref, menuId}) => (
+                <Button
+                  variant="ghost"
+                  onClick={() => setSaveOpen(true)}
+                  disabled={!canSave}
+                  aria-label="Save query">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+                    <path d="M9 4v5h6" />
+                    <path d="M8 21v-7h8v7" />
+                  </svg>
+                  <span className={TOOLBAR_LABEL}>Save</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    // FR-008: derive the target database from the view body before
+                    // opening the dialog; a non-derivable body raises a clear error
+                    // and never silently picks a database.
+                    const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
+                    if ('error' in target) {
+                      toast.push({variant: 'danger', message: target.error});
+                      return;
+                    }
+                    setCreateViewDb(target.database);
+                    setCreateViewOpen(true);
+                  }}
+                  disabled={!canSave}
+                  aria-label="Create view">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="3"
+                    />
+                  </svg>
+                  <span className={TOOLBAR_LABEL}>Create view</span>
+                </Button>
+                {activeIsInFlight ? (
+                  <Button
+                    variant="ghost"
+                    onClick={handleStop}
+                    aria-label="Stop the running query"
+                    className="text-danger hover:bg-danger-soft hover:text-danger">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="h-4 w-4"
+                      aria-hidden="true">
+                      <rect
+                        x="6"
+                        y="6"
+                        width="12"
+                        height="12"
+                        rx="2"
+                      />
+                    </svg>
+                    <span className={TOOLBAR_LABEL}>Stop</span>
+                  </Button>
+                ) : (
+                  // SPEC-078 FR-005: three distinct run scopes as a split button.
+                  // Run Statement stays the primary action (⌘⏎); the two whole-script
+                  // scopes — which differ only in how results are shown — live in an
+                  // attached dropdown so the toolbar stays compact.
+                  <div className="inline-flex items-stretch">
                     <Button
-                      ref={ref}
                       variant="primary"
-                      onClick={toggle}
+                      onClick={handleRunStatement}
                       disabled={!canRun}
-                      aria-haspopup="menu"
-                      aria-expanded={open}
-                      aria-controls={open ? menuId : undefined}
-                      aria-label="More run options"
-                      title="More run options"
-                      className="rounded-l-none border-l border-white/25 px-2">
+                      title="Run the selection or the statement under the cursor (⌘⏎)"
+                      aria-label="Run statement"
+                      className="rounded-r-none">
                       <svg
                         viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className={cx('h-4 w-4 transition-transform', open && 'rotate-180')}
+                        fill="currentColor"
+                        stroke="none"
+                        className="h-4 w-4"
                         aria-hidden="true">
-                        <path d="M6 9l6 6 6-6" />
+                        <path d="M7 5v14l11-7z" />
                       </svg>
+                      <span className={TOOLBAR_LABEL}>Run Statement</span>
                     </Button>
-                  )}
-                  items={[
-                    {
-                      kind: 'action',
-                      label: 'Run Query Tab',
-                      icon: (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          className="h-4 w-4"
-                          aria-hidden="true">
-                          <path d="M5 4l8 8-8 8" />
-                          <path d="M14 20h6" />
-                        </svg>
-                      ),
-                      onSelect: () => handleRunScript('script-single')
-                    },
-                    {
-                      kind: 'action',
-                      label: 'Run Multiple Queries',
-                      icon: (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          className="h-4 w-4"
-                          aria-hidden="true">
-                          <path d="M4 4l6 8-6 8" />
-                          <rect
-                            x="13"
-                            y="5"
-                            width="7"
-                            height="5"
-                            rx="1"
-                          />
-                          <rect
-                            x="13"
-                            y="14"
-                            width="7"
-                            height="5"
-                            rx="1"
-                          />
-                        </svg>
-                      ),
-                      onSelect: () => handleRunScript('script-tabs')
-                    }
-                  ]}
-                />
+                    <Menu
+                      ariaLabel="More run options"
+                      align="right"
+                      trigger={({open, toggle, ref, menuId}) => (
+                        <Button
+                          ref={ref}
+                          variant="primary"
+                          onClick={toggle}
+                          disabled={!canRun}
+                          aria-haspopup="menu"
+                          aria-expanded={open}
+                          aria-controls={open ? menuId : undefined}
+                          aria-label="More run options"
+                          title="More run options"
+                          className="rounded-l-none border-l border-white/25 px-2">
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className={cx('h-4 w-4 transition-transform', open && 'rotate-180')}
+                            aria-hidden="true">
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                        </Button>
+                      )}
+                      items={[
+                        {
+                          kind: 'action',
+                          label: 'Run Query Tab',
+                          icon: (
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              className="h-4 w-4"
+                              aria-hidden="true">
+                              <path d="M5 4l8 8-8 8" />
+                              <path d="M14 20h6" />
+                            </svg>
+                          ),
+                          onSelect: () => handleRunScript('script-single')
+                        },
+                        {
+                          kind: 'action',
+                          label: 'Run Multiple Queries',
+                          icon: (
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              className="h-4 w-4"
+                              aria-hidden="true">
+                              <path d="M4 4l6 8-6 8" />
+                              <rect
+                                x="13"
+                                y="5"
+                                width="7"
+                                height="5"
+                                rx="1"
+                              />
+                              <rect
+                                x="13"
+                                y="14"
+                                width="7"
+                                height="5"
+                                rx="1"
+                              />
+                            </svg>
+                          ),
+                          onSelect: () => handleRunScript('script-tabs')
+                        }
+                      ]}
+                    />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* SPEC-079: the measured editor+results column. The editor pane takes
+              {/* SPEC-079: the measured editor+results column. The editor pane takes
               the preset's clamped height; everything below it (status bar +
               results) flexes into the remainder and keeps scrolling internally. */}
-          <div
-            ref={layoutColumnRef}
-            className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div
-              className={cx(
-                'flex-none border-b border-border',
-                animateSplit && 'transition-[height] duration-200 ease-out motion-reduce:transition-none'
-              )}
-              style={{height: layout.editorHeight}}
-              onTransitionEnd={(e) => {
-                if (e.target === e.currentTarget && e.propertyName === 'height') setAnimateSplit(false);
-              }}>
-              <Suspense
-                fallback={
-                  <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
-                    Loading editor&hellip;
-                  </div>
-                }>
-                <SqlEditor
-                  ref={editorRef}
-                  value={activeTab.sql}
-                  onChange={tabs.setActiveSql}
-                  onRun={handleRunStatement}
-                  onRunScriptSingle={() => handleRunScript('script-single')}
-                  onRunScriptTabs={() => handleRunScript('script-tabs')}
-                  completionSchemas={completionSchemas}
-                />
-              </Suspense>
-            </div>
-
-            {activeExecutionId !== null && (
-              <QueryStatusBar
-                status={activeStatus}
-                isInFlight={activeIsInFlight}
-                startedAt={activeRun?.startedAt ?? null}
-                batch={
-                  activeRun && activeRun.statements.length > 1
-                    ? {current: activeRun.currentIndex + 1, total: activeRun.statements.length}
-                    : undefined
-                }
-                rowCount={displayExecutionId !== null ? results.loadedRowCount : undefined}
-                hasMoreRows={results.hasMoreServer}
-                hasResultSet={hasResultSet}
-                totalRowCount={rowCount.total}
-                canSaveResults={canSaveResults}
-                onSaveResults={() => setSaveResultsOpen(true)}
-              />
-            )}
-
-            {showError && (
-              <div className="px-5 pt-4">
-                <Banner
-                  variant="danger"
-                  title="Query failed."
-                  onDismiss={() => {
-                    setRunErrors((e) => ({...e, [activeTabId]: null}));
-                    setDismissed((d) => ({...d, [activeTabId]: true}));
+              <div
+                ref={layoutColumnRef}
+                className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div
+                  className={cx(
+                    'flex-none border-b border-border',
+                    animateSplit && 'transition-[height] duration-200 ease-out motion-reduce:transition-none'
+                  )}
+                  style={{height: layout.editorHeight}}
+                  onTransitionEnd={(e) => {
+                    if (e.target === e.currentTarget && e.propertyName === 'height') setAnimateSplit(false);
                   }}>
-                  {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
-                      engine text (the raw reason is dev-logged + kept in history). */}
-                  <p className="text-sm">{errorMessage}</p>
-                </Banner>
-              </div>
-            )}
+                  <Suspense
+                    fallback={
+                      <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
+                        Loading editor&hellip;
+                      </div>
+                    }>
+                    <SqlEditor
+                      ref={editorRef}
+                      value={activeTab.sql}
+                      onChange={tabs.setActiveSql}
+                      onRun={handleRunStatement}
+                      onRunScriptSingle={() => handleRunScript('script-single')}
+                      onRunScriptTabs={() => handleRunScript('script-tabs')}
+                      completionSchemas={completionSchemas}
+                    />
+                  </Suspense>
+                </div>
 
-            <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-              {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
+                {activeExecutionId !== null && (
+                  <QueryStatusBar
+                    status={activeStatus}
+                    isInFlight={activeIsInFlight}
+                    startedAt={activeRun?.startedAt ?? null}
+                    batch={
+                      activeRun && activeRun.statements.length > 1
+                        ? {current: activeRun.currentIndex + 1, total: activeRun.statements.length}
+                        : undefined
+                    }
+                    rowCount={displayExecutionId !== null ? results.loadedRowCount : undefined}
+                    hasMoreRows={results.hasMoreServer}
+                    hasResultSet={hasResultSet}
+                    totalRowCount={rowCount.total}
+                    canSaveResults={canSaveResults}
+                    onSaveResults={() => setSaveResultsOpen(true)}
+                  />
+                )}
+
+                {showError && (
+                  <div className="px-5 pt-4">
+                    <Banner
+                      variant="danger"
+                      title="Query failed."
+                      onDismiss={() => {
+                        setRunErrors((e) => ({...e, [activeTabId]: null}));
+                        setDismissed((d) => ({...d, [activeTabId]: true}));
+                      }}>
+                      {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
+                      engine text (the raw reason is dev-logged + kept in history). */}
+                      <p className="text-sm">{errorMessage}</p>
+                    </Banner>
+                  </div>
+                )}
+
+                <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
+                  {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
                   strip; the other scopes render a single result view. Tabs are
                   ephemeral — a new run replaces the tab's run state wholesale. */}
-              {showResultTabs && activeRun && (
-                <ResultTabs
-                  tabs={activeRun.resultTabs}
-                  activeIndex={activeRun.activeResultTabIndex}
-                  onSelect={(index) =>
-                    updateRuns((r) =>
-                      r[activeTabId] ? {...r, [activeTabId]: {...r[activeTabId], activeResultTabIndex: index}} : r
-                    )
-                  }
-                />
-              )}
-              {/* SPEC-087 FR-002: the Results header row carries the "Rows per
+                  {showResultTabs && activeRun && (
+                    <ResultTabs
+                      tabs={activeRun.resultTabs}
+                      activeIndex={activeRun.activeResultTabIndex}
+                      onSelect={(index) =>
+                        updateRuns((r) =>
+                          r[activeTabId] ? {...r, [activeTabId]: {...r[activeTabId], activeResultTabIndex: index}} : r
+                        )
+                      }
+                    />
+                  )}
+                  {/* SPEC-087 FR-002: the Results header row carries the "Rows per
                   page" control — above the grid, right under the status bar's
                   row-count stat, and always rendered (disabled, never hidden,
                   when there's no result set to page). */}
-              <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3">
-                <h2 className="text-base font-semibold">Results</h2>
-                <ResultsPageSizeControl
-                  pageSize={resultsPageSize.pageSize}
-                  onCommit={resultsPageSize.setPageSize}
-                  disabled={!hasResultSet}
-                />
-              </div>
-              {displayExecutionId !== null ? (
-                <div
-                  className="flex min-h-0 flex-1 flex-col"
-                  {...(showResultTabs &&
-                    activeRun && {
-                      role: 'tabpanel',
-                      id: 'result-tabpanel',
-                      'aria-labelledby': `result-tab-${activeRun.activeResultTabIndex}`
-                    })}>
-                  <QueryResultsTable
-                    columns={results.columns}
-                    rows={results.rows}
-                    pageIndex={results.pageIndex}
-                    rangeStart={results.rangeStart}
-                    rangeEnd={results.rangeEnd}
-                    totalRowCount={results.totalRowCount}
-                    hasPrev={results.hasPrev}
-                    hasNext={results.hasNext}
-                    isFetchingNext={results.isFetchingNext}
-                    isLoading={results.isPending}
-                    widths={colWidths.widths}
-                    onResize={colWidths.setWidth}
-                    onResetColumn={colWidths.resetColumn}
-                    onPrev={results.goPrev}
-                    onNext={results.goNext}
-                  />
+                  <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-base font-semibold">Results</h2>
+                    <ResultsPageSizeControl
+                      pageSize={resultsPageSize.pageSize}
+                      onCommit={resultsPageSize.setPageSize}
+                      disabled={!hasResultSet}
+                    />
+                  </div>
+                  {displayExecutionId !== null ? (
+                    <div
+                      className="flex min-h-0 flex-1 flex-col"
+                      {...(showResultTabs &&
+                        activeRun && {
+                          role: 'tabpanel',
+                          id: 'result-tabpanel',
+                          'aria-labelledby': `result-tab-${activeRun.activeResultTabIndex}`
+                        })}>
+                      <QueryResultsTable
+                        columns={results.columns}
+                        rows={results.rows}
+                        pageIndex={results.pageIndex}
+                        rangeStart={results.rangeStart}
+                        rangeEnd={results.rangeEnd}
+                        totalRowCount={results.totalRowCount}
+                        hasPrev={results.hasPrev}
+                        hasNext={results.hasNext}
+                        isFetchingNext={results.isFetchingNext}
+                        isLoading={results.isPending}
+                        widths={colWidths.widths}
+                        onResize={colWidths.setWidth}
+                        onResetColumn={colWidths.resetColumn}
+                        onPrev={results.goPrev}
+                        onNext={results.goNext}
+                      />
+                    </div>
+                  ) : (
+                    <p className="flex h-full items-center justify-center text-sm text-text-3">
+                      {activeIsInFlight
+                        ? 'Running your query…'
+                        : activeBatchDone && activeStatus?.state === 'SUCCEEDED'
+                          ? 'The run finished without returning rows.'
+                          : 'Run a query to see results.'}
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p className="flex h-full items-center justify-center text-sm text-text-3">
-                  {activeIsInFlight
-                    ? 'Running your query…'
-                    : activeBatchDone && activeStatus?.state === 'SUCCEEDED'
-                      ? 'The run finished without returning rows.'
-                      : 'Run a query to see results.'}
-                </p>
-              )}
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </main>
 
       <QueryHistoryPanel

@@ -106,4 +106,17 @@ describe('QueryWorkspace accessibility (SPEC-045 FR-003)', () => {
     expect(screen.getAllByRole('heading', {level: 1})).toHaveLength(1);
     expect(screen.getByRole('main')).toBeInTheDocument();
   });
+  it('has no axe violations on the mobile browse-first workspace (SPEC-100)', async () => {
+    window.innerWidth = 390;
+    try {
+      await expectNoA11yViolations(workspace(), ROUTE_AXE_OPTIONS);
+      render(workspace());
+      // Still exactly one <h1> and one <main> once the editor shell is gone.
+      expect(await screen.findByRole('button', {name: 'Saved'})).toBeInTheDocument();
+      expect(screen.getAllByRole('heading', {level: 1})).toHaveLength(1);
+      expect(screen.getByRole('main')).toBeInTheDocument();
+    } finally {
+      window.innerWidth = 1024;
+    }
+  });
 });
