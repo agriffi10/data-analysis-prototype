@@ -68,16 +68,16 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Current work — SPEC-141 (Draft, not started): `Cache-Control` for the shell and hashed assets.**
-The observability arc (127→137) is COMPLETE. SPEC-140 is COMPLETE — the portal now ships an
-enforcing CSP and the full security header set. What remains is the live checks below.
+**Current work — SPEC-142 (Draft): ragged rows counted per file, not against the union.**
+The observability arc (127→137) is COMPLETE. SPEC-140 and SPEC-141 are COMPLETE — the portal ships
+an enforcing CSP, the full security header set, and explicit `Cache-Control` on every response.
+What remains is the live checks below.
 
-- **SPEC-141 is written and ready to build**, and it is a **browser**-cache bug, not a CDN one:
-  `deploy-app.yml` already invalidates `/*`, so the CDN is fine. Nothing carries `Cache-Control`, so
-  browsers apply heuristic freshness to `index.html`; combined with `sync --delete` removing the old
-  hashed bundles, a returning browser can request a chunk that no longer exists — **a white screen,
-  not stale content**. Fix is `deploy-app.yml` only; no Terraform, no IAM. The trap it owns: `--delete`
-  treats `--exclude`'d files as absent and will delete `index.html` from the bucket.
+- **SPEC-141 left one manual cleanup and one untested path.** Its single `--delete` pass is scoped
+  to `assets/`, so **stale root-level objects are never removed** — `icons.svg` is one today and
+  needs a one-off `aws s3 rm s3://<static-bucket>/icons.svg`. And the first deploy was
+  byte-identical to its predecessor, so **the delete pass has never actually deleted anything**;
+  the next deploy that changes a bundle hash is its first real test.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
@@ -175,6 +175,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
 - **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + the full header set, `Server` stripped; CSP built from **variables** (root locals, never module outputs); `connect-src` **is** the app's network surface. **Report-only first, always**; verify with a **same-origin page script + a negative control** (CDP eval bypasses page CSP). COEP and Monaco's `style-src 'unsafe-inline'` accepted; `preload` is on but inert — **never submit this `*.cloudfront.net` domain** to hstspreload.org. **Diff findings per check ID, never by total.**
+- **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates; scope by **prefix, never `--exclude`** (it filters `--delete`'s *destination* side and will delete `index.html`), and never let two passes touch one file (mtime re-upload overwrites the header). The accepted orphan class is **stale root files**, never stale chunks.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead, and **asserts its own coverage** (fails if IAM resources are present but no IAM check ran). Isolation policies are clean; the residual findings are non-scopable deploy-role actions.
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.

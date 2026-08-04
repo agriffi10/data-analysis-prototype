@@ -1,7 +1,7 @@
 # Spec: Cache-Control for the SPA Shell and Hashed Assets
 
 **ID:** SPEC-141
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-140 (response headers policy — shares `cloudfront.tf` and the deploy path)
 

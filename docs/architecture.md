@@ -355,7 +355,9 @@ per control plane (`shared-spaces`, `table-builder`, `table-share`, `data-qualit
 **deploy role** (`infra/modules/base`) applies all IaC via `deploy-infra.yml` — **any spec adding new
 infra must expand the deploy-role policy** as in-scope work. The SPA deploys as static files to S3 +
 CloudFront (OAC origin; custom error responses 403/404 → `/index.html` for SPA routing; a
-response-headers policy carries the enforcing CSP + security header set — SPEC-140, `decisions.md`). Build-time
+response-headers policy carries the enforcing CSP + security header set — SPEC-140, `decisions.md`).
+`deploy-app.yml` uploads `dist/` in **three prefix-scoped passes** so hashed assets are `immutable`
+and the shell is `no-cache`, with exactly one `--delete` — SPEC-141, `decisions.md`. Build-time
 `VITE_*` vars are GitHub Actions variables (see `.github/workflows/README.md`); resource→spec mapping
 and current values come from `tofu -chdir=infra output`. Security scanning: `security.yml` runs the
 report-only scanner suite (SPEC-138); `deploy-infra.yml`'s plan job Checkov-scans the **rendered**
