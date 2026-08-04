@@ -7,5 +7,5 @@ Public surface only — the code is the source of truth; verify signatures befor
 | Symbol | File | Purpose |
 |---|---|---|
 | `useEscapeKey(onEscape, enabled?)` | `hooks/useEscapeKey.ts` | Calls `onEscape` on Escape while `enabled`; the keydown-listener Effect consolidated from every modal/drawer. (react-best-practices pass) |
-| `usePageTitle(page)` | `hooks/usePageTitle.ts` | Syncs `document.title` for the page (SPEC-031). |
+| `usePageTitle(page?)` | `hooks/usePageTitle.ts` | Syncs `document.title` via `formatPageTitle`; call at the top of a page (SPEC-031). |
 

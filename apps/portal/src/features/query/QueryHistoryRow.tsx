@@ -42,17 +42,28 @@ function badgeFor(status?: QueryState): {
 /**
  * One history entry — status badge, relative time (absolute on hover),
  * single-line SQL preview, scanned/duration stats, Open + Re-run actions.
+ *
+ * The action labels are overridable because the mobile workspace has no editor
+ * to open into: there the same row reads View + Run (SPEC-100 FR-004).
  */
 export function QueryHistoryRow({
   entry,
   onReopen,
   onRerun,
-  rerunDisabled
+  rerunDisabled,
+  openLabel = 'Open',
+  openAriaLabel = 'Open this query in the editor',
+  runLabel = 'Re-run',
+  runAriaLabel = 'Re-run this query'
 }: {
   entry: QueryHistoryEntry;
   onReopen: () => void;
   onRerun: () => void;
   rerunDisabled: boolean;
+  openLabel?: string;
+  openAriaLabel?: string;
+  runLabel?: string;
+  runAriaLabel?: string;
 }) {
   const badge = badgeFor(entry.status);
   const preview = entry.sql.replace(/\s+/g, ' ').trim();
@@ -102,17 +113,17 @@ export function QueryHistoryRow({
         <button
           type="button"
           onClick={onReopen}
-          aria-label="Open this query in the editor"
+          aria-label={openAriaLabel}
           className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          Open
+          {openLabel}
         </button>
         <button
           type="button"
           onClick={onRerun}
           disabled={rerunDisabled}
-          aria-label="Re-run this query"
+          aria-label={runAriaLabel}
           className="inline-flex min-h-6 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          Re-run
+          {runLabel}
         </button>
       </div>
     </div>

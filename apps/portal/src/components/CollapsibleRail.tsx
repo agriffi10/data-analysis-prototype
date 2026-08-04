@@ -9,15 +9,21 @@ type CollapsibleRailProps = {
   ariaLabel: string;
   /** Optional uppercase section label shown in the rail header next to the collapse control. */
   title?: ReactNode;
+  /**
+   * Width utilities for the expanded panel — static classes only, so a host can
+   * narrow the rail per breakpoint (the Query rail is `w-[220px] desktop:w-[248px]`,
+   * SPEC-100 FR-002). Applied to the panel and its fixed-width inner content alike.
+   */
+  widthClass?: string;
   /** The rail body — the existing Sidebar list / SchemaBrowser tree. */
   children: ReactNode;
 };
 
 /**
  * Shared chrome for the two authenticated left rails (Files `Sidebar` + Query
- * `SchemaBrowser`, SPEC-085): the 248px panel (hidden below `tablet` as before) plus a
- * header **collapse** control and, when collapsed, a slim **reopen** handle at the
- * content's left edge.
+ * `SchemaBrowser`, SPEC-085): the 248px panel (`widthClass` narrows it per host;
+ * hidden below `tablet` as before) plus a header **collapse** control and, when
+ * collapsed, a slim **reopen** handle at the content's left edge.
  *
  * Collapsing eases the panel's width to `0` (border removed) so `<main>` fills the
  * freed width, WITHOUT unmounting it, so in-rail expansion/selection state is preserved
@@ -27,7 +33,7 @@ type CollapsibleRailProps = {
  * The collapsed choice is remembered per browser via `useRailCollapsed` (shared across
  * both rails).
  */
-export function CollapsibleRail({ariaLabel, title, children}: CollapsibleRailProps) {
+export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', children}: CollapsibleRailProps) {
   const {collapsed, setCollapsed} = useRailCollapsed();
   const railId = useId();
 
@@ -38,11 +44,12 @@ export function CollapsibleRail({ariaLabel, title, children}: CollapsibleRailPro
         aria-label={ariaLabel}
         className={cx(
           'hidden shrink-0 flex-col overflow-hidden bg-surface transition-[width] duration-200 ease-out motion-reduce:transition-none tablet:flex',
-          collapsed ? 'w-0 border-r-0' : 'w-[248px] border-r border-border'
+          collapsed ? 'w-0 border-r-0' : cx(widthClass, 'border-r border-border')
         )}>
         <div
           className={cx(
-            'flex w-[248px] flex-1 flex-col overflow-y-auto transition-[visibility] duration-200 motion-reduce:transition-none',
+            'flex flex-1 flex-col overflow-y-auto transition-[visibility] duration-200 motion-reduce:transition-none',
+            widthClass,
             collapsed ? 'invisible' : 'visible'
           )}>
           <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-3">

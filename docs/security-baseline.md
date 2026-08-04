@@ -218,6 +218,21 @@ What remains, and why:
 real improvement, but "zero Medium" was never reachable once we shipped a CSP with a style
 allowance — and the criterion that said so was written before we knew ZAP would grade our own work.
 
+### Design finding — notifications `create` spoofing (not scanner-derived)
+
+Found in the SPEC-115→122 design review (2026-07-12), previously recorded only inside the cancelled
+file-converter narrative in `docs/specs/ARCS.md`; rehomed here 2026-08-03. **The shipped notifications
+pipeline is not a safe model to copy:** `notifications_writer.py::_resolve_username` takes `username`
+straight from the body for `create` messages while the portal role can `sqs:SendMessage` to that queue —
+so a browser can inject a notification into any other user's inbox today. User-action messages
+(`markRead`/`markAllRead`) are safe (target derived from the verified ID-token claim); only
+trusted-producer `create` trusts the body, and the queue's write access is what makes that trust wrong.
+**Disposition: accepted for now — real, shipped, low-severity** (message injection into an inbox; no
+data access, no privilege change), **tracked separately.** The fix shape is known: derive or verify the
+`create` recipient the way SPEC-122's trust-marker design does for Table Builder (infrastructure-set
+marker a body cannot smuggle), or split trusted-producer `create` onto a queue the portal role cannot
+write to. No scanner in this baseline can see this class of finding — it is a design-review artifact.
+
 ---
 
 ## Proposed blocking thresholds

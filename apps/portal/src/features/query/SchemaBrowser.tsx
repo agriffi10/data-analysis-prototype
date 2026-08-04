@@ -59,11 +59,51 @@ function UnusableNode({connection}: {connection: Connection}) {
 }
 
 /**
- * The schema rail (SPEC-077: browse-only). Each accessible database is a
- * collapsible node that, when expanded, loads and groups its own Tables and
- * Views (DatabaseNode) for inspection. There is no active-database selection —
- * queries fully-qualify their own tables. Loading / empty / "setting up" /
- * error states render per node.
+ * The database tree itself, decoupled from the rail chrome so it can render both
+ * on-page inside `CollapsibleRail` (≥ tablet) and inside the mobile
+ * `AppNavDrawer` contextual slot (SPEC-100 FR-005) — one source, no forked
+ * logic. Each accessible database is a collapsible node that, when expanded,
+ * loads and groups its own Tables and Views (SPEC-077: browse-only).
+ *
+ * @example
+ * <SchemaTree connections={connections} actions={tableActions} />
+ */
+export function SchemaTree({connections = [], actions}: {connections?: Connection[]; actions: TableActions}) {
+  const single = connections.length <= 1;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {connections.length === 0 ? (
+        <p className="px-3 py-2 text-sm text-text-3">No databases available.</p>
+      ) : (
+        connections.map((conn, i) =>
+          isConnectionUsable(conn) ? (
+            <DatabaseNode
+              key={conn.id}
+              connection={conn}
+              // First-reveal default: expand the first database (personal), or a
+              // lone database, so there's something to see without a click.
+              defaultExpanded={single || i === 0}
+              actions={actions}
+            />
+          ) : (
+            <UnusableNode
+              key={conn.id}
+              connection={conn}
+            />
+          )
+        )
+      )}
+    </div>
+  );
+}
+
+/**
+ * The schema rail (SPEC-077: browse-only) — `SchemaTree` in the shared rail
+ * chrome. There is no active-database selection; queries fully-qualify their own
+ * tables. Loading / empty / "setting up" / error states render per node. The
+ * panel narrows to 220px in the tablet band (SPEC-100 FR-002) and is hidden below
+ * it, where the drawer carries the tree instead.
  */
 export function SchemaBrowser({
   connections = [],
@@ -73,36 +113,15 @@ export function SchemaBrowser({
   connections?: Connection[];
   actions: TableActions;
 }) {
-  const items: Connection[] = connections.length > 0 ? connections : [];
-  const single = items.length <= 1;
-
   return (
     <CollapsibleRail
       ariaLabel="Schema browser"
-      title="Databases">
-      <div className="flex flex-col gap-0.5">
-        {items.length === 0 ? (
-          <p className="px-3 py-2 text-sm text-text-3">No databases available.</p>
-        ) : (
-          items.map((conn, i) =>
-            isConnectionUsable(conn) ? (
-              <DatabaseNode
-                key={conn.id}
-                connection={conn}
-                // First-reveal default: expand the first database (personal), or a
-                // lone database, so there's something to see without a click.
-                defaultExpanded={single || i === 0}
-                actions={actions}
-              />
-            ) : (
-              <UnusableNode
-                key={conn.id}
-                connection={conn}
-              />
-            )
-          )
-        )}
-      </div>
+      title="Databases"
+      widthClass="w-[220px] desktop:w-[248px]">
+      <SchemaTree
+        connections={connections}
+        actions={actions}
+      />
     </CollapsibleRail>
   );
 }

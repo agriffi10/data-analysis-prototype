@@ -12,7 +12,8 @@ Goal: each feature is **specified before it's built**, built in **reviewable pha
 ## 1. Where truth lives (and why it's layered)
 
 The docs are tiered by how often they're loaded. Keep each tier in its lane — the always-loaded tier
-was deliberately shrunk (CLAUDE.md 265→~90 lines, architecture.md 696→~130) and **must not regrow**.
+(`CLAUDE.md`, and `architecture.md` behind it) was deliberately cut down from much larger versions,
+must be kept lean, and **must not regrow**.
 It regrew once and was cut again: the fix each time is a pointer to a deeper tier, never a longer
 paragraph in the always-loaded file.
 
@@ -60,6 +61,8 @@ shared-connections, notifications) with an explicit **build order** documented i
 ## 3. The session rhythm
 
 This is the operating loop, start to finish. CLAUDE.md's *Session Workflow* is the condensed version.
+**If this section and CLAUDE.md ever disagree, CLAUDE.md wins** — fix the drift here in the same
+session you notice it (two hand-synced copies of one procedure is how numbering bugs happen).
 
 **Start of session**
 1. Read CLAUDE.md, then the **current** spec in full. Don't infer scope from a prior conversation —
@@ -139,15 +142,22 @@ When a spec is done, in the same pass:
 1. Set the spec file header `Status: Completed`.
 2. Update its one-line row in `docs/specs/INDEX.md` (**status only** — no prose).
 3. Write a **short** delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from
-   `docs/templates/spec-completion-template.md` — *what shipped + what changed*, under ~40 lines, **no
-   code/JSON pasted** (the code + component-inventory are the source of truth for reuse).
-4. If reusable services/hooks/components were added, add a **one-line** row to the matching
-   `docs/component-inventory/<area>.md` (the router only changes if a whole new area appeared).
-5. A *new architectural decision* gets its full entry in `docs/decisions.md` and **one line** in
-   CLAUDE.md's Key Decisions — never a paragraph in CLAUDE.md. Reasoning lives in the spec/delivery doc.
+   `docs/templates/spec-completion-template.md` — *what shipped + what changed*, typically under a
+   page (~40–100 lines), with **no code/JSON pasted** (the code + component-inventory are the
+   source of truth for reuse).
+4. If reusable services/hooks/components were added, add a **one-line** row to the
+   `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
+   belongs in the query area file, nowhere else (the router only changes if a whole new area appeared).
+5. A *new architectural decision* gets its full entry in `docs/decisions.md` **first**, then **one
+   line** in CLAUDE.md's Key Decisions — the digest line is **never the only home of a fact**, and
+   never a paragraph. If the decision **supersedes an earlier one**, update the old register entry in
+   place and add a superseded marker (short blockquote: what changed, which spec, where the full entry
+   lives) at every doc site that still states the old claim — arc narratives in `ARCS.md`,
+   architecture.md sections. The new entry alone is not enough; an agent reading only the old site
+   must see the reversal. Reasoning lives in the spec/delivery doc.
 6. **Prune CLAUDE.md's `## Specs` → Current work** of whatever the closed spec made stale. It carries
    only what is live and undocumented elsewhere — never append a changelog.
-6. **User-facing docs sweep.** If the spec added, changed, or removed a capability a user can see, update the
+7. **User-facing docs sweep.** If the spec added, changed, or removed a capability a user can see, update the
    surfaces that describe it — first and foremost the in-app **Help & guides** content
    (`apps/portal/src/features/help/helpContent.ts`, SPEC-074), plus any README / onboarding copy. New shipped
    feature → add/adjust its guide; changed flow/labels → fix the steps; removed feature → delete its guide.
@@ -156,8 +166,21 @@ When a spec is done, in the same pass:
    and move on. (This step exists because help content silently drifts as features land; SPEC-073's join status
    and the table-builder arc, for instance, shipped after SPEC-074 was authored and had to be folded in.)
 
-**Anti-regrowth.** If a memory or doc disagrees with the code, fix or delete it — don't let stale state
-accumulate. Don't add prose to the always-loaded tier.
+**Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found):
+
+- If a memory or doc disagrees with the code, fix or delete it — don't let stale state accumulate.
+  Don't add prose to the always-loaded tier.
+- **Standing rules never cite volatile numbers** (line counts, row counts, section ranges) — state the
+  principle. The numbers rot, and a rule resting on false evidence teaches readers to distrust it.
+- **A rule practice consistently violates gets reconciled or deleted.** A dead rule trains agents to
+  ignore the live ones.
+- **Routers carry only what self-describes.** Hand-maintained metadata (symbol counts, "§1–§N" ranges)
+  rots silently; drop it or let the structure carry the information.
+- **Any doc pulled entry-by-entry gets one heading per entry plus a TOC**, and pointer phrases in
+  other docs must match a greppable heading — "read the entry for your area" must be a jump, not a
+  full-file read.
+- **Live findings and obligations never live in historical or cancelled narrative** — rehome them to
+  an active register (`security-baseline.md`, Current work) and leave a pointer behind.
 
 ---
 

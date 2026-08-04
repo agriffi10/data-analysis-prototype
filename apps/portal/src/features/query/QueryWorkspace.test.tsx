@@ -3,6 +3,8 @@ import {screen, within, waitFor} from '@testing-library/react';
 import {useLocation} from 'react-router-dom';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
+import {NavRailProvider} from '../../components/NavRailProvider';
+import {useNavRailContent} from '../../components/navRailContext';
 
 // Integration style (react.md §21): render the REAL QueryWorkspace tree — real
 // hooks (useQueryTabs/useConnections/useSchema/useQueryExecution/useQueryResults/
@@ -162,6 +164,11 @@ function seedSingle(sql: string) {
 function queueRuns(...ids: string[]) {
   mockRunQuery.mockReset();
   for (const id of ids) mockRunQuery.mockResolvedValueOnce(ok({queryExecutionId: id}));
+}
+
+/** Renders whatever the page registered for the mobile nav drawer (SPEC-100 FR-005). */
+function NavRailProbe() {
+  return <div aria-label="mobile nav rail">{useNavRailContent()}</div>;
 }
 
 /** A probe that surfaces the router location so navigation is observable without
@@ -872,5 +879,111 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055/077)', () => 
     expect(await screen.findByText(/Saved to salesdata\/out\.csv/)).toBeInTheDocument();
     // The Files browser can't render shared spaces → no deep-link.
     expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
+  });
+});
+
+// ── SPEC-100: responsive workspace ──────────────────────────────────────────
+describe('QueryWorkspace responsive (SPEC-100)', () => {
+  /** Renders inside a NavRailProvider so the mobile drawer's contextual slot is observable. */
+  function renderMobileWorkspace() {
+    window.innerWidth = 390;
+    return renderWithProviders(
+      <NavRailProvider>
+        <QueryWorkspace />
+        <NavRailProbe />
+      </NavRailProvider>,
+      {auth: authenticated('alice')}
+    );
+  }
+
+  it('pares the workspace to a browse-first surface below tablet — no editor, toolbar or tab strip', async () => {
+    mockGetSaved.mockResolvedValue(
+      ok({
+        version: 1,
+        queries: [
+          {
+            id: 's1',
+            name: 'Revenue',
+            sql: 'SELECT 1',
+            database: 'alice',
+            createdAt: '2026-07-01T10:00:00.000Z',
+            updatedAt: '2026-07-01T10:00:00.000Z'
+          }
+        ]
+      })
+    );
+    renderMobileWorkspace();
+
+    // Saved is the default surface (FR-004).
+    expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Saved'})).toHaveAttribute('aria-pressed', 'true');
+
+    expect(screen.queryByLabelText('SQL editor')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Run statement'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Clear query'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Create view'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', {name: 'Query tabs'})).not.toBeInTheDocument();
+  });
+
+  it('moves the schema rail off-canvas below tablet, and keeps it inline above', async () => {
+    const {unmount} = renderMobileWorkspace();
+    // Not in the inline layout…
+    expect(screen.queryByRole('complementary', {name: 'Schema browser'})).not.toBeInTheDocument();
+    // …but the same tree is handed to the mobile nav drawer's contextual slot.
+    const rail = await screen.findByLabelText('mobile nav rail');
+    expect(await within(rail).findByRole('button', {name: 'Collapse alice'})).toBeInTheDocument();
+    expect(await within(rail).findByText('sales_2026')).toBeInTheDocument();
+    unmount();
+
+    window.innerWidth = 1024;
+    renderWorkspace();
+    expect(await screen.findByRole('complementary', {name: 'Schema browser'})).toBeInTheDocument();
+  });
+
+  it('runs a saved query from a card and shows row cards with a pager', async () => {
+    mockGetSaved.mockResolvedValue(
+      ok({
+        version: 1,
+        queries: [
+          {
+            id: 's1',
+            name: 'Revenue',
+            sql: 'SELECT region FROM alice.sales',
+            database: 'alice',
+            createdAt: '2026-07-01T10:00:00.000Z',
+            updatedAt: '2026-07-01T10:00:00.000Z'
+          }
+        ]
+      })
+    );
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    // The shared run path, not a mobile-only one.
+    await waitFor(() =>
+      expect(mockRunQuery).toHaveBeenCalledWith({sql: 'SELECT region FROM alice.sales', username: 'alice'})
+    );
+    expect(await screen.findByRole('heading', {name: 'Revenue'})).toBeInTheDocument();
+    // One card per row of the page, read-only SQL, and a fixed pager.
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Row 1')).getByText('us-east')).toBeInTheDocument();
+    expect(screen.queryByLabelText('SQL editor')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Prev'})).toBeDisabled();
+
+    // Back returns to the browse-first home.
+    await user.click(screen.getByRole('button', {name: 'Back to queries'}));
+    expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+  });
+
+  it('drops the toolbar labels in the tablet band while keeping the accessible names', () => {
+    window.innerWidth = 1024; // tablet band
+    renderWorkspace();
+    // Icon-only is a CSS concern jsdom can't compute; assert the label carries the
+    // desktop-only visibility utility and the button keeps its accessible name.
+    expect(screen.getByText('Clear')).toHaveClass('hidden', 'desktop:inline');
+    expect(screen.getByRole('button', {name: 'Clear query'})).toBeInTheDocument();
+    expect(screen.getByText('Run Statement')).toHaveClass('hidden', 'desktop:inline');
+    expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
   });
 });

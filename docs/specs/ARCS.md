@@ -4,16 +4,45 @@ Why each arc exists and how its specs fit together. **Pulled on demand**, not at
 `INDEX.md` carries status, this file carries reasoning. Most arcs below are shipped; their
 authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc architecture docs.
 
+**Arcs** — one `##` per arc; read only the one you're in:
+
+- File-operations arc (SPEC-015 → 020, + 039 copy — shipped)
+- Analytics arc (SPEC-032 → 036 — shipped)
+- Query-editor UX follow-ups (SPEC-040 → 042 — shipped)
+- Query-editor UX, round 2 (SPEC-043 → 044, + 041 amend — shipped)
+- Query-editor UX, round 3 (SPEC-046 → 049, one-offs — shipped)
+- Shared-connections arc (SPEC-050 + 056 → 055 — shipped)
+- Notifications arc (SPEC-058 → 061 — shipped)
+- Control-plane refactor (SPEC-062, standalone — shipped)
+- Query-editor UX, round 4 (SPEC-063 → 065, user-feedback one-offs — shipped)
+- Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer — shipped)
+- Query-editor UX, round 5 + file-browser one-off (SPEC-077 → 080, + 081 — shipped)
+- Table-Share arc (SPEC-088 → 093, + 094 producer — shipped)
+- App-shell / schema-rail UX one-offs (SPEC-085, 086 — shipped)
+- Best-practice audit follow-ups (SPEC-082 → 084 — shipped)
+- Responsive & Files-UX arc (SPEC-095 → 104 — shipped)
+- Control-plane-common prerequisite (SPEC-107 — shipped)
+- File-converter arc (SPEC-115 → 122 — cancelled)
+- Data-quality arc (SPEC-108 → 114, + 123 → 124 — shipped)
+- Observability arc (SPEC-127 → 137, fleet-complete)
+- Refresh-table arc (SPEC-143 → 144 → 145 — active)
+- Username-directory arc (SPEC-146 → 147 → 148 — active)
+
 ---
 
+## File-operations arc (SPEC-015 → 020, + 039 copy — shipped)
 
-**File-operations arc (015→020, +039 copy)** — turns the read-only browser into a filesystem:
+Turns the read-only browser into a filesystem:
 download, upload, create-folder, metadata, delete, move, rename, large-file upload, copy. All
 build on SPEC-013 (authenticated user-space bucket). Move/rename = copy-then-delete; copy (039)
 reuses the same `copyObject` minus the delete (additive, same-folder auto-suffix). Folder ops are
 recursive + non-atomic. See architecture.md Known Constraints.
 
-**Analytics arc (032→036)** — a second portal surface: an in-app Athena query workspace beside the
+---
+
+## Analytics arc (SPEC-032 → 036 — shipped)
+
+A second portal surface: an in-app Athena query workspace beside the
 file browser. Each user gets a private Glue database **named exactly as their username** (created by
 a Cognito **post-confirmation** Lambda, which also LF-grants the shared role on it), queries through
 **one shared Athena workgroup**, and sees only their own results/history. Isolation reuses the single
@@ -27,14 +56,22 @@ user. Users define tables via DDL and may write (CTAS/INSERT) into their own pre
 design-led (`docs/design/query-workspace.html` + `design-system.md` §6). New deps at implementation:
 `@aws-sdk/client-athena`, `@aws-sdk/client-glue`, Monaco.
 
-**Query-editor UX follow-ups (040→042)** — refine the SPEC-035/036 workspace without touching the data
+---
+
+## Query-editor UX follow-ups (SPEC-040 → 042 — shipped)
+
+Refines the SPEC-035/036 workspace without touching the data
 layer or IAM: 040 persists the un-run editor draft across tab switches/reloads (`sessionStorage`,
 per-user) and adds a **Clear** button; 041 turns the editor into **query tabs** (`Query N`, monotonic
 labels, closable-with-confirm, per-tab persisted text) and supersedes 040's single-draft storage;
 042 paginates the history drawer (7/page, Prev/Next, newest-first, client-side). 041 needs a design
 pass (new tab strip in `query-workspace.html` + §6) before code.
 
-**Query-editor UX, round 2 (043→044, + 041 amend)** — builds on the tab model: 043 adds **saved
+---
+
+## Query-editor UX, round 2 (SPEC-043 → 044, + 041 amend — shipped)
+
+Builds on the tab model: 043 adds **saved
 queries** (Save in the Run bar → named JSON store at `{username}/user_settings/saved-queries.json`,
 same IAM as history; a saved-queries slide-out drawer; open-in-new-tab, re-save-in-place, delete-with-
 confirm, dirty marker; History + Saved-queries buttons hoisted to a workspace-global bar; runs from a
@@ -46,7 +83,11 @@ toast). SPEC-041 was **amended** (pre-build): the 10-tab cap now raises a "close
 named tabs. No IAM/infra change across this round (043/044 reuse existing analytics + file-browser
 access; the `?prefix=` deep-link is frontend-only).
 
-**Query-editor UX, round 3 (046→049, one-offs)** — small, mostly independent additions on the
+---
+
+## Query-editor UX, round 3 (SPEC-046 → 049, one-offs — shipped)
+
+Small, mostly independent additions on the
 SPEC-034→044 workspace: 046 adds a **Refresh** control to the history drawer (manual re-read of
 `query-history.json`); 047 introduces a **workspace database switcher** (the schema-browser rail lists the databases you can
 query and switching one updates the tables/views + the Run target; the database is **workspace-global**;
@@ -58,7 +99,15 @@ files** — a destination+filename prompt that server-side-copies Athena's compl
 the user's space (all rows, not just the loaded page). 047 is a dependency of 048; the rest are
 independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics access).
 
-**Shared-connections arc (050+056→055)** — Bucket 2 (`dat-prod-shared-space`): user-created, uniquely-named,
+> **047's active-database model was removed by SPEC-077** (round 5, below): no workspace/current database anywhere —
+> every base table is fully-qualified `database.table` and the schema rail is browse-only. Read the switcher and DB-chip
+> text above as history; full entry in `docs/decisions.md`.
+
+---
+
+## Shared-connections arc (SPEC-050 + 056 → 055 — shipped)
+
+Bucket 2 (`dat-prod-shared-space`): user-created, uniquely-named,
 non-renameable shared connections (name = shared S3 prefix = shared Glue DB), provisioned by an async
 **SQS → EventBridge Pipe → Step Function** pipeline (validate → create → update permissions). Access is
 gated by a **membership principal tag** on the shared role (10 bounded Cognito attribute slots; LF grants
@@ -67,7 +116,7 @@ truth = an **S3 control-object registry** in the analytics admin bucket (`shared
 pipeline-only); each user's `{username}/user_settings/shared-connections.json` is a UI **cache** the pipeline
 writes (pending/active/failed status). Shared-DB query results route to the shared prefix. Decision record:
 `docs/architecture.md` → *Control Planes → Shared Spaces* (reverses the "no backend" decision for shared-space mutations only).
-build order is **050 → 056 → 051 → 052 → 053 → 054 → 055 → 057**: 050 = foundation plumbing (buckets, SQS/Pipe/Step
+The specs compose as: 050 = foundation plumbing (buckets, SQS/Pipe/Step
 Function skeleton, orchestrator role, deploy IAM); 056 = access model + request contract (membership tags,
 portal-role slots, LF registration, actor binding) — split from 050 so the IAM/access wiring applies separately;
 051 = create; 052 = the **Connections** top-level tab + `useConnections` (personal + shared in one list) + refresh,
@@ -79,7 +128,11 @@ Connections) manages spaces; shared connections also appear inline in the Query 
 list; the workspace database is global. Three CONFIRM items in the decision record were resolved (cap = 10; valid
 user = exists in the User Pool; registry reuses the admin bucket).
 
-**Notifications arc (058 → 059 → 060 → 061)** — a per-user notifications inbox. A notification is `{id, message, read,
+---
+
+## Notifications arc (SPEC-058 → 061 — shipped)
+
+A per-user notifications inbox. A notification is `{id, message, read,
 timestamp}`; the inbox is one JSON array at `{username}/user_settings/notifications.json` in the existing user-space
 bucket. **Single-writer model:** every mutation — system `create` **and** user actions (`markRead`/`markAllRead` — there
 is **no delete**) — is a message on a **FIFO SQS queue that triggers the notifications-writer Lambda directly** (SQS
@@ -102,7 +155,11 @@ terminal outcome of its lifecycle actions (seven events: created / create-failed
 add-unknown-user / member-left / deleted — delete fans out to the deleter + all members), granted `sqs:SendMessage` on the notifications queue. Reuses `Pager`/`IconButton`/
 `Badge`/`Toast`; 060 adds no IAM/infra; 061 adds only the SendMessage grant on the emitting verb-Lambda roles (SPEC-062; the single orchestrator role pre-062) + queue-URL env wiring + the inline emit calls.
 
-**Control-plane refactor (062, standalone)** — the shared-space control plane shipped (050→054) as a **single
+---
+
+## Control-plane refactor (SPEC-062, standalone — shipped)
+
+The shared-space control plane shipped (050→054) as a **single
 711-line provisioner Lambda** with an `action`-switch (create/add_members/remove_members/leave/delete) + inline JWT
 verify + all helpers, under one broad orchestrator role. SPEC-062 decomposes it to the architecture's original intent
 (§7 "provisioning Lambda(s)"): the **Step Function orchestrates single-task Lambdas** — `entry → validate-authorize →
@@ -114,7 +171,15 @@ through 053 from the Connections tab), and each verb **emits its SPEC-061 notifi
 The old provisioner function/role/tests are removed at cutover. Follows `docs/best-practices/lambdas/lambdas.md`;
 decision recorded in `docs/architecture.md` → *Control Planes → Shared Spaces*.
 
-**Query-editor UX, round 4 (063→065, user-feedback one-offs)** — three independent presentation/editor refinements
+> **The per-verb least-privilege roles were descoped (user decision, SPEC-062 FR-005):** every verb runs on **one
+> shared orchestrator role**. Read the roles claim above as history; full entry in `docs/decisions.md` → *Bucket 2
+> (shared-space)*.
+
+---
+
+## Query-editor UX, round 4 (SPEC-063 → 065, user-feedback one-offs — shipped)
+
+Three independent presentation/editor refinements
 on the SPEC-034→049 workspace, no data-layer/IAM change: **063** restructures the schema rail into a **tree** — each
 accessible database is a collapsible node with two collapsible sub-groups, **Tables** and **Views** (grouped beneath
 their database); expanding to browse is **decoupled** from selecting the SPEC-047 workspace-global active target
@@ -127,7 +192,15 @@ no schema. All three are independent and can ship in any order. *(A fourth feedb
 numbers — was already delivered in `QueryResultsTable` (SPEC-038, the `#` column = `rangeStart + rowIndex`), so no spec
 was written.)*
 
-**Create-Table-from-Files / "Table Builder" arc (066 → 067 → 068 → 069 → 070 → 071, + 072 producer)** — a new
+> **The active-database model referenced above was removed by SPEC-077** (round 5, below): no current database anywhere —
+> 063's radio-style active control is gone (the tree is browse-only) and 065's autocomplete became schema-wide over
+> fully-qualified `database.table` names. Read the active-DB references as history; full entry in `docs/decisions.md`.
+
+---
+
+## Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer — shipped)
+
+A new
 **dedicated** async control plane (its own FIFO **SQS → EventBridge Pipe → Step Function**, **single-task Lambdas**
 with per-verb least-privilege roles) that turns a folder of data files into a Glue/Athena **external table** in the
 database the space maps to (personal = username; shared = space name). Decision record:
@@ -152,13 +225,14 @@ name dialog **+ partition-keys section** + enqueue (the only browser surface); *
 066→067→068→069→070→071; **072** after the notifications queue (058) + the verb Lambdas. New Lambda deps: **polars**
 (layer). New IaC: `infra/modules/table-builder/`.
 
-**Build order across the two arcs:** **SPEC-062 lands before SPEC-061** — the notification producer's inline emits
-attach to the decomposed verb Lambdas, so decomposing first avoids adding emit logic to the monolith and then moving
-it. SPEC-061 is written to also work against the pre-062 monolith (same call sites at each terminal branch) if it must
-ship first, but **062 → 061** is the intended sequence. The notifications-infra arc (058 → 059 → 060) is independent of
-the shared-spaces refactor and can proceed in parallel; only **061** depends on both (058's queue + 062's verb Lambdas).
+> **The per-verb least-privilege roles were descoped here too (same user decision as SPEC-062):** the five verbs run
+> on **one shared execution role**. Full entry: `docs/decisions.md` → *Table Builder (SPEC-066→072)*.
 
-**Query-editor UX, round 5 (077→080) + file-browser one-off (081)** — a user-feedback batch (2026-07-01), no
+---
+
+## Query-editor UX, round 5 + file-browser one-off (SPEC-077 → 080, + 081 — shipped)
+
+A user-feedback batch (2026-07-01), no
 data-layer/IAM change: **077** removes database **selection** entirely — no "current database" anywhere; the schema
 rail becomes **browse-only** across every accessible database and runs carry **no** `QueryExecutionContext.Database`, so
 **every base-table reference must be fully-qualified `database.table`** (`FROM`/`JOIN`/subqueries/CTE bodies; unqualified
@@ -178,9 +252,21 @@ download it** via the existing presigned-URL flow (both authenticated + read-onl
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
 
-**Table-Share arc (088 → 089 → 090 → 091 → 092 → 093, + 094 producer)** — filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/architecture.md` → *Control Planes → Table Share* (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
+---
 
-**App-shell / schema-rail UX one-offs (085, 086)** — filed 2026-07-02, both presentation-only (no data-layer/IAM/infra).
+## Table-Share arc (SPEC-088 → 093, + 094 producer — shipped)
+
+Filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/architecture.md` → *Control Planes → Table Share* (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
+
+> **"An LF admin" is history in one load-bearing way (SPEC-111 correction):** admin status does **not** confer
+> `CREATE_TABLE` — table creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions.md` →
+> *Control-plane table creation = TBAC*.
+
+---
+
+## App-shell / schema-rail UX one-offs (SPEC-085, 086 — shipped)
+
+Filed 2026-07-02, both presentation-only (no data-layer/IAM/infra).
 **085** adds a **collapsible side nav**: the Files spaces `Sidebar` and the Query `SchemaBrowser` share the same 248px rail
 chrome, so it's factored into one **`CollapsibleRail`** base component with a collapse control; collapsed = **fully hidden +
 a reopen handle** (not a slim icon rail), and the state is **persisted per browser in `localStorage` under one shared key**
@@ -189,7 +275,11 @@ so the choice carries across both rails. Below-`tablet` behavior (rail hidden) a
 (`queryKeys.schema(database)` invalidate/refetch via the existing `useSchema`/`invalidateSchema`) — manual, per-node, error
 non-destructive; mirrors the SPEC-046 history-refresh pattern. Both are independent of each other and of everything else.
 
-**Best-practice audit follow-ups (082→084)** — filed 2026-07-02 from a read-only audit of the Lambdas + SPA against
+---
+
+## Best-practice audit follow-ups (SPEC-082 → 084 — shipped)
+
+Filed 2026-07-02 from a read-only audit of the Lambdas + SPA against
 `docs/best-practices/`; all code-only, no IAM/infra. **082** fixes a lost-update race in the shared-space **registry**
 writers (`finalize`/`save_members`/`set_status`/`reserve` retry) by giving them the same optimistic ETag CAS the
 `cache.py` sibling already uses. **083** bundles the cross-cutting Lambda hardening items (config validate-at-init;
@@ -200,7 +290,11 @@ timer cleanup; fix the query submit de-dupe guard's stale read; resolve `QueryRe
 the query editor's Monaco completion-provider registration/disposal remount-safe
 (tab switches / StrictMode) so autocomplete can't silently die. All three are independent of each other.
 
-**Responsive & Files-UX arc (095 → 099, then 100/101/102/103, + 104)** — filed 2026-07-08 from the Claude Design
+---
+
+## Responsive & Files-UX arc (SPEC-095 → 104 — shipped)
+
+Filed 2026-07-08 from the Claude Design
 responsive mockups (`docs/design/Responsive Breakpoints.dc.html` + `README.md` + `design-system.md`); makes the whole
 app responsive across mobile (base, `< 900px`) / tablet (`tablet:`, 900–1299px) / desktop (`desktop:`, ≥1300px) — **two
 custom `@theme` breakpoints** in `App.css` (`--breakpoint-tablet: 900px`, `--breakpoint-desktop: 1300px`; the Tailwind
@@ -229,7 +323,11 @@ Landing/sign-in (nav → hamburger menu; hero 46→40→32px; CTAs full-width st
 (public page; optionally reuses the 095 `Menu`). Build order **095 → 096/097/098 → 099 → 100/101/102/103 → 104**. No new
 env vars, deps, or IAM.
 
-**Control-plane-common prerequisite (107)** — filed 2026-07-11. `tbcommon/auth.py` and `tscommon/auth.py` are already
+---
+
+## Control-plane-common prerequisite (SPEC-107 — shipped)
+
+Filed 2026-07-11. `tbcommon/auth.py` and `tscommon/auth.py` are already
 **near-identical twins** (same logic; they differ only in an import order and one error string); the two arcs below would take
 that to **four independent copies of the JWT verification path**. **107** extracts the shared surface
 (auth/clients/errors/registry/s3_listing/notify/messages/events) into one **`cpcommon` layer** that every control-plane verb
@@ -242,12 +340,25 @@ data-quality reports as source data), and the **CI layer-size guard** becomes a 
 overflow). `shared-space-common` is deliberately **not** folded in. **107 ships as two PRs** (the layer is a new resource; the
 deploy-role grant must apply first). **Build 107 before either arc below.**
 
+---
+
+## File-converter arc (SPEC-115 → 122 — cancelled)
+
 > **THE FILE-CONVERTER ARC (115 → 122) IS CANCELLED (2026-08-03, user decision).** A data converter
 > is not a feature this product will carry. Nothing was built — no infra, no Lambdas, no IAM — so
 > there is nothing to unwind; the eight specs stay in the repo as `Cancelled` for the design record
 > only. **Do not build them, and do not treat the arc narrative below as pending work.** The
 > file-converter architecture record has been removed (never built). Everything the text below says
 > about *data quality* (108 → 114) still stands and shipped — the two arcs were always independent.
+
+The converter-only design survives interleaved in the data-quality narrative below (the two arcs were filed and
+re-architected together): the `UNLOAD`-not-`CTAS` choice, the v3.1 `ClientRequestToken` double-output trap, the
+Cleanup cross-user-delete security fix (the origin of the no-`s3:DeleteObject` rule both arcs share), and SPEC-122's
+trust-marker design. Read all of it as design record only.
+
+---
+
+## Data-quality arc (SPEC-108 → 114, + 123 → 124 — shipped)
 
 **Data-quality arc (108 → 114)** and **file-converter arc (115 → 121)** — filed 2026-07-11 from
 their architecture decision records (data-quality since folded into `docs/architecture.md` → *Control Planes → Data Quality*; the file-converter record and the 2026-07-11 review doc are removed), both **re-architected (v3)** after that review **and** the 250 GB source-file requirement. Two **independent** dedicated async control
@@ -268,6 +379,10 @@ that must then be dropped; files are the deliverable), and data quality runs **o
 table. **The consequence, stated plainly: both execution roles now need Glue + Athena + Lake Formation admin** (target DBs are
 dynamic per-user/per-space so can't be statically LF-granted — same reasoning as SPEC-070). The earlier design's "zero catalog
 access, tiny blast radius" property is **deliberately surrendered**; it was a real virtue and 250 GB is worth more.
+
+> **"Lake Formation admin" was corrected by SPEC-111:** admin status does **not** grant `CREATE_TABLE` — table
+> creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions.md` → *Control-plane table
+> creation = TBAC*.
 
 Cross-cutting decisions that shape both arcs: **(1) the Athena poll lives in the STATE MACHINE** (`Wait → check-query →
 Choice`), not inside a Lambda — table-builder's `execute-ddl` polls in a 300 s Lambda, which is fine for a `CREATE TABLE` and
@@ -326,9 +441,8 @@ Lambda cannot mint a user's token, and a forgeable assertion would let someone c
 another user's data**. So Table Builder gains an **internal FIFO queue the portal role cannot write to**, fed into the same state
 machine by a **second Pipe whose input transformer stamps the trust marker** (the public Pipe stamps it `null`) — the marker is
 **infrastructure-set and cannot be smuggled in a body**, and a trusted producer asserts **identity only**, never entitlement.
-**Note:** the shipped notifications pipeline is *not* a safe model to copy — `notifications_writer.py::_resolve_username` takes
-`username` straight from the body for `create` while the portal role can write to that queue, so a browser can inject a
-notification into any other user's inbox today. **Real, shipped, low-severity, and tracked separately.** SPEC-122 is **additive and
+**Note:** the shipped notifications pipeline is *not* a safe model to copy — see `docs/security-baseline.md` →
+*Design finding — notifications `create` spoofing* (real, shipped, low-severity, tracked there). SPEC-122 is **additive and
 last**; nothing else depends on it.
 
 **SPEC-123 — the data-quality runs dashboard** (user request, 2026-07-12). The arc already stored **one JSON per run in a hidden
@@ -492,7 +606,7 @@ in the repo is registered or explicitly excluded.
 
 ---
 
-## Refresh-table arc (SPEC-143 → 144 → 145)
+## Refresh-table arc (SPEC-143 → 144 → 145 — active)
 
 Filed 2026-08-03 (user request). **Table Builder writes a schema once and never looks again.** It infers columns from a
 bounded read of one sample file, issues `CREATE EXTERNAL TABLE`, and stops. When files with new columns land in the same
@@ -587,7 +701,7 @@ arc reads the `cognito:username` claim outside `cpcommon.auth`, so it survives u
 
 ---
 
-## Username-directory arc (SPEC-146 → 147 → 148)
+## Username-directory arc (SPEC-146 → 147 → 148 — active)
 
 Filed 2026-08-03 (user request). **Every flow that asks a user to name another user asks by free text.** `AddMembersDialog`
 is a textarea, `TableShareDialog` is an input with chips; both run `parseMemberInput`, which silently drops anything failing

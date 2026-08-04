@@ -24,13 +24,56 @@ credential-plane split, the reconciler design and the surviving spike gates — 
 1. [What is changing](#1-what-is-changing)
 2. [Settled decisions](#2-settled-decisions)
 3. [Target architecture — the identity and authorization model](#3-target-architecture--the-identity-and-authorization-model)
+   - [3.1 What the end state has to support](#31-what-the-end-state-has-to-support)
+   - [3.2 Why trusted identity propagation is the only mechanism](#32-why-trusted-identity-propagation-is-the-only-mechanism)
+   - [3.3 Two Cognito–Identity Center connections, in opposite directions](#33-two-cognitoidentity-center-connections-in-opposite-directions)
+   - [3.4 Two credential planes off one login](#34-two-credential-planes-off-one-login)
+   - [3.5 The catalog-plane token flow, and why the backend holds state](#35-the-catalog-plane-token-flow-and-why-the-backend-holds-state)
+   - [3.6 The carrier role](#36-the-carrier-role)
+   - [3.7 How Lake Formation enforces](#37-how-lake-formation-enforces)
+   - [3.8 The reconciler](#38-the-reconciler)
 4. [Deployment topology](#4-deployment-topology)
+   - [4.1 The constraint that still settles it](#41-the-constraint-that-still-settles-it)
+   - [4.2 What first tenancy buys, and what it obliges](#42-what-first-tenancy-buys-and-what-it-obliges)
+   - [4.3 Reversibility](#43-reversibility)
+   - [4.4 The account-wide singletons are now portal-created](#44-the-account-wide-singletons-are-now-portal-created)
+   - [4.5 A third counterparty — unchanged](#45-a-third-counterparty--unchanged)
+   - [4.6 Hosting moves from CloudFront to a container](#46-hosting-moves-from-cloudfront-to-a-container)
+   - [4.7 The backend, and where its state lives](#47-the-backend-and-where-its-state-lives)
 5. [The open fork — the permission-set path](#5-the-open-fork--the-permission-set-path)
+   - [5.1 The two paths](#51-the-two-paths)
+   - [5.2 Why Path A is attractive](#52-why-path-a-is-attractive)
+   - [5.3 What Path A costs](#53-what-path-a-costs)
+   - [5.4 The experiment](#54-the-experiment)
+   - [5.5 Gates inherited from the retired spike](#55-gates-inherited-from-the-retired-spike)
 6. [Risk register — the five hard problems](#6-risk-register--the-five-hard-problems)
+   - [6.1 The federated username claim is not `cognito:username`](#61-the-federated-username-claim-is-not-cognitousername)
+   - [6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)](#62-first-tenant-singleton-ownership-was-the-lake-formation-iac-overwrite)
+   - [6.3 Destructive code paths during the sync-and-seed window](#63-destructive-code-paths-during-the-sync-and-seed-window)
+   - [6.4 Shared workspace seeding (was: adoption — nothing is adopted anymore)](#64-shared-workspace-seeding-was-adoption--nothing-is-adopted-anymore)
+   - [6.5 The sync and the cutover (was: retiring bespoke roles — deleted; they are never created)](#65-the-sync-and-the-cutover-was-retiring-bespoke-roles--deleted-they-are-never-created)
 7. [Phases](#7-phases)
+   - [Phase 0 — Discovery, contract and experiments (no product code)](#phase-0--discovery-contract-and-experiments-no-product-code)
+   - [Phase 1 — Stand up the portal in the successor account](#phase-1--stand-up-the-portal-in-the-successor-account)
+   - [Phase 2 — First data sync: personal spaces](#phase-2--first-data-sync-personal-spaces)
+   - [Phase 3 — Shared workspaces](#phase-3--shared-workspaces)
+   - [Phase 4 — Analytics on the synced model](#phase-4--analytics-on-the-synced-model)
+   - [Phase 5 — Identity Center identities in Lake Formation](#phase-5--identity-center-identities-in-lake-formation)
+   - [Phase 6 — Cutover and decommission](#phase-6--cutover-and-decommission)
 8. [Open questions by gating phase](#8-open-questions-by-gating-phase)
 9. [What this leaves behind](#9-what-this-leaves-behind)
 10. [Sources](#10-sources)
+
+**Read map** — `CLAUDE.md` says "read before touching auth, provisioning or LF"; in practice:
+
+- **Touching auth** (Cognito, tokens, sign-in, anything reading the username claim) → §3
+  (especially §3.3–3.5) plus §6.1 — the federated claim is **not** `cognito:username`, the
+  highest-consequence detail in the migration.
+- **Touching provisioning / de-provisioning** (creating or deleting user/space resources, the
+  account-wide LF singletons) → §4.4 and §6.2 (portal-created singletons and their ownership),
+  §6.3 (destructive paths during the sync-and-seed window).
+- **Touching Lake Formation re-keying** (grants moving to Identity Center principals) → §3.7 (how
+  LF enforces) and Phase 5 (the work items); §3.8 for the reconciler that projects the grants.
 
 ---
 

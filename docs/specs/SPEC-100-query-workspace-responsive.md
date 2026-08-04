@@ -1,8 +1,8 @@
 # Spec: Query Workspace — Responsive Layout
 
 **ID:** SPEC-100  
-**Status:** Draft  
-**Last Updated:** 2026-07-08  
+**Status:** Completed  
+**Last Updated:** 2026-08-03  
 **Depends On:** SPEC-095
 
 ## Overview
