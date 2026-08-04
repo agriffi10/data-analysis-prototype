@@ -21,7 +21,7 @@ type QueryResultsMobileProps = {
   /** False for DDL / no-result statements, so no row-count stat is claimed. */
   hasResultSet: boolean;
   totalRowCount: number | null;
-  /** True once a run has been submitted from this view (or the card that opened it). */
+  /** True while this view's own run is in flight or settled — drives the status strip. */
   hasRun: boolean;
   /** Friendly, already-mapped failure text (SPEC-106); null when there's nothing to show. */
   errorMessage: string | null;
@@ -89,7 +89,9 @@ export function QueryResultsMobile({
         {sql}
       </pre>
 
-      {hasRun && (
+      {/* Only when there is something to report — a submit that never reached
+          Athena has its failure in the banner below, not an empty strip. */}
+      {hasRun && (isInFlight || status) && (
         <QueryStatusBar
           status={status}
           isInFlight={isInFlight}

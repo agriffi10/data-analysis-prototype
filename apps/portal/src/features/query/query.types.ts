@@ -83,7 +83,10 @@ export type ResultTab = {
  * Which surface the mobile (`< tablet`) browse-first workspace is showing —
  * local UI state, never persisted (SPEC-100 FR-004/006).
  */
-export type MobileQueryView = {kind: 'home'; tab: 'saved' | 'history'} | {kind: 'results'; sql: string; title: string};
+export type MobileQueryView = {kind: 'home'} | {kind: 'results'; sql: string; title: string};
+
+/** Which list the mobile home is showing; kept beside the view so Back returns to it. */
+export type MobileHomeTab = 'saved' | 'history';
 
 export type ConnectionKind = 'personal' | 'shared';
 

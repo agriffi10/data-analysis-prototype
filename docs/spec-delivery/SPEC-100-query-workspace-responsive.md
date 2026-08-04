@@ -45,12 +45,84 @@ service, data-layer, routing, IAM or infra change; the run path is the shipped o
   single-row bar.
 - `SchemaBrowser` (SPEC-035/077) now composes the extracted `SchemaTree` (same DOM inline).
 
+## Correction — review findings fixed after merge
+
+The fresh-context review ran **after** `#337` merged (it should have run before). It found two real
+defects, fixed in the follow-up PR; both are worth knowing because they are the kind a mobile branch
+invites.
+
+1. **The mobile results view could wear another query's outcome.** The gate keyed on the SQL *text*
+   plus "a run was requested", while `status`/`results` came through ungated. `submitBatch` installs
+   its run **asynchronously** (it awaits `runQuery` *and* the history append), so between the tap and
+   that commit the view showed the new query's title over the previous run's Succeeded strip and rows
+   — and if `runQuery` failed outright, that pairing was permanent. Crossing the breakpoint mid-run
+   left the same mismatch. Fixed with a **run token**: `submitBatch` takes an optional caller token,
+   stores it on the `TabRun`, and returns whether the submit began; the view adopts status/rows only
+   while `activeRun.token` is its own, treats "requested, not yet installed" as in-flight, and its
+   state resets when the viewport leaves mobile. **SQL text is not a run identity.**
+2. **Running a card overwrote the editor's persisted draft.** `handleMobileRun` called
+   `tabs.setActiveSql(sql)`, which `useQueryTabs` persists to sessionStorage — so a run from a narrow
+   window destroyed a draft the user left on a wide one. `submitBatch` takes its statements
+   explicitly and never read that buffer, so the write served nothing. Removed.
+
+Further review passes hardened it. The next rejected the first attempt at (1): the token closed the wrong-data hole but
+derived "pending" by elimination (*token set, no run, no error*), so **dismissing a failed run's
+banner flipped the view into a permanent "Running your query…"**, as did any change of active tab
+under the view. `phase` is now reported by the submit itself (`submitBatch` takes an `onOutcome`
+callback) and the ownership check is scoped to the tab the run was submitted into. The same pass
+found the drawer's **View data / View DDL** are reachable on a phone, where they opened a tab nothing
+can display — both now route into the mobile results view.
+
+A later pass found the fix had **moved** the mismatch rather than removed it: a mobile run
+deliberately leaves the editor buffer alone, so crossing back up to `tablet` paired the editor's
+draft with the mobile run's results. The editor shell now **disowns any run carrying a token** — status strip, error banner, results
+grid, result tabs, page-size control and the empty-state line (`editorOwnsRun`), with one line
+explaining the locked toolbar while such a run is still in flight — the run itself keeps polling, finalizes and lands in history,
+exactly as a closed tab's does. The same pass caught that an unreported submit (a service that
+*throws* rather than returning a failed `ServiceResult`) would leave the view waiting forever, that
+Run stayed enabled while the view said "Running your query…", and that the editor-shell drawers
+(history / saved queries) stayed mounted on mobile where their Open/Re-run actions write the editor
+buffer. All three fixed; `submitBatch`'s run identity is now a single `{token, onOutcome}` object so
+a token can't be passed without the callback that settles it.
+
+A final pass closed the last of the family: a mobile submit that fails **never installs a run**, so
+no token can mark it and its banner landed on the editor shell — clearing it at the crossing only
+narrowed the race rather than removing it. An owned submit's failure now travels through
+`onOutcome(false, message)` into the mobile view's own state and **never touches the tab's
+`runErrors`**, so there is no moment at which it can be read as the editor's.
+
+Also fixed: Back now returns to the list the run started from (it always landed on Saved);
+`useAllSchemas` is skipped below `tablet` (2 Glue calls per database for an autocomplete that can't
+exist there); history-row and card actions are ≥44px on a phone (they were 24px/36px, missing Phase
+4's own target). **`MobileQueryView` is now `{kind:'home'} | {kind:'results',…}`** with the home tab
+held beside it — the spec's shape kept the tab inside `home`, which made Back's target a second
+source of truth.
+
+**Known, accepted:** a submit that fails *after* the user has left the results view (Back, or the
+viewport growing past `tablet`) is now silent — its error belongs to that view's state, which is
+gone. The window is one `runQuery` round trip, and the alternative that was rejected is worse: the
+banner reappearing beside SQL that didn't produce it. A toast would close it; the ownership check
+lives inside a state updater, where a side effect doesn't belong, so it wants a small refactor rather
+than a one-liner.
+
+**Correction to this document:** the Verification line below originally said lint includes the React
+Compiler. It does not — this repo has no `babel-plugin-react-compiler` and `vite.config.ts` uses bare
+`@vitejs/plugin-react`; only `eslint-plugin-react-hooks`' compiler-backed *lint rules* run.
+
 ## Verification
 
-`format:check` + `lint` (incl. the security plugins and React Compiler) + `tsc -b` + `build` clean;
-full suite green — **1207 tests, +23**. New: `QueryMobileView.test.tsx` (8), `QueryResultsMobile.test.tsx`
+`format:check` + `lint` (incl. the security plugins) + `tsc -b` + `build` clean;
+full suite green — **1216 tests** (+23 with the spec, +9 more with the review fixes: cross-query
+outcome, editor draft untouched, Back's target, a dismissed failure not claiming to be running, an
+honest in-flight state before the run installs, a throwing submit still settling, View data from the
+drawer landing somewhere visible, and two crossing-the-breakpoint handoffs). New: `QueryMobileView.test.tsx` (8), `QueryResultsMobile.test.tsx`
 (8), a `QueryWorkspace` responsive block (mobile pares to browse-first, rail off-canvas via a
 `NavRailProvider` probe, saved-card Run → row cards + pager → back, tablet toolbar labels) and a
-mobile route-level axe case. **Not browser-verified:** `/query` is auth-gated and the preview can't
+mobile route-level axe case. **On testing a breakpoint crossing:** the harness's `matchMedia` stub has no-op listeners, but its
+`matches` is a live getter over `window.innerWidth` and `useBreakpoint` re-reads the snapshot on every
+render — so setting the width and re-rendering the tree *does* cross the tier. An earlier draft of
+this doc claimed it couldn't be done, and both defects the last review found were in exactly that
+path; the leaving-mobile handoff is now covered by two tests.
+**Not browser-verified:** `/query` is auth-gated and the preview can't
 hold a Cognito session (same limitation recorded in SPEC-099); the breakpoint tokens themselves are
 browser-verified via SPEC-095.

@@ -251,7 +251,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Tap <b>Run</b> on any card to run that query, or <b>View</b> to read its SQL without running it.',
           'Results show one card per row — each card lists every column and its value — with <b>Prev</b> and <b>Next</b> at the bottom to page through them.',
           'Tap <b>Run</b> at the top of the results to run it again, or the back arrow to return to your lists.',
-          'Need the schema? Open the menu in the header — your databases and their tables are in the drawer.'
+          'Need the schema? Open the menu in the header — your databases and their tables are in the drawer.',
+          'From a table’s <b>⋮</b> menu in that drawer, <b>View data</b> opens the table’s rows in the results view, and <b>View DDL</b> shows how the table was defined.'
         ]
       }
     ]
