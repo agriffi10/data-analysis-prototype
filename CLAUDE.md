@@ -73,14 +73,12 @@ down elsewhere — when a spec closes, prune it rather than appending.**
 the change, refuses an un-opted-into removal, and rebuilds the table. **Reachable only by a
 hand-crafted SQS message — no browser surface until 145.**
 
-**Next work: a new spec for `glue:UpdateTable` (149 is the next free number), agreed to land BEFORE
-SPEC-145.** It replaces the table definition in place instead of DROP + CREATE — no window in which
-the table does not exist, table identity preserved, and it handles the retype and remove that `ALTER
-TABLE ADD COLUMNS` cannot. Its costs: it bypasses the Athena DDL path SPEC-070 chose deliberately
-("the same LF-enforced create path users already exercise"), needs a new IAM action, and needs its
-own verification. **Sequencing matters** — once 145 makes refresh reachable, whichever rebuild
-mechanism users have been exercising is the one you are committed to. Full reasoning: the DROP +
-CREATE cost paragraph in SPEC-144 FR-004 and the decisions entry.
+**Next to build: SPEC-149 (in-place rebuild via `glue:UpdateTable`), written and sequenced BEFORE
+SPEC-145.** `apply-refresh` stops issuing DROP + CREATE and updates the definition in place: no
+window in which the table does not exist, no catalog-metadata loss, and both of SPEC-144's recorded
+exposures retired or reduced. It also **removes** `glue:DeleteTable` rather than adding a permission.
+**Sequencing matters** — once 145 makes refresh reachable, whichever rebuild mechanism users have
+exercised is the one their tables carry the history of.
 
 What remains below is the live checks that are owed.
 
@@ -168,8 +166,8 @@ What remains below is the live checks that are owed.
   `table_not_found`. FR-006 AC1 claimed otherwise and is amended. (2) **A committed drop followed by
   exhausted retries notifies nobody** — `notifies_on_failure` stays quiet on `TransientError` by
   design and `RecordFailure` is a `Pass` with no notification path. Pre-existing for every verb here;
-  the novelty is a destructive side effect. Both are closed outright if the `glue:UpdateTable` spec
-  above lands, which is the main argument for sequencing it first.
+  the novelty is a destructive side effect. **SPEC-149 retires (2) outright and reduces (1)** — it is
+  the main argument for sequencing that spec before 145.
 - **SPEC-142 fixed the ragged/union bug; its Phase 4 is owed live.** Ragged rows are now judged
   against each file's own header via a `CASE` on `"$path"`. Still to run from the UI: a check over a
   folder whose files deliberately disagree (expect the cross-file finding and **no** ragged count),

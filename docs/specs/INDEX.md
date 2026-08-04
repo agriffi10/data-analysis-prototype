@@ -154,6 +154,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 146 — Username Directory: Daily Builder Lambda & Published Index | Draft |
 | 147 — Username Directory: Browser Data Layer & Typeahead Combobox | Draft |
 | 148 — Username Typeahead in Add Members & Table Share | Draft |
+| 149 — Refresh Table: In-Place Rebuild via `glue:UpdateTable` | Draft |
 
 ## Arcs
 
