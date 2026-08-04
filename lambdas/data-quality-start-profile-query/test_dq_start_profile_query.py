@@ -111,11 +111,90 @@ def test_the_ragged_query_runs_against_the_raw_table(started):
     assert "cardinality(split(" in ragged["query"]
 
 
-def test_the_ragged_query_compares_against_the_column_count(started):
+def test_the_ragged_query_compares_against_each_files_own_column_count(started):
+    """SPEC-142 — keyed on the full s3:// form Athena's "$path" returns, and built from the
+    manifest's per-file `columns` rather than the union. Partition keys are NOT in the
+    physical header, so they are absent from both."""
     v.handler(_event(), None)
     ragged = _by_token(started)[f"{HEX32}-ragged"]
-    # The manifest has two columns, and partition keys are NOT in the physical header.
+
+    assert f"WHEN 's3://{BUCKET}/alice/sales/jan.csv' THEN" in ragged["query"]
     assert "<> 2" in ragged["query"]
+
+
+def test_the_ragged_query_is_not_passed_the_union_column_count(started, monkeypatch):
+    """FR-001's negative half. Two files disagreeing 2-vs-3 gives a union of 3; a query
+    carrying `<> 3` for BOTH files is the bug this spec removes."""
+    monkeypatch.setattr(
+        v.manifest_store,
+        "load",
+        lambda bucket, key: {
+            "partitionKeys": [],
+            "files": [
+                _MANIFEST["files"][0],
+                {
+                    "key": "alice/sales/feb.csv",
+                    "size": 1,
+                    "columns": [
+                        {"name": "order_id", "type": "string"},
+                        {"name": "amount", "type": "string"},
+                        {"name": "region", "type": "string"},
+                    ],
+                },
+            ],
+        },
+    )
+    v.handler(_event(), None)
+    query = _by_token(started)[f"{HEX32}-ragged"]["query"]
+
+    assert f"WHEN 's3://{BUCKET}/alice/sales/jan.csv' THEN cardinality(split(\"line\", ',')) <> 2" in query
+    assert f"WHEN 's3://{BUCKET}/alice/sales/feb.csv' THEN cardinality(split(\"line\", ',')) <> 3" in query
+
+
+def test_a_file_with_no_probed_columns_is_left_out_of_the_comparison(started, monkeypatch):
+    """A count of zero would make every one of its lines ragged — a fabricated finding of
+    exactly the kind SPEC-142 removes. Omitted, its lines fall to the ELSE and are treated
+    as unjudgeable (FR-004)."""
+    monkeypatch.setattr(
+        v.manifest_store,
+        "load",
+        lambda bucket, key: {
+            "partitionKeys": [],
+            "files": [_MANIFEST["files"][0], {"key": "alice/sales/empty.csv", "size": 0, "columns": []}],
+        },
+    )
+    v.handler(_event(), None)
+    query = _by_token(started)[f"{HEX32}-ragged"]["query"]
+
+    assert "empty.csv" not in query
+    assert "ELSE false END" in query
+
+
+def test_a_ragged_query_too_large_to_render_degrades_instead_of_failing(started, monkeypatch):
+    """FR-003 — the guard's refusal is not a terminal. The other two queries still start,
+    and the block takes the same not_computed shape check-query produces for a ragged query
+    that failed, so every reader downstream already handles it."""
+    monkeypatch.setattr(
+        v.manifest_store,
+        "load",
+        lambda bucket, key: {
+            "partitionKeys": [],
+            "files": [
+                {"key": f"alice/{'k' * 900}/{i:04d}.csv", "size": 1, "columns": [{"name": "a", "type": "string"}]}
+                for i in range(1000)
+            ],
+        },
+    )
+
+    out = v.handler(_event(), None)
+
+    assert [kw["client_request_token"] for kw in started] == [
+        f"{HEX32}-profile",
+        f"{HEX32}-dupes",
+    ]
+    assert out["ragged"]["status"] == "not_computed"
+    assert out["ragged"]["reasonCode"] == v.sql.RAGGED_QUERY_TOO_LARGE
+    assert out["ragged"]["queryExecutionId"] is None
 
 
 def test_the_duplicates_query_runs_against_the_typed_table(started):
@@ -241,6 +320,7 @@ def test_it_narrates_how_many_queries_started_and_which(started, captured_events
     assert fields["queries"] == 3
     assert fields["started"] == ["duplicates", "profile", "ragged"]
     assert fields["ragged_applicable"] is True
+    assert fields["ragged_started"] is True
     assert fields["database"] == "alice"
     assert fields["format"] == "csv"
 
@@ -256,6 +336,35 @@ def test_a_parquet_source_reports_ragged_as_inapplicable(started, captured_event
     assert fields["queries"] == 2
     assert fields["ragged_applicable"] is False
     assert "ragged" not in fields["started"]
+
+
+def test_a_ragged_query_the_guard_refused_is_applicable_but_not_started(started, captured_events, monkeypatch):
+    """APPLICABLE AND STARTED ARE DIFFERENT FIELDS (SPEC-142). Counting the degraded block
+    as started would put a query in the narrative that was never submitted — the shape that
+    makes a log unusable for "did this actually run".
+    """
+    monkeypatch.setattr(
+        v.manifest_store,
+        "load",
+        lambda bucket, key: {
+            "partitionKeys": [],
+            "files": [
+                {"key": f"alice/{'k' * 900}/{i:04d}.csv", "size": 1, "columns": [{"name": "a", "type": "string"}]}
+                for i in range(1000)
+            ],
+        },
+    )
+
+    v.handler(_event(), None)
+
+    fields = captured_events.messages("started queries")[0]["fields"]
+    assert fields["ragged_applicable"] is True
+    assert fields["ragged_started"] is False
+    assert "ragged" not in fields["started"]
+
+    warned = captured_events.messages("ragged query too large to render")
+    assert len(warned) == 1
+    assert warned[0]["fields"]["reason_code"] == v.sql.RAGGED_QUERY_TOO_LARGE
 
 
 def test_the_submission_phase_gets_its_own_child_span(started, captured_events):

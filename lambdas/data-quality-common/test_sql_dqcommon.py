@@ -303,30 +303,102 @@ def test_profile_query_stays_under_athenas_query_string_cap_at_the_column_cap():
     """
     columns = [{"name": f"column_number_{i:03d}", "type": "string"} for i in range(config.DQ_MAX_COLUMNS)]
     q = sql.build_profile_query("alice", "dq_tmp_x", columns, "csv")
-    assert len(q.encode()) < 262_144, len(q.encode())
+    assert len(q.encode()) < config.DQ_MAX_QUERY_BYTES, len(q.encode())
 
 
 # ── The ragged query (FR-003) ────────────────────────────────────────────────
 
 
+ONE_FILE = {"s3://bkt/alice/sales/jan.csv": 5}
+
+
 def test_ragged_query_counts_rows_whose_field_count_differs():
-    q = sql.build_ragged_query("alice", "dq_tmp_raw_x", 5)
-    assert 'cardinality(split("line", \',\')) <> 5' in q
-    assert '"alice"."dq_tmp_raw_x"' in q
+    q = sql.build_ragged_query("alice", "dq_tmp_raw_x", ONE_FILE)
+    assert q == (
+        'SELECT COUNT_IF("line" IS NOT NULL AND "line" <> \'\' AND CASE "$path" '
+        "WHEN 's3://bkt/alice/sales/jan.csv' THEN cardinality(split(\"line\", ',')) <> 5 "
+        "ELSE false END) AS ragged_rows, "
+        'COUNT_IF("line" IS NOT NULL AND "line" <> \'\') AS total_lines '
+        'FROM "alice"."dq_tmp_raw_x"'
+    )
+
+
+def test_ragged_query_compares_each_line_against_its_own_files_count():
+    """SPEC-142 FR-001 — the bug this replaced compared every line against the UNION count,
+    so every data row of a narrower file, AND every file's header, was counted ragged."""
+    q = sql.build_ragged_query(
+        "alice", "raw", {"s3://bkt/a.csv": 3, "s3://bkt/b.csv": 5}
+    )
+    assert "WHEN 's3://bkt/a.csv' THEN cardinality(split(\"line\", ',')) <> 3" in q
+    assert "WHEN 's3://bkt/b.csv' THEN cardinality(split(\"line\", ',')) <> 5" in q
+
+
+def test_ragged_query_renders_branches_in_sorted_order():
+    """The query must be a PURE FUNCTION of its inputs: every submission carries a
+    ClientRequestToken derived from the requestId, and Athena rejects a token replayed with
+    different text — so a Retry that re-rendered the branches in another order would fail
+    the resubmission instead of re-attaching to the original execution."""
+    forward = sql.build_ragged_query("alice", "raw", {"s3://bkt/a.csv": 3, "s3://bkt/b.csv": 5})
+    reversed_ = sql.build_ragged_query("alice", "raw", {"s3://bkt/b.csv": 5, "s3://bkt/a.csv": 3})
+    assert forward == reversed_
+
+
+def test_a_scanned_path_with_no_manifest_entry_is_never_ragged():
+    """FR-004 — the raw-line table scans the folder while the mapping comes from the
+    manifest, so the two can disagree. There is no expected count for such a line and
+    therefore no basis on which to judge it; unjudgeable is not ragged."""
+    q = sql.build_ragged_query("alice", "raw", ONE_FILE)
+    assert "ELSE false END" in q
+
+
+def test_ragged_query_with_no_files_judges_nothing():
+    """A CASE with no WHEN is a syntax error, and there is nothing to compare against."""
+    q = sql.build_ragged_query("alice", "raw", {})
+    assert "CASE" not in q
+    assert "AND false) AS ragged_rows" in q
+
+
+def test_ragged_query_escapes_a_quote_in_an_s3_key():
+    """Trino's ONLY string escape is doubling the quote — tscommon's Hive-style backslash
+    would render a backslash into the path, and a branch that never matches produces no
+    error, just a file's lines silently falling to the ELSE and going uncounted."""
+    q = sql.build_ragged_query("alice", "raw", {"s3://bkt/alice/o'brien.csv": 4})
+    assert "'s3://bkt/alice/o''brien.csv'" in q
+    assert "\\" not in q
 
 
 def test_ragged_query_excludes_blank_lines():
     """A blank line splits to ONE empty field, so on any multi-column source every blank
     line would otherwise be counted as ragged — a false finding in front of the user."""
-    q = sql.build_ragged_query("alice", "raw", 5)
+    q = sql.build_ragged_query("alice", "raw", ONE_FILE)
     assert '"line" IS NOT NULL AND "line" <> \'\'' in q
 
 
 def test_ragged_query_returns_one_row():
     """assemble-report reads the result file whole; this is what makes that safe."""
-    q = sql.build_ragged_query("alice", "raw", 3)
+    q = sql.build_ragged_query("alice", "raw", ONE_FILE)
     assert "GROUP BY" not in q
     assert "ragged_rows" in q and "total_lines" in q
+
+
+def test_the_ragged_query_refuses_rather_than_truncating_when_it_will_not_fit():
+    """FR-003 — a guard that dropped the branches that did not fit would re-introduce
+    SPEC-142's own bug on a subset, invisibly. Built from keys long enough to breach the
+    cap rather than by monkey-patching the constant, because the file COUNT is a poor proxy
+    for the length that actually matters."""
+    long_key = "a" * 900
+    mapping = {f"s3://bkt/{long_key}/{i:04d}.csv": 5 for i in range(config.DQ_MAX_OBJECTS)}
+
+    with pytest.raises(sql.RaggedQueryTooLargeError):
+        sql.build_ragged_query("alice", "raw", mapping)
+
+
+def test_the_ragged_query_fits_at_a_realistic_file_count():
+    """The guard must not be tripping on ordinary sources — a thousand files with keys of
+    a plausible length has to render, or the check would degrade for everybody."""
+    mapping = {f"s3://bkt/alice/sales/2026/part-{i:05d}.csv": 12 for i in range(config.DQ_MAX_OBJECTS)}
+    q = sql.build_ragged_query("alice", "raw", mapping)
+    assert len(q.encode()) <= config.DQ_MAX_QUERY_BYTES
 
 
 # ── The duplicates query (FR-003) ────────────────────────────────────────────
@@ -372,7 +444,7 @@ def test_no_query_uses_hive_backtick_quoting():
     """
     queries = [
         sql.build_profile_query("alice", "t", STR_COLS, "csv"),
-        sql.build_ragged_query("alice", "raw", 3),
+        sql.build_ragged_query("alice", "raw", ONE_FILE),
         sql.build_duplicates_query("alice", "t", STR_COLS, []),
     ]
     for q in queries:

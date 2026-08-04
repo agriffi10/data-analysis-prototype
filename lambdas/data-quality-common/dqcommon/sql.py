@@ -118,6 +118,24 @@ class TooManyColumnsError(ValueError):
     """The source is wider than ``DQ_MAX_COLUMNS``; the caller raises the terminal."""
 
 
+class RaggedQueryTooLargeError(ValueError):
+    """The rendered ragged query is over ``DQ_MAX_QUERY_BYTES`` (SPEC-142 FR-003).
+
+    NOT a terminal, and deliberately its own type rather than a truncated query: the
+    per-path comparison is one branch per file, so a manifest of long keys can outgrow
+    Athena's query-string cap. Silently dropping the branches that don't fit would
+    re-introduce the exact bug this spec fixes — every line of a dropped file judged
+    against somebody else's column count — on a subset nobody could see. The caller
+    degrades the figure to ``not_computed`` instead; the rest of the report still lands.
+    """
+
+
+#: Marker the caller puts on a degraded ragged block so :mod:`dqcommon.report` can pick
+#: the right user-facing sentence. A CODE rather than matched text, unlike the line-too-long
+#: case: that one has to read Athena's own wording, this one is a string we write ourselves.
+RAGGED_QUERY_TOO_LARGE = "ragged_query_too_large"
+
+
 def union_columns(files: list[dict]) -> list[dict]:
     """Union every probed file's columns, first-seen order, first-seen type wins.
 
@@ -397,12 +415,37 @@ def build_profile_query(database: str, table_name: str, columns: list[dict], fmt
     )
 
 
-def build_ragged_query(database: str, raw_table_name_: str, header_column_count: int) -> str:
+def _literal_dml(value: str) -> str:
+    """Single-quote a string LITERAL for a DML statement (Trino).
+
+    DELIBERATELY NOT tscommon.ddl's ``_lit``, and the difference is not stylistic: that one
+    escapes with backslashes, which is Hive's DDL rule. Trino has no backslash escape in a
+    plain string literal — the only escape is DOUBLING the quote — so the Hive form would
+    render a backslash into the S3 path being matched and the branch would simply never
+    fire. A path that never matches produces no error, just a file's lines silently falling
+    to the ``ELSE`` and going uncounted.
+    """
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
+
+
+def build_ragged_query(
+    database: str, raw_table_name_: str, expected_by_path: dict[str, int]
+) -> str:
     """Build the ragged-rows query over the raw-line table (CSV only, FR-003).
 
-    A row is ragged when its field count doesn't match the header's. Splitting the raw
-    line is the only way to see that — by the time the normal SerDe is involved, the
-    ragged row has already been parsed away.
+    A row is ragged when its field count doesn't match the header's — THE HEADER OF THE
+    FILE THE ROW CAME FROM (SPEC-142). Splitting the raw line is the only way to see that:
+    by the time the normal SerDe is involved, the ragged row has already been parsed away.
+
+    ``expected_by_path`` maps the full ``s3://bucket/key`` form Athena's ``"$path"``
+    pseudo-column returns to that file's own header column count. Comparing against a
+    single number — the UNION column count across the folder — is what this spec fixes:
+    on a folder whose files disagree about their columns, every data row of a narrower
+    file was counted ragged, AND SO WAS EVERY FILE'S HEADER, since a header only carries
+    the union's field count when the files already agree. The user saw one problem reported
+    twice, the second time as a large number describing nothing real. Cross-file
+    disagreement has its own finding (``report.cross_file``) and remains its only home.
 
     THE COUNT IS APPROXIMATE, for TWO reasons, and SPEC-112 must label it with both:
 
@@ -417,16 +460,56 @@ def build_ragged_query(database: str, raw_table_name_: str, header_column_count:
     finding in front of the user.
 
     The header itself is not excluded by a filter because it does not need to be: it has
-    exactly ``header_column_count`` fields by definition, so it is never ragged. It IS
-    counted in ``total_lines``, which is why that figure is named for LINES and not rows.
+    exactly ITS OWN file's column count by definition, so it is never ragged. It IS counted
+    in ``total_lines``, which is why that figure is named for LINES and not rows.
+
+    A PATH IN THE SCAN WITH NO MAPPING ENTRY falls to ``ELSE false`` and is never counted
+    ragged (FR-004). The raw-line table reads the folder while the mapping comes from the
+    manifest, so the two can disagree — an object written between the inspection and the
+    query, or one whose header could not be probed. There is no expected count for such a
+    line and therefore no basis on which to judge it; an unjudgeable line is not a ragged
+    one. It still counts toward ``total_lines``, which counts physical lines.
+
+    Branches are rendered in SORTED path order so the query is a PURE FUNCTION of its
+    inputs. Every submission carries a ``ClientRequestToken`` derived from the requestId,
+    and Athena rejects a token replayed with different query text — so a Step Functions
+    Retry that re-rendered the branches in another order would fail the resubmission
+    instead of re-attaching to the original execution.
+
+    Raises ``RaggedQueryTooLargeError`` when the rendered statement exceeds
+    ``DQ_MAX_QUERY_BYTES``.
     """
     line = ddl.quote_dml(RAW_LINE_COLUMN)
     present = f"{line} IS NOT NULL AND {line} <> ''"
-    return (
-        f"SELECT COUNT_IF({present} AND cardinality(split({line}, ',')) <> {header_column_count}) "
-        f"AS ragged_rows, COUNT_IF({present}) AS total_lines "
+    fields = f"cardinality(split({line}, ','))"
+
+    if expected_by_path:
+        branches = " ".join(
+            f"WHEN {_literal_dml(path)} THEN {fields} <> {count}"
+            for path, count in sorted(expected_by_path.items())
+        )
+        ragged = f'CASE "$path" {branches} ELSE false END'
+    else:
+        # A CASE with no WHEN is a syntax error, and there is nothing to judge against
+        # anyway — every line falls to the FR-004 rule.
+        ragged = "false"
+
+    query = (
+        f"SELECT COUNT_IF({present} AND {ragged}) AS ragged_rows, "
+        f"COUNT_IF({present}) AS total_lines "
         f"FROM {ddl.quote_dml(database)}.{ddl.quote_dml(raw_table_name_)}"
     )
+
+    # THE GUARD IS ON THE RENDERED BYTES, never on a file count: DQ_MAX_OBJECTS is 1000 and
+    # an S3 key can be a thousand characters or forty, so a count is a poor proxy for the
+    # length that actually matters.
+    rendered = len(query.encode())
+    if rendered > config.DQ_MAX_QUERY_BYTES:
+        raise RaggedQueryTooLargeError(
+            f"ragged query is {rendered} bytes over {len(expected_by_path)} files, "
+            f"past DQ_MAX_QUERY_BYTES={config.DQ_MAX_QUERY_BYTES}"
+        )
+    return query
 
 
 def build_duplicates_query(
