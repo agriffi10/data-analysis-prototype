@@ -12,6 +12,14 @@ user-reachable**; SPEC-145 owns the browser surface, and sequencing this before 
   with `SkipArchive=False`, the post-condition `GetTable`, and `update_failed`.
 - **`refresh_athena.py` DELETED**, along with the per-verb runner, the shared poll budget, the
   idempotency tokens and this verb's use of `tbcommon.results`. No Athena on this path.
+- **The machinery that existed only to serve it, deleted too** (review-driven, beyond the spec's
+  enumerated list): `cpcommon.ddl.storage_from_definition` and its `_clause_matches_capture` /
+  `_serde_properties` / `_INCIDENTAL_SERDE_PARAMETERS` helpers, `build_create_table_ddl`'s
+  `table_properties=` and `if_not_exists=` parameters, and `load-table-definition`'s
+  `tableProperties` threading — ~110 net lines. All were SPEC-144 additions with no remaining
+  production caller. FR-001 AC4 and FR-007 AC4 both set the standard that removed things must be
+  *gone*, not merely unreferenced; tested-but-uncalled code reads to the next reader as a live path,
+  which is exactly the argument the spec makes about `recreate_failed`.
 - **`cpcommon.ddl.mark_managed`** — a three-line door onto the `portal.managed` marker (see below).
 - **Message layer:** `update_failed` in; SPEC-144's two rebuild reasons **deleted**, not reworded.
 - **IAM:** `glue:UpdateTable` in, **`glue:DeleteTable` out** — the refresh path loses a destructive
@@ -37,9 +45,26 @@ user-reachable**; SPEC-145 owns the browser surface, and sequencing this before 
   property is user-writable through `ALTER TABLE`. FR-002 needs the marker re-asserted, so the write
   moved behind a helper next to the constant — the marker still has exactly two homes and the guard
   stays strict, rather than the allowlist being widened to admit a whole verb.
-- **`ConcurrentModificationException` is transient.** It is Glue's own guard on two simultaneous
-  modifications, and a re-invocation simply re-reads and writes again — the recovery a lost race
-  wants, and safe in a way SPEC-144's destructive pair never was.
+- **Glue's retryable faults are classified at this call site, because the shared classifier misses
+  them by a word.** `cpcommon.errors._TRANSIENT_CODES` is spelled for S3/Athena/generic throttles: it
+  lists `InternalError` and `InternalServerException`, but Glue raises `InternalServiceException`,
+  and it has no entry at all for `OperationTimeoutException` — Glue's most routine transient.
+  Unclassified, those fall through to the terminal branch and kill a request permanently with
+  "Nothing was changed", on faults the state machine's `Retry` would very likely have survived.
+  `_GLUE_RETRYABLE` (read off `UpdateTable`'s own modelled error shapes) covers them, plus
+  `ResourceNotReadyException`, `FederationSourceRetryableException` and
+  `ConcurrentModificationException`. Handled **here** rather than widened in `cpcommon`, because that
+  set is shared by every control plane and this is the repo's only Glue **write** — the one call
+  where a spurious terminal failure is user-visible. `InvalidInputException` stays terminal, pinned
+  by a test, so the classifier has not become a catch-all. **The gap is pre-existing and still
+  applies to the Glue reads on other planes.**
+- **Two columns differing only by case are refused before the write.** SPEC-144 got this guard for
+  free — Athena rejects a `CREATE` with duplicate column names — but `UpdateTable` performs no such
+  validation, and once the write folds case a header of `Amount,amount` becomes one Glue column. The
+  post-condition could not catch it either: it compares **name sets**, so both spellings collapse on
+  each side and compare equal, and the verb would report success on a table that quietly lost a
+  column and then fails at query time. Now a terminal `update_failed` naming the collapsed names,
+  raised before any write — so "Nothing was changed" stays true.
 - **The post-condition read stays terminal.** The update is committed, so a Retry would re-read a
   table that has already changed and write it again. Unlike SPEC-144 that repeat is no longer
   *destructive*; it is still pointless.
@@ -86,8 +111,17 @@ decision.
 
 ## Verification
 
-`ruff check lambdas/` clean; **1746 tests pass, 2 skipped**; `tofu fmt -check -recursive` and
-`tofu validate` clean; portal `format:check`, `lint` and **1216 tests** pass.
+`ruff check lambdas/` clean; **1745 tests pass, 2 skipped** (net of 8 tests deleted with the dead
+code they covered); `tofu fmt -check -recursive` and `tofu validate` clean; portal `format:check`,
+`lint` and **1216 tests** pass.
+
+A fresh-context review raised six findings and **all six were acted on**: the Glue transient-
+classification gap, the case-duplicate column regression, the dead code above, an exemption in
+`test_messages.py` that had left two live SPEC-144 bodies pinned by nothing (`columns_removed` and
+`removals_flag_not_applicable` are now in the byte-for-byte table; the exemption is down to the one
+body this spec added), a vacuous `assert not hasattr(...)` in the no-delete test replaced by fake
+`delete_table` / `batch_delete_table` tripwires that raise, and the CLAUDE.md wording that called the
+casing premise *discharged* on documentary evidence.
 
 **FR-006's policy simulation was run against the rendered template** (pre-deploy — the post-deploy
 repeat is the live check below):
@@ -114,7 +148,10 @@ authored on both sides:
 > Refresh a table that carries a `Description` and a column comment. Confirm from `GetTable` that
 > both survive, that the columns changed, and that `get-table-versions` shows a previous version.
 
-**SPEC-144's owed "casing premise" check is now settled by documentation** rather than belief — AWS
-states plainly that Athena lowercases column names created through DDL, which confirms FR-001's
-reversal and is the basis for lowercasing on this path. A live `GetTable` read-back would still be
-the empirical confirmation and rides along with the check above.
+**SPEC-144's owed "casing premise" is CORROBORATED, not discharged.** AWS states plainly that Athena
+lowercases column names created through DDL, which confirms FR-001's reversal and is the basis for
+lowercasing on this path — but documentation is the same class of evidence that had FR-001 reversed
+mid-build, and this spec raises the stakes: the fold is now **ours**, hard-coded, and asserted to
+users in the help content. If the premise is wrong, the first refresh of an existing table silently
+re-cases its columns while `diff-schema` reports them unchanged — a mutation no test and no
+notification would surface. The `GetTable` read-back above settles it.

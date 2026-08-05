@@ -71,6 +71,29 @@ _TABLE_INPUT_FIELDS = frozenset({
     "ViewDefinition",
 })
 
+#: Glue faults that are worth retrying and that ``cpcommon.errors`` does not classify.
+#:
+#: THE SHARED SET IS SPELLED FOR S3, ATHENA AND GENERIC THROTTLES, and Glue's own names miss
+#: it by a word: it lists ``InternalError``/``InternalServerException`` but Glue raises
+#: ``InternalServiceException``, and it has no entry at all for ``OperationTimeoutException``
+#: — which is Glue's most routine transient. Unclassified, they fall through to the terminal
+#: branch below and a request dies permanently telling the user nothing was changed, when the
+#: state machine's Retry would very likely have succeeded.
+#:
+#: Handled HERE rather than widened in ``cpcommon`` because that set is shared by every
+#: control plane, and this is the only Glue WRITE in the repo — the one call where a spurious
+#: terminal failure is user-visible. Read off the operation's own modelled error shapes.
+_GLUE_RETRYABLE = frozenset({
+    "InternalServiceException",
+    "OperationTimeoutException",
+    "ResourceNotReadyException",
+    "FederationSourceRetryableException",
+    # Glue's guard on two simultaneous modifications. A re-invocation re-reads the live table
+    # and writes again, which is exactly what a lost race wants — and is safe in a way
+    # SPEC-144's destructive pair never was.
+    "ConcurrentModificationException",
+})
+
 
 def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_columns: list[dict]) -> list[dict]:
     """The Glue ``Columns`` an in-place refresh writes: fresh names and types, carrying the
@@ -92,6 +115,17 @@ def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_co
     A data column colliding with a PARTITION KEY is dropped: Glue keeps partition keys in
     their own ``PartitionKeys`` field, which this verb passes through untouched, and one name
     declared in both is not a valid table.
+
+    TWO COLUMNS THAT DIFFER ONLY BY CASE ARE REFUSED, and the check is here because the fold
+    above is what creates the collision. A header of ``Amount,amount`` is two distinct fields
+    to the inference step and one column name to Glue. SPEC-144 got this refusal for free —
+    Athena rejects a ``CREATE`` with duplicate column names — but ``UpdateTable`` performs no
+    such validation, and the post-condition cannot catch it either, because it compares NAME
+    SETS: both spellings collapse to one entry on each side and compare equal, so the verb
+    would report success while the table under-reported a column and failed at query time.
+
+    Raises:
+        TerminalError: ``update_failed`` when the fold collapses two columns into one.
     """
     carried = {(c.get("Name") or "").casefold(): c for c in live_columns}
     partition_names = {(k.get("Name") or "").casefold() for k in live_partition_keys}
@@ -108,6 +142,14 @@ def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_co
         if live.get("Parameters"):
             entry["Parameters"] = live["Parameters"]
         written.append(entry)
+
+    names = [entry["Name"] for entry in written]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise TerminalError(
+            "update_failed",
+            f"columns differing only by case collapse to one name: {duplicates}",
+        )
     return written
 
 
@@ -170,8 +212,11 @@ def _get_table(database: str, table: str) -> dict:
     try:
         return client.get_table(DatabaseName=database, Name=table)["Table"]
     except Exception as err:
-        if errors.error_code(err) == "EntityNotFoundException":
+        code = errors.error_code(err)
+        if code == "EntityNotFoundException":
             raise TerminalError("table_not_found", f"{database}.{table}") from err
+        if code in _GLUE_RETRYABLE:
+            raise TransientError(f"glue get_table {database}.{table}: transient {code}") from err
         errors.raise_if_transient(err, f"glue get_table {database}.{table}")
         raise
 
@@ -198,12 +243,8 @@ def _update(database: str, table_input: dict) -> None:
         code = errors.error_code(err)
         if code == "EntityNotFoundException":
             raise TerminalError("table_not_found", f"{database}.{name}") from err
-        if code == "ConcurrentModificationException":
-            # Glue's own guard on two simultaneous modifications, and the one deterministic-
-            # looking fault here worth retrying: a re-invocation re-reads the live table and
-            # writes again, which is exactly what a lost race wants — and is safe in a way
-            # SPEC-144's destructive pair never was.
-            raise TransientError(f"glue update_table {database}.{name}: concurrent modification") from err
+        if code in _GLUE_RETRYABLE:
+            raise TransientError(f"glue update_table {database}.{name}: transient {code}") from err
         errors.raise_if_transient(err, f"glue update_table {database}.{name}")
         raise TerminalError("update_failed", f"{database}.{name}: {err}") from err
 

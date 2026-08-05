@@ -5,6 +5,7 @@ Pure functions — no AWS. Runnable under pytest or directly: python3 test_messa
 
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -125,14 +126,27 @@ _CREATE_MESSAGES = {
     "projection_not_reconstructable": 'Couldn\'t create table "sales": that table\'s partition settings can\'t be read back - drop the table and build it again to change them.',
     "definition_too_large": 'Couldn\'t create table "sales": that table has too many columns to refresh.',
     "format_changed": 'Couldn\'t create table "sales": the folder\'s file format no longer matches the table\'s - build a new table instead.',
+    # Shipped by SPEC-144. They were exempt from the gate while that spec was the current one
+    # and stayed exempt afterwards — which left two live bodies pinned by nothing, the exact
+    # drift this table exists to stop. `columns_removed` renders its {removed} marker EMPTY
+    # with no tokens, and that is the behaviour being pinned: an unfilled marker must leave a
+    # sentence rather than a literal "{removed}" on the user's screen.
+    "columns_removed": 'Couldn\'t create table "sales": these columns are no longer in the data and would be removed: . Nothing was changed - refresh again and confirm the removal to apply it.',
+    "removals_flag_not_applicable": 'Couldn\'t create table "sales": the request was malformed. Please try again.',
 }
 
 
 def test_the_gate_covers_every_body_that_shipped_before_this_spec():
     """Guards the table above against silently shrinking: a body added without an
     expectation would otherwise be pinned by nothing, which is how the 12 SPEC-143 reasons
-    came to be uncovered in the first place."""
-    new_in_this_spec = {"columns_removed", "update_failed", "removals_flag_not_applicable"}
+    came to be uncovered in the first place.
+
+    THE EXEMPTION MUST SHRINK TO ONE ENTRY EVERY TIME, and the reason is that this set is
+    where the drift hides: SPEC-144's three bodies were exempted while 144 was current and
+    two of them were still exempt a spec later, pinned by nothing at all. A body is new for
+    exactly one spec — when the next one lands, move it into the table above.
+    """
+    new_in_this_spec = {"update_failed"}
     uncovered = set(messages._BODIES) - set(_CREATE_MESSAGES) - new_in_this_spec
 
     assert not uncovered, f"bodies with no byte-for-byte expectation: {sorted(uncovered)}"
@@ -145,8 +159,15 @@ def test_every_pre_existing_failure_message_is_byte_for_byte_unchanged():
 
 def test_a_body_with_no_token_markers_is_unaffected_by_the_tokens_channel():
     """The additive claim, asserted rather than assumed: passing tokens to a body that
-    references none must render identically to passing none."""
+    references none must render identically to passing none.
+
+    The marker-carrying bodies are excluded BY DETECTION rather than by name, so a body that
+    gains a marker later leaves this loop automatically instead of failing it — and a body
+    that loses one rejoins. `columns_removed` is the only one today.
+    """
     for reason, expected in _CREATE_MESSAGES.items():
+        if re.search(r"\{[^{}]*\}", messages._BODIES[reason]):
+            continue
         with_tokens = messages.failure_message(
             reason, "sales", "alice", "create", {"removed": "a, b", "unused": "x"}
         )

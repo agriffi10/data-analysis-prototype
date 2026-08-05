@@ -137,6 +137,14 @@ class _FakeGlue:
             raise self.update_error
         self.table = {**self.table, **kwargs["TableInput"]}
 
+    # Tripwires, not stubs. The catalog CAN delete — the point of FR-005/FR-006 is that this
+    # verb never asks it to, so calling either is the failure rather than a missing attribute.
+    def delete_table(self, **kwargs):
+        raise AssertionError(f"apply-refresh called glue.delete_table({kwargs})")
+
+    def batch_delete_table(self, **kwargs):
+        raise AssertionError(f"apply-refresh called glue.batch_delete_table({kwargs})")
+
     @property
     def table_input(self):
         assert self.update_calls, "no update_table call was made"
@@ -205,15 +213,20 @@ def test_the_verb_issues_one_update_and_never_touches_athena():
 
 
 def test_the_verb_issues_no_delete_of_any_kind():
-    """FR-005 AC1. The replacement window is gone because nothing is ever removed — asserted
-    on what the fake was NEVER asked to do, since a fake only fails on calls it models."""
+    """FR-005 AC1. The replacement window is gone because nothing is ever removed.
+
+    The fake's `delete_table` / `batch_delete_table` RAISE rather than being absent — an
+    assertion that a fake lacks an attribute can never fail, which makes it read like evidence
+    while providing none. Here the catalog can delete and the verb simply never asks it to.
+    """
     glue, _sqs = _install()
 
     m.handler(_event(), None)
 
-    assert not hasattr(glue, "deleted"), "the fake grew a delete path"
-    for call in glue.update_calls:
-        assert "Delete" not in json.dumps(call, default=str)
+    assert glue.update_calls and not any("Delete" in call for call in glue.update_calls)
+    # And the tripwire is real: calling it is what fails, not its absence.
+    with pytest.raises(AssertionError, match="delete_table"):
+        glue.delete_table(DatabaseName="alice", Name="sales_2026")
 
 
 def test_no_ddl_statement_appears_anywhere_in_the_verb():
@@ -545,6 +558,58 @@ def test_a_concurrent_modification_is_retryable():
 
     with pytest.raises(TransientError):
         m.handler(_event(), None)
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["InternalServiceException", "OperationTimeoutException", "ResourceNotReadyException", "FederationSourceRetryableException"],
+)
+def test_glues_own_retryable_faults_are_not_reported_as_permanent_failures(code):
+    """THE SHARED CLASSIFIER MISSES THESE BY A WORD. `cpcommon.errors._TRANSIENT_CODES` is
+    spelled for S3/Athena/generic throttles — it lists `InternalError` and
+    `InternalServerException`, but Glue raises `InternalServiceException`, and it has no entry
+    at all for `OperationTimeoutException`, Glue's most routine transient.
+
+    Unclassified, each of these falls through to the terminal branch and kills the request with
+    "Nothing was changed" — on faults the state machine's Retry would very likely have survived.
+    """
+    _install(update_error=_ClientError(code))
+
+    with pytest.raises(TransientError):
+        m.handler(_event(), None)
+
+
+def test_the_same_faults_are_retryable_on_the_read_that_precedes_the_write():
+    """Nothing has been written yet, so there is even less reason to give up here."""
+    _install(get_error=_ClientError("OperationTimeoutException"))
+
+    with pytest.raises(TransientError):
+        m.handler(_event(), None)
+
+
+def test_an_invalid_input_is_still_terminal():
+    """The classifier must not have become a catch-all: a deterministic refusal has to stay
+    terminal, or the state machine burns its attempts on something that cannot resolve."""
+    _expect_reason(_event(), "update_failed", update_error=_ClientError("InvalidInputException"))
+
+
+def test_two_columns_differing_only_by_case_are_refused_rather_than_silently_merged():
+    """THE GUARD SPEC-144 GOT FOR FREE AND THIS PATH HAS TO STATE.
+
+    Athena rejects a CREATE with duplicate column names; `UpdateTable` performs no such
+    validation. Once the write folds case, a header of `Amount,amount` — two distinct fields to
+    inference — becomes one Glue column. The post-condition cannot catch it, because it
+    compares NAME SETS: both spellings collapse on each side and compare equal, so the verb
+    would report success on a table that lost a column and fails at query time.
+    """
+    glue, _sqs = _install()
+    columns = [{"name": "Amount", "type": "string"}, {"name": "amount", "type": "string"}]
+
+    exc = _expect_reason(_event(columns=columns), "update_failed")
+
+    assert "amount" in exc.detail
+    # Refused BEFORE the write — the table is untouched, which is what the message promises.
+    assert not glue.update_calls
 
 
 # ── Outcome ──────────────────────────────────────────────────────────────────
