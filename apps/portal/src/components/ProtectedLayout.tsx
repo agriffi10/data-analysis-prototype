@@ -1,5 +1,5 @@
 import {type ReactNode, useEffect} from 'react';
-import {Navigate, Outlet, useLocation} from 'react-router-dom';
+import {Navigate, Outlet, useLocation} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
 import {UploadQueueProvider} from '../features/file-browser';

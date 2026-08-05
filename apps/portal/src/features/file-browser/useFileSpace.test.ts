@@ -2,7 +2,7 @@ import {describe, it, expect} from 'vitest';
 import type {ReactNode} from 'react';
 import {createElement} from 'react';
 import {renderHook, act} from '@testing-library/react';
-import {MemoryRouter} from 'react-router-dom';
+import {MemoryRouter} from 'react-router';
 import {useFileSpace} from './useFileSpace';
 import type {Connection} from '../query/query.types';
 

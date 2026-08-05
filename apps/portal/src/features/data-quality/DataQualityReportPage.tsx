@@ -1,4 +1,4 @@
-import {useParams, useNavigate} from 'react-router-dom';
+import {useParams, useNavigate} from 'react-router';
 import {PageLayout} from '../../components/PageLayout';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';

@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
 import {render, screen, cleanup} from '@testing-library/react';
-import {MemoryRouter, Routes, Route} from 'react-router-dom';
+import {MemoryRouter, Routes, Route} from 'react-router';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {ProtectedLayout} from './ProtectedLayout';
 import type {AuthContextValue, AuthStatus} from '../features/auth';

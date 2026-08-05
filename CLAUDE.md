@@ -36,7 +36,7 @@ AWS directly with scoped credentials. Status: greenfield, no production users ye
 | Frontend | React 18 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
 | AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034); `@aws-sdk/client-sqs` (shared-space control plane, SPEC-051) |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
-| Routing / state | `react-router-dom` v7; TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
+| Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — render real hooks/children, mock only the AWS service boundary; shared harness `src/test/renderWithProviders.tsx`. Rules: `best-practices/react/react.md` §21 |
 | IaC | OpenTofu (HCL, S3 remote state) |
 | Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `npm audit` / `pip-audit` / gitleaks / Checkov / OWASP ZAP in `security.yml` (**report-only**, SPEC-138). Every scanner version-pinned — see the VERSIONS block and #311 |
@@ -89,12 +89,12 @@ What remains below is the live checks that are owed.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
-  and **have now been flipped to `block` (2026-08-02)**. `react-router` is on 7.18.2, which cleared
-  four of its five advisories including the open redirect; the survivor is an **RSC-mode** issue
-  needing a **v8 major**, accepted as inapplicable to a client-only SPA. The build-time `postcss` /
+  and **have now been flipped to `block` (2026-08-02)**. **`react-router` is on 8.3.0 (2026-08-05) —
+  every one of its advisories is now cleared**, including the RSC-mode survivor that had been accepted
+  as inapplicable; the v8 major was a package rename (`react-router-dom` is gone) and nothing else.
+  **`npm audit --omit=dev` now reports NO highs.** The build-time `postcss` /
   `brace-expansion` advisories are **fixed (2026-08-03)** — both resolved by `npm update` inside the
-  existing caret ranges, no `package.json` change and no `overrides` needed; npm audit 6 → 4, and the
-  two remaining highs are the accepted `react-router` pair. Still open: **two** Checkov fixes
+  existing caret ranges, no `package.json` change and no `overrides` needed. Still open: **two** Checkov fixes
   (multipart-abort lifecycle, Athena workgroup enforcement). **S3 versioning is deferred by decision
   (2026-08-03)** — pre-production, no real user data. Revisit before any real data lands, because the
   exposure it covers is unrecoverable loss on a failed `CopyObject`+`DeleteObject`. **ZAP now stands at

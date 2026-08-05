@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen, within, waitFor} from '@testing-library/react';
-import {useLocation} from 'react-router-dom';
+import {useLocation} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {NavRailProvider} from '../../components/NavRailProvider';

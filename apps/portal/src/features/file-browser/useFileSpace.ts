@@ -1,5 +1,5 @@
 import {useCallback, useMemo} from 'react';
-import {useSearchParams} from 'react-router-dom';
+import {useSearchParams} from 'react-router';
 import {isConnectionUsable} from '../query/query.types';
 import type {Connection} from '../query/query.types';
 

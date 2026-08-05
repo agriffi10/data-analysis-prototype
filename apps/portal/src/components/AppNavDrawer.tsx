@@ -1,5 +1,5 @@
 import {useEffect, useRef, type ReactNode} from 'react';
-import {NavLink} from 'react-router-dom';
+import {NavLink} from 'react-router';
 import {FocusTrap} from 'focus-trap-react';
 import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';

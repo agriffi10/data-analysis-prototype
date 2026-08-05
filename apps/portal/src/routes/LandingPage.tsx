@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {Navigate, useNavigate} from 'react-router-dom';
+import {Navigate, useNavigate} from 'react-router';
 import {useAuth} from '../features/auth';
 import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
