@@ -1,6 +1,7 @@
 import {Outlet, useLocation} from 'react-router';
 import {Header} from './Header';
 import {NavRailProvider} from './NavRailProvider';
+import {ErrorBoundary} from './ErrorBoundary';
 
 /**
  * Layout shared by every page: the persistent auth-aware Header plus the
@@ -29,8 +30,12 @@ export function RootLayout() {
           Skip to main content
         </a>
         {!isLanding && <Header />}
+        {/* Scoped BELOW the Header on purpose: a page that throws leaves the user
+            with working navigation to somewhere else, rather than a bare panel. */}
         <div className="flex flex-1 flex-col">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </div>
     </NavRailProvider>

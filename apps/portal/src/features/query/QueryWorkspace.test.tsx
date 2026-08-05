@@ -18,31 +18,54 @@ import {useNavRailContent} from '../../components/navRailContext';
 // The Monaco editor is heavy/global (its own SqlEditor.test covers it) — stub the
 // lazy wrapper with a textarea that still drives value/onChange and forwards the
 // SPEC-078 selection handle so statement-resolution tests can position a cursor.
+// This is the sanctioned §21 heavy-child exception: Monaco needs a real DOM editor
+// and workers, which jsdom has neither of.
+//
+// SPEC-150 FR-010 widened its surface. It used to type only `{value, onChange}`, so
+// the three SPEC-078 run props were silently discarded and deleting one at the call
+// site changed nothing any test could see. It now accepts them and exposes each as a
+// button, which keeps the stub honest about the contract it stands in for — the
+// keybindings themselves stay SqlEditor.test's subject, not this file's.
 vi.mock('./SqlEditor', async () => {
   const {forwardRef, useImperativeHandle, useRef} = await import('react');
+  type MockProps = {
+    value: string;
+    onChange: (v: string) => void;
+    onRun?: () => void;
+    onRunScriptSingle?: () => void;
+    onRunScriptTabs?: () => void;
+  };
   return {
-    SqlEditor: forwardRef<import('./SqlEditor').SqlEditorHandle, {value: string; onChange: (v: string) => void}>(
-      function MockSqlEditor({value, onChange}, ref) {
-        const taRef = useRef<HTMLTextAreaElement>(null);
-        useImperativeHandle(ref, () => ({
-          focus: () => taRef.current?.focus(),
-          getSelectionRange: () => {
-            const ta = taRef.current;
-            if (!ta || ta.selectionStart === ta.selectionEnd) return null;
-            return {start: ta.selectionStart, end: ta.selectionEnd};
-          },
-          getCursorOffset: () => taRef.current?.selectionStart ?? 0
-        }));
-        return (
+    SqlEditor: forwardRef<import('./SqlEditor').SqlEditorHandle, MockProps>(function MockSqlEditor(
+      {value, onChange, onRun, onRunScriptSingle, onRunScriptTabs},
+      ref
+    ) {
+      const taRef = useRef<HTMLTextAreaElement>(null);
+      useImperativeHandle(ref, () => ({
+        focus: () => taRef.current?.focus(),
+        getSelectionRange: () => {
+          const ta = taRef.current;
+          if (!ta || ta.selectionStart === ta.selectionEnd) return null;
+          return {start: ta.selectionStart, end: ta.selectionEnd};
+        },
+        getCursorOffset: () => taRef.current?.selectionStart ?? 0
+      }));
+      return (
+        <>
           <textarea
             ref={taRef}
             aria-label="SQL editor"
             value={value}
             onChange={(e) => onChange(e.target.value)}
           />
-        );
-      }
-    )
+          {/* Named in SPEC-078's vocabulary. Present only when the prop is wired, so
+              an unwired scope is an absent button rather than a dead one. */}
+          {onRun && <button onClick={onRun}>editor: Run Statement</button>}
+          {onRunScriptSingle && <button onClick={onRunScriptSingle}>editor: Run Script → single result</button>}
+          {onRunScriptTabs && <button onClick={onRunScriptTabs}>editor: Run Script → tab per statement</button>}
+        </>
+      );
+    })
   };
 });
 
@@ -270,6 +293,31 @@ describe('QueryWorkspace', () => {
     expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 1', username: 'alice'});
     expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('database');
     expect(mockAppend).toHaveBeenCalledWith('alice', expect.objectContaining({sql: 'SELECT 1'}));
+  });
+
+  // SPEC-150 FR-010. The keybindings themselves are SqlEditor.test's subject; what
+  // this asserts is the other half — that the workspace actually HANDS the editor a
+  // handler for each of SPEC-078's three scopes. Deleting one at the call site used
+  // to change nothing any test could observe, because the stub discarded them.
+  it('wires all three SPEC-078 run scopes into the editor', async () => {
+    seedSingle('SELECT 1');
+    renderWorkspace();
+    await screen.findByLabelText('SQL editor');
+
+    expect(screen.getByRole('button', {name: 'editor: Run Statement'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'editor: Run Script → single result'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'editor: Run Script → tab per statement'})).toBeInTheDocument();
+  });
+
+  it('the editor’s Run Statement scope runs the active statement', async () => {
+    seedSingle('SELECT 1');
+    mockRunQuery.mockResolvedValue(ok({queryExecutionId: 'q-1'}));
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
+
+    await user.click(screen.getByRole('button', {name: 'editor: Run Statement'}));
+
+    expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT 1'}));
   });
 
   it('de-dupes a rapid double-submit and keeps Clear/Run disabled while in flight [SPEC-083 FR-009]', async () => {

@@ -4,6 +4,7 @@ import {Routes, Route} from 'react-router';
 import {RootLayout} from './components/RootLayout';
 import {ProtectedLayout} from './components/ProtectedLayout';
 import {LoadingState} from './components/LoadingState';
+import {ErrorBoundary} from './components/ErrorBoundary';
 import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotificationsPage from './routes/NotificationsPage';
@@ -37,20 +38,28 @@ export default function App() {
             path="/files"
             element={<FilesPage />}
           />
+          {/* Each lazy route's Suspense is wrapped: Suspense has NO error path, so
+              a chunk-load rejection (deploy-app.yml:132-139's accepted race) would
+              otherwise unmount the tree. Both lazy routes are exposed, so both are
+              wrapped — a fix scoped to Monaco would miss /connections. */}
           <Route
             path="/query"
             element={
-              <Suspense fallback={<LoadingState />}>
-                <QueryPage />
-              </Suspense>
+              <ErrorBoundary>
+                <Suspense fallback={<LoadingState />}>
+                  <QueryPage />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route
             path="/connections"
             element={
-              <Suspense fallback={<LoadingState />}>
-                <ConnectionsPage />
-              </Suspense>
+              <ErrorBoundary>
+                <Suspense fallback={<LoadingState />}>
+                  <ConnectionsPage />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           {/* Reached via the header bell link, not the primary tab bar. Eager —
