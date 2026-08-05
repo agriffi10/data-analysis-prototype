@@ -311,6 +311,40 @@ resource "aws_iam_role_policy_attachment" "deploy_observability" {
   policy_arn = aws_iam_policy.deploy_observability.arn
 }
 
+# SPEC-146 user directory: the daily builder — one scheduled Lambda (+ its execution role and
+# log group) and the EventBridge rule that fires it. Same shape as the observability grant
+# above, and for the same reason: a singleton function pulled by a schedule, not by a managed
+# poll loop, so there is no lambda:*EventSourceMapping statement here either.
+#
+# NO S3 STATEMENT, deliberately. The builder lists the user-space bucket and writes one object
+# under _directory/, but the DEPLOY role never touches that object — it only creates the
+# function and its role. What the deploy role does need on that bucket (to create it, and to
+# manage the bucket policy this spec extends) it already holds via S3UserSpaceBucketManage in
+# github-actions-deploy.json.tftpl, which modules/data/s3.tf explicitly relies on. Adding a
+# second S3 statement here would be a duplicate, not a tightening.
+#
+# The builder attaches the shared cpcommon layer, which deploy_control_plane_common already
+# covers; nothing here needs a layer grant.
+#
+# Granted FIRST (this PR) and applied before the user-directory module's resources land in the
+# next PR (the deploy-perms-before-resources rule), so there is no self-grant race.
+resource "aws_iam_policy" "deploy_user_directory" {
+  name        = "${var.project_name}-deploy-user-directory"
+  description = "Deploy-role grants for the SPEC-146 username-directory builder (one scheduled Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-user-directory.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_user_directory.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
