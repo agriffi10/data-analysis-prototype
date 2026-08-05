@@ -1,5 +1,5 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useLocation, useNavigate, useSearchParams} from 'react-router-dom';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {Button} from '../../components/Button';
@@ -21,7 +21,7 @@ import {useEditorLayout} from './useEditorLayout';
 import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from './useConnections';
-import {invalidateSchema, useAllSchemas} from './useSchema';
+import {invalidateSchema, useAllSchemas, useSchema} from './useSchema';
 import {
   deriveViewTargetDatabase,
   isResultProducingSql,
@@ -39,6 +39,7 @@ import {QueryResultsMobile} from './QueryResultsMobile';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useProvideNavRail} from '../../components/navRailContext';
 import {TableShareDialog, useTableShare} from '../table-share';
+import {RefreshTableDialog, parseRefreshLink, useTableRefresh} from '../table-builder';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
@@ -165,7 +166,7 @@ export function QueryWorkspace() {
   // still instantiate the editor (react.md §20).
   const isMobile = useIsMobile();
 
-  const {connections} = useConnections(username || null);
+  const {connections, isLoading: connectionsLoading} = useConnections(username || null);
   // Every usable database, for the browse rail + multi-database autocomplete.
   const usableDatabases = useMemo(() => connections.filter(isConnectionUsable).map((c) => c.database), [connections]);
   // SPEC-077 FR-005: autocomplete offers fully-qualified names across every
@@ -288,6 +289,48 @@ export function QueryWorkspace() {
   const toast = useToast();
   // SPEC-093: "Share table" dialog + enqueue state (toasts route through the host).
   const share = useTableShare(toast.push);
+  // SPEC-145: "Refresh table" dialog + enqueue state, wired the same way. The hook
+  // also owns the rail invalidation, since the enqueue is the only signal there is.
+  // SPEC-145 FR-005: `/query?refreshTable={db}.{table}&removed={names}` — the link
+  // SPEC-144's `columns_removed` notification carries. Read from the RAW query string
+  // (`location.search`), never through `useSearchParams`: that decodes, and the names
+  // are individually percent-encoded around a comma separator, so a column named
+  // `a,b` would arrive already split.
+  //
+  // The dialog is DERIVED from the URL rather than opened from an effect (react.md
+  // §3, and React Compiler forbids the setState-in-effect that opening would need):
+  // acting on it retires the parameters, which is what closes it.
+  const location = useLocation();
+  const [, setSearchParams] = useSearchParams();
+  const link = useMemo(() => parseRefreshLink(location.search), [location.search]);
+  // A database the user can't reach resolves to null and is never fetched — no
+  // existence oracle, and the rail is the authority on what exists (FR-005).
+  const linkDatabase =
+    link && !connectionsLoading && connections.some((c) => c.database === link.database && isConnectionUsable(c))
+      ? link.database
+      : null;
+  const {data: linkSchema} = useSchema(linkDatabase);
+  const linkTarget = useMemo(() => {
+    if (!link || !linkSchema) return null;
+    // A view has no folder to re-read, so a link naming one opens nothing.
+    const table = linkSchema.tables.find((t) => t.name === link.tableName && t.tableType !== 'VIRTUAL_VIEW');
+    return table ? {database: link.database, table, pending: link} : null;
+  }, [link, linkSchema]);
+  const clearRefreshLink = useCallback(
+    () =>
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('refreshTable');
+          next.delete('removed');
+          return next;
+        },
+        {replace: true}
+      ),
+    [setSearchParams]
+  );
+
+  const refresh = useTableRefresh(toast.push, {target: linkTarget, onConsumed: clearRefreshLink});
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
@@ -927,6 +970,10 @@ export function QueryWorkspace() {
       editorRef.current?.focus();
       submitBatch(splitSqlStatements(sql), 'script-single', id); // auto-run into the just-opened tab
     },
+    // SPEC-145: open the Refresh dialog for this rail table. Unlike Share, `open`
+    // takes the whole summary — the request's space is derived from the table's own
+    // `location`, the only thing in the workspace that knows where its files live.
+    onRefreshTable: (database: string, table: GlueTableSummary) => refresh.open(database, table),
     // SPEC-093: open the Share dialog for this rail table (base tables only — the
     // menu omits the item for views); submission + toasts live in useTableShare.
     onShareTable: (database: string, table: GlueTableSummary) => share.open(database, table.name),
@@ -949,6 +996,7 @@ export function QueryWorkspace() {
       onViewSourceFiles: (database, table) => tableActionsRef.current.onViewSourceFiles(database, table),
       onViewDdl: (database, table) => tableActionsRef.current.onViewDdl(database, table),
       onViewData: (database, table) => tableActionsRef.current.onViewData(database, table),
+      onRefreshTable: (database, table) => tableActionsRef.current.onRefreshTable(database, table),
       onShareTable: (database, table) => tableActionsRef.current.onShareTable(database, table),
       onDropTable: (database, table) => tableActionsRef.current.onDropTable(database, table)
     }),
@@ -1663,6 +1711,15 @@ export function QueryWorkspace() {
           submitError={share.error}
           onSubmit={(args) => void share.submit(args)}
           onCancel={share.close}
+        />
+      )}
+      {refresh.target && (
+        <RefreshTableDialog
+          target={refresh.target}
+          busy={refresh.busy}
+          submitError={refresh.error}
+          onConfirm={(allowRemovals) => void refresh.submit(allowRemovals)}
+          onCancel={refresh.close}
         />
       )}
       {dropping && (

@@ -22,6 +22,7 @@ const ok = <T,>(data: T) => ({success: true as const, data});
 const table = (name: string, over: Partial<GlueTableSummary> = {}): GlueTableSummary => ({
   name,
   columns: [{name: 'region', type: 'string'}],
+  location: `s3://dat-prod-user-space/alice/${name}/`,
   ...over
 });
 const view = (name: string): GlueTableSummary => ({
@@ -35,6 +36,7 @@ function makeActions(over: Partial<TableActions> = {}): TableActions {
     onViewSourceFiles: vi.fn(),
     onViewDdl: vi.fn(),
     onViewData: vi.fn(),
+    onRefreshTable: vi.fn(),
     onShareTable: vi.fn(),
     onDropTable: vi.fn(),
     canViewSourceFiles: () => true,
@@ -131,6 +133,8 @@ describe('DatabaseNode', () => {
     expect(within(menu).getByRole('menuitem', {name: 'View source files'})).toBeDisabled();
     // SPEC-093: views can't be shared — the item is absent, not disabled.
     expect(within(menu).queryByRole('menuitem', {name: 'Share table'})).not.toBeInTheDocument();
+    // SPEC-145: a view has no folder to re-read — likewise absent, not disabled.
+    expect(within(menu).queryByRole('menuitem', {name: 'Refresh table'})).not.toBeInTheDocument();
 
     await user.click(within(menu).getByRole('menuitem', {name: 'View DDL'}));
     expect(onViewDdl).toHaveBeenCalledWith(
@@ -145,6 +149,33 @@ describe('DatabaseNode', () => {
     await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
     await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Share table'}));
     expect(onShareTable).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'sales_2026'}));
+  });
+
+  // SPEC-145: the item sits between View data and Share table, and the browser runs
+  // no eligibility check of its own — the server owns those and reports them back.
+  it('offers Refresh table on a base table and invokes it with (database, table)', async () => {
+    const onRefreshTable = vi.fn();
+    const {user} = renderNode({actions: makeActions({onRefreshTable})});
+    await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+    const items = within(screen.getByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent);
+    expect(items).toEqual(['View source files', 'View DDL', 'View data', 'Refresh table', 'Share table', 'Drop table']);
+
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
+    expect(onRefreshTable).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'sales_2026'}));
+  });
+
+  it('disables Refresh table for a table with no location (no request can be built)', async () => {
+    mock.listTables.mockResolvedValue(ok([table('no_files', {location: undefined})]));
+    const onRefreshTable = vi.fn();
+    const {user} = renderNode({actions: makeActions({onRefreshTable})});
+    await user.click(await screen.findByRole('button', {name: 'Options for no_files'}));
+    const item = within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'});
+    expect(item).toBeDisabled();
+
+    await user.click(item);
+    expect(onRefreshTable).not.toHaveBeenCalled();
   });
 
   it('renders a per-node "setting up" state on a NotFound error', async () => {

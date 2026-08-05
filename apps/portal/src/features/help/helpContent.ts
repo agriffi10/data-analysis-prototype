@@ -277,8 +277,37 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away.'
+          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away. Later on, when the files in that folder gain or lose columns, use <b>Refresh table</b> rather than building it again.'
         }
+      },
+      {
+        id: 'refresh-table',
+        title: 'Refresh a table after the files change',
+        subtitle: 'The table is missing columns you’ve added to the folder.',
+        intro:
+          'A table records the columns its files had when it was built. Add a column to those files afterwards and the table won’t know about it — <b>Refresh table</b> re-reads the folder and updates the table’s column list to match what’s there now. Your files are never modified, only the table’s definition, and the table stays queryable the whole time.',
+        steps: [
+          'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on the table and choose <b>Refresh table</b>.',
+          'Check that the folder shown is the one you added files to, then click <b>Refresh table</b>.',
+          'The refresh runs in the background. You’ll get a notification telling you what changed — which columns were added or retyped, or that the table was already up to date.'
+        ],
+        callout: {
+          kind: 'warning',
+          text: 'If a column has <b>disappeared</b> from the files, the refresh stops and changes nothing — the notification names the columns and links you back to the dialog. To go ahead, tick <b>Allow columns to be removed</b> and refresh again. Removing a column breaks any saved query or view that references it.'
+        }
+      },
+      {
+        id: 'refresh-table-limits',
+        title: 'When a table can’t be refreshed',
+        subtitle: 'What refresh won’t do, and what to do instead.',
+        intro:
+          'Refresh updates a table’s columns and nothing else. Where that isn’t enough, the answer is to build the table again — you’ll get a notification explaining which of these applied.',
+        steps: [
+          '<b>Partition keys can’t be changed.</b> A refresh keeps the keys the table already has. To change them, drop the table and create it again.',
+          '<b>Views can’t be refreshed.</b> A view has no data files to re-read, so the menu doesn’t offer it. Re-create the view instead.',
+          '<b>Tables with catalog-registered partitions can’t be refreshed</b>, nor can tables built outside the portal or pointing at files outside your space.',
+          '<b>The file format can’t change.</b> If the folder’s files are no longer the format the table expects, build a new table over them.'
+        ]
       },
       {
         id: 'share-table',

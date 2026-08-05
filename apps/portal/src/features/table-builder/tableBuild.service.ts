@@ -2,6 +2,7 @@ import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableBuildRequest} from './tableBuild.types';
+import type {TableRefreshRequest} from './tableRefresh.types';
 
 /**
  * Enqueue a create-table request onto the table-builder FIFO queue — the browser's
@@ -29,6 +30,40 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
         space: req.space,
         tableName: req.tableName,
         partitionKeys: req.partitionKeys ?? [],
+        requestId
+      },
+      messageGroupId: req.space.database,
+      deduplicationId: requestId,
+      data: undefined
+    })
+  });
+}
+
+/**
+ * Enqueue a refresh request onto the same table-builder FIFO queue — SPEC-143's
+ * `mode: 'refresh'` half. The pipeline re-inspects the folder the table already
+ * points at and replaces the definition in place (SPEC-149); the outcome arrives as
+ * a notification, so success means enqueued, not refreshed.
+ *
+ * `partitionKeys` is always `[]`: a refresh reconstructs the table's existing keys
+ * from the catalog and the server refuses a request that redeclares them.
+ * `allowRemovals` is sent only when the user ticked the opt-in — SPEC-144 validates
+ * the flag rather than coercing it, so an always-present `false` would be a
+ * different request than an absent one.
+ */
+export async function enqueueTableRefresh(req: TableRefreshRequest): Promise<ServiceResult<void>> {
+  const requestId = crypto.randomUUID();
+  return enqueueFifoRequest<void>({
+    queueUrl: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
+    notConfiguredMessage: 'Table refresh is not configured',
+    build: (idToken) => ({
+      body: {
+        idToken,
+        mode: 'refresh',
+        space: req.space,
+        tableName: req.tableName,
+        partitionKeys: [],
+        ...(req.allowRemovals === true ? {allowRemovals: true} : {}),
         requestId
       },
       messageGroupId: req.space.database,

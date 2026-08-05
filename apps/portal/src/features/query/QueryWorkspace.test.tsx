@@ -88,6 +88,10 @@ vi.mock('../table-share/tableShare.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../table-share/tableShare.service')>()),
   enqueueTableShare: vi.fn()
 }));
+vi.mock('../table-builder/tableBuild.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../table-builder/tableBuild.service')>()),
+  enqueueTableRefresh: vi.fn()
+}));
 vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
   getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
@@ -106,6 +110,7 @@ import {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './qu
 import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
+import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
 import {QueryWorkspace} from './QueryWorkspace';
 import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
 import type {QueryTabsState, QueryState} from './query.types';
@@ -126,6 +131,7 @@ const mockRemove = vi.mocked(removeSavedQuery);
 const mockReadCache = vi.mocked(readSharedConnectionsCache);
 const mockCopyObject = vi.mocked(copyObject);
 const mockListFiles = vi.mocked(listFiles);
+const mockEnqueueRefresh = vi.mocked(enqueueTableRefresh);
 
 // SaveResultsDialog / runQuery outputLocation read these at render/module time.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
@@ -178,13 +184,13 @@ function LocationProbe() {
   return <span aria-label="probe-location">{`${loc.pathname}${loc.search}`}</span>;
 }
 
-function renderWorkspace() {
+function renderWorkspace(route?: string) {
   return renderWithProviders(
     <>
       <QueryWorkspace />
       <LocationProbe />
     </>,
-    {auth: authenticated('alice')}
+    {auth: authenticated('alice'), route}
   );
 }
 
@@ -879,6 +885,130 @@ describe('QueryWorkspace — shared-space routing & save (SPEC-055/077)', () => 
     expect(await screen.findByText(/Saved to salesdata\/out\.csv/)).toBeInTheDocument();
     // The Files browser can't render shared spaces → no deep-link.
     expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
+  });
+});
+
+// ── SPEC-145: refresh table ─────────────────────────────────────────────────
+describe('QueryWorkspace — refresh table (SPEC-145)', () => {
+  const refreshDialog = () => screen.getByRole('alertdialog', {name: /confirm refresh table/i});
+  const location = () => screen.getByLabelText('probe-location').textContent;
+
+  beforeEach(() => {
+    mockEnqueueRefresh.mockResolvedValue(ok(undefined));
+  });
+
+  it('enqueues a refresh from the rail menu and reports it as pending', async () => {
+    const {user} = renderWorkspace();
+    await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
+
+    const dialog = refreshDialog();
+    expect(within(dialog).getByText('alice.sales_2026')).toBeInTheDocument();
+    expect(within(dialog).getByText('s3://b/alice/sales/')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
+
+    // The space is derived from the table's own location (FR-004).
+    expect(mockEnqueueRefresh).toHaveBeenCalledWith({
+      space: {kind: 'personal', bucket: 'b', prefix: 'alice/sales/', database: 'alice'},
+      tableName: 'sales_2026'
+    });
+    expect(await screen.findByText(/Refreshing “alice\.sales_2026”/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+
+  it('keeps the dialog open with a user-safe error when the enqueue fails', async () => {
+    mockEnqueueRefresh.mockResolvedValue(fail('sqs exploded', 'NotAuthenticated'));
+    const {user} = renderWorkspace();
+    await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
+    await user.click(within(refreshDialog()).getByRole('button', {name: 'Refresh table'}));
+
+    // SPEC-106: toUserMessage wording, never the raw service text.
+    expect(await within(refreshDialog()).findByRole('alert')).toHaveTextContent('Sign in to continue.');
+    expect(screen.queryByText('sqs exploded')).not.toBeInTheDocument();
+  });
+
+  it('opens the link-borne dialog from a columns_removed notification link', async () => {
+    const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id,Order%20ID');
+
+    const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
+    const named = within(dialog).getByRole('list', {name: /columns that would be removed/i});
+    expect(within(named).getByText('legacy_id')).toBeInTheDocument();
+    expect(within(named).getByText('Order ID')).toBeInTheDocument();
+
+    // FR-003: confirm is gated on the opt-in in this state.
+    const confirm = within(dialog).getByRole('button', {name: 'Refresh table'});
+    expect(confirm).toBeDisabled();
+    await user.click(within(dialog).getByRole('checkbox', {name: /allow columns to be removed/i}));
+    await user.click(confirm);
+
+    expect(mockEnqueueRefresh).toHaveBeenCalledWith(expect.objectContaining({allowRemovals: true}));
+  });
+
+  it('clears the query parameters once the link-borne dialog is dismissed', async () => {
+    const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id');
+    const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
+
+    await user.click(within(dialog).getByRole('button', {name: 'Cancel'}));
+    // The dialog IS the query string — retiring the parameters is what closes it, and
+    // is what stops a reload from reopening what the user just dismissed.
+    await waitFor(() => expect(location()).toBe('/query'));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('clears the query parameters once the link-borne refresh is submitted', async () => {
+    const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id');
+    const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
+
+    await user.click(within(dialog).getByRole('checkbox', {name: /allow columns to be removed/i}));
+    await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
+    await waitFor(() => expect(location()).toBe('/query'));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['a database that is not catalog-safe', '/query?refreshTable=Alice.sales_2026&removed=legacy_id'],
+    ['a table that is not catalog-safe', '/query?refreshTable=alice.Sales&removed=legacy_id'],
+    ['no qualifying dot', '/query?refreshTable=sales_2026&removed=legacy_id']
+  ])('ignores the parameters entirely when the link names %s', async (_label, route) => {
+    renderWorkspace(route);
+    await screen.findByRole('button', {name: 'sales_2026'}); // the workspace renders normally
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // Nothing was consumed, so nothing was rewritten either.
+    expect(location()).toBe(route.slice(route.indexOf('/')));
+  });
+
+  it('opens nothing for a table the rail does not have', async () => {
+    renderWorkspace('/query?refreshTable=alice.not_a_table&removed=legacy_id');
+    await screen.findByRole('button', {name: 'sales_2026'}); // the rail loaded, so the link resolved
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('opens nothing for a database the user cannot reach', async () => {
+    renderWorkspace('/query?refreshTable=someone_else.sales_2026&removed=legacy_id');
+    await screen.findByRole('button', {name: 'sales_2026'});
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // No existence oracle: the unreachable database is never fetched.
+    expect(mockListTables).not.toHaveBeenCalledWith('someone_else');
+  });
+
+  it('opens nothing for a view (a view has no folder to re-read)', async () => {
+    renderWorkspace('/query?refreshTable=alice.revenue_view&removed=legacy_id');
+    await screen.findByRole('button', {name: 'sales_2026'});
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('re-reads the rail after a successful refresh', async () => {
+    const {user} = renderWorkspace();
+    await screen.findByRole('button', {name: 'sales_2026'});
+    const before = mockListTables.mock.calls.length;
+
+    await user.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
+    await user.click(within(refreshDialog()).getByRole('button', {name: 'Refresh table'}));
+
+    await waitFor(() => expect(mockListTables.mock.calls.length).toBeGreaterThan(before));
   });
 });
 

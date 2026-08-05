@@ -1,7 +1,7 @@
 # Spec: Refresh Table — Menu Item, Dialog & Notifications
 
 **ID:** SPEC-145
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-143 (the `mode` field, the `TableBuildSpace` type, and the eligibility rules the dialog's copy must match), SPEC-144 (`allowRemovals`, the `columns_removed` outcome, and the notification **link** this spec parses), SPEC-044 (`TableActionsMenu` and the `TableActions` prop contract), SPEC-067 (`enqueueTableBuild` and `VITE_TABLE_BUILD_QUEUE_URL`), SPEC-060 (the notifications surface these outcomes arrive on)
 
@@ -74,7 +74,13 @@ The copy is the feature's honesty budget. A user clicking Refresh should not be 
 - [ ] The dialog names the database and table it will refresh, and the S3 location the table points at, so a user can confirm it is the folder they just added files to.
 - [ ] The body states that the table's **files are not modified** and that only the table's column list is updated.
 - [ ] The body states that **partition keys are not changed**, and that changing them means creating the table again.
-- [ ] The body states that the table is **briefly unavailable** while it is rebuilt.
+- [ ] ~~The body states that the table is **briefly unavailable** while it is rebuilt.~~
+      **CORRECTED while building (2026-08-04): the body states the table stays queryable throughout.**
+      This criterion was written against SPEC-144's drop-and-recreate apply. **SPEC-149 superseded that
+      with a single in-place `glue:UpdateTable`** — "there is no moment at which the table does not
+      exist" — so warning about a window would describe a behaviour that no longer ships, and SPEC-074
+      FR-005 binds this copy to what is actually wired. The honesty budget is spent on the same slot,
+      in the other direction.
 - [ ] The body states that the **result arrives as a notification**, not in the dialog.
 - [ ] Confirm is labelled **Refresh table**; the dialog uses `ConfirmDialog`'s `busy` / `busyLabel` while the enqueue is in flight and is not dismissible during it.
 - [ ] Escape and the backdrop dismiss when not busy; focus is trapped and returns to the menu trigger on close.

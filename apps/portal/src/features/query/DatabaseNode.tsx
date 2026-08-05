@@ -114,6 +114,22 @@ function TableRow({
                 label: 'View data',
                 onSelect: () => actions.onViewData(database, table)
               },
+              // SPEC-145: base tables only — a view has no folder to re-read. The
+              // browser runs NO other eligibility check: SPEC-143's rules (a
+              // reconstructable partition scheme, a location inside the space) are
+              // the server's to enforce, and its refusals come back as user-facing
+              // notifications. A client-side gate here would only drift from them.
+              // Disabled without a location because the request can't be built.
+              ...(isView
+                ? []
+                : [
+                    {
+                      key: 'refresh',
+                      label: 'Refresh table',
+                      onSelect: () => actions.onRefreshTable(database, table),
+                      disabled: !table.location
+                    }
+                  ]),
               // SPEC-093: base tables only — the server rejects views, so no item.
               ...(isView
                 ? []
