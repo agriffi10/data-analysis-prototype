@@ -1,4 +1,4 @@
-import {Link} from 'react-router-dom';
+import {Link} from 'react-router';
 import {formatRelativeTime} from '../query/query.format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';

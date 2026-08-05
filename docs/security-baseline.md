@@ -53,11 +53,11 @@ The runtime/build split is the whole point of auditing at two scopes.
 
 | Sev | Package | Scope | Advisory | Disposition |
 |---|---|---|---|---|
-| high | `react-router` | **runtime** | GHSA-chx6-hx7r-mcp5 — DoS via inefficient route matching | **fix** |
-| high | `react-router` | runtime | GHSA-qwww-vcr4-c8h2 — RSC-mode CSRF bypass | **accept** — no RSC |
-| medium | `react-router` | runtime | GHSA-337j-9hxr-rhxg — SSR hydration constructor injection | **accept** — no SSR |
-| medium | `react-router` | runtime | GHSA-h8fp-f39c-q6mh — RSCErrorHandler XSS | **accept** — no RSC |
-| medium | `react-router` | **runtime** | GHSA-wrjc-x8rr-h8h6 — open redirect via backslash in `<Link>`/`useNavigate` | **fix**, see below |
+| high | `react-router` | **runtime** | GHSA-chx6-hx7r-mcp5 — DoS via inefficient route matching | **FIXED** (7.18.2) |
+| high | `react-router` | runtime | GHSA-qwww-vcr4-c8h2 — RSC-mode CSRF bypass | **FIXED** (8.3.0, 2026-08-05) — was `accept`; the v8 bump made accepting it unnecessary |
+| medium | `react-router` | runtime | GHSA-337j-9hxr-rhxg — SSR hydration constructor injection | **FIXED** (7.18.2) |
+| medium | `react-router` | runtime | GHSA-h8fp-f39c-q6mh — RSCErrorHandler XSS | **FIXED** (7.18.2) |
+| medium | `react-router` | **runtime** | GHSA-wrjc-x8rr-h8h6 — open redirect via backslash in `<Link>`/`useNavigate` | **FIXED** (7.18.2) |
 | medium | `dompurify` | runtime (via monaco) | GHSA-cmwh-pvxp-8882 — `ALLOWED_ATTR` pollution | **defer** |
 | low | `dompurify` | runtime (via monaco) | GHSA-c2j3-45gr-mqc4, GHSA-vxr8-fq34-vvx9 | **defer** |
 | high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | ~~fix~~ **DONE 2026-08-03** — 8.5.15 → 8.5.25 |
@@ -75,10 +75,36 @@ Notes that change the priority order:
 - **Four of the five `react-router` advisories do not apply**: they are RSC- and SSR-mode issues,
   and this is a client-only SPA. `react-router` and `react-router-dom` have a non-breaking fix
   available, so the bump is cheap regardless.
+
+  **All five are cleared as of 2026-08-05 (v8.3.0).** The fifth — the RSC-mode CSRF bypass this
+  file had dispositioned `accept` — needed a v8 major, and the v8 major turned out to be a
+  **package rename and nothing else**: `react-router-dom` is removed, everything imports from
+  `react-router`, and `RouterProvider`/`HydratedRouter` (which this app does not use — it is
+  declarative-mode `BrowserRouter`) move to `react-router/dom`. Every component and hook this app
+  uses is unchanged, so the diff was one import specifier across 40 files. The other v8 baselines
+  were already met: Node 22.22+ (`.nvmrc` is 24), React 19.2.7+ (declared range raised from
+  `^19.2.6`, which permitted an install that violated the new peer), Vite 7+ (on 8). **The
+  `accept` disposition was correct when written and became obsolete, not wrong — worth
+  re-testing an accepted advisory whenever its "needs a major" premise changes.**
 - **`dompurify` is transitive through `monaco-editor`**, and npm's proposed fix is
   `monaco-editor@0.53.0` — a **downgrade**, flagged breaking. Deferred: the advisories concern
   `setConfig`/`clearConfig` poisoning APIs the portal never calls, and monaco is lazy-loaded on the
   Query route only (SPEC-035). Revisit when monaco ships a forward fix.
+
+  **Re-examined 2026-08-05, still deferred — and now with the reason the `overrides` route is
+  closed.** `monaco-editor@0.56.0` (still the latest release; everything published after it is a
+  `-dev-` prerelease) pins `dompurify: '3.4.8'` **exactly**, so Dependabot has no in-range update to
+  open a PR with — which is why three alerts sit open with no PR rather than being ignored.
+  `dompurify` 3.4.13 clears all three, but **npm will not apply a newly-added `overrides` entry
+  against an existing lockfile**: `npm install`, `npm install --package-lock-only`, `npm update`
+  and a clean-room re-resolve seeded with the committed lock were all verified to leave 3.4.8 in
+  place. Only a **from-scratch** resolution (no lockfile) honours the override — and that
+  re-resolves every caret range at once, measured at **134 package version changes**, the whole AWS
+  SDK and Amplify surface included. That is an unrelated mass dependency bump riding along with
+  three advisories in code paths the app never calls, so it is not worth taking as a security fix.
+  It also explains this file's earlier note that an `overrides` block "silently did nothing" —
+  npm's behaviour, not a malformed entry. **Take it when monaco moves, or as a deliberate
+  dependency-refresh of its own.**
 - **`postcss` and `brace-expansion` are build-time.** Both exploits need untrusted input — a
   hostile stylesheet, a hostile glob — and both inputs are this repo's own source. Real supply-chain
   hygiene, no runtime exposure. Both have non-breaking fixes, so they are cheap to clear.
@@ -91,7 +117,7 @@ Notes that change the priority order:
   lockfile-only, no manifest change. **An `overrides` block was tried first and silently did
   nothing**, including for a deliberately invalid version string, so npm never re-resolved; reach
   for `npm update` before `overrides` when the declared range already allows the fix. npm audit
-  6 → 4; the two remaining highs are the accepted `react-router` pair.
+  6 → 4; the two remaining highs were the `react-router` pair, both cleared by v8.3.0 on 2026-08-05.
 - **`undici` — appeared and was cleared the same day (2026-08-04, #341).** GHSA-4cwx-7wf7-3272
   (HIGH, Cache-Control `private` parsing → cross-user disclosure in a shared cache) plus four
   mediums, published after the snapshot above and taking full audit 4 → 5 for part of one day.
@@ -251,7 +277,7 @@ What the follow-up spec should implement, per scanner.
 | `gitleaks` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 357 commits; flipped to `block`. No remediation was needed. |
 | `pip-audit` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 13 packages; flipped to `block`. |
 | Semgrep | `block` after excluding the Flask rule | One known false positive stands between here and zero. |
-| `npm audit` (runtime) | still `report` | `react-router` was bumped (below) but one advisory survives that only a **v8 major** clears. Gating at `high` would block on an inapplicable RSC issue. Revisit with the v8 migration, or gate by advisory ID. |
+| `npm audit` (runtime) | still `report`, but the blocker is gone | The RSC advisory that made `high` unusable was cleared by the v8 major (2026-08-05), and **`npm audit --omit=dev` now reports no highs** — only the two deferred `dompurify` rows (low + moderate). `GATE_NPM_AUDIT_RUNTIME=block` at `high` would pass today. **Not flipped here:** gate changes are SPEC-138's, and flipping one in a dependency PR is how a gate gets turned on without anyone deciding to. Worth taking deliberately. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
 | Checkov | `block` only on an **explicit allow-list of check IDs** | 305 failures over 25 rules, most not applicable. Gating the total would mean suppressing 20 rules to enforce 5. Pick the five in the FIX rows, gate those by ID, leave the rest reporting. |
 | ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. **Measured 2026-08-03:** 0 fail, 2 Medium, 8 Low. After SPEC-140 two Lows survive by decision, so a total-count gate is wrong here — gate by **risk level** (`riskcode >= 2`) if at all. |

@@ -1,4 +1,4 @@
-import {NavLink} from 'react-router-dom';
+import {NavLink} from 'react-router';
 import {HelpCircleIcon} from '../../components/icons';
 import {cx} from '../../lib/cx';
 

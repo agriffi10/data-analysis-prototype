@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
 import {render, screen} from '@testing-library/react';
-import {MemoryRouter} from 'react-router-dom';
+import {MemoryRouter} from 'react-router';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS, COMPONENT_AXE_OPTIONS} from '../../test/axe';
 import {HelpPage} from './HelpPage';
 import {HelpLink} from './HelpLink';

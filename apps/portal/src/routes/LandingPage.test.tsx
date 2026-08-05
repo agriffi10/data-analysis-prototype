@@ -1,6 +1,6 @@
 import {describe, it, expect, beforeEach} from 'vitest';
 import {screen} from '@testing-library/react';
-import {Routes, Route} from 'react-router-dom';
+import {Routes, Route} from 'react-router';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
 import {setReturnPath} from '../lib/returnPath';

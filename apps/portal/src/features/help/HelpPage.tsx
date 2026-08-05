@@ -1,5 +1,5 @@
 import {useEffect} from 'react';
-import {useLocation, useNavigate} from 'react-router-dom';
+import {useLocation, useNavigate} from 'react-router';
 import {PageLayout} from '../../components/PageLayout';
 import {usePageTitle} from '../../hooks/usePageTitle';
 import {useIsMobile} from '../../lib/useBreakpoint';

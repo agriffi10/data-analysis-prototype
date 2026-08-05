@@ -1,7 +1,7 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {screen} from '@testing-library/react';
 import {QueryClientProvider} from '@tanstack/react-query';
-import {MemoryRouter} from 'react-router-dom';
+import {MemoryRouter} from 'react-router';
 import {AuthContext} from '../features/auth/authContext';
 import {authenticated} from '../test/authFixtures';
 import {createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';

@@ -1,4 +1,4 @@
-import {Link} from 'react-router-dom';
+import {Link} from 'react-router';
 import {usePageTitle} from '../hooks/usePageTitle';
 
 /** Minimal not-found page for unknown routes. */

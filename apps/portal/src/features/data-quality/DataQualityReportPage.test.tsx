@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {screen, within, waitFor} from '@testing-library/react';
-import {Routes, Route} from 'react-router-dom';
+import {Routes, Route} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityReportPage} from './DataQualityReportPage';
@@ -35,8 +35,8 @@ const mockCache = vi.mocked(sharedSpaces.readSharedConnectionsCache);
 const mockEnqueue = vi.mocked(dqService.enqueueQualityCheck);
 
 const navigateSpy = vi.fn();
-vi.mock('react-router-dom', async (importActual) => {
-  const actual = await importActual<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importActual) => {
+  const actual = await importActual<typeof import('react-router')>();
   return {...actual, useNavigate: () => navigateSpy};
 });
 
