@@ -38,4 +38,5 @@ whole new area appears.
 | Table builder | `component-inventory/table-builder-feature.md` |
 | Help | `component-inventory/help-feature.md` |
 | Auth | `component-inventory/auth-feature.md` |
+| User directory | `component-inventory/user-directory-feature.md` |
 | Table share | `component-inventory/table-share-feature.md` |

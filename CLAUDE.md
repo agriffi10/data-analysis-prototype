@@ -76,8 +76,13 @@ the `columns_removed` notification link that names the columns. The live checks 
 from the UI.
 
 **SPEC-146 is COMPLETE and deployed** — the daily builder publishes `_directory/usernames.json` (12
-usernames on its first live run, matching the User Pool exactly). **Next to build: SPEC-147** (the
-browser data layer + typeahead combobox), then **SPEC-148** (wiring both dialogs).
+usernames on its first live run, matching the User Pool exactly). **SPEC-147 is COMPLETE** — the
+service, hook, trie, `UsernameCombobox` and `UsernameChipsField` all shipped, wired to nothing.
+**Next to build: SPEC-148** (wiring both dialogs — the only spec in the arc a user can see).
+
+**147 settled FR-004's open question by measurement:** `stopPropagation` from a React handler DOES
+stop `useEscapeKey`'s `document` listener (React delegates below it), so the hook needed no
+`defaultPrevented` guard and **did not get one**. Don't re-open it.
 
 Two things 146 left worth carrying: a **`rate()` EventBridge rule fires on creation**, so a new
 singleton's first scheduled invocation can hit the placeholder zip before `Deploy Lambdas` lands — the

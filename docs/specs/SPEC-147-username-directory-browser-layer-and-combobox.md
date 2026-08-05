@@ -1,7 +1,7 @@
 # Spec: Username Directory — Browser Data Layer & Typeahead Combobox
 
 **ID:** SPEC-147
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-146 (the published document and the portal role's read grant), SPEC-028 (`Input`), SPEC-095 (`Menu` — the repo's existing keyboard-popover precedent, and why a combobox is *not* built on it), SPEC-045 (the `vitest-axe` suite this component must satisfy)
 
