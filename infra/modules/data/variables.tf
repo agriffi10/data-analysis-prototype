@@ -73,3 +73,9 @@ variable "data_quality_execution_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "user_directory_build_role_arn" {
+  description = "SPEC-146: ARN of the daily username-directory builder, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so it can ListBucket the workspace prefixes and PutObject _directory/usernames.json; without the exclusion the Deny overrides its identity-policy Allow and the write fails with an opaque AccessDenied that looks like an IAM problem and is not (#241)."
+  type        = string
+  default     = ""
+}

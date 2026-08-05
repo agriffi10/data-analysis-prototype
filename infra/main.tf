@@ -108,6 +108,24 @@ locals {
   # module.notifications depends_on module.data) is preserved.
   notifications_writer_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-notifications-writer-role"
 
+  # Username-directory builder role ARN (SPEC-146), constructed cycle-free like the role ARNs
+  # above (module.user_directory creates it as "${project}-${env}-user-directory-build" — no
+  # `-role` suffix, matching the deploy grant's ARN pattern).
+  #
+  # A CONSTRUCTED STRING RATHER THAN A MODULE OUTPUT, and here that is load-bearing rather
+  # than stylistic: this ARN goes into the user-space bucket policy's principal allowlist, and
+  # an unknown-at-plan ARN inside a LIST attribute made OpenTofu plan NO change to that list —
+  # the value was never written (architecture.md → "An unknown ARN inside compact()/a list
+  # silently drops the change"). The module therefore exposes no role_arn output at all, so
+  # there is nothing to reach for by mistake. Apply ordering is preserved by
+  # module.user_directory's depends_on chain.
+  #
+  # Without the allowlist entry the builder's PutObject fails with an opaque AccessDenied that
+  # looks like an IAM problem and is not — the bucket policy's Deny overrides its identity
+  # policy's Allow. That has bitten this repo three times (#241; the comment lives in
+  # modules/observability/iam.tf).
+  user_directory_build_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-user-directory-build"
+
   # Logs queue (SPEC-127) name/ARN/URL, constructed cycle-free like the role ARNs above —
   # and here the cycle is REAL, not merely avoided: module.observability consumes
   # module.auth's user_pool_id, so module.auth referencing module.observability's outputs
@@ -271,6 +289,12 @@ module "data" {
   # each user's {username}/user_settings/notifications.json. Constructed string (locals) —
   # known at plan; the role is created in module.notifications.
   notifications_writer_role_arn = local.notifications_writer_role_arn
+
+  # SPEC-146: also excluded from the Deny so the daily directory builder can list the bucket's
+  # workspace prefixes and publish _directory/usernames.json. Constructed string (locals) —
+  # known at plan; the role is created in module.user_directory, and a bucket-policy condition
+  # only needs the ARN string, so no cycle.
+  user_directory_build_role_arn = local.user_directory_build_role_arn
 
   # SPEC-111 fix (systemic): the three control-plane execution roles that READ user-space
   # data via their own execution role must ALSO be excluded from the Deny, or the bucket
@@ -725,4 +749,42 @@ module "observability" {
 
   # base grants the deploy role its observability perms (SPEC-127 PR1, already applied).
   depends_on = [module.base]
+}
+
+# SPEC-146 username directory: one scheduled Lambda that lists the user-space bucket's
+# workspace prefixes once a day and publishes them as _directory/usernames.json, which the
+# browser reads to suggest usernames (SPEC-147/148). Not a control plane — no queue, no state
+# machine, no verbs; the closest sibling is module.observability's sweep.
+#
+# The bucket ARN and the logs queue arrive as CONSTRUCTED STRINGS from the locals above rather
+# than as module.data / module.observability outputs, so this module plans standalone and its
+# IAM templates render at plan time. module.data must exist first (the builder writes into its
+# bucket), which the depends_on below orders.
+module "user_directory" {
+  source = "./modules/user-directory"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  user_space_bucket_name = local.user_space_bucket_name
+  user_space_bucket_arn  = "arn:aws:s3:::${local.user_space_bucket_name}"
+
+  logs_queue_arn = local.logs_queue_arn
+  logs_queue_url = local.logs_queue_url
+
+  # Required by the cpcommon layer's import-time config._require, not used by the builder
+  # (PR #196 — a shared layer's fail-fast runs at COLD START for every attaching function).
+  # user_pool_id and app_client_id in particular: the builder makes NO Cognito call, and a
+  # test asserts it never will (SPEC-146 FR-001).
+  user_pool_id             = module.auth.user_pool_id
+  app_client_id            = module.auth.user_pool_client_id
+  shared_space_bucket_name = local.shared_space_bucket_name
+  admin_bucket_name        = local.athena_admin_bucket_name
+  athena_workgroup         = local.athena_workgroup_name
+
+  # base grants the deploy role its user-directory perms (SPEC-146 PR1, already applied);
+  # data owns the bucket this writes into.
+  depends_on = [module.base, module.data]
 }

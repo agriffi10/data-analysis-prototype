@@ -31,6 +31,7 @@ RESERVED_PREFIXES = frozenset(
         "shared_tables",          # table-share copy destinations (SPEC-088)
         "_data-quality-reports",  # this arc's own reports
         "_fc-work",               # the file-converter's scratch prefix (SPEC-116)
+        "_directory",             # the published username directory (SPEC-146)
     }
 )
 

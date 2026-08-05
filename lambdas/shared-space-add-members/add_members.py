@@ -1,10 +1,17 @@
 """add-members verb: add each valid username to the space.
 
-Validates each against the User Pool (unknown -> silently ignored), assigns a
-membership slot (no free slot -> skipped at-limit), writes the member's cache entry,
-and appends to the registry. Idempotent — already-members are skipped. The owner is
-never added (normalized out). Returns a summary {added, ignoredUnknown,
-skippedAtLimit}.
+Validates each against the User Pool, assigns a membership slot (no free slot -> skipped
+at-limit), writes the member's cache entry, and appends to the registry. Idempotent —
+already-members are skipped. The owner is never added (normalized out). Returns a summary
+{added, ignoredUnknown, skippedAtLimit}.
+
+**An unknown username is NOT silently ignored** — this docstring said it was, and had been
+wrong since the notification landed. The name is collected into ``ignoredUnknown`` and the
+space OWNER is notified by name ("Couldn't add 'bob' to 'sales': no such user"), pinned by
+``test_add_unknown_notifies_owner``. What is true is that the report is late, asynchronous and
+owner-only, which is the cost SPEC-146→148 reduce by suggesting existing usernames in the
+browser. Corrected under SPEC-146: a wrong comment about error handling is how a later design
+gets built on a premise that stopped being true.
 """
 
 import logging
