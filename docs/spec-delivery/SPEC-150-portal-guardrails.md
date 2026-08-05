@@ -70,6 +70,35 @@ internals, not our literal.)
   guide's three documented shortcuts were checked against `SqlEditor.tsx` and are correct — and are
   now test-backed for the first time.
 
+### What the fresh-context review changed
+
+The review found one real defect and four tightenings, all fixed before merge:
+
+- **The `RootLayout` boundary never reset.** `RootLayout` is a *layout* route, so its
+  `ErrorBoundary` instance outlives child-route changes and nothing cleared `hasError` — once an
+  eagerly-loaded page threw, navigating away left the nav visible but the content region stuck on the
+  fallback until a reload. Its own comment claimed the opposite. Fixed with `key={pathname}`, and
+  **pinned by a test that fails without it**. The two `App.tsx` boundaries never had this: they live
+  in a route `element` and unmount on navigation. Note the first attempt at that test passed against
+  the bug — re-rendering a second `MemoryRouter` does not change the route, because `initialEntries`
+  applies at mount only. It now drives a real in-router navigation.
+- **FR-006's scan could be fooled by a `code:` in a comment or a string.** This codebase writes
+  explanatory comments *inside* the returned object, so that was a live hole. Comments and string
+  bodies are now blanked before scanning, the property match is position-anchored, `success : false`
+  (spaced) matches, and six self-tests assert the scanner detects what it claims to. The file's
+  "narrower guarantee" note now enumerates all three residual limits rather than one.
+- **Six more unguarded catch dereferences** — `awsCredentials.ts` ×2, `fileBrowser.service.ts` ×2,
+  `glue.service.ts` ×2. `awsCredentials` is the one that mattered: FR-005 had just routed *all* S3
+  traffic through it. The FR-009 class is now closed portal-wide.
+- **`rootPrefix` made required on `useDelete`/`useMove`** rather than defaulting to the browsed
+  prefix. The fallback was safe with today's single caller, but a future caller omitting it while
+  inside `alice/reports/` would have made `alice/reports/athenaresults/` falsely undeletable — the
+  inverse of the bug FR-007 fixes.
+
+Also confirmed by the review and worth recording: `copyFolder` is deliberately **not** guarded (IAM
+denies only `DeleteObject`, so copying results out is legitimate), and `Timeout` at
+`query.service.ts:218` intentionally reuses the existing rule.
+
 ## What changed from earlier specs?
 
 - **SPEC-057's acceptance criterion (:97-98) is finally met** — the UI refuses to delete a space's

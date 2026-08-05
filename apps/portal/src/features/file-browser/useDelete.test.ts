@@ -25,7 +25,7 @@ function wrapper() {
 }
 
 function render(username: string | undefined = 'alice') {
-  return renderHook(() => useDelete('us', 'alice/', username), {
+  return renderHook(() => useDelete('us', 'alice/', username, 'alice/'), {
     wrapper: wrapper()
   });
 }
@@ -73,7 +73,7 @@ describe('useDelete', () => {
 
   it('does nothing and surfaces an error when there is no username', async () => {
     // Pass undefined directly — render()'s default would otherwise mask it.
-    const {result} = renderHook(() => useDelete('us', 'alice/', undefined), {
+    const {result} = renderHook(() => useDelete('us', 'alice/', undefined, 'alice/'), {
       wrapper: wrapper()
     });
     let summary: DeleteSummary | null = null;

@@ -18,7 +18,7 @@ export async function getDatabase(databaseName: string): Promise<ServiceResult<{
         data: {name: response.Database?.Name ?? databaseName}
       };
     } catch (err) {
-      const e = err as {name?: string};
+      const e = (typeof err === 'object' && err !== null ? err : {}) as {name?: string};
       if (e.name === 'EntityNotFoundException') {
         return {
           success: false,
@@ -65,7 +65,7 @@ export async function listTables(databaseName: string): Promise<ServiceResult<Gl
       } while (nextToken);
       return {success: true, data: tables};
     } catch (err) {
-      const e = err as {name?: string};
+      const e = (typeof err === 'object' && err !== null ? err : {}) as {name?: string};
       // Database exists in the catalog scope but has no tables yet, or hasn't been
       // created — either way the schema browser shows nothing, not an error.
       if (e.name === 'EntityNotFoundException') {

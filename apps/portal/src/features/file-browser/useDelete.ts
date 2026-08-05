@@ -35,10 +35,16 @@ export type UseDeleteResult = {
  *
  * @param prefix - the folder currently being viewed (what gets invalidated).
  * @param rootPrefix - the SPACE root, which `deleteFolder` needs to recognise a
- *   protected root folder. Defaults to `prefix` for the personal-space case where
- *   the browser mounts at the root.
+ *   protected root folder. REQUIRED, not defaulted to `prefix`: a caller that fell
+ *   back to the browsed folder while sitting in `alice/reports/` would make
+ *   `alice/reports/athenaresults/` falsely undeletable.
  */
-export function useDelete(bucket: string, prefix: string, username?: string, rootPrefix?: string): UseDeleteResult {
+export function useDelete(
+  bucket: string,
+  prefix: string,
+  username: string | undefined,
+  rootPrefix: string
+): UseDeleteResult {
   const queryClient = useQueryClient();
   const [isDeleting, setIsDeleting] = useState(false);
   const [summary, setSummary] = useState<DeleteSummary | null>(null);
@@ -83,7 +89,7 @@ export function useDelete(bucket: string, prefix: string, username?: string, roo
         bucket,
         prefix: folder.prefix,
         username,
-        rootPrefix: rootPrefix ?? prefix
+        rootPrefix
       });
       if (!result.success) {
         errors.push({key: folder.prefix, message: result.error.message, code: result.error.code});

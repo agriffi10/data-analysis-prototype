@@ -56,8 +56,14 @@ type Acc = {moved: number; errors: MoveSummary['errors']};
 // (the items' common parent); both it and any destination prefix are invalidated
 // on completion so the moved items appear/disappear. Never throws.
 // `rootPrefix` is the SOURCE space's root, which `moveFolder` needs to recognise a
-// protected root folder; it defaults to `sourcePrefix` for a browser mounted at root.
-export function useMove(bucket: string, sourcePrefix: string, username?: string, rootPrefix?: string): UseMoveResult {
+// protected root folder. Required for the same reason as useDelete's: a fallback to
+// the browsed folder would falsely protect a nested folder of the same name.
+export function useMove(
+  bucket: string,
+  sourcePrefix: string,
+  username: string | undefined,
+  rootPrefix: string
+): UseMoveResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -113,7 +119,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string,
         sourcePrefix: item.prefix,
         destPrefix: `${parent}${newName}/`,
         username,
-        rootPrefix: rootPrefix ?? sourcePrefix,
+        rootPrefix,
         overwrite,
         onProgress: (p, t) => setProgress(uploadPercent(p, t))
       });
@@ -195,7 +201,7 @@ export function useMove(bucket: string, sourcePrefix: string, username?: string,
           sourcePrefix: item.prefix,
           destPrefix: `${destPrefix}${leaf}/`,
           username,
-          rootPrefix: rootPrefix ?? sourcePrefix,
+          rootPrefix,
           destBucket,
           overwrite,
           onProgress: (p, t) => setProgress(uploadPercent(p, t))

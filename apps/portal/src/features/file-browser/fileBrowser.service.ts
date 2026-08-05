@@ -111,7 +111,7 @@ async function listWithClient(
       }
     };
   } catch (err) {
-    const error = err as {message?: string; name?: string};
+    const error = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
     return {
       success: false,
       error: {
@@ -332,7 +332,7 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
         }
       }
     } catch (err) {
-      const e = err as {name?: string; message?: string};
+      const e = (typeof err === 'object' && err !== null ? err : {}) as {name?: string; message?: string};
       // Let credential expiry bubble up so the whole operation is retried once.
       if (isExpiryError(e.name)) return toServiceError(err, 'Failed to delete objects');
       // Other whole-batch failure: record each key and keep going.
