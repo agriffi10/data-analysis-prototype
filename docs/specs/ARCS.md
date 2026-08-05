@@ -874,3 +874,45 @@ work.** **TypeScript `strict` is already ON.** `tsconfig.app.json` has no `"stri
 157 errors; as-configured yields 0). Do not "enable strict" as a task. 150 FR-001 *declares* the inherited
 default, which is a one-line change whose justification is the ruff-0.16 incident already written up in
 `pyproject.toml`: a tool widening its own defaults overnight turned `main` red once already.
+
+---
+
+## Follow-ups from the shipped arcs (SPEC-157, 158 — filed 2026-08-05)
+
+Two singles rather than an arc: they share no mechanism and neither depends on the other.
+
+**SPEC-157 — serialize concurrent table refresh.** The one exposure SPEC-149 left open, and its
+own entry says so: the Pipe starts executions `FIRE_AND_FORGET`, so `MessageGroupId` serializes
+*delivery* per database and not *execution*. Two refreshes of one table can overlap and the second
+to finish wins. **Severity is genuinely low and the spec says so** — both runs re-infer from the
+same folder, so they usually compute the same definition and last-write-wins is a no-op. It only
+bites when the files change between the two reads, and then it is **silent**: `diff-schema` reports
+"unchanged" and nothing in `logs/` says a definition was overwritten.
+
+Three things were settled against the API models before the design, not after. **`REQUEST_RESPONSE`
+on the Pipe is impossible for a STANDARD state machine** — botocore's own `InvocationType`
+documentation says so — which is what forces the "just make it synchronous" idea into an EXPRESS
+conversion, itself rejected twice over (5-minute ceiling vs `inspect-source`; at-least-once
+execution, which would *create* duplicate refreshes). **`UpdateTable.VersionId` is not a CAS** —
+documented only as "the version ID at which to update the table contents", no precondition error.
+And the table-builder execution role carries an explicit **`Deny` on `s3:DeleteObject`** for the
+admin bucket, which SPEC-149 kept deliberately — so the lock is released by OVERWRITING under ETag
+CAS, never by deleting, and "free" is a state of the object rather than its absence. A steal for a
+lock left by a dead execution needs executions to be bounded, so the state machine gains a
+`TimeoutSeconds` it does not have today; that is a prerequisite, not a tidy-up.
+
+**SPEC-158 — shared-space suggestions from the local cache.** Small, and filed for a structural
+reason rather than its size: it lifts `UsernameCombobox`'s data source to a prop, so the component
+stops being the only shape of suggestion field the app can have. SPEC-147 had it call
+`useUserDirectory` internally — the right reading with one source; a second source is the trigger
+to revisit it.
+
+**A shared-space DIRECTORY was considered and declined (user decision, 2026-08-05), and the reason
+is worth keeping.** Sharing to a space does **not** require membership
+(`test_recipient_space_membership_not_required`), so a full list would be strictly more useful than
+"spaces you belong to" — and that is exactly what makes it a disclosure: it would publish every
+space name in the organisation to every authenticated user, with no existing equivalent. A username
+is already the S3 prefix, the principal tag, the Glue database name and a roster entry; a space name
+is discoverable today only by colliding with it at create time, and space names are user-chosen and
+often descriptive. So 158 suggests only what the user can already see, and any other space stays
+typeable. **Do not add the directory "for symmetry with SPEC-146."**
