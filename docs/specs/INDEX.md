@@ -162,6 +162,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 154 — Frontend Journey Coverage: Testing the Wires Between Tested Halves | Draft |
 | 155 — Browser Shared Primitives & Component Decomposition | Draft |
 | 156 — Lambda Layer Consolidation: Folding the Deliberate Twins onto `cpcommon` | Draft |
+| 157 — Serialize Concurrent Table Refresh | Draft |
+| 158 — Shared-Space Suggestions from the Local Cache | Draft |
 
 ## Arcs
 
