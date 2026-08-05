@@ -53,6 +53,38 @@ usernames as you type; neither changes what it submits.
   a fresh render silently discards internal state, so an "open list" case would check the closed
   one. A new `AddMembersDialog.a11y.test.tsx` follows the same shape.
 
+## What the fresh-context review found
+
+Two of these were introduced by this spec's own changes, and neither would have failed a test or
+an axe check.
+
+1. **The dialog stopped focusing its field on open.** The textarea version had a focus effect;
+   it and its ref were deleted and nothing replaced them. `Modal` passes `initialFocus: false`
+   *precisely because* each consumer owns its own focus effect — so focus stayed on the trigger
+   **outside** the modal, and a screen-reader user was never moved into the dialog. axe cannot
+   see focus placement, so every a11y suite passed. `UsernameChipsField` gained `autoFocus`.
+2. **An exclusion reason was discarded whenever there were also invalid tokens.** `commitTyped`
+   set the rule sentence *or* the refusal, never both — so `bob, cara, 1bad` with `cara` already
+   a member dropped `cara` with no chip and no explanation. **That is the exact silent drop this
+   arc exists to remove, reintroduced one branch deeper.** It surfaced only because FR-003's
+   required mixed-input test was missing; writing it found the bug immediately.
+3. **The "Press Enter to add {name}" hint told the user something false.** It named the first
+   token, but `Bob-Smith` is refused by the rule, `cara` may already be a member, and
+   `bob, cara` adds two names rather than the one named. It also carried `aria-live`, announcing
+   "b / bo / bob" over the combobox's own status region. It now names no token and is not a live
+   region.
+4. **`TableShareDialog` did not return focus after Add under the user kind**, though the space
+   kind always has — so a second name cost a click.
+5. **The Add-button disabled logic was entirely unpinned**: reverting it to the pre-spec gate
+   left all 1425 tests green.
+
+Two findings were honesty fixes rather than behaviour: an a11y case named "at a phone width"
+exercises no width at all (nothing in that tree reads `innerWidth`, and jsdom has no layout
+engine), and a comment claimed a field-by-field payload assertion that actually lives in
+`ConnectionsPage.test.tsx`.
+
+All three new guards were mutation-confirmed after the fixes were committed.
+
 ## Verification
 
 `npm run lint`, `npm run build` and `npm run test` clean: **1425 tests** (+25). Coverage includes
