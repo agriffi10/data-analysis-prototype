@@ -45,7 +45,9 @@ export async function enqueueFifoRequest<T>(opts: {
 }): Promise<ServiceResult<T>> {
   const {queueUrl, notConfiguredMessage, build} = opts;
   if (!queueUrl) {
-    return {success: false, error: {message: notConfiguredMessage}};
+    // The code is what carries the wording to the user: `toUserMessage` keys on
+    // `code ?? name`, so a failure without one falls through to GENERIC.
+    return {success: false, error: {message: notConfiguredMessage, code: 'NotConfigured'}};
   }
   const token = await getIdToken();
   if (!token.success) return token;

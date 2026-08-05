@@ -66,6 +66,15 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'InvalidDestination', userFixable: true, passthrough: true}, // e.g. folder into itself
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
 
+  // Trigger: a `VITE_*_QUEUE_URL` is unset, so `enqueueFifo` refused before
+  // reaching SQS. Passthrough for exactly the reason the `ErrorRule` doc states —
+  // the six "… is not configured" strings are authored by our own service layer
+  // and embed no AWS text, they just name which control plane is missing. Not
+  // user-fixable (it is a deploy misconfiguration), but the wording has to reach
+  // the user: without this rule all six fell through to GENERIC, and the
+  // documented deploy gotcha presented as "Something went wrong."
+  {code: 'NotConfigured', userFixable: false, passthrough: true},
+
   // ── Data-quality report reads (SPEC-113 FR-005). Deliberately NOT folded into
   // the generic `NotFound` above: that one says "refresh and try again", which is
   // wrong advice here — a report the user followed a link to is either still being

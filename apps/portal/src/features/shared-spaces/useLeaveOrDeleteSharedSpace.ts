@@ -16,7 +16,7 @@ export function useLeaveOrDeleteSharedSpace(username: string | null) {
   const submit = useCallback(
     async (action: 'leave' | 'delete' | 'forget', space: string): Promise<ServiceResult<{requestId: string}>> => {
       if (!username) {
-        return {success: false, error: {message: 'Not signed in'}};
+        return {success: false, error: {message: 'Not signed in', code: 'NotAuthenticated'}};
       }
       setBusy(true);
       const result = await enqueueSharedSpaceRequest({action, actor: username, space});

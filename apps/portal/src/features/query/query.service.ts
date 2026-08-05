@@ -64,7 +64,10 @@ export async function runQuery(p: {
       if (!queryExecutionId) {
         return {
           success: false,
-          error: {message: 'Athena did not return a query execution id'}
+          // No rule matches this code on purpose — Athena accepting the start call
+          // without returning an id is a service fault, and GENERIC is what a user
+          // should see. The code exists so the mapper decides that, not a fallthrough.
+          error: {message: 'Athena did not return a query execution id', code: 'AthenaNoExecutionId'}
         };
       }
       return {success: true, data: {queryExecutionId}};
@@ -212,7 +215,7 @@ export async function runStatementToCompletion(p: {
     await delay(STMT_POLL_INTERVAL_MS);
   }
   // Unreachable (the loop returns), but satisfies the type checker.
-  return {success: false, error: {message: 'Polling ended unexpectedly'}};
+  return {success: false, error: {message: 'Polling ended unexpectedly', code: 'Timeout'}};
 }
 
 /**

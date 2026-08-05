@@ -12,7 +12,9 @@ function toError(
   message: string;
   code?: string;
 } {
-  const e = err as {message?: string; name?: string};
+  // Guarded like `toServiceError`: this runs inside a catch, so `throw null`
+  // must not turn a reportable failure into a TypeError (SPEC-150 FR-009).
+  const e = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
   return {message: e.message ?? fallback, code: e.name};
 }
 

@@ -45,6 +45,9 @@ export function toServiceError(
   err: unknown,
   fallback: string
 ): {success: false; error: {message: string; code?: string}} {
-  const e = err as {message?: string; name?: string};
+  // `throw null` and `throw 'oops'` are legal, and this runs INSIDE a catch in a
+  // function documented as never throwing — dereferencing the caught value
+  // unguarded would raise a TypeError from the one place that must not.
+  const e = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
   return {success: false, error: {message: e.message ?? fallback, code: e.name}};
 }

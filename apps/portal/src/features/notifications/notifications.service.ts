@@ -94,7 +94,11 @@ export async function getNotifications(username: string): Promise<ServiceResult<
  */
 export async function enqueueNotificationAction(input: EnqueueNotificationInput): Promise<ServiceResult<void>> {
   if (input.action === 'markRead' && !input.id) {
-    return {success: false, error: {message: 'markRead requires a notification id'}};
+    // Coded, like every other failure, so `toUserMessage` maps rather than falls
+    // through by accident. No rule matches `InvalidRequest` on purpose — this is a
+    // caller bug the UI cannot produce, and GENERIC is the right thing to show if
+    // it somehow does.
+    return {success: false, error: {message: 'markRead requires a notification id', code: 'InvalidRequest'}};
   }
 
   return enqueueFifoRequest<void>({

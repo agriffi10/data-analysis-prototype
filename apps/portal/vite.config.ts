@@ -27,7 +27,19 @@ export default defineConfig({
         'src/test-setup.ts',
         'src/main.tsx'
       ],
-      reporter: ['text', 'text-summary', 'html', 'lcov']
+      reporter: ['text', 'text-summary', 'html', 'lcov'],
+      // RATCHETS AT THE MEASURED LEVEL, NOT TARGETS. Each is today's measured
+      // number floored to a whole percent (91.33 / 86.68 / 89.49 / 93.35 as of
+      // 2026-08-05). Without them, deleting tests passes CI exactly like keeping
+      // them. Raise these when coverage rises; NEVER lower one to accommodate a
+      // regression — a lowered floor is a visible one-line diff, which is the
+      // whole reason the numbers are literals here and computed from nothing.
+      thresholds: {
+        statements: 91,
+        branches: 86,
+        functions: 89,
+        lines: 93
+      }
     }
   }
 });

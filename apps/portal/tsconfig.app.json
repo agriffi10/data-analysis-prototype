@@ -15,6 +15,14 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* THE TYPE GUARANTEE IS STATED HERE, NOT INHERITED. TypeScript 6 defaults
+       `strict` to true, so this key changes nothing today — that is the point.
+       pyproject.toml's ruff block records what inheriting a default costs: 0.16
+       widened its own default set overnight and turned main red in files nobody
+       had touched (#311). Strict is the project's single most important type
+       guarantee; it does not ride on a compiler default. */
+    "strict": true,
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

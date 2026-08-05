@@ -17,6 +17,9 @@
  * }
  */
 export function isNotFound(err: unknown): boolean {
+  // Guarded for the same reason as `toServiceError`: this is called on a caught
+  // value, and `throw null` would make the predicate throw instead of answering.
+  if (typeof err !== 'object' || err === null) return false;
   const e = err as {name?: string; $metadata?: {httpStatusCode?: number}};
   return e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
 }
