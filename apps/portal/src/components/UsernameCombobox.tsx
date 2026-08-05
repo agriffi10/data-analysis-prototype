@@ -106,6 +106,14 @@ export function UsernameCombobox({
   );
   const listOpen = open && suggestions.length > 0;
 
+  // CLAMPED, because `suggestions` can shrink for reasons the input never sees. The keyboard
+  // handlers reset the highlight on typing, Escape, Tab and commit — but not when a caller
+  // changes `exclude`/`suppress`, which is exactly what SPEC-148 does (`exclude` is the member
+  // list, backed by a refetchable query). Without this, `aria-activedescendant` can point at an
+  // element that no longer exists — no option reports itself active, and Enter quietly commits
+  // the raw typed text instead of the option that was last announced.
+  const active = highlighted < suggestions.length ? highlighted : -1;
+
   // Announce the result count politely and late. `role="status"` reaches AT without moving
   // focus (WCAG 4.1.3); the delay is what stops a fast typist being read every intermediate
   // count on the way to the name they wanted.
@@ -165,7 +173,12 @@ export function UsernameCombobox({
         }
         allowed.push(name);
       }
-      if (allowed.length === 0) return refusal;
+      if (allowed.length === 0) {
+        // Nothing was committed, so any note describing an EARLIER commit is now stale — it
+        // would read as if it described the name just refused.
+        setNote(null);
+        return refusal;
+      }
 
       // The unlisted-name note is shown only when the directory is READY. While it is loading
       // or unavailable a note would either arrive a second after the name was accepted (reading
@@ -214,13 +227,13 @@ export function UsernameCombobox({
 
   /** Commit the highlighted option, or whatever is typed. */
   const commit = useCallback(() => {
-    if (highlighted >= 0 && suggestions[highlighted]) {
-      setError(commitNames([suggestions[highlighted].username]));
+    if (active >= 0 && suggestions[active]) {
+      setError(commitNames([suggestions[active].username]));
       onChange('');
       return;
     }
     commitTyped(value);
-  }, [commitNames, commitTyped, highlighted, onChange, suggestions, value]);
+  }, [active, commitNames, commitTyped, onChange, suggestions, value]);
 
   /**
    * A pasted LIST commits immediately; a pasted single name is an ordinary paste.
@@ -234,7 +247,14 @@ export function UsernameCombobox({
     const pasted = event.clipboardData.getData('text');
     if (!/[\s,]/.test(pasted.trim())) return;
     event.preventDefault();
-    commitTyped(`${value} ${pasted}`);
+    // Spliced at the caret rather than appended, so a paste over a selection REPLACES it and a
+    // mid-word paste does not silently glue two tokens together. `selectionStart/End` are the
+    // browser's own view of the field; the `?? value.length` fallback covers a target with no
+    // selection.
+    const field = event.currentTarget;
+    const start = field.selectionStart ?? value.length;
+    const end = field.selectionEnd ?? value.length;
+    commitTyped(`${value.slice(0, start)} ${pasted} ${value.slice(end)}`);
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -275,12 +295,12 @@ export function UsernameCombobox({
       case 'ArrowDown':
         event.preventDefault();
         setOpen(true);
-        setHighlighted((current) => (current >= last ? 0 : current + 1));
+        setHighlighted(active >= last ? 0 : active + 1);
         break;
       case 'ArrowUp':
         event.preventDefault();
         setOpen(true);
-        setHighlighted((current) => (current <= 0 ? last : current - 1));
+        setHighlighted(active <= 0 ? last : active - 1);
         break;
       case 'Home':
         if (!listOpen) return;
@@ -316,7 +336,7 @@ export function UsernameCombobox({
         aria-autocomplete="list"
         // Absent rather than empty when nothing is highlighted: an empty value is a broken
         // reference, and some screen readers announce it as one.
-        aria-activedescendant={listOpen && highlighted >= 0 ? optionId(highlighted) : undefined}
+        aria-activedescendant={listOpen && active >= 0 ? optionId(active) : undefined}
         aria-describedby={cx(describedBy, note ? noteId : undefined) || undefined}
         autoComplete="off"
         onChange={(event) => {
@@ -344,7 +364,7 @@ export function UsernameCombobox({
               key={suggestion.username}
               id={optionId(index)}
               role="option"
-              aria-selected={index === highlighted}
+              aria-selected={index === active}
               // onMouseDown, not onClick: mousedown fires before the input's blur, so the
               // commit lands while the field still exists.
               onMouseDown={(event) => {
@@ -356,7 +376,7 @@ export function UsernameCombobox({
               onMouseEnter={() => setHighlighted(index)}
               className={cx(
                 'flex min-h-11 cursor-pointer items-center px-3 font-mono text-sm text-text tablet:min-h-9',
-                index === highlighted && 'bg-surface-2'
+                index === active && 'bg-surface-2'
               )}>
               {suggestion.username}
             </li>

@@ -1,12 +1,15 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {waitFor} from '@testing-library/react';
+import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {unauthenticated} from '../../test/authFixtures';
 import {useUserDirectory} from './useUserDirectory';
 import {getUserDirectory} from './userDirectory.service';
-import {MAX_INDEXED_USERNAMES} from './usernameTrie';
+import {MAX_INDEXED_USERNAMES, buildIndex} from './usernameTrie';
 
 vi.mock('./userDirectory.service', () => ({getUserDirectory: vi.fn()}));
+// `spy: true` keeps the real trie and only counts the calls — the point is how OFTEN the
+// index is built, not what it returns.
+vi.mock('./usernameTrie', {spy: true});
 
 const directory = (usernames: string[], generatedAt = '2026-08-05T04:00:11Z') => ({
   success: true as const,
@@ -15,6 +18,7 @@ const directory = (usernames: string[], generatedAt = '2026-08-05T04:00:11Z') =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(buildIndex).mockClear();
   vi.mocked(getUserDirectory).mockResolvedValue(directory(['alice', 'bob_smith', 'cara']));
 });
 
@@ -85,19 +89,36 @@ describe('useUserDirectory — search', () => {
     expect(result.current.search).toBe(first);
   });
 
-  it('builds the index once, however many times it is searched', async () => {
-    // The index is built on the first call and memoised behind the callback. Rebuilding it per
-    // keystroke would be invisible in a small directory and ruinous in a large one, so the
-    // guard is a cost assertion rather than an output one.
+  it('builds the index ONCE, however many times it is searched or re-rendered', async () => {
+    // Counted, not timed. A timing budget over a three-name directory passes just as happily
+    // when the trie is rebuilt on every single call — which is exactly what an earlier version
+    // of this test failed to notice.
     const {result, rerender} = await ready();
 
-    const started = performance.now();
-    for (let n = 0; n < 500; n += 1) {
+    for (let n = 0; n < 20; n += 1) {
       result.current.search('a');
       rerender();
     }
-    expect(performance.now() - started).toBeLessThan(2000);
+
+    expect(vi.mocked(buildIndex)).toHaveBeenCalledTimes(1);
     expect(result.current.search('a').map((r) => r.username)).toEqual(['alice', 'cara']);
+  });
+
+  it('rebuilds when a NEW document arrives', async () => {
+    // The other half of the bound: proves the test above is not green merely because the index
+    // is built once and then never updated.
+    const {result, rerender, queryClient} = await ready();
+    result.current.search('a');
+    expect(vi.mocked(buildIndex)).toHaveBeenCalledTimes(1);
+
+    vi.mocked(getUserDirectory).mockResolvedValue(directory(['dave']));
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    rerender();
+    await waitFor(() => expect(result.current.search('dave').map((r) => r.username)).toEqual(['dave']));
+
+    expect(vi.mocked(buildIndex)).toHaveBeenCalledTimes(2);
   });
 
   it('caps the index and says so rather than quietly becoming slow', async () => {

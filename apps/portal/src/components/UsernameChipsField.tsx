@@ -76,6 +76,12 @@ export function UsernameChipsField({
         // expect from a chip input and never see documented. Handled here rather than in the
         // combobox so it exists only where chips do; in `renderChips={false}` mode the caller
         // owns the list and removing from it behind their back would be wrong.
+        //
+        // GATED ON THE EVENT TARGET. This handler sits on the wrapper, which also contains the
+        // chip list — so without the check, a keyboard user tabbing to "Remove alice" and
+        // pressing Backspace deletes the LAST chip instead. Silent, wrong, invisible to axe.
+        // Matched by role rather than by a ref, so the combobox keeps its input private.
+        if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'combobox') return;
         if (event.key !== 'Backspace' || entry !== '' || !renderChips || disabled) return;
         if (value.length === 0) return;
         event.preventDefault();

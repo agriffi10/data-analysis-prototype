@@ -85,14 +85,32 @@ describe('search — input handling', () => {
 describe('search — the cost bound', () => {
   const big = buildIndex(Array.from({length: MAX_INDEXED_USERNAMES}, (_, n) => `user${String(n).padStart(6, '0')}`));
 
-  it('walks the trie for the prefix band and never scans the full list', () => {
-    // The claim under test: prefix cost is a function of the QUERY and the subtree it
-    // enumerates, not of the directory size. A scan-everything implementation passes every
-    // ranking test above and fails this one.
+  it('walks the trie for the prefix band rather than scanning', () => {
+    // The claim under test is about the PREFIX BAND ONLY: its cost is a function of the query
+    // and the subtree it enumerates, not of the directory size. A scan-everything prefix
+    // implementation passes every ranking test above and fails this one.
+    //
+    // It deliberately says nothing about the substring band — see the test below, which is
+    // where that cost is stated honestly rather than left implied by this one's name.
     const {nodesVisited, results} = searchWithCost(big, 'user000001');
     expect(results).toHaveLength(1);
     expect(nodesVisited).toBeLessThan(40);
     expect(nodesVisited).toBeLessThan(big.size / 100);
+  });
+
+  it('DOES scan the whole list when the prefix band cannot fill the limit', () => {
+    // The honest statement of the cost, pinned so nobody reads the test above as meaning more
+    // than it does. The substring band is skipped only when the prefix band FILLS the limit —
+    // so a query with fewer than `limit` matches, including a fully-typed exact name (the
+    // commonest typeahead endpoint), pays a full linear scan per keystroke.
+    //
+    // That is the documented contract (SPEC-147 FR-003), not a defect, and it is bounded: the
+    // 20,000 cap exists so this stays a scan of a known size. Narrowing it — e.g. skipping the
+    // band on an exact match — would CHANGE RANKING, dropping the substring matches that make
+    // `smith` find `bob_smith`, so it is not a free optimisation.
+    const {namesScanned, results} = searchWithCost(big, 'user000001');
+    expect(results).toHaveLength(1);
+    expect(namesScanned).toBe(big.size);
   });
 
   it('skips the substring scan entirely when the prefix band filled the limit', () => {

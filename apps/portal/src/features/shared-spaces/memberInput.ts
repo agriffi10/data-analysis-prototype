@@ -40,7 +40,8 @@ export function parseMemberInput(raw: string): string[] {
  * @returns `valid` in input order, de-duplicated; `invalid` in input order, as typed.
  *
  * @example
- * parseMemberInputDetailed('bob, Bob Smith') // {valid: ['bob'], invalid: ['Smith']}
+ * // Note `Smith!` and not `Smith`: a bare `Smith` lowercases to the perfectly valid `smith`.
+ * parseMemberInputDetailed('bob, Bob Smith!') // {valid: ['bob'], invalid: ['Smith!']}
  */
 export function parseMemberInputDetailed(raw: string): {valid: string[]; invalid: string[]} {
   const seen = new Set<string>();

@@ -113,6 +113,43 @@ describe('UsernameCombobox — the ARIA pattern', () => {
     expect(field()).toHaveAttribute('aria-activedescendant', options()[0].id);
   });
 
+  it('never points aria-activedescendant at an option that is gone', async () => {
+    // `suggestions` can shrink for a reason the input never sees — a caller changing `exclude`,
+    // which is exactly what SPEC-148 does with a refetchable member list. Before the clamp, the
+    // input kept pointing at option 3 of a list that now had two, no option reported itself
+    // active, and Enter committed the raw typed text instead of the announced option.
+    // Driven through `rerender` rather than an in-page button: clicking anything outside the
+    // wrapper closes the list, which would make the assertion vacuous.
+    const onCommit = vi.fn();
+    const {user, rerender} = renderWithProviders(<Harness onCommit={onCommit} />);
+    await typeReady(user, 'ali');
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(field()).toHaveAttribute('aria-activedescendant', options()[1].id);
+
+    rerender(
+      <Harness
+        onCommit={onCommit}
+        exclude={new Set(['alicia'])}
+      />
+    );
+
+    expect(options()).toHaveLength(1);
+    const active = field().getAttribute('aria-activedescendant');
+    expect(active === null || document.getElementById(active)).toBeTruthy();
+
+    // And Enter commits the visible option rather than falling through to the typed text.
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(onCommit).toHaveBeenCalledWith('alice');
+  });
+
+  it('announces "No matches" when a ready directory has none', async () => {
+    const {user} = renderWithProviders(<Harness />);
+    await user.click(field());
+    await user.keyboard('zzz');
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('No matches'));
+  });
+
   it('announces the result count politely', async () => {
     const {user} = renderWithProviders(<Harness />);
     await typeReady(user, 'ali');

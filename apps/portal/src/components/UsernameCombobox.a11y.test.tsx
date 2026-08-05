@@ -4,7 +4,7 @@ import {render, screen, cleanup, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import type {ReactElement} from 'react';
-import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../test/axe';
+import {expectContainerHasNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../test/axe';
 import {AuthContext} from '../features/auth/authContext';
 import {authValue} from '../test/authFixtures';
 import {UsernameCombobox} from './UsernameCombobox';
@@ -45,10 +45,17 @@ beforeEach(() => {
   });
 });
 
-/** Render, drive to the state under test, unmount — then hand the same tree to axe. */
+/**
+ * Drive the component into the state under test, then hand **that container** to axe.
+ *
+ * It must be the driven container, not a fresh render of the same element. `open` is internal
+ * state initialised `false`, so re-rendering discards it and the `<ul role="listbox">` is never
+ * in the tree axe inspects — the open-state cases would silently check the closed state. That is
+ * not hypothetical: an `<img>` with no `alt` inside every option passed all four cases before
+ * this changed.
+ */
 async function renderThenAxe(typed: string, expectation: 'options' | 'none'): Promise<void> {
-  const ui = <Harness initial={typed} />;
-  const {container} = render(ui);
+  const {container} = render(<Harness initial={typed} />);
   const user = userEvent.setup();
   if (typed) {
     await user.click(screen.getByRole('combobox'));
@@ -57,9 +64,19 @@ async function renderThenAxe(typed: string, expectation: 'options' | 'none'): Pr
   }
   if (expectation === 'options') await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
   else expect(screen.queryAllByRole('option')).toHaveLength(0);
-  expect(container).toBeTruthy();
+  await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   cleanup();
-  await expectNoA11yViolations(ui, COMPONENT_AXE_OPTIONS);
+}
+
+/** Guards the guard: the open-state cases must actually contain a listbox when axe runs. */
+async function expectListboxWasInspected(typed: string): Promise<void> {
+  const {container} = render(<Harness initial={typed} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('combobox'));
+  await user.keyboard('{Backspace}' + typed.slice(-1));
+  await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
+  expect(container.querySelector('[role="listbox"]')).not.toBeNull();
+  cleanup();
 }
 
 describe('UsernameCombobox a11y', () => {
@@ -69,6 +86,10 @@ describe('UsernameCombobox a11y', () => {
 
   it('has no violations open with results', async () => {
     await renderThenAxe('ali', 'options');
+  });
+
+  it('really did hand axe an open listbox', async () => {
+    await expectListboxWasInspected('ali');
   });
 
   it('has no violations open with no results', async () => {

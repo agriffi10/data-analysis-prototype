@@ -107,6 +107,18 @@ describe('UsernameChipsField — chips', () => {
     expect(chipNames()).toEqual(['alice']);
   });
 
+  it('does NOT remove a chip when Backspace is pressed on a chip remove button', async () => {
+    // The handler sits on the wrapper, which contains the chip list too. Ungated, a keyboard
+    // user tabbing to "Remove alice" and pressing Backspace deleted the LAST chip instead —
+    // silent, wrong, and invisible to axe.
+    const {user} = renderWithProviders(<Harness initial={['alice', 'bob', 'carol']} />);
+
+    screen.getByRole('button', {name: 'Remove alice'}).focus();
+    await user.keyboard('{Backspace}');
+
+    expect(chipNames()).toEqual(['alice', 'bob', 'carol']);
+  });
+
   it('does NOT remove a chip when Backspace is deleting typed text', async () => {
     const {user} = renderWithProviders(<Harness initial={['alice']} />);
     await user.click(field());
