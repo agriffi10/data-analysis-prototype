@@ -494,3 +494,80 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── SPEC-151 FR-007: partition-key validation is complete ───────────────────
+#
+# Every case below reached ddl._projection_props unvalidated and raised a bare KeyError
+# or TypeError from inside infer-schema — surfacing to the user as "something went wrong"
+# for a request they could simply have corrected. The refusal must name the key and be
+# `invalid_partition_keys`, which is what the user-facing partition message keys on.
+
+
+def test_a_date_key_without_a_format_is_invalid_not_a_bare_keyerror():
+    """ddl._projection_props does key["format"] unguarded."""
+    _setup()
+    keys = [{"name": "sale_date", "type": "date", "range": ["2020-01-01", "2030-01-01"]}]
+    _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
+
+
+def test_a_date_key_with_a_blank_format_is_invalid():
+    _setup()
+    keys = [{"name": "sale_date", "type": "date", "range": ["2020-01-01", "2030-01-01"], "format": "   "}]
+    _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
+
+
+def test_a_non_string_enum_value_is_invalid_not_a_bare_typeerror():
+    """",".join over a non-string raises TypeError inside the renderer."""
+    _setup()
+    keys = [{"name": "region", "type": "string", "values": ["eu", 7]}]
+    _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
+
+
+def test_a_non_scalar_range_bound_is_invalid():
+    _setup()
+    keys = [{"name": "year", "type": "integer", "range": [2000, {"nope": 1}]}]
+    _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
+
+
+def test_a_boolean_range_bound_is_invalid():
+    """bool IS an int in Python, so True would sail through an isinstance(int) check and
+    render as the string "True" into a projection range."""
+    _setup()
+    keys = [{"name": "year", "type": "integer", "range": [True, 2100]}]
+    _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
+
+
+def test_non_integer_digits_is_invalid():
+    _setup()
+    keys = [{"name": "year", "type": "integer", "range": [2000, 2100], "digits": "4"}]
+    _expect_reason(_event(_personal(), partition_keys=keys), "invalid_partition_keys")
+
+
+def test_a_fully_specified_date_key_is_accepted():
+    """The negative cases above must not have made a legitimate key unusable."""
+    _setup()
+    keys = [
+        {
+            "name": "sale_date",
+            "type": "date",
+            "range": ["2020-01-01", "2030-01-01"],
+            "format": "yyyy-MM-dd",
+            "interval": 1,
+            "intervalUnit": "DAYS",
+        }
+    ]
+    out = v.handler(_event(_personal(), partition_keys=keys), None)
+    assert out["partitionKeys"] == keys
+
+
+def test_ACCEPTED_allow_removals_false_rides_a_create_while_true_is_refused():
+    """SPEC-151 FR-007 asks for this asymmetry to be PINNED, not changed. `false` is the
+    browser's always-present default and is accepted; `true` on a create is a producer bug
+    asking for something the mode cannot do, and is refused rather than silently dropped
+    (validate_authorize._normalize_removals). If this ever starts failing, the accepted
+    asymmetry changed — revisit the decision, do not delete the test."""
+    _setup()
+    out = v.handler(_event(_personal(), allow_removals=False), None)
+    assert out is not None
+    _expect_reason(_event(_personal(), allow_removals=True), "removals_flag_not_applicable")

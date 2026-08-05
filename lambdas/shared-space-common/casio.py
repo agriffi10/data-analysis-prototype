@@ -34,8 +34,21 @@ __all__ = ["MAX_CAS_ATTEMPTS", "cas_mutate", "error_code", "is_precondition"]
 
 
 def is_precondition(exc):
-    """True when a conditional PutObject failed (412), i.e. a concurrent writer won."""
-    return error_code(exc) in ("PreconditionFailed", "412")
+    """True when a conditional PutObject lost to a concurrent writer.
+
+    BOTH codes, and the 409 is the one that was missing (SPEC-151 FR-005). S3 answers a
+    failed ``If-Match`` with 412 ``PreconditionFailed``, but a failed ``If-None-Match: *``
+    raced against another create with **409 ``ConditionalRequestConflict``** — a different
+    code for a genuinely simultaneous write, where 412 is the sequential case. This
+    module's two twins already handle it and say why: ``dqcommon/index_store.py`` notes
+    that "treating the 409 as a hard error would drop the FIRST run", and
+    ``log-sweep/log_sweep.py`` does the same.
+
+    Three ``If-None-Match: *`` creates depended on this — ``registry.reserve``,
+    ``registry._put`` and ``cache.cas_mutate`` — so a genuinely concurrent create failed
+    hard instead of re-reading and resolving.
+    """
+    return error_code(exc) in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
 
 
 def cas_mutate(read, apply, write, *, label="object", max_attempts=MAX_CAS_ATTEMPTS):

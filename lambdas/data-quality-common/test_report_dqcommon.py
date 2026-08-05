@@ -757,3 +757,83 @@ def test_the_report_carries_its_identity_and_completion_time():
     assert document["format"] == "csv"
     assert document["fileCount"] == 1
     assert document["completedAt"] == COMPLETED
+
+
+# ── SPEC-151 FR-002: zero rows over real files is a finding, never a clean verdict ──
+
+
+def test_zero_rows_over_files_that_exist_is_never_a_clean_verdict():
+    """The false-clean this closes: a check whose profile ran but matched nothing returned
+    verdict "clean" with rowCount 0 — no duplicates, no ragged rows, no missing values,
+    all trivially true of nothing. A user reading that would conclude their data was fine
+    when none of it had been examined.
+    """
+    document = _build(profile=[_profile_row(0, [{"not_bigint": 0}, {"not_bigint": 0}])])
+
+    assert document["exact"]["rowCount"] == 0
+    assert document["verdict"] == "issues_found"
+    assert "no rows were found" in document["topIssues"][0]
+
+
+def test_the_empty_finding_leads_because_every_other_figure_is_zero():
+    """Reporting "no duplicates, nothing ragged" about nothing is not information. If this
+    ever slips below another finding, the notification body leads with a statistic
+    computed over an empty scan."""
+    document = _build(profile=[_profile_row(0, [{"not_bigint": 0}, {"not_bigint": 0}])])
+
+    assert document["topIssues"][0].startswith("no rows were found")
+
+
+def test_a_delivered_report_is_still_produced_rather_than_the_check_failing():
+    """A header-only CSV is a real, common export defect. Raising would hand the user
+    "something went wrong" and NO report, making a data defect they need to see
+    indistinguishable from an infrastructure fault (SPEC-151 FR-002, resolved as a
+    finding). The report must still exist and still carry its figures."""
+    document = _build(profile=[_profile_row(0, [{"not_bigint": 0}, {"not_bigint": 0}])])
+
+    assert document["fileCount"] >= 1
+    assert "columns" in document["exact"]
+    assert document["exact"]["rowCountsByFile"] is not None
+
+
+def test_a_populated_source_is_unaffected():
+    document = _build(profile=[_profile_row(1000, [{"not_bigint": 0}, {"not_bigint": 0}])])
+
+    assert document["verdict"] == "clean"
+    assert document["topIssues"] == []
+
+
+def test_row_count_equals_the_sum_of_the_per_file_counts_for_a_single_file_target():
+    """SPEC-151 FR-001's arithmetic criterion, stated in the report's own terms.
+
+    This is the invariant the whole FR exists to restore. Before it, the total row came
+    from a scan of the parent FOLDER while rowCountsByFile was reconciled to the manifest
+    (one file) — so the two halves of the same report described different populations and
+    a reader summing the per-file column got a different answer to `rowCount`.
+
+    `rowCountsByFile` is a LIST of {key, rows}, not a dict — the spec's `.values()` wording
+    is loose, so the sum is taken over `rows`.
+    """
+    per_file = _profile_row(1000, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/a.csv")
+    total = _profile_row(1000, [{"not_bigint": 0}, {"not_bigint": 0}])
+
+    document = _build(profile=[total, per_file])
+
+    exact = document["exact"]
+    assert exact["rowCount"] == sum(entry["rows"] for entry in exact["rowCountsByFile"])
+
+
+def test_the_same_invariant_holds_across_a_multi_file_folder_target():
+    """The folder case must not have been broken in the course of fixing the file case."""
+    files = [_file("alice/sales/a.csv", ["id", "amount"]), _file("alice/sales/b.csv", ["id", "amount"])]
+    rows = [
+        _profile_row(700, [{"not_bigint": 0}, {"not_bigint": 0}]),
+        _profile_row(300, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/a.csv"),
+        _profile_row(400, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/b.csv"),
+    ]
+
+    document = _build(manifest=_manifest(files), profile=rows)
+
+    exact = document["exact"]
+    assert exact["rowCount"] == 700
+    assert sum(entry["rows"] for entry in exact["rowCountsByFile"]) == 700

@@ -43,7 +43,9 @@ class _FakeJwks:
 
 
 def _install():
-    clients._jwks = _FakeJwks()
+    # Stub the ACCESSOR, not the cache: `_jwks` is a per-URL dict now
+    # (SPEC-151 FR-009), and what these tests actually want to fake is the client.
+    clients.jwks = lambda url: _FakeJwks()
 
 
 def _token(**over):
@@ -206,3 +208,46 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── SPEC-151 FR-009: the JWKS cache is keyed by URL ─────────────────────────
+
+
+def test_jwks_caches_one_client_per_url():
+    """It used to cache the FIRST client and ignore the argument thereafter, so a second
+    pool's URL was served the first pool's client — verifying tokens against the wrong
+    JWKS. Latent with one pool; exactly the shape that would present as an inexplicable
+    signature failure during the Identity Center transition."""
+    clients._jwks = {}
+    made = []
+
+    class _Client:
+        def __init__(self, url):
+            made.append(url)
+            self.url = url
+
+    import sys
+    import types as _types
+
+    stub = _types.ModuleType("jwt")
+    stub.PyJWKClient = _Client
+    saved = sys.modules.get("jwt")
+    sys.modules["jwt"] = stub
+    try:
+        a1 = clients.jwks("https://pool-a/.well-known/jwks.json")
+        b1 = clients.jwks("https://pool-b/.well-known/jwks.json")
+        a2 = clients.jwks("https://pool-a/.well-known/jwks.json")
+    finally:
+        if saved is not None:
+            sys.modules["jwt"] = saved
+        else:
+            del sys.modules["jwt"]
+        clients._jwks = {}
+
+    assert a1.url == "https://pool-a/.well-known/jwks.json"
+    assert b1.url == "https://pool-b/.well-known/jwks.json"
+    assert a1 is a2  # still cached per URL — the single-pool case is unchanged
+    assert made == [
+        "https://pool-a/.well-known/jwks.json",
+        "https://pool-b/.well-known/jwks.json",
+    ]

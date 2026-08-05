@@ -59,17 +59,24 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
     Always a folder with a trailing slash, even when the user targeted a single file: an
     Athena external table's LOCATION is a PREFIX, so pointing it at an object key yields a
     table over nothing — a check that reports zero rows and looks like a clean result. A
-    one-file target therefore becomes a table over the file's parent folder, which is
-    still correct here because the manifest listed exactly that one object.
+    one-file target therefore becomes a table over the file's PARENT FOLDER.
+
+    THAT PROMOTION IS NOT SUFFICIENT ON ITS OWN, and the earlier version of this docstring
+    claimed it was ("still correct here because the manifest listed exactly that one
+    object"). It is not: Athena reads a LOCATION RECURSIVELY, so the table covers every
+    file in the parent folder, not the one that was listed. What makes a single-file check
+    correct is the ``"$path"`` predicate the QUERIES carry — see ``sql.single_file_path``,
+    which is the one definition both this verb and start-profile-query decide on
+    (SPEC-151 FR-001).
     """
-    keys = [entry["key"] for entry in manifest.get("files") or []]
-    if not keys:
+    files = manifest.get("files") or []
+    if not files:
         # inspect-source raises no_data_files long before this, so an empty manifest means
         # something else wrote it. Refuse rather than build a table over the space root.
         raise TerminalError(messages.INVALID_REQUEST, "manifest carries no files")
 
     prefix = location.rstrip("/")
-    if keys == [prefix]:
+    if sql.single_file_path(bucket, files, location):
         prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
     return f"s3://{bucket}/{prefix}/" if prefix else f"s3://{bucket}/"
 

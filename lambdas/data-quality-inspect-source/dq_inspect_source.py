@@ -110,8 +110,8 @@ def _classify(key: str) -> str | None:
 _is_compressed = config.is_compressed
 
 
-def _resolve_listing_prefix(bucket: str, location: str) -> str:
-    """Return the prefix to list for ``location`` — the key itself, or the folder.
+def _resolve_listing_prefix(bucket: str, location: str) -> tuple[str, bool]:
+    """Return ``(prefix to list, is_single_file)`` for ``location``.
 
     A single-file location (the user picked one file, not a folder) must yield a
     one-object manifest and proceed normally, so it is listed as its own exact key. A
@@ -119,6 +119,13 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
     a prefix match, not a directory match, so listing ``alice/sales`` without one would
     silently swallow ``alice/sales-archive/`` and ``alice/sales2/`` — the user would get
     a report over files they never selected.
+
+    THE SAME HAZARD APPLIES TO THE FILE BRANCH, which is what the second element is for
+    (SPEC-151 FR-002). A prefix match on ``alice/data.csv`` also returns
+    ``alice/data.csv.gz``, ``alice/data.csv.bak`` and ``alice/data.csv2``. Listing cannot
+    express "this exact key", so the caller filters the result instead — see
+    ``_only_selected``. Left as a filter rather than a ``head_object``-built manifest so
+    the file branch keeps going through the same listing, cap and probe path as a folder.
 
     A ``head_object`` decides which it is, and doubles as the access probe: a retryable
     fault becomes a ``TransientError`` for the SFN's Retry (see ``errors.raise_if_transient`` —
@@ -137,12 +144,36 @@ def _resolve_listing_prefix(bucket: str, location: str) -> str:
         head = clients.s3().head_object(Bucket=bucket, Key=location)
     except Exception as err:  # re-raised unless it is a plain "no such key"
         if errors.error_code(err) in _NOT_FOUND_CODES:
-            return f"{location}/"
+            return f"{location}/", False
         errors.raise_if_transient(err, f"head {bucket}/{location}")
         raise
     if not head.get("ContentLength"):
-        return f"{location}/"
-    return location
+        return f"{location}/", False
+    return location, True
+
+
+def _only_selected(objects: list[tuple[str, int]], location: str) -> list[tuple[str, int]]:
+    """Keep only the exactly-matching key from a single-file listing (SPEC-151 FR-002).
+
+    ``list_objects_v2`` is a prefix match, so a check on ``data.csv`` also returns
+    ``data.csv.gz`` and ``data.csv2``. Left unfiltered, the extra keys made
+    ``keys == [prefix]`` false in create-temp-tables, so the parent-folder promotion did
+    not apply, the table was built at ``s3://…/data.csv/`` over nothing, and — because
+    ``GROUPING SETS`` still emits a total row — the user got ``verdict: "clean"`` with
+    ``rowCount: 0`` over data nothing had read.
+
+    An EMPTY result is returned as empty rather than raised on: the head_object above
+    already proved the object exists with bytes, so the only way to get here is a delete
+    between the head and the list, and the existing ``no_data_files`` refusal is the right
+    (and already-tested) answer for that.
+    """
+    # `rstrip("/")` matches `sql.single_file_path`'s normalisation exactly. The two helpers
+    # are the pair SPEC-151 FR-001 insists must never disagree about what "one file" means,
+    # and comparing a raw location here against a stripped one there is precisely how they
+    # would start to. Unreachable today (a key ending in `/` is classified unsupported
+    # first), which is why it is worth pinning rather than leaving to luck.
+    selected = location.rstrip("/")
+    return [(key, size) for key, size in objects if key == selected]
 
 
 @observability.step("list-objects")
@@ -522,8 +553,12 @@ def _inspect(event: dict) -> dict:
     request_id = events.require(event, "requestId", reason=messages.INVALID_REQUEST)
     report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
 
-    listing_prefix = _resolve_listing_prefix(bucket, location)
+    listing_prefix, single_file = _resolve_listing_prefix(bucket, location)
     objects = _list_objects(bucket, listing_prefix)
+    if single_file:
+        # Before the caps and before _resolve_format, so neither can see — nor name in a
+        # refusal — a sibling the user did not select (SPEC-151 FR-002).
+        objects = _only_selected(objects, location)
     _enforce_caps(objects)
     fmt = _resolve_format(objects, location)
     partition_keys = _detect_partition_keys(objects, listing_prefix)

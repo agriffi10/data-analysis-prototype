@@ -176,3 +176,48 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} delete-space tests passed.")
     sys.exit(0)
+
+
+# ── SPEC-151 FR-003: a partial teardown must not free the name ───────────────
+
+
+def test_a_key_that_could_not_be_deleted_leaves_the_registry_record_intact():
+    """THE criterion. delete_space ends with reg.delete(space), commented "LAST — the name
+    is now free to reuse". Before this fix, delete_objects returned HTTP 200 with a
+    per-key Errors array that nobody read, so a space whose objects survived was reported
+    as deleted and its name released — and the next space created with that name would
+    inherit another tenant's data (SPEC-054: never a dangling half-deleted resource).
+    """
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    s3.undeletable.add("sales/data/file.csv")
+
+    raises(
+        lambda: d.delete_space("sales", "alice", "req-d", reg),
+        teardown.TeardownIncompleteError,
+        "could not be deleted",
+    )
+
+    # The name is NOT free: the record is still there, and now says failed.
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["status"] == "failed"
+    # And the object that could not be removed is still in the bucket, which is the
+    # condition the record is now protecting.
+    assert ("shared-bkt", "sales/data/file.csv") in s3.store
+
+
+def test_a_table_that_could_not_be_dropped_leaves_the_registry_record_intact():
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    glue.undroppable.add("t2")
+
+    raises(
+        lambda: d.delete_space("sales", "alice", "req-d", reg),
+        teardown.TeardownIncompleteError,
+        "could not be dropped",
+    )
+
+    assert ("admin-bkt", "shared-spaces/sales.json") in s3.store
+    assert "sales" in glue.databases

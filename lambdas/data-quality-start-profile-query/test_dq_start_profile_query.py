@@ -392,3 +392,68 @@ def test_a_borrowed_terminal_is_still_narrated(started, captured_events):
     failed = captured_events.messages("start-profile-query failed")
     assert failed and failed[0]["level"] == "ERROR"
     assert failed[0]["fields"]["reason"] == messages.INVALID_REQUEST
+
+
+# ── SPEC-151 FR-001: a single-file target narrows every query ────────────────
+#
+# create-temp-tables promotes the table LOCATION to the parent FOLDER for a single-file
+# target, because Athena needs a prefix. A LOCATION is read RECURSIVELY, so that table
+# covers every sibling — and the "$path" predicate this verb attaches is the only thing
+# that puts the report back on the file the user actually selected.
+
+_ONE_FILE_MANIFEST = {
+    "partitionKeys": [],
+    "files": [
+        {
+            "key": "alice/sales/jan.csv",
+            "size": 1,
+            "columns": [
+                {"name": "order_id", "type": "string"},
+                {"name": "amount", "type": "string"},
+            ],
+        }
+    ],
+}
+
+_SELECTED = "'s3://dq-user-bkt/alice/sales/jan.csv'"
+
+
+@pytest.fixture
+def started_single_file(monkeypatch):
+    calls = []
+
+    def _start(**kw):
+        calls.append(kw)
+        return f"qid-{len(calls)}"
+
+    monkeypatch.setattr(v.athena, "start_query", _start)
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: _ONE_FILE_MANIFEST)
+    return calls
+
+
+def test_all_three_queries_are_narrowed_to_the_selected_file(started_single_file):
+    """The wiring, not the builders: dqcommon.sql is tested separately, and this is the
+    call site that has to actually pass the filter. Without it every figure in the report
+    described the parent folder while rowCountsByFile described the one file."""
+    v.handler(_event(location="alice/sales/jan.csv"), None)
+
+    assert len(started_single_file) == 3
+    for kw in started_single_file:
+        assert f'WHERE "$path" = {_SELECTED}' in kw["query"], kw["client_request_token"]
+
+
+def test_a_folder_target_attaches_no_predicate(started):
+    """The folder branch must render exactly as it did before SPEC-151."""
+    v.handler(_event(), None)
+
+    for kw in started:
+        assert '"$path" = ' not in kw["query"]
+
+
+def test_the_bucket_in_the_predicate_comes_from_the_space_not_the_key(started_single_file):
+    """The predicate is matched against Athena's "$path", which is a full s3:// URI — a
+    bare key would match nothing and the report would come back empty."""
+    v.handler(_event(location="alice/sales/jan.csv"), None)
+
+    profile = _by_token(started_single_file)[f"{HEX32}-profile"]
+    assert "s3://dq-user-bkt/alice/sales/jan.csv" in profile["query"]

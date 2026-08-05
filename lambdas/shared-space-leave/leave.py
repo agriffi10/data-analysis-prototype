@@ -44,13 +44,19 @@ def leave_space(space, actor, request_id, registry):
         return {"status": "ok", "action": "leave", "space": space, "left": False}
     membership.clear_slot(actor, space)
     cache.remove_entry(actor, space)
-    remaining = [m for m in members if m != actor]
-    acknowledged = [a for a in reg.effective_acknowledged(registry) if a != actor]
-    registry["acknowledged"] = acknowledged
-    reg.save_members(registry, remaining, request_id)
+    # A DELTA (SPEC-151 FR-004): one member leaving must not overwrite a roster another
+    # request changed while this one was in flight.
+    committed = reg.save_members(registry, request_id, remove=[actor])
+    remaining = committed["members"]
     # The leaver's entry was dropped above; fan the reduced roster out to the owner +
-    # every remaining member (SPEC-075).
-    cache.write_roster_to_all(remaining, space, owner, acknowledged, registry.get("createdAt"))
+    # every remaining member (SPEC-075), from what actually landed.
+    cache.write_roster_to_all(
+        remaining,
+        space,
+        owner,
+        committed.get("acknowledged", []),
+        committed.get("createdAt"),
+    )
     # Notify the owner only after the registry write lands; no-op leaves emit nothing.
     emit_notification(
         owner,

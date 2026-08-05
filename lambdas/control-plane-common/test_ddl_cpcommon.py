@@ -14,6 +14,8 @@ data-quality arc's divergent SerDes.
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cpcommon.ddl import (
@@ -365,3 +367,89 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── SPEC-151 FR-006: every DDL literal goes through literal() ───────────────
+#
+# `literal()` has sat in this module all along and is already used for column comments,
+# but TBLPROPERTIES and LOCATION were rendered with raw f-string quotes. Blast radius is
+# SELF-SCOPED — a user can only reach a table in their own database, and Athena rejects
+# multi-statement DDL — so this is robustness, not cross-tenant escalation. The sharper
+# path is data-quality, where both the LOCATION and the partition values come from S3 KEY
+# SEGMENTS, so a folder named `year=2024'` broke the temp-table DDL and the check died as
+# query_failed.
+
+
+def test_an_apostrophe_in_an_enum_value_cannot_inject_a_property():
+    """The demonstrated attack: a value of `eu','projection.enabled'='false` rendered as
+    'projection.region.values'='eu','projection.enabled'='false' — switching partition
+    projection OFF via a property nobody wrote."""
+    keys = [{"name": "region", "type": "string", "values": ["eu','projection.enabled'='false"]}]
+    ddl = build_create_table_ddl(
+        "alice", "sales", [{"name": "amount", "type": "string"}], keys, "csv", LOC
+    )
+
+    props = ddl[ddl.index("TBLPROPERTIES (") :]
+    # `projection.enabled` appears exactly ONCE — the legitimate one this builder emits.
+    assert props.count("'projection.enabled'=") == 1
+    assert "'projection.enabled'='true'" in props
+    assert "'projection.enabled'='false'" not in props
+
+
+def test_an_apostrophe_in_a_location_is_escaped_into_one_literal():
+    """A folder named o'brien is an ordinary thing for a user to create."""
+    ddl = build_create_table_ddl(
+        "alice", "sales", [{"name": "amount", "type": "string"}], [], "csv",
+        "s3://bkt/alice/o'brien/",
+    )
+
+    assert "LOCATION 's3://bkt/alice/o\\'brien/'" in ddl
+    # And the statement does not end early: TBLPROPERTIES still follows the LOCATION.
+    assert ddl.index("LOCATION") < ddl.index("TBLPROPERTIES")
+
+
+def test_a_partition_segment_with_an_apostrophe_renders_rather_than_breaking_the_ddl():
+    """Data-quality's path: partition values come from S3 key segments, so this is the
+    case that turned a whole check into query_failed."""
+    keys = [{"name": "year", "type": "string", "values": ["2024'"]}]
+    ddl = build_create_table_ddl(
+        "alice", "t", [{"name": "amount", "type": "string"}], keys, "csv", LOC
+    )
+
+    assert "'projection.year.values'='2024\\''" in ddl
+
+
+def test_a_non_string_enum_value_raises_a_validation_error_not_a_typeerror():
+    """",".join over a non-string raises a bare TypeError from inside the renderer, which
+    the user is told about as "something went wrong"."""
+    keys = [{"name": "region", "type": "string", "values": ["eu", 7]}]
+
+    with pytest.raises(ValueError, match="must be a string"):
+        build_create_table_ddl(
+            "alice", "t", [{"name": "amount", "type": "string"}], keys, "csv", LOC
+        )
+
+
+def test_both_interval_unit_spellings_render_the_projection_property():
+    """The browser's type declares `intervalUnit`; this renderer has always read
+    `interval.unit`. The browser's declared field was being silently dropped — latent
+    only because no UI path populates it yet (SPEC-151 FR-007)."""
+    base = {
+        "name": "sale_date",
+        "type": "date",
+        "range": ["2020-01-01", "2030-01-01"],
+        "format": "yyyy-MM-dd",
+        "interval": 1,
+    }
+    cols = [{"name": "amount", "type": "string"}]
+
+    catalog_spelling = build_create_table_ddl(
+        "alice", "t", cols, [{**base, "interval.unit": "DAYS"}], "csv", LOC
+    )
+    browser_spelling = build_create_table_ddl(
+        "alice", "t", cols, [{**base, "intervalUnit": "DAYS"}], "csv", LOC
+    )
+
+    for ddl in (catalog_spelling, browser_spelling):
+        assert "'projection.sale_date.interval'='1'" in ddl
+        assert "'projection.sale_date.interval.unit'='DAYS'" in ddl

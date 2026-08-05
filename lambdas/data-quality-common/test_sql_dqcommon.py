@@ -598,3 +598,78 @@ def test_duplicates_query_is_separate_from_the_profile_query():
     profile = sql.build_profile_query("alice", "t", STR_COLS, "csv")
     assert "duplicate_rows" not in profile
     assert "HAVING COUNT(*) > 1" not in profile
+
+
+# ── SPEC-151 FR-001: a single-file check profiles only the selected file ─────
+#
+# The table's LOCATION is the parent FOLDER (Athena needs a prefix, and pointing a
+# LOCATION at an object key yields a table over nothing). But a LOCATION is read
+# RECURSIVELY, so the table covers every sibling. The "$path" predicate is what
+# re-narrows it — without it, rowCount and every per-column figure described the folder
+# while rowCountsByFile described the one file, and the report satisfied neither the
+# user's selection nor its own arithmetic.
+
+MANIFEST_ONE = [{"key": "alice/sales/data.csv", "columns": [{"name": "id", "type": "string"}]}]
+MANIFEST_TWO = [*MANIFEST_ONE, {"key": "alice/sales/b.csv", "columns": []}]
+
+
+def test_single_file_path_returns_the_athena_path_form():
+    """s3://bucket/key — what Athena's "$path" pseudo-column actually returns, which is
+    why _expected_by_path keys the ragged mapping that way and report._strip_scheme
+    reverses it. Not a form chosen here."""
+    assert (
+        sql.single_file_path("bkt", MANIFEST_ONE, "alice/sales/data.csv")
+        == "s3://bkt/alice/sales/data.csv"
+    )
+
+
+def test_single_file_path_is_none_for_a_folder_target():
+    assert sql.single_file_path("bkt", MANIFEST_TWO, "alice/sales/") is None
+    # One file, but the user targeted the FOLDER it happens to be alone in: the table's
+    # LOCATION already matches the manifest, so there is nothing to narrow.
+    assert sql.single_file_path("bkt", MANIFEST_ONE, "alice/sales/") is None
+
+
+def test_the_three_queries_are_byte_identical_for_a_folder_target():
+    """path_filter=None must change nothing — the golden queries above keep their meaning."""
+    assert sql.build_profile_query("alice", "t", STR_COLS, "csv") == sql.build_profile_query(
+        "alice", "t", STR_COLS, "csv", None
+    )
+    assert sql.build_duplicates_query("alice", "t", STR_COLS, []) == sql.build_duplicates_query(
+        "alice", "t", STR_COLS, [], None
+    )
+    assert sql.build_ragged_query("alice", "r", {}) == sql.build_ragged_query("alice", "r", {}, None)
+
+
+def test_the_profile_query_restricts_to_the_selected_file():
+    q = sql.build_profile_query("alice", "t", STR_COLS, "csv", "s3://bkt/alice/sales/data.csv")
+    assert "WHERE \"$path\" = 's3://bkt/alice/sales/data.csv'" in q
+    # Inside the inner select, so the aggregates and the GROUPING SETS both see only that
+    # file — a predicate applied outside would filter the per-file rows but leave the
+    # total row computed over the folder, which is the exact inconsistency being fixed.
+    inner = q[q.index("FROM (") : q.index("GROUP BY GROUPING SETS")]
+    assert "WHERE" in inner
+
+
+def test_the_duplicates_query_restricts_to_the_selected_file():
+    """Otherwise a single-file check reports duplicates found between that file and its
+    NEIGHBOURS — not a duplicate the user can act on."""
+    q = sql.build_duplicates_query("alice", "t", STR_COLS, [], "s3://bkt/alice/sales/data.csv")
+    assert "WHERE \"$path\" = 's3://bkt/alice/sales/data.csv' GROUP BY" in q
+
+
+def test_the_ragged_query_restricts_BOTH_figures_to_the_selected_file():
+    """total_lines is the reason this is needed: the CASE already limits which lines can
+    be judged ragged, but the denominator counted every line in the folder."""
+    expected = {"s3://bkt/alice/sales/data.csv": 3}
+    q = sql.build_ragged_query("alice", "r", expected, "s3://bkt/alice/sales/data.csv")
+    assert "WHERE \"$path\" = 's3://bkt/alice/sales/data.csv'" in q
+    assert q.index("COUNT_IF") < q.index("WHERE")
+
+
+def test_the_path_predicate_doubles_quotes_like_every_other_dml_literal():
+    """Trino's only escape is DOUBLING the quote — the Hive backslash form would render a
+    backslash into the path being matched and the predicate would match nothing."""
+    q = sql.build_profile_query("alice", "t", STR_COLS, "csv", "s3://bkt/alice/o'brien.csv")
+    assert "'s3://bkt/alice/o''brien.csv'" in q
+    assert "\\'" not in q

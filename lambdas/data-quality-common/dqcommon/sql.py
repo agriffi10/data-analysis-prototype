@@ -375,7 +375,13 @@ def _column_aggregates(index: int, column: dict, type_checked: bool) -> list[str
     return items
 
 
-def build_profile_query(database: str, table_name: str, columns: list[dict], fmt: str) -> str:
+def build_profile_query(
+    database: str,
+    table_name: str,
+    columns: list[dict],
+    fmt: str,
+    path_filter: str | None = None,
+) -> str:
     """Build the profile query — the check's backbone (FR-003).
 
     Computes, exactly and at any scale: per-column missing counts, per-column
@@ -397,6 +403,13 @@ def build_profile_query(database: str, table_name: str, columns: list[dict], fmt
     the file count — bounded by DQ_MAX_OBJECTS, and the alternative (a second statement,
     hence a second scan of up to 250 GB) is worse.
 
+    ``path_filter`` restricts the scan to one file (SPEC-151 FR-001). It is what makes a
+    single-file check describe the file the user picked: the table's LOCATION is the parent
+    FOLDER, because Athena needs a prefix, and a LOCATION is read recursively — so without
+    it every figure here (rowCount, and every column's missing / not_<cast> count) described
+    the whole folder while ``rowCountsByFile`` described the one file, and the delivered
+    report satisfied neither the user's selection nor its own arithmetic.
+
     The result set is O(files x columns) — never O(rows), which is what makes it safe for
     assemble-report to read whole (SPEC-112).
     """
@@ -415,9 +428,46 @@ def build_profile_query(database: str, table_name: str, columns: list[dict], fmt
     selected = ", ".join(items)
     table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"
     return (
-        f"SELECT {selected} FROM (SELECT {projected} FROM {table}) "
+        f"SELECT {selected} FROM (SELECT {projected} FROM {table}{_where(path_filter)}) "
         'GROUP BY GROUPING SETS ((), ("$path"))'
     )
+
+
+def single_file_path(bucket: str, files: list[dict], location: str) -> str | None:
+    """``s3://bucket/key`` when the manifest is exactly the ONE file the user selected.
+
+    THE SINGLE DEFINITION of "this check targets one file", used by both the verb that
+    picks the table LOCATION and the verb that builds the queries (SPEC-151 FR-001). They
+    have to agree: create-temp-tables promotes the LOCATION to the parent folder, because
+    an Athena external table's LOCATION is a prefix and pointing it at an object key gives
+    a table over nothing. But Athena reads a LOCATION RECURSIVELY, so that table also
+    covers every sibling in the folder. The queries are what re-narrow it, and if the two
+    verbs disagreed about which case this is, the report would describe the folder while
+    claiming to describe the file — the exact defect FR-001 exists to remove. A second
+    copy of this rule is the one thing that would let them drift.
+
+    The ``s3://bucket/key`` form is not a choice made here: it is what Athena's ``"$path"``
+    pseudo-column returns, which is why ``_expected_by_path`` keys the ragged mapping that
+    way and ``report._strip_scheme`` reverses it.
+
+    Returns None for a folder target, for a multi-file manifest, and for a manifest whose
+    single file is not the location itself — in all of which the table's LOCATION already
+    matches the manifest and no predicate is wanted.
+    """
+    keys = [entry["key"] for entry in files if entry.get("key")]
+    prefix = location.rstrip("/")
+    if keys == [prefix]:
+        return f"s3://{bucket}/{prefix}"
+    return None
+
+
+def _where(path_filter: str | None) -> str:
+    """The ``"$path"`` restriction, or nothing at all.
+
+    Empty for a folder target, so rendered SQL is byte-identical to the pre-SPEC-151 form
+    and the golden-query tests keep their meaning.
+    """
+    return f' WHERE "$path" = {_literal_dml(path_filter)}' if path_filter else ""
 
 
 def _literal_dml(value: str) -> str:
@@ -435,7 +485,10 @@ def _literal_dml(value: str) -> str:
 
 
 def build_ragged_query(
-    database: str, raw_table_name_: str, expected_by_path: dict[str, int]
+    database: str,
+    raw_table_name_: str,
+    expected_by_path: dict[str, int],
+    path_filter: str | None = None,
 ) -> str:
     """Build the ragged-rows query over the raw-line table (CSV only, FR-003).
 
@@ -507,10 +560,15 @@ def build_ragged_query(
         # anyway — every line falls to the FR-004 rule.
         ragged = "false"
 
+    # `path_filter` bounds BOTH figures, and total_lines is the reason it is needed here at
+    # all (SPEC-151 FR-001): the CASE above already limits which lines can be judged ragged,
+    # but the denominator counted every line in the folder — so a single-file check reported
+    # its ragged count against a total that described the file's neighbours.
     query = (
         f"SELECT COUNT_IF({present} AND {ragged}) AS ragged_rows, "
         f"COUNT_IF({present}) AS total_lines "
         f"FROM {ddl.quote_dml(database)}.{ddl.quote_dml(raw_table_name_)}"
+        f"{_where(path_filter)}"
     )
 
     # THE GUARD IS ON THE RENDERED BYTES, never on a file count: DQ_MAX_OBJECTS is 1000 and
@@ -526,7 +584,11 @@ def build_ragged_query(
 
 
 def build_duplicates_query(
-    database: str, table_name: str, columns: list[dict], partition_keys: list[dict]
+    database: str,
+    table_name: str,
+    columns: list[dict],
+    partition_keys: list[dict],
+    path_filter: str | None = None,
 ) -> str:
     """Build the duplicate-rows query (FR-003).
 
@@ -541,6 +603,12 @@ def build_duplicates_query(
 
     Partition columns are included in the grouping because they are part of the row: two
     otherwise-identical rows in different partitions are different rows, not duplicates.
+
+    ``path_filter`` restricts the scan to one file (SPEC-151 FR-001). FR-001's description
+    names only the profile and ragged builders, but ``duplicateRows`` is in its own list of
+    figures that must describe the selected file — and without the predicate a single-file
+    check reported duplicates found between that file and its NEIGHBOURS, which is not a
+    duplicate the user can act on.
     """
     part_names = {key["name"] for key in partition_keys}
     grouped = [ddl.quote_dml(c["name"]) for c in columns if c["name"] not in part_names]
@@ -550,5 +618,6 @@ def build_duplicates_query(
 
     return (
         "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM "
-        f"(SELECT COUNT(*) AS cnt FROM {table} GROUP BY {all_columns} HAVING COUNT(*) > 1)"
+        f"(SELECT COUNT(*) AS cnt FROM {table}{_where(path_filter)} "
+        f"GROUP BY {all_columns} HAVING COUNT(*) > 1)"
     )

@@ -16,7 +16,7 @@ import cache
 import config
 import membership
 import registry as reg
-from cpcommon import clients, observability
+from cpcommon import clients, errors, observability
 from cpcommon import config as cpconfig
 from notify import emit_notification
 
@@ -70,6 +70,12 @@ def _ensure_database(name):
         glue.create_database(DatabaseInput={"Name": name})
     except glue.exceptions.AlreadyExistsException:
         pass
+    except Exception as err:  # retryable faults mapped; the rest propagate
+        # Without this a routine Glue transient propagates as a bare ClientError the state
+        # machine's Retry does not name, permanently failing a create that would very
+        # likely have succeeded on the next attempt (SPEC-151 FR-008).
+        errors.raise_if_transient(err, f"glue create_database {name}")
+        raise
 
 
 def _tag_database(name):

@@ -14,7 +14,7 @@ table-share's own request vocabulary, not shape checks.
 """
 
 from cpcommon import clients, errors
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 from cpcommon.glue import clone_definition  # re-export, SPEC-143 FR-004
 
 __all__ = ["clone_definition", "get_table", "table_exists"]
@@ -32,7 +32,12 @@ def get_table(database: str, table: str) -> dict:
         if code == "AccessDeniedException":
             # LF gates the catalog; the execution role's LF-admin wiring is SPEC-092.
             raise TerminalError("source_not_readable", f"{database}.{table}: {exc}") from exc
-        raise TransientError(f"GetTable failed for {database}.{table}: {exc}") from exc
+        # CLASSIFIED, not assumed (SPEC-151 FR-008). This used to make EVERY remaining
+        # fault transient — the opposite bias to the rest of the fleet — so a deterministic
+        # error like InvalidInputException burned the whole Retry budget before failing,
+        # turning an instant refusal into a slow one and telling the user nothing sooner.
+        errors.raise_if_transient(exc, f"GetTable {database}.{table}")
+        raise TerminalError("source_not_readable", f"{database}.{table}: {exc}") from exc
 
 
 def table_exists(database: str, table: str) -> bool:
@@ -52,4 +57,5 @@ def table_exists(database: str, table: str) -> bool:
             return False
         if code == "AccessDeniedException":
             raise TerminalError("target_not_readable", f"{database}.{table}: {exc}") from exc
-        raise TransientError(f"GetTable failed for {database}.{table}: {exc}") from exc
+        errors.raise_if_transient(exc, f"GetTable {database}.{table}")
+        raise TerminalError("target_not_readable", f"{database}.{table}: {exc}") from exc

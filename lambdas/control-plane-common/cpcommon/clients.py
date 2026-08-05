@@ -16,7 +16,8 @@ _glue = None
 _athena = None
 _cognito = None
 _lf = None
-_jwks = None
+#: Keyed BY URL (SPEC-151 FR-009): one client per JWKS endpoint, not one overall.
+_jwks = {}
 
 
 def s3():
@@ -75,10 +76,17 @@ def lf():
 
 
 def jwks(url):
-    """Return the cached PyJWKClient for the User Pool JWKS endpoint (per-container)."""
-    global _jwks
-    if _jwks is None:
+    """Return the cached PyJWKClient for ``url`` (per-container, keyed BY URL).
+
+    Keyed on the argument rather than caching the first client and ignoring every later
+    one (SPEC-151 FR-009). The single-pool case is unaffected — the same URL still yields
+    the same client — but a second URL used to be silently served the FIRST pool's client,
+    which would verify tokens against the wrong JWKS. Latent while there is one pool, and
+    exactly the kind of thing the transition to Identity Center could surface as an
+    inexplicable signature failure.
+    """
+    if url not in _jwks:
         from jwt import PyJWKClient
 
-        _jwks = PyJWKClient(url)
-    return _jwks
+        _jwks[url] = PyJWKClient(url)
+    return _jwks[url]

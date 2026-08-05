@@ -14,7 +14,7 @@ import notify
 import pytest
 import registry as reg
 from cpcommon import config as cpconfig
-from fakes import FakeUserNotFound, install, raises
+from fakes import FakeS3, FakeUserNotFound, install, raises
 
 REG = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
 
@@ -111,7 +111,7 @@ def test_finalize_and_load_roundtrip():
 def test_save_members_and_set_status_and_delete():
     s3, *_ = install()
     base = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active", "createdAt": "t0"}
-    reg.save_members(base, ["alice", "bob"], "req-2")
+    reg.save_members(base, "req-2", add=["bob"])
     rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert rec["members"] == ["alice", "bob"]
     assert rec["createdAt"] == "t0"  # preserved when present
@@ -125,7 +125,7 @@ def test_save_members_heals_missing_created_at():
     s3, *_ = install()
     # A record written before createdAt was stamped.
     base = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active"}
-    reg.save_members(base, ["alice", "bob"], "req-2")
+    reg.save_members(base, "req-2", add=["bob"])
     rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert rec["createdAt"]  # healed, no longer blank
 
@@ -180,7 +180,7 @@ def test_registry_save_members_cas_retries_and_preserves_untouched_field():
     install()
     clients._s3 = RacyS3()
     reg.finalize("sales", "alice", "req-1", "active")
-    reg.save_members(reg.load("sales"), ["alice", "bob"], "req-2")
+    reg.save_members(reg.load("sales"), "req-2", add=["bob"])
     rec = reg.load("sales")
     assert rec["members"] == ["alice", "bob"]  # our change landed after the retry
     assert rec["extra"] == "concurrent"  # concurrent field survived the re-read
@@ -619,3 +619,388 @@ def test_slot_exhaustion_is_an_error_with_a_stable_reason(captured_events):
     assert exhausted and exhausted[0]["level"] == "ERROR"
     assert exhausted[0]["fields"]["reason"] == "membership-limit-reached"
     assert exhausted[0]["fields"]["slots_cap"] == cap
+
+
+# ── SPEC-151 FR-003: teardown surfaces per-key failures before the name is freed ──
+#
+# delete_objects and batch_delete_table both return HTTP 200 with a per-item Errors
+# array — a denied key does not raise. Discarding that response made a PARTIAL teardown
+# indistinguishable from a complete one, and delete_space then ran reg.delete(space),
+# commented "LAST — the name is now free to reuse". The next space created with that
+# name would inherit another tenant's objects. SPEC-054 states as an acceptance
+# criterion that teardown leaves "never a dangling … half-deleted resource".
+
+
+def test_delete_shared_prefix_raises_when_a_key_could_not_be_deleted():
+    import teardown
+
+    s3, _, _, _ = install()
+    s3.store[("shared-bkt", "sales/a.csv")] = b"x"
+    s3.store[("shared-bkt", "sales/locked.csv")] = b"x"
+    s3.undeletable.add("sales/locked.csv")
+
+    with pytest.raises(teardown.TeardownIncompleteError) as err:
+        teardown.delete_shared_prefix("sales")
+
+    # A COUNT, never the key: this message reaches logs and the registry `failed` record,
+    # and the field rule binds what a call site chooses to emit (SPEC-132).
+    assert "1 object" in str(err.value)
+    assert "locked.csv" not in str(err.value)
+
+
+def test_delete_shared_prefix_still_deletes_everything_it_can():
+    """A denial on one key must not strand the rest of the space's objects."""
+    import teardown
+
+    s3, _, _, _ = install()
+    s3.store[("shared-bkt", "sales/a.csv")] = b"x"
+    s3.store[("shared-bkt", "sales/locked.csv")] = b"x"
+    s3.undeletable.add("sales/locked.csv")
+
+    raises(lambda: teardown.delete_shared_prefix("sales"), teardown.TeardownIncompleteError)
+
+    assert ("shared-bkt", "sales/a.csv") not in s3.store
+    assert ("shared-bkt", "sales/locked.csv") in s3.store
+
+
+def test_a_fully_successful_prefix_delete_is_silent():
+    import teardown
+
+    s3, _, _, _ = install()
+    s3.store[("shared-bkt", "sales/a.csv")] = b"x"
+
+    teardown.delete_shared_prefix("sales")
+
+    assert ("shared-bkt", "sales/a.csv") not in s3.store
+
+
+def test_drop_database_raises_before_dropping_a_db_whose_tables_survived():
+    """Dropping a database whose tables survived is how the catalog and the bucket start
+    disagreeing — so the raise comes BEFORE delete_database, not after."""
+    import teardown
+
+    _, glue, _, _ = install()
+    glue.databases.add("sales")
+    glue.tables["sales"] = ["orders", "locked"]
+    glue.undroppable.add("locked")
+
+    with pytest.raises(teardown.TeardownIncompleteError) as err:
+        teardown.drop_database("sales")
+
+    assert "1 table" in str(err.value)
+    assert "locked" not in str(err.value)
+    assert "sales" in glue.databases  # the database is still there
+
+
+def test_a_fully_successful_database_drop_is_silent():
+    import teardown
+
+    _, glue, _, _ = install()
+    glue.databases.add("sales")
+    glue.tables["sales"] = ["orders"]
+
+    teardown.drop_database("sales")
+
+    assert "sales" not in glue.databases
+
+
+# ── SPEC-151 FR-005: the racing 409 is a lost race, not a hard error ─────────
+#
+# A failed If-Match yields 412 PreconditionFailed; a failed If-None-Match: * raced
+# against another create yields 409 ConditionalRequestConflict. casio matched only the
+# 412, so a genuinely SIMULTANEOUS write failed hard where the sequential duplicate
+# worked. Both twins (dqcommon.index_store, log-sweep) already handle 409 and explain why.
+
+
+def test_is_precondition_recognises_both_the_412_and_the_racing_409():
+    import casio
+    from fakes import FakeClientError
+
+    assert casio.is_precondition(FakeClientError("PreconditionFailed"))
+    assert casio.is_precondition(FakeClientError("412"))
+    assert casio.is_precondition(FakeClientError("ConditionalRequestConflict"))
+    assert casio.is_precondition(FakeClientError("409"))
+    # Anything else is still a real error and must keep propagating.
+    assert not casio.is_precondition(FakeClientError("AccessDenied"))
+    assert not casio.is_precondition(FakeClientError("NoSuchKey"))
+
+
+def test_a_reserve_losing_a_simultaneous_create_resolves_instead_of_failing_hard():
+    """The 409 path: another writer created the record between this one's read and its
+    conditional put. Before the fix the ClientError escaped reserve untouched; now it
+    reaches _resolve_reserve_collision, which classifies it.
+
+    Asserted via the RESOLVER'S OWN VERDICT, not a return value: with a different owner
+    holding the name the correct answer is ProvisioningError("name already taken"). That
+    the caller sees that, rather than a raw ClientError, is the whole fix — a lost race
+    is now a decision instead of a crash.
+    """
+    s3, _, _, _ = install()
+    real_put = s3.put_object
+    calls = {"n": 0}
+
+    def racing_put(**kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+                {"name": "sales", "owner": "zoe", "status": "active", "members": ["zoe"]}
+            ).encode()
+            raise fakes_client_error_409()
+        return real_put(**kw)
+
+    s3.put_object = racing_put
+    raises(lambda: reg.reserve("sales", "alice", "req-1"), reg.ProvisioningError, "already taken")
+
+
+def test_a_reserve_losing_to_its_own_replay_is_reported_as_a_replay():
+    """The same request arriving twice concurrently: the resolver recognises its own
+    requestId and reports `replay` rather than failing the second delivery."""
+    s3, _, _, _ = install()
+    real_put = s3.put_object
+    calls = {"n": 0}
+
+    def racing_put(**kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+                {
+                    "name": "sales",
+                    "owner": "alice",
+                    "status": "active",
+                    "members": ["alice"],
+                    "lastRequestId": "req-1",
+                }
+            ).encode()
+            raise fakes_client_error_409()
+        return real_put(**kw)
+
+    s3.put_object = racing_put
+    assert reg.reserve("sales", "alice", "req-1") == "replay"
+
+
+def fakes_client_error_409():
+    from fakes import FakeClientError
+
+    return FakeClientError("ConditionalRequestConflict")
+
+
+def test_cache_cas_retries_on_a_409_rather_than_re_raising():
+    s3, _, _, _ = install()
+    real_put = s3.put_object
+    calls = {"n": 0}
+
+    def racing_put(**kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise fakes_client_error_409()
+        return real_put(**kw)
+
+    s3.put_object = racing_put
+    cache.upsert_entry("alice", {"name": "sales", "role": "owner", "status": "active"})
+
+    assert calls["n"] == 2  # lost once, retried, committed
+    stored = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert [c["name"] for c in stored["connections"]] == ["sales"]
+
+
+# ── SPEC-151 FR-004: save_members applies a delta, never a stale roster ──────
+#
+# It used to take the roster the CALLER computed from event["registry"] — a snapshot read
+# before the request began — and assign it over the freshly-read record. So the CAS
+# re-read the record and then overwrote the one field it exists to protect. Nothing
+# serializes these requests: the Pipe is FIRE_AND_FORGET and the group id is one global
+# constant, which casio's own module docstring says outright.
+
+
+class _EtagRotatingS3(FakeS3):
+    """Commits a concurrent writer's change between the read and the conditional put.
+
+    Drives the CAS through a real second pass: the first If-Match write loses to a
+    record that changed underneath it, so `apply` runs again against the NEW value. A
+    delta survives that; a computed roster does not.
+    """
+
+    def __init__(self, mutate):
+        super().__init__()
+        self._mutate = mutate
+        self._injected = False
+
+    def put_object(self, Bucket, Key, Body, IfNoneMatch=None, IfMatch=None, **kw):
+        if not self._injected and IfMatch is not None and Key == "shared-spaces/sales.json":
+            self._injected = True
+            current = json.loads(self.store[(Bucket, Key)])
+            super().put_object(
+                Bucket=Bucket, Key=Key, Body=json.dumps(self._mutate(current)).encode()
+            )
+        return super().put_object(Bucket, Key, Body, IfNoneMatch=IfNoneMatch, IfMatch=IfMatch, **kw)
+
+
+def _seed_registry(s3, members, **over):
+    record = {
+        "name": "sales",
+        "owner": "alice",
+        "members": list(members),
+        "status": "active",
+        "createdAt": "t0",
+        **over,
+    }
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(record).encode()
+    return record
+
+
+def test_an_add_does_not_undo_a_concurrent_remove():
+    """THE defect. Two overlapping requests on one space were last-write-wins: the add
+    wrote back a roster computed before the remove happened, reinstating the removed
+    member."""
+    from cpcommon import clients
+
+    install()
+
+    def concurrent_remove(record):
+        record["members"] = [m for m in record["members"] if m != "carol"]
+        return record
+
+    s3 = _EtagRotatingS3(concurrent_remove)
+    clients._s3 = s3
+    snapshot = _seed_registry(s3, ["alice", "carol"])
+
+    reg.save_members(snapshot, "req-add", add=["bob"])
+
+    committed = reg.load("sales")
+    # Both took effect: carol's removal survived, bob's addition landed.
+    assert committed["members"] == ["alice", "bob"]
+
+
+def test_a_remove_does_not_undo_a_concurrent_add():
+    """The other interleaving."""
+    from cpcommon import clients
+
+    install()
+
+    def concurrent_add(record):
+        record["members"] = [*record["members"], "dave"]
+        return record
+
+    s3 = _EtagRotatingS3(concurrent_add)
+    clients._s3 = s3
+    snapshot = _seed_registry(s3, ["alice", "carol"])
+
+    reg.save_members(snapshot, "req-remove", remove=["carol"])
+
+    committed = reg.load("sales")
+    assert committed["members"] == ["alice", "dave"]
+
+
+def test_a_membership_write_does_not_revive_a_deleting_space():
+    """status used to be forced to "active" on every membership write, so a request racing
+    a delete returned a `deleting` space to `active` — and the cascade then ran against a
+    record claiming to be healthy."""
+    s3, *_ = install()
+    snapshot = _seed_registry(s3, ["alice", "bob"])
+    reg.set_status(snapshot, "deleting", "req-del")
+
+    reg.save_members(snapshot, "req-add", add=["carol"])
+
+    assert reg.load("sales")["status"] == "deleting"
+
+
+def test_a_newly_added_member_is_pending_not_acknowledged():
+    """SPEC-073 is unchanged by the delta. The ordering inside `apply` is load-bearing: a
+    pre-SPEC-073 record has no `acknowledged` field, so reading effective_acknowledged
+    AFTER the add would sweep the new member in and show them active immediately."""
+    s3, *_ = install()
+    snapshot = _seed_registry(s3, ["alice", "bob"])  # no `acknowledged` key
+
+    committed = reg.save_members(snapshot, "req-add", add=["carol"])
+
+    assert "bob" in committed["acknowledged"]  # pre-073 member, treated as acknowledged
+    assert "carol" not in committed["acknowledged"]  # newly added -> pending
+
+
+def test_a_removed_member_drops_out_of_acknowledged_too():
+    """So a later re-add starts them at `pending` again."""
+    s3, *_ = install()
+    snapshot = _seed_registry(s3, ["alice", "bob"], acknowledged=["bob"])
+
+    committed = reg.save_members(snapshot, "req-remove", remove=["bob"])
+
+    assert committed["members"] == ["alice"]
+    assert committed["acknowledged"] == []
+
+
+def test_acknowledging_a_membership_a_concurrent_remove_revoked_does_not_recreate_it():
+    """The acknowledge verb is the fourth caller, and the only one that ADDS to
+    acknowledged. It must not resurrect a membership that no longer exists."""
+    from cpcommon import clients
+
+    install()
+
+    def concurrent_remove(record):
+        record["members"] = [m for m in record["members"] if m != "bob"]
+        return record
+
+    s3 = _EtagRotatingS3(concurrent_remove)
+    clients._s3 = s3
+    snapshot = _seed_registry(s3, ["alice", "bob"], acknowledged=[])
+
+    committed = reg.save_members(snapshot, "req-ack", acknowledge=["bob"])
+
+    assert committed["members"] == ["alice"]
+    assert "bob" not in committed["acknowledged"]
+
+
+# ── SPEC-151 FR-008: Glue transients on the shared-space paths ──────────────
+
+
+def _glue_raising(code):
+    """A FakeGlue whose get_tables raises a botocore-shaped fault."""
+    import types as _types
+
+    from fakes import FakeEntityNotFound
+
+    class _Boom(Exception):
+        def __init__(self):
+            super().__init__(code)
+            self.response = {"Error": {"Code": code}}
+
+    class _Glue:
+        exceptions = _types.SimpleNamespace(
+            EntityNotFoundException=FakeEntityNotFound, AlreadyExistsException=Exception
+        )
+
+        def get_tables(self, DatabaseName, NextToken=None):
+            raise _Boom()
+
+        def create_database(self, DatabaseInput):
+            raise _Boom()
+
+    return _Glue()
+
+
+def test_drop_database_maps_a_glue_transient_so_the_cascade_can_retry():
+    """A Glue hiccup here is worse than elsewhere: a failed cascade deliberately does NOT
+    free the name (FR-003), so an unmapped transient left the user with a space stuck in
+    `failed` over something the state machine's Retry would have absorbed."""
+    import teardown
+    from cpcommon import clients
+    from cpcommon.errors import TransientError
+
+    install()
+    clients._glue = _glue_raising("InternalServiceException")
+
+    with pytest.raises(TransientError):
+        teardown.drop_database("sales")
+
+
+def test_drop_database_leaves_a_deterministic_glue_fault_alone():
+    """Retrying InvalidInputException changes nothing — it must not be dressed as transient."""
+    import teardown
+    from cpcommon import clients
+    from cpcommon.errors import TransientError
+
+    install()
+    clients._glue = _glue_raising("InvalidInputException")
+
+    with pytest.raises(Exception) as err:
+        teardown.drop_database("sales")
+    assert not isinstance(err.value, TransientError)
