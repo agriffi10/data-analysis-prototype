@@ -65,7 +65,44 @@ drawer's `closeOnEscape` **gated** as `ManageMembersDrawer` gates it. Without th
 closes both surfaces and the stated order is unreachable; a fixture that omitted it would fail and
 the combobox would be blamed for something it does not control.
 
-## Two defects the tests caught, both of which would have shipped silently
+## What the fresh-context review found
+
+Four things, all mutation-confirmed in both directions. Two were **vacuous tests** — the more
+dangerous kind of finding, because a green suite is exactly what makes them invisible.
+
+1. **The a11y suite never inspected an open listbox.** `renderThenAxe` drove the first render into
+   the open state, then `cleanup()`d and handed the *element* to `expectNoA11yViolations`, which
+   renders it afresh — and `open` is internal state initialised `false`. So all four cases checked
+   the **closed** state, and an `<img>` with no `alt` inside every option passed all four. Now uses
+   `expectContainerHasNoA11yViolations` on the driven container, with a guard asserting a listbox
+   was actually present when axe ran.
+2. **`highlighted` could point past the end of `suggestions`.** Nothing reset it when the array
+   shrank for a reason the input never saw — a caller changing `exclude`, which is **exactly what
+   SPEC-148 does** with a member list backed by a refetchable query. `aria-activedescendant` then
+   referenced a removed element (WCAG 4.1.2), no option reported itself active, and Enter committed
+   the raw typed text instead of the option last announced. Clamped, and every read goes through the
+   clamp.
+3. **`UsernameChipsField`'s Backspace handler ignored the event target.** It sits on the wrapper,
+   which contains the chip list — so a keyboard-only user tabbing to "Remove alice" and pressing
+   Backspace deleted the **last** chip instead. Silent, wrong, and invisible to axe.
+4. **The "index built at most once" test was vacuous.** A timing budget over a three-name directory
+   passes just as happily when the trie is rebuilt on every call: replacing the memo check with
+   `if (true)` left it green. It now counts `buildIndex` through a spy, with a second test proving a
+   new document *does* rebuild.
+
+**One finding was resolved as documentation rather than code.** The cost test was titled "never
+scans the full list", but the substring band *does* read all 20,000 entries whenever the prefix band
+cannot fill the limit — including a fully-typed exact name, the commonest typeahead endpoint. That is
+the contract FR-003 states, not a defect, and narrowing it (skipping the band on an exact match)
+would **change ranking** — it is what makes `smith` find `bob_smith`. So the title was corrected and
+a second test now pins the real cost explicitly.
+
+Smaller: `parseMemberInputDetailed`'s JSDoc example was wrong in the exact way its own test file
+warns about (`Smith` lowercases to a perfectly valid `smith`); a fully-excluded commit could leave a
+stale "not in the directory" note; paste appended rather than splicing at the caret; `"No matches"`
+was untested.
+
+## Two defects the tests caught while being written, both of which would have shipped silently
 
 1. **`commit()` clobbered the exclusion error it had just set.** `commitNames` set the error and
    `commit` overwrote it a line later with `null`, so every "already a member" refusal was invisible
