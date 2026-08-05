@@ -62,7 +62,13 @@ The bigger change of the two, because it is not currently a chips field at all. 
 - [ ] The dialog's **existing** `existing` prop — which `ManageMembersDrawer` populates with `members.map(m => m.username)` and which **already includes the owner** — is passed straight through as `exclude`. Excluded names neither appear as suggestions nor commit as chips, and the refusal reason says the user is already a member.
 - [ ] This is a like-for-like translation of today's filter, not a new restriction: the drawer is owner-only and already filters against that same set client-side. The criterion exists because the *reason* is easy to misattribute to the pipeline's `normalize_members`, which drops the owner for its own reasons and is not what the dialog relies on.
 - [ ] The live help line is preserved in substance — the count and names of what will be added — and may be simplified where the chips now carry that information. It must still read exactly `No valid new usernames yet.` in the empty state, because that sentence is what tells a user their input did not take.
-- [ ] The **Add** button stays disabled until at least one chip is present.
+- [ ] The **Add** button stays disabled until at least one chip is present. **AS BUILT this is
+      honoured, plus a one-line hint** — `UsernameChipsField` shows "Press Enter to add the name
+      you typed." while the input holds uncommitted text. Without it a user types a name, reaches
+      for Add, and finds it disabled with nothing explaining why; following this criterion alone
+      produces a worse dialog than the textarea it replaces. The hint names no token, because it
+      cannot promise what any given one will do (`Bob-Smith` is refused, `cara` may already be a
+      member, `bob, cara` adds two).
 - [ ] The dialog's busy-lock, non-dismissible-while-submitting and `Modal` composition are unchanged.
 - [ ] The enqueued `{action: 'add_members', payload: {members}}` message carries **the same fields with the same values** for the same set of names, `requestId` aside — the service mints a fresh `crypto.randomUUID()` per call, so byte-identity is not achievable and is not the claim. A test written against the pre-spec expectation asserts the field-by-field equality.
 - [ ] `vitest-axe` reports no violations in the empty, populated and submitting states.
@@ -77,7 +83,11 @@ This dialog renders **one** `<ul aria-label="Recipients">` mixing user and space
 
 - [ ] When the kind toggle is `user`, the entry field is `UsernameCombobox`; `onCommit` and `onCommitMany` both add to the dialog's existing recipient state.
 - [ ] **The user entry stays a bulk field.** Today it runs `parseMemberInput(entry)` and its placeholder is `e.g. bob, cara`, so `bob, cara` in one go must still produce two chips — that is what `onCommitMany` is for (SPEC-147 FR-004). A test pins it.
-- [ ] **The Add button is kept**, for both kinds. Enter-to-commit is added, not substituted: the button is the discoverable affordance and removing it would be a silent UX regression in a dialog this spec is only meant to be improving.
+- [ ] **The Add button is kept**, for both kinds. **AS BUILT its disabled rule differs by kind:**
+      the space kind keeps the pre-spec pre-parse gate, but under the user kind Add stays enabled
+      whenever the entry has text, because the combobox owns the parse. A pre-parse in the dialog
+      would be a second copy of the rule, and it would leave Add dead on exactly the malformed
+      input FR-003 wants reported. Enter-to-commit is added, not substituted: the button is the discoverable affordance and removing it would be a silent UX regression in a dialog this spec is only meant to be improving.
 - [ ] When the kind toggle is `space`, the existing free-text `Input` + Add behaviour is used unchanged, with **no suggestions and no unlisted-name note**.
 - [ ] The **combined** chip list stays a single list with its kind badges, its `font-mono` names, and its `Remove {kind} {name}` control labels — all unchanged.
 - [ ] Switching the toggle does not clear already-committed recipients of either kind; today's per-kind dedupe is preserved.
@@ -155,7 +165,17 @@ No new types, and no change to either request shape:
 
 ## API / Interface Contract
 
-No new exports. This spec consumes SPEC-147's:
+~~No new exports.~~
+
+> **AS BUILT: `UsernameCombobox` became a `forwardRef` exposing `{commit, focus}`.** FR-002
+> requires `TableShareDialog` to KEEP its Add button, and that button must go through the same
+> commit path as Enter — otherwise the two drift and only one of them surfaces the invalid tokens
+> FR-003 requires to be reported. The alternative was a second copy of the parse inside the
+> dialog. `UsernameChipsField` also gained `autoFocus`, because `Modal` sets `initialFocus: false`
+> and defers to each consumer's own focus effect: without it, focus stays on the trigger outside
+> the modal and a screen reader is never moved into the dialog.
+
+Otherwise this spec consumes SPEC-147's:
 
 ```ts
 import { UsernameChipsField } from '@/components/UsernameChipsField';   // AddMembersDialog

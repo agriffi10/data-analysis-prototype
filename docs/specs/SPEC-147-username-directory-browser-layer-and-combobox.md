@@ -77,7 +77,13 @@ The same forgiving-read shape every other JSON-from-S3 service in this repo uses
 
 #### Description
 
-SPEC-148 needs to distinguish *loading* from *unavailable* from *loaded-but-this-name-is-absent*, and the components need it too. A single nullable index cannot express that, so the hook exposes an explicit status and the components take it as a prop.
+SPEC-148 needs to distinguish *loading* from *unavailable* from *loaded-but-this-name-is-absent*, and the components need it too. A single nullable index cannot express that, so the hook exposes an explicit status and ~~the components take it as a prop~~.
+
+> **AS BUILT: the components call `useUserDirectory()` themselves.** This paragraph and the API
+> contract below disagree — neither `UsernameComboboxProps` nor `UsernameChipsFieldProps` declares
+> a status field — and the contract was treated as authoritative. It also matches the repo's
+> integration-style testing rule (render the real hook, mock only the service boundary). Consumers
+> are unaffected either way.
 
 #### Acceptance Criteria:
 
@@ -162,7 +168,7 @@ Both consumers in SPEC-148 collect several names, but they render them different
 - [ ] Duplicates are silently ignored on commit — committing a name already present is a no-op, not an error.
 - [ ] The caller may supply an `exclude` set whose names are filtered **out of the suggestions** and rejected on commit with a caller-supplied reason.
 - [ ] `Backspace` on an empty input removes the last chip, in the default mode only. A test covers it — it is the one keyboard behaviour users expect from chip inputs and never see documented.
-- [ ] Pasting a comma- or whitespace-separated list uses **`parseMemberInputDetailed`**: valid tokens commit, invalid tokens are **left in the input** joined by a space with the `CATALOG_IDENTIFIER_RULE` sentence as the reason. Surfacing them is a deliberate departure from `parseMemberInput`'s silent drop, and it is why the detailed variant lands in this spec.
+- [ ] Pasting a comma- or whitespace-separated list uses **`parseMemberInputDetailed`**: valid tokens commit, invalid tokens are **left in the input** joined by a space with the `CATALOG_IDENTIFIER_RULE` sentence as the reason. **AS BUILT, two refinements:** a paste of a SINGLE name (no separator) is an ordinary paste and does not auto-commit — someone pasting one name usually wants to fix a character first — and when a token is *also* excluded, both the rule sentence and the exclusion reason are shown. Reporting only one of them dropped the excluded name with no explanation, which is the silent drop this component exists to remove. Surfacing them is a deliberate departure from `parseMemberInput`'s silent drop, and it is why the detailed variant lands in this spec.
 - [ ] `parseMemberInputDetailed(raw): {valid: string[], invalid: string[]}` is added to `features/shared-spaces/memberInput.ts`. `parseMemberInput`'s signature, behaviour and existing tests are **unchanged** — asserted as a criterion.
 - [ ] The committed value is exposed to the caller as `string[]`; the component owns no submission logic.
 - [ ] `vitest-axe` clean with zero, one and many chips, and in `renderChips={false}` mode.
@@ -251,6 +257,9 @@ export function search(
   query: string,
   limit?: number,           // default 8
 ): UsernameSearchResult[];
+// AS BUILT, also exported: searchWithCost(index, query, limit?) -> {results, nodesVisited,
+// namesScanned}. FR-003 requires a test asserting the number of trie nodes visited; returning
+// the number is the difference between pinning that claim and hoping. Test-facing only.
 // The prefix band walks the trie. The SUBSTRING band is a linear scan over
 // `ordered`, short-circuited at `limit` and skipped when the prefix band filled it.
 
@@ -261,6 +270,10 @@ export function parseMemberInputDetailed(
 ): { valid: string[]; invalid: string[] };                            // NEW
 
 // apps/portal/src/components/UsernameCombobox.tsx
+// AS BUILT, this contract gained three things. `suppress` (hidden from suggestions but NOT
+// refused — what an already-committed chip is; refusing one would turn a double-click into a
+// complaint) and `describedBy` (so a caller's help line reaches aria-describedby). SPEC-148 then
+// added a forwardRef handle, `{commit, focus}` — see that spec's own note.
 export type UsernameComboboxProps = {
   label: string;
   value: string;
