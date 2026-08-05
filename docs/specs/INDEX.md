@@ -150,7 +150,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 142 — Ragged Rows Counted Per File, Not Against the Union | Completed |
 | 143 — Refresh Table: Request Contract, Mode Branch & Table Eligibility | Completed |
 | 144 — Refresh Table: Schema Diff & Apply | Completed |
-| 145 — Refresh Table: Menu Item, Dialog & Notifications | Draft |
+| 145 — Refresh Table: Menu Item, Dialog & Notifications | Completed |
 | 146 — Username Directory: Daily Builder Lambda & Published Index | Draft |
 | 147 — Username Directory: Browser Data Layer & Typeahead Combobox | Draft |
 | 148 — Username Typeahead in Add Members & Table Share | Draft |

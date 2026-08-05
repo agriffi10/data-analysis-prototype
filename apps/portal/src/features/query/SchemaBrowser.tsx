@@ -13,6 +13,8 @@ export type TableActions = {
   onViewSourceFiles: (database: string, table: GlueTableSummary) => void;
   onViewDdl: (database: string, table: GlueTableSummary) => void;
   onViewData: (database: string, table: GlueTableSummary) => void;
+  /** Base tables only — a view has no folder to re-read (SPEC-145), so their menu omits the item. */
+  onRefreshTable: (database: string, table: GlueTableSummary) => void;
   /** Base tables only — views can't be shared (SPEC-093), so their menu omits the item. */
   onShareTable: (database: string, table: GlueTableSummary) => void;
   onDropTable: (database: string, table: GlueTableSummary) => void;

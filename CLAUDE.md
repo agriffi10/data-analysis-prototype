@@ -68,12 +68,14 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142,
-**143, 144 and 149** — the refresh pipeline runs end to end: it classifies the change, refuses an
-un-opted-into removal, and replaces the definition **in place** via `glue:UpdateTable`. **Reachable
-only by a hand-crafted SQS message — no browser surface until 145.**
+**No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
+and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
+un-opted-into removal, replaces the definition **in place** via `glue:UpdateTable`, and **145 gave it a
+browser surface**: a **Refresh table** item in the Query rail, the always-unchecked removals opt-in, and
+the `columns_removed` notification link that names the columns. The live checks below are now runnable
+from the UI.
 
-**Next to build: SPEC-145** (menu item, dialog, notifications) — the browser surface.
+**Next to build: SPEC-146** (username directory: the daily builder Lambda + published index).
 
 What remains below is the live checks that are owed.
 
@@ -140,7 +142,7 @@ What remains below is the live checks that are owed.
   `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
   starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
   the test deleted. Full reasoning: `decisions.md`.
-- **The refresh arc (143+144+149) owes TWO live checks, and they replace 143's `not_implemented` run.**
+- **The refresh arc owes TWO live checks — run them from the UI now (145 shipped), not by hand-crafted SQS.**
   (1) **FR-010's sequence:** build a table from a CSV folder, add a file with a new column, refresh
   and confirm it appears; remove a column, refresh and confirm the block, its **named columns** and
   the notification link; then refresh with the opt-in and confirm the column is gone. Run it against
