@@ -48,12 +48,17 @@ describe('parseRefreshLink', () => {
     ]);
   });
 
-  it('parses with no removed parameter (an empty column list)', () => {
+  // The parser reports what the URL said; the CALLER decides that an empty list is
+  // not the link-borne state (QueryWorkspace), because gating confirm behind the
+  // removals opt-in is only informed consent when the columns are named.
+  it('reports an empty column list rather than inventing names', () => {
     expect(parseRefreshLink('?refreshTable=sales.orders')).toEqual({
       database: 'sales',
       tableName: 'orders',
       columns: []
     });
+    expect(parseRefreshLink('?refreshTable=sales.orders&removed=')?.columns).toEqual([]);
+    expect(parseRefreshLink('?refreshTable=sales.orders&removed=%E0%A4%A')?.columns).toEqual([]);
   });
 
   it.each([

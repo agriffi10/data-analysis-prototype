@@ -79,9 +79,11 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
           <ul
             aria-label="Columns that would be removed"
             className="mt-2 max-h-32 overflow-y-auto rounded-md bg-surface px-2.5 py-1.5">
-            {pending.columns.map((column) => (
+            {/* Keyed by position: a hand-edited URL can repeat a name, and the list
+                is display-only. */}
+            {pending.columns.map((column, i) => (
               <li
-                key={column}
+                key={`${i}-${column}`}
                 className="break-all py-0.5 font-mono text-sm text-text">
                 {column}
               </li>

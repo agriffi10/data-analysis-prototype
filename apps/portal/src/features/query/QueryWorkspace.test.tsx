@@ -993,6 +993,38 @@ describe('QueryWorkspace — refresh table (SPEC-145)', () => {
     expect(mockListTables).not.toHaveBeenCalledWith('someone_else');
   });
 
+  // A link with no names is not the link-borne state: that state gates confirm behind
+  // the removals opt-in, which would coerce a blind `allowRemovals: true` when the
+  // user was never told which columns are going.
+  it('opens the PLAIN dialog for a link carrying no column names', async () => {
+    const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026');
+    const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
+
+    expect(within(dialog).queryByText(/previous refresh was stopped/i)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', {name: 'Refresh table'})).toBeEnabled();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
+    expect(mockEnqueueRefresh.mock.calls[0][0]).not.toHaveProperty('allowRemovals');
+  });
+
+  it('opens nothing for a table with no location (no request could be built)', async () => {
+    mockListTables.mockResolvedValue(ok([{...salesTable, location: undefined}]));
+    renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id');
+    await screen.findByRole('button', {name: 'sales_2026'});
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('leaves an unresolvable link’s parameters alone when a menu-opened dialog is cancelled', async () => {
+    const stale = '/query?refreshTable=alice.not_a_table&removed=legacy_id';
+    const {user} = renderWorkspace(stale);
+    await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
+    await user.click(within(refreshDialog()).getByRole('button', {name: 'Cancel'}));
+
+    // Cancelling dialog B must not destroy state belonging to A.
+    expect(location()).toBe(stale);
+  });
+
   it('opens nothing for a view (a view has no folder to re-read)', async () => {
     renderWorkspace('/query?refreshTable=alice.revenue_view&removed=legacy_id');
     await screen.findByRole('button', {name: 'sales_2026'});

@@ -37,6 +37,16 @@ The browser surface for the refresh arc — the first (and only) part of 143 →
 - **One file beyond the spec's list**: `tableRefresh.link.ts`, so FR-005's validation rules are unit-testable
   outside the 1700-line workspace.
 
+### Found in review, and worth keeping straight
+
+- **A link carrying no names is NOT the link-borne state.** FR-005 describes the link as always naming
+  columns, and `tbcommon.notify._columns_removed_link` mints none without them — but a hand-edited or
+  truncated `/query?refreshTable=db.table` reaches the browser all the same. Treating it as link-borne
+  rendered an empty "these columns would be removed" list **and gated confirm behind the removals opt-in**,
+  so the only way forward was to tick a box authorizing the drop of columns the user had never been shown.
+  The dialog now opens plain in that case. This is the same asymmetry the emitter already respects.
+- The link path also honours FR-001's no-`location` rule, which only the menu item enforced.
+
 ## What changed from earlier specs?
 
 - **`TableActions` (SPEC-044/093) gained `onRefreshTable`** — every implementor updated; `canViewSourceFiles`

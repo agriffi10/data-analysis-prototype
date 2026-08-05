@@ -312,9 +312,18 @@ export function QueryWorkspace() {
   const {data: linkSchema} = useSchema(linkDatabase);
   const linkTarget = useMemo(() => {
     if (!link || !linkSchema) return null;
-    // A view has no folder to re-read, so a link naming one opens nothing.
-    const table = linkSchema.tables.find((t) => t.name === link.tableName && t.tableType !== 'VIRTUAL_VIEW');
-    return table ? {database: link.database, table, pending: link} : null;
+    // A view has no folder to re-read and a table with no location can't be turned
+    // into a request (FR-001 disables the menu item for the same reason), so a link
+    // naming either opens nothing.
+    const table = linkSchema.tables.find(
+      (t) => t.name === link.tableName && t.tableType !== 'VIRTUAL_VIEW' && !!t.location
+    );
+    if (!table) return null;
+    // A link carrying no names is NOT the link-borne state. That state gates confirm
+    // behind the removals opt-in, which is only an informed choice when the columns
+    // are named — with an empty list it would coerce a blind `allowRemovals: true`.
+    // `tbcommon.notify` mints no link without names; a URL that has one was edited.
+    return {database: link.database, table, pending: link.columns.length > 0 ? link : null};
   }, [link, linkSchema]);
   const clearRefreshLink = useCallback(
     () =>

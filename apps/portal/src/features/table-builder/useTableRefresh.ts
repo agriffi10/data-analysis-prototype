@@ -77,8 +77,10 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
     setError(null);
     // The link-borne dialog IS the query string, so dismissing it means retiring the
     // parameters — which also stops a reload from reopening what the user just closed.
-    consumeLink?.();
-  }, [busy, consumeLink]);
+    // Guarded on there being a live link: a menu-opened dialog closing over an
+    // unresolvable link's parameters would be destroying state that isn't its own.
+    if (linkTarget) consumeLink?.();
+  }, [busy, consumeLink, linkTarget]);
 
   const submit = useCallback(
     async (allowRemovals: boolean) => {

@@ -137,11 +137,8 @@ describe('RefreshTableDialog', () => {
   // SPEC-095/145 FR-007: one tree, `tablet:` only — no `*Mobile` twin, and nothing
   // in the dialog reads `useIsMobile`. What a 400px viewport needs is structural.
   describe('at a narrow viewport', () => {
-    it('caps the panel to the viewport and scrolls inside it', () => {
-      render(LINKED);
-      expect(screen.getByRole('alertdialog')).toHaveClass('max-h-[calc(100dvh-2rem)]', 'overflow-y-auto');
-    });
-
+    // The viewport cap itself belongs to `Modal` and is asserted in Modal.test.tsx —
+    // asserting it here would pass no matter what this component does.
     it('scrolls the column list rather than pushing confirm off-screen', () => {
       render({...LINKED, pending: {...LINKED.pending!, columns: Array.from({length: 20}, (_, i) => `col_${i}`)}});
       expect(screen.getByRole('list', {name: /columns that would be removed/i})).toHaveClass(

@@ -3,6 +3,7 @@ import {act} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {queryKeys} from '../query/queryKeys';
+import {getS3Client} from '../../lib/s3Client';
 import {useTableRefresh} from './useTableRefresh';
 import type {GlueTableSummary} from '../query/query.types';
 
@@ -12,6 +13,7 @@ const mockEnqueue = vi.fn();
 vi.mock('./tableBuild.service', () => ({
   enqueueTableRefresh: (req: unknown) => mockEnqueue(req)
 }));
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
 const TABLE: GlueTableSummary = {
   name: 'sales_2026',
@@ -194,12 +196,15 @@ describe('useTableRefresh', () => {
     });
   });
 
-  it('persists nothing — no localStorage write on any path', async () => {
+  it('persists nothing — no localStorage write and no S3 call on any path', async () => {
+    // FR-003: the opt-in is never remembered. `user_settings/` is reached through the
+    // S3 client, so a feature that never obtains one cannot have written there.
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
     const {result} = render();
     act(() => result.current.open('alice', TABLE));
     await act(() => result.current.submit(true));
     expect(setItem).not.toHaveBeenCalled();
+    expect(getS3Client).not.toHaveBeenCalled();
     setItem.mockRestore();
   });
 });
