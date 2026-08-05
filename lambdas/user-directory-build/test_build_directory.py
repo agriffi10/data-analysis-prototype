@@ -252,16 +252,33 @@ def test_no_other_lambda_references_the_directory(s3):
     A control plane that started reading this path would be trusting a list that is up to a
     day stale, that is missing every user not yet provisioned, and that any of them can make
     look wrong by not opening the file browser.
+
+    Matches the PREFIX and this module's two constants as well as the object name (FR-007 says
+    "the path or the object name"): a module that listed `_directory/` to read what is there,
+    or that assembled the key from `DIRECTORY_PREFIX`, would slip past an object-name-only
+    check while doing exactly what this forbids.
+
+    The prefix is matched WITH its trailing slash rather than bare — a bare `_directory` is a
+    substring of the perfectly innocent `test_every_lambda_directory_is_in_the_deploy_matrix`,
+    and a tripwire that cries wolf gets weakened rather than heeded.
+
+    `dqcommon.config` is the one legitimate mention — it lists `_directory` as a RESERVED
+    prefix, which is the opposite of reading it — so it is allowlisted by name.
     """
+    allowed = {"data-quality-common/dqcommon/config.py"}
+    markers = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
     offenders = []
     for path in LAMBDAS.rglob("*.py"):
         if HERE in path.parents or path == HERE / "build_directory.py":
             continue
         if "__pycache__" in path.parts:
             continue
+        relative = str(path.relative_to(LAMBDAS))
+        if relative in allowed:
+            continue
         text = path.read_text()
-        if "_directory/usernames.json" in text or "usernames.json" in text:
-            offenders.append(str(path.relative_to(LAMBDAS)))
+        if any(marker in text for marker in markers):
+            offenders.append(relative)
     assert offenders == [], f"the directory document is not an authorization input: {offenders}"
 
 
@@ -304,13 +321,25 @@ def test_the_username_list_itself_is_never_logged(s3, captured_events):
             assert "alice" not in (value if isinstance(value, (list, str)) else ())
 
 
-def test_the_handler_is_traced_and_the_service_is_the_plane(s3, captured_events):
+def test_the_handler_is_traced(s3, captured_events):
+    """Only the span is asserted here, and the name says so.
+
+    The SERVICE deliberately is not: `conftest.captured_events` reconfigures log-foundry with
+    `service="test"` to install its collector, so any assertion about `user-directory` reaching
+    the sink would be testing the fixture. The `init` call is pinned by the source check below
+    instead — an honest split, rather than a test whose name promises what it cannot check.
+    """
     s3([["alice/"]])
     captured_events.events.clear()
 
     build_directory.handler({}, None)
 
     assert captured_events.spans("build-directory"), "the handler must carry @traced('build-directory')"
+
+
+def test_observability_is_initialised_with_the_plane_name():
+    source = (HERE / "build_directory.py").read_text()
+    assert 'observability.init(service="user-directory")' in source
 
 
 def test_echo_appears_nowhere():
@@ -326,15 +355,36 @@ def test_logs_queue_url_is_never_required(s3):
     assert "_require" not in source
 
 
+def _terraform_environment_variables():
+    """The names ASSIGNED inside lambda.tf's `environment { variables = { … } }` block.
+
+    Parsed rather than substring-searched, and that distinction is the whole point of the test
+    below. A bare `name in source` check also matches the COMMENTS — and lambda.tf's comment
+    explaining the cold-start trap names `USER_SPACE_BUCKET`, so the one variable this function
+    actually uses was the one the guard could not see. Deleting its assignment left the suite
+    green.
+    """
+    module = (LAMBDAS.parent / "infra" / "modules" / "user-directory" / "lambda.tf").read_text()
+    block = module.split("variables = {", 1)[1]
+    names = set()
+    depth = 1
+    for line in block.splitlines():
+        depth += line.count("{") - line.count("}")
+        if depth <= 0:
+            break
+        assignment = __import__("re").match(r"\s*([A-Z][A-Z0-9_]*)\s*=", line)
+        if assignment:
+            names.add(assignment.group(1))
+    return names
+
+
 def test_the_function_environment_carries_everything_cpcommon_requires():
-    """Every variable `cpcommon.config._require`s must be in this function's Terraform
+    """Every variable `cpcommon.config._require`s must be ASSIGNED in this function's Terraform
     environment. The layer's fail-fast runs AT IMPORT for every attaching function, so one
     missing variable is a COLD-START crash — never an error at the line that would have used
     it. That is what broke signup for nine days (PR #317).
     """
-    module = (
-        LAMBDAS.parent / "infra" / "modules" / "user-directory" / "lambda.tf"
-    ).read_text()
+    assigned = _terraform_environment_variables()
     required = {
         "COGNITO_USER_POOL_ID",
         "COGNITO_APP_CLIENT_ID",
@@ -343,8 +393,16 @@ def test_the_function_environment_carries_everything_cpcommon_requires():
         "SHARED_SPACE_BUCKET",
         "ATHENA_WORKGROUP",
     }
-    missing = {name for name in required if name not in module}
+    missing = required - assigned
     assert missing == set(), f"lambda.tf is missing {missing} — cold-start crash (PR #196)"
+
+
+def test_the_environment_parser_actually_found_the_block():
+    """Guards the guard: a parser that returned nothing would make the test above pass by
+    finding no variables at all rather than by finding the right ones.
+    """
+    assigned = _terraform_environment_variables()
+    assert "LOGS_QUEUE_URL" in assigned, f"parsed only {assigned} from lambda.tf"
 
 
 def test_config_still_requires_exactly_what_this_test_pins():

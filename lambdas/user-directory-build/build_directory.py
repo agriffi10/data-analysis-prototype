@@ -108,7 +108,15 @@ def publish(bucket: str, usernames: list[str]) -> int:
     through CloudFront, and whether an HTTP cache directive affects an SDK-issued request is
     not a property this repo should rely on. SPEC-147's TanStack ``staleTime`` is the caching
     mechanism, and it is the only one.
+
+    **Refuses to write an empty list.** The handler already decides this — it needs to, because
+    it owns the error event and the return value — so this guard is unreachable today. It is
+    here anyway because the refusal is a property of PUBLISHING, not of one call site: a second
+    caller added later (a manual "publish now" path, a retry) would otherwise inherit no
+    protection at all, and the failure it prevents is silent, wholesale erasure.
     """
+    if not usernames:
+        return 0
     body = json.dumps(
         {
             "version": DOCUMENT_VERSION,
