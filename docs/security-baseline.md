@@ -181,10 +181,10 @@ Grouped by rule; the count is the number of resources.
 | 5 | CKV_AWS_18 | S3 access logging | **defer** — cost vs. value; `logs/` already narrates control-plane activity. |
 | 5 | CKV2_AWS_62 | S3 event notifications | **accept** — not applicable; the control planes are queue-driven. |
 | 4 | CKV_AWS_284 | Step Functions X-Ray | **accept** — same reasoning as CKV_AWS_50. |
-| 2 | CKV_AWS_300 | Abort incomplete multipart uploads | **FIX** — cheap lifecycle rule. Multipart upload is SPEC-020; an abandoned upload leaves orphaned parts that are billed and invisible. |
+| 2 | CKV_AWS_300 | Abort incomplete multipart uploads | ~~**FIX**~~ **FIXED 2026-08-05.** Rules added to the artifacts and static buckets, and bucket-wide on the admin bucket. The admin one needed the `admin_lifecycle_rules_are_prefix_scoped` check narrowed to rules that actually EXPIRE something — an abort-MPU rule carries no expiration and so cannot reach `logs/`, which the guard exists to protect. The user-space and shared-space buckets already had the rule. |
 | 1 | CKV2_AWS_32 | CloudFront response headers policy | ~~**FIX**~~ **CLEARED by SPEC-140** — was the CSP / HSTS / `X-Frame-Options` gap, and the one finding ZAP reported independently. Two scanners, one cause. |
 | 1 | CKV_AWS_259 | Response header policy enforces HSTS | ~~accept~~ **FIXED 2026-08-03** — `preload` flipped to `true`, check passes. It is inert without a manual hstspreload.org submission, which we have not made; **do not submit this `*.cloudfront.net` domain**, since preload is near-irreversible and a custom domain will replace it. Original reasoning for declining, retained: **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
-| 1 | CKV_AWS_82 | Athena workgroup enforces configuration | **FIX** — cheap, and it stops a client overriding the result location or its encryption (SPEC-032/034). |
+| 1 | CKV_AWS_82 | Athena workgroup enforces configuration | ~~**FIX**~~ **ACCEPT — this disposition was WRONG (corrected 2026-08-05).** "It stops a client overriding the result location" describes the isolation MECHANISM, not a weakness: Athena has no per-user result location, so the app sets `s3://<user-space>/{username}/athenaresults/` on every `StartQueryExecution` and IAM confines each caller to its own prefix (SPEC-032 FR-006). Enforcing workgroup configuration would force every query to the workgroup default — the admin-only bucket — breaking per-user results and query history for every user. `analytics/athena.tf` already carries a comment predicting exactly this fix being attempted. Revisit only if Athena gains a per-user output location. |
 | 1 | CKV_AWS_68 | CloudFront WAF | **defer** — real cost, and this is a pre-production system. |
 | 1 | CKV2_AWS_47 | WAF managed rules for Log4Shell | **accept** — follows from CKV_AWS_68; also no Java anywhere. |
 | 1 | CKV_AWS_86 | CloudFront access logging | **defer** |
@@ -194,9 +194,14 @@ Grouped by rule; the count is the number of resources.
 | 1 | CKV_AWS_374 | Geo restriction | **accept** — no geographic access policy. |
 | 1 | CKV2_AWS_61 | S3 lifecycle configuration | **defer** — subsumed by the CKV_AWS_300 work. |
 
-**Five fixes fall out of this:** S3 versioning, the multipart-abort lifecycle rule, the CloudFront
-response-headers policy, the Athena workgroup enforcement, and the two cheap npm bumps. None is
-large; together they are a good first follow-up.
+~~**Five fixes fall out of this:** S3 versioning, the multipart-abort lifecycle rule, the CloudFront
+response-headers policy, the Athena workgroup enforcement, and the two cheap npm bumps.~~
+
+**As resolved (2026-08-05):** the CloudFront response-headers policy shipped with SPEC-140, both npm
+bumps landed, the multipart-abort rules are in, and **S3 versioning remains deferred by decision**
+(pre-production, no real user data — revisit before any real data lands). **The Athena workgroup
+enforcement was NOT a fix and has been re-dispositioned as accepted** — see the row above. Four of
+five, and the fifth was the one that would have broken per-user query results.
 
 ### DAST — OWASP ZAP baseline (first live run, 2026-08-03)
 

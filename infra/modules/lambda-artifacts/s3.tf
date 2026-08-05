@@ -68,4 +68,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
       days = 30
     }
   }
+
+  # CKV_AWS_300. CI uploads a zip per function per deploy, so an interrupted runner is the
+  # ordinary way this bucket acquires orphaned parts — billed, and invisible to every listing.
+  rule {
+    id     = "abort-incomplete-multipart-uploads"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 }

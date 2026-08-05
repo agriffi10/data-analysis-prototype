@@ -16,6 +16,12 @@
 //    drifted apart from each other (transition_plan.md §6.3), and adding to
 //    both is cheaper than reasoning about which one matters.
 //
+//  - `shared_tables/` — where the table-share pipeline copies tables it has
+//    shared with you (SPEC-088). VISIBLE, because seeing what has been shared
+//    with you is the point of it, but locked out of move/copy destinations:
+//    the pipeline owns the layout, and a table's files acquiring neighbours is
+//    how a later projection read starts returning rows nobody wrote.
+//
 // `_data-quality-reports` needs BOTH lists, and needs naming here at all,
 // because the leading `_` that marks it internal is a LAMBDA-SIDE convention
 // only: the SPA has no `_`-prefix filter anywhere (`fileBrowser.service.ts`
@@ -23,12 +29,33 @@
 // alone would leave it a valid move/copy paste target — a folder the user
 // cannot see but can still drop files into, which is how the reports the
 // notification links to would quietly acquire neighbours.
+//
+// ── On the "three divergent lists" (transition_plan.md §6.3) ────────────────
+// These two lists and `dqcommon.RESERVED_PREFIXES` are NOT meant to be equal,
+// and unioning them would be the wrong repair. They answer three questions:
+//
+//   dqcommon.RESERVED_PREFIXES  — may a data-quality CHECK treat this as source?
+//   HIDDEN_BROWSER_FOLDERS      — does the user SEE it?
+//   PICKER_LOCKED_FOLDERS       — may the user PASTE into it?
+//
+// `athenaresults/` is the clearest case: visible (you want your results) but
+// never a paste target. So membership differs ON PURPOSE, and the divergence
+// §6.3 flags is only a defect where it is ACCIDENTAL. One such gap existed and
+// is closed below — `shared_tables/` was pasteable. `_fc-work` stays
+// dqcommon-only: the SPEC-116 arc was cancelled with nothing built, so nothing
+// ever creates that folder; it is defensive there and would be dead config here.
 
 /** Hidden from the main file-browser listing. */
 export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory'] as const;
 
 /** Never offered as a move/copy destination. */
-export const PICKER_LOCKED_FOLDERS = ['athenaresults', 'user_settings', '_data-quality-reports', '_directory'] as const;
+export const PICKER_LOCKED_FOLDERS = [
+  'athenaresults',
+  'user_settings',
+  '_data-quality-reports',
+  '_directory',
+  'shared_tables'
+] as const;
 
 /**
  * Does `folderPrefix` name one of `names` at the user's own root
