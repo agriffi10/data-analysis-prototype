@@ -243,10 +243,14 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       const {valid, invalid} = parseMemberInputDetailed(raw);
       if (valid.length === 0 && invalid.length === 0) return;
       const refusal = commitNames(valid);
-      // The rule sentence wins when there is malformed input to fix; otherwise the exclusion
-      // reason, if any. ONE `setError` call, so neither can overwrite the other — an earlier
-      // version set the exclusion message and then cleared it a line later.
-      setError(invalid.length > 0 ? CATALOG_IDENTIFIER_RULE : refusal);
+      // BOTH reasons are reported when both apply. An earlier version showed only the rule
+      // sentence whenever there was malformed input, so a paste like `bob, cara, 1bad` — with
+      // `cara` already a member — dropped `cara` with no chip and no explanation. That is the
+      // exact silent drop this component exists to remove, reintroduced one branch deeper.
+      //
+      // Still ONE `setError` call, so neither message can overwrite the other.
+      const reasons = [invalid.length > 0 ? CATALOG_IDENTIFIER_RULE : null, refusal].filter(Boolean);
+      setError(reasons.length > 0 ? reasons.join(' ') : null);
       onChange(invalid.join(' '));
     },
     [commitNames, onChange]

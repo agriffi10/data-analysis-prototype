@@ -69,6 +69,9 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
     // invalid tokens FR-003 requires to be shown.
     if (kind === 'user') {
       userEntryRef.current?.commit();
+      // Focus goes back to the field, as it always has after an add — otherwise the second name
+      // costs a click, and only the space kind would return focus.
+      userEntryRef.current?.focus();
       return;
     }
     if (pendingNames.length === 0) return;

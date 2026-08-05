@@ -61,6 +61,7 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
           disabled={busy}
           placeholder="e.g. bob, cara"
           describedBy={helpId}
+          autoFocus
         />
         <p
           id={helpId}

@@ -1,5 +1,6 @@
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {UsernameCombobox} from './UsernameCombobox';
+import type {UsernameComboboxHandle} from './UsernameCombobox';
 import {cx} from '../lib/cx';
 
 export type UsernameChipsFieldProps = {
@@ -22,6 +23,13 @@ export type UsernameChipsFieldProps = {
   disabled?: boolean;
   /** Extra ids for the input's `aria-describedby` (a caller's help line). */
   describedBy?: string;
+  /**
+   * Focus the field on mount. Dialogs hosting this MUST set it: `Modal` passes
+   * `initialFocus: false` on purpose, deferring to each consumer's own focus effect, so a
+   * field that does not ask for focus leaves it on the trigger OUTSIDE the modal — a screen
+   * reader is never moved into the dialog, and axe cannot see it.
+   */
+  autoFocus?: boolean;
 };
 
 /**
@@ -52,9 +60,15 @@ export function UsernameChipsField({
   excludeReason,
   placeholder,
   disabled = false,
-  describedBy
+  describedBy,
+  autoFocus = false
 }: UsernameChipsFieldProps) {
   const [entry, setEntry] = useState('');
+  const fieldRef = useRef<UsernameComboboxHandle>(null);
+
+  useEffect(() => {
+    if (autoFocus) fieldRef.current?.focus();
+  }, [autoFocus]);
 
   // Already-committed names are SUPPRESSED, not excluded: offering one again is noise, but
   // refusing it with an error would turn a harmless double-click into a complaint. The silent
@@ -88,6 +102,7 @@ export function UsernameChipsField({
         remove(value[value.length - 1]);
       }}>
       <UsernameCombobox
+        ref={fieldRef}
         label={label}
         value={entry}
         onChange={setEntry}
@@ -106,11 +121,12 @@ export function UsernameChipsField({
           straight for that button finds it disabled with nothing explaining why — the text they
           just typed is not a chip yet. One line, only while there is uncommitted text. */}
       {renderChips && entry.trim() !== '' && (
-        <p
-          aria-live="polite"
-          className="mt-1.5 text-xs text-text-3">
-          Press Enter to add <span className="font-mono">{entry.trim().split(/[\s,]+/)[0]}</span>.
-        </p>
+        // Deliberately does NOT name a token. Naming one promised something this line cannot
+        // keep: the first token of `Bob-Smith` is refused by the rule, `cara` may already be a
+        // member, and `bob, cara` adds two names rather than the one named. It is also NOT a
+        // live region — the combobox already owns one for the match count, and a second
+        // announcing "b / bo / bob" on every keystroke would talk over it.
+        <p className="mt-1.5 text-xs text-text-3">Press Enter to add the name you typed.</p>
       )}
 
       {renderChips && value.length > 0 && (

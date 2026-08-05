@@ -132,6 +132,46 @@ describe('AddMembersDialog', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Use 3–63 characters');
   });
 
+  it('focuses the field on open', () => {
+    // `Modal` passes `initialFocus: false` and defers to each consumer's own focus effect, so a
+    // field that does not ask for focus leaves it on the trigger OUTSIDE the modal — a screen
+    // reader is never moved into the dialog. axe cannot see this; only this test can.
+    renderDialog();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it('handles a mix of valid, invalid, duplicate and excluded names in one entry (FR-003)', async () => {
+    // The combination matters: an earlier version reported ONLY the rule sentence whenever
+    // there was malformed input, so the excluded name vanished with no chip and no explanation
+    // — the exact silent drop this spec exists to remove, one branch deeper.
+    const {user} = renderDialog({existing: ['cara']});
+    await user.click(field());
+    await user.keyboard('bob bob dave cara 1bad{Enter}');
+
+    expect(
+      within(chips()!)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent)
+    ).toEqual(['bob', 'dave']);
+    expect(field()).toHaveValue('1bad');
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Use 3–63 characters');
+    expect(alert).toHaveTextContent('cara is already a member of this space.');
+  });
+
+  it('tells the user how to commit while text is uncommitted', async () => {
+    // Add is gated on committed chips, so without this the button is disabled and nothing says
+    // why. The hint deliberately names no token — it cannot promise what any given one will do.
+    const {user} = renderDialog();
+    expect(screen.queryByText(/Press Enter/)).not.toBeInTheDocument();
+
+    await user.click(field());
+    await user.keyboard('bo');
+
+    expect(screen.getByText('Press Enter to add the name you typed.')).toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+  });
+
   it('no longer claims unknown usernames are ignored', async () => {
     // The copy said "Unknown usernames are ignored." — the same false claim SPEC-146 corrected
     // in two docstrings, and the only place a USER read it.

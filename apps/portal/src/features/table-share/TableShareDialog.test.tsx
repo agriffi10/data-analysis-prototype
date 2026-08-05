@@ -121,6 +121,32 @@ describe('TableShareDialog', () => {
     expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
   });
 
+  it('keeps Add enabled for a wholly-invalid user entry, so clicking it explains the problem', async () => {
+    // Under the SPACE kind, Add is gated on a pre-parse and goes disabled — correct there,
+    // because nothing would happen. Under the USER kind the combobox owns the parse, so Add
+    // stays live and clicking it surfaces the rule rather than leaving a dead button with no
+    // explanation. Reverting to the pre-spec `pendingNames.length === 0` gate breaks this.
+    const {user} = renderDialog();
+    await user.click(entryInput());
+    await user.keyboard('Bad-Name');
+    expect(addButton()).toBeEnabled();
+
+    await user.click(addButton());
+    expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', {name: 'Shared spaces'}));
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('returns focus to the entry after Add, for both kinds', async () => {
+    const {user} = renderDialog();
+    await user.click(entryInput());
+    await user.keyboard('bob');
+    await user.click(addButton());
+
+    expect(document.activeElement).toBe(entryInput());
+  });
+
   it('disables Share until there is at least one recipient and a valid name', async () => {
     const {onSubmit, user} = renderDialog();
     expect(shareButton()).toBeDisabled();

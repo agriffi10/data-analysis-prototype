@@ -64,7 +64,8 @@ describe('ManageMembersDrawer (SPEC-053 FR-001/003)', () => {
     const {onAddMembers} = setup();
     fireEvent.click(screen.getByRole('button', {name: 'Add members'}));
     // The field is a chips field since SPEC-148: Enter COMMITS the names, Add then submits.
-    // The payload is asserted field-by-field and is unchanged from SPEC-053.
+    // This asserts the CALLBACK argument; the enqueued message is asserted field-by-field in
+    // ConnectionsPage.test.tsx, which is where FR-001's payload criterion is really met.
     const field = screen.getByLabelText('Usernames');
     fireEvent.change(field, {target: {value: 'cara dave'}});
     fireEvent.keyDown(field, {key: 'Enter'});

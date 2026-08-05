@@ -77,7 +77,11 @@ describe('AddMembersDialog a11y', () => {
     cleanup();
   });
 
-  it('has no violations at a phone width with several chips', async () => {
+  // NOT a responsive check: nothing in this tree reads `window.innerWidth` (the dialog uses no
+  // `useBreakpoint`/`matchMedia`, and the combobox reads only `innerHeight`), and jsdom has no
+  // layout engine. It is a MANY-CHIPS check, and the narrow viewport is set only so the DOM
+  // matches what a phone would render. Real 400px layout is owed as a live browser pass.
+  it('has no violations with many chips committed', async () => {
     Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
     try {
       const {container} = render(dialog());
