@@ -62,7 +62,10 @@ describe('useDelete', () => {
     expect(mockDeleteFolder).toHaveBeenCalledWith({
       bucket: 'us',
       prefix: 'alice/p/',
-      username: 'alice'
+      username: 'alice',
+      // The space root, which is what lets deleteFolder tell the space's own
+      // athenaresults/ from a like-named user folder (SPEC-150 FR-007).
+      rootPrefix: 'alice/'
     });
     expect(summary).toEqual({deletedCount: 4, errors: []});
     expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/');

@@ -561,8 +561,11 @@ function FileBrowserContent({
   // Mount-gate the table-vs-card list swap (SPEC-099); matchMedia reads correctly
   // on first paint in the browser, so no flash and only one markup ever mounts.
   const isMobile = useIsMobile();
-  const del = useDelete(bucket, currentPrefix, username);
-  const move = useMove(bucket, currentPrefix, username);
+  // `rootPrefix` is the space root, not the browsed folder: it is what tells the
+  // delete/move services that a folder is the space's own `athenaresults/` rather
+  // than a user folder that happens to share the name (SPEC-150 FR-007).
+  const del = useDelete(bucket, currentPrefix, username, rootPrefix);
+  const move = useMove(bucket, currentPrefix, username, rootPrefix);
   const copy = useCopy(bucket, currentPrefix, username);
   const canModify = writable && !!username;
   const [confirmOpen, setConfirmOpen] = useState(false);

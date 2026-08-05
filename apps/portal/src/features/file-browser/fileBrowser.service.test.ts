@@ -584,7 +584,8 @@ describe('deleteFolder', () => {
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/photos/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
 
     expect(result.success).toBe(true);
@@ -614,7 +615,8 @@ describe('deleteFolder', () => {
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/empty/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
 
     expect(result.success).toBe(true);
@@ -628,7 +630,8 @@ describe('deleteFolder', () => {
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/ghost/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
 
     expect(result).toEqual({success: true, data: {deleted: [], errors: []}});
@@ -642,7 +645,8 @@ describe('deleteFolder', () => {
     const result = await deleteFolder({
       bucket: 'us',
       prefix: 'alice/photos/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
 
     expect(result.success).toBe(false);
@@ -650,6 +654,74 @@ describe('deleteFolder', () => {
     expect(result.error.code).toBe('AccessDenied');
     const delCmds = mockSend.mock.calls.filter((c) => c[0] instanceof DeleteObjectsCommand);
     expect(delCmds).toHaveLength(0);
+  });
+
+  // SPEC-150 FR-007 / SPEC-057:97-98. `portal-role-analytics.json.tftpl`'s
+  // `ResultsNoDelete` Sid denies s3:DeleteObject under athenaresults/*, so without
+  // this the UI offered Delete and answered with "You don't have permission to do
+  // that" for a rule the app itself wrote.
+  describe('the athenaresults/ refusal', () => {
+    it('refuses the space root results folder before any S3 request', async () => {
+      const result = await deleteFolder({
+        bucket: 'us',
+        prefix: 'alice/athenaresults/',
+        username: 'alice',
+        rootPrefix: 'alice/'
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('ProtectedObject');
+      expect(result.error.message).toBe('Query results are managed for you and can’t be deleted.');
+      // The refusal is client-side: nothing was listed and nothing was deleted.
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('holds identically in a shared space, which is how SPEC-057 states it', async () => {
+      const result = await deleteFolder({
+        bucket: 'shared',
+        prefix: 'project_alpha/athenaresults/',
+        username: 'alice',
+        rootPrefix: 'project_alpha/'
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('ProtectedObject');
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('leaves a NESTED folder of the same name deletable — it is an ordinary user folder', async () => {
+      mockSend
+        .mockResolvedValueOnce({Contents: [{Key: 'alice/reports/athenaresults/x.csv'}], IsTruncated: false})
+        .mockResolvedValueOnce({Deleted: [{Key: 'alice/reports/athenaresults/x.csv'}], Errors: []});
+
+      const result = await deleteFolder({
+        bucket: 'us',
+        prefix: 'alice/reports/athenaresults/',
+        username: 'alice',
+        rootPrefix: 'alice/'
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.deleted).toEqual(['alice/reports/athenaresults/x.csv']);
+    });
+
+    it('does not refuse a folder merely PREFIXED with the protected name', async () => {
+      mockSend
+        .mockResolvedValueOnce({Contents: [{Key: 'alice/athenaresults_old/x.csv'}], IsTruncated: false})
+        .mockResolvedValueOnce({Deleted: [{Key: 'alice/athenaresults_old/x.csv'}], Errors: []});
+
+      const result = await deleteFolder({
+        bucket: 'us',
+        prefix: 'alice/athenaresults_old/',
+        username: 'alice',
+        rootPrefix: 'alice/'
+      });
+
+      expect(result.success).toBe(true);
+    });
   });
 });
 
@@ -968,6 +1040,7 @@ describe('moveFolder', () => {
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
       username: 'alice',
+      rootPrefix: 'alice/',
       onProgress
     });
 
@@ -1005,7 +1078,8 @@ describe('moveFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
 
     expect(result.success).toBe(true);
@@ -1028,7 +1102,8 @@ describe('moveFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/archive/photos/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
 
     expect(result.success).toBe(false);
@@ -1045,7 +1120,8 @@ describe('moveFolder', () => {
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/photos/sub/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -1053,12 +1129,46 @@ describe('moveFolder', () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
+  // SPEC-150 FR-007. A move is a copy plus a DELETE of the source, so the results
+  // folder is refused as a SOURCE for the same reason deleteFolder refuses it. It
+  // was already locked out as a DESTINATION by PICKER_LOCKED_FOLDERS.
+  it('refuses the space root results folder as a move source', async () => {
+    const result = await moveFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/athenaresults/',
+      destPrefix: 'alice/archive/athenaresults/',
+      username: 'alice',
+      rootPrefix: 'alice/'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('ProtectedObject');
+    expect(result.error.message).toBe('Query results are managed for you and can’t be moved.');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('leaves a nested folder of the same name movable', async () => {
+    mockSend.mockResolvedValueOnce({Contents: [], IsTruncated: false});
+
+    const result = await moveFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/reports/athenaresults/',
+      destPrefix: 'alice/archive/athenaresults/',
+      username: 'alice',
+      rootPrefix: 'alice/'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('is a no-op success when source and destination prefixes are equal', async () => {
     const result = await moveFolder({
       bucket: 'us',
       sourcePrefix: 'alice/photos/',
       destPrefix: 'alice/photos/',
-      username: 'alice'
+      username: 'alice',
+      rootPrefix: 'alice/'
     });
     expect(result).toEqual({success: true, data: {moved: [], errors: []}});
     expect(mockSend).not.toHaveBeenCalled();

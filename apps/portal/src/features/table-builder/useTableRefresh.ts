@@ -49,6 +49,10 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
   const [error, setError] = useState<string | null>(null);
   // The database owed a post-focus re-read, or null when nothing is armed.
   const refetchOnFocus = useRef<string | null>(null);
+  // A ref, not `busy`: see useDataQualityCheck for why the state read loses the race.
+  // It matters more here — SPEC-149 leaves concurrent refreshes on one table racing,
+  // and `deduplicationId` is a fresh UUID per call, so SQS cannot collapse the pair.
+  const inFlight = useRef(false);
 
   useEffect(() => {
     const onFocus = () => {
@@ -84,46 +88,53 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
 
   const submit = useCallback(
     async (allowRemovals: boolean) => {
-      if (!target || busy) return;
-      const location = parseTableLocation(target.table.location);
-      if (!location) {
-        // The menu item is disabled without a location, so this is unreachable from
-        // the UI — but the request cannot be built, and a silent no-op would look
-        // like a refresh that never reported back.
-        setError('This table has no data folder, so it can’t be refreshed.');
-        return;
+      if (!target || inFlight.current) return;
+      inFlight.current = true;
+      try {
+        const location = parseTableLocation(target.table.location);
+        if (!location) {
+          // The menu item is disabled without a location, so this is unreachable from
+          // the UI — but the request cannot be built, and a silent no-op would look
+          // like a refresh that never reported back.
+          setError('This table has no data folder, so it can’t be refreshed.');
+          return;
+        }
+        setBusy(true);
+        setError(null);
+        const result = await enqueueTableRefresh({
+          space: {
+            // The personal database IS the username (SPEC-033), which is exactly what
+            // the rail's `Connection.kind` encodes and what the control plane
+            // re-checks against the verified actor.
+            kind: target.database === username ? 'personal' : 'shared',
+            bucket: location.bucket,
+            prefix: location.prefix,
+            database: target.database
+          },
+          tableName: target.table.name,
+          ...(allowRemovals ? {allowRemovals: true} : {})
+        });
+        setBusy(false);
+        if (!result.success) {
+          setError(toUserMessage(result.error).message);
+          return;
+        }
+        const {database, table} = target;
+        setOpened(null);
+        consumeLink?.();
+        void invalidateSchema(queryClient, database);
+        refetchOnFocus.current = database;
+        notify({
+          variant: 'success',
+          message: `Refreshing “${database}.${table.name}” — the result will appear in your notifications.`
+        });
+      } finally {
+        // Every exit — success, enqueue failure, the no-location early return and a
+        // throw — clears the guard, so one dropped click never wedges the dialog.
+        inFlight.current = false;
       }
-      setBusy(true);
-      setError(null);
-      const result = await enqueueTableRefresh({
-        space: {
-          // The personal database IS the username (SPEC-033), which is exactly what
-          // the rail's `Connection.kind` encodes and what the control plane
-          // re-checks against the verified actor.
-          kind: target.database === username ? 'personal' : 'shared',
-          bucket: location.bucket,
-          prefix: location.prefix,
-          database: target.database
-        },
-        tableName: target.table.name,
-        ...(allowRemovals ? {allowRemovals: true} : {})
-      });
-      setBusy(false);
-      if (!result.success) {
-        setError(toUserMessage(result.error).message);
-        return;
-      }
-      const {database, table} = target;
-      setOpened(null);
-      consumeLink?.();
-      void invalidateSchema(queryClient, database);
-      refetchOnFocus.current = database;
-      notify({
-        variant: 'success',
-        message: `Refreshing “${database}.${table.name}” — the result will appear in your notifications.`
-      });
     },
-    [busy, consumeLink, notify, queryClient, target, username]
+    [consumeLink, notify, queryClient, target, username]
   );
 
   return {target, busy, error, open, close, submit};
