@@ -18,6 +18,16 @@ resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "30s"
 }
 
+# RESERVED ROOT PREFIX (SPEC-146). This bucket has an invariant worth naming before breaking
+# it: EVERY TOP-LEVEL PREFIX IS A USERNAME. `_directory/` is the one deliberate exception — it
+# holds the daily username-directory document the browser reads for typeahead suggestions.
+#
+# It is safe for one specific, mechanical reason: `cpcommon.config.CATALOG_IDENTIFIER_RE`
+# requires a leading LOWERCASE LETTER, so `_directory` can never BE a username. The name was
+# chosen precisely because it cannot collide, which is also why the builder needs no special
+# case to exclude its own output — the same regex that validates a username drops it.
+#
+# Adding a second exception here means re-checking that property for the new name.
 resource "aws_s3_bucket" "user_space" {
   bucket = var.user_space_bucket_name
 
@@ -149,6 +159,7 @@ resource "aws_s3_bucket_policy" "user_space" {
     table_builder_execution_role_arn   = var.table_builder_execution_role_arn
     table_share_execution_role_arn     = var.table_share_execution_role_arn
     data_quality_execution_role_arn    = var.data_quality_execution_role_arn
+    user_directory_build_role_arn      = var.user_directory_build_role_arn
     account_id                         = data.aws_caller_identity.current.account_id
   })
 }

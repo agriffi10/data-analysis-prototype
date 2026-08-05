@@ -28,6 +28,12 @@
       }
     },
     {
+      "Sid": "ReadTheUsernameDirectory",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${bucket_arn}/_directory/*"
+    },
+    {
       "Sid": "ProtectPrefixMarker",
       "Effect": "Deny",
       "Action": "s3:DeleteObject",

@@ -789,13 +789,22 @@ data:
 
 | Location | Contents |
 |---|---|
-| `lambdas/data-quality-common/dqcommon/config.py` line 27 (`RESERVED_PREFIXES`) | `user_settings`, `athenaresults`, `_data-quality-reports`, `shared_tables`, `_fc-work` |
-| `apps/portal/src/features/file-browser/protectedFolders.ts` line 21 (`HIDDEN_BROWSER_FOLDERS`) | `user_settings`, `_data-quality-reports` — the SPA's listing filter; diverges from both other lists |
-| `apps/portal/src/features/file-browser/protectedFolders.ts` line 24 (`PICKER_LOCKED_FOLDERS`) | `athenaresults`, `user_settings`, `_data-quality-reports` — missing `shared_tables` and `_fc-work` |
+| `lambdas/data-quality-common/dqcommon/config.py` line 27 (`RESERVED_PREFIXES`) | `user_settings`, `athenaresults`, `_data-quality-reports`, `shared_tables`, `_fc-work`, `_directory` |
+| `apps/portal/src/features/file-browser/protectedFolders.ts` (`HIDDEN_BROWSER_FOLDERS`) | `user_settings`, `_data-quality-reports`, `_directory` — the SPA's listing filter; diverges from both other lists |
+| `apps/portal/src/features/file-browser/protectedFolders.ts` (`PICKER_LOCKED_FOLDERS`) | `athenaresults`, `user_settings`, `_data-quality-reports`, `_directory` — missing `shared_tables` and `_fc-work` |
 
 (A fourth list this table previously named — the SPEC-116 file-converter blocklist — **never
 existed in code**; that arc was cancelled 2026-08-03 with nothing built, and its architecture
 record was removed.)
+
+**`_directory` is different in kind from every other name here, and the sync must respect it.**
+The rest are prefixes *inside a user's own space*; `_directory/` is at the **bucket root** and
+holds the published username directory (SPEC-146). It is the user-space bucket's one deliberate
+exception to "every top-level prefix is a username", and it is safe because
+`CATALOG_IDENTIFIER_RE` requires a leading lowercase letter, so no username can ever collide
+with it. **The sync must not land client data at `s3://{user-space-bucket}/_directory/`** — not
+because a user could reach it (the portal role's `ListBucket` is prefix-conditioned and its only
+grant there is `GetObject`), but because the daily builder overwrites that object wholesale.
 
 Each name may collide with data arriving from the old account via the sync. Reconciling the
 three lists is worth doing on its own merits and gates the Phase 2 audit.

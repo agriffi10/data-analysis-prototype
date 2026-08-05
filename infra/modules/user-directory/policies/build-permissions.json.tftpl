@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListTheWorkspacePrefixes",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${user_space_bucket_arn}"
+    },
+    {
+      "Sid": "PublishTheDirectory",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "${user_space_bucket_arn}/${directory_prefix}/*"
+    },
+    {
+      "Sid": "EmitStructuredLogEvents",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${lambda_log_group_arn}:*"
+    }
+  ]
+}

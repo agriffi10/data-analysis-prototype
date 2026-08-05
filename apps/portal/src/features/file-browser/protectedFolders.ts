@@ -8,6 +8,13 @@
 //    destinations, but still visible in the browser.
 //  - `_data-quality-reports/` — the data-quality reports (SPEC-112). Hidden
 //    EVERYWHERE, like `user_settings/`.
+//  - `_directory/` — the published username directory (SPEC-146). Hidden
+//    EVERYWHERE. Note this one lives at the BUCKET root, not inside a user's
+//    prefix, so these per-prefix lists cannot actually reach it — the portal
+//    role's `ListBucket` is prefix-conditioned, which is what really keeps it
+//    out of the browser. It is listed anyway because the lists have already
+//    drifted apart from each other (transition_plan.md §6.3), and adding to
+//    both is cheaper than reasoning about which one matters.
 //
 // `_data-quality-reports` needs BOTH lists, and needs naming here at all,
 // because the leading `_` that marks it internal is a LAMBDA-SIDE convention
@@ -18,10 +25,10 @@
 // notification links to would quietly acquire neighbours.
 
 /** Hidden from the main file-browser listing. */
-export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports'] as const;
+export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory'] as const;
 
 /** Never offered as a move/copy destination. */
-export const PICKER_LOCKED_FOLDERS = ['athenaresults', 'user_settings', '_data-quality-reports'] as const;
+export const PICKER_LOCKED_FOLDERS = ['athenaresults', 'user_settings', '_data-quality-reports', '_directory'] as const;
 
 /**
  * Does `folderPrefix` name one of `names` at the user's own root

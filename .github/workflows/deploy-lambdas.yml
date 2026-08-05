@@ -499,11 +499,13 @@ jobs:
         # of bundling the shared requirements, and attach it after deploy. `polars: true`
         # functions (SPEC-066) attach the table-builder-polars layer after deploy.
         lambda:
-          # The three SINGLETON functions — no control plane, no domain layer. They attach
-          # cpcommon for ONE import, `observability` (SPEC-137 FR-001), and that is the whole
-          # reason `cpcommon` is safe here: `cpcommon/__init__.py` imports no submodules and
-          # `observability` never reaches `config`, so the layer's import-time `_require` of
-          # six variables (PR #196) does not run for them and none of the six is set below.
+          # The first three SINGLETON functions — no control plane, no domain layer. They
+          # attach cpcommon for ONE import, `observability` (SPEC-137 FR-001), and that is the
+          # whole reason `cpcommon` is safe here: `cpcommon/__init__.py` imports no submodules
+          # and `observability` never reaches `config`, so the layer's import-time `_require`
+          # of six variables (PR #196) does not run for them and none of the six is set for
+          # them in Terraform. (SPEC-146's user-directory-build is a singleton on different
+          # terms — see its own note below.)
           #
           # SPEC-137 shipped the instrumented CODE without these three flags, so all three
           # deployed `from cpcommon import observability` with no cpcommon layer attached —
@@ -515,6 +517,14 @@ jobs:
           - { name: pre-signup, layer: false, polars: false, tbcommon: false, cpcommon: true }
           - { name: post-confirmation, layer: false, polars: false, tbcommon: false, cpcommon: true }
           - { name: notifications-writer, layer: false, polars: false, tbcommon: false, cpcommon: true }
+          # user-directory-build is a singleton too, but NOT of the kind above, and the
+          # difference is the cold-start trap itself: it imports `config` and `clients`
+          # alongside `observability`, so the layer's import-time `_require` of six variables
+          # DOES run for it. All six are therefore set in modules/user-directory/lambda.tf,
+          # and lambdas/user-directory-build/test_build_directory.py asserts that file against
+          # config.py's own `_require` list rather than against a hand-kept copy — so a seventh
+          # required variable fails a test instead of a cold start (SPEC-146 FR-008).
+          - { name: user-directory-build, layer: false, polars: false, tbcommon: false, cpcommon: true }
           - { name: shared-space-validate, layer: true, polars: false, tbcommon: false, cpcommon: true }
           - { name: shared-space-create, layer: true, polars: false, tbcommon: false, cpcommon: true }
           - { name: shared-space-add-members, layer: true, polars: false, tbcommon: false, cpcommon: true }

@@ -53,6 +53,22 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # lists in-progress uploads (it tracks parts in memory), and that action does not
 # support the s3:prefix condition key, so it cannot be scoped to the user's prefix
 # — granting it bucket-wide would leak other users' in-progress upload keys.
+#
+# SPEC-146 added exactly ONE statement, ReadTheUsernameDirectory: s3:GetObject on
+# ${bucket_arn}/_directory/*, and nothing else. Specifically NOT added:
+#
+#   * No ListBucket widening. UserPrefixList stays conditioned on the caller's own prefix, so
+#     `_directory/` is INVISIBLE to the file browser's listing and the file browser therefore
+#     needs no change. (The SPA's protectedFolders.ts lists gain `_directory` anyway — those
+#     govern the user's own prefix, so the addition is defensive, not load-bearing.)
+#   * No PutObject and no DeleteObject under _directory/. A user can read the directory and
+#     cannot write to it; the daily builder is the only writer.
+#
+# The disclosure this creates is intended and accepted, not incidental: the document is
+# readable by EVERY authenticated portal user. A username is already the S3 prefix, the
+# principal tag and the Glue database name (SPEC-033), it is already visible on every
+# shared-space roster (SPEC-075), and a prefix-search feature discloses the set by
+# construction. Recorded in docs/decisions.md rather than left implicit here.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"
   role = aws_iam_role.portal.id
