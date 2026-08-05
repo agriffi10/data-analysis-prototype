@@ -1,7 +1,7 @@
 # Spec: Username Directory — Daily Builder Lambda & Published Index
 
 **ID:** SPEC-146
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-107 (`cpcommon` — `observability`, `clients`, `config`), SPEC-126 (the scheduled-sweep Lambda pattern this copies), SPEC-137 (the singleton-Lambda shape and its cold-start trap), SPEC-013 (the user-space bucket policy and its principal allowlist)
 
