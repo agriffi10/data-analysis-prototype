@@ -152,7 +152,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 144 — Refresh Table: Schema Diff & Apply | Completed |
 | 145 — Refresh Table: Menu Item, Dialog & Notifications | Completed |
 | 146 — Username Directory: Daily Builder Lambda & Published Index | Completed |
-| 147 — Username Directory: Browser Data Layer & Typeahead Combobox | Draft |
+| 147 — Username Directory: Browser Data Layer & Typeahead Combobox | Completed |
 | 148 — Username Typeahead in Add Members & Table Share | Draft |
 | 149 — Refresh Table: In-Place Rebuild via `glue:UpdateTable` | Completed |
 | 150 — Portal Guardrails: Typecheck Gate, Enqueue Re-entrancy & the Error-Code Contract | Draft |
