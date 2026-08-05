@@ -114,14 +114,41 @@ def _validate_partition_keys(keys):
         ptype = key.get("type")
         if ptype not in PARTITION_TYPES:
             raise TerminalError("invalid_partition_keys", f"{name}: invalid type {ptype!r}")
+        # EVERY refusal below is `invalid_partition_keys` and names the key (SPEC-151
+        # FR-007). Unvalidated, these reached the renderer as a bare KeyError or TypeError
+        # inside infer-schema, which the user was told about as "something went wrong" —
+        # a message that cannot be acted on for a request they could simply have fixed.
         if ptype in ("integer", "date"):
             rng = key.get("range")
             if not (isinstance(rng, list) and len(rng) == 2):
                 raise TerminalError("invalid_partition_keys", f"{name}: range must be [min, max]")
+            for bound in rng:
+                # `bool` is an int in Python, and `True` would render as the string "True"
+                # into a projection range — excluded explicitly rather than by accident.
+                if isinstance(bound, bool) or not isinstance(bound, (int, str)):
+                    raise TerminalError(
+                        "invalid_partition_keys", f"{name}: range bounds must be numbers or strings"
+                    )
+            if ptype == "date":
+                # ddl._projection_props does key["format"] unguarded, so a request without
+                # it raised KeyError from inside the renderer.
+                fmt = key.get("format")
+                if not isinstance(fmt, str) or not fmt.strip():
+                    raise TerminalError(
+                        "invalid_partition_keys", f"{name}: date keys need a non-empty format"
+                    )
         else:  # string → projection enum
             values = key.get("values")
             if not (isinstance(values, list) and len(values) >= 1):
                 raise TerminalError("invalid_partition_keys", f"{name}: values must be a non-empty list")
+            if not all(isinstance(v, str) for v in values):
+                # ",".join over a non-string raises TypeError inside the renderer.
+                raise TerminalError(
+                    "invalid_partition_keys", f"{name}: every value must be a string"
+                )
+        digits = key.get("digits")
+        if digits is not None and (isinstance(digits, bool) or not isinstance(digits, int)):
+            raise TerminalError("invalid_partition_keys", f"{name}: digits must be an integer")
     return keys
 
 

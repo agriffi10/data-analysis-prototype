@@ -180,11 +180,24 @@ def _projection_props(key):
         props.append((f"projection.{name}.format", key["format"]))
         if key.get("interval") is not None:
             props.append((f"projection.{name}.interval", str(key["interval"])))
-        if key.get("interval.unit") is not None:
-            props.append((f"projection.{name}.interval.unit", str(key["interval.unit"])))
+        # BOTH spellings accepted (SPEC-151 FR-007). The browser's type declares
+        # `intervalUnit` (tableBuild.types.ts) while this renderer has always read
+        # `interval.unit`, so the field the browser says it sends was silently dropped.
+        # Latent today — no UI path populates it — but a trap for the next change, and
+        # already flagged at load_table_definition.py. Accepting both here means neither
+        # the browser's spelling nor the catalog's can go missing.
+        unit = key.get("interval.unit", key.get("intervalUnit"))
+        if unit is not None:
+            props.append((f"projection.{name}.interval.unit", str(unit)))
     elif ptype == "string":
+        values = key["values"]
+        # Asserted rather than left to `",".join`, which raises a bare TypeError from
+        # inside the renderer — surfacing to the user as "something went wrong" instead of
+        # a partition-key validation message (SPEC-151 FR-006).
+        if not all(isinstance(v, str) for v in values):
+            raise ValueError(f"partition key {name!r}: every enum value must be a string")
         props.append((f"projection.{name}.type", "enum"))
-        props.append((f"projection.{name}.values", ",".join(key["values"])))
+        props.append((f"projection.{name}.values", ",".join(values)))
     else:
         raise ValueError(f"unknown partition type {ptype!r} for {name!r}")
     return props
@@ -316,11 +329,23 @@ def build_create_table_ddl(
         )
         stmt += f" PARTITIONED BY ({part_cols})"
 
-    stmt += f" {resolved.clause} LOCATION '{location}'"
+    # Through literal(), not an f-string quote (SPEC-151 FR-006). An S3 key may contain an
+    # apostrophe — a folder named `o'brien` is an ordinary thing for a user to create — and
+    # a raw '{location}' ends the literal there and turns the rest of the statement into
+    # syntax. The sharpest path is data-quality, where the LOCATION and the partition
+    # values both come from S3 KEY SEGMENTS, so a folder named `year=2024'` broke the
+    # temp-table DDL and the whole check died as `query_failed`.
+    stmt += f" {resolved.clause} LOCATION {literal(location)}"
 
     props = _tblproperties(resolved, partition_keys, mark=mark)
     if props:
-        rendered = ", ".join(f"'{k}'='{v}'" for k, v in props)
+        # Both sides escaped: a partition enum value of `eu','projection.enabled'='false`
+        # rendered as `'projection.region.values'='eu','projection.enabled'='false'`,
+        # INJECTING a property that switched partition projection off. Self-scoped (a user
+        # can only reach a table in their own database, and Athena rejects multi-statement
+        # DDL), so this is robustness rather than cross-tenant escalation — but the
+        # escaper has sat in this module all along and is already used for column comments.
+        rendered = ", ".join(f"{literal(k)}={literal(v)}" for k, v in props)
         stmt += f" TBLPROPERTIES ({rendered})"
 
     return stmt
