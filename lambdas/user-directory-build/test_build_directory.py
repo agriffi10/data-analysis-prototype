@@ -20,9 +20,8 @@ sys.path.insert(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"),
 )
 
-from cpcommon import clients, config
-
 import build_directory
+from cpcommon import clients
 
 HERE = pathlib.Path(__file__).resolve().parent
 LAMBDAS = HERE.parent
