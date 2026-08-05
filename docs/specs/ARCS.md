@@ -822,3 +822,55 @@ the S3 prefix, the principal tag and the Glue database name (SPEC-033), it is al
 (SPEC-075), and a prefix-search feature discloses the set by construction. Build order **146 → 147 → 148**; 146 ships as
 two PRs; 147 and 148 add no IAM, no AWS resource and no env var — 147 derives the object's location from the existing
 `userSpaceBucket()` helper, so the four-point `VITE_*` wiring dance is avoided across the whole arc.
+
+## Audit-remediation arc (SPEC-150 → 156 — active, all Draft)
+
+A 2026-08-05 whole-codebase audit produced ~40 findings. They are grouped here into **seven specs by plane
+and risk profile**, not by severity, because a spec that mixes a browser one-liner with a Lambda data-loss
+fix is unreviewable. Read this before picking one up: the ordering constraints below are real, and two of
+them will silently produce bad work if ignored.
+
+**The audit's own headline is already discharged.** SPEC-145 merged (#361) with a type error in
+`SchemaBrowser.test.tsx`; lint, prettier and all 1301 tests passed because `ci.yml` never invokes the
+compiler, so `Deploy App` on `main` went red at 03:10 and was fixed by #362 at 03:19. **#363 then added the gate**
+(`npm run build` on every PR), so 150 FR-001 is now only the residue: declaring the `strict` default the
+project currently inherits from the compiler. That failure is also the arc's
+argument: every spec here closes something the repo already believed was closed.
+
+**The grouping.** **150** is browser + CI guardrails — the typecheck gate, coverage floors, and the
+small-but-user-visible defects around them (six "not configured" messages that can never render, an
+expired session showing the wrong text on every S3 surface, a double-click that can start two refreshes).
+**151** is control-plane correctness with no new infrastructure: the two data-integrity defects
+(a single-file data-quality check profiles the whole parent folder, and a sibling-matching listing prefix
+can yield `verdict: "clean"` with `rowCount: 0`), teardown freeing a space name while objects remain,
+a roster CAS that overwrites the field it protects, and DDL literals bypassing the escaper in the same
+module. **152** is split out from 151 *because it provisions infrastructure* — new ASL states and a verb
+per plane so that a failure occurring before any verb runs still notifies the user; CLAUDE.md's infra rule
+and the deploy-role IAM expansion apply in full. **153** is test and gate integrity — the guards that pass
+by coincidence, chief among them that `test_deploy_matrix.py`, written *because* SPEC-137's gates were all
+blind, never checks the layer job's copy list against the layer directory, which is SPEC-137's actual
+shape. **154** is frontend journey coverage: the suite's real gap is not weak assertions but untested
+*wires* — a hook tested with `renderHook`, a component tested with a stub callback, and nothing between.
+**155** and **156** are the reuse work, browser and Lambda respectively, deliberately last so no refactor
+rides along with a behaviour change.
+
+**Ordering constraints that matter.** **155 Phase 5 must not start before 154 lands** — it decomposes a
+1772-line and a 1300-line component, and `FileBrowser`'s upload and collision paths are exactly the ones
+154 covers and nothing else does. **156 Phase 3 must not start before 151** — 151 fixes the `casio` 409
+predicate *in place* and 156 then moves it; reversed, a bug fix hides inside a refactor. **156 Phase 1
+comes before everything else in 156**, because `cpcommon.config`'s import-time `_require` of six env vars
+is the *cause* of the duplicated JWKS verifier, not merely adjacent to it. 150, 151, 152, 153 and 154 are
+otherwise independent and can run in parallel.
+
+**What the arc deliberately does not do.** No feature work. No `noUncheckedIndexedAccess` (239 sites, two
+load-bearing — its own decision). No blanket `fireEvent` → `userEvent` migration; §21 scopes that rule to
+new and reworked tests, so it stays opportunistic. No blocking mypy — 153 lands it report-only over the
+shared layers as the first notch of a ratchet. No fix for the concurrent-refresh race at the Pipe level:
+150 FR-003 closes the browser side, and the real fix is a serialization change that belongs to its own spec.
+
+**One correction the arc carries, because two of five audit passes got it wrong and it would cost real
+work.** **TypeScript `strict` is already ON.** `tsconfig.app.json` has no `"strict"` key, and
+`tsc --showConfig` does not emit defaults — but TypeScript 6.0.3 defaults it true (`--strict false` yields
+157 errors; as-configured yields 0). Do not "enable strict" as a task. 150 FR-001 *declares* the inherited
+default, which is a one-line change whose justification is the ruff-0.16 incident already written up in
+`pyproject.toml`: a tool widening its own defaults overnight turned `main` red once already.
