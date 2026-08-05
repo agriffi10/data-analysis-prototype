@@ -123,15 +123,22 @@ body this spec added), a vacuous `assert not hasattr(...)` in the no-delete test
 `delete_table` / `batch_delete_table` tripwires that raise, and the CLAUDE.md wording that called the
 casing premise *discharged* on documentary evidence.
 
-**FR-006's policy simulation was run against the rendered template** (pre-deploy — the post-deploy
-repeat is the live check below):
+**FR-006's policy simulation was run twice — against the rendered template before the merge, and
+against the DEPLOYED role (`dat-prod-table-builder-execution-role`) after `Deploy Infrastructure`
+went green. Identical results, so this AC is discharged, not owed:**
 
 | action | resource | decision |
 |---|---|---|
 | `glue:UpdateTable` | `table/alice/sales_2026` | **allowed** |
 | `glue:DeleteTable` | `table/alice/sales_2026` | **implicitDeny** |
 | `glue:CreateTable` / `glue:GetTable` | `table/alice/sales_2026` | allowed (create path unaffected) |
-| `s3:DeleteObject` | user-space / shared-space / admin | **explicitDeny** (all three) |
+| `s3:DeleteObject` | user-space / shared-space / athena-admin | **explicitDeny** (all three) |
+
+> Worth knowing for the next person who runs this: the admin bucket is `dat-prod-athena-admin`, not
+> `dat-prod-admin`. Simulating against a resource ARN that matches no statement returns
+> **implicitDeny**, which looks like a passing result and is really "your ARN was wrong" — the same
+> shape as this repo's "did not run is never clean" rule for scanners. Read the bucket names from
+> `list-buckets` rather than guessing them.
 
 **Lake Formation needed no change, verified rather than assumed:** the `portal-managed` table tag
 policy already grants `ALTER` — the LF permission `UpdateTable` requires —

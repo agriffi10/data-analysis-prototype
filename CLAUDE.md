@@ -150,10 +150,12 @@ What remains below is the live checks that are owed.
   `Description` and a column comment, then `GetTable` — both survive, the columns changed, and
   `get-table-versions` shows a previous version. Fold the casing read-back into it. SPEC-137 is the
   precedent for why these matter: instrumented code shipped whose layer attachment was missing, and
-  every gate was blind to it. **149's `simulate-custom-policy` is DISCHARGED** against the rendered
-  policy — `glue:UpdateTable` allowed, `glue:DeleteTable` **implicitDeny**, `s3:DeleteObject`
-  explicitDeny in all three buckets; repeat it against the **deployed** role after the next infra
-  apply. **The casing premise is CORROBORATED, NOT DISCHARGED** — AWS documents that Athena
+  every gate was blind to it. **149's policy simulation is DISCHARGED against the DEPLOYED role**
+  (2026-08-04, post-apply): `glue:UpdateTable` allowed, `glue:DeleteTable` **implicitDeny**,
+  `s3:DeleteObject` explicitDeny in all three buckets. Note the admin bucket is
+  `dat-prod-athena-admin` — a wrong resource ARN returns **implicitDeny**, which reads like a pass
+  and is really "your ARN matched no statement". **The casing premise is CORROBORATED, NOT
+  DISCHARGED** — AWS documents that Athena
   lowercases every column name it creates through DDL, which is strong and is why 149 hard-codes the
   fold, but documentation is the same class of evidence that had SPEC-144 FR-001 reversed mid-build,
   and 149 raised the stakes: the fold is now OURS. If the premise is wrong, the first refresh of an
