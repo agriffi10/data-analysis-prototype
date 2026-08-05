@@ -791,7 +791,7 @@ data:
 |---|---|
 | `lambdas/data-quality-common/dqcommon/config.py` line 27 (`RESERVED_PREFIXES`) | `user_settings`, `athenaresults`, `_data-quality-reports`, `shared_tables`, `_fc-work`, `_directory` |
 | `apps/portal/src/features/file-browser/protectedFolders.ts` (`HIDDEN_BROWSER_FOLDERS`) | `user_settings`, `_data-quality-reports`, `_directory` — the SPA's listing filter; diverges from both other lists |
-| `apps/portal/src/features/file-browser/protectedFolders.ts` (`PICKER_LOCKED_FOLDERS`) | `athenaresults`, `user_settings`, `_data-quality-reports`, `_directory` — missing `shared_tables` and `_fc-work` |
+| `apps/portal/src/features/file-browser/protectedFolders.ts` (`PICKER_LOCKED_FOLDERS`) | `athenaresults`, `user_settings`, `_data-quality-reports`, `_directory`, `shared_tables` |
 
 (A fourth list this table previously named — the SPEC-116 file-converter blocklist — **never
 existed in code**; that arc was cancelled 2026-08-03 with nothing built, and its architecture
@@ -806,8 +806,20 @@ with it. **The sync must not land client data at `s3://{user-space-bucket}/_dire
 because a user could reach it (the portal role's `ListBucket` is prefix-conditioned and its only
 grant there is `GetObject`), but because the daily builder overwrites that object wholesale.
 
-Each name may collide with data arriving from the old account via the sync. Reconciling the
-three lists is worth doing on its own merits and gates the Phase 2 audit.
+Each name may collide with data arriving from the old account via the sync.
+
+**Reviewed 2026-08-05, and "reconcile the three lists" turned out to be the wrong instruction.**
+They answer three different questions — may a data-quality *check* treat this as source; does the
+user *see* it; may the user *paste* into it — so unioning them would break the case that proves
+it: `athenaresults/` is deliberately visible (you want your query results) and deliberately not a
+paste target. Divergence is only a defect where it is **accidental**, and one such gap was found
+and closed: `shared_tables/` was a valid move/copy destination, so a user could drop files beside
+the files of a table shared with them. `_fc-work` stays `dqcommon`-only — the SPEC-116 arc was
+cancelled with nothing built, so nothing creates that folder and listing it in the SPA would be
+dead config. The reasoning now lives in `protectedFolders.ts` beside the lists.
+
+What the **Phase 2 audit** still needs from this table is unchanged: every name here may collide
+with synced data.
 
 ### 6.4 Shared workspace seeding (was: adoption — nothing is adopted anymore)
 

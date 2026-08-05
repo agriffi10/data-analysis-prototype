@@ -72,10 +72,11 @@ resource "aws_s3_bucket_versioning" "athena_admin" {
 # (user decision, 2026-07-22). The cost, stated plainly so it is read here rather than
 # discovered on a bill: unbounded growth, with no ceiling and no decision point.
 #
-# What makes that safe is structural, not conventional: EVERY rule below carries a prefix
-# filter, so none of them can match `logs/` by accident. S3 lifecycle rules can only INCLUDE a
-# prefix, never exclude one — so a rule added later with an empty filter would silently begin
-# expiring the logs. The `admin_lifecycle_rules_are_prefix_scoped` check below pins that.
+# What makes that safe is structural, not conventional: every rule below that can EXPIRE
+# something carries a prefix filter, so none of them can match `logs/` by accident. S3 lifecycle
+# rules can only INCLUDE a prefix, never exclude one — so an expiring rule added later with an
+# empty filter would silently begin deleting the logs. The
+# `admin_lifecycle_rules_are_prefix_scoped` check below pins that.
 resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   bucket = aws_s3_bucket.athena_admin.id
 
@@ -111,6 +112,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
       days = var.admin_results_retention_days
     }
   }
+
+  # Bucket-wide, and deliberately UNFILTERED (CKV_AWS_300). An abandoned multipart upload
+  # leaves orphaned parts that are billed and invisible to every listing, anywhere in the
+  # bucket — so scoping this to the prefixes we happen to know about today would leave a new
+  # prefix silently unprotected.
+  #
+  # Unfiltered is safe here in a way an expiration rule would NOT be: this rule carries no
+  # `expiration`, and abort-incomplete-multipart-upload can only discard the PARTS of an upload
+  # that never completed. It cannot delete an object, so it cannot reach `logs/`, which
+  # SPEC-127 FR-009 retains indefinitely. The check below now pins exactly that distinction.
+  rule {
+    id     = "abort-incomplete-multipart-uploads"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 }
 
 # No CORS: this bucket is never read by the browser. User-facing result downloads
@@ -126,10 +147,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
 # evidence in the diff's own plan comment.
 check "admin_lifecycle_rules_are_prefix_scoped" {
   assert {
+    # Scoped to rules that can DELETE something. The guard exists because an unfiltered
+    # expiring rule would reach logs/; a rule with no expiration cannot delete an object at
+    # all, so requiring a prefix on it bought nothing and blocked the bucket-wide
+    # abort-incomplete-multipart-upload rule above (CKV_AWS_300). Narrowed deliberately, and
+    # an unfiltered EXPIRING rule still fails exactly as before.
     condition = alltrue([
       for r in aws_s3_bucket_lifecycle_configuration.athena_admin.rule :
       try(one(r.filter).prefix, "") != ""
+      if length(r.expiration) > 0 || length(r.noncurrent_version_expiration) > 0
     ])
-    error_message = "Every admin-bucket lifecycle rule must carry a non-empty filter.prefix. An unfiltered rule matches logs/ too, which SPEC-127 FR-009 retains indefinitely — S3 lifecycle can include a prefix but never exclude one."
+    error_message = "Every admin-bucket lifecycle rule that EXPIRES objects must carry a non-empty filter.prefix. An unfiltered expiring rule matches logs/ too, which SPEC-127 FR-009 retains indefinitely — S3 lifecycle can include a prefix but never exclude one. (A rule with no expiration, e.g. abort-incomplete-multipart-upload, is exempt: it cannot delete an object.)"
   }
 }

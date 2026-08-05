@@ -87,6 +87,16 @@ describe('DestinationPicker', () => {
     expect(screen.queryByRole('button', {name: /open folder athenaresults/i})).not.toBeInTheDocument();
   });
 
+  it('excludes shared_tables from the listing — the pipeline owns its layout', async () => {
+    // Closed 2026-08-05: `shared_tables/` was a valid paste target, so a user could drop files
+    // beside the files of a table shared with them. It stays VISIBLE in the file browser (seeing
+    // what was shared with you is the point); it is only barred as a destination.
+    listing({'alice/': pageOf([folder('alice/shared_tables/', 'shared_tables'), folder('alice/x/', 'x')])});
+    renderPicker();
+    expect(await screen.findByRole('button', {name: /open folder x/i})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /open folder shared_tables/i})).not.toBeInTheDocument();
+  });
+
   it('gates the current parent by allowCurrentParent (Move blocks, Copy allows)', () => {
     // Confirm-state is a render-time gate off browsePrefix vs currentPrefix.
     const {unmount} = renderPicker({currentPrefix: 'alice/', allowCurrentParent: false});

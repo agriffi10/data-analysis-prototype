@@ -99,9 +99,12 @@ Three things the arc left worth carrying:
 What remains below is the live checks that are owed.
 
 - **SPEC-141 left two things live.** (1) Its single `--delete` is scoped to `assets/`, so
-  **stale root-level objects are never removed** — `icons.svg` is one today, needing a one-off
-  `aws s3 rm s3://<static-bucket>/icons.svg`. That orphan class is a **spec choice, not a CLI
-  constraint** (see the decisions entry). (2) **Every** deploy since the split has been byte-identical to
+  **stale root-level objects are never removed**. That orphan class is a **spec choice, not a CLI
+  constraint** (see the decisions entry). `icons.svg`, the first such orphan, was **removed by hand
+  2026-08-05** (`aws s3 rm` + a targeted invalidation); the class remains, so the next one needs the
+  same treatment. **Do not verify such a removal by status code** — this distribution maps
+  `403/404 → /index.html` with a **200** for client-side routing, so a deleted asset still answers
+  200. Check `content-type` and `x-cache: Error from cloudfront` instead. (2) **Every** deploy since the split has been byte-identical to
   its predecessor, so **the delete pass has still never deleted anything** (verified through run
   30902923653: 108 assets + 2 root uploaded, 0 deleted). The next deploy that changes a bundle hash
   is its first real test.

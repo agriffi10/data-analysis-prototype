@@ -10,6 +10,7 @@ import ast
 import json
 import os
 import pathlib
+import re
 import sys
 
 import pytest
@@ -438,9 +439,23 @@ def test_directory_is_reserved_in_dqcommon_and_in_both_spa_lists():
         / "file-browser"
         / "protectedFolders.ts"
     ).read_text()
-    hidden = spa.split("HIDDEN_BROWSER_FOLDERS")[1].split(";")[0]
-    picker = spa.split("PICKER_LOCKED_FOLDERS")[1].split(";")[0]
+    def declared(name):
+        """The array literal DECLARED for `name`, not the first place the name appears.
+
+        Splitting on the bare name matched a prose mention of it in that file's header comment
+        first, so both lists read as the comment text and the assertion below passed on the
+        wrong string. Anchored on `export const <name> = [ ... ]` instead, and tolerant of a
+        multi-line array.
+        """
+        match = re.search(rf"export const {name}\s*=\s*\[(.*?)\]", spa, re.DOTALL)
+        assert match, f"could not find the {name} declaration"
+        return match.group(1)
+
+    hidden = declared("HIDDEN_BROWSER_FOLDERS")
+    picker = declared("PICKER_LOCKED_FOLDERS")
     assert "_directory" in hidden and "_directory" in picker
+    # Guards the parser: a match that swallowed the file would contain both names.
+    assert "export const" not in hidden and "export const" not in picker
 
 
 def test_the_handler_ignores_its_event_payload(s3):
