@@ -185,14 +185,15 @@ What remains below is the live checks that are owed.
   and 149 raised the stakes: the fold is now OURS. If the premise is wrong, the first refresh of an
   existing table silently re-cases its columns while `diff-schema` calls them unchanged — a mutation
   no test and no notification would report. Settle it with the `GetTable` read-back in check (2).
-- **One exposure survives 149 and is the thing to revisit before 145: the concurrent-refresh race.**
-  The Pipe invokes `StartExecution` as `FIRE_AND_FORGET`, so `MessageGroupId` serializes *delivery*,
-  not *execution*, and two refreshes on one database overlap. 149 **reduced** it — neither run can
-  see a missing table any more — but could not close it: **Glue offers no compare-and-set on
-  `UpdateTable`** (`VersionId` carries no precondition semantics), so the worst case is
-  last-write-wins between two definitions. A real fix is a serialization change to the Pipe and
-  belongs to its own spec. SPEC-144's second exposure (a committed drop then silence) is **retired**:
-  a failed update changes nothing.
+- **The concurrent-refresh race is still open, and SPEC-157 owns it.** The Pipe invokes
+  `StartExecution` as `FIRE_AND_FORGET`, so `MessageGroupId` serializes *delivery*, not *execution*,
+  and two refreshes on one database overlap. 149 **reduced** it — neither run can see a missing table
+  any more — but could not close it: **Glue offers no compare-and-set on `UpdateTable`** (`VersionId`
+  carries no precondition semantics), so the worst case is last-write-wins between two definitions.
+  **150 shut the browser's contribution** — a double-click can no longer start the pair (the ref
+  guard; `deduplicationId` is a fresh UUID per call, so SQS FIFO never could have collapsed it) — but
+  that is the *trigger*, not the race. SPEC-144's second exposure (a committed drop then silence) is
+  **retired**: a failed update changes nothing.
 - **SPEC-142 fixed the ragged/union bug; its Phase 4 is owed live.** Ragged rows are now judged
   against each file's own header via a `CASE` on `"$path"`. Still to run from the UI: a check over a
   folder whose files deliberately disagree (expect the cross-file finding and **no** ragged count),
@@ -243,6 +244,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header). Accepted orphan class: **stale root files**.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead, and **asserts its own coverage** (fails if IAM resources are present but no IAM check ran). Isolation policies are clean; the residual findings are non-scopable deploy-role actions.
+- **Compiler and coverage defaults are declared, never inherited (150):** both tsconfigs state `"strict": true` (already TS 6's default — declaring it changed **zero** errors) and both suites carry **literal** coverage floors — portal 91/86/89/93, lambdas 95 — as **ratchets at the measured level, not targets**. Never lower one for a regression. `pyproject.toml`'s ruff block is the precedent; the `npm run build` PR gate is separate and already shipped (#363).
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.
 
 ## Out of Scope (don't build)

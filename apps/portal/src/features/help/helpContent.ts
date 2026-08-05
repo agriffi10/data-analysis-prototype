@@ -76,7 +76,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Tick the checkbox on one or more items — a toolbar with <b>Copy</b>, <b>Move</b>, and <b>Delete</b> appears.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
-          'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.'
+          'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
+          'One folder is managed for you: <b>athenaresults</b>, where your query results are kept. You can browse it, but it can’t be deleted or moved.'
         ],
         callout: {
           kind: 'warning',

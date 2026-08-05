@@ -16,10 +16,10 @@ Public barrel: `features/file-browser/index.ts`.
 | `createFolder({ bucket, prefix, name, overwrite? })` | Zero-byte `{prefix}{name}/` marker (`application/x-directory`). |
 | `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker. |
 | `deleteObjects({ bucket, keys, username })` | Batch delete via `DeleteObjects`, chunked ≤1000/req; refuses the marker, aggregates per-key failures (never throws). `ServiceResult<DeleteResult>`. |
-| `deleteFolder({ bucket, prefix, username })` | Recursive folder delete: paginated delimiter-less listing → `deleteObjects`. `ServiceResult<DeleteResult>`. |
+| `deleteFolder({ bucket, prefix, username, rootPrefix })` | Recursive folder delete: paginated delimiter-less listing → `deleteObjects`. `ServiceResult<DeleteResult>`. `rootPrefix` is the SPACE root — refuses the space's own `athenaresults/` with `ProtectedObject` before any S3 call (SPEC-150). |
 | `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `CopyObject` (URL-encoded CopySource); marker + collision guards. `destBucket` defaults to `bucket` (same-bucket); pass it for a cross-bucket copy, e.g. saving a shared-space result into the user space (SPEC-055). `ServiceResult<{ destKey }>`. |
 | `moveObject({ bucket, sourceKey, destKey, username, overwrite? })` | Copy-then-delete-source; same-key no-op; copy-failure leaves source. `ServiceResult<{ destKey }>`. |
-| `moveFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder move (per-key copy+delete); partial-failure + into-itself guards + collision pre-check. `ServiceResult<MoveResult>`. |
+| `moveFolder({ bucket, sourcePrefix, destPrefix, username, rootPrefix, overwrite?, onProgress? })` | Recursive folder move (per-key copy+delete); partial-failure + into-itself guards + collision pre-check. `ServiceResult<MoveResult>`. `rootPrefix` refuses the space's own `athenaresults/` as a SOURCE (SPEC-150). |
 | `copyFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder copy — `moveFolder` minus the deletes (additive, best-effort, no rollback); into-itself guard + collision pre-check. `ServiceResult<CopyResult>` (SPEC-039). |
 | `objectExists({ bucket, key })` | `HeadObject` → bool (404 → `false`, not an error). Collision pre-check. |
 | `getObjectMetadata({ bucket, key })` | `HeadObject` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). 404 → error. |
@@ -36,8 +36,8 @@ Public barrel: `features/file-browser/index.ts`.
 | `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
-| `useDelete(bucket, prefix, username?)` | `useDelete.ts` | Deletes a mixed file/folder selection (files batched, folders recursive); aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
-| `useMove(bucket, sourcePrefix, username?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, folder progress, source/dest invalidation. Aggregates a `MoveSummary`. |
+| `useDelete(bucket, prefix, username?, rootPrefix?)` | `useDelete.ts` | Deletes a mixed file/folder selection (files batched, folders recursive); aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
+| `useMove(bucket, sourcePrefix, username?, rootPrefix?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, folder progress, source/dest invalidation. Aggregates a `MoveSummary`. |
 | `useCopy(bucket, sourcePrefix, username?)` | `useCopy.ts` | Copy (multi-select) orchestration; **destination-only** invalidation (additive), collision warn-and-confirm, folder progress, and the same-folder auto-number `{name} (N)` flow (HEAD-checked, editable). Aggregates a `CopySummary` (SPEC-039). |
 | `useSelection()` | `selectionContext.ts` | Read/mutate the current view's multi-select set (`toggle`/`selectAll`/`clear`, `count`, `isSelected`). Must be under a `SelectionProvider`. |
 | `useUploadQueue()` | `uploadQueueContext.ts` | Read/drive the multi-file upload queue (`items`, `enqueue`, `cancel`, `dismiss`, `resolveOverwrite`, `resolveRename`, `clearFinished`). Must be under an `UploadQueueProvider` (SPEC-020). |
@@ -69,6 +69,7 @@ Public barrel: `features/file-browser/index.ts`.
 |---|---|---|
 | `formatSize(bytes)` | `fileBrowser.format.ts` | Human-readable file size (B/KB/MB/GB); shared by the listing, metadata panel, upload queue. (Distinct from query's `formatBytes`.) |
 | `leafName` / `fileParent` / `folderParts` / `lastSegment` / `fileExtension` | `fileBrowser.paths.ts` | S3 key/prefix path helpers (leaf, parent, folder split, trailing-slash-tolerant last segment, type-chip extension). Shared by `useMove`/`useCopy`/`FileBrowser`/`UploadQueuePanel`. (react-best-practices pass) |
+| `HIDDEN_BROWSER_FOLDERS` / `PICKER_LOCKED_FOLDERS` / `UNDELETABLE_ROOT_FOLDERS`, `isRootFolderNamed(folderPrefix, rootPrefix, names)`, `isUndeletableRootFolder(folderPrefix, rootPrefix)` | `protectedFolders.ts` | The app-managed root folders and the three questions they answer — does the user SEE it, may they PASTE into it, may they DESTROY it. The lists differ on purpose; read the file's note before unioning them. `athenaresults/` is visible, never a paste target, and never deletable or a move source (SPEC-150). |
 
 ### Query keys, types, constants
 
