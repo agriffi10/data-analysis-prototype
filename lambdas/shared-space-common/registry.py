@@ -189,8 +189,13 @@ def effective_acknowledged(registry: dict) -> list[str]:
     Membership stays a plain ``members: string[]``; join status is tracked out-of-band
     as ``acknowledged: string[]`` (members who have signed in and picked up the space).
     A record written before SPEC-073 has no ``acknowledged`` field — its members predate
-    the pending concept, so they are all treated as acknowledged (active). The caller
-    persists any change by setting ``registry["acknowledged"]`` before ``save_members``.
+    the pending concept, so they are all treated as acknowledged (active).
+
+    CALLERS DO NOT PERSIST THROUGH THIS. They used to, by setting
+    ``registry["acknowledged"]`` before ``save_members``; SPEC-151 FR-004 deleted that
+    contract because it carried the same stale-snapshot defect as the roster itself.
+    ``save_members`` now derives ``acknowledged`` inside its own CAS and takes an
+    ``acknowledge=`` delta. This function is a pure read.
     """
     ack = registry.get("acknowledged")
     if ack is None:

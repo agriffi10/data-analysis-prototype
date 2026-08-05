@@ -27,8 +27,7 @@ observability.init(service="shared-space")
 def remove_members(space, members, request_id, registry):
     """Remove ``members`` from ``space``; return the list actually removed."""
     owner = registry["owner"]
-    current = list(registry.get("members", []))
-    current_set = set(current)
+    current_set = set(registry.get("members", []))
     removed = []
 
     for member in membership.normalize_members(members, owner):
@@ -36,7 +35,6 @@ def remove_members(space, members, request_id, registry):
             continue  # not a member (idempotent) — emits nothing
         membership.clear_slot(member, space)
         cache.remove_entry(member, space)
-        current = [m for m in current if m != member]
         current_set.discard(member)
         removed.append(member)
 

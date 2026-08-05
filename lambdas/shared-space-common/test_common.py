@@ -947,3 +947,60 @@ def test_acknowledging_a_membership_a_concurrent_remove_revoked_does_not_recreat
 
     assert committed["members"] == ["alice"]
     assert "bob" not in committed["acknowledged"]
+
+
+# ── SPEC-151 FR-008: Glue transients on the shared-space paths ──────────────
+
+
+def _glue_raising(code):
+    """A FakeGlue whose get_tables raises a botocore-shaped fault."""
+    import types as _types
+
+    from fakes import FakeEntityNotFound
+
+    class _Boom(Exception):
+        def __init__(self):
+            super().__init__(code)
+            self.response = {"Error": {"Code": code}}
+
+    class _Glue:
+        exceptions = _types.SimpleNamespace(
+            EntityNotFoundException=FakeEntityNotFound, AlreadyExistsException=Exception
+        )
+
+        def get_tables(self, DatabaseName, NextToken=None):
+            raise _Boom()
+
+        def create_database(self, DatabaseInput):
+            raise _Boom()
+
+    return _Glue()
+
+
+def test_drop_database_maps_a_glue_transient_so_the_cascade_can_retry():
+    """A Glue hiccup here is worse than elsewhere: a failed cascade deliberately does NOT
+    free the name (FR-003), so an unmapped transient left the user with a space stuck in
+    `failed` over something the state machine's Retry would have absorbed."""
+    import teardown
+    from cpcommon import clients
+    from cpcommon.errors import TransientError
+
+    install()
+    clients._glue = _glue_raising("InternalServiceException")
+
+    with pytest.raises(TransientError):
+        teardown.drop_database("sales")
+
+
+def test_drop_database_leaves_a_deterministic_glue_fault_alone():
+    """Retrying InvalidInputException changes nothing — it must not be dressed as transient."""
+    import teardown
+    from cpcommon import clients
+    from cpcommon.errors import TransientError
+
+    install()
+    clients._glue = _glue_raising("InvalidInputException")
+
+    with pytest.raises(Exception) as err:
+        teardown.drop_database("sales")
+    assert not isinstance(err.value, TransientError)

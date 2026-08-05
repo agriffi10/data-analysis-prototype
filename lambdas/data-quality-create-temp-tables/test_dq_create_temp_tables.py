@@ -215,11 +215,41 @@ def test_location_is_a_folder_uri_with_a_trailing_slash(ran):
 
 def test_a_single_file_target_becomes_a_table_over_its_parent_folder(monkeypatch, ran):
     """An external table's LOCATION is a PREFIX: pointed at an object key it yields a
-    table over nothing, which would report zero rows and look like a clean result."""
+    table over nothing, which would report zero rows and look like a clean result.
+
+    NECESSARY BUT NOT SUFFICIENT, and this test used to imply otherwise (SPEC-151 FR-001).
+    Athena reads a LOCATION RECURSIVELY, so the table this builds also covers every
+    sibling in `alice/sales/`. What puts the report back on the file the user selected is
+    the `"$path"` predicate start-profile-query attaches — see the coupling pinned below.
+    """
     _install_manifest(monkeypatch, _manifest(
         files=[{"key": "alice/sales/jan.csv", "size": 1, "columns": [{"name": "a", "type": "string"}]}]
     ))
     v.handler(_event(location="alice/sales/jan.csv"), None)
+    assert "LOCATION 's3://dq-user-bkt/alice/sales/'" in ran[0]["query"]
+
+
+def test_the_promotion_is_decided_by_the_same_helper_the_queries_use(monkeypatch, ran):
+    """The two verbs must agree about what "one file" means, or the report describes the
+    folder while claiming to describe the file. `sql.single_file_path` is the single
+    definition; this pins that THIS verb consults it rather than re-deriving the rule.
+    """
+    manifest = _manifest(
+        files=[{"key": "alice/sales/jan.csv", "size": 1, "columns": [{"name": "a", "type": "string"}]}]
+    )
+    _install_manifest(monkeypatch, manifest)
+    seen = []
+    real = v.sql.single_file_path
+
+    def _spy(bucket, files, location):
+        result = real(bucket, files, location)
+        seen.append((location, result))
+        return result
+
+    monkeypatch.setattr(v.sql, "single_file_path", _spy)
+    v.handler(_event(location="alice/sales/jan.csv"), None)
+
+    assert seen == [("alice/sales/jan.csv", "s3://dq-user-bkt/alice/sales/jan.csv")]
     assert "LOCATION 's3://dq-user-bkt/alice/sales/'" in ran[0]["query"]
 
 

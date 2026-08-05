@@ -186,7 +186,10 @@ def _projection_props(key):
         # Latent today — no UI path populates it — but a trap for the next change, and
         # already flagged at load_table_definition.py. Accepting both here means neither
         # the browser's spelling nor the catalog's can go missing.
-        unit = key.get("interval.unit", key.get("intervalUnit"))
+        # `or`, not a `get` DEFAULT: an explicit `"interval.unit": None` alongside a real
+        # `intervalUnit` would make `dict.get(k, fallback)` return the present None and
+        # silently drop the property — the same class of silent drop this line fixes.
+        unit = key.get("interval.unit") or key.get("intervalUnit")
         if unit is not None:
             props.append((f"projection.{name}.interval.unit", str(unit)))
     elif ptype == "string":

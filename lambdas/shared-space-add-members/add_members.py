@@ -37,9 +37,7 @@ observability.init(service="shared-space")
 def add_members(space, members, request_id, registry):
     """Add ``members`` to ``space``; return {added, ignoredUnknown, skippedAtLimit}."""
     owner = registry["owner"]
-    created_at = registry.get("createdAt")
-    current = list(registry.get("members", []))
-    current_set = set(current)
+    current_set = set(registry.get("members", []))
     # Join status (SPEC-073) is now derived inside save_members' CAS, from the freshly
     # read record: existing members stay as-is and newly-added users are NOT acknowledged,
     # so they surface as `pending` until they sign in and ack.
@@ -73,7 +71,6 @@ def add_members(space, members, request_id, registry):
                 (owner, f'Couldn\'t add "{member}" to "{space}": they\'ve reached their workspace limit.', f"add-limit:{member}")
             )
             continue
-        current.append(member)
         current_set.add(member)
         summary["added"].append(member)
         pending_notifications.append(
@@ -91,7 +88,7 @@ def add_members(space, members, request_id, registry):
         space,
         owner,
         committed.get("acknowledged", []),
-        committed.get("createdAt", created_at),
+        committed.get("createdAt"),
     )
     for recipient, message, tag in pending_notifications:
         emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")

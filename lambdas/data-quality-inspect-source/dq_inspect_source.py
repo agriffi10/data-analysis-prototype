@@ -167,7 +167,13 @@ def _only_selected(objects: list[tuple[str, int]], location: str) -> list[tuple[
     between the head and the list, and the existing ``no_data_files`` refusal is the right
     (and already-tested) answer for that.
     """
-    return [(key, size) for key, size in objects if key == location]
+    # `rstrip("/")` matches `sql.single_file_path`'s normalisation exactly. The two helpers
+    # are the pair SPEC-151 FR-001 insists must never disagree about what "one file" means,
+    # and comparing a raw location here against a stripped one there is precisely how they
+    # would start to. Unreachable today (a key ending in `/` is classified unsupported
+    # first), which is why it is worth pinning rather than leaving to luck.
+    selected = location.rstrip("/")
+    return [(key, size) for key, size in objects if key == selected]
 
 
 @observability.step("list-objects")

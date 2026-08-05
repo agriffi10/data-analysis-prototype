@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import create_space as c
+import pytest
 import registry as reg
 from cpcommon import clients
 from cpcommon import config as cpconfig
@@ -251,3 +252,49 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} create-space tests passed.")
     sys.exit(0)
+
+
+# ── SPEC-151 FR-008: a Glue transient during create is retryable ────────────
+
+
+def test_create_database_maps_a_glue_transient_rather_than_failing_the_create():
+    """`_ensure_database` caught only AlreadyExists, so every other Glue fault propagated
+    as a bare ClientError the state machine's Retry does not name — permanently failing a
+    create that would very likely have succeeded on the next attempt."""
+    from cpcommon import clients
+    from cpcommon.errors import TransientError
+
+    install()
+
+    class _Boom(Exception):
+        def __init__(self):
+            super().__init__("InternalServiceException")
+            self.response = {"Error": {"Code": "InternalServiceException"}}
+
+    glue = clients.glue()
+    original = glue.create_database
+    glue.create_database = lambda DatabaseInput: (_ for _ in ()).throw(_Boom())
+    try:
+        with pytest.raises(TransientError):
+            c._ensure_database("sales")
+    finally:
+        glue.create_database = original
+
+
+def test_create_database_leaves_a_deterministic_glue_fault_alone():
+    from cpcommon import clients
+    from cpcommon.errors import TransientError
+
+    install()
+
+    class _Boom(Exception):
+        def __init__(self):
+            super().__init__("InvalidInputException")
+            self.response = {"Error": {"Code": "InvalidInputException"}}
+
+    glue = clients.glue()
+    glue.create_database = lambda DatabaseInput: (_ for _ in ()).throw(_Boom())
+
+    with pytest.raises(Exception) as err:
+        c._ensure_database("sales")
+    assert not isinstance(err.value, TransientError)

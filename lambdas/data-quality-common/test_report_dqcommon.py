@@ -801,3 +801,39 @@ def test_a_populated_source_is_unaffected():
 
     assert document["verdict"] == "clean"
     assert document["topIssues"] == []
+
+
+def test_row_count_equals_the_sum_of_the_per_file_counts_for_a_single_file_target():
+    """SPEC-151 FR-001's arithmetic criterion, stated in the report's own terms.
+
+    This is the invariant the whole FR exists to restore. Before it, the total row came
+    from a scan of the parent FOLDER while rowCountsByFile was reconciled to the manifest
+    (one file) — so the two halves of the same report described different populations and
+    a reader summing the per-file column got a different answer to `rowCount`.
+
+    `rowCountsByFile` is a LIST of {key, rows}, not a dict — the spec's `.values()` wording
+    is loose, so the sum is taken over `rows`.
+    """
+    per_file = _profile_row(1000, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/a.csv")
+    total = _profile_row(1000, [{"not_bigint": 0}, {"not_bigint": 0}])
+
+    document = _build(profile=[total, per_file])
+
+    exact = document["exact"]
+    assert exact["rowCount"] == sum(entry["rows"] for entry in exact["rowCountsByFile"])
+
+
+def test_the_same_invariant_holds_across_a_multi_file_folder_target():
+    """The folder case must not have been broken in the course of fixing the file case."""
+    files = [_file("alice/sales/a.csv", ["id", "amount"]), _file("alice/sales/b.csv", ["id", "amount"])]
+    rows = [
+        _profile_row(700, [{"not_bigint": 0}, {"not_bigint": 0}]),
+        _profile_row(300, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/a.csv"),
+        _profile_row(400, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/b.csv"),
+    ]
+
+    document = _build(manifest=_manifest(files), profile=rows)
+
+    exact = document["exact"]
+    assert exact["rowCount"] == 700
+    assert sum(entry["rows"] for entry in exact["rowCountsByFile"]) == 700
