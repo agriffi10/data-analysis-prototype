@@ -18,9 +18,26 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import pytest
 import table_share_check_target_absent as m
 from cpcommon import clients, config
 from cpcommon.errors import TerminalError, TransientError
+
+
+@pytest.fixture(autouse=True)
+def _restore_glue_module():
+    """Put ``tscommon.glue`` back after every test.
+
+    ``_setup`` below patches ``glue_mod.table_exists`` on the SHARED module object, which
+    every other suite importing tscommon.glue sees too. Unrestored, the stub outlived this
+    file and silently replaced the real function elsewhere — a passing test asserting
+    against a lambda from another module. Found by SPEC-151 FR-008's classification tests,
+    which failed only when the full suite ran.
+    """
+    saved = dict(vars(m.glue_mod))
+    yield
+    m.glue_mod.__dict__.clear()
+    m.glue_mod.__dict__.update(saved)
 
 
 class _FakeS3:

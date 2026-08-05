@@ -82,7 +82,9 @@ class _FakeSqs:
 
 
 def _install():
-    clients._jwks = _FakeJwks()
+    # Stub the ACCESSOR, not the cache: `_jwks` is a per-URL dict now
+    # (SPEC-151 FR-009), and what these tests actually want to fake is the client.
+    clients.jwks = lambda url: _FakeJwks()
     sqs = _FakeSqs()
     clients._sqs = sqs
     config.NOTIFICATIONS_QUEUE_URL = QUEUE_URL

@@ -43,6 +43,10 @@ def add_members(space, members, request_id, registry):
     # Join status (SPEC-073) is now derived inside save_members' CAS, from the freshly
     # read record: existing members stay as-is and newly-added users are NOT acknowledged,
     # so they surface as `pending` until they sign in and ack.
+    # Computed ONCE (SPEC-151 FR-009). It was called again at the log site below, so the
+    # normalisation ran twice per request and `members_requested` was derived from a second
+    # pass that could in principle disagree with the one that actually did the work.
+    requested = list(membership.normalize_members(members, owner))
     summary = {"added": [], "ignoredUnknown": [], "skippedAtLimit": []}
     # Collected during the loop, emitted only AFTER the registry write lands — notify a
     # real outcome, not a step that may roll back or retry.
@@ -52,7 +56,7 @@ def add_members(space, members, request_id, registry):
     # aborting mid-loop can leave users holding a slot + cache entry not yet in the
     # registry. The Step Function retries from the top — already-slotted users are
     # idempotent and the registry then catches up.
-    for member in membership.normalize_members(members, owner):
+    for member in requested:
         if member in current_set:
             continue  # already a member (idempotent) — emits nothing
         try:
@@ -109,7 +113,7 @@ def add_members(space, members, request_id, registry):
         space=space,
         actor=owner,
         store="registry",
-        members_requested=len(list(membership.normalize_members(members, owner))),
+        members_requested=len(requested),
         members_applied=len(summary["added"]),
         members_ignored=len(summary["ignoredUnknown"]),
         skipped_at_limit=len(summary["skippedAtLimit"]),

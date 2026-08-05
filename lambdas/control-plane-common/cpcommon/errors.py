@@ -220,6 +220,14 @@ _TRANSIENT_CODES = frozenset({
     "ServiceUnavailableException",
     "500",
     "503",
+    # Glue's two most routine transients (SPEC-151 FR-008). The set above is spelled for
+    # S3/Athena/generic throttles and misses these BY A WORD — Glue raises
+    # `InternalServiceException` where the list has `InternalServerException`. Every Glue
+    # READ path routes through `raise_if_transient`, so naming them here is what lets the
+    # state machines' existing Retry absorb a routine hiccup instead of failing the
+    # request permanently. Safe to widen: no other AWS service raises either code.
+    "InternalServiceException",
+    "OperationTimeoutException",
 })
 
 

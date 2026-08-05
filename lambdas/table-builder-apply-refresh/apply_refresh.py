@@ -83,6 +83,14 @@ _TABLE_INPUT_FIELDS = frozenset({
 #: Handled HERE rather than widened in ``cpcommon`` because that set is shared by every
 #: control plane, and this is the only Glue WRITE in the repo — the one call where a spurious
 #: terminal failure is user-visible. Read off the operation's own modelled error shapes.
+#:
+#: THE GAP THAT REASONING LEFT IS NOW CLOSED (SPEC-151 FR-008). It was sound for the write
+#: and silent about the READS: `check-table-absent`, `load-table-definition`, `create-space`
+#: and `teardown` all turned a routine Glue hiccup into a permanently failed request.
+#: ``InternalServiceException`` and ``OperationTimeoutException`` are now in
+#: ``cpcommon.errors._TRANSIENT_CODES``, so every read path gets them from the shared
+#: classifier. They are kept in the set below too — this verb matches against it DIRECTLY
+#: rather than through ``raise_if_transient``, so removing them would change behaviour here.
 _GLUE_RETRYABLE = frozenset({
     "InternalServiceException",
     "OperationTimeoutException",

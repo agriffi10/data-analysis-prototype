@@ -9,7 +9,7 @@ Kept in the shared layer so the two verbs share one implementation.
 import logging
 
 import config
-from cpcommon import clients
+from cpcommon import clients, errors
 from cpcommon import config as cpconfig
 
 logger = logging.getLogger()
@@ -116,6 +116,12 @@ def drop_database(name):
                 break
     except glue.exceptions.EntityNotFoundException:
         return  # database already gone
+    except Exception as err:  # retryable faults mapped; the rest propagate
+        # A Glue transient here would otherwise fail the whole cascade permanently, and a
+        # cascade that fails does NOT free the name (FR-003) — so the user is left with a
+        # space stuck in `failed` over a hiccup the Retry would have absorbed.
+        errors.raise_if_transient(err, f"glue get_tables {name}")
+        raise
     failed = 0
     for i in range(0, len(tables), 100):
         response = glue.batch_delete_table(DatabaseName=name, TablesToDelete=tables[i : i + 100])
