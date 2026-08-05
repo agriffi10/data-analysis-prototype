@@ -47,6 +47,8 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [Deploy-role refresh deadlock has an in-repo lever (`skip_refresh`)](#deploy-role-refresh-deadlock-has-an-in-repo-lever-skip_refresh)
 - [Response headers / CSP (140)](#response-headers--csp-spec-140)
 - [Static-asset caching = three prefix-scoped sync passes (141)](#static-asset-caching--three-prefix-scoped-sync-passes-spec-141)
+- [The username directory is built from S3, not Cognito (146)](#the-username-directory-is-built-from-s3-not-cognito-spec-146)
+- [Every authenticated user can read the username directory (146)](#every-authenticated-user-can-read-the-username-directory-spec-146)
 
 ---
 
@@ -346,3 +348,65 @@ contents", with no precondition-failure error. The worst case degrades from "one
 last-write-wins between two definitions. A real fix is a serialization change to the Pipe.
 
 Full account: `docs/spec-delivery/SPEC-149-refresh-table-in-place-rebuild.md`.
+
+### The username directory is built from S3, not Cognito (SPEC-146)
+
+The daily builder enumerates the user-space bucket's **top-level common prefixes**. It makes **no
+Cognito call**, and a test asserts the module never names `cognito` in any import, attribute or call.
+
+**The reasoning inverts the obvious answer, which is why it is written down.** *Today* Cognito is the
+complete record of who exists and S3 is not: the personal prefix is created **by the browser**, by
+`ensurePrefixMarker` on the first visit to `/files` (SPEC-014, a deliberate no-backend decision), so a
+confirmed user who has never opened the file browser has no prefix. On that reading Cognito wins.
+
+*After the client transition it reverses.* `transition_plan.md` §2 item 7 settles that **sign-in
+provisions nothing** — the sync pre-creates every existing user's space and database, the client's own
+automation creates them for new users, and `ensurePrefixMarker` is deleted outright (§6.3). At the same
+time federated login makes `cognito:username` a **synthetic `identitycenter_<subject>` value** rather
+than the catalog-safe username (§6.1), and users appear in the User Pool only after their first
+sign-in. So S3 becomes complete and Cognito becomes both incomplete **and wrong-keyed**.
+
+Choosing the source that is right on the far side of a migration already in flight beats the one that
+is right today, particularly when today's gap is bounded: pre-production, no production users, and the
+failure mode is a name missing from a suggestion list that still accepts free text.
+
+**Do NOT add Cognito as a union "to be safe."** A second source with different completeness properties
+is a second thing to reason about every time the directory looks wrong.
+
+**The directory is advisory and is never an authorization input.** No control plane reads it; every
+existence check stays `admin_get_user` against the User Pool (`shared-space-common/membership.py`,
+`tscommon/cognito.py`), and an unknown name is still reported to the user as a notification. A
+tripwire test fails if any Lambda outside `user-directory-build` references the path, the prefix or
+the key constants.
+
+Full account: `docs/spec-delivery/SPEC-146-username-directory-daily-builder.md`.
+
+### Every authenticated user can read the username directory (SPEC-146)
+
+`_directory/usernames.json` is readable by **every authenticated portal user**, through one
+`s3:GetObject` statement on the portal role. That disclosure is **intended and accepted**, not
+incidental, and it is recorded here rather than left implicit because the object is a single file
+listing everyone in the organisation.
+
+What makes it acceptable is that the set is already disclosed several ways: a username **is** the S3
+prefix, the `username` principal tag and the Glue database name (SPEC-033); it is visible on every
+shared-space roster to every member (SPEC-075); and a prefix-search feature discloses the set by
+construction — a typeahead that would not confirm whether `bob` exists is not a typeahead. The
+document holds **usernames and nothing else**: no display names, no email addresses. An email is not
+metadata under this repo's field rule and has no place in a document every user can read.
+
+**What was deliberately NOT granted:** no `ListBucket` widening (the portal role's grant stays
+conditioned on the caller's own prefix, so `_directory/` is invisible to the file browser and the file
+browser needed no change), no `PutObject`, no `DeleteObject`. The user reads; the daily builder is the
+only writer.
+
+**The builder's own `s3:ListBucket` is unconditioned**, and what that grants is stated rather than
+minimised: `Delimiter="/"` is a property of the *code*, not the grant, so the role can enumerate every
+object key under every user's prefix. Accepted because it holds **no `s3:GetObject` anywhere** (it can
+list names and read nothing), because key names are metadata under the field rule, and because it is a
+Lambda role with no user-assumable path. The obvious tightening — an `s3:prefix` condition on the
+empty string — is **rejected, not overlooked**: whether botocore serialises an empty `Prefix` into a
+condition key at all is an implementation detail, and if it does not the grant fails closed and the
+builder's only listing call breaks. `simulate-custom-policy` would agree with whatever context key the
+author supplied, so it would confirm the assumption rather than test it. If the grant ever becomes
+uncomfortable, the sound fix is a separate bucket, not an unverifiable condition key.
