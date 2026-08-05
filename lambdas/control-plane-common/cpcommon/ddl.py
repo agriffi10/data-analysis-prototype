@@ -82,6 +82,21 @@ _DEFAULT_STORAGE = {
 }
 
 
+def mark_managed(parameters: dict) -> dict:
+    """Return ``parameters`` with the portal's creation marker asserted.
+
+    EXISTS SO THE MARKER KEEPS EXACTLY TWO HOMES. Until SPEC-149 the only writer was
+    ``build_create_table_ddl``, so no verb ever had to name it — and a test scans the whole
+    Lambda tree for exactly that, because the moment a verb can name the property it can
+    branch on it, and TBLPROPERTIES are user-writable through ALTER TABLE (SPEC-143 FR-007).
+    ``apply-refresh`` writes Glue ``Parameters`` directly rather than DDL, so it needs the
+    marker without needing the constant; this is that door.
+
+    A copy, not a mutation: the caller's dict is often the LIVE table's parameters.
+    """
+    return {**parameters, PORTAL_MANAGED[0]: PORTAL_MANAGED[1]}
+
+
 def quote(identifier: str) -> str:
     """Backtick-quote a catalog identifier for a DDL statement (db / table / column).
 

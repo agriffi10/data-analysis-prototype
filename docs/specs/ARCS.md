@@ -685,6 +685,16 @@ assume nothing happened.
 > the metadata loss, and it is what an eventual move to Iceberg would need, since a drop-and-recreate destroys the
 > snapshot history that is most of the reason to adopt Iceberg.
 
+> **Superseded outright by SPEC-149 (2026-08-04): the apply is no longer a drop and a recreate.** It is one in-place
+> `glue:UpdateTable` — a read-modify-write on the live table — so there is no window, no metadata loss, and no
+> `IF NOT EXISTS` question. IAM moved the other way too: **`glue:DeleteTable` was REMOVED**, `glue:UpdateTable` added, and
+> no verb on this plane deletes a table any more (the `Deny s3:DeleteObject` is untouched, and Lake Formation's existing
+> `ALTER` on the `portal-managed` tag policy is what `UpdateTable` needs). The reason code split above is gone with the
+> mechanism — one `update_failed` says nothing was changed, because nothing was. The **concurrent-refresh overlap
+> survives**, reduced rather than closed: Glue offers no compare-and-set on `UpdateTable`, so the worst case is
+> last-write-wins between two definitions instead of one run seeing no table. See `decisions.md` → *The refresh apply
+> replaces the definition in place*.
+
 **The message layer needs more work than the feature looks like it should need**, and it is in 144's scope for a reason:
 `tbcommon/messages.py` is a *failure* table whose renderer hard-codes `Couldn't create table "{name}": …`,
 `success_message` takes no reason and hard-codes *"is ready to query"*, and `emit_failure` never reads

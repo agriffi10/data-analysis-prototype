@@ -279,7 +279,7 @@ def test_the_link_satisfies_the_browsers_own_safety_rule():
 
 def test_every_other_failure_reason_still_emits_without_a_link():
     fake = _install()
-    for reason in ("table_exists", "no_data_files", "recreate_failed", "unexpected_error"):
+    for reason in ("table_exists", "no_data_files", "update_failed", "unexpected_error"):
         notify.emit_failure(_event(mode="refresh"), TerminalError(reason, "d"), "diff")
 
     for call in fake.calls:

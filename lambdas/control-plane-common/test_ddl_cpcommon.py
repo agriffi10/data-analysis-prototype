@@ -232,6 +232,28 @@ def test_opting_out_is_what_leaves_a_table_unmarked_not_supplying_a_storage():
     assert "portal.managed" not in build_create_table_ddl(*args, mark=False)
 
 
+def test_mark_managed_asserts_the_marker_without_disturbing_anything_else():
+    """SPEC-149's door onto the marker for a caller that writes Glue ``Parameters`` rather
+    than DDL (``apply-refresh``). It lives here so the marker keeps exactly two homes — a
+    verb that can NAME it is a verb that can branch on it, which SPEC-143 FR-007 forbids.
+
+    A COPY, asserted: the caller's dict is usually the LIVE table's parameters, and mutating
+    it would edit the definition the verb is still reading from.
+    """
+    from cpcommon.ddl import mark_managed
+
+    live = {"EXTERNAL": "TRUE", "skip.header.line.count": "1"}
+    marked = mark_managed(live)
+
+    assert marked["portal.managed"] == "true"
+    assert marked["EXTERNAL"] == "TRUE"
+    assert marked["skip.header.line.count"] == "1"
+    assert "portal.managed" not in live
+
+    # An existing (or user-tampered) value is overwritten, not merged around.
+    assert mark_managed({"portal.managed": "false"})["portal.managed"] == "true"
+
+
 def test_data_quality_opts_its_temp_tables_out():
     """Read from the caller, not restated here: a temp table dropped at the end of the same
     run must not carry a durable "the portal manages this" claim."""
