@@ -132,6 +132,69 @@ def test_single_file_location_yields_a_one_object_manifest():
     assert out["format"] == "csv"
 
 
+# ── SPEC-151 FR-002: a single-file listing matches the object, not the prefix ────
+
+
+def test_a_single_file_check_ignores_siblings_sharing_its_stem():
+    """list_objects_v2 is a PREFIX match, so data.csv also returns data.csv.gz.
+
+    Left unfiltered this was the worst defect in the plane: the extra keys made
+    `keys == [prefix]` false in create-temp-tables, so the parent-folder promotion did not
+    apply, the external table was built at s3://…/data.csv/ over nothing, and GROUPING SETS
+    still emitted a total row — so the user got verdict "clean", rowCount 0, over data
+    nothing had read.
+    """
+    listed, fake = _setup(
+        [
+            ("alice/sales/data.csv", 10),
+            ("alice/sales/data.csv.gz", 20),
+            ("alice/sales/data.csv2", 30),
+        ],
+        exact_keys=["alice/sales/data.csv"],
+    )
+
+    out = v.handler(_event(location="alice/sales/data.csv"), None)
+
+    assert listed == [(BUCKET, "alice/sales/data.csv")]
+    assert out["fileCount"] == 1
+    assert [f["key"] for f in _manifest_of(fake)["files"]] == ["alice/sales/data.csv"]
+
+
+def test_the_unsupported_format_refusal_cannot_name_an_unselected_sibling():
+    """A .xlsx neighbour must not fail a check on the .csv the user actually picked."""
+    _setup(
+        [("alice/sales/data.csv", 10), ("alice/sales/data.csv.xlsx", 20)],
+        exact_keys=["alice/sales/data.csv"],
+    )
+
+    out = v.handler(_event(location="alice/sales/data.csv"), None)
+
+    assert out["format"] == "csv"
+    assert out["fileCount"] == 1
+
+
+def test_a_single_file_whose_key_vanished_still_fails_rather_than_succeeding_empty():
+    """The fix must not turn a missing object into an empty-manifest success.
+
+    head_object proved it existed, so an empty filtered listing means it was deleted in
+    between — no_data_files is the right answer, and the same one as before.
+    """
+    _setup([("alice/sales/other.csv", 10)], exact_keys=["alice/sales/data.csv"])
+
+    with pytest.raises(TerminalError) as err:
+        v.handler(_event(location="alice/sales/data.csv"), None)
+    assert err.value.reason == messages.NO_DATA_FILES
+
+
+def test_a_folder_check_is_not_filtered():
+    """The folder branch is untouched — every file under the prefix still counts."""
+    _setup([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 20)])
+
+    out = v.handler(_event(), None)
+
+    assert out["fileCount"] == 2
+
+
 def test_a_folder_of_files_proceeds():
     _setup([("alice/sales/a.csv", 10), ("alice/sales/b.csv", 20)])
     out = v.handler(_event(), None)

@@ -384,6 +384,24 @@ def top_issues(exact: dict, approximate: dict, file_count: int) -> list[str]:
     """
     issues: list[str] = []
 
+    # FIRST, above even the structural findings: zero rows over files that exist means
+    # every other figure in this report is zero, and reporting "no duplicates, no ragged
+    # rows, no missing values" about nothing would be a green result over unexamined data
+    # (SPEC-151 FR-002).
+    #
+    # A FINDING, NOT A RAISE. FR-002's wording says "raises or refuses", but a header-only
+    # CSV — which report._row_counts_by_file's own docstring calls "a failed export, one of
+    # the commoner real defects" — profiles to exactly this and is a genuine result the user
+    # needs delivered. Failing the check would hand them "something went wrong" and no
+    # report, making a real data defect indistinguishable from an infrastructure fault. The
+    # false-clean this FR exists to remove is fixed either way, because the verdict is no
+    # longer `clean`.
+    if file_count and not exact["rowCount"]:
+        issues.append(
+            f"no rows were found in the {file_count} {_plural(file_count, 'file')} checked — "
+            "the data may be empty or header-only"
+        )
+
     for disagreement in exact["crossFile"]["disagreements"]:
         name = _basename(disagreement["file"])
         others = file_count - 1

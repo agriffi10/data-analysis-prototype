@@ -89,7 +89,12 @@ def _expected_by_path(bucket: str, files: list[dict]) -> dict[str, int]:
 
 
 def _ragged_block(
-    event: dict, files: list[dict], database: str, raw_table: str, results: str
+    event: dict,
+    files: list[dict],
+    database: str,
+    raw_table: str,
+    results: str,
+    path_filter: str | None,
 ) -> dict:
     """Start the ragged query, or return the degraded block when it cannot be rendered.
 
@@ -102,7 +107,7 @@ def _ragged_block(
     bucket = event["space"]["bucket"]
     expected = _expected_by_path(bucket, files)
     try:
-        query = sql.build_ragged_query(database, raw_table, expected)
+        query = sql.build_ragged_query(database, raw_table, expected, path_filter)
     except sql.RaggedQueryTooLargeError as err:
         observability.warning(
             "ragged query too large to render",
@@ -143,6 +148,13 @@ def _start_queries(event: dict) -> dict:
 
     manifest = manifest_store.load(bucket, manifest_key)
     files = manifest.get("files") or []
+    # None for a folder target, so every query below renders exactly as it did before
+    # SPEC-151. For a single-file target it is what makes the report describe the file the
+    # user picked rather than its parent folder — the table's LOCATION is the folder,
+    # because Athena needs a prefix, and a LOCATION is read recursively.
+    path_filter = sql.single_file_path(
+        bucket, files, events.require(event, "location", reason=messages.INVALID_REQUEST)
+    )
     # The UNION is right for the external table's schema and for the profile query — a
     # column present in only some files still has to be readable. It is NOT right for the
     # ragged comparison, which is per file (SPEC-142).
@@ -159,7 +171,7 @@ def _start_queries(event: dict) -> dict:
     out["profile"] = {
         "queryExecutionId": _start(
             "profile",
-            sql.build_profile_query(database, table, columns, fmt),
+            sql.build_profile_query(database, table, columns, fmt, path_filter),
             event,
             database,
             results,
@@ -171,7 +183,7 @@ def _start_queries(event: dict) -> dict:
 
     raw_table = event.get("tempRawTable")
     if raw_table:
-        out["ragged"] = _ragged_block(event, files, database, raw_table, results)
+        out["ragged"] = _ragged_block(event, files, database, raw_table, results, path_filter)
     else:
         # JSON/Parquet have no raw-line table: rows are not line-delimited fields, so the
         # concept does not apply. null (not a not_computed block) says "never applicable"
@@ -181,7 +193,7 @@ def _start_queries(event: dict) -> dict:
     out["duplicates"] = {
         "queryExecutionId": _start(
             "duplicates",
-            sql.build_duplicates_query(database, table, columns, partition_keys),
+            sql.build_duplicates_query(database, table, columns, partition_keys, path_filter),
             event,
             database,
             results,
