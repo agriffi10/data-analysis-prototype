@@ -133,8 +133,12 @@ def test_a_flat_portal_table_loads_and_normalises_the_state():
         "inputFormat": "org.apache.hadoop.mapred.TextInputFormat",
         "outputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
     }
-    # transient_lastDdlTime / EXTERNAL are stripped by clone_definition, not here.
-    assert out["tableProperties"] == {"skip.header.line.count": "1"}
+    # `tableProperties` is NOT threaded (SPEC-149). It existed only for SPEC-144's rebuild,
+    # which carried the captured properties into a regenerated CREATE; the in-place update
+    # reads them from the LIVE table, so threading them would be payload weight against the
+    # definition cap that nothing downstream reads. The CAPTURE is unchanged — clone_definition
+    # still strips transient_lastDdlTime / EXTERNAL and still feeds the projection check.
+    assert "tableProperties" not in out
     # The request threads through for the states that follow.
     assert out["mode"] == "refresh"
     assert out["requestId"] == "r1"

@@ -291,7 +291,11 @@ def _load(event: dict) -> dict:
         "inputFormat": definition["inputFormat"],
         "outputFormat": definition["outputFormat"],
     }
-    out["tableProperties"] = definition["tableProperties"]
+    # `tableProperties` is NOT threaded (SPEC-149). It existed for SPEC-144's rebuild, which
+    # carried the captured properties into a regenerated CREATE; the in-place update reads
+    # them from the LIVE table instead, so threading them would be payload weight against the
+    # definition cap that nothing downstream reads. The capture itself is unchanged — the
+    # projection reconstruction above still uses it.
 
     logger.info("loaded %s.%s: %d columns, partitioned=%s", database, table_name, len(columns), partitioned)
     # Column NAMES are schema and are permitted; column VALUES, sampled rows and file

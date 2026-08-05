@@ -294,10 +294,55 @@ file header and nothing validates them), so `Order ID` puts a raw space in a URL
 query parameter. SPEC-145 must not re-validate them as identifiers: `CATALOG_IDENTIFIER_RE` rejects
 `id`, `ts` and `Amount`, which would discard the whole link for most real tables.
 
-**The apply is a DROP + CREATE, and what that costs is recorded in SPEC-144 FR-004** — table
-identity, `Description`/`Owner` and any table-level Lake Formation grant are destroyed with the
-catalog entry (column comments are carried). `ALTER TABLE ADD COLUMNS` cannot retype or remove, so it
-would cover only the easiest third; **`glue:UpdateTable`, which replaces the definition in place, is
-the alternative and has its own spec** — it matters most if the portal ever moves to Iceberg, where a
-drop-and-recreate destroys the snapshot history that is most of the reason to adopt it. Full account:
+> **Superseded in part by SPEC-149 (2026-08-04): the apply is no longer a DROP + CREATE.** It is a
+> single in-place `glue:UpdateTable`, so the metadata loss described below no longer happens and the
+> reason codes named in it are gone. Everything above this line — the opt-in, the refusal-as-warning,
+> the three load-bearing mechanism points — is unchanged. See *The refresh apply replaces the
+> definition in place* below.
+
+**The apply WAS a DROP + CREATE, and what that cost is recorded in SPEC-144 FR-004** — table
+identity, `Description`/`Owner` and any table-level Lake Formation grant were destroyed with the
+catalog entry (column comments were carried). `ALTER TABLE ADD COLUMNS` cannot retype or remove, so it
+would have covered only the easiest third. Full account:
 `docs/spec-delivery/SPEC-144-refresh-table-schema-diff-and-apply.md`.
+
+### The refresh apply replaces the definition in place (SPEC-149, supersedes SPEC-144's apply)
+
+`apply-refresh` issues **one `glue:UpdateTable`**, not two Athena statements. There is no moment at
+which the user's table does not exist, no new catalog entry, and therefore no loss of table identity,
+`Description`, `Owner` or table-level Lake Formation grants. A **failed update changes nothing**,
+which is what retires SPEC-144's "a committed drop followed by exhausted retries notifies nobody"
+exposure: there is no committed destructive step left to be silent about. It also stops the portal
+entrenching a pattern it would have to unpick for Iceberg, where drop-and-recreate destroys the
+snapshot history that is most of the reason to adopt it.
+
+**The one thing to understand before touching this verb: it is a READ-MODIFY-WRITE on the live table,
+never a rebuild from SPEC-143's capture.** `UpdateTable` replaces the WHOLE definition — a
+`TableInput` omitting a field does not leave that field alone, it **clears it** — and
+`clone_definition` never carried `Description` or `Owner` and deliberately strips `EXTERNAL`. Building
+the input from the capture would delete exactly what the change exists to preserve. The verb reads the
+live table immediately before writing it and mutates only the **columns** and the **`projection.*`
+parameters**.
+
+**Three mechanism points are load-bearing.** (1) The `TableInput` is an **allowlist projection** of
+the live `Table`, pinned against botocore's service model by a test — `Table` returns 25 members and
+`TableInput` accepts 14, so a denylist of the extras goes stale whenever AWS adds a field, and four of
+today's eleven already postdate the obvious set. (2) **Column names are lowercased on write**, because
+AWS documents that Athena folds names created through DDL — the create path gets the fold for free and
+this path, bypassing Athena, must reproduce it or leave a mixed-case entry the create path could never
+produce. (3) **`portal.managed` is re-asserted through `ddl.mark_managed`, never named in the verb**,
+so SPEC-143's guard against a verb branching on a user-writable marker stays strict.
+
+**IAM moved the right way: `glue:DeleteTable` was REMOVED, `glue:UpdateTable` added.** No verb on this
+plane deletes a table any more, and a test greps the table-builder modules to keep it so. The explicit
+`Deny s3:DeleteObject` is untouched — it never depended on the drop, and it outlives the mechanism
+that prompted it. Lake Formation needed no change: the `portal-managed` table tag policy already
+grants `ALTER`.
+
+**What is NOT fixed, and must not be claimed:** the concurrent-refresh race is **reduced, not
+closed**. The Pipe still starts executions `FIRE_AND_FORGET`, and **Glue offers no compare-and-set on
+`UpdateTable`** — `VersionId` is documented only as "the version ID at which to update the table
+contents", with no precondition-failure error. The worst case degrades from "one run sees no table" to
+last-write-wins between two definitions. A real fix is a serialization change to the Pipe.
+
+Full account: `docs/spec-delivery/SPEC-149-refresh-table-in-place-rebuild.md`.

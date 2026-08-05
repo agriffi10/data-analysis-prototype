@@ -216,7 +216,10 @@ are **user-declared** in the modal.
   automatically. A value outside a declared range is silently excluded (modal copy warns).
 - **DDL via Athena** `StartQueryExecution` (`CREATE EXTERNAL TABLE IF NOT EXISTS`), polled to
   terminal — the same LF-enforced create path users already exercise, not the Glue `CreateTable`
-  API.
+  API. **The CREATE path only.** The refresh apply issues **one `glue:UpdateTable`** as a
+  read-modify-write on the live table (SPEC-149) — no statements, no window in which the table is
+  absent, and no verb on this plane holds `glue:DeleteTable`. `decisions.md` → *The refresh apply
+  replaces the definition in place*.
 - **Authorization:** personal = target DB equals the actor's username; shared = actor is an active
   member (any member may create, not owner-only). The table location must resolve inside the target
   space; the name is catalog-safe (`CATALOG_IDENTIFIER_RE`).

@@ -7,22 +7,27 @@
 #
 # The execution policy (execution.json.tftpl) is the UNION of every verb's needs:
 #   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
-#   - Glue Describe + CREATE + DELETE on the account catalog (check-table-absent +
-#     execute-ddl; GetTable for load-table-definition, which only READS; and DeleteTable
-#     for apply-refresh, SPEC-144's DROP + CREATE rebuild — scoped to the SAME catalog +
+#   - Glue Describe + CREATE + UPDATE on the account catalog (check-table-absent +
+#     execute-ddl; GetTable for load-table-definition, which only READS; and UpdateTable
+#     for apply-refresh, SPEC-149's in-place rebuild — scoped to the SAME catalog +
 #     database/* + table/*/* as the other Glue actions, not wider)
 #
-# WHY A DROP IS SAFE ALONGSIDE THE EXPLICIT `Deny s3:DeleteObject` (Sid NoDataObjectDelete,
-# untouched): every table this plane creates is EXTERNAL, so dropping it removes a CATALOG
-# ENTRY and no data object. That Deny is what makes the claim enforceable rather than
-# merely intended — apply-refresh could not delete a user's files even if its DDL tried.
-# THE DAY A TABLE-BUILDER TABLE STOPS BEING EXTERNAL, THAT APPLY BECOMES DESTRUCTIVE and
-# this grant must be revisited (SPEC-144 FR-005).
+# `glue:DeleteTable` WAS HERE AND IS DELETED (SPEC-149, replacing SPEC-144). The refresh no
+# longer drops and recreates the table; it replaces the definition in place, so NO verb on
+# this plane deletes a table any more. The old comment argued a drop was SAFE because these
+# tables are EXTERNAL — true, and now beside the point: the stronger statement is that the
+# refresh path does not delete anything at all, and a permission the code cannot use is one
+# a future bug can still reach. A test greps the table-builder modules to keep it that way.
 #
-# Lake Formation needs NO change for the drop, and the absence is recorded so the next
+# The explicit `Deny s3:DeleteObject` (Sid NoDataObjectDelete) is UNTOUCHED. It never
+# depended on the drop: it is what makes "this plane cannot destroy a user's data"
+# enforceable rather than merely intended, and it outlives the mechanism that prompted it.
+#
+# Lake Formation needs NO change for the update, and the absence is recorded so the next
 # reader does not go looking for a missing grant: the `portal-managed` tag-policy grants
-# already give every control-plane execution role DROP at both DATABASE and TABLE level
-# (infra/modules/analytics/lakeformation.tf).
+# already give every control-plane execution role ALTER — the LF permission UpdateTable
+# requires — at TABLE level, alongside DROP at both levels
+# (infra/modules/analytics/lakeformation.tf, `control_plane_tag_table`).
 #   - Athena run + LF data-access + Athena-results write (execute-ddl), delete denied
 #   - logs to every table-builder function log group (wildcard)
 # The role is ALSO the table-builder Lake Formation admin (analytics data_lake_settings,

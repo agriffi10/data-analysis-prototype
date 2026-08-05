@@ -250,7 +250,7 @@
     },
     "ApplyRefresh": {
       "Type": "Task",
-      "Comment": "SPEC-144. DROP TABLE IF EXISTS then CREATE EXTERNAL TABLE, both through Athena, in that order with nothing between them. The table is EXTERNAL, so the drop removes a catalog entry and no data object — the property the whole design rests on, and why the execution role keeps its explicit Deny on s3:DeleteObject. The window in which the table does not exist is NOT closed by the FIFO MessageGroupId: the Pipe starts executions FIRE_AND_FORGET, so the group id serializes delivery, not execution, and two requests on one database can overlap. Both statements carry an idempotency token so a Retry re-attaches rather than re-dropping.",
+      "Comment": "SPEC-149 (replacing SPEC-144's DDL). ONE glue:UpdateTable, as a read-modify-write on the live table: GetTable, replace the columns and the projection.* parameters, write it back, then re-read to confirm the definition landed. No Athena, no statements, and NOTHING IS EVER DELETED — so there is no window in which the user's table does not exist, and a failed update leaves the old definition standing. That is what makes this Retry safe in a way SPEC-144's destructive pair never was: a re-invocation simply re-reads and writes again. The concurrent-refresh overlap is REDUCED, NOT CLOSED — the Pipe still starts executions FIRE_AND_FORGET, so two refreshes on one database still race, and Glue offers no compare-and-set on UpdateTable; the worst case degrades from 'one run sees no table' to last-write-wins between two definitions.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${apply_refresh_function_arn}",

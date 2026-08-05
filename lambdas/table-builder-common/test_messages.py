@@ -5,6 +5,7 @@ Pure functions — no AWS. Runnable under pytest or directly: python3 test_messa
 
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -125,14 +126,27 @@ _CREATE_MESSAGES = {
     "projection_not_reconstructable": 'Couldn\'t create table "sales": that table\'s partition settings can\'t be read back - drop the table and build it again to change them.',
     "definition_too_large": 'Couldn\'t create table "sales": that table has too many columns to refresh.',
     "format_changed": 'Couldn\'t create table "sales": the folder\'s file format no longer matches the table\'s - build a new table instead.',
+    # Shipped by SPEC-144. They were exempt from the gate while that spec was the current one
+    # and stayed exempt afterwards — which left two live bodies pinned by nothing, the exact
+    # drift this table exists to stop. `columns_removed` renders its {removed} marker EMPTY
+    # with no tokens, and that is the behaviour being pinned: an unfilled marker must leave a
+    # sentence rather than a literal "{removed}" on the user's screen.
+    "columns_removed": 'Couldn\'t create table "sales": these columns are no longer in the data and would be removed: . Nothing was changed - refresh again and confirm the removal to apply it.',
+    "removals_flag_not_applicable": 'Couldn\'t create table "sales": the request was malformed. Please try again.',
 }
 
 
 def test_the_gate_covers_every_body_that_shipped_before_this_spec():
     """Guards the table above against silently shrinking: a body added without an
     expectation would otherwise be pinned by nothing, which is how the 12 SPEC-143 reasons
-    came to be uncovered in the first place."""
-    new_in_this_spec = {"columns_removed", "drop_failed", "recreate_failed", "removals_flag_not_applicable"}
+    came to be uncovered in the first place.
+
+    THE EXEMPTION MUST SHRINK TO ONE ENTRY EVERY TIME, and the reason is that this set is
+    where the drift hides: SPEC-144's three bodies were exempted while 144 was current and
+    two of them were still exempt a spec later, pinned by nothing at all. A body is new for
+    exactly one spec — when the next one lands, move it into the table above.
+    """
+    new_in_this_spec = {"update_failed"}
     uncovered = set(messages._BODIES) - set(_CREATE_MESSAGES) - new_in_this_spec
 
     assert not uncovered, f"bodies with no byte-for-byte expectation: {sorted(uncovered)}"
@@ -145,8 +159,15 @@ def test_every_pre_existing_failure_message_is_byte_for_byte_unchanged():
 
 def test_a_body_with_no_token_markers_is_unaffected_by_the_tokens_channel():
     """The additive claim, asserted rather than assumed: passing tokens to a body that
-    references none must render identically to passing none."""
+    references none must render identically to passing none.
+
+    The marker-carrying bodies are excluded BY DETECTION rather than by name, so a body that
+    gains a marker later leaves this loop automatically instead of failing it — and a body
+    that loses one rejoins. `columns_removed` is the only one today.
+    """
     for reason, expected in _CREATE_MESSAGES.items():
+        if re.search(r"\{[^{}]*\}", messages._BODIES[reason]):
+            continue
         with_tokens = messages.failure_message(
             reason, "sales", "alice", "create", {"removed": "a, b", "unused": "x"}
         )
@@ -196,17 +217,36 @@ def test_an_unfilled_token_marker_renders_empty_rather_than_literally():
     assert "{removed}" not in msg
 
 
-def test_recreate_failed_does_not_say_the_refresh_merely_failed():
-    """FR-006. The table IS GONE at this point. A user told 'refresh failed' will assume
-    nothing happened, and something did — so the wording says so and points at the remedy."""
-    msg = messages.failure_message("recreate_failed", "sales", "alice", "refresh")
-
-    assert "removed" in msg and "files are untouched" in msg
-    assert "alice" in msg
+def test_update_failed_says_nothing_was_changed():
+    """SPEC-149. The apply is one in-place update, so a failure leaves the table exactly as
+    it was — and the wording can say so plainly, which SPEC-144's could not."""
+    assert "Nothing was changed" in messages.failure_message("update_failed", "sales", "alice", "refresh")
 
 
-def test_drop_failed_says_nothing_was_changed():
-    assert "Nothing was changed" in messages.failure_message("drop_failed", "sales", "alice", "refresh")
+def test_the_removed_rebuild_reasons_are_gone_from_the_code_not_merely_unused():
+    """SPEC-149 FR-007. A reason nobody raises but everybody can still find is worse than one
+    that was deleted: the next reader treats it as a state the system can reach.
+
+    Scoped to `lambdas/` and `infra/` — the SPEC-144 spec and delivery docs are the historical
+    record of a mechanism that really did ship, and must keep saying so.
+
+    The needles are ASSEMBLED rather than written out, so this file does not become the one
+    hit its own grep reports.
+    """
+    import pathlib
+
+    needles = [stem + "_failed" for stem in ("drop", "recreate")]
+    root = pathlib.Path(__file__).resolve().parent.parent.parent
+    offenders = []
+    for tree in ("lambdas", "infra"):
+        for path in (root / tree).rglob("*"):
+            if path.suffix not in (".py", ".tf", ".tftpl", ".json") or "__pycache__" in path.parts:
+                continue
+            text = path.read_text(errors="ignore")
+            if any(needle in text for needle in needles):
+                offenders.append(str(path.relative_to(root)))
+
+    assert not offenders, f"SPEC-144's removed reason codes still present in: {offenders}"
 
 
 def test_success_message_still_defaults_to_the_created_wording():
@@ -287,7 +327,7 @@ def test_every_new_reason_is_a_registered_terminal_reason():
     lands as a ValueError inside the constructor, not as the reason it names."""
     from cpcommon import messages as cpmessages
 
-    for reason in ("columns_removed", "drop_failed", "recreate_failed", "removals_flag_not_applicable"):
+    for reason in ("columns_removed", "update_failed", "removals_flag_not_applicable"):
         assert cpmessages.is_known_reason(reason), reason
 
 

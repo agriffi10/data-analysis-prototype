@@ -1,7 +1,7 @@
 # Spec: Refresh Table — In-Place Rebuild via `glue:UpdateTable`
 
 **ID:** SPEC-149
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-04
 **Depends On:** SPEC-143 (the refresh branch, `load-table-definition`, the reconstructed partition keys), SPEC-144 (`diff-schema`, `apply-refresh`, the removal opt-in and the message layer this spec edits), SPEC-070 (`execute-ddl`, whose Athena DDL path this spec deliberately does **not** follow), SPEC-107 (`cpcommon`)
 

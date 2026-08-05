@@ -69,16 +69,11 @@ arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live 
 down elsewhere — when a spec closes, prune it rather than appending.**
 
 **No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142,
-**143 and 144** — the refresh pipeline runs end to end in the deployed state machine: it classifies
-the change, refuses an un-opted-into removal, and rebuilds the table. **Reachable only by a
-hand-crafted SQS message — no browser surface until 145.**
+**143, 144 and 149** — the refresh pipeline runs end to end: it classifies the change, refuses an
+un-opted-into removal, and replaces the definition **in place** via `glue:UpdateTable`. **Reachable
+only by a hand-crafted SQS message — no browser surface until 145.**
 
-**Next to build: SPEC-149 (in-place rebuild via `glue:UpdateTable`), written and sequenced BEFORE
-SPEC-145.** `apply-refresh` stops issuing DROP + CREATE and updates the definition in place: no
-window in which the table does not exist, no catalog-metadata loss, and both of SPEC-144's recorded
-exposures retired or reduced. It also **removes** `glue:DeleteTable` rather than adding a permission.
-**Sequencing matters** — once 145 makes refresh reachable, whichever rebuild mechanism users have
-exercised is the one their tables carry the history of.
+**Next to build: SPEC-145** (menu item, dialog, notifications) — the browser surface.
 
 What remains below is the live checks that are owed.
 
@@ -145,29 +140,33 @@ What remains below is the live checks that are owed.
   `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
   starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
   the test deleted. Full reasoning: `decisions.md`.
-- **The refresh arc (143+144) owes THREE live checks, and they replace 143's `not_implemented` run.**
+- **The refresh arc (143+144+149) owes TWO live checks, and they replace 143's `not_implemented` run.**
   (1) **FR-010's sequence:** build a table from a CSV folder, add a file with a new column, refresh
   and confirm it appears; remove a column, refresh and confirm the block, its **named columns** and
   the notification link; then refresh with the opt-in and confirm the column is gone. Run it against
   a **partitioned** table too — FR-005's reconstruction is unit-tested against fixtures built from
   the same renderer it re-renders through, so only a table the pipeline did not write tests the
-  assumption rather than the arithmetic. (2) **The casing premise:** build from a header carrying
-  `Amount`, then `GetTable` and read back what Glue stored — SPEC-144 FR-001 was *reversed* during
-  build on the belief that Athena's Hive DDL folds column names, and no unit test can settle it
-  because we author both fixtures. (3) **FR-005 AC4:** `aws iam simulate-custom-policy` confirming
-  the execution role can `glue:DeleteTable` and **cannot** delete any S3 object — the Deny is what
-  makes "a DROP touches no data" enforceable rather than merely intended. SPEC-137 is the precedent
-  for why these matter: instrumented code shipped whose layer attachment was missing, and every gate
-  was blind to it.
-- **SPEC-144 recorded TWO exposures rather than fixing them (user decision) — revisit before 145.**
-  (1) **The FIFO queue does not serialize executions.** The Pipe invokes `StartExecution` as
-  `FIRE_AND_FORGET`, so `MessageGroupId` serializes *delivery*, not *execution*: two refreshes on one
-  database overlap, and one reaching `GetTable` inside the other's drop window sees
-  `table_not_found`. FR-006 AC1 claimed otherwise and is amended. (2) **A committed drop followed by
-  exhausted retries notifies nobody** — `notifies_on_failure` stays quiet on `TransientError` by
-  design and `RecordFailure` is a `Pass` with no notification path. Pre-existing for every verb here;
-  the novelty is a destructive side effect. **SPEC-149 retires (2) outright and reduces (1)** — it is
-  the main argument for sequencing that spec before 145.
+  assumption rather than the arithmetic. (2) **149's preservation check:** refresh a table carrying a
+  `Description` and a column comment, then `GetTable` — both survive, the columns changed, and
+  `get-table-versions` shows a previous version. Fold the casing read-back into it. SPEC-137 is the
+  precedent for why these matter: instrumented code shipped whose layer attachment was missing, and
+  every gate was blind to it. **149's `simulate-custom-policy` is DISCHARGED** against the rendered
+  policy — `glue:UpdateTable` allowed, `glue:DeleteTable` **implicitDeny**, `s3:DeleteObject`
+  explicitDeny in all three buckets; repeat it against the **deployed** role after the next infra
+  apply. **The casing premise is CORROBORATED, NOT DISCHARGED** — AWS documents that Athena
+  lowercases every column name it creates through DDL, which is strong and is why 149 hard-codes the
+  fold, but documentation is the same class of evidence that had SPEC-144 FR-001 reversed mid-build,
+  and 149 raised the stakes: the fold is now OURS. If the premise is wrong, the first refresh of an
+  existing table silently re-cases its columns while `diff-schema` calls them unchanged — a mutation
+  no test and no notification would report. Settle it with the `GetTable` read-back in check (2).
+- **One exposure survives 149 and is the thing to revisit before 145: the concurrent-refresh race.**
+  The Pipe invokes `StartExecution` as `FIRE_AND_FORGET`, so `MessageGroupId` serializes *delivery*,
+  not *execution*, and two refreshes on one database overlap. 149 **reduced** it — neither run can
+  see a missing table any more — but could not close it: **Glue offers no compare-and-set on
+  `UpdateTable`** (`VersionId` carries no precondition semantics), so the worst case is
+  last-write-wins between two definitions. A real fix is a serialization change to the Pipe and
+  belongs to its own spec. SPEC-144's second exposure (a committed drop then silence) is **retired**:
+  a failed update changes nothing.
 - **SPEC-142 fixed the ragged/union bug; its Phase 4 is owed live.** Ragged rows are now judged
   against each file's own header via a `CASE` on `"$path"`. Still to run from the UI: a check over a
   folder whose files deliberately disagree (expect the cross-file finding and **no** ragged count),
@@ -210,7 +209,8 @@ before working in that area; the line here is a reminder, not the spec.
 - **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
 - **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
 - **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + the full header set, `Server` stripped; CSP built from **variables** (root locals, never module outputs); `connect-src` **is** the app's network surface — enumerate it from the **hosts the app fetches**, not the AWS services it uses (the omitted Hosted UI domain broke fresh sign-in for a day; the code exchange is a `fetch`, not a navigation). **A report-only pass proves nothing about enforcement, and a signed-in pass never tests sign-in.** **Report-only first, always**; verify with a **same-origin page script + a negative control** (CDP eval bypasses page CSP). COEP and Monaco's `style-src 'unsafe-inline'` accepted; `preload` is on but inert — **never submit this `*.cloudfront.net` domain** to hstspreload.org. **Diff findings per check ID, never by total.**
-- **Removing a column needs an opt-in, and the refusal IS the warning (144):** a refresh that would drop a column changes **nothing** and fails `columns_removed`, naming them; the user re-submits with `allowRemovals` (validated not coerced, persisted **nowhere**). The notification **link** is the only channel that names them to the browser — its column names are **percent-encoded and must NOT be re-validated as identifiers**, because column names are *not* catalog-safe. The apply is a **DROP + CREATE**: comments are carried, table identity/`Description`/table-level LF grants are **not**; `glue:UpdateTable` is the in-place alternative and has its own spec. Column matching **folds case** — Athena's Hive DDL stores what it creates lowercase.
+- **Removing a column needs an opt-in, and the refusal IS the warning (144):** a refresh that would drop a column changes **nothing** and fails `columns_removed`, naming them; the user re-submits with `allowRemovals` (validated not coerced, persisted **nowhere**). The notification **link** is the only channel that names them to the browser — its column names are **percent-encoded and must NOT be re-validated as identifiers**, because column names are *not* catalog-safe. Column matching **folds case** — AWS documents that Athena lowercases every column name it creates through DDL.
+- **The refresh apply replaces the definition IN PLACE (149, supersedes 144's apply):** one `glue:UpdateTable`, a **read-modify-write on the live table** — `UpdateTable` replaces the WHOLE definition, so building the input from SPEC-143's capture would CLEAR `Description`/`Owner`. The `TableInput` is an **allowlist projection** pinned against botocore; column names are **lowercased on write** (this path bypasses Athena's fold); `portal.managed` goes through `ddl.mark_managed`, never named in a verb. **`glue:DeleteTable` was REMOVED** — no verb here deletes a table. No window, no metadata loss, and the "committed drop then silence" exposure is retired; the **concurrent-refresh race is reduced, NOT closed** — Glue offers no compare-and-set on `UpdateTable`.
 - **Refresh eligibility = shape, not marker (143):** a refresh is judged by what Glue reports (`cpcommon.glue.clone_definition`, moved from `tscommon`), **never** by the `portal.managed` TBLPROPERTY it also starts writing — pre-143 tables lack it and users can set it; a test forbids any verb reading it. Reconstructed partition keys must **round-trip through the create path's renderer AND match the live column type**; a reconstruction that can't be performed is a **refusal, not a guess**. A `Choice` on an **absent** path raises uncatchable `States.Runtime` — `Default` does not cover it, so guard with `IsPresent`. `portal.managed` (table property, dotted) ≠ `portal-managed` (LF tag on databases, hyphenated).
 - **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header). Accepted orphan class: **stale root files**.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.

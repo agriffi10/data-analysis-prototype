@@ -17,13 +17,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cpcommon.ddl import (
-    CSV_OPEN_SERDE,
     Storage,
     build_create_table_ddl,
     default_storage,
     quote,
     quote_dml,
-    storage_from_definition,
 )
 
 LOC = "s3://dat-prod-user-space/alice/sales/2026/"
@@ -232,6 +230,28 @@ def test_opting_out_is_what_leaves_a_table_unmarked_not_supplying_a_storage():
     assert "portal.managed" not in build_create_table_ddl(*args, mark=False)
 
 
+def test_mark_managed_asserts_the_marker_without_disturbing_anything_else():
+    """SPEC-149's door onto the marker for a caller that writes Glue ``Parameters`` rather
+    than DDL (``apply-refresh``). It lives here so the marker keeps exactly two homes — a
+    verb that can NAME it is a verb that can branch on it, which SPEC-143 FR-007 forbids.
+
+    A COPY, asserted: the caller's dict is usually the LIVE table's parameters, and mutating
+    it would edit the definition the verb is still reading from.
+    """
+    from cpcommon.ddl import mark_managed
+
+    live = {"EXTERNAL": "TRUE", "skip.header.line.count": "1"}
+    marked = mark_managed(live)
+
+    assert marked["portal.managed"] == "true"
+    assert marked["EXTERNAL"] == "TRUE"
+    assert marked["skip.header.line.count"] == "1"
+    assert "portal.managed" not in live
+
+    # An existing (or user-tampered) value is overwritten, not merged around.
+    assert mark_managed({"portal.managed": "false"})["portal.managed"] == "true"
+
+
 def test_data_quality_opts_its_temp_tables_out():
     """Read from the caller, not restated here: a temp table dropped at the end of the same
     run must not carry a durable "the portal manages this" claim."""
@@ -285,121 +305,12 @@ _CAPTURED = {
 }
 
 
-def test_a_captured_definition_round_trips_to_the_create_paths_own_storage():
-    """FR-004 AC2 — asserted by round trip, not by inspection, because two traps make a
-    verbatim re-render silently wrong.
-
-    `CSV_OPEN_SERDE` writes `'escapeChar'='\\\\'` in DDL source; Hive unescapes it, so Glue
-    reads the property back as ONE backslash and re-rendering yields `'escapeChar'='\\'` —
-    a different statement for the same table. And Parquet's shipped clause is the short
-    `STORED AS PARQUET`, while the captured input/output formats render as the long
-    `STORED AS INPUTFORMAT … OUTPUTFORMAT …` form: equivalent to Athena, textually
-    different. Returning the create path's own Storage sidesteps both.
-    """
-    for fmt, captured in _CAPTURED.items():
-        assert storage_from_definition(captured) == default_storage(fmt), fmt
 
 
-def test_a_rebuild_reproduces_the_create_paths_statement_for_every_format():
-    """The property that matters downstream: one statement, not two that behave alike."""
-    columns = [{"name": "id", "type": "bigint"}]
-    for fmt, captured in _CAPTURED.items():
-        created = build_create_table_ddl("alice", "t", columns, [], fmt, LOC)
-        rebuilt = build_create_table_ddl(
-            "alice", "t", columns, [], fmt, LOC, storage=storage_from_definition(captured)
-        )
-
-        assert rebuilt == created, fmt
 
 
-def test_a_capture_whose_parameters_diverge_does_not_get_the_shortcut():
-    """WHAT MAKES THE ROUND TRIP ABOVE MEAN ANYTHING.
-
-    Matching on the SerDe library alone would rebuild a TAB-separated table with
-    `separatorChar=','` — silently redefining how every row of the user's data parses —
-    and would rebuild a Hive-JSON table with the OpenX SerDe this module documents as
-    potentially non-deterministic around nulls. Both are captures a real refresh can meet:
-    the hand-created tables FR-004 explicitly keeps in scope.
-    """
-    tsv = {**_CAPTURED["csv"], "parameters": {**_CAPTURED["csv"]["parameters"], "separatorChar": "\t"}}
-    hive_json = {**_CAPTURED["json"], "serializationLibrary": "org.apache.hive.hcatalog.data.JsonSerDe"}
-
-    assert storage_from_definition(tsv) != default_storage("csv")
-    assert "'separatorChar'='\t'" in storage_from_definition(tsv).clause
-    assert storage_from_definition(hive_json) != default_storage("json")
-    assert "hcatalog" in storage_from_definition(hive_json).clause
-    assert "openx" not in storage_from_definition(hive_json).clause.lower()
 
 
-def test_the_captured_csv_fixture_really_is_what_the_create_path_writes():
-    """Guards the fixture itself, which the round trip otherwise takes on trust.
-
-    The escapeChar is the trap: DDL source writes `'escapeChar'='\\\\'`, Hive unescapes
-    it, and Glue hands back ONE backslash — so a fixture carrying two would quietly stop
-    modelling reality and the round trip would keep passing.
-    """
-    assert _CAPTURED["csv"]["parameters"]["escapeChar"] == "\\"
-    for key, value in _CAPTURED["csv"]["parameters"].items():
-        escaped = value.replace("\\", "\\\\")
-        assert f"'{key}'='{value}'" in CSV_OPEN_SERDE or f"'{key}'='{escaped}'" in CSV_OPEN_SERDE, key
-
-
-def test_an_unrecognised_serde_falls_back_to_the_long_rendered_form():
-    """A hand-created table can be shape-compatible without using a SerDe this repo
-    writes. Rendering it is the only way to reproduce it at all."""
-    storage = storage_from_definition(
-        {
-            "serializationLibrary": "com.example.CustomSerDe",
-            "parameters": {"b": "2", "a": "1"},
-            "inputFormat": "com.example.In",
-            "outputFormat": "com.example.Out",
-        }
-    )
-
-    assert storage.clause == (
-        "ROW FORMAT SERDE 'com.example.CustomSerDe' WITH SERDEPROPERTIES ('a'='1', 'b'='2') "
-        "STORED AS INPUTFORMAT 'com.example.In' OUTPUTFORMAT 'com.example.Out'"
-    )
-    assert storage.tblproperties == ()
-
-
-def test_if_not_exists_is_present_on_a_create_and_absent_on_a_rebuild():
-    columns = [{"name": "id", "type": "bigint"}]
-
-    assert "IF NOT EXISTS" in build_create_table_ddl("alice", "t", columns, [], "parquet", LOC)
-    assert "IF NOT EXISTS" not in build_create_table_ddl(
-        "alice", "t", columns, [], "parquet", LOC, if_not_exists=False
-    )
-
-
-def test_carried_properties_are_merged_and_never_duplicated():
-    """A capture always carries the format's own required property back — CSV's
-    skip.header.line.count is both captured AND regenerated — so the merge must collapse
-    them rather than emit the key twice inside one TBLPROPERTIES."""
-    ddl = build_create_table_ddl(
-        "alice", "t", [{"name": "id", "type": "string"}], [], "csv", LOC,
-        table_properties={"skip.header.line.count": "1", "comment": "kept"},
-    )
-
-    assert ddl.count("'skip.header.line.count'=") == 1
-    assert "'comment'='kept'" in ddl
-
-
-def test_a_carried_property_wins_over_the_formats_default():
-    """A REBUILD reproduces the table it is replacing, so the capture wins.
-
-    The format default is a guess about a table that does not exist yet; the capture is a
-    fact about one that does. A headerless CSV table whose owner set
-    skip.header.line.count=0 would otherwise be silently rebuilt with 1 — dropping the
-    first row of every file from every query, permanently and invisibly.
-    """
-    ddl = build_create_table_ddl(
-        "alice", "t", [{"name": "id", "type": "string"}], [], "csv", LOC,
-        table_properties={"skip.header.line.count": "0"},
-    )
-
-    assert "'skip.header.line.count'='0'" in ddl
-    assert "'skip.header.line.count'='1'" not in ddl
 
 
 def test_default_storage_rejects_an_unknown_format():

@@ -62,13 +62,13 @@ _BODIES = {
         "was changed - refresh again and confirm the removal to apply it."
     ),
     "removals_flag_not_applicable": "the request was malformed. Please try again.",
-    "drop_failed": "the table couldn't be replaced. Nothing was changed. Please try again or contact the Administrator.",
-    # DELIBERATELY NOT "refresh failed". The table IS GONE at this point, and a user told a
-    # refresh failed will reasonably assume nothing happened. FR-006.
-    "recreate_failed": (
-        'the old table was removed and the new one couldn\'t be created in "{database}". '
-        "Your files are untouched - build the table again from the Files browser."
-    ),
+    # SPEC-149. The ONE failure wording the refresh apply needs, because the apply is now a
+    # single in-place glue:UpdateTable: it either replaced the definition or it did not, and
+    # a failure leaves the table exactly as it was. SPEC-144's TWO rebuild reasons are GONE —
+    # the second of them described a state of the world (the old table removed, the new one
+    # not created) that this path cannot reach, and keeping it would be the message layer's
+    # version of dead code.
+    "update_failed": "the table couldn't be updated. Nothing was changed. Please try again or contact the Administrator.",
     # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
     # notify.notifies_on_failure so an unexpected failure still reaches the actor.
     "unexpected_error": "something went wrong. Please try again.",
