@@ -26,7 +26,7 @@ authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc
 - Data-quality arc (SPEC-108 → 114, + 123 → 124 — shipped)
 - Observability arc (SPEC-127 → 137, fleet-complete)
 - Refresh-table arc (SPEC-143 → 144 → **149** → 145 — active; 143 and 144 COMPLETE)
-- Username-directory arc (SPEC-146 → 147 → 148 — active)
+- Username-directory arc (SPEC-146 → 147 → 148 — shipped)
 
 ---
 
@@ -721,7 +721,7 @@ arc reads the `cognito:username` claim outside `cpcommon.auth`, so it survives u
 
 ---
 
-## Username-directory arc (SPEC-146 → 147 → 148 — active)
+## Username-directory arc (SPEC-146 → 147 → 148 — shipped)
 
 Filed 2026-08-03 (user request). **Every flow that asks a user to name another user asks by free text.** `AddMembersDialog`
 is a textarea, `TableShareDialog` is an input with chips; both run `parseMemberInput`, which silently drops anything failing

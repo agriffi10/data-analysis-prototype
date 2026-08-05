@@ -101,6 +101,18 @@ export function UsernameChipsField({
         describedBy={describedBy}
       />
 
+      {/* Closes a dead-end the chips model creates. A consumer's submit button is gated on
+          COMMITTED values (SPEC-148 FR-001 requires it), so a user who types a name and reaches
+          straight for that button finds it disabled with nothing explaining why — the text they
+          just typed is not a chip yet. One line, only while there is uncommitted text. */}
+      {renderChips && entry.trim() !== '' && (
+        <p
+          aria-live="polite"
+          className="mt-1.5 text-xs text-text-3">
+          Press Enter to add <span className="font-mono">{entry.trim().split(/[\s,]+/)[0]}</span>.
+        </p>
+      )}
+
       {renderChips && value.length > 0 && (
         <ul
           aria-label={listLabel}

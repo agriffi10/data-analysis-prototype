@@ -1,4 +1,14 @@
-import {useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import {Input} from './Input';
 import {cx} from '../lib/cx';
 import {useUserDirectory} from '../features/user-directory';
@@ -32,6 +42,20 @@ export type UsernameComboboxProps = {
   describedBy?: string;
 };
 
+/**
+ * What a caller can drive from outside.
+ *
+ * `commit` exists for `TableShareDialog`, which keeps its **Add** button beside the field.
+ * The button must go through the SAME path as Enter — otherwise the two would drift, and
+ * SPEC-148 FR-003 requires invalid tokens to be surfaced however the commit was triggered.
+ * One commit path, two ways to reach it.
+ */
+export type UsernameComboboxHandle = {
+  /** Commit the highlighted option, or the typed text split into tokens. */
+  commit: () => void;
+  focus: () => void;
+};
+
 /** Results shown at once. Eight fits a phone dropdown without scrolling. */
 const MAX_SUGGESTIONS = 8;
 
@@ -61,20 +85,23 @@ const ESTIMATED_LIST_HEIGHT = 260;
  * <UsernameCombobox label="Usernames" value={entry} onChange={setEntry}
  *   onCommit={(name) => add([name])} onCommitMany={add} />
  */
-export function UsernameCombobox({
-  label,
-  value,
-  onChange,
-  onCommit,
-  onCommitMany,
-  exclude,
-  excludeReason,
-  suppress,
-  placeholder,
-  disabled = false,
-  id,
-  describedBy
-}: UsernameComboboxProps) {
+export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameComboboxProps>(function UsernameCombobox(
+  {
+    label,
+    value,
+    onChange,
+    onCommit,
+    onCommitMany,
+    exclude,
+    excludeReason,
+    suppress,
+    placeholder,
+    disabled = false,
+    id,
+    describedBy
+  },
+  ref
+) {
   const reactId = useId();
   const inputId = id ?? `${reactId}-input`;
   const listboxId = `${reactId}-listbox`;
@@ -234,6 +261,8 @@ export function UsernameCombobox({
     }
     commitTyped(value);
   }, [active, commitNames, commitTyped, onChange, suggestions, value]);
+
+  useImperativeHandle(ref, () => ({commit, focus: () => inputRef.current?.focus()}), [commit]);
 
   /**
    * A pasted LIST commits immediately; a pasted single name is an ordinary paste.
@@ -400,4 +429,4 @@ export function UsernameCombobox({
       </span>
     </div>
   );
-}
+});
