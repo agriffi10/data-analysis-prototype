@@ -16,7 +16,7 @@ export function useCreateSharedConnection(username: string | null) {
   const create = useCallback(
     async (name: string): Promise<ServiceResult<{requestId: string}>> => {
       if (!username) {
-        return {success: false, error: {message: 'Not signed in'}};
+        return {success: false, error: {message: 'Not signed in', code: 'NotAuthenticated'}};
       }
       setBusy(true);
       const result = await enqueueSharedSpaceRequest({

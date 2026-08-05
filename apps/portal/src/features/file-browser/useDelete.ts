@@ -32,8 +32,19 @@ export type UseDeleteResult = {
  * aggregate across all operations — a failure on one folder never aborts the
  * rest. On completion the current prefix listing is invalidated so removed
  * items disappear; the caller clears the selection. Never throws.
+ *
+ * @param prefix - the folder currently being viewed (what gets invalidated).
+ * @param rootPrefix - the SPACE root, which `deleteFolder` needs to recognise a
+ *   protected root folder. REQUIRED, not defaulted to `prefix`: a caller that fell
+ *   back to the browsed folder while sitting in `alice/reports/` would make
+ *   `alice/reports/athenaresults/` falsely undeletable.
  */
-export function useDelete(bucket: string, prefix: string, username?: string): UseDeleteResult {
+export function useDelete(
+  bucket: string,
+  prefix: string,
+  username: string | undefined,
+  rootPrefix: string
+): UseDeleteResult {
   const queryClient = useQueryClient();
   const [isDeleting, setIsDeleting] = useState(false);
   const [summary, setSummary] = useState<DeleteSummary | null>(null);
@@ -77,7 +88,8 @@ export function useDelete(bucket: string, prefix: string, username?: string): Us
       const result = await deleteFolder({
         bucket,
         prefix: folder.prefix,
-        username
+        username,
+        rootPrefix
       });
       if (!result.success) {
         errors.push({key: folder.prefix, message: result.error.message, code: result.error.code});

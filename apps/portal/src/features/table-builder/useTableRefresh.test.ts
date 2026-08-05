@@ -196,6 +196,61 @@ describe('useTableRefresh', () => {
     });
   });
 
+  // SPEC-150 FR-003. Both calls are made inside ONE act block with no await between
+  // them — a real double-click, where both land before React re-renders. Awaiting the
+  // first would let `busy` commit and would pass against the old state guard, which is
+  // exactly the bug. It matters more here than anywhere else: `deduplicationId` is a
+  // fresh UUID per call so SQS FIFO cannot collapse the pair, and `messageGroupId`
+  // serializes delivery but not execution — so a double-click starts two overlapping
+  // `UpdateTable` runs on one table, the race SPEC-149 could not close.
+  describe('re-entrancy', () => {
+    it('two submits in a single render enqueue exactly once', async () => {
+      const {result} = render();
+      act(() => result.current.open('alice', TABLE));
+
+      await act(async () => {
+        const first = result.current.submit(false);
+        const second = result.current.submit(false);
+        await Promise.all([first, second]);
+      });
+
+      expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('the dropped second call resolves quietly and leaves the hook usable', async () => {
+      const {result} = render();
+      act(() => result.current.open('alice', TABLE));
+
+      await act(async () => {
+        await Promise.all([
+          expect(result.current.submit(false)).resolves.toBeUndefined(),
+          expect(result.current.submit(false)).resolves.toBeUndefined()
+        ]);
+      });
+      expect(result.current.error).toBeNull();
+
+      // The guard cleared, so a later legitimate refresh still goes through.
+      act(() => result.current.open('alice', SHARED_TABLE));
+      await act(() => result.current.submit(true));
+
+      expect(mockEnqueue).toHaveBeenCalledTimes(2);
+      expect(mockEnqueue).toHaveBeenLastCalledWith(expect.objectContaining({tableName: 'events'}));
+    });
+
+    it('clears the guard on the no-location early return, which never awaits', async () => {
+      // The one exit that returns before any await — without a finally it would wedge
+      // the dialog permanently.
+      const {result} = render();
+      act(() => result.current.open('alice', {name: 'no_loc', columns: []}));
+      await act(() => result.current.submit(false));
+      expect(mockEnqueue).not.toHaveBeenCalled();
+
+      act(() => result.current.open('alice', TABLE));
+      await act(() => result.current.submit(false));
+      expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('persists nothing — no localStorage write and no S3 call on any path', async () => {
     // FR-003: the opt-in is never remembered. `user_settings/` is reached through the
     // S3 client, so a feature that never obtains one cannot have written there.

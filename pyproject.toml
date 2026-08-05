@@ -5,7 +5,12 @@
 # per-file coverage table + total. Requires pytest-cov (see lambdas/requirements-dev.txt).
 
 [tool.pytest.ini_options]
-addopts = "--cov=lambdas --cov-report=term-missing --cov-report=html"
+# `--cov-fail-under` is a RATCHET AT THE MEASURED LEVEL, NOT A TARGET: 95 is
+# today's total (4219/4414 = 95.58%) floored to a whole percent. Before it,
+# coverage was measured and never gated, so deleting tests passed identically to
+# keeping them. Raise it when coverage rises; NEVER lower it to accommodate a
+# regression — kept a literal so lowering it is a visible one-line diff.
+addopts = "--cov=lambdas --cov-report=term-missing --cov-report=html --cov-fail-under=95"
 
 [tool.coverage.run]
 # Report every source file under lambdas/, including ones no test imports (0%),

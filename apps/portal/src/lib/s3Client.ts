@@ -1,8 +1,15 @@
 import {S3Client} from '@aws-sdk/client-s3';
-import {fetchAuthSession} from 'aws-amplify/auth';
+import {getSessionCredentials} from './awsCredentials';
 import type {ServiceResult} from '../types/service.types';
 
-const accessKeyId = import.meta.env.VITE_AWS_ACCESS_KEY_ID as string | undefined;
+// Gated at the READ, not in the consumer. Vite statically replaces
+// `import.meta.env.VITE_*` with a literal at build time, so a build with these
+// set would inline the secret into the bundle no matter which caller later
+// checks `DEV`. `import.meta.env.DEV` is replaced with `false` in a production
+// build, so the whole branch below dead-code-eliminates before the value can be
+// substituted. The consumer's own DEV check (fileBrowser.service.ts) stays —
+// it gates the dev-unauth FEATURE; this one gates the SECRET.
+const accessKeyId = import.meta.env.DEV ? (import.meta.env.VITE_AWS_ACCESS_KEY_ID as string | undefined) : undefined;
 
 // AWS SDK v3 defaults to adding a CRC32 integrity checksum on every request
 // (requestChecksumCalculation: 'WHEN_SUPPORTED'). In the browser that breaks
@@ -31,7 +38,7 @@ export const s3Client = new S3Client({
   region: import.meta.env.VITE_AWS_REGION,
   ...CHECKSUM_OPTS,
   requestHandler: REQUEST_HANDLER,
-  ...(accessKeyId
+  ...(import.meta.env.DEV && accessKeyId
     ? {
         credentials: {
           accessKeyId,
@@ -50,33 +57,23 @@ export const s3Client = new S3Client({
  * credential-expiry error, callers retry once with `getS3Client(true)` —
  * Amplify refreshes the underlying session. Never throws — returns a
  * ServiceResult.
+ *
+ * Credentials come from `getSessionCredentials`, like the Athena/Glue/SQS
+ * builders, rather than a duplicated `fetchAuthSession`. That duplication is
+ * what left the no-credentials failure without `code: 'NotAuthenticated'`, so a
+ * lapsed session showed the generic message on every S3-backed screen while the
+ * other three said "Sign in to continue."
  */
 export async function getS3Client(forceRefresh = false): Promise<ServiceResult<S3Client>> {
-  try {
-    const session = await fetchAuthSession({forceRefresh});
-    if (!session.credentials) {
-      return {
-        success: false,
-        error: {message: 'No AWS credentials — sign in required'}
-      };
-    }
-    return {
-      success: true,
-      data: new S3Client({
-        region: import.meta.env.VITE_AWS_REGION,
-        credentials: session.credentials,
-        ...CHECKSUM_OPTS,
-        requestHandler: REQUEST_HANDLER
-      })
-    };
-  } catch (err) {
-    const e = err as {message?: string; name?: string};
-    return {
-      success: false,
-      error: {
-        message: e.message ?? 'Failed to obtain AWS credentials',
-        code: e.name
-      }
-    };
-  }
+  const creds = await getSessionCredentials(forceRefresh);
+  if (!creds.success) return creds;
+  return {
+    success: true,
+    data: new S3Client({
+      region: import.meta.env.VITE_AWS_REGION,
+      credentials: creds.data,
+      ...CHECKSUM_OPTS,
+      requestHandler: REQUEST_HANDLER
+    })
+  };
 }

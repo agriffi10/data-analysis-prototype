@@ -14,6 +14,7 @@ import {getS3Client, s3Client} from '../../lib/s3Client';
 import {isExpiryError, withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import {isNotFound} from '../../lib/s3Errors';
+import {isUndeletableRootFolder} from './protectedFolders';
 import type {FileListPage} from '../../types/s3.types';
 import type {ServiceResult} from '../../types/service.types';
 import type {
@@ -110,7 +111,7 @@ async function listWithClient(
       }
     };
   } catch (err) {
-    const error = err as {message?: string; name?: string};
+    const error = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
     return {
       success: false,
       error: {
@@ -331,7 +332,7 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
         }
       }
     } catch (err) {
-      const e = err as {name?: string; message?: string};
+      const e = (typeof err === 'object' && err !== null ? err : {}) as {name?: string; message?: string};
       // Let credential expiry bubble up so the whole operation is retried once.
       if (isExpiryError(e.name)) return toServiceError(err, 'Failed to delete objects');
       // Other whole-batch failure: record each key and keep going.
@@ -349,13 +350,31 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
  * recursively, then batch-deletes via deleteObjects. The folder's own zero-byte
  * marker key is itself returned by the recursive listing, so an "empty" folder
  * still disappears. A per-key failure never aborts the rest.
+ *
+ * @param params.rootPrefix - the SPACE root, which is what makes the protected-folder
+ *   refusal below correct in a shared space as well as a personal one. Not derivable
+ *   from `username`: in a shared space the root is the space name.
  */
 export async function deleteFolder(params: {
   bucket: string;
   prefix: string;
   username: string;
+  rootPrefix: string;
 }): Promise<ServiceResult<DeleteResult>> {
-  const {bucket, prefix, username} = params;
+  const {bucket, prefix, username, rootPrefix} = params;
+
+  // Refused before any S3 request, like the prefix-marker guard above. The
+  // authoritative protection is the role policy's `ResultsNoDelete` deny; this is
+  // what stops the app offering an action its own IAM forbids (SPEC-057, FR-007).
+  if (isUndeletableRootFolder(prefix, rootPrefix)) {
+    return {
+      success: false,
+      error: {
+        message: 'Query results are managed for you and can’t be deleted.',
+        code: 'ProtectedObject'
+      }
+    };
+  }
 
   const listResult = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, prefix));
   if (!listResult.success) return listResult;
@@ -516,21 +535,37 @@ export async function moveObject(params: {
  * Unless `overwrite` is true, destinations are checked once up front; any
  * existing destination object yields a single `Collision` error naming the
  * count, so the UI can confirm Overwrite-all or cancel.
+ *
+ * @param params.rootPrefix - the SOURCE space's root, for the protected-folder
+ *   refusal. A move is a copy plus a DELETE of the source, so `athenaresults/` is
+ *   refused as a source for the same reason `deleteFolder` refuses it; it was
+ *   already locked out as a destination by `PICKER_LOCKED_FOLDERS`.
  */
 export async function moveFolder(params: {
   bucket: string;
   sourcePrefix: string;
   destPrefix: string;
   username: string;
+  rootPrefix: string;
   /** Defaults to `bucket`; set to move into another connection's bucket. */
   destBucket?: string;
   overwrite?: boolean;
   /** Reports processed/total for large folders. */
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ServiceResult<MoveResult>> {
-  const {bucket, sourcePrefix, destPrefix, username, overwrite = false, onProgress} = params;
+  const {bucket, sourcePrefix, destPrefix, username, rootPrefix, overwrite = false, onProgress} = params;
   const destBucket = params.destBucket ?? bucket;
   const sameBucket = destBucket === bucket;
+
+  if (isUndeletableRootFolder(sourcePrefix, rootPrefix)) {
+    return {
+      success: false,
+      error: {
+        message: 'Query results are managed for you and can’t be moved.',
+        code: 'ProtectedObject'
+      }
+    };
+  }
 
   // The no-op and into-itself guards only apply within a single bucket — across
   // buckets the same prefix string is a different location entirely.

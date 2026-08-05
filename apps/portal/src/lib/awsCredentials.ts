@@ -21,7 +21,7 @@ export async function getSessionCredentials(forceRefresh = false): Promise<Servi
     }
     return {success: true, data: session.credentials};
   } catch (err) {
-    const e = err as {message?: string; name?: string};
+    const e = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
     return {
       success: false,
       error: {
@@ -51,7 +51,7 @@ export async function getIdToken(forceRefresh = false): Promise<ServiceResult<st
     }
     return {success: true, data: idToken};
   } catch (err) {
-    const e = err as {message?: string; name?: string};
+    const e = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
     return {
       success: false,
       error: {

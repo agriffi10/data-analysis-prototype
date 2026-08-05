@@ -14,6 +14,10 @@
     "moduleDetection": "force",
     "noEmit": true,
 
+    /* Stated, not inherited — see tsconfig.app.json's note and pyproject.toml's
+       ruff block for why a default is not a guarantee. */
+    "strict": true,
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

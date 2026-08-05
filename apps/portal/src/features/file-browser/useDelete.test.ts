@@ -25,7 +25,7 @@ function wrapper() {
 }
 
 function render(username: string | undefined = 'alice') {
-  return renderHook(() => useDelete('us', 'alice/', username), {
+  return renderHook(() => useDelete('us', 'alice/', username, 'alice/'), {
     wrapper: wrapper()
   });
 }
@@ -62,7 +62,10 @@ describe('useDelete', () => {
     expect(mockDeleteFolder).toHaveBeenCalledWith({
       bucket: 'us',
       prefix: 'alice/p/',
-      username: 'alice'
+      username: 'alice',
+      // The space root, which is what lets deleteFolder tell the space's own
+      // athenaresults/ from a like-named user folder (SPEC-150 FR-007).
+      rootPrefix: 'alice/'
     });
     expect(summary).toEqual({deletedCount: 4, errors: []});
     expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/');
@@ -70,7 +73,7 @@ describe('useDelete', () => {
 
   it('does nothing and surfaces an error when there is no username', async () => {
     // Pass undefined directly — render()'s default would otherwise mask it.
-    const {result} = renderHook(() => useDelete('us', 'alice/', undefined), {
+    const {result} = renderHook(() => useDelete('us', 'alice/', undefined, 'alice/'), {
       wrapper: wrapper()
     });
     let summary: DeleteSummary | null = null;

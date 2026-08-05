@@ -61,4 +61,43 @@ describe('useTableShare', () => {
     await act(() => result.current.submit({tableName: 'x_tbl', recipients: RECIPIENTS}));
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
+
+  // SPEC-150 FR-003. Both calls are made inside ONE act block with no await between
+  // them — a real double-click, where both land before React re-renders. Awaiting
+  // the first would let `busy` commit and would pass against the old state guard,
+  // which is exactly the bug: two clicks in one render both read `busy === false`.
+  it('two submits in a single render enqueue exactly once', async () => {
+    mockEnqueue.mockResolvedValue({success: true, data: undefined});
+    const {result} = renderHook(() => useTableShare(vi.fn()));
+    act(() => result.current.open('alice', 'orders'));
+
+    await act(async () => {
+      const first = result.current.submit({tableName: 'orders_copy', recipients: RECIPIENTS});
+      const second = result.current.submit({tableName: 'orders_copy', recipients: RECIPIENTS});
+      await Promise.all([first, second]);
+    });
+
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('the dropped second call resolves quietly and leaves the hook usable', async () => {
+    mockEnqueue.mockResolvedValue({success: true, data: undefined});
+    const {result} = renderHook(() => useTableShare(vi.fn()));
+    act(() => result.current.open('alice', 'orders'));
+
+    await act(async () => {
+      await Promise.all([
+        expect(result.current.submit({tableName: 'orders_copy', recipients: RECIPIENTS})).resolves.toBeUndefined(),
+        expect(result.current.submit({tableName: 'orders_copy', recipients: RECIPIENTS})).resolves.toBeUndefined()
+      ]);
+    });
+    expect(result.current.error).toBeNull();
+
+    // The guard cleared, so a later legitimate share still goes through.
+    act(() => result.current.open('alice', 'invoices'));
+    await act(() => result.current.submit({tableName: 'invoices_copy', recipients: RECIPIENTS}));
+
+    expect(mockEnqueue).toHaveBeenCalledTimes(2);
+    expect(mockEnqueue).toHaveBeenLastCalledWith(expect.objectContaining({tableName: 'invoices_copy'}));
+  });
 });

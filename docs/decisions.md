@@ -49,6 +49,7 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [Static-asset caching = three prefix-scoped sync passes (141)](#static-asset-caching--three-prefix-scoped-sync-passes-spec-141)
 - [The username directory is built from S3, not Cognito (146)](#the-username-directory-is-built-from-s3-not-cognito-spec-146)
 - [Every authenticated user can read the username directory (146)](#every-authenticated-user-can-read-the-username-directory-spec-146)
+- [Compiler and coverage defaults are declared, never inherited (150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
 
 ---
 
@@ -410,3 +411,36 @@ condition key at all is an implementation detail, and if it does not the grant f
 builder's only listing call breaks. `simulate-custom-policy` would agree with whatever context key the
 author supplied, so it would confirm the assumption rather than test it. If the grant ever becomes
 uncomfortable, the sound fix is a separate bucket, not an unverifiable condition key.
+
+
+### Compiler and coverage defaults are declared, never inherited (SPEC-150)
+
+`tsconfig.app.json` and `tsconfig.node.json` state `"strict": true` even though TypeScript 6 already
+defaults it on, and both suites carry **literal** coverage floors. Adding the `strict` key changed
+**zero** errors — that is the point, and a build that finds otherwise should stop and re-derive the
+premise rather than "fix" the errors.
+
+This reverses the implicit trade-off of leaving a default alone because it happens to be correct.
+`pyproject.toml`'s ruff block is the precedent and says it outright — "THE RULE SET IS CHOSEN HERE,
+NOT INHERITED" — after ruff 0.16 widened its own default set from 59 rules to 413 overnight and
+turned `main` red with 500 findings in files nobody had touched (#311). A default is a decision
+*someone else* gets to change; strict is this project's single most important type guarantee, and it
+does not ride on one.
+
+The coverage floors are the same principle pointed at a different kind of erosion: both suites
+measured coverage and neither gated on it, so deleting tests passed CI identically to keeping them.
+They are **ratchets at the measured level, not targets** — portal 91/86/89/93, lambdas 95 — and each
+is a hard-coded literal on purpose. Nothing computes, inherits or reads them from a file, so lowering
+one is a visible one-line diff in review rather than a number that drifted. Raise them when coverage
+rises; never lower one to accommodate a regression.
+
+**Do NOT read this as "enable strict"** — it was already on. The work is *declaring* an inherited
+default, which is a much smaller and different thing.
+
+**The typecheck gate itself is separate and already shipped** (#363): `ci.yml` runs `npm run build`
+on every PR. Two traps are recorded in that file's header comment and should be read before touching
+it — vitest does not typecheck, and `tsc --noEmit -p apps/portal/tsconfig.json` **exits 0 having
+checked nothing**, because that config is solution-style (project references only, no
+`files`/`include`). `tsc -b` is the only invocation covering the app *and* its `*.test.tsx` files.
+SPEC-150 confirmed the gate empirically on a scratch PR: with the #361 defect reintroduced, Lint and
+Format check passed, **Build failed**, and Test was skipped.

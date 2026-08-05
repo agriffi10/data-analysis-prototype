@@ -25,7 +25,7 @@ function wrapper() {
 }
 
 function render(username: string | undefined = 'alice') {
-  return renderHook(() => useMove('us', 'alice/docs/', username), {
+  return renderHook(() => useMove('us', 'alice/docs/', username, 'alice/'), {
     wrapper: wrapper()
   });
 }
@@ -99,7 +99,7 @@ describe('useMove — rename', () => {
   });
 
   it('errors and does nothing when there is no username', async () => {
-    const {result} = renderHook(() => useMove('us', 'alice/docs/', undefined), {wrapper: wrapper()});
+    const {result} = renderHook(() => useMove('us', 'alice/docs/', undefined, 'alice/'), {wrapper: wrapper()});
     act(() => result.current.renameItem({type: 'file', key: 'alice/docs/a.txt'}, 'b.txt'));
 
     await waitFor(() => expect(result.current.error).toMatch(/signed in/i));

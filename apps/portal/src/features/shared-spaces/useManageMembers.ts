@@ -18,10 +18,10 @@ export function useManageMembers(username: string | null) {
       members: string[]
     ): Promise<ServiceResult<{requestId: string}>> => {
       if (!username) {
-        return {success: false, error: {message: 'Not signed in'}};
+        return {success: false, error: {message: 'Not signed in', code: 'NotAuthenticated'}};
       }
       if (members.length === 0) {
-        return {success: false, error: {message: 'No members specified'}};
+        return {success: false, error: {message: 'No members specified', code: 'InvalidRequest'}};
       }
       setBusy(true);
       const result = await enqueueSharedSpaceRequest({

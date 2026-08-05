@@ -58,10 +58,33 @@ export const PICKER_LOCKED_FOLDERS = [
 ] as const;
 
 /**
+ * Never deletable, and never a move SOURCE, at a space root.
+ *
+ * A FOURTH question, deliberately not a union of the two lists above (see the
+ * note on divergence): "may the user DESTROY it?". `athenaresults/` is visible
+ * and browsable on purpose — you want to see your query results — but the role
+ * policy's `ResultsNoDelete` Sid denies `s3:DeleteObject` beneath it, so
+ * offering Delete only ever produced "You don't have permission to do that" for
+ * a rule this app itself authored. SPEC-057:97-98 already stated the UI refuses
+ * this; SPEC-150 FR-007 is that criterion finally being met.
+ */
+export const UNDELETABLE_ROOT_FOLDERS = ['athenaresults'] as const;
+
+/**
  * Does `folderPrefix` name one of `names` at the user's own root
  * (`{rootPrefix}{name}/`)? Only the user-root instance matches — a nested
  * folder that happens to share the name is a normal user folder.
  */
 export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, names: readonly string[]): boolean {
   return names.some((name) => folderPrefix === `${rootPrefix}${name}/`);
+}
+
+/**
+ * Is this folder one the portal refuses to destroy? True only at the SPACE root,
+ * which is `rootPrefix` — so it holds identically in a shared space (SPEC-057's
+ * own framing) and leaves `alice/reports/athenaresults/` an ordinary folder the
+ * user may delete.
+ */
+export function isUndeletableRootFolder(folderPrefix: string, rootPrefix: string): boolean {
+  return isRootFolderNamed(folderPrefix, rootPrefix, UNDELETABLE_ROOT_FOLDERS);
 }

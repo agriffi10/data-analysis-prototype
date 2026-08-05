@@ -1,7 +1,7 @@
 # Spec: Portal Guardrails — Typecheck Gate, Enqueue Re-entrancy & the Error-Code Contract
 
 **ID:** SPEC-150
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-106 (`lib/errorMessages.ts`, `toUserMessage`, the `ErrorRule` shape and the `passthrough` mechanism this spec extends), SPEC-057 (the `athenaresults/` delete-deny acceptance criterion this spec finally meets), SPEC-145 (`useTableRefresh`, whose re-entrancy guard FR-003 replaces), SPEC-078 (the three run-scope keybindings FR-010 covers), SPEC-149 (the concurrent-refresh race FR-003 narrows from the browser side)
 

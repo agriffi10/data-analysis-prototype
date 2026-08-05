@@ -1,5 +1,11 @@
 import {describe, it, expect} from 'vitest';
-import {HIDDEN_BROWSER_FOLDERS, PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
+import {
+  HIDDEN_BROWSER_FOLDERS,
+  PICKER_LOCKED_FOLDERS,
+  UNDELETABLE_ROOT_FOLDERS,
+  isRootFolderNamed,
+  isUndeletableRootFolder
+} from './protectedFolders';
 
 describe('protectedFolders', () => {
   it('hides user_settings/ from the browser; locks athenaresults/ + user_settings/ from the picker', () => {
@@ -25,5 +31,25 @@ describe('protectedFolders', () => {
     expect(isRootFolderNamed('alice/docs/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(false);
     // Unrelated folders are untouched.
     expect(isRootFolderNamed('alice/photos/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(false);
+  });
+
+  // SPEC-150 FR-007. A FOURTH question — "may the user DESTROY it?" — deliberately
+  // not a union of the other lists: athenaresults/ stays visible and browsable.
+  describe('isUndeletableRootFolder', () => {
+    it('covers athenaresults/ without changing what the browser shows', () => {
+      expect(UNDELETABLE_ROOT_FOLDERS).toEqual(['athenaresults']);
+      expect(HIDDEN_BROWSER_FOLDERS).not.toContain('athenaresults');
+    });
+
+    it('matches at a space root, personal or shared', () => {
+      expect(isUndeletableRootFolder('alice/athenaresults/', 'alice/')).toBe(true);
+      expect(isUndeletableRootFolder('project_alpha/athenaresults/', 'project_alpha/')).toBe(true);
+    });
+
+    it('does not match a nested or merely prefixed folder', () => {
+      expect(isUndeletableRootFolder('alice/reports/athenaresults/', 'alice/')).toBe(false);
+      expect(isUndeletableRootFolder('alice/athenaresults_old/', 'alice/')).toBe(false);
+      expect(isUndeletableRootFolder('alice/photos/', 'alice/')).toBe(false);
+    });
   });
 });

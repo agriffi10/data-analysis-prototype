@@ -11,16 +11,24 @@ const h = vi.hoisted(() => {
   const registerCompletionItemProvider = vi.fn<(language: string, provider: unknown) => {dispose: () => void}>(() => ({
     dispose: vi.fn()
   }));
+  // SPEC-150 FR-010. These must be DISTINCT and NON-ZERO. The mock previously
+  // supplied `{CtrlCmd: 2048}` alone, so `m.KeyMod.Shift` and `m.KeyMod.Alt` were
+  // both `undefined`, coerced to 0 by `|`, and all three run scopes registered the
+  // identical binding 2051 — dropping one, or swapping two, passed green. The real
+  // values are Monaco's own (KeyMod.CtrlCmd = 1<<11, Shift = 1<<10, Alt = 1<<9).
   const monacoMock = {
     editor: {defineTheme: vi.fn()},
     languages: {
       registerCompletionItemProvider,
       CompletionItemKind: {Field: 3, Struct: 5, Interface: 7}
     },
-    KeyMod: {CtrlCmd: 2048},
+    KeyMod: {CtrlCmd: 2048, Shift: 1024, Alt: 512},
     KeyCode: {Enter: 3}
   };
-  return {registerCompletionItemProvider, monacoMock};
+  // The receiving spy was created inline and discarded, so no registration could be
+  // asserted at all. Hoisted here, it survives the mount.
+  const addCommand = vi.fn<(keybinding: number, handler: () => void) => void>();
+  return {registerCompletionItemProvider, addCommand, monacoMock};
 });
 
 vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({default: class {}}));
@@ -28,10 +36,23 @@ vi.mock('monaco-editor', () => h.monacoMock);
 vi.mock('@monaco-editor/react', () => ({
   loader: {config: vi.fn()},
   default: ({onMount}: {onMount: (editor: unknown, m: unknown) => void}) => {
-    onMount({addCommand: vi.fn()}, h.monacoMock);
+    onMount({addCommand: h.addCommand}, h.monacoMock);
     return null;
   }
 }));
+
+const {KeyMod, KeyCode} = h.monacoMock;
+
+// Named in SPEC-078's vocabulary, so the assertions read as the spec's contract
+// rather than as the implementation's prop names.
+const BINDINGS = {
+  /** ⌘⏎ — Run Statement. */
+  runStatement: KeyMod.CtrlCmd | KeyCode.Enter,
+  /** ⌘⇧⏎ — Run Script → single result. */
+  runScriptSingleResult: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Enter,
+  /** ⌘⌥⏎ — Run Script → tab per statement. */
+  runScriptTabPerStatement: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.Enter
+};
 
 // Imported after the mocks are declared (vi.mock is hoisted regardless).
 import {SqlEditor} from './SqlEditor';
@@ -44,8 +65,71 @@ const orders: GlueTableSummary = {
 
 beforeEach(() => {
   h.registerCompletionItemProvider.mockClear();
+  h.addCommand.mockClear();
 });
 afterEach(cleanup);
+
+// SPEC-150 FR-010 / SPEC-078 FR-005. These are the primary way users run a query,
+// and until now nothing asserted them: with `Shift`/`Alt` missing from the mock all
+// three composed to the same number, and the `addCommand` spy was thrown away at the
+// mount. Dropping a binding or swapping two scopes passed green.
+describe('run-scope keybindings', () => {
+  /** The handler Monaco was given for `keybinding`, or undefined if none was. */
+  function handlerFor(keybinding: number): (() => void) | undefined {
+    return h.addCommand.mock.calls.find(([binding]) => binding === keybinding)?.[1];
+  }
+
+  it('registers exactly three commands, under three distinct keybindings', () => {
+    render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+
+    expect(h.addCommand).toHaveBeenCalledTimes(3);
+    const registered = h.addCommand.mock.calls.map(([binding]) => binding);
+    expect(new Set(registered).size).toBe(3);
+    expect(new Set(registered)).toEqual(
+      new Set([BINDINGS.runStatement, BINDINGS.runScriptSingleResult, BINDINGS.runScriptTabPerStatement])
+    );
+  });
+
+  it.each([
+    {scope: 'Run Statement', binding: BINDINGS.runStatement, prop: 'onRun'},
+    {scope: 'Run Script → single result', binding: BINDINGS.runScriptSingleResult, prop: 'onRunScriptSingle'},
+    {scope: 'Run Script → tab per statement', binding: BINDINGS.runScriptTabPerStatement, prop: 'onRunScriptTabs'}
+  ] as const)('$scope invokes $prop and no other handler', ({binding, prop}) => {
+    const handlers = {onRun: vi.fn(), onRunScriptSingle: vi.fn(), onRunScriptTabs: vi.fn()};
+    render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+        {...handlers}
+      />
+    );
+
+    handlerFor(binding)?.();
+
+    // Asserting the OTHERS did not fire is what makes a swapped registration fail —
+    // "the right one was called" alone passes when two scopes share a binding.
+    expect(handlers[prop]).toHaveBeenCalledOnce();
+    for (const [name, spy] of Object.entries(handlers)) {
+      if (name !== prop) expect(spy).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does not throw when a scope has no handler wired (every prop is optional)', () => {
+    render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+
+    expect(() => handlerFor(BINDINGS.runScriptTabPerStatement)?.()).not.toThrow();
+  });
+});
 
 describe('SqlEditor completion-provider wiring', () => {
   it('registers the sql completion provider exactly once and disposes on unmount', () => {

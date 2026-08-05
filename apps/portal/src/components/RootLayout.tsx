@@ -1,6 +1,7 @@
 import {Outlet, useLocation} from 'react-router';
 import {Header} from './Header';
 import {NavRailProvider} from './NavRailProvider';
+import {ErrorBoundary} from './ErrorBoundary';
 
 /**
  * Layout shared by every page: the persistent auth-aware Header plus the
@@ -29,8 +30,18 @@ export function RootLayout() {
           Skip to main content
         </a>
         {!isLanding && <Header />}
+        {/* Scoped BELOW the Header on purpose: a page that throws leaves the user
+            with working navigation to somewhere else, rather than a bare panel.
+            `key={pathname}` is what makes that true. This is a LAYOUT route, so the
+            boundary instance outlives child-route changes — without the key, one
+            throwing page would keep showing the fallback after the user navigated
+            away, leaving the nav visible but inert. Remounting per path resets it.
+            The two route-level boundaries in App.tsx need no key: they live in a
+            route `element` and unmount on navigation already. */}
         <div className="flex flex-1 flex-col">
-          <Outlet />
+          <ErrorBoundary key={pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </div>
     </NavRailProvider>
