@@ -11,7 +11,7 @@ export {MembersList} from './MembersList';
 export {AddMembersDialog} from './AddMembersDialog';
 export {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 export {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
-export {parseMemberInput} from './memberInput';
+export {parseMemberInput, parseMemberInputDetailed} from './memberInput';
 export {ConnectionsPage} from './ConnectionsPage';
 export {connectionStatusLabel} from './connectionStatus';
 export type {

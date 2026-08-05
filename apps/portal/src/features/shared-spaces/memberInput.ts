@@ -22,3 +22,44 @@ export function parseMemberInput(raw: string): string[] {
   }
   return out;
 }
+
+/**
+ * {@link parseMemberInput}, but it REPORTS what it rejected instead of dropping it.
+ *
+ * Same splitting, lowercasing and de-duplication; the difference is that tokens failing the
+ * catalog-safe rule come back in `invalid` rather than vanishing. `UsernameChipsField` puts
+ * them back in the input with the rule sentence, so a user pasting a mixed list watches the
+ * good names become chips and keeps the bad ones to fix — rather than watching half their
+ * paste disappear without comment.
+ *
+ * Added beside `parseMemberInput` rather than replacing it: the original's silent drop is
+ * relied on by shipped callers and by their tests, and `TableShareDialog`'s space-name path
+ * still uses it.
+ *
+ * @param raw - Comma / whitespace / newline separated input.
+ * @returns `valid` in input order, de-duplicated; `invalid` in input order, as typed.
+ *
+ * @example
+ * parseMemberInputDetailed('bob, Bob Smith') // {valid: ['bob'], invalid: ['Smith']}
+ */
+export function parseMemberInputDetailed(raw: string): {valid: string[]; invalid: string[]} {
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  for (const token of raw.split(/[\s,]+/)) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    const name = trimmed.toLowerCase();
+    if (!CATALOG_IDENTIFIER_RE.test(name)) {
+      // Reported AS TYPED, not lowercased: the user has to recognise what they pasted in
+      // order to fix it, and `Bob Smith` lowercased to `bob smith` is a different string
+      // from the one on their clipboard.
+      invalid.push(trimmed);
+      continue;
+    }
+    if (seen.has(name)) continue;
+    seen.add(name);
+    valid.push(name);
+  }
+  return {valid, invalid};
+}
