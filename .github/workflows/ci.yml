@@ -1,9 +1,16 @@
 name: CI
 
 # Checks run on PRs only. main never tests or lints — it builds and deploys
-# (deploy-app / deploy-lambdas / deploy-infra). Note this leaves *.test.tsx
-# typechecking to the local `npm run build` you must run before opening a PR;
-# `tsc --noEmit` alone does not cover test files.
+# (deploy-app / deploy-lambdas / deploy-infra).
+#
+# The Build step below is the TYPECHECK gate, and it is here because relying on a
+# local run did not hold: SPEC-145 added a member to a shared prop type, missed one
+# test file's builder, passed every PR check, and broke main's Deploy App (#362).
+# Two things made that invisible — vitest does not typecheck, and
+# `tsc --noEmit -p apps/portal/tsconfig.json` exits 0 having checked NOTHING (that
+# config is solution-style: project references only, no files/include). `tsc -b`,
+# which `npm run build` runs, is the only invocation that covers the app AND its
+# *.test.tsx files.
 on:
   pull_request:
     branches: [main]
@@ -35,6 +42,15 @@ jobs:
       - name: Format check (prettier)
         working-directory: apps/portal
         run: npm run format:check
+
+      # Runs the SAME command deploy-app.yml does, so a green PR means that build
+      # will compile. Deliberately BEFORE the test step: a type error surfaces in
+      # under a minute instead of behind a ~5-minute suite. No VITE_* env is passed
+      # — every one of them is a runtime value baked into the bundle, and this job
+      # discards the bundle. What is being gated is `tsc -b`.
+      - name: Build (typecheck + bundle)
+        working-directory: apps/portal
+        run: npm run build
 
       - name: Test
         working-directory: apps/portal
