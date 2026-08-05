@@ -40,9 +40,9 @@ def add_members(space, members, request_id, registry):
     created_at = registry.get("createdAt")
     current = list(registry.get("members", []))
     current_set = set(current)
-    # Join status (SPEC-073): existing members stay as-is; newly-added users are NOT
-    # added to `acknowledged`, so they surface as `pending` until they sign in and ack.
-    acknowledged = reg.effective_acknowledged(registry)
+    # Join status (SPEC-073) is now derived inside save_members' CAS, from the freshly
+    # read record: existing members stay as-is and newly-added users are NOT acknowledged,
+    # so they surface as `pending` until they sign in and ack.
     summary = {"added": [], "ignoredUnknown": [], "skippedAtLimit": []}
     # Collected during the loop, emitted only AFTER the registry write lands — notify a
     # real outcome, not a step that may roll back or retry.
@@ -76,11 +76,19 @@ def add_members(space, members, request_id, registry):
             (member, f'You\'ve been added to the shared workspace "{space}".', f"add-member:{member}")
         )
 
-    registry["acknowledged"] = acknowledged
-    reg.save_members(registry, current, request_id)
-    # Fan the new roster out to the owner + every member (SPEC-075) — newly-added
-    # members get their cache entry here, with the full roster, in one pass.
-    cache.write_roster_to_all(current, space, owner, acknowledged, created_at)
+    # A DELTA, not `current`: the roster is derived inside the CAS from the freshly-read
+    # record, so a concurrent remove is not undone by this add (SPEC-151 FR-004).
+    committed = reg.save_members(registry, request_id, add=summary["added"])
+    # Fan out from what actually LANDED, not from the list computed here — otherwise the
+    # cache would carry a roster the registry disagrees with, which is the same stale-read
+    # defect one layer down.
+    cache.write_roster_to_all(
+        committed["members"],
+        space,
+        owner,
+        committed.get("acknowledged", []),
+        committed.get("createdAt", created_at),
+    )
     for recipient, message, tag in pending_notifications:
         emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
     logger.info("add_members %s: %s", space, summary)

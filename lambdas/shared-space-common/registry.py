@@ -199,31 +199,71 @@ def effective_acknowledged(registry: dict) -> list[str]:
     return list(ack)
 
 
-def save_members(registry: dict, members: list[str], request_id: str) -> None:
-    """Rewrite the registry record with a new members list, preserving other fields.
+def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowledge=()) -> dict:
+    """Apply a membership DELTA under compare-and-swap; return the committed record.
 
-    The add/remove/leave read-modify-write path. Compare-and-swap: the new members +
-    ``acknowledged`` (the caller's intent) are layered onto the *freshly-read* record
-    each attempt, so a concurrent writer's other-field change (e.g. ``set_status``)
-    survives instead of being lost (SPEC-082).
+    A DELTA, not a computed list, and that is the whole point (SPEC-151 FR-004). This
+    used to take the roster the caller had derived from ``event["registry"]`` — a
+    snapshot read before the request began — and assign it over the freshly-read record.
+    The CAS re-read the record and then overwrote the one field it exists to protect
+    with a stale value, so two overlapping requests on one space were last-write-wins on
+    the roster: a concurrent remove reinstated a just-added member. Nothing serializes
+    them (``shared-spaces/pipe.tf`` is FIRE_AND_FORGET and the group id is one global
+    constant), which ``casio``'s own module docstring says outright.
+
+    The new roster is derived from ``existing["members"]`` INSIDE ``apply``, so both
+    interleavings of a concurrent add and remove take effect. ``acknowledged`` is derived
+    the same way and for the same reason — it was carrying the identical stale-snapshot
+    bug one field over. Removals drop from both; ``add`` lands in ``members`` only, so a
+    newly-added user stays ``pending`` until they acknowledge (SPEC-073); ``acknowledge``
+    is the fourth verb's delta, promoting an existing member pending -> active.
+
+    FOUR callers, not the three SPEC-151 FR-004 lists: ``acknowledge-membership`` is one
+    too, and it is the only one that ADDS to ``acknowledged``. Left out, it would have
+    kept passing a whole computed list and kept the defect.
+
+    STATUS IS NO LONGER SET. It used to be forced to ``"active"`` unconditionally, which
+    let a membership write racing a delete return a ``deleting`` space to ``active`` —
+    the cascade would then run against a record claiming to be healthy. Only ``setdefault``
+    remains, to heal a record written before the field existed.
+
+    Returns the committed record so callers can fan the roster out from what actually
+    landed. Fanning out from the caller's own list would re-introduce the same defect one
+    layer down: the cache would disagree with the registry.
     """
     name = registry["name"]
-    acknowledged = registry.get("acknowledged")
+    removing = set(remove)
 
     def apply(existing):
         record = dict(existing) if existing is not None else dict(registry)
+        # BEFORE the add is applied, and the order is load-bearing: a pre-SPEC-073 record
+        # has no `acknowledged` field, so `effective_acknowledged` treats every member as
+        # acknowledged. Read after the add, that would sweep the member being added right
+        # now into the acknowledged set and show them `active` instead of `pending`.
+        # Still read from the FRESH record, not the caller's snapshot — that is the point
+        # of the delta.
+        prior_ack = effective_acknowledged(record)
+        members = [m for m in record.get("members", []) if m not in removing]
+        for member in add:
+            if member not in members:
+                members.append(member)
         record["members"] = members
-        record["status"] = "active"
+        ack = [a for a in prior_ack if a not in removing and a in members]
+        for member in acknowledge:
+            # `in members` guards the race the delta exists for: acknowledging a
+            # membership a concurrent remove just revoked must not re-create it.
+            if member in members and member not in ack:
+                ack.append(member)
+        record["acknowledged"] = ack
         record["lastRequestId"] = request_id
-        if acknowledged is not None:
-            record["acknowledged"] = acknowledged
+        record.setdefault("status", "active")
         # Heal a record written before createdAt was stamped (older spaces) so the
         # Connections card's "created <date>" line isn't permanently blank.
         record.setdefault("createdAt", now_iso())
         record["updatedAt"] = now_iso()
         return record
 
-    casio.cas_mutate(
+    return casio.cas_mutate(
         read=lambda: _read(name),
         apply=apply,
         write=lambda record, etag: _put(name, record, etag),

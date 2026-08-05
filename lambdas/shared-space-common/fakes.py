@@ -58,6 +58,8 @@ class FakeS3:
     def __init__(self):
         self.store = {}
         self.etags = {}  # (Bucket, Key) -> ETag, for conditional-write (CAS) tests
+        #: Keys `delete_objects` reports as failed instead of deleting (SPEC-151 FR-003).
+        self.undeletable = set()
         self._seq = 0
         self.exceptions = types.SimpleNamespace(
             NoSuchKey=FakeNoSuchKey, ClientError=FakeClientError
@@ -91,10 +93,23 @@ class FakeS3:
         return {"Contents": [{"Key": k} for k in keys], "IsTruncated": False}
 
     def delete_objects(self, Bucket, Delete):
+        """Batched delete, honouring ``undeletable`` so a PARTIAL failure can be tested.
+
+        S3 returns HTTP 200 with a per-key ``Errors`` array rather than raising, which is
+        the whole reason SPEC-151 FR-003 exists: the real failure mode is a teardown that
+        looks like it worked. A fake that can only fully succeed cannot express it, and a
+        test written against that fake would pass against the bug.
+        """
+        errors = []
         for obj in Delete.get("Objects", []):
-            self.store.pop((Bucket, obj["Key"]), None)
-            self.etags.pop((Bucket, obj["Key"]), None)
-        return {}
+            key = obj["Key"]
+            if key in self.undeletable:
+                errors.append({"Key": key, "Code": "AccessDenied", "Message": "denied"})
+                continue
+            self.store.pop((Bucket, key), None)
+            self.etags.pop((Bucket, key), None)
+        # Mirrors S3: the key is absent from the response unless something failed.
+        return {"Errors": errors} if errors else {}
 
     def delete_object(self, Bucket, Key):
         self.store.pop((Bucket, Key), None)
@@ -107,6 +122,8 @@ class FakeGlue:
         self.created = []
         self.databases = set()
         self.tables = {}  # db name -> [table names]
+        #: Tables `batch_delete_table` reports as failed instead of dropping (SPEC-151 FR-003).
+        self.undroppable = set()
         self.exceptions = types.SimpleNamespace(
             AlreadyExistsException=FakeAlreadyExists, EntityNotFoundException=FakeEntityNotFound
         )
@@ -123,8 +140,20 @@ class FakeGlue:
         return {"TableList": [{"Name": t} for t in self.tables.get(DatabaseName, [])]}
 
     def batch_delete_table(self, DatabaseName, TablesToDelete):
-        remaining = [t for t in self.tables.get(DatabaseName, []) if t not in TablesToDelete]
+        """Batched drop, honouring ``undroppable`` — same partial-failure shape as S3's
+        ``delete_objects``: HTTP 200 with a per-table ``Errors`` array (SPEC-151 FR-003)."""
+        errors = [
+            {"TableName": t, "ErrorDetail": {"ErrorCode": "AccessDeniedException"}}
+            for t in TablesToDelete
+            if t in self.undroppable
+        ]
+        remaining = [
+            t
+            for t in self.tables.get(DatabaseName, [])
+            if t not in TablesToDelete or t in self.undroppable
+        ]
         self.tables[DatabaseName] = remaining
+        return {"Errors": errors} if errors else {}
 
     def delete_database(self, Name):
         if Name not in self.databases:

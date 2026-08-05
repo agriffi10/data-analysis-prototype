@@ -29,7 +29,6 @@ def remove_members(space, members, request_id, registry):
     owner = registry["owner"]
     current = list(registry.get("members", []))
     current_set = set(current)
-    acknowledged = reg.effective_acknowledged(registry)
     removed = []
 
     for member in membership.normalize_members(members, owner):
@@ -41,14 +40,19 @@ def remove_members(space, members, request_id, registry):
         current_set.discard(member)
         removed.append(member)
 
-    # Drop removed users from acknowledged so a later re-add starts them at `pending`.
-    removed_set = set(removed)
-    acknowledged = [a for a in acknowledged if a not in removed_set]
-    registry["acknowledged"] = acknowledged
-    reg.save_members(registry, current, request_id)
+    # A DELTA (SPEC-151 FR-004). `save_members` drops removed users from `acknowledged`
+    # too, so a later re-add still starts them at `pending` — derived inside the CAS from
+    # the freshly-read record rather than from this request's stale snapshot.
+    committed = reg.save_members(registry, request_id, remove=removed)
     # Removed members' entries were dropped above; fan the reduced roster out to the
-    # owner + every remaining member (SPEC-075).
-    cache.write_roster_to_all(current, space, owner, acknowledged, registry.get("createdAt"))
+    # owner + every remaining member (SPEC-075), from what actually landed.
+    cache.write_roster_to_all(
+        committed["members"],
+        space,
+        owner,
+        committed.get("acknowledged", []),
+        committed.get("createdAt"),
+    )
     # Notify each removed member only AFTER the registry write lands — a real outcome,
     # not a step that may roll back or retry. The owner gets no roster notification.
     for member in removed:

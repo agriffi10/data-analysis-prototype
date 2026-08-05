@@ -41,10 +41,16 @@ def acknowledge_membership(space, actor, request_id, registry):
     if actor in acknowledged:
         return {"status": "ok", "action": "acknowledge_membership", "space": space, "activated": False}
 
-    acknowledged.append(actor)
-    registry["acknowledged"] = acknowledged
-    reg.save_members(registry, members, request_id)
-    cache.write_owner_projection(owner, space, members, acknowledged, registry.get("createdAt"))
+    # A DELTA (SPEC-151 FR-004): promoting one member pending -> active must not rewrite
+    # the whole roster from a snapshot read before this request began.
+    committed = reg.save_members(registry, request_id, acknowledge=[actor])
+    cache.write_owner_projection(
+        owner,
+        space,
+        committed["members"],
+        committed.get("acknowledged", []),
+        committed.get("createdAt"),
+    )
     logger.info("acknowledge_membership %s: %s now active", space, actor)
     observability.info(
         "membership acknowledged",
