@@ -1,7 +1,7 @@
 # Spec: Username Typeahead in Add Members & Table Share
 
 **ID:** SPEC-148
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-03
 **Depends On:** SPEC-147 (`UsernameCombobox`, `UsernameChipsField`, `useUserDirectory`, `parseMemberInputDetailed`), SPEC-053 (`AddMembersDialog` and `useManageMembers`), SPEC-075 (the member roster this dialog sits over), SPEC-093 (`TableShareDialog` and its recipient chips)
 

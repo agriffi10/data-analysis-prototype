@@ -75,22 +75,26 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**SPEC-146 is COMPLETE and deployed** — the daily builder publishes `_directory/usernames.json` (12
-usernames on its first live run, matching the User Pool exactly). **SPEC-147 is COMPLETE** — the
-service, hook, trie, `UsernameCombobox` and `UsernameChipsField` all shipped, wired to nothing.
-**Next to build: SPEC-148** (wiring both dialogs — the only spec in the arc a user can see).
+**The username-directory arc (146 → 147 → 148) is COMPLETE and deployed.** The daily builder
+publishes `_directory/usernames.json`; both `AddMembersDialog` and `TableShareDialog` suggest
+existing usernames as you type, and neither blocks a name the directory does not know.
 
-**147 settled FR-004's open question by measurement:** `stopPropagation` from a React handler DOES
-stop `useEscapeKey`'s `document` listener (React delegates below it), so the hook needed no
-`defaultPrevented` guard and **did not get one**. Don't re-open it.
+**One live check is owed, and it is a single browser pass** (Safari): open **Add members** and
+**Share table** signed in, at 400px and desktop. Confirm suggestions appear, the list positions
+inside the panel, and several chips still leave the confirm control reachable. **That one pass also
+discharges SPEC-146's last owed check** — suggestions only appear if the portal role's SigV4
+`GetObject` on the directory actually succeeds, so seeing one IS the end-to-end read confirmation.
 
-Two things 146 left worth carrying: a **`rate()` EventBridge rule fires on creation**, so a new
-singleton's first scheduled invocation can hit the placeholder zip before `Deploy Lambdas` lands — the
-async retry fixes it, but a red first invocation is expected, not a defect. And **the deploy role is
-GitHub-OIDC-only while the local CLI identity is an IAM *user* not on the bucket-policy allowlist**, so
-`get-object`/`list-objects-v2` on the user-space bucket return `AccessDenied` from a laptop; that is
-the isolation working. 146 still owes one live check: the read end-to-end from a signed-in **browser**
-session (the policy half is discharged against the deployed role) — SPEC-147's own live pass covers it.
+Three things the arc left worth carrying:
+- **A `rate()` EventBridge rule fires on creation**, so a new singleton's first scheduled invocation
+  can hit the placeholder zip before `Deploy Lambdas` lands. The async retry fixes it; a red first
+  invocation is expected, not a defect.
+- **The deploy role is GitHub-OIDC-only and the local CLI identity is an IAM *user*** that is not on
+  the user-space bucket-policy allowlist — so `get-object`/`list-objects-v2` on that bucket return
+  `AccessDenied` from a laptop. That is the isolation working, not a fault.
+- **`stopPropagation` from a React handler DOES stop `useEscapeKey`'s `document` listener** (React
+  delegates below it), settled by measurement in 147. The hook needed no `defaultPrevented` guard and
+  **did not get one**. Don't re-open it.
 
 What remains below is the live checks that are owed.
 

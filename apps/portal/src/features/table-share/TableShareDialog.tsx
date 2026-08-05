@@ -1,6 +1,8 @@
-import {useEffect, useId, useRef, useState} from 'react';
+import {useEffect, useId, useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
+import {UsernameCombobox} from '../../components/UsernameCombobox';
+import type {UsernameComboboxHandle} from '../../components/UsernameCombobox';
 import {Modal} from '../../components/Modal';
 import {Banner} from '../../components/Banner';
 import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
@@ -35,27 +37,54 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
   const [recipients, setRecipients] = useState<ShareRecipient[]>([]);
   const [name, setName] = useState(source.table);
   const [nameTouched, setNameTouched] = useState(false);
-  const entryRef = useRef<HTMLInputElement>(null);
+  const spaceEntryRef = useRef<HTMLInputElement>(null);
+  const userEntryRef = useRef<UsernameComboboxHandle>(null);
   const entryHelpId = useId();
 
   useEffect(() => {
-    entryRef.current?.focus();
+    // The dialog opens on the user kind, so the combobox is what should have focus.
+    userEntryRef.current?.focus();
   }, []);
 
   const trimmedName = name.trim();
   const nameValid = CATALOG_IDENTIFIER_RE.test(trimmedName);
   const nameError = nameTouched && !nameValid && trimmedName.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
 
-  // Valid catalog-safe names in the entry box (comma/space separated), tagged with
-  // the selected kind and deduped against what's already listed.
+  // Valid catalog-safe names in the entry box (comma/space separated), tagged with the selected
+  // kind and deduped against what's already listed. Still `parseMemberInput` — the SPACE kind
+  // keeps the original silent-drop parser, because space names are not in the user directory and
+  // this dialog's space path is deliberately unchanged (SPEC-148 FR-002).
   const pendingNames = parseMemberInput(entry).filter((n) => !recipients.some((r) => r.kind === kind && r.name === n));
 
-  const addPending = () => {
-    if (pendingNames.length === 0) return;
-    setRecipients((prev) => [...prev, ...pendingNames.map((n) => ({kind, name: n}))]);
-    setEntry('');
-    entryRef.current?.focus();
+  /** Add committed names under the CURRENT kind, preserving the existing per-kind dedupe. */
+  const addNames = (names: string[], forKind: ShareRecipient['kind'] = kind) => {
+    const fresh = names.filter((n) => !recipients.some((r) => r.kind === forKind && r.name === n));
+    if (fresh.length === 0) return;
+    setRecipients((prev) => [...prev, ...fresh.map((n) => ({kind: forKind, name: n}))]);
   };
+
+  const addPending = () => {
+    // For the user kind the Add button drives the combobox's OWN commit, so the button and Enter
+    // take one path — otherwise the two would drift, and only one of them would surface the
+    // invalid tokens FR-003 requires to be shown.
+    if (kind === 'user') {
+      userEntryRef.current?.commit();
+      // Focus goes back to the field, as it always has after an add — otherwise the second name
+      // costs a click, and only the space kind would return focus.
+      userEntryRef.current?.focus();
+      return;
+    }
+    if (pendingNames.length === 0) return;
+    addNames(pendingNames, 'space');
+    setEntry('');
+    spaceEntryRef.current?.focus();
+  };
+
+  /** Names already listed under `user` — hidden from suggestions, never refused. */
+  const listedUsers = useMemo(
+    () => new Set(recipients.filter((r) => r.kind === 'user').map((r) => r.name)),
+    [recipients]
+  );
 
   const remove = (recipient: ShareRecipient) =>
     setRecipients((prev) => prev.filter((r) => !(r.kind === recipient.kind && r.name === recipient.name)));
@@ -117,27 +146,55 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
 
         <div className="mb-1 flex items-end gap-2">
           <div className="min-w-0 flex-1">
-            <Input
-              ref={entryRef}
-              id="table-share-recipients"
-              label={kind === 'user' ? 'Usernames' : 'Space names'}
-              value={entry}
-              placeholder={kind === 'user' ? 'e.g. bob, cara' : 'e.g. salesteam'}
-              disabled={busy}
-              aria-describedby={entryHelpId}
-              onChange={(e) => setEntry(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addPending();
-                }
-              }}
-            />
+            {kind === 'user' ? (
+              // The USER kind gets suggestions. It stays a BULK field — `onCommitMany` is what
+              // keeps `bob, cara` producing two chips, which it has done since SPEC-093.
+              //
+              // The current user is deliberately NOT excluded: sharing a table into your own
+              // database is something the pipeline allows, and the field must not invent a
+              // restriction the control plane does not have.
+              <UsernameCombobox
+                ref={userEntryRef}
+                id="table-share-recipients"
+                label="Usernames"
+                value={entry}
+                placeholder="e.g. bob, cara"
+                disabled={busy}
+                describedBy={entryHelpId}
+                suppress={listedUsers}
+                onChange={setEntry}
+                onCommit={(username) => addNames([username], 'user')}
+                onCommitMany={(usernames) => addNames(usernames, 'user')}
+              />
+            ) : (
+              // The SPACE kind is unchanged: space names are not in the user directory, so there
+              // is nothing to suggest and offering usernames here would be actively wrong.
+              <Input
+                ref={spaceEntryRef}
+                id="table-share-recipients"
+                label="Space names"
+                value={entry}
+                placeholder="e.g. salesteam"
+                disabled={busy}
+                aria-describedby={entryHelpId}
+                onChange={(e) => setEntry(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addPending();
+                  }
+                }}
+              />
+            )}
           </div>
+          {/* KEPT for both kinds. Enter-to-commit is ADDED, not substituted: the button is the
+              discoverable affordance, and removing it would be a silent UX regression in a
+              dialog this spec is only meant to be improving. For the user kind it stays enabled
+              whenever there is text, because the combobox owns the parse. */}
           <Button
             variant="default"
             onClick={addPending}
-            disabled={busy || pendingNames.length === 0}>
+            disabled={busy || (kind === 'user' ? entry.trim() === '' : pendingNames.length === 0)}>
             Add
           </Button>
         </div>

@@ -179,7 +179,9 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
     const owned = await rowFor('owned');
     await user.click(within(owned).getByRole('button', {name: 'Manage'}));
     await user.click(screen.getByRole('button', {name: 'Add members'}));
-    await user.type(screen.getByLabelText('Usernames'), 'bob');
+    // `{enter}` COMMITS the name as a chip; Add then submits. The field is a chips field
+    // since SPEC-148, so typing alone no longer enables the submit button.
+    await user.type(screen.getByLabelText('Usernames'), 'bob{enter}');
     await user.click(screen.getByRole('button', {name: 'Add'}));
 
     await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));

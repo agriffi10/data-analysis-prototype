@@ -317,7 +317,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Any table you can browse in the <b>Query</b> schema rail can be shared. Sharing copies the table’s data files into each recipient’s space and creates the table in their database, so they can query it as their own — it’s a one-time snapshot, not a live link.',
         steps: [
           'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on a table and choose <b>Share table</b> (views can’t be shared).',
-          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b>. You can mix both kinds in one share.',
+          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b> (or press <b>Enter</b>). Under <b>Users</b>, existing usernames are suggested as you type; the list is refreshed once a day, so a very new colleague might not appear yet and can still be typed in full. Shared-space names have no suggestions. You can mix both kinds in one share.',
           'Adjust the <b>Table name for recipients</b> if you like (it defaults to the source table’s name).',
           'Click <b>Share</b>. The copy runs in the background — each recipient is notified on success, and every outcome lands in your notifications.'
         ],
@@ -358,9 +358,13 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Ready to bring your team in? As the owner, you can add members at any time, and each one immediately gets access to all the shared files and tables in the space.',
         steps: [
           'Open <b>Manage</b> on a space you own, then click <b>Add members</b>.',
-          'Enter one or more <b>Usernames</b>, separated by spaces, commas, or new lines.',
-          'Click <b>Add</b>. Everyone you add gets access to the same shared files and tables; any usernames that don’t exist are simply ignored.'
-        ]
+          'Start typing a <b>Username</b> — existing usernames are suggested as you type. Pick one, or press <b>Enter</b> to add the name you typed. You can also paste several at once, separated by spaces, commas, or new lines.',
+          'Click <b>Add</b> once you have everyone. They all get access to the same shared files and tables.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'The suggestion list is refreshed once a day, so someone very new might not appear in it yet — you can still type their name and add them. If a name turns out not to belong to anyone, <b>you</b> get a notification saying so, and the rest of the people you added are unaffected.'
+        }
       },
       {
         id: 'member-status',
