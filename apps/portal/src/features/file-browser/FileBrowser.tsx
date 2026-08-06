@@ -8,10 +8,9 @@ import {useFileUpload} from './useFileUpload';
 import {useDelete} from './useDelete';
 import {useMove} from './useMove';
 import {useCopy} from './useCopy';
-import {getDownloadUrl} from './fileBrowser.service';
-import {triggerBrowserDownload} from './fileBrowser.download';
+import {useFileDownload} from './useFileDownload';
 import {formatSize, formatDate} from './fileBrowser.format';
-import {lastSegment, fileExtension, isAtRoot, parentPrefix} from './fileBrowser.paths';
+import {buildBreadcrumbs, fileExtension, isAtRoot, parentPrefix} from './fileBrowser.paths';
 import {UploadDropzone} from './UploadDropzone';
 import {UploadDrawer} from './UploadDrawer';
 import {UploadList} from './UploadList';
@@ -25,8 +24,7 @@ import {FileListRowMobile} from './FileListRowMobile';
 import {MobileActionBar} from '../../components/MobileActionBar';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed} from './protectedFolders';
 import {DeleteConfirmDialog} from './DeleteConfirmDialog';
-import {OperationSummaryBanner} from './OperationSummaryBanner';
-import {BatchOverwritePrompt} from './BatchOverwritePrompt';
+import {OperationFeedback} from './OperationFeedback';
 import {RenameDialog} from './RenameDialog';
 import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
@@ -36,7 +34,7 @@ import {CreateTableButton} from '../table-builder';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {getSessionCredentials} from '../../lib/awsCredentials';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
@@ -62,51 +60,6 @@ type Props = {
   // affordance when a listing is denied because the membership tag hasn't propagated
   // to this session's token yet (shared-spaces architecture §3).
 };
-
-type BreadcrumbItem = {
-  label: string;
-  prefix: string | undefined;
-};
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string, rootLabel?: string): BreadcrumbItem[] {
-  if (!rootPrefix) {
-    // No root clamping — standard Home-rooted breadcrumb
-    const crumbs: BreadcrumbItem[] = [{label: 'Home', prefix: undefined}];
-    if (!prefix) return crumbs;
-
-    const parts = prefix.split('/').filter(Boolean);
-    parts.forEach((part, i) => {
-      crumbs.push({
-        label: part,
-        prefix: parts.slice(0, i + 1).join('/') + '/'
-      });
-    });
-
-    return crumbs;
-  }
-
-  // Root-clamped breadcrumb: show only segments at or below rootPrefix. The root
-  // crumb uses rootLabel when provided (so the raw prefix segment — e.g. the
-  // username — is never shown), otherwise the last path segment.
-  const rootParts = rootPrefix.split('/').filter(Boolean);
-  const label = rootLabel ?? rootParts[rootParts.length - 1] ?? rootPrefix;
-  const crumbs: BreadcrumbItem[] = [{label, prefix: rootPrefix}];
-
-  if (!prefix || prefix === rootPrefix) return crumbs;
-
-  const allParts = prefix.split('/').filter(Boolean);
-  const subParts = allParts.slice(rootParts.length);
-  subParts.forEach((part, i) => {
-    crumbs.push({
-      label: part,
-      prefix: [...rootParts, ...subParts.slice(0, i + 1)].join('/') + '/'
-    });
-  });
-
-  return crumbs;
-}
 
 // ─── Icons (inline, no icon library — SPEC-024) ───────────────────────────────
 
@@ -534,8 +487,7 @@ function FileBrowserContent({
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
   // throwing. The hidden marker is filtered out, so it never exposes this action.
-  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const dl = useFileDownload(bucket);
 
   // SPEC-017: the file whose read-only metadata drawer is open (null = closed).
   const [detailsFile, setDetailsFile] = useState<S3FileItem | null>(null);
@@ -544,21 +496,6 @@ function FileBrowserContent({
   const [detailsFolder, setDetailsFolder] = useState<S3FolderItem | null>(null);
   // SPEC-113: the one selected file/folder awaiting a data-quality check (null = closed).
   const [checkingQuality, setCheckingQuality] = useState<SelectableItem | null>(null);
-
-  async function handleDownload(file: S3FileItem) {
-    // Don't start a second download for a key already in flight (SPEC-081 FR-002:
-    // a rapid second double-click is a no-op; the button flow uses `disabled`).
-    if (downloadingKey === file.key) return;
-    setDownloadingKey(file.key);
-    setDownloadError(null);
-    const result = await getDownloadUrl({bucket, key: file.key, fileName: file.name});
-    setDownloadingKey(null);
-    if (result.success) {
-      triggerBrowserDownload(result.data.url);
-    } else {
-      setDownloadError(`Could not download ${file.name}. ${toUserMessage(result.error).message}`);
-    }
-  }
 
   async function handleConfirmDelete() {
     const items = [...selection.selected.values()];
@@ -759,136 +696,47 @@ function FileBrowserContent({
       )}
 
       {/* Download error (SPEC-015) — dismissible, non-blocking */}
-      {downloadError && (
+      {dl.error && (
         <Banner
           variant="danger"
-          onDismiss={() => setDownloadError(null)}
+          onDismiss={dl.dismissError}
           className="mb-4">
-          {downloadError}
+          {dl.error}
         </Banner>
       )}
 
-      {/* Delete systemic error (SPEC-018 FR-004) — dismissible */}
-      {del.error && (
-        <Banner
-          variant="danger"
-          onDismiss={del.dismissError}
-          className="mb-4">
-          {del.error}
-        </Banner>
-      )}
+      {/* Delete / move / copy feedback (SPEC-018 FR-004, SPEC-019 FR-004, SPEC-039 FR-004):
+          the systemic error, the result summary, progress and the batch overwrite
+          confirmation. One component, three operations — see OperationFeedback. */}
+      <OperationFeedback
+        op={del}
+        pastVerb="Deleted"
+        failVerb="delete"
+      />
+      <OperationFeedback
+        op={move}
+        pastVerb="Moved"
+        failVerb="move"
+        progressVerb="Moving">
+        {/* Rename collision (SPEC-019 FR-005) — Overwrite or pick a new name. Not part
+            of the shared state: it is single-item, so a new name is offered too. */}
+        {move.renameCollision && (
+          <CollisionPrompt
+            kind={move.renameCollision.kind}
+            name={move.renameCollision.label}
+            onOverwrite={move.renameCollision.onOverwrite}
+            onRename={move.renameCollision.onRename}
+            onCancel={move.renameCollision.onCancel}
+          />
+        )}
+      </OperationFeedback>
 
-      {/* Delete result (SPEC-018 FR-004) — success count + any partial failures */}
-      {del.summary && (
-        <OperationSummaryBanner
-          pastVerb="Deleted"
-          failVerb="delete"
-          count={del.summary.deletedCount}
-          errors={del.summary.errors.map((e) => ({
-            label: lastSegment(e.key),
-            message: e.message,
-            code: e.code
-          }))}
-          onDismiss={del.dismissSummary}
-        />
-      )}
-
-      {/* Move systemic error (SPEC-019 FR-004) — dismissible */}
-      {move.error && (
-        <Banner
-          variant="danger"
-          onDismiss={move.dismissError}
-          className="mb-4">
-          {move.error}
-        </Banner>
-      )}
-
-      {/* Move result (SPEC-019 FR-004) — success count + any partial failures */}
-      {move.summary && (
-        <OperationSummaryBanner
-          pastVerb="Moved"
-          failVerb="move"
-          count={move.summary.movedCount}
-          errors={move.summary.errors.map((e) => ({
-            label: lastSegment(e.key),
-            message: e.message,
-            code: e.code
-          }))}
-          onDismiss={move.dismissSummary}
-        />
-      )}
-
-      {/* Move progress for large folders (SPEC-019 FR-004) */}
-      {move.isBusy && move.progress !== null && (
-        <div
-          role="status"
-          className="mb-4 text-sm text-text-2">
-          Moving… {move.progress}%
-        </div>
-      )}
-
-      {/* Rename collision (SPEC-019 FR-005) — Overwrite or pick a new name */}
-      {move.renameCollision && (
-        <CollisionPrompt
-          kind={move.renameCollision.kind}
-          name={move.renameCollision.label}
-          onOverwrite={move.renameCollision.onOverwrite}
-          onRename={move.renameCollision.onRename}
-          onCancel={move.renameCollision.onCancel}
-        />
-      )}
-
-      {/* Move collision (SPEC-019 FR-005) — one Overwrite-all/Cancel for the batch */}
-      {move.moveCollision && (
-        <BatchOverwritePrompt
-          count={move.moveCollision.count}
-          onOverwriteAll={move.moveCollision.onOverwriteAll}
-          onCancel={move.moveCollision.onCancel}
-        />
-      )}
-
-      {/* Copy systemic error (SPEC-039 FR-004) — dismissible */}
-      {copy.error && (
-        <Banner
-          variant="danger"
-          onDismiss={copy.dismissError}
-          className="mb-4">
-          {copy.error}
-        </Banner>
-      )}
-
-      {/* Copy result (SPEC-039 FR-004) — success count + any partial failures */}
-      {copy.summary && (
-        <OperationSummaryBanner
-          pastVerb="Copied"
-          failVerb="copy"
-          count={copy.summary.copiedCount}
-          errors={copy.summary.errors.map((e) => ({
-            label: lastSegment(e.item),
-            message: e.message,
-            code: e.code
-          }))}
-          onDismiss={copy.dismissSummary}
-        />
-      )}
-
-      {/* Copy progress for large folders (SPEC-039 FR-004) */}
-      {copy.isBusy && copy.progress !== null && (
-        <div
-          role="status"
-          className="mb-4 text-sm text-text-2">
-          Copying… {copy.progress}%
-        </div>
-      )}
-
-      {/* Copy collision (SPEC-039 FR-005) — one Overwrite-all/Cancel for the batch */}
-      {copy.copyCollision && (
-        <BatchOverwritePrompt
-          count={copy.copyCollision.count}
-          onOverwriteAll={copy.copyCollision.onOverwriteAll}
-          onCancel={copy.copyCollision.onCancel}
-        />
-      )}
+      <OperationFeedback
+        op={copy}
+        pastVerb="Copied"
+        failVerb="copy"
+        progressVerb="Copying"
+      />
 
       {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039 + SPEC-113) — select all +
           bulk copy/move/delete + the single-item data-quality check */}
@@ -899,7 +747,7 @@ function FileBrowserContent({
           onRequestMove={() => setMoving([...selection.selected.values()])}
           onRequestCopy={() => setCopying([...selection.selected.values()])}
           onRequestQualityCheck={username ? () => setCheckingQuality(selectedItems[0] ?? null) : undefined}
-          isBusy={del.isDeleting || move.isBusy || copy.isBusy || downloadingKey !== null}
+          isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}
         />
       )}
 
@@ -937,7 +785,7 @@ function FileBrowserContent({
           ) : (
             <>
               <p className="font-medium">Failed to load files</p>
-              <p className="mt-1 text-sm">{toUserMessage(error).message}</p>
+              <p className="mt-1 text-sm">{toUserText(error)}</p>
             </>
           )}
         </div>
@@ -1005,9 +853,9 @@ function FileBrowserContent({
                 key={file.key}
                 kind="file"
                 file={file}
-                onActivate={() => void handleDownload(file)}
+                onActivate={() => void dl.download(file)}
                 onDetails={setDetailsFile}
-                isDownloading={downloadingKey === file.key}
+                isDownloading={dl.downloadingKey === file.key}
                 selectable={canModify}
                 isSelected={selection.isSelected(file.key)}
                 onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}
@@ -1058,11 +906,11 @@ function FileBrowserContent({
                   file={file}
                   // Read-only browse has no selection toolbar, so keep a per-row
                   // Download there; the authenticated flow downloads from the toolbar.
-                  onDownload={canModify ? undefined : handleDownload}
+                  onDownload={canModify ? undefined : dl.download}
                   // SPEC-081: double-click downloads in both flows.
-                  onActivate={() => void handleDownload(file)}
+                  onActivate={() => void dl.download(file)}
                   onDetails={setDetailsFile}
-                  isDownloading={downloadingKey === file.key}
+                  isDownloading={dl.downloadingKey === file.key}
                   selectable={canModify}
                   isSelected={selection.isSelected(file.key)}
                   onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}
@@ -1100,7 +948,7 @@ function FileBrowserContent({
       {confirmOpen && (
         <DeleteConfirmDialog
           items={selectedItems}
-          isDeleting={del.isDeleting}
+          isDeleting={del.isBusy}
           onConfirm={handleConfirmDelete}
           onCancel={() => setConfirmOpen(false)}
         />

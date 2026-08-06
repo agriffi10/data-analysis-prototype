@@ -57,7 +57,7 @@ describe('useCopy — copy to a different folder', () => {
       )
     );
 
-    await waitFor(() => expect(result.current.summary).toEqual({copiedCount: 3, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 3, errors: []}));
     expect(mockCopyObject).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceKey: 'alice/docs/f.txt',
@@ -91,11 +91,11 @@ describe('useCopy — copy to a different folder', () => {
     const {result} = render();
     act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
 
-    await waitFor(() => expect(result.current.copyCollision).not.toBeNull());
-    expect(result.current.copyCollision?.count).toBe(1);
+    await waitFor(() => expect(result.current.collision).not.toBeNull());
+    expect(result.current.collision?.count).toBe(1);
 
-    act(() => result.current.copyCollision?.onOverwriteAll());
-    await waitFor(() => expect(result.current.summary).toEqual({copiedCount: 1, errors: []}));
+    act(() => result.current.collision?.onOverwriteAll());
+    await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
     expect(mockCopyObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
   });
 
@@ -113,8 +113,8 @@ describe('useCopy — copy to a different folder', () => {
 
     await waitFor(() => expect(result.current.summary).not.toBeNull());
     expect(result.current.summary).toEqual({
-      copiedCount: 1,
-      errors: [{item: 'alice/docs/x/locked', message: 'Access Denied'}]
+      count: 1,
+      errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
     });
   });
 
@@ -174,7 +174,7 @@ describe('useCopy — same-folder copy (auto-number, FR-003)', () => {
     expect(result.current.sameFolderPrompt?.proposedName).toBe('notes (1)');
 
     act(() => result.current.sameFolderPrompt?.onConfirm('notes (1)'));
-    await waitFor(() => expect(result.current.summary).toEqual({copiedCount: 1, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
     expect(mockCopyFolder).toHaveBeenCalledWith(
       expect.objectContaining({
         sourcePrefix: 'alice/docs/notes/',
@@ -197,7 +197,7 @@ describe('useCopy — same-folder copy (auto-number, FR-003)', () => {
     await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
     act(() => result.current.sameFolderPrompt?.onConfirm('my copy.pdf'));
 
-    await waitFor(() => expect(result.current.summary).toEqual({copiedCount: 1, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
     expect(mockCopyObject).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceKey: 'alice/docs/report.pdf',

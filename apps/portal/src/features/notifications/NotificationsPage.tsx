@@ -9,7 +9,7 @@ import {usePageTitle} from '../../hooks/usePageTitle';
 import {useClientPager} from '../../hooks/useClientPager';
 import {useAuth} from '../auth';
 import {useToast} from '../../components/toastContext';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {useNotifications} from './useNotifications';
 import {NotificationRow} from './NotificationRow';
 
@@ -34,7 +34,7 @@ export function NotificationsPage() {
 
   const toast = useToast();
   const {notifications, unreadCount, isLoading, isError, refresh, markRead, markAllRead} = useNotifications(username, {
-    onMutationError: (error) => toast.push({variant: 'danger', message: toUserMessage(error).message}),
+    onMutationError: (error) => toast.push({variant: 'danger', message: toUserText(error)}),
     // Stop the 60s background poll while the user is on this page so it can't re-pull
     // the inbox and fight in-page mark-read actions (the writer is the async source of
     // truth); the header bell keeps polling for new arrivals.

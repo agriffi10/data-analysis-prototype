@@ -188,6 +188,27 @@ const STMT_MAX_POLLS = 90; // ~36s ceiling for these short statements
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * The caller stopped waiting — NOT a failure of the statement, which is still running in
+ * Athena and will finish.
+ *
+ * Its own code, deliberately: `'Cancelled'` is already owned by an upload rule whose
+ * text is "Upload cancelled.", so reusing it made an abandoned poll announce itself on
+ * whatever page the user had navigated to. Callers are expected to recognise
+ * {@link isAbandoned} and say NOTHING — there is no one to tell, and nothing went wrong.
+ */
+export const ABANDONED_CODE = 'Abandoned';
+
+const ABANDONED: ServiceResult<QueryStatus> = {
+  success: false,
+  error: {message: 'Stopped waiting for the query.', code: ABANDONED_CODE}
+};
+
+/** Did this result come back only because the caller stopped waiting? */
+export function isAbandoned(result: ServiceResult<unknown>): boolean {
+  return !result.success && result.error.code === ABANDONED_CODE;
+}
+
+/**
  * Run a statement and poll it to a terminal state, returning the final
  * {@link QueryStatus} (SPEC-044). Succeeds for ANY terminal state — the caller inspects
  * `.state`. Used by internal/background runs (View DDL, Drop table) that aren't driven
@@ -197,12 +218,20 @@ export async function runStatementToCompletion(p: {
   sql: string;
   database: string;
   username: string;
+  /**
+   * Stop polling. Checked before every status call and again after every wait, so a
+   * caller that navigates away stops within one interval rather than continuing for
+   * the full `STMT_MAX_POLLS` — roughly 36 s of requests nobody is waiting for.
+   * The statement itself keeps running in Athena; only this poller gives up.
+   */
+  signal?: AbortSignal;
 }): Promise<ServiceResult<QueryStatus>> {
   const started = await runQuery(p);
   if (!started.success) return started;
   const id = started.data.queryExecutionId;
 
   for (let i = 0; i < STMT_MAX_POLLS; i++) {
+    if (p.signal?.aborted) return ABANDONED;
     const status = await getQueryStatus(id);
     if (!status.success) return status;
     if (isTerminalState(status.data.state)) return status;
@@ -213,6 +242,7 @@ export async function runStatementToCompletion(p: {
       };
     }
     await delay(STMT_POLL_INTERVAL_MS);
+    if (p.signal?.aborted) return ABANDONED;
   }
   // Unreachable (the loop returns), but satisfies the type checker.
   return {success: false, error: {message: 'Polling ended unexpectedly', code: 'Timeout'}};

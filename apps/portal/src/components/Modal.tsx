@@ -1,7 +1,8 @@
 import {useRef, type ReactNode} from 'react';
 import {FocusTrap} from 'focus-trap-react';
 import {cx} from '../lib/cx';
-import {useEscapeKey} from '../hooks/useEscapeKey';
+import {useEscapeBlock, useEscapeKey} from '../hooks/useEscapeKey';
+import {EscapeLayer} from './EscapeLayer';
 
 type ModalProps = {
   onDismiss: () => void;
@@ -34,6 +35,8 @@ type ModalProps = {
  */
 export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true, className, children}: ModalProps) {
   useEscapeKey(onDismiss, dismissible);
+  // Present but refusing: swallow Escape rather than let it dismiss whatever is behind.
+  useEscapeBlock(!dismissible);
   const panelRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -69,7 +72,9 @@ export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true
             className ?? 'max-w-md'
           )}
           onClick={(e) => e.stopPropagation()}>
-          {children}
+          {/* Anything opened from inside this modal is one layer deeper, so it wins
+              Escape without either side coordinating. */}
+          <EscapeLayer>{children}</EscapeLayer>
         </div>
       </div>
     </FocusTrap>

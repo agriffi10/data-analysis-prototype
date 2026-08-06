@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {toUserMessage} from './errorMessages';
+import {logBackgroundFailure, toUserMessage, toUserText} from './errorMessages';
 
 const RAW_AWS = 'AccessDenied: User: arn:aws:sts::123:assumed-role/portal is not authorized to perform s3:GetObject';
 
@@ -99,5 +99,56 @@ describe('toUserMessage', () => {
     expect(warn).not.toHaveBeenCalled();
     expect(message).not.toContain('arn:aws');
     expect(message).toBe("You don't have permission to do that. Contact the Administrator.");
+  });
+});
+
+describe('toUserText (SPEC-155 FR-008)', () => {
+  it('is exactly toUserMessage(...).message', () => {
+    // One delegation, no second rule table — the property that makes the 40-site
+    // rename safe. Asserted across a coded rule, a match rule and the fallback.
+    for (const error of [
+      {code: 'AccessDenied', message: 'Access Denied'},
+      {name: 'NoSuchKey', message: 'The specified key does not exist.'},
+      {message: 'something nobody has a rule for'},
+      'a bare string',
+      null
+    ]) {
+      expect(toUserText(error)).toBe(toUserMessage(error).message);
+    }
+  });
+
+  it('accepts the {code, message} pair the six manual rebuilds used to construct', () => {
+    expect(toUserText({code: 'AccessDenied', message: 'Access Denied'})).toBe(
+      toUserMessage({code: 'AccessDenied', message: 'Access Denied'}).message
+    );
+  });
+
+  it('never returns the raw service text for a mapped code', () => {
+    expect(toUserText({code: 'AccessDenied', message: 'Access Denied'})).not.toContain('Access Denied');
+  });
+});
+
+describe('logBackgroundFailure (SPEC-155 FR-006)', () => {
+  it('tags the scope in dev', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('DEV', true);
+
+    logBackgroundFailure('query-history', new Error('append failed'));
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toContain('[query-history]');
+    warn.mockRestore();
+    vi.unstubAllEnvs();
+  });
+
+  it('says nothing in production — a user console never carries our internals', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('DEV', false);
+
+    logBackgroundFailure('query-history', new Error('append failed'));
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+    vi.unstubAllEnvs();
   });
 });

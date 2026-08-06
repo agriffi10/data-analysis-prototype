@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {Button} from '../../components/Button';
 import {useToast} from '../../components/toastContext';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {lastSegment} from '../file-browser/fileBrowser.paths';
 import {CreateTableDialog} from './CreateTableDialog';
 import {enqueueTableBuild} from './tableBuild.service';
@@ -52,7 +52,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
       });
     } else {
       // Keep the dialog open so the user can retry (FR-004 — no silent failure).
-      setSubmitError(toUserMessage(result.error).message);
+      setSubmitError(toUserText(result.error));
     }
   };
 

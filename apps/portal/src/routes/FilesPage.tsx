@@ -18,6 +18,7 @@ import {useAcknowledgeMembership} from '../features/shared-spaces';
 import type {Connection} from '../features/query/query.types';
 import {usePageTitle} from '../hooks/usePageTitle';
 import {spaceBuckets} from '../lib/userSpace';
+import {logBackgroundFailure} from '../lib/errorMessages';
 
 // Dev-only fallback: browse a static/public test bucket without auth for local
 // work without AWS. Honoured ONLY in a dev build (matches the service +
@@ -63,7 +64,7 @@ export default function FilesPage() {
     void (async () => {
       const result = await ensurePrefixMarker({bucket: userSpaceBucket, username: user.username});
       if (!result.success) {
-        console.warn(`[prefix-marker] could not ensure marker: ${result.error.message}`);
+        logBackgroundFailure('prefix-marker', result.error.message);
       }
     })();
   }, [user, userSpaceBucket]);

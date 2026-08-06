@@ -192,7 +192,7 @@ describe('FileBrowser — listing states', () => {
     await user.click(screen.getByRole('button', {name: 'Load more'}));
     expect(await screen.findByText('page2.csv')).toBeInTheDocument();
     expect(mock.listFiles).toHaveBeenCalledTimes(2);
-    expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', 't1');
+    expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', 't1', expect.any(AbortSignal));
   });
 });
 
@@ -200,10 +200,14 @@ describe('FileBrowser — navigation', () => {
   it('drills into a folder and back out via the breadcrumb', async () => {
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('button', {name: 'Open folder docs'}));
-    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/docs/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/docs/', undefined, expect.any(AbortSignal))
+    );
     expect(screen.getByText('docs', {selector: '[aria-current="page"]'})).toBeInTheDocument();
     await user.click(screen.getByRole('button', {name: 'My Files'}));
-    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined, expect.any(AbortSignal))
+    );
   });
 
   it('hides the raw username segment behind rootLabel and never shows Home', async () => {
@@ -218,7 +222,9 @@ describe('FileBrowser — navigation', () => {
     const {user} = renderBrowser({prefix: 'alice/docs/'});
     const up = await screen.findByRole('button', {name: /parent folder/i});
     await user.click(up);
-    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined, expect.any(AbortSignal))
+    );
   });
 
   it('does not show a .. row at the space root', async () => {
@@ -539,7 +545,7 @@ describe('FileBrowser — responsive', () => {
 // ── SPEC-154 FR-003: a collision is RESOLVED through the UI ─────────────────
 //
 // The suite asserted the prompt APPEARS and stopped there; resolution was invoked on hook
-// internals (`act(() => result.current.copyCollision?.onOverwriteAll())`). So the
+// internals (`act(() => result.current.collision?.onOverwriteAll())`). So the
 // retry-with-`overwrite: true` round trip had never been observed by a user-driven test — on
 // a flow CLAUDE.md flags as non-atomic and collision-prone, where the wrong answer silently
 // destroys a file.

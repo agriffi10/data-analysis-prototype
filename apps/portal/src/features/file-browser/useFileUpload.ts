@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {uploadFile, createFolder, uploadPercent} from './fileBrowser.service';
 
 // What the user is being asked to confirm when a name already exists (FR-003).
@@ -63,7 +63,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
         retry: (decision) => runUpload(file, 'overwrite' in decision, 'rename' in decision ? decision.rename : name)
       });
     } else {
-      setError(toUserMessage(result.error).message);
+      setError(toUserText(result.error));
     }
   }
 
@@ -83,7 +83,7 @@ export function useFileUpload(bucket: string, prefix: string): UseFileUploadResu
           'overwrite' in decision ? runCreateFolder(name, true) : runCreateFolder(decision.rename, false)
       });
     } else {
-      setError(toUserMessage(result.error).message);
+      setError(toUserText(result.error));
     }
   }
 

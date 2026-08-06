@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {Banner} from '../../components/Banner';
 import {Drawer} from '../../components/Drawer';
 import {RefreshIconButton} from '../../components/RefreshIconButton';
@@ -97,7 +97,7 @@ export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, r
         <Banner
           variant="danger"
           title="Couldn’t load history.">
-          {toUserMessage(error).message}
+          {toUserText(error)}
         </Banner>
       )}
       {isLoading ? (

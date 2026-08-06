@@ -46,14 +46,16 @@ describe('Drawer', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it('ignores Escape when closeOnEscape is false', () => {
+  it('ignores Escape while closed', () => {
+    // Replaces the old `closeOnEscape={false}` case: that prop is gone (SPEC-155 FR-006 —
+    // a nested dialog outranks the drawer by tree depth, so nothing has to opt out).
+    // What still matters is that a CLOSED drawer holds no claim on the key at all.
     const onClose = vi.fn();
     render(
       <Drawer
-        open
+        open={false}
         onClose={onClose}
-        title="History"
-        closeOnEscape={false}>
+        title="History">
         body
       </Drawer>
     );

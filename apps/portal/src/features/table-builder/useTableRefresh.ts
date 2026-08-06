@@ -2,7 +2,7 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {invalidateSchema} from '../query/useSchema';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {enqueueTableRefresh} from './tableBuild.service';
 import {parseTableLocation} from './tableRefresh.location';
 import type {GlueTableSummary} from '../query/query.types';
@@ -116,7 +116,7 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
         });
         setBusy(false);
         if (!result.success) {
-          setError(toUserMessage(result.error).message);
+          setError(toUserText(result.error));
           return;
         }
         const {database, table} = target;

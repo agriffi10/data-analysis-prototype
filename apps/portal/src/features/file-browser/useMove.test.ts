@@ -36,7 +36,7 @@ describe('useMove — rename', () => {
     const {result} = render();
     act(() => result.current.renameItem({type: 'file', key: 'alice/docs/old.txt'}, 'new.txt'));
 
-    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 1, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
     expect(mockMoveObject).toHaveBeenCalledWith({
       bucket: 'us',
       sourceKey: 'alice/docs/old.txt',
@@ -56,7 +56,7 @@ describe('useMove — rename', () => {
     const {result} = render();
     act(() => result.current.renameItem({type: 'folder', prefix: 'alice/docs/old/'}, 'new'));
 
-    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 2, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 2, errors: []}));
     expect(mockMoveFolder).toHaveBeenCalledWith(
       expect.objectContaining({
         bucket: 'us',
@@ -86,7 +86,7 @@ describe('useMove — rename', () => {
     expect(result.current.renameCollision?.kind).toBe('file');
 
     act(() => result.current.renameCollision?.onOverwrite());
-    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 1, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
     expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
   });
 
@@ -121,7 +121,7 @@ describe('useMove — move', () => {
       )
     );
 
-    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 3, errors: []}));
+    await waitFor(() => expect(result.current.summary).toEqual({count: 3, errors: []}));
     expect(mockMoveObject).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceKey: 'alice/docs/f.txt',
@@ -154,11 +154,11 @@ describe('useMove — move', () => {
     const {result} = render();
     act(() => result.current.moveItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
 
-    await waitFor(() => expect(result.current.moveCollision).not.toBeNull());
-    expect(result.current.moveCollision?.count).toBe(1);
+    await waitFor(() => expect(result.current.collision).not.toBeNull());
+    expect(result.current.collision?.count).toBe(1);
 
-    act(() => result.current.moveCollision?.onOverwriteAll());
-    await waitFor(() => expect(result.current.summary).toEqual({movedCount: 1, errors: []}));
+    act(() => result.current.collision?.onOverwriteAll());
+    await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
     expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
   });
 
@@ -176,7 +176,7 @@ describe('useMove — move', () => {
 
     await waitFor(() => expect(result.current.summary).not.toBeNull());
     expect(result.current.summary).toEqual({
-      movedCount: 1,
+      count: 1,
       errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
     });
   });

@@ -7,7 +7,7 @@ import {formatAbsoluteDate} from '../../lib/format';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {useToast} from '../../components/toastContext';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 import {useCreateSharedConnection} from './useCreateSharedConnection';
 import {useManageMembers} from './useManageMembers';
@@ -133,7 +133,7 @@ export function ConnectionsPage() {
       toast.push({variant: 'success', message: `Creating “${name}”…`});
       void reconcile(); // auto-poll until the pipeline writes the cache
     } else {
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 
@@ -147,7 +147,7 @@ export function ConnectionsPage() {
       });
       void reconcile();
     } else {
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 
@@ -160,7 +160,7 @@ export function ConnectionsPage() {
       });
       void reconcile();
     } else {
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 
@@ -172,7 +172,7 @@ export function ConnectionsPage() {
       toast.push({variant: 'success', message: `Leaving “${space}”…`});
       void reconcile();
     } else {
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 
@@ -184,7 +184,7 @@ export function ConnectionsPage() {
       toast.push({variant: 'success', message: `Deleting “${space}”…`});
       void reconcile();
     } else {
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 
@@ -202,7 +202,7 @@ export function ConnectionsPage() {
         next.delete(name);
         return next;
       });
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 
@@ -218,7 +218,7 @@ export function ConnectionsPage() {
         next.delete(name);
         return next;
       });
-      toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+      toast.push({variant: 'danger', message: toUserText(result.error)});
     }
   };
 

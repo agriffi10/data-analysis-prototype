@@ -84,8 +84,9 @@ export function ManageMembersDrawer({
           </Button>
         </div>
       }
-      // While a nested dialog is open it owns Escape.
-      closeOnEscape={!addOpen && !removing}>
+      // SPEC-155 FR-006: no `closeOnEscape` gate — `useEscapeKey` dispatches by tree
+      // depth, so a dialog opened from inside this drawer takes Escape on its own.
+    >
       {unavailable && (
         <Banner variant="info">
           Member details aren&apos;t available yet — add or remove a member, then Refresh connections to load the list.

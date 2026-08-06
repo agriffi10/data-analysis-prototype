@@ -1,11 +1,12 @@
 import {useEffect, useRef, useState} from 'react';
 import {useFileBrowser} from './useFileBrowser';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import type {SelectableItem} from './selectionContext';
 import type {FileSpaceTarget} from './useFileSpace';
 import {Button} from '../../components/Button';
 import {cx} from '../../lib/cx';
 import {PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
+import {buildBreadcrumbs, parentPrefix} from './fileBrowser.paths';
 
 type BaseProps = {
   bucket: string; // the SOURCE space's bucket (also the default destination)
@@ -68,8 +69,6 @@ type Props = BaseProps &
     | {selectableFiles?: false; markerKey?: string}
   );
 
-type Crumb = {label: string; prefix: string};
-
 // Is this folder prefix an app-managed root folder (athenaresults/ results or
 // user_settings/), which is never a valid move/copy destination? Only the
 // user-root instance is locked (SPEC-032/043).
@@ -80,31 +79,6 @@ function isProtectedFolder(folderPrefix: string, rootPrefix: string): boolean {
 // Parent of a browse prefix, clamped to the navigation floor so the picker can
 // never climb above the user's own space: `alice/a/b/` → `alice/a/`, and
 // `alice/a/` → `alice/` (the root). Used by the ".." up-navigation row.
-function parentOf(prefix: string, rootPrefix: string): string {
-  const parts = prefix.replace(/\/$/, '').split('/');
-  parts.pop();
-  const parent = parts.length > 0 ? parts.join('/') + '/' : '';
-  return parent.length < rootPrefix.length ? rootPrefix : parent;
-}
-
-// Clamped breadcrumb from rootPrefix down to the browsed prefix (the username
-// segment is never shown — rootLabel stands in for the root crumb).
-function crumbsFor(browsePrefix: string, rootPrefix: string, rootLabel?: string): Crumb[] {
-  const rootParts = rootPrefix.split('/').filter(Boolean);
-  const label = rootLabel ?? rootParts[rootParts.length - 1] ?? 'Home';
-  const crumbs: Crumb[] = [{label, prefix: rootPrefix}];
-  if (browsePrefix === rootPrefix) return crumbs;
-
-  const sub = browsePrefix.split('/').filter(Boolean).slice(rootParts.length);
-  sub.forEach((part, i) => {
-    crumbs.push({
-      label: part,
-      prefix: [...rootParts, ...sub.slice(0, i + 1)].join('/') + '/'
-    });
-  });
-  return crumbs;
-}
-
 // SPEC-039 FR-006: the shared destination-folder picker used by both Move
 // (SPEC-019) and Copy. Lists only folders within the user's own space
 // (navigable), excludes the folders being operated on (can't descend into them)
@@ -238,7 +212,7 @@ export function DestinationPicker({
         ? "There's nothing here to check. Open a folder that has files in it."
         : undefined;
 
-  const crumbs = crumbsFor(browsePrefix, active.rootPrefix, active.label);
+  const crumbs = buildBreadcrumbs(browsePrefix, active.rootPrefix, active.label);
 
   return (
     <>
@@ -295,7 +269,10 @@ export function DestinationPicker({
                 ) : (
                   <button
                     className="hover:text-text hover:underline"
-                    onClick={() => navigateTo(crumb.prefix)}>
+                    // A crumb's prefix is only `undefined` in the unclamped dev-unauth
+                    // breadcrumb, which this picker never renders — it always has a
+                    // space root. Falling back to the root keeps the clamp total.
+                    onClick={() => navigateTo(crumb.prefix ?? active.rootPrefix)}>
                     {crumb.label}
                   </button>
                 )}
@@ -320,7 +297,7 @@ export function DestinationPicker({
             <p
               role="alert"
               className="p-4 text-sm text-danger">
-              {toUserMessage(error).message}
+              {toUserText(error)}
             </p>
           )}
           {!isLoading && error === null && navigableFolders.length === 0 && files.length === 0 && (
@@ -335,7 +312,7 @@ export function DestinationPicker({
               <li>
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                  onClick={() => navigateTo(parentOf(browsePrefix, active.rootPrefix))}
+                  onClick={() => navigateTo(parentPrefix(browsePrefix, active.rootPrefix))}
                   aria-label="Go up to parent folder">
                   <svg
                     viewBox="0 0 20 20"

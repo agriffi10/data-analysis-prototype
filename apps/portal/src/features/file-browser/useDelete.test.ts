@@ -59,7 +59,7 @@ describe('useDelete', () => {
       // athenaresults/ from a like-named user folder (SPEC-150 FR-007).
       rootPrefix: 'alice/'
     });
-    expect(summary).toEqual({deletedCount: 4, errors: []});
+    expect(summary).toEqual({count: 4, errors: []});
     expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/');
   });
 
@@ -126,7 +126,7 @@ describe('useDelete', () => {
 
     expect(mockDeleteFolder).toHaveBeenCalledTimes(2);
     expect(summary).toEqual({
-      deletedCount: 1,
+      count: 1,
       errors: [{key: 'alice/p/', message: 'Access Denied', code: 'AccessDenied'}]
     });
     expect(mockInvalidate).toHaveBeenCalled();
@@ -148,7 +148,7 @@ describe('useDelete', () => {
     });
 
     expect(summary).toEqual({
-      deletedCount: 1,
+      count: 1,
       errors: [{key: 'alice/DO_NOT_DELETE.txt', message: 'cannot be deleted'}]
     });
   });

@@ -100,7 +100,8 @@ describe('ManageMembersDrawer (SPEC-053 FR-001/003)', () => {
 describe('ManageMembersDrawer — the Escape order in the live tree (SPEC-148 FR-006)', () => {
   it('closes the suggestion list, then the dialog, then the drawer', async () => {
     // SPEC-147 FR-004 specifies the mechanism and tests it against a fixture; this verifies it
-    // in the REAL composition, where the drawer gates `closeOnEscape` on `!addOpen && !removing`.
+    // in the REAL composition. Since SPEC-155 FR-006 the drawer needs no `closeOnEscape`
+    // gate: `useEscapeKey` dispatches to the deepest layer, and the dialog is nested inside.
     const onClose = vi.fn();
     const {user} = renderWithProviders(
       <ManageMembersDrawer

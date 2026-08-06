@@ -3,6 +3,7 @@ import {FocusTrap} from 'focus-trap-react';
 import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {useEscapeKey} from '../hooks/useEscapeKey';
+import {EscapeLayer} from './EscapeLayer';
 
 /** Below `tablet`, how the drawer presents: docked bottom sheet or full-height sheet. */
 export type DrawerMobileVariant = 'bottom-sheet' | 'full-height';
@@ -27,7 +28,6 @@ type DrawerProps = {
   /** Close-button label; defaults to `Close {title}`. */
   closeLabel?: string;
   /** Escape closes the drawer; pass false while a nested dialog owns Escape. */
-  closeOnEscape?: boolean;
   /** Rendered after the title (e.g. a destination hint). */
   headerAccessory?: ReactNode;
   /** Body flex-gap override; defaults to `gap-3`. */
@@ -40,8 +40,8 @@ type DrawerProps = {
 /**
  * Slide-over drawer: scrim + panel + header with close button + scrollable body.
  * Traps focus while open and restores it to the trigger on close; Escape and
- * backdrop click both dismiss (Escape is opt-out via `closeOnEscape` when a
- * nested dialog owns it). Desktop (≥ tablet) is a 440px right slide-over; below
+ * backdrop click both dismiss. A nested dialog takes Escape on its own — `useEscapeKey`
+ * dispatches by tree depth (SPEC-155 FR-006), so there is no opt-out to remember. Desktop (≥ tablet) is a 440px right slide-over; below
  * tablet it becomes a full-width sheet — a docked bottom sheet or a full-height
  * sheet per `mobileVariant` (SPEC-095).
  *
@@ -58,14 +58,13 @@ export function Drawer({
   subtitle,
   ariaLabel,
   closeLabel,
-  closeOnEscape = true,
   mobileVariant = 'bottom-sheet',
   headerAccessory,
   bodyClassName = 'gap-3',
   children,
   footer
 }: DrawerProps) {
-  useEscapeKey(onClose, open && closeOnEscape);
+  useEscapeKey(onClose, open);
   const panelRef = useRef<HTMLElement>(null);
 
   if (!open) return null;
@@ -124,7 +123,11 @@ export function Drawer({
             </IconButton>
           </div>
 
-          <div className={cx('flex min-h-0 flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>{children}</div>
+          <div className={cx('flex min-h-0 flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>
+            {/* A dialog opened from inside this drawer is one layer deeper, so Escape
+                closes it and leaves the drawer alone. */}
+            <EscapeLayer>{children}</EscapeLayer>
+          </div>
 
           {footer}
         </aside>
