@@ -1,7 +1,7 @@
 # Spec: Control-Plane Correctness — Single-File Checks, Teardown Integrity & DDL Escaping
 
 **ID:** SPEC-151
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-110 (`dq_inspect_source` and the manifest this spec re-scopes), SPEC-112 (the data-quality report shape whose internal consistency FR-001 restores), SPEC-054 (the shared-space teardown acceptance criterion FR-003 finally meets), SPEC-125 (`shared-space-common`, `casio`), SPEC-107 (`cpcommon`), SPEC-070 (`cpcommon.ddl` and the create path FR-006 escapes)
 
