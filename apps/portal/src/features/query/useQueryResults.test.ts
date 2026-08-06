@@ -28,6 +28,16 @@ beforeEach(() => {
 });
 
 // pageSize = 2 in these tests so the range math is easy to assert.
+/*
+ * SCOPE NOTE (SPEC-154 FR-005 AC6). Two of the cases below — Next fetching forward, and Prev
+ * returning from cache — are now ALSO driven through the UI in `QueryWorkspace.test.tsx`,
+ * which is where a broken pager button or an unwired token would actually surface. They are
+ * kept here rather than deleted because this file asserts the STATE DERIVATION the workspace
+ * cannot see: `pageIndex`, `hasPrev`/`hasNext`, the row NUMBERING across pages of unequal
+ * length, the reset on a new execution id, and the per-execution page memory. §21 forbids
+ * testing the same LOGIC at two levels; the same FLOW at two levels, with each asserting what
+ * only it can, is the split the rulebook asks for.
+ */
 describe('useQueryResults', () => {
   it('loads the first page and reports that more is available', async () => {
     const {result} = renderHookWithProviders(() => useQueryResults('q-1', 2));

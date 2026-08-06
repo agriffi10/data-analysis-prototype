@@ -2,6 +2,7 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen, within, waitFor} from '@testing-library/react';
 import {useLocation} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
+import {QueryClient} from '@tanstack/react-query';
 import {authenticated} from '../../test/authFixtures';
 import {NavRailProvider} from '../../components/NavRailProvider';
 import {useNavRailContent} from '../../components/navRailContext';
@@ -136,7 +137,7 @@ import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
 import {enqueueTableShare} from '../table-share/tableShare.service';
 import {QueryWorkspace} from './QueryWorkspace';
-import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
+import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX, DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
 import type {QueryTabsState, QueryState} from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
@@ -209,13 +210,13 @@ function LocationProbe() {
   return <span aria-label="probe-location">{`${loc.pathname}${loc.search}`}</span>;
 }
 
-function renderWorkspace(route?: string) {
+function renderWorkspace(route?: string, options: {queryClient?: QueryClient} = {}) {
   return renderWithProviders(
     <>
       <QueryWorkspace />
       <LocationProbe />
     </>,
-    {auth: authenticated('alice'), route}
+    {auth: authenticated('alice'), route, ...options}
   );
 }
 
@@ -1513,5 +1514,200 @@ describe('QueryWorkspace — share table (SPEC-093)', () => {
     expect(within(screen.getByRole('menu')).queryByRole('menuitem', {name: 'Share table'})).not.toBeInTheDocument();
     // Guards the guard: the menu really did open, so the absence above means something.
     expect(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
+  });
+});
+
+// ── SPEC-154 FR-005: results pagination, and the seam it shares ─────────────
+//
+// `'Next'` did not appear anywhere in this file, and the fixture could not enable it —
+// `rowsPage` hard-codes `nextToken: undefined`, so the pager was permanently disabled and
+// every path through it was unreachable. Coverage was hook state plus a prop spy, which is
+// exactly the split this spec exists to close.
+describe('QueryWorkspace — results pagination (SPEC-087)', () => {
+  const page = (rows: string[][], nextToken?: string) => ({
+    columns: [{name: 'region', type: 'string'}],
+    rows,
+    nextToken
+  });
+
+  /** Two server pages: page 1 carries a token, page 2 ends the walk. */
+  function seedTwoPages() {
+    mockGetResults.mockImplementation(async ({nextToken}: {nextToken?: string}) =>
+      nextToken === 't-2' ? ok(page([['ap-south']])) : ok(page([['us-east'], ['eu-west']], 't-2'))
+    );
+  }
+
+  async function runOnce(user: ReturnType<typeof renderWorkspace>['user']) {
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await screen.findByText('Succeeded');
+  }
+
+  it('fetches page 2 with the NextToken and renders it', async () => {
+    seedTwoPages();
+    seedSingle('SELECT 1');
+    const {user} = renderWorkspace();
+    await runOnce(user);
+    expect(await screen.findByText('us-east')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Next'}));
+
+    expect(await screen.findByText('ap-south')).toBeInTheDocument();
+    expect(screen.queryByText('us-east')).not.toBeInTheDocument();
+    // The token is the whole mechanism — a Next that refetched page 1 would still "work"
+    // visually on a fixture that returned the same rows twice.
+    //
+    // `maxRows` is load-bearing in this assertion, not decoration: `useResultRowCount` walks
+    // every page of the same execution in the background through this same mock, threading
+    // the token itself, so `objectContaining({nextToken: 't-2'})` alone is satisfied by the
+    // row-count walker even if the pager never threads anything. The walker uses
+    // ROW_COUNT_PAGE_SIZE; only the pager asks for the display page size.
+    expect(mockGetResults).toHaveBeenCalledWith({
+      queryExecutionId: 'q-1',
+      nextToken: 't-2',
+      maxRows: DEFAULT_RESULTS_PAGE_SIZE
+    });
+  });
+
+  it('Prev returns to page 1 without refetching it', async () => {
+    seedTwoPages();
+    seedSingle('SELECT 1');
+    const {user} = renderWorkspace();
+    await runOnce(user);
+    await user.click(await screen.findByRole('button', {name: 'Next'}));
+    await screen.findByText('ap-south');
+    // Count only the PAGER's calls: `useResultRowCount` shares this mock and its background
+    // walk would otherwise make the totals drift for reasons that have nothing to do with Prev.
+    const pagerCalls = () => mockGetResults.mock.calls.filter((c) => c[0].maxRows === DEFAULT_RESULTS_PAGE_SIZE).length;
+    const afterNext = pagerCalls();
+
+    await user.click(screen.getByRole('button', {name: 'Prev'}));
+
+    expect(await screen.findByText('us-east')).toBeInTheDocument();
+    // Cached pages are the point of the infinite query: going back must cost nothing.
+    expect(pagerCalls()).toBe(afterNext);
+  });
+
+  it('changing Rows per page re-fetches at the new size', async () => {
+    seedSingle('SELECT 1');
+    const {user} = renderWorkspace();
+    await runOnce(user);
+    await screen.findByText('us-east');
+
+    const rowsPerPage = screen.getByLabelText('Rows per page');
+    await user.clear(rowsPerPage);
+    await user.type(rowsPerPage, '25{Enter}');
+
+    await waitFor(() => expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: 25})));
+  });
+
+  it('carries Rows per page across REAL result tabs, not just across a re-run', async () => {
+    // The first draft of this test re-ran in the same query tab and re-read the field. That
+    // proved nothing: no second result tab exists on that path, the execution id is unchanged,
+    // and `ResultsPageSizeControl` never unmounts — so it was reading back its own untouched
+    // local draft. Moving `useResultsPageSize` down into `QueryResultsTable`, which is the
+    // exact regression SPEC-087's "workspace-global" wording forbids, would have passed.
+    //
+    // A `script-tabs` run is the tree where the claim is falsifiable: two statements, two
+    // result tabs, one shared size.
+    queueRuns('q-1', 'q-2');
+    seedSingle('SELECT 1; SELECT 2');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
+
+    await user.click(screen.getByRole('button', {name: 'editor: Run Script → tab per statement'}));
+    await screen.findByRole('tablist', {name: 'Result tabs'});
+
+    // The control is disabled mid-batch; wait for the run to settle before typing into it.
+    const rowsPerPage = () => screen.getByLabelText('Rows per page') as HTMLInputElement;
+    await waitFor(() => expect(rowsPerPage()).toBeEnabled());
+    await user.clear(rowsPerPage());
+    await user.type(rowsPerPage(), '25{Enter}');
+    await waitFor(() => expect(rowsPerPage()).toHaveValue('25'));
+
+    const resultTabs = within(screen.getByRole('tablist', {name: 'Result tabs'})).getAllByRole('tab');
+    await user.click(resultTabs[1]);
+
+    expect(rowsPerPage()).toHaveValue('25');
+    await waitFor(() =>
+      expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-2', maxRows: 25}))
+    );
+  });
+});
+
+// FR-005's neighbours: two settings that share the pagination seam — tested at hook level
+// and through a prop spy, never through a user path.
+describe('QueryWorkspace — result-view settings that survive a tab switch (SPEC-079/087)', () => {
+  async function runOnce(user: ReturnType<typeof renderWorkspace>['user']) {
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await screen.findByText('Succeeded');
+  }
+
+  it('keeps a column width across a switch away from the results tab and back', async () => {
+    seedTabs({
+      version: 1,
+      tabs: [
+        {id: 'a', label: 'Query 1', sql: 'SELECT 1'},
+        {id: 'b', label: 'Query 2', sql: 'SELECT 2'}
+      ],
+      activeTabId: 'a',
+      nextQueryNumber: 3
+    });
+    // A client with a REAL gcTime, deliberately, and the mechanism is worth stating precisely
+    // because the obvious reading is wrong. It is NOT the table unmounting: `useQueryResults`
+    // and `useColumnWidths` both live at the workspace level, above that boundary, exactly so
+    // they survive. What happens is that switching tabs sends `displayExecutionId` to null, so
+    // the results query KEY changes and `q-1` is left with no observer — which the harness's
+    // `gcTime: 0` evicts instantly. Coming back re-fetches cold, `columns.length` is 0 for a
+    // beat, and `useColumnWidths` re-seeds to defaults.
+    //
+    // Production sets no `gcTime` (lib/queryClient.ts), so TanStack's 5-minute default keeps
+    // the pages cached and the dip never happens. Asserting the reset here would have pinned
+    // the test client's behaviour as if it were the feature's. (The persistence is bounded by
+    // that cache rather than by the session — see the delivery doc.)
+    const {user, container} = renderWorkspace(undefined, {
+      queryClient: new QueryClient({defaultOptions: {queries: {retry: false, staleTime: 0}}})
+    });
+    await runOnce(user);
+    await screen.findByText('us-east');
+
+    // Read through the <col> element, and this is the FR-009 exception rather than laziness:
+    // the width has no accessible contract to assert — the separator exposes no
+    // `aria-valuenow`, and the header's own style is not where the width lands.
+    const regionWidth = () => (container.querySelectorAll('colgroup col')[1] as HTMLElement).style.width;
+    const before = regionWidth();
+
+    // The keyboard path is the accessible one and the only one jsdom can drive honestly:
+    // ColumnResizeHandle is a role="separator" that nudges by COLUMN_RESIZE_STEP_PX.
+    const handle = screen.getByRole('separator', {name: 'Resize column region'});
+    handle.focus();
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    const widened = regionWidth();
+    expect(widened).not.toBe(before);
+
+    await user.click(screen.getByRole('tab', {name: /Query 2/}));
+    await user.click(screen.getByRole('tab', {name: /Query 1/}));
+
+    expect(regionWidth()).toBe(widened);
+  });
+
+  it('applies an editor layout preset and keeps it for the session', async () => {
+    seedSingle('SELECT 1');
+    const {user, unmount} = renderWorkspace();
+    await screen.findByRole('button', {name: 'sales_2026'});
+
+    // The precondition, so the assertion after the click cannot pass by having started true.
+    expect(screen.getByRole('button', {name: /Results layout/})).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(screen.getByRole('button', {name: /Results layout/}));
+    expect(screen.getByRole('button', {name: /Results layout/})).toHaveAttribute('aria-pressed', 'true');
+    // NOTE: only the SELECTION and its persistence are asserted. "Applies" is unobservable in
+    // jsdom — the pane container measures 0, so `clampEditorHeight` returns MIN_EDITOR_HEIGHT
+    // for every preset and the three would render identically. Recorded rather than faked.
+
+    // SPEC-079 persists per user for the session, so a remount must not silently revert —
+    // the failure a hook test cannot see is the workspace not reading the stored value back.
+    unmount();
+    renderWorkspace();
+    expect(await screen.findByRole('button', {name: /Results layout/})).toHaveAttribute('aria-pressed', 'true');
   });
 });
