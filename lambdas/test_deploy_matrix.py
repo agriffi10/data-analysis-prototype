@@ -34,14 +34,35 @@ WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
 #:
 #: ``shared-space-common`` publishes FLAT modules rather than a package (deploy-lambdas.yml's
 #: `layer` job copies `$m.py` for each), which is why its entries are individual module names.
+#:
+#: All nine flat modules are listed for accuracy — the four added by SPEC-153 (``config``,
+#: ``auth``, ``cache``, ``notify``) were missing, and ``:157`` silently ``continue``d past them.
+#: Completing the map does NOT close SPEC-137's shape, though: all nine ship in ONE layer behind
+#: ONE flag, so a module that never reaches the zip is invisible here no matter how complete this
+#: dict is. ``test_the_layer_copy_list_matches_the_layer_directory`` below is what closes it.
 LAYER_PACKAGES = {
     "cpcommon": "cpcommon",
     "tbcommon": "tbcommon",
     "tscommon": "tscommon",
     "dqcommon": "dqcommon",
     "polars": None,  # two different polars layers — resolved per function below
-    **dict.fromkeys(("casio", "registry", "membership", "teardown", "messages"), "layer"),
+    **dict.fromkeys(
+        ("config", "casio", "auth", "registry", "membership", "cache", "notify", "messages",
+         "teardown"),
+        "layer",
+    ),
 }
+
+#: Layer source directories packaged by an EXPLICIT per-file copy list in deploy-lambdas.yml,
+#: mapped to the shell loop that names the files. Every other layer copies a whole package
+#: directory (``cp -r lambdas/<x>-common/<x>common``) or pip-installs into the layer root, so a
+#: new module there ships automatically and there is no list to drift from — those are exempt for
+#: that named reason, and ``test_no_unchecked_explicit_copy_list_was_added`` fails if a second
+#: explicit list appears without being added here.
+EXPLICIT_COPY_LISTS = {"shared-space-common": re.compile(r"for m in ([a-z0-9_ ]+); do")}
+
+#: Files under a layer source directory that are deliberately NOT shipped.
+_NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
 
 #: The two polars layers are the same import with different flags: table-builder's verb attaches
 #: `polars`, data-quality's attaches `dqpolars`. Either satisfies the import.
@@ -127,6 +148,59 @@ def test_the_matrix_was_actually_parsed():
         "dqcommon": True,
         "dqpolars": True,
     }, "the reference row did not parse as expected — the matrix format changed"
+
+
+def _copy_list(directory):
+    """The module names the layer job copies for ``directory``, as a set."""
+    match = EXPLICIT_COPY_LISTS[directory].search(WORKFLOW.read_text())
+    assert match, f"no copy list found for {directory} in {WORKFLOW.name} — did the job change?"
+    return set(match.group(1).split())
+
+
+def _shipped_modules(directory):
+    """The production Python modules present in ``lambdas/<directory>/``, as a set."""
+    return {
+        path.stem
+        for path in (LAMBDAS / directory).glob("*.py")
+        if not path.name.startswith(_NOT_SHIPPED)
+    }
+
+
+@pytest.mark.parametrize("directory", sorted(EXPLICIT_COPY_LISTS))
+def test_the_layer_copy_list_matches_the_layer_directory(directory):
+    """SPEC-137's shape, at the layer boundary rather than the flag map.
+
+    The flag map above says *which functions attach the layer*. Nothing said what the layer
+    CONTAINS. Add a module to ``lambdas/shared-space-common/``, import it from a function whose
+    row already reads ``layer: true``, and every existing check passes — the matrix test is
+    satisfied, the deploy goes green, and the function raises ``ModuleNotFoundError`` at cold
+    start. That is SPEC-137 again, straight through the gate built to stop it.
+
+    Set equality in both directions: a module in the directory and not the list never ships, and
+    a module in the list and not the directory makes the layer job's ``cp`` fail at deploy time.
+    """
+    listed, present = _copy_list(directory), _shipped_modules(directory)
+    assert listed == present, (
+        f"{WORKFLOW.name}'s layer copy list and lambdas/{directory}/ disagree — "
+        f"in the directory but never shipped: {sorted(present - listed) or 'none'}; "
+        f"listed but absent from the directory: {sorted(listed - present) or 'none'}"
+    )
+
+
+@pytest.mark.parametrize("directory", sorted(EXPLICIT_COPY_LISTS))
+def test_the_layer_copy_list_was_actually_parsed(directory):
+    """Guards the guard: two empty sets are equal, so an unparsed list passes vacuously."""
+    assert len(_copy_list(directory)) >= 8, f"only parsed {_copy_list(directory)} for {directory}"
+    assert len(_shipped_modules(directory)) >= 8, f"only found {_shipped_modules(directory)}"
+
+
+def test_no_unchecked_explicit_copy_list_was_added():
+    """A second per-file layer list must join ``EXPLICIT_COPY_LISTS``, not drift unchecked."""
+    loops = re.findall(r"for m in [a-z0-9_ ]+; do", WORKFLOW.read_text())
+    assert len(loops) == len(EXPLICIT_COPY_LISTS), (
+        f"{WORKFLOW.name} has {len(loops)} per-file layer copy loops but "
+        f"{len(EXPLICIT_COPY_LISTS)} are checked — add the new one to EXPLICIT_COPY_LISTS"
+    )
 
 
 def test_the_handler_sweep_found_the_fleet():

@@ -350,12 +350,20 @@ def test_declared_keys_are_reconstructed_in_the_tables_own_order():
     assert [k["type"] for k in out["partitionKeys"]] == ["integer", "date", "string"]
 
 
-def test_the_reconstruction_round_trips_through_the_create_paths_own_renderer():
+def test_the_parser_is_a_left_inverse_of_the_renderer_on_the_renderers_own_output():
     """FR-005 AC5 — EXACT equality, which is the point of writing it this way.
 
     Any property the reconstruction drops, and any it would rewrite, fails here. It is
     also the only check that can catch the two shapes prose gets wrong: a `string` key
     written as `enum`, and a `date` key's four properties.
+
+    RENAMED BY SPEC-153 FR-006 to say what it proves and no more. The fixture's Parameters
+    come from ``ddl.projection_properties`` — the very renderer the reconstruction
+    re-renders through — so this is render → parse → render compared against render. That
+    establishes the parser is a left inverse of the renderer ON THE RENDERER'S OWN IMAGE,
+    which is worth having and is not the same claim as "reads tables this pipeline did not
+    write". The old name implied the second. ``test_a_table_this_pipeline_did_not_write_is
+    _reconstructed`` below is the one that reaches outside the image.
     """
     _install(_partitioned_table())
 
@@ -377,6 +385,87 @@ def test_a_reconstructed_key_is_accepted_by_the_ddl_builder_that_will_receive_it
     )
 
     assert "PARTITIONED BY (`year` int, `day` date, `region` string)" in statement
+
+
+# ── SPEC-153 FR-006: a fixture that did NOT come out of our own renderer ─────
+#
+# PROVENANCE. The projection.* keys and value formats below are transcribed from AWS's
+# published partition-projection reference (Athena user guide, "Partition projection with
+# Amazon Athena"), read 2026-08-06, NOT produced by ddl.projection_properties. The
+# surrounding non-projection TBLPROPERTIES are the ones Athena and the Glue crawler stamp
+# on a table created outside this pipeline (EXTERNAL, transient_lastDdlTime, classification,
+# has_encrypted_data, compression), which our renderer never writes and the reconstruction
+# must therefore ignore rather than choke on.
+#
+# STILL OWED, and recorded as such in the delivery doc: FR-006 asks for a VERBATIM paste of
+# a real GetTable response. Lake Formation filters this repo's local CLI principal's catalog
+# to empty (`aws glue get-databases` returns []), and hand-creating a table in the account
+# from a laptop is a production mutation, so the capture belongs to a live check rather than
+# to this file. What this fixture buys today is the property that actually mattered: the
+# Parameters are not the renderer's own image, so the reconstruction is exercised against
+# key ordering, spacing and neighbouring properties it did not author.
+_FOREIGN_PARAMETERS = {
+    "EXTERNAL": "TRUE",
+    "classification": "parquet",
+    "has_encrypted_data": "false",
+    "parquet.compression": "SNAPPY",
+    "transient_lastDdlTime": "1751328000",
+    "projection.enabled": "true",
+    "projection.country.type": "enum",
+    "projection.country.values": "US,CA,MX",
+    "projection.dt.type": "date",
+    "projection.dt.range": "2020-01-01,NOW",
+    "projection.dt.format": "yyyy-MM-dd",
+    "projection.dt.interval": "1",
+    "projection.dt.interval.unit": "DAYS",
+    "projection.id.type": "integer",
+    "projection.id.range": "1,1000",
+}
+
+
+def test_a_table_this_pipeline_did_not_write_is_reconstructed():
+    """The half the self-referential round-trip above cannot reach.
+
+    Declaration order here is dt, country, id — deliberately not the alphabetical order the
+    properties happen to be written in, and not the order our own fixtures use — so the
+    reconstruction is shown to follow the TABLE's partition-key order rather than the
+    property dict's.
+    """
+    _install(_table(
+        partition_keys=[("dt", "date"), ("country", "string"), ("id", "int")],
+        parameters=_FOREIGN_PARAMETERS,
+    ))
+
+    keys = m.handler(_event(), None)["partitionKeys"]
+
+    assert [k["name"] for k in keys] == ["dt", "country", "id"]
+    assert [k["type"] for k in keys] == ["date", "string", "integer"]
+    assert keys[0]["range"] == ["2020-01-01", "NOW"]
+    assert keys[0]["format"] == "yyyy-MM-dd"
+    assert keys[1]["values"] == ["US", "CA", "MX"]
+    assert keys[2]["range"] == [1, 1000]
+    # An integer key with no projection.id.digits must not acquire one.
+    assert keys[2].get("digits") is None
+
+
+def test_the_foreign_fixture_is_not_the_renderers_own_output():
+    """Guards the guard: if these Parameters ever equal what our renderer emits, the test
+    above has quietly become another self-referential round-trip."""
+    from cpcommon import ddl
+
+    ours = {"projection.enabled": "true"}
+    for key in (
+        {"name": "dt", "type": "date", "range": ["2020-01-01", "NOW"], "format": "yyyy-MM-dd",
+         "interval": 1, "interval.unit": "DAYS"},
+        {"name": "country", "type": "string", "values": ["US", "CA", "MX"]},
+        {"name": "id", "type": "integer", "range": [1, 1000]},
+    ):
+        ours.update(ddl.projection_properties(key))
+
+    assert ours != _FOREIGN_PARAMETERS, "the fixture is no longer foreign"
+    # …but it must still be a SUPERSET, or the fixture is foreign by being wrong.
+    assert set(ours).issubset(_FOREIGN_PARAMETERS)
+    assert all(_FOREIGN_PARAMETERS[k] == v for k, v in ours.items())
 
 
 def test_an_unpartitioned_table_is_not_subject_to_any_of_it():
@@ -508,12 +597,8 @@ def test_an_enum_value_containing_a_comma_is_split_the_way_athena_splits_it():
 def test_the_verb_narrates_the_load_without_naming_any_data():
     _install(_partitioned_table())
     events = []
-    real_info = m.observability.info
     m.observability.info = lambda message, **fields: events.append((message, fields))
-    try:
-        m.handler(_event(), None)
-    finally:
-        m.observability.info = real_info
+    m.handler(_event(), None)
 
     message, fields = events[0]
     assert message == "loaded table definition"

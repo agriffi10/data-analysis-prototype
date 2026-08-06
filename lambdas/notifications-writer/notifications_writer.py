@@ -271,11 +271,28 @@ def handler(event, context):
 
     A raised exception fails the invocation so the record retries then lands in the
     DLQ; no partial write occurs.
+
+    The single-record assumption is CODE/INFRA COUPLING: it holds only because
+    ``infra/modules/notifications/lambda.tf`` sets ``batch_size = 1``, and raising that is a
+    one-line Terraform edit. This used to take ``records[0]`` and discard the rest, so the
+    edit would have silently dropped every notification but the first. SPEC-153 FR-005 makes
+    it raise instead — loudly, into the DLQ, where SPEC-126's drain turns it into a user
+    notification — and pins the Terraform value by test. Raising rather than looping is
+    deliberate: the single-writer model (FR-001/FR-004) serialises one user's inbox per
+    invocation, so a batch is a design change to be made on purpose, not absorbed quietly.
     """
     records = event.get("Records", []) if isinstance(event, dict) else []
     if not records:
         observability.error("no SQS records in event", reason="malformed-event")
         raise ValidationError("no SQS records in event")
+    if len(records) > 1:
+        observability.error(
+            "multi-record SQS event", reason="batch-size-drift", records=len(records)
+        )
+        raise ValidationError(
+            f"expected one SQS record per invocation, got {len(records)} — "
+            "the notifications event-source mapping must keep batch_size = 1"
+        )
     record = records[0]
     req = _parse_record(record)
     result = process(req)

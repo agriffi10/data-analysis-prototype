@@ -71,6 +71,12 @@ def _event(definition=_DEFINITION):
 
 
 def _setup(error=None):
+    """Stub the SHARED ``tscommon.athena.run_ddl``, with no local restore.
+
+    None is needed since SPEC-153 FR-004: conftest's snapshot covers every shared-layer
+    module, tscommon included. Before that this patch simply never came back, and the only
+    reason it did no damage was file ordering.
+    """
     fake = _FakeRunDdl(error=error)
     m.athena_mod.run_ddl = fake
     return fake

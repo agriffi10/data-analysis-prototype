@@ -704,6 +704,73 @@ def test_a_fully_successful_database_drop_is_silent():
     assert "sales" not in glue.databases
 
 
+# ── SPEC-153 FR-002: the continuation branches actually execute ──────────────
+#
+# Until now no test in the fleet mentioned ContinuationToken, NextToken or IsTruncated:
+# the fakes ACCEPTED a token and ignored it, hard-coding IsTruncated: False. So the three
+# continuation assignments in teardown.py and the 100-table batching had never run, in a
+# teardown whose whole job is to leave nothing behind. A space large enough to paginate is
+# exactly the space where a silently-truncated walk frees a name over live objects.
+
+
+def test_a_prefix_spanning_several_pages_is_deleted_whole():
+    """The listing walk must follow every page, not stop at the first."""
+    import teardown
+
+    s3, _, _, _ = install()
+    for i in range(7):  # > page_size (2), and not a multiple of it
+        s3.store[("shared-bkt", f"sales/f{i}.csv")] = b"x"
+
+    teardown.delete_shared_prefix("sales")
+
+    assert not [k for (b, k) in s3.store if k.startswith("sales/")]
+
+
+def test_the_listing_walk_survives_deleting_each_page_as_it_goes():
+    """A denial on the FIRST page must not hide the pages behind it.
+
+    ``delete_shared_prefix`` deletes each page before requesting the next, so the walk is
+    over a shrinking prefix. An offset-based continuation would skip keys here; a
+    start-after marker does not. Every page is attempted before the raise, so the count is
+    whole and the survivors are exactly the undeletable ones.
+    """
+    import teardown
+
+    s3, _, _, _ = install()
+    for i in range(7):
+        s3.store[("shared-bkt", f"sales/f{i}.csv")] = b"x"
+    s3.undeletable.add("sales/f0.csv")  # first page
+
+    with pytest.raises(teardown.TeardownIncompleteError) as err:
+        teardown.delete_shared_prefix("sales")
+
+    assert "1 object" in str(err.value)
+    assert [k for (b, k) in s3.store if k.startswith("sales/")] == ["sales/f0.csv"]
+
+
+def test_a_database_of_more_than_a_hundred_tables_is_dropped_in_batches():
+    """``batch_delete_table`` caps at 100, so the range() batching is load-bearing —
+    and the tables are collected across many get_tables pages before any drop happens."""
+    import teardown
+
+    _, glue, _, _ = install()
+    glue.databases.add("sales")
+    glue.tables["sales"] = [f"t{i:03d}" for i in range(250)]
+    batches = []
+    original = glue.batch_delete_table
+
+    def _recording(DatabaseName, TablesToDelete):
+        batches.append(len(TablesToDelete))
+        return original(DatabaseName=DatabaseName, TablesToDelete=TablesToDelete)
+
+    glue.batch_delete_table = _recording
+
+    teardown.drop_database("sales")
+
+    assert batches == [100, 100, 50]
+    assert "sales" not in glue.databases
+
+
 # ── SPEC-151 FR-005: the racing 409 is a lost race, not a hard error ─────────
 #
 # A failed If-Match yields 412 PreconditionFailed; a failed If-None-Match: * raced
@@ -1001,6 +1068,9 @@ def test_drop_database_leaves_a_deterministic_glue_fault_alone():
     install()
     clients._glue = _glue_raising("InvalidInputException")
 
-    with pytest.raises(Exception) as err:
+    # The TYPE is the assertion here, and it is a negative one: whatever propagates, it must
+    # not have been dressed as retryable. `match=` still pins that the original Glue fault is
+    # what came back rather than some unrelated failure on the way to it.
+    with pytest.raises(Exception, match="InvalidInputException") as err:
         teardown.drop_database("sales")
     assert not isinstance(err.value, TransientError)

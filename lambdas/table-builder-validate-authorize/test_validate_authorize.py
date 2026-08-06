@@ -402,12 +402,8 @@ def test_mode_is_narrated_so_a_log_reader_can_tell_the_branches_apart():
     events = []
     # Restored explicitly: conftest's snapshot fixture covers config/clients/registry/auth,
     # NOT observability, so an unrestored patch here would follow into every later test.
-    real_info = v.observability.info
     v.observability.info = lambda message, **fields: events.append((message, fields))
-    try:
-        v.handler(_event(_personal(), mode="refresh"), None)
-    finally:
-        v.observability.info = real_info
+    v.handler(_event(_personal(), mode="refresh"), None)
 
     assert events[0][1]["mode"] == "refresh"
 
@@ -455,12 +451,8 @@ def test_a_non_boolean_allow_removals_is_refused_rather_than_coerced():
 def test_the_opt_in_is_narrated():
     _setup()
     events = []
-    real_info = v.observability.info
     v.observability.info = lambda message, **fields: events.append((message, fields))
-    try:
-        v.handler(_event(_personal(), mode="refresh", allow_removals=True), None)
-    finally:
-        v.observability.info = real_info
+    v.handler(_event(_personal(), mode="refresh", allow_removals=True), None)
 
     assert events[0][1]["allow_removals"] is True
 

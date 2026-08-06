@@ -60,6 +60,10 @@ class FakeS3:
         self.etags = {}  # (Bucket, Key) -> ETag, for conditional-write (CAS) tests
         #: Keys `delete_objects` reports as failed instead of deleting (SPEC-151 FR-003).
         self.undeletable = set()
+        #: Keys per ``list_objects_v2`` page. Deliberately TINY (SPEC-153 FR-002) so ordinary
+        #: fixtures paginate and the continuation branches in ``teardown.py`` execute in every
+        #: test that tears a space down, not only in the purpose-built multi-page ones.
+        self.page_size = 2
         self._seq = 0
         self.exceptions = types.SimpleNamespace(
             NoSuchKey=FakeNoSuchKey, ClientError=FakeClientError
@@ -89,8 +93,22 @@ class FakeS3:
         return {}
 
     def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None):
+        """Paginated prefix listing.
+
+        The token is the LAST KEY of the page returned, i.e. a start-after marker over S3's
+        lexicographic order, rather than an offset. That matters because the only caller
+        (``teardown.delete_shared_prefix``) deletes each page before asking for the next one:
+        an offset-based token would skip the keys that shifted down, which is precisely the
+        bug a fake that ignored the token could never surface.
+        """
         keys = sorted(k for (b, k) in self.store if b == Bucket and k.startswith(Prefix))
-        return {"Contents": [{"Key": k} for k in keys], "IsTruncated": False}
+        if ContinuationToken is not None:
+            keys = [k for k in keys if k > ContinuationToken]
+        page, truncated = keys[: self.page_size], len(keys) > self.page_size
+        response = {"Contents": [{"Key": k} for k in page], "IsTruncated": truncated}
+        if truncated:
+            response["NextContinuationToken"] = page[-1]
+        return response
 
     def delete_objects(self, Bucket, Delete):
         """Batched delete, honouring ``undeletable`` so a PARTIAL failure can be tested.
@@ -124,6 +142,8 @@ class FakeGlue:
         self.tables = {}  # db name -> [table names]
         #: Tables `batch_delete_table` reports as failed instead of dropping (SPEC-151 FR-003).
         self.undroppable = set()
+        #: Tables per ``get_tables`` page — tiny for the same reason as ``FakeS3.page_size``.
+        self.page_size = 2
         self.exceptions = types.SimpleNamespace(
             AlreadyExistsException=FakeAlreadyExists, EntityNotFoundException=FakeEntityNotFound
         )
@@ -135,9 +155,21 @@ class FakeGlue:
         self.tables.setdefault(name, [])
 
     def get_tables(self, DatabaseName, NextToken=None):
+        """Paginated table listing; ``NextToken`` is an offset into the catalog's own order.
+
+        An offset is faithful here where it would not be for S3: ``teardown.drop_database``
+        collects EVERY page before deleting anything, so nothing shifts underneath the walk.
+        Glue omits ``NextToken`` from the last page — the caller's loop exit depends on it.
+        """
         if DatabaseName not in self.databases:
             raise FakeEntityNotFound()
-        return {"TableList": [{"Name": t} for t in self.tables.get(DatabaseName, [])]}
+        tables = self.tables.get(DatabaseName, [])
+        start = int(NextToken or 0)
+        page = tables[start : start + self.page_size]
+        response = {"TableList": [{"Name": t} for t in page]}
+        if start + self.page_size < len(tables):
+            response["NextToken"] = str(start + self.page_size)
+        return response
 
     def batch_delete_table(self, DatabaseName, TablesToDelete):
         """Batched drop, honouring ``undroppable`` — same partial-failure shape as S3's

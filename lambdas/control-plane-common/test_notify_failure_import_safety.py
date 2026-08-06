@@ -26,7 +26,10 @@ WHAT IT DOES NOT COVER, stated so nobody reads more into it: the layer roots are
 TREES, so a module present on disk but absent from a layer's BUILD is invisible to this
 probe. That gap is real for exactly one layer — ``shared-space-common`` publishes flat
 modules from an explicit list rather than copying a package — and
-``test_the_shared_space_layer_publishes_every_module_it_has`` below closes it.
+``test_deploy_matrix.test_the_layer_copy_list_matches_the_layer_directory`` closes it.
+That assertion lived here briefly (SPEC-152) and moved to the packaging harness in SPEC-153,
+which is the file that reads a Lambda's PACKAGING rather than its behaviour; keeping two
+copies of one set-equality is the drift this repo's guards exist to prevent.
 
 THE ENVIRONMENT IS INHERITED, DELIBERATELY, and that is the difference from
 ``test_layer_import_safety.py``. That test scrubs the environment because its three
@@ -150,49 +153,6 @@ def test_a_notify_failure_verb_imports_from_only_the_layers_its_row_grants(funct
         f"mode, on the one function whose whole job is to report it:\n{result.stderr}"
     )
     assert "IMPORT_OK" in result.stderr
-
-
-#: Files in shared-space-common that are NOT layer content: tests, and the fake AWS clients
-#: they use. Everything else is production code the layer must publish.
-_NOT_LAYER_CONTENT = ("fakes.py",)
-
-
-def test_the_shared_space_layer_publishes_every_module_it_has():
-    """THE ONE GAP THE PROBE ABOVE CANNOT SEE, and it is specific to this layer.
-
-    Every other layer is copied as a PACKAGE — ``cp -r cpcommon``, ``tbcommon`` — so a new
-    module inside one ships by existing. ``shared-space-common`` publishes FLAT modules via
-    an explicit ``for m in config casio auth …`` list in the workflow, so a new module ships
-    only if someone remembers to name it there.
-
-    The probe above cannot catch a miss, and the docstring must not pretend otherwise: it
-    puts the SOURCE TREE on ``sys.path``, where every module is present whether or not the
-    layer build copies it. SPEC-152 added ``messages.py`` to this layer; deleting it from
-    the workflow list leaves the entire suite green while the deployed layer loses it, and
-    ``ss_notify_failure`` — the function whose whole job is reporting import failures —
-    raises ``ModuleNotFoundError`` at cold start.
-
-    So this reads the workflow's list as data and joins it against the directory.
-    """
-    source = LAMBDAS / "shared-space-common"
-    on_disk = {
-        p.stem
-        for p in source.glob("*.py")
-        if not p.name.startswith("test_") and p.name not in _NOT_LAYER_CONTENT
-    }
-
-    match = re.search(r"for m in ([a-z_ ]+); do", WORKFLOW.read_text())
-    assert match, (
-        "the shared-space layer's module list is no longer a `for m in …; do` loop in "
-        f"{WORKFLOW.name} — this guard cannot read it and would pass vacuously"
-    )
-    copied = set(match.group(1).split())
-
-    assert on_disk == copied, (
-        f"shared-space-common: the layer build copies {sorted(copied)} but the directory "
-        f"holds {sorted(on_disk)}. Missing from the workflow: {sorted(on_disk - copied)}; "
-        f"named but absent: {sorted(copied - on_disk)}"
-    )
 
 
 def test_the_probe_covers_every_notify_failure_verb_that_exists():

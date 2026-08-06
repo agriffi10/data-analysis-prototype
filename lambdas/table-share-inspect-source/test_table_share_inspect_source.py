@@ -86,21 +86,6 @@ def _table(
     }
 
 
-#: Attributes stubbed on the SHARED tscommon.copy_plan module, restored after each test.
-#: conftest.py snapshots cpcommon.* only — tscommon is not covered — so without this the
-#: stub leaks into test_copy_plan_tscommon.py and it exercises a lambda instead of the real
-#: function. It passed only because table-share-common/ sorts first.
-_PATCHED = []
-
-
-@pytest.fixture(autouse=True)
-def _restore_shared_modules():
-    yield
-    while _PATCHED:
-        module, name, original = _PATCHED.pop()
-        setattr(module, name, original)
-
-
 def _plan_writes():
     """Capture what inspect-source writes to the copy plan.
 
@@ -109,7 +94,8 @@ def _plan_writes():
     CONTENT, which is the same list they used to read off the state.
     """
     written = []
-    _PATCHED.append((m.copy_plan, "write", m.copy_plan.write))
+    # No local restore: conftest's snapshot covers every shared-layer module since
+    # SPEC-153 FR-004, tscommon included.
     m.copy_plan.write = lambda request, objects: (written.append(objects) or "table-share/h/copy-plan.json")
     return written
 

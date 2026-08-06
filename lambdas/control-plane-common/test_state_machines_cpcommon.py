@@ -36,11 +36,28 @@ _THROWING_INTRINSICS = ("States.StringToJson", "States.ArrayGetItem", "States.Ma
 #: counted so a renamed or deleted module fails loudly instead of shrinking the sample.
 _EXPECTED_ARCS = {"data-quality", "shared-spaces", "table-builder", "table-share"}
 
+#: Every state field in which ASL EVALUATES intrinsic functions. The scan below walked
+#: ``Parameters`` alone while its docstring claimed every state type — true of state types,
+#: not of fields. No production machine has an intrinsic in the other five today
+#: (``table-share``'s ``ItemSelector`` holds only ``$$.Map.Item.Value`` and ``$``), so this
+#: was a coverage hole rather than a live defect — but a ``States.StringToJson`` added to a
+#: ``ResultSelector`` would be exactly as uncatchable and entirely unseen. ``Arguments``,
+#: ``Assign`` and ``Output`` are JSONata/variables-era fields: unused here, and the point of
+#: naming them is that adopting one must not silently leave the scan behind.
+_INTRINSIC_FIELDS = (
+    "Parameters",
+    "ResultSelector",
+    "ItemSelector",
+    "Assign",
+    "Output",
+    "Arguments",
+)
+
 
 def _intrinsics_in(value):
-    """Yield every throwing intrinsic anywhere inside a Parameters value.
+    """Yield every throwing intrinsic anywhere inside an intrinsic-evaluating field.
 
-    Recurses: a Parameters block nests, and an intrinsic one level down
+    Recurses: such a block nests, and an intrinsic one level down
     (``{"outer": {"cause.$": "States.StringToJson(...)"}}``) is exactly as fatal as one at
     the top and exactly as invisible to a flat scan.
     """
@@ -74,6 +91,17 @@ def _states(asl):
     return walk(asl["States"])
 
 
+def _throwing_intrinsics(asl):
+    """Every ``state.field = expression`` in ``asl`` holding an uncatchable intrinsic."""
+    return [
+        f"{name}.{field}.{key} = {found}"
+        for name, state in _states(asl)
+        for field in _INTRINSIC_FIELDS
+        for key, value in (state.get(field) or {}).items()
+        for found in _intrinsics_in(value)
+    ]
+
+
 def test_every_expected_state_machine_is_being_checked():
     """Guards the whole file against passing vacuously if the glob stops matching.
 
@@ -102,22 +130,55 @@ def test_no_state_uses_a_throwing_intrinsic(path):
     table-share, which decoded per recipient inside a Map, one unparseable Cause failed the
     iteration, which failed the Map, which took down every SIBLING recipient's share.
 
-    CHECKS EVERY STATE TYPE, not just Pass, and recurses into nested Parameters — an
-    intrinsic in a Task's Parameters is exactly as fatal and was exactly as unguarded.
+    CHECKS EVERY STATE TYPE, not just Pass, and recurses into nested blocks — an intrinsic
+    in a Task's Parameters is exactly as fatal and was exactly as unguarded. Since SPEC-153
+    it also checks every FIELD in which ASL evaluates intrinsics (_INTRINSIC_FIELDS), not
+    Parameters alone: the field list, not the state-type list, was the narrow one.
 
     Decode in Python instead: cpcommon.errors.failure_reason handles any shape.
     """
-    offenders = [
-        f"{name}.{key} = {found}"
-        for name, state in _states(_load(path))
-        for key, value in (state.get("Parameters") or {}).items()
-        for found in _intrinsics_in(value)
-    ]
+    offenders = _throwing_intrinsics(_load(path))
 
     assert not offenders, (
         f"{os.path.basename(os.path.dirname(path))}: States.Runtime cannot be caught "
         f"anywhere, so a throwing intrinsic kills the execution outright: {offenders}"
     )
+
+
+def test_the_intrinsic_scan_sees_a_result_selector():
+    """Guards the guard (SPEC-153 FR-003): synthetic machine, no production file touched.
+
+    A ``States.StringToJson`` in a ``ResultSelector`` is exactly as uncatchable as one in
+    ``Parameters``, and until this spec the scan above walked straight past it — so the
+    check that four machines are clean proved less than it read as. This fixture is the
+    difference between the scan being clean and the scan being blind.
+    """
+    synthetic = {
+        "States": {
+            "Decode": {
+                "Type": "Task",
+                "ResultSelector": {"cause.$": "States.StringToJson($.error.Cause)"},
+            }
+        }
+    }
+
+    assert _throwing_intrinsics(synthetic) == [
+        "Decode.ResultSelector.cause.$ = States.StringToJson($.error.Cause)"
+    ]
+
+
+def test_the_intrinsic_scan_is_quiet_on_a_clean_machine():
+    """The other half of the guard: a scan that flagged everything would also pass above."""
+    synthetic = {
+        "States": {
+            "Fan": {
+                "Type": "Map",
+                "ItemSelector": {"item.$": "$$.Map.Item.Value", "ctx.$": "$"},
+            }
+        }
+    }
+
+    assert _throwing_intrinsics(synthetic) == []
 
 
 #: Planes exempt from the NotifyFailure requirement below, each with a reason. EMPTY, and

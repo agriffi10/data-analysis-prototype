@@ -23,7 +23,14 @@ body="${3:-}"
 {
   echo "### ${title}"
   echo
-  if [ "$count" -eq 0 ]; then
+  # SPEC-153 FR-008: a scanner that ran and left no readable report has no finding count
+  # at all, and must not be summarised as "No findings." — the summary is the only place a
+  # finding ever appears in this repo (see above), so a broken scan rendering identically
+  # to a clean one is the failure mode this file exists to prevent, one level up. The
+  # caller fails its own job; this just says why in the summary.
+  if ! printf '%s' "$count" | grep -Eq '^[0-9]+$'; then
+    echo "**⚠️ ${count}.** No finding count could be derived, so this is NOT a clean result."
+  elif [ "$count" -eq 0 ]; then
     echo "No findings."
   else
     echo "**${count} finding(s).**"

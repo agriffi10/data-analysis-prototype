@@ -295,6 +295,8 @@ def test_create_database_leaves_a_deterministic_glue_fault_alone():
     glue = clients.glue()
     glue.create_database = lambda DatabaseInput: (_ for _ in ()).throw(_Boom())
 
-    with pytest.raises(Exception) as err:
+    # As in the teardown twin: the assertion is the negative type check below, and `match=`
+    # pins that the propagated error is the Glue fault rather than an incidental one.
+    with pytest.raises(Exception, match="InvalidInputException") as err:
         c._ensure_database("sales")
     assert not isinstance(err.value, TransientError)

@@ -230,6 +230,70 @@ def test_a_replayed_request_replaces_its_row_instead_of_duplicating_it():
     assert entries[0]["verdict"] == "issues_found"
 
 
+# ── SPEC-153 FR-010: CAS parity with the log-sweep twin ──────────────────────
+
+
+def test_a_read_failure_never_overwrites_an_existing_day():
+    """The twin's ``test_a_read_failure_never_overwrites_an_existing_day``, which this
+    module was missing.
+
+    ``_read`` swallows ANY exception and returns ``([], None)`` — deliberately, so an absent
+    index is the ordinary case rather than an error. The cost is that a transient GET fault
+    is indistinguishable from "no index yet", and the empty list it returns is what the CAS
+    would then write. What saves the existing rows is the ``None`` etag: it selects
+    ``If-None-Match: *``, which an existing object rejects. That is load-bearing and was
+    asserted nowhere here, so "a transient read failure cannot truncate a space's index"
+    rested on a line of reasoning rather than a test.
+    """
+    existing = [{"requestId": "precious", "timestamp": "2026-01-01T00:00:00Z"}]
+    fake = _install({KEY: (json.dumps({"entries": existing}).encode(), '"etag-0"')})
+
+    def _throttled(**kwargs):
+        raise _ClientError("SlowDown")
+
+    fake.get_object = _throttled
+
+    assert index_store.append(BUCKET, PREFIX, _summary()) is False
+    assert fake.entries() == existing, "a failed read truncated the space's index"
+    assert fake.puts == 0
+
+
+def test_ACCEPTED_the_cap_evicts_by_position_so_a_replay_can_outlive_a_newer_run():
+    """Position-based eviction, pinned as the documented choice it is.
+
+    The cap keeps the LAST ``DQ_INDEX_MAX_ENTRIES`` rows of a list ordered by ARRIVAL, and
+    the same-requestId replacement moves a replayed run to the end while keeping its
+    original ``completedAt``. So once a replay has happened, position order and timestamp
+    order disagree, and the next new run evicts the oldest row *by position* — here ``r-1``,
+    which is NEWER in time than the replayed ``r-0`` that survives.
+
+    ACCEPTED: ``index_store.py`` records at the cap that the dashboard sorts by timestamp
+    itself and never relies on disk order, and every evicted run's report object — the
+    source of truth — is untouched. A replay is also not itself an eviction: the row is
+    removed before it is re-appended, so the length is unchanged.
+
+    If this starts failing, eviction became timestamp-aware: revisit the decision, do not
+    delete the test.
+    """
+    existing = [
+        {"requestId": f"r-{i}", "timestamp": f"2026-01-01T00:00:{i:02d}Z"}
+        for i in range(config.DQ_INDEX_MAX_ENTRIES)
+    ]
+    fake = _install({KEY: (json.dumps({"entries": existing}).encode(), '"etag-0"')})
+
+    index_store.append(BUCKET, PREFIX, _summary("r-0", completedAt="2026-01-01T00:00:00Z"))
+    ids = [e["requestId"] for e in fake.entries()]
+    assert len(ids) == config.DQ_INDEX_MAX_ENTRIES, "a replay must not evict anything"
+    assert ids[-1] == "r-0" and ids[0] == "r-1"
+
+    index_store.append(BUCKET, PREFIX, _summary("fresh", completedAt="2026-06-01T00:00:00Z"))
+
+    ids = [e["requestId"] for e in fake.entries()]
+    assert len(ids) == config.DQ_INDEX_MAX_ENTRIES
+    assert "r-1" not in ids, "the oldest BY POSITION is the row dropped"
+    assert "r-0" in ids, "and the replayed, older-by-timestamp row outlived it"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

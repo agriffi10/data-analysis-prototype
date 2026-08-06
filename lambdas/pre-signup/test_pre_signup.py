@@ -6,7 +6,6 @@ not run a Python interpreter.
 
 from contextlib import contextmanager
 
-import pytest
 from pre_signup import handler
 
 
@@ -18,12 +17,20 @@ def _event(username="alice", email="alice@example.com"):
 
 
 @contextmanager
-def _raises(match=None):
+def _raises(match):
+    """Assert the handler raises, and that the message says WHY.
+
+    ``match`` is REQUIRED (SPEC-153 FR-007). The handler raises bare ``Exception`` on
+    purpose — Cognito shows the user only the message — so the type carries no information
+    and a match-less assertion accepts anything at all, ``ImportError`` included. That is
+    not hypothetical for this file: SPEC-137 broke sign-up for nine days with a
+    ``ModuleNotFoundError`` at cold start, in exactly this handler, and an assertion that
+    only demanded "something was raised" would have gone on passing throughout.
+    """
     try:
         yield
     except Exception as exc:  # noqa: BLE001 - test helper
-        if match is not None:
-            assert match in str(exc), f"expected {match!r} in {str(exc)!r}"
+        assert match in str(exc), f"expected {match!r} in {str(exc)!r}"
         return
     raise AssertionError("expected handler to raise, but it did not")
 
@@ -114,9 +121,10 @@ def test_no_emitted_event_contains_the_signup_email(captured_events):
         "request": {"userAttributes": {"email": address, "sub": "abc-123"}},
     }
 
-    # The handler raises bare Exception on purpose (Cognito reads only the message),
-    # so there is no narrower type to catch here.
-    with pytest.raises(Exception):  # noqa: B017
+    # The handler raises bare Exception on purpose (Cognito reads only the message), so the
+    # MESSAGE is the only thing worth asserting — and it is the whole assertion, because an
+    # import error at cold start raises too.
+    with _raises("temporary email"):
         handler(event, None)
 
     dumped = json.dumps(captured_events.events)

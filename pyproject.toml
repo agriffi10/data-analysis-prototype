@@ -90,3 +90,58 @@ ignore = [
 "**/test_*.py" = ["S101", "S311"]
 "**/conftest.py" = ["S101"]
 "lambdas/shared-space-common/fakes.py" = ["S101"]  # test doubles, imported by suites only
+
+# ── mypy ─────────────────────────────────────────────────────────────────────
+# REPORT-ONLY, and the first notch of a ratchet (SPEC-153 FR-009).
+#
+# `ci.yml` ran ruff and pytest and no type checker, for a fleet whose contract with the SPA
+# is JSON envelope shapes crossing a Step Functions state payload. This starts where a
+# signature change fans out — the five shared layers — rather than over 40+ verb packages.
+#
+# THE RULE SET IS CHOSEN HERE, NOT INHERITED, for the reason the ruff block above states at
+# length: mypy's defaults move between releases, and a checker that silently widens what it
+# enforces turns a green main red in files nobody touched. Every flag below is named even
+# where it matches today's default, so a release changing a default is a no-op here.
+# `lambdas/requirements-dev.txt` bounds the minor as the second half of that guarantee.
+#
+# THE RATCHET PATH, in order: (1) report-only over the shared layers — here; (2) fix the
+# baseline to zero and flip the CI step to blocking; (3) widen `files` to the verb packages,
+# report-only again; (4) `disallow_untyped_defs` on `cpcommon` alone. Each notch is its own
+# PR with its own number to beat, exactly as the coverage floors are (SPEC-150 FR-002).
+[tool.mypy]
+python_version = "3.12"
+
+# The layer roots, so `from cpcommon import …` and shared-space-common's FLAT modules
+# resolve the way conftest.py makes them resolve under pytest.
+mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/table-share-common:lambdas/data-quality-common:lambdas/shared-space-common"
+
+files = [
+    "lambdas/control-plane-common/cpcommon",
+    "lambdas/table-builder-common/tbcommon",
+    "lambdas/table-share-common/tscommon",
+    "lambdas/data-quality-common/dqcommon",
+    "lambdas/shared-space-common",
+]
+# The suites and the test doubles are not shipped and are not the contract.
+exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'
+
+# Explicitly stated, defaults included.
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_no_return = true
+warn_unreachable = false        # the defensive `raise` after an exhaustive branch is a
+                                # deliberate idiom here, not dead code.
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = false      # notch 4's job. Turning it on now would report on every
+                                # unannotated verb helper at once and drown the baseline.
+disallow_untyped_defs = false
+ignore_missing_imports = false  # missing stubs are declared per-module below, never blanket.
+
+# Third-party imports with no bundled stubs. Named individually so a NEW untyped dependency
+# shows up as an error instead of being absorbed by a blanket ignore.
+[[tool.mypy.overrides]]
+module = ["boto3", "log_foundry", "log_foundry.*", "polars", "jwt", "jwt.*"]
+ignore_missing_imports = true

@@ -273,15 +273,11 @@ def test_a_malformed_state_is_a_typed_terminal():
 def test_the_verb_narrates_the_classification_without_naming_any_data():
     _arm_notifications()
     events = []
-    real_info = m.observability.info
     m.observability.info = lambda message, **fields: events.append((message, fields))
-    try:
-        m.handler(
-            _event(_cols(("keep", "string"), ("gone", "int")), _cols(("keep", "string")), allow_removals=True),
-            None,
-        )
-    finally:
-        m.observability.info = real_info
+    m.handler(
+        _event(_cols(("keep", "string"), ("gone", "int")), _cols(("keep", "string")), allow_removals=True),
+        None,
+    )
 
     message, fields = events[0]
     assert message == "diffed schema"

@@ -24,8 +24,6 @@ for _dir in _LAYER_DIRS:
         sys.path.insert(0, _path)
 
 
-import importlib
-
 import pytest
 
 # The shared cpcommon modules that verb tests globally patch (config.X = …,
@@ -36,18 +34,50 @@ import pytest
 # table-builder inspect test stubs list_data_objects, contaminating the table-share
 # inspect test. Snapshot each module's namespace before a test and restore it after,
 # keeping every test self-contained without touching any assertion.
-_SHARED_MODULES = ("cpcommon.config", "cpcommon.clients", "cpcommon.s3_listing", "cpcommon.registry", "cpcommon.auth")
+#
+# SPEC-153 FR-004 widened this from five hand-listed cpcommon modules to EVERY shared-layer
+# module. The five covered `cpcommon.config/clients/s3_listing/registry/auth` and none of
+# `cpcommon.observability`, `tbcommon`, `tscommon`, `dqcommon` or the shared-space flat
+# modules — so the leak the fixture exists to stop was still live everywhere else, and the
+# suites that hit it worked around it locally: `test_table_share_copy_objects.py` restored
+# `tscommon.athena` by hand with a comment naming this gap, and five files hand-rolled
+# try/finally around `observability.info`. Matching by PREFIX rather than by name means a
+# new module in an existing layer is covered the day it is written, which a hand-list is not.
+#
+# `log_foundry` is deliberately absent: it is a vendored library, not one of this repo's
+# layers, and its process-wide worker/config already has purpose-built save-and-restore in
+# the `captured_events` fixture below. Two mechanisms restoring the same globals in an order
+# nobody chose is how a quiet teardown bug starts.
+_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon")
+
+#: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
+#: Kept in sync with the layer directory by test_deploy_matrix.py's copy-list check.
+_FLAT_SHARED_MODULES = (
+    "config", "casio", "auth", "registry", "membership", "cache", "notify", "messages",
+    "teardown",
+)
+
+
+def _shared_modules():
+    """Every currently-imported module belonging to a shared Lambda layer.
+
+    Read from ``sys.modules`` rather than imported: a suite that never touches a layer
+    should not pay to import it, and a module imported mid-test is out of scope for a
+    snapshot taken before it existed.
+    """
+    for name, module in list(sys.modules.items()):
+        if module is None:
+            continue
+        flat = name in _FLAT_SHARED_MODULES and "shared-space-common" in (
+            getattr(module, "__file__", "") or ""
+        )
+        if flat or name.split(".")[0] in _LAYER_PREFIXES:
+            yield module
 
 
 @pytest.fixture(autouse=True)
-def _restore_cpcommon_modules():
-    saved = {}
-    for name in _SHARED_MODULES:
-        try:
-            module = importlib.import_module(name)
-        except Exception:  # noqa: BLE001, S112 - a suite that never imports it needs no reset
-            continue
-        saved[module] = dict(vars(module))
+def _restore_shared_layer_modules():
+    saved = {module: dict(vars(module)) for module in _shared_modules()}
     yield
     for module, snapshot in saved.items():
         module.__dict__.clear()
