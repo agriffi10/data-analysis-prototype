@@ -30,6 +30,7 @@ resource "aws_sfn_state_machine" "orchestrator" {
     delete_function_arn         = aws_lambda_function.functions["delete"].arn
     forget_function_arn         = aws_lambda_function.functions["forget"].arn
     acknowledge_function_arn    = aws_lambda_function.functions["acknowledge-membership"].arn
+    notify_failure_function_arn = aws_lambda_function.functions["notify-failure"].arn
   })
 
   logging_configuration {

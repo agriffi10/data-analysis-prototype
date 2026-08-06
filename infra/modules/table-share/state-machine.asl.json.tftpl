@@ -237,6 +237,37 @@
         "status": "failed",
         "error.$": "$.error"
       },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY, and that needs no guard: a per-recipient failure ends its Map ITEM at RecipientFailed and the execution SUCCEEDS, so it never reaches RecordFailure and cannot arrive here. The duplicate this DOES have to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_failure_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
       "Next": "Failed"
     },
     "Succeeded": {

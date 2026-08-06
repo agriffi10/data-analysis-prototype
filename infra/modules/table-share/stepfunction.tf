@@ -27,6 +27,7 @@ resource "aws_sfn_state_machine" "table_share" {
     check_target_absent_function_arn = aws_lambda_function.functions["check-target-absent"].arn
     copy_objects_function_arn        = aws_lambda_function.functions["copy-objects"].arn
     create_table_function_arn        = aws_lambda_function.functions["create-table"].arn
+    notify_failure_function_arn      = aws_lambda_function.functions["notify-failure"].arn
   })
 
   logging_configuration {

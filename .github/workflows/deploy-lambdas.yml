@@ -68,7 +68,7 @@ jobs:
           # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
           # Keep this list in sync with lambdas/shared-space-common/. `clients` is gone
           # (SPEC-125 deleted it in favour of cpcommon.clients).
-          for m in config casio auth registry membership cache notify teardown; do
+          for m in config casio auth registry membership cache notify messages teardown; do
             cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
           done
           echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
@@ -533,6 +533,7 @@ jobs:
           - { name: shared-space-delete, layer: true, polars: false, tbcommon: false, cpcommon: true }
           - { name: shared-space-forget, layer: true, polars: false, tbcommon: false, cpcommon: true }
           - { name: shared-space-acknowledge-membership, layer: true, polars: false, tbcommon: false, cpcommon: true }
+          - { name: shared-space-notify-failure, layer: true, polars: false, tbcommon: false, cpcommon: true }
           # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
           # — ALL five verbs use the shared tbcommon package now (config/clients/errors +
           # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer
@@ -546,6 +547,7 @@ jobs:
           - { name: table-builder-diff-schema, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-apply-refresh, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
+          - { name: table-builder-notify-failure, layer: false, polars: false, tbcommon: true, cpcommon: true }
           # Table-share verbs (SPEC-088). `tscommon: true` attaches the table-share-common
           # layer — all five verbs share the tscommon package (stub namespaces now; real
           # helpers land with SPEC-089→094).
@@ -554,6 +556,7 @@ jobs:
           - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read
           # Parquet footers — Athena needs an explicit column list). Stub handlers now;

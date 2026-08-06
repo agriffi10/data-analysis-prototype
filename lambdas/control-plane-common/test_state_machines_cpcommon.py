@@ -120,6 +120,87 @@ def test_no_state_uses_a_throwing_intrinsic(path):
     )
 
 
+#: Planes exempt from the NotifyFailure requirement below, each with a reason. EMPTY, and
+#: an entry is a decision to leave users in the dark on some failure — not a formality.
+_NOTIFY_FAILURE_EXEMPT: dict[str, str] = {}
+
+
+@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
+def test_every_plane_notifies_before_it_fails(path):
+    """SPEC-152 FR-001. A FIFTH CONTROL PLANE MUST NOT SHIP WITHOUT THIS.
+
+    Every plane here is asynchronous and fire-and-forget: the browser enqueues, gets a
+    toast, and the outcome arrives as a notification. SPEC-114 made that explicit — the
+    notification IS the completion channel, because the user has no other way to learn what
+    happened, and there is no admin UI to check.
+
+    The verbs honour it through their own instrumentation, and SPEC-126's DLQ drain honours
+    it for requests that never started an execution. Neither covers the gap between: an
+    execution that started and then died BEFORE OR OUTSIDE any verb's Python — a
+    States.Timeout, a States.DataLimitExceeded, a task-level throttle, a Lambda that fails
+    at IMPORT. In that window the user gets no notification, no DLQ message, and a request
+    that simply never completes.
+
+    The design was right and was built once: data-quality carried a NotifyFailure state
+    while table-builder, table-share and shared-spaces routed every failure straight to a
+    terminal Fail. This is the check that stops it drifting back apart.
+
+    ASSERTS THE STATE BY NAME, not a count of anything (FR-004): a plane that renames it is
+    a plane whose failure path nobody can find, and a count would be satisfied by any four
+    states at all.
+    """
+    plane = os.path.basename(os.path.dirname(path))
+    if plane in _NOTIFY_FAILURE_EXEMPT:
+        pytest.skip(f"{plane} is exempt: {_NOTIFY_FAILURE_EXEMPT[plane]}")
+
+    states = dict(_states(_load(path)))
+    assert "NotifyFailure" in states, (
+        f"{plane} has no NotifyFailure state: every way a request can fail must end in a "
+        f"message, or 'it just never came back' is a reachable state for the user"
+    )
+
+    # It must be a real invocation, not a Pass placeholder that reads as one.
+    assert states["NotifyFailure"]["Type"] == "Task", f"{plane}: NotifyFailure is not a Task"
+
+    # AND IT MUST NOT BE ABLE TO FAIL THE EXECUTION INTO SILENCE. A notifier error is
+    # already-lost information; letting it escape would replace a recorded failure with an
+    # unhandled one, which is strictly worse than the missed message.
+    caught = {e for c in states["NotifyFailure"].get("Catch", []) or [] for e in c["ErrorEquals"]}
+    assert "States.ALL" in caught, f"{plane}: NotifyFailure has no States.ALL Catch"
+
+
+@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
+def test_the_raw_error_reaches_the_notifier_undecoded(path):
+    """SPEC-152 FR-004. The other half of the throwing-intrinsic guard above.
+
+    That test says no state MAY decode a Cause. This one says the undecoded object actually
+    ARRIVES — which is a different claim, and the one the notifier depends on. A plane could
+    satisfy the first perfectly by copying `$.error.Error` alone, or by reaching into
+    `$.error.Cause` with a plain JSONPath: no intrinsic, no States.Runtime, and
+    `failure_reason` gets a string it cannot decode instead of the ``{Error, Cause}`` pair
+    it was written for. The user then hears the generic sentence on a failure that had a
+    real reason available.
+
+    So: the recorded-failure state must copy ``$.error`` WHOLE. A bare JSONPath copy of a
+    key that always exists is the one form that cannot fail, which is why it is also the
+    only form allowed here.
+    """
+    plane = os.path.basename(os.path.dirname(path))
+    if plane in _NOTIFY_FAILURE_EXEMPT:
+        pytest.skip(f"{plane} is exempt: {_NOTIFY_FAILURE_EXEMPT[plane]}")
+
+    states = dict(_states(_load(path)))
+    assert "RecordFailure" in states, f"{plane} has no RecordFailure state"
+    assert states["RecordFailure"]["Parameters"].get("error.$") == "$.error", (
+        f"{plane}: RecordFailure must copy $.error WHOLE — the notifier decodes the "
+        f"{{Error, Cause}} pair in Python, and a narrowed copy silently degrades every "
+        f"message to the generic"
+    )
+    assert states["NotifyFailure"]["Parameters"]["Payload.$"] == "$", (
+        f"{plane}: NotifyFailure must forward the whole recorded-failure object"
+    )
+
+
 @pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
 def test_every_transition_resolves_and_every_state_is_reachable(path):
     """A dangling Next is a deploy-time error; an orphan state is dead code that reads as

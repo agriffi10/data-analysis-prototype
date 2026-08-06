@@ -40,7 +40,7 @@ LAYER_PACKAGES = {
     "tscommon": "tscommon",
     "dqcommon": "dqcommon",
     "polars": None,  # two different polars layers — resolved per function below
-    **dict.fromkeys(("casio", "registry", "membership", "teardown"), "layer"),
+    **dict.fromkeys(("casio", "registry", "membership", "teardown", "messages"), "layer"),
 }
 
 #: The two polars layers are the same import with different flags: table-builder's verb attaches

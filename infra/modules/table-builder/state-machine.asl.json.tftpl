@@ -240,10 +240,10 @@
     },
     "DiffMissingSeed": {
       "Type": "Pass",
-      "Comment": "Unreachable while diff-schema always emits $.diff — which is the only reason a seed is cheap enough to be worth having. Same shape as a Task Catch's output so RecordFailure needs no special case.",
+      "Comment": "Unreachable while diff-schema always emits $.diff — which is the only reason a seed is cheap enough to be worth having. Same shape as a Task Catch's output so RecordFailure needs no special case. THE ERROR NAME IS DELIBERATELY NOT TerminalError (SPEC-152): NO VERB RAISED THIS. diff-schema RETURNED, successfully, just without a $.diff — so @notifies_on_failure never fired and nobody has told the user anything. notify-failure suppresses TerminalError precisely because the decorator already spoke, and wearing that name here would buy this path a Fail state and permanent silence, on a seed whose entire purpose is the shouldn't-happen case. The reason code is unregistered, so the user gets the same generic sentence either way.",
       "Result": {
-        "Error": "TerminalError",
-        "Cause": "{\"errorType\":\"TerminalError\",\"errorMessage\":\"unexpected_error: diff-schema returned no diff\"}"
+        "Error": "DiffMissing",
+        "Cause": "diff-schema returned no diff"
       },
       "ResultPath": "$.error",
       "Next": "RecordFailure"
@@ -327,27 +327,60 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every verb.",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every verb. `mode` IS SEEDED HERE FOR THE SAME REASON the identity fields are, and it is load-bearing: SPEC-152 added $.mode to RecordFailure so the notification can say create vs refresh, and a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime — so without this line the ONE failure path that reaches RecordFailure without a validated mode (a malformed or unauthorized request) would die before NotifyFailure and tell the user nothing at all. The literal is 'create' because that is what validate-authorize's own _validate_mode normalises an absent mode to; it is a fallback for wording, never an assertion about what was requested.",
       "Parameters": {
         "requestId": null,
         "actor": null,
         "space": { "database": null },
         "tableName": null,
+        "mode": "create",
         "error.$": "$"
       },
       "Next": "RecordFailure"
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, status:'failed', error } (identity is null for a pre-identity validate failure) then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
+      "Comment": "The single recorded-failure state every verb's Catch reaches. Shapes the structured outcome { requestId, actor, database, tableName, mode, status:'failed', error } (identity is null for a pre-identity validate failure) then notifies and fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL. $.mode is read here for SPEC-152's notification and is safe on every path: validate-authorize normalises it onto its output object (so every post-validate Catch preserves it under ResultPath), and ValidateFailureSeed seeds it for the pre-identity path.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "database.$": "$.space.database",
         "tableName.$": "$.tableName",
+        "mode.$": "$.mode",
         "status": "failed",
         "error.$": "$.error"
       },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the user would otherwise be told nothing at all. It sits on EVERY failure path rather than a selected one, because the paths where no verb ran are exactly the ones that cannot be selected for in ASL; the verb suppresses the duplicate in Python instead, by reason code. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_failure_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
       "Next": "Failed"
     },
     "Succeeded": {

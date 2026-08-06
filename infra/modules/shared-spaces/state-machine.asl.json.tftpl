@@ -27,7 +27,7 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "Next": "ValidateFailureSeed"
         }
       ],
       "Next": "Route"
@@ -72,7 +72,14 @@
           "Next": "AcknowledgeMembership"
         }
       ],
-      "Default": "Failed"
+      "Default": "UnknownActionSeed"
+    },
+    "UnknownActionSeed": {
+      "Type": "Pass",
+      "Comment": "SPEC-152. The router's Default — an action the validator accepted but this Choice has no branch for. It reached Failed directly and told the user nothing, and unlike every other failure path it has NO $.error key of its own, so it cannot go to RecordFailure unseeded: a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime. A LITERAL Result merged under ResultPath is the seed that cannot itself fail — it reads no path at all — and merging (rather than replacing) is what keeps the verified actor, which is the only trustworthy recipient there is.",
+      "Result": { "Error": "UnknownAction" },
+      "ResultPath": "$.error",
+      "Next": "RecordFailure"
     },
     "CreateSpace": {
       "Type": "Task",
@@ -97,7 +104,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
@@ -125,7 +133,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
@@ -153,7 +162,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
@@ -181,7 +191,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
@@ -209,7 +220,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
@@ -237,7 +249,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
@@ -266,10 +279,67 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "Failed"
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
         }
       ],
       "Next": "Succeeded"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "SPEC-152. A Validate failure occurs before the request context exists (its input was the raw SQS array), and its Catch carries NO ResultPath because you cannot merge a key into an array — so the state has been REPLACED by the error object. Seed null context fields + carry the error under $.error so the shared RecordFailure path is uniform for every failure. The nulls are not decoration: RecordFailure is a Pass state, and a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime. A null VALUE is fine; a missing key is fatal. actor stays NULL rather than being read from the body — the body's own username is attacker-controlled, and the notifier treats a null actor as 'no trustworthy recipient' and stays silent (the SPEC-126 rule).",
+      "Parameters": {
+        "requestId": null,
+        "actor": null,
+        "action": null,
+        "space": null,
+        "error.$": "$"
+      },
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "SPEC-152. The single recorded-failure state every verb's Catch now reaches. Shapes the structured outcome { requestId, actor, action, space, status:'failed', error } then notifies and fails the execution. BEFORE THIS SPEC EVERY CATCH WENT STRAIGHT TO Failed WITH NO ResultPath, which replaced the state with the bare error object and threw the verified actor away — so there was no recipient to notify even in principle. The Catches now merge under $.error instead, which is what makes the identity survive. It PROJECTS rather than passing $ through: the validated context carries the whole registry document, and the notifier needs four fields. It carries the RAW $.error {Error, Cause}, never a decoded reason — an ASL States.StringToJson raises an UNCATCHABLE States.Runtime on any Cause that is absent or is not JSON, which is the failure class this whole spec exists to report (#252). Decode with cpcommon.errors.failure_reason, in Python.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "action.$": "$.action",
+        "space.$": "$.space",
+        "status": "failed",
+        "error.$": "$.error"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error (the shape of PR #196, where one missing env var crashed this very plane at cold start), a state timeout, a task that could not be invoked. This plane's verbs notify from INSIDE their handlers, so a verb that never ran notified nothing. The duplicate for the two verbs that DO emit their own failure message (create, delete) is collapsed by the FIFO dedup token, which the verb reproduces exactly — not by a Python guard, because the other five verbs emit no failure message at all and a guard would restore their silence. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_failure_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
     },
     "Succeeded": {
       "Type": "Succeed"

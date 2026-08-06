@@ -505,3 +505,109 @@ riskier decision.
 **Corroborated, not demonstrated:** the escaped form has never been exercised against Athena itself.
 The tests assert the rendered string. If a `'` in a partition segment ever still fails, suspect the
 engine's acceptance of `\'` before suspecting the renderer.
+
+### Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)
+
+All four control planes now carry a `NotifyFailure` state ahead of their terminal `Fail`, reached on
+every failure path, invoking a thin per-plane verb that decodes the raw `{Error, Cause}` with
+`cpcommon.errors.failure_reason` and emits through the plane's own notifier.
+
+**The gap this closes was named by the repo's own design and closed in one of four planes.**
+`@notifies_on_failure` needs handler code to run. SPEC-126's DLQ drain covers requests that never
+started an execution. Neither covers the middle: an execution that started and then failed **before or
+outside** any verb's Python — a `States.Timeout`, a `States.DataLimitExceeded`, a task-level throttle,
+a Lambda that fails at **import**. In that window the user got no notification, no DLQ message, and a
+request that never completed — against SPEC-114's rule that the notification **is** the completion
+channel, with no admin UI to check and no reason to suspect anything but slowness. Not theoretical:
+SPEC-137's nine-day `ModuleNotFoundError` and PR #196's shared-layer cold-start crash are both exactly
+this shape.
+
+**A fifth plane cannot ship without it.** `test_state_machines_cpcommon.py` enumerates every
+`state-machine.asl.json.tftpl` under `infra/modules/` and asserts each has a `NotifyFailure` Task with
+a `States.ALL` Catch, plus that its `RecordFailure` copies `$.error` **whole**. The exemption list is
+an empty dict — an entry is a decision to leave users in the dark, not a formality. The second
+assertion is not redundant with the throwing-intrinsic guard: a plane could satisfy that one perfectly
+by copying `$.error.Error` alone, and every message would silently degrade to the generic.
+
+**The duplicate-suppression mechanism differs per plane, and the difference is forced, not stylistic.**
+This state sits on *every* failure path, because the paths where no verb ran cannot be selected for in
+ASL — so an ordinary failure would otherwise notify twice.
+
+- **table-builder / table-share** suppress in Python via `_verb_already_notified`, on **one name**:
+  `Error == "TerminalError"`. That is the only *positive* evidence available — a verb raised it
+  deliberately and the decorator's `emit_terminal` fired — and it is the only case where the
+  decorator's message is strictly better, because it carries `err.tokens` (without which a
+  `columns_removed` refusal cannot name the columns). Everything else notifies, including an
+  exhausted `TransientError`, which the decorator deliberately leaves un-notified — a gap this spec
+  therefore also closes.
+
+  **The obvious generalisation is wrong in the dangerous direction, and was caught in review.** An
+  earlier version inferred the same thing from the *absence of a dot*: bare class name means a
+  handler ran, dotted engine name means it did not. But `cpcommon.config` calls `_require` at
+  **module scope** and raises a bare `RuntimeError` — not a hypothetical, this fleet's own recorded
+  outage (`lambda.tf`: "check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset", PR #196). The
+  heuristic would have suppressed it, silencing the exact class of failure the spec exists to
+  report. The set of dot-free names meaning "a verb notified" is unbounded and unknowable from the
+  payload; the set meaning `TerminalError` is one string.
+
+  **The price is a duplicate on the unexpected-exception path** — a `KeyError` inside a verb
+  notifies through `emit_unexpected` and again here, same generic sentence. FR-002 settles it: a
+  duplicate is preferable to none. A guess that suppresses is unrecoverable; a duplicate is a
+  papercut on a path that is already a bug.
+
+  **A seeded error must not wear a verb's name.** table-builder's `DiffMissingSeed` (the
+  `RouteByChange` `Default`) manufactured `Error: "TerminalError"` for a case where `diff-schema`
+  *returned successfully* without a `$.diff` — so no exception was raised and no decorator fired. It
+  now seeds `DiffMissing`, because a defensive seed whose whole purpose is the shouldn't-happen case
+  is the last thing that should buy itself a `Fail` state and silence. The user-facing text is
+  unchanged: neither code is registered, so both render the generic clause.
+- **shared-spaces** cannot use that test, because five of its seven verbs emit **no** failure message
+  at all and a "did a verb run" guard would restore their silence. It reproduces the verb's **FIFO
+  dedup token** byte-for-byte instead (`{requestId}:{action}-failed:{actor}`), so SQS drops the second
+  message where a verb already spoke and delivers it where none did.
+- **data-quality** is unchanged: `dqcommon` centralises one `FAILURE_STEP`, so its pair already
+  collapses on an identical token. Unifying `tbcommon`'s per-verb steps to match would change
+  notification behaviour on paths that already work.
+
+**shared-spaces needed structural work, not just a state.** Its seven verb `Catch` blocks carried **no
+`ResultPath`**, so the error object *replaced* the state and the verified actor was discarded — there
+was no recipient to notify even in principle. They now merge under `$.error`; a `ValidateFailureSeed`
+covers the pre-identity path (its Catch cannot carry a `ResultPath` — you cannot merge a key into an
+array), and the router's `Default` gets an `UnknownActionSeed` whose **literal** `Result` merged under
+`ResultPath` is the one seed form that reads no path and so cannot itself raise.
+
+**`$.mode` on table-builder's `RecordFailure` supersedes the rule that forbade it.** The old test
+banned `mode.$` there; its stated *reason* was that `ValidateFailureSeed` did not seed it and a Pass
+state hard-fails on an absent key. The ban was never the invariant — the seeding was. `mode` is now
+seeded, and the test asserts the general form: `RecordFailure` may read nothing `ValidateFailureSeed`
+does not seed. Without it a failed **refresh** tells the user their **create** failed.
+
+**shared-spaces gained a `failure_message` resolver** (`shared-space-common/messages.py`), the last
+plane to get one. Its domain table is **empty on purpose**: every reason that can reach this path is a
+raw engine name that SPEC-106 FR-008 forbids showing, so what varies is the **action**, not the reason.
+Going through `cpcommon.messages.register` rather than hard-coding the clause means a code registered
+later renders through the same path.
+
+**No deploy-role IAM was needed, and that was verified rather than assumed.** All three planes' deploy
+policies scope `lambda:CreateFunction`, `iam:PassRole` and `logs:CreateLogGroup` to
+`{project}-*-<plane>-*` wildcards, and each plane's SFN invoke grant renders from the same `locals.tf`
+map the new function was added to. SPEC-143's `load-table-definition` is the live precedent. The
+spec's Phase 1 assumed an expansion and sequenced a separate land-and-apply around the self-grant
+timing trap; neither was required.
+
+**The cold-start probe is the one gate that would have caught SPEC-137.** `test_notify_failure_import_safety.py`
+imports each new verb in a fresh interpreter whose `sys.path` is **exactly** what its deploy-matrix row
+grants. `conftest.py` puts every layer root on `sys.path` for the whole suite by design, `update-function-code`
+succeeds against a function that cannot import, and `test_deploy_matrix.py` reasons about **names** — it
+cannot tell you the named layer actually publishes what the code imports. The environment is
+**inherited**, unlike `test_layer_import_safety.py` which scrubs it: these verbs reach `cpcommon.config`
+through their domain notifier, so the import-time `_require` is *supposed* to run. Only `sys.path` is
+scrubbed, because packaging is what is under test.
+
+**One layer needs a second guard, and only one.** The probe puts layer SOURCE TREES on `sys.path`, so a
+module present on disk but absent from a layer's *build* is invisible to it. Every layer copies a
+**package** (`cp -r cpcommon`) except `shared-space-common`, which publishes **flat modules** from an
+explicit `for m in config casio auth …` list in the workflow — so a new module there ships only if
+someone remembers to name it. Review confirmed the gap was live: deleting `messages` from that list left
+the entire suite green while the deployed layer lost it. `test_the_shared_space_layer_publishes_every_module_it_has`
+now joins the workflow's list against the directory.

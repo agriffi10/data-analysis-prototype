@@ -1,7 +1,7 @@
 # Spec: Control-Plane Failure Notification — Telling the User When No Verb Ran
 
 **ID:** SPEC-152
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-114 (the notification **is** the completion channel — the rule this spec extends to a case it never covered), SPEC-126 (the DLQ drain, which covers the adjacent case and shows where its coverage stops), SPEC-129 (`cpcommon.errors.failure_reason`, written for this and currently used once), SPEC-134/135/136 (the `@notifies_on_failure` instrumentation whose limitation this spec addresses), SPEC-107 (`cpcommon`)
 

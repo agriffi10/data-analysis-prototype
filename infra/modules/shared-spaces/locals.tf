@@ -27,6 +27,7 @@ locals {
     "delete"                 = "delete_space.handler"
     "forget"                 = "forget_space.handler"
     "acknowledge-membership" = "acknowledge_membership.handler" # SPEC-073 join-status ack
+    "notify-failure"         = "ss_notify_failure.handler"      # SPEC-152 last-resort notify
   }
 
   shared_space_function_names = {

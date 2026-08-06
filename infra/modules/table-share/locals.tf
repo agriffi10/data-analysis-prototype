@@ -38,6 +38,9 @@ locals {
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
     "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
+    # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
+    # on a whole-request failure path, so it takes the smallest shape any verb here has.
+    "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 15, memory = 256 }
   }
 
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR

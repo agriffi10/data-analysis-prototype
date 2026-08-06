@@ -75,13 +75,14 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150 and 151 are COMPLETE and deployed; 152→156 are written, not built.**
+**The 2026-08-05 audit arc: 150, 151 and 152 are COMPLETE; 153→156 are written, not built.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
-teardown that **freed the name with objects still under it**. Both are Phase-5 verified. The remaining
-audit specs are **152** (failure notification — provisions infra), **153** (test/gate integrity),
-**154** (untested journeys), **155**/**156** (the reuse cluster).
+teardown that **freed the name with objects still under it**. Both are Phase-5 verified. **152 gave
+every plane a `NotifyFailure`**, so "it just never came back" is no longer reachable. The remaining
+audit specs are **153** (test/gate integrity), **154** (untested journeys), **155**/**156** (the reuse
+cluster).
 
 **The username-directory arc (146 → 147 → 148) is COMPLETE and deployed.** The daily builder
 publishes `_directory/usernames.json`; both `AddMembersDialog` and `TableShareDialog` suggest
@@ -259,6 +260,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header). Accepted orphan class: **stale root files**.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead, and **asserts its own coverage** (fails if IAM resources are present but no IAM check ran). Isolation policies are clean; the residual findings are non-scopable deploy-role actions.
+- **Every plane notifies on a pre-verb failure (152):** all four machines carry a `NotifyFailure` before `Fail`, reached on **every** failure path (the no-verb-ran paths can't be selected for in ASL), invoking a thin verb that decodes the raw `{Error, Cause}` with `cpcommon.errors.failure_reason` — the **only** decoder. A fleet test asserts every machine has the state and copies `$.error` **whole**; the exemption list is empty. Duplicate suppression differs **by force, not style**: tb/ts suppress on **one positively-identified name** (`Error == "TerminalError"`) and notify on everything else — the tempting "a dot means an engine error" heuristic **silences an import-time bare `RuntimeError`**, which is PR #196's own shape, so don't reintroduce it; a **seed** must therefore never wear a verb's error name (`DiffMissingSeed`). shared-spaces reproduces the verb's **FIFO dedup token** instead, because five of its seven verbs notify nothing. shared-spaces also needed `ResultPath` on its seven catches — without it the verified actor was **discarded**. **No deploy-role IAM was needed** (verified: per-plane wildcards already cover it).
 - **A partial teardown never frees the space name (151):** `delete_objects`/`batch_delete_table` return **HTTP 200 with a per-item `Errors` array**, so a partial failure looked complete; both now raise `TeardownIncompleteError` and **leave the registry record intact** — the record IS the name lock (meets SPEC-054's criterion). Counts, never keys; every page attempted first; the Glue raise lands **before** `delete_database`.
 - **Every DDL literal goes through `literal()` (151):** `TBLPROPERTIES` keys/values and `LOCATION` included — a raw `f"'{v}'"` let an enum value inject `'projection.enabled'='false'`, and an S3 segment like `year=2024'` killed a whole data-quality check. **Two escapers, never confused:** `ddl.literal` backslash-escapes (Hive/DDL), `dqcommon.sql._literal_dml` doubles the quote (Trino/DML). Ordinary values render byte-identically.
 - **Compiler and coverage defaults are declared, never inherited (150):** both tsconfigs state `"strict": true` (already TS 6's default — declaring it changed **zero** errors) and both suites carry **literal** coverage floors — portal 91/86/89/93, lambdas 95 — as **ratchets at the measured level, not targets**. Never lower one for a regression. `pyproject.toml`'s ruff block is the precedent; the `npm run build` PR gate is separate and already shipped (#363).
