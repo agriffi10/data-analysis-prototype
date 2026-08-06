@@ -157,7 +157,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 149 — Refresh Table: In-Place Rebuild via `glue:UpdateTable` | Completed |
 | 150 — Portal Guardrails: Typecheck Gate, Enqueue Re-entrancy & the Error-Code Contract | Completed |
 | 151 — Control-Plane Correctness: Single-File Checks, Teardown Integrity & DDL Escaping | Completed |
-| 152 — Control-Plane Failure Notification: Telling the User When No Verb Ran | Draft |
+| 152 — Control-Plane Failure Notification: Telling the User When No Verb Ran | Completed |
 | 153 — Test & Gate Integrity: Closing the Guards That Pass by Coincidence | Draft |
 | 154 — Frontend Journey Coverage: Testing the Wires Between Tested Halves | Draft |
 | 155 — Browser Shared Primitives & Component Decomposition | Draft |

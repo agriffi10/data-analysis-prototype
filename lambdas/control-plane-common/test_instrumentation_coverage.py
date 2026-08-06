@@ -79,7 +79,7 @@ PLANES = [
     Plane(
         service="shared-space",
         glob="shared-space-*",
-        verb_count=8,
+        verb_count=9,
         # Its verbs notify explicitly from inside the handler — see Plane's docstring.
         notifies_on_failure=False,
         not_verbs=frozenset({"shared-space-common"}),
@@ -87,14 +87,14 @@ PLANES = [
     Plane(
         service="table-builder",
         glob="table-builder-*",
-        verb_count=8,
+        verb_count=9,
         notifies_on_failure=True,
         not_verbs=frozenset({"table-builder-common", "table-builder-polars"}),
     ),
     Plane(
         service="table-share",
         glob="table-share-*",
-        verb_count=5,
+        verb_count=6,
         notifies_on_failure=True,
         not_verbs=frozenset({"table-share-common"}),
     ),

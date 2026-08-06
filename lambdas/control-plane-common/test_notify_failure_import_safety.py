@@ -1,0 +1,139 @@
+"""Every notify-failure verb must survive its own cold start (SPEC-152 FR-003).
+
+**This is the guard that matters most for these three functions specifically**, and the
+reason is circular in a way worth stating plainly: they exist to report the failures no
+verb can catch — and a Lambda that dies at IMPORT is the headline member of that class.
+A notify-failure verb that cannot import restores the exact silence SPEC-152 was written
+to end, on every failure at once, while every other gate stays green.
+
+SPEC-137 is the precedent and every one of its blind spots still applies:
+
+* **pytest cannot see it.** ``lambdas/conftest.py`` puts the layer roots on ``sys.path``
+  for every test, so an import that would fail in Lambda succeeds under test, by design.
+* **The deploy cannot see it.** ``update-function-code`` succeeds against a function that
+  raises ``ModuleNotFoundError`` at cold start; the job goes green.
+* **``test_deploy_matrix.py`` sees only half of it.** It joins a function's imports against
+  its matrix row — a real check, and the one SPEC-137 needed — but it reasons about NAMES.
+  It cannot tell you the named layer actually provides the module, in the layout the layer
+  is really built in.
+
+So this runs a fresh interpreter whose ``sys.path`` is EXACTLY what the deploy matrix
+grants that function: the layer roots its row flags, plus the function's own directory.
+Nothing else. If the row is wrong, or a layer's build does not publish what the code
+imports, the subprocess fails here rather than in production nine days later.
+
+THE ENVIRONMENT IS INHERITED, DELIBERATELY, and that is the difference from
+``test_layer_import_safety.py``. That test scrubs the environment because its three
+singletons must import ``cpcommon.observability`` with NO variables set. These verbs are
+the opposite case: they reach ``cpcommon.config`` through their domain notifier, so the
+layer's import-time ``_require`` is *supposed* to run and Terraform's common env is
+*supposed* to satisfy it. Scrubbing here would assert the opposite of the contract. What is
+under test is PACKAGING, and ``sys.path`` is the only thing scrubbed.
+"""
+
+import os
+import pathlib
+import re
+import subprocess
+import sys
+
+import pytest
+
+LAYER_ROOT = pathlib.Path(__file__).resolve().parent
+LAMBDAS = LAYER_ROOT.parent
+WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
+
+#: The three functions SPEC-152 added, and the module Lambda loads for each.
+NOTIFY_FAILURE_VERBS = {
+    "table-builder-notify-failure": "tb_notify_failure",
+    "table-share-notify-failure": "ts_notify_failure",
+    "shared-space-notify-failure": "ss_notify_failure",
+}
+
+#: matrix flag -> the directory the layer publishes its contents FROM. ``layer`` is
+#: shared-space-common, which publishes FLAT modules at the layer root rather than a
+#: package — which is why the root itself is the path, exactly as /opt/python would be.
+LAYER_ROOTS = {
+    "cpcommon": LAMBDAS / "control-plane-common",
+    "tbcommon": LAMBDAS / "table-builder-common",
+    "tscommon": LAMBDAS / "table-share-common",
+    "dqcommon": LAMBDAS / "data-quality-common",
+    "layer": LAMBDAS / "shared-space-common",
+}
+
+_ROW_RE = re.compile(r"^\s*-\s*\{\s*name:\s*([a-z0-9-]+)\s*,(.*)\}\s*$")
+_FLAG_RE = re.compile(r"(\w+)\s*:\s*(true|false)")
+
+
+def _matrix_row(function: str) -> dict:
+    """The deploy matrix's flags for one function, read from the workflow as data.
+
+    A regex over the raw file rather than a YAML parse, matching ``test_deploy_matrix.py``:
+    PyYAML is not a test dependency and the rows are a fixed one-line shape. A row that
+    stops matching yields no flags, which the caller turns into a failure rather than a
+    vacuous pass.
+    """
+    for line in WORKFLOW.read_text().splitlines():
+        match = _ROW_RE.match(line)
+        if match and match.group(1) == function:
+            return {k: v == "true" for k, v in _FLAG_RE.findall(match.group(2))}
+    return {}
+
+
+_PROBE = """
+import importlib, sys
+module = importlib.import_module(sys.argv[1])
+assert callable(module.handler), "handler is not callable"
+print("IMPORT_OK", file=sys.stderr)
+"""
+
+
+@pytest.mark.parametrize(
+    ("function", "module"), sorted(NOTIFY_FAILURE_VERBS.items()), ids=lambda v: v
+)
+def test_a_notify_failure_verb_imports_from_only_the_layers_its_row_grants(function, module):
+    """A cold start, simulated honestly: only the granted layer roots are importable."""
+    flags = _matrix_row(function)
+    assert flags, (
+        f"{function} has no row in {WORKFLOW.name} (or the row was reformatted onto "
+        "several lines and no longer matches). It cannot deploy, and this probe would "
+        "otherwise pass by testing nothing."
+    )
+
+    granted = [str(LAYER_ROOTS[flag]) for flag, on in flags.items() if on and flag in LAYER_ROOTS]
+    assert granted, f"{function}'s row grants no layer at all"
+
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["PYTHONPATH"] = os.pathsep.join([*granted, str(LAMBDAS / function)])
+
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-c", _PROBE, module],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"{function} cannot import at cold start from the layers its matrix row grants "
+        f"({sorted(f for f, on in flags.items() if on)}). This is the SPEC-137 failure "
+        f"mode, on the one function whose whole job is to report it:\n{result.stderr}"
+    )
+    assert "IMPORT_OK" in result.stderr
+
+
+def test_the_probe_covers_every_notify_failure_verb_that_exists():
+    """Guards the parametrisation against a fourth verb shipping uncovered.
+
+    Discovers them from the FILESYSTEM rather than trusting the table above, so a new
+    plane's notify-failure lands in this probe by existing rather than by being remembered.
+    """
+    found = {p.name for p in LAMBDAS.iterdir() if p.is_dir() and p.name.endswith("-notify-failure")}
+    # data-quality's predates SPEC-152 and is covered by its own suite; it is named here so
+    # the set comparison stays exact rather than being weakened to a subset check.
+    expected = set(NOTIFY_FAILURE_VERBS) | {"data-quality-notify-failure"}
+    assert found == expected, f"uncovered: {sorted(found - expected)}"
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

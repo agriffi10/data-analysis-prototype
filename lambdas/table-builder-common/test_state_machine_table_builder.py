@@ -265,14 +265,31 @@ def test_record_success_still_carries_the_mode():
     assert _states()["RecordSuccess"]["Parameters"]["mode.$"] == "$.mode"
 
 
-def test_record_failure_is_unchanged_and_reads_no_mode():
-    """RecordFailure is reachable from ValidateFailureSeed, which seeds identity fields
-    BEFORE `mode` exists — a `$.mode` read there would hit an absent key and raise an
-    uncatchable States.Runtime on the failure path, where the user hears nothing."""
-    parameters = _states()["RecordFailure"]["Parameters"]
+def test_record_failure_reads_nothing_validate_failure_seed_does_not_seed():
+    """THE REAL INVARIANT, stated generally. It replaces an earlier test that simply
+    forbade `mode.$` here — a rule whose stated REASON was this one: RecordFailure is
+    reachable from ValidateFailureSeed, and a Pass state's JSONPath hard-fails on an ABSENT
+    key with an uncatchable States.Runtime. On the failure path that kills the execution
+    before the user hears anything, which is the whole class SPEC-152 exists to close.
 
-    assert "mode.$" not in parameters
-    assert set(parameters) == {"requestId.$", "actor.$", "database.$", "tableName.$", "status", "error.$"}
+    SPEC-152 needed `$.mode` on this state so a failed REFRESH does not tell the user their
+    CREATE failed, and paid for it the documented way — by seeding `mode` in
+    ValidateFailureSeed, exactly as data-quality seeds `location` and `reportKey`. So the
+    ban was never the invariant; the seeding was. Asserted as a set difference rather than
+    a fixed key list so the next field to be added is checked automatically instead of
+    needing this test rewritten a second time.
+    """
+    states = _states()
+    read = {v[2:] for v in states["RecordFailure"]["Parameters"].values() if isinstance(v, str) and v.startswith("$.")}
+    seeded = set(states["ValidateFailureSeed"]["Parameters"])
+    # The seed writes `error.$` from the whole state ("$"), and nests `space.database`.
+    seeded = {k.removesuffix(".$") for k in seeded} | {"space.database"}
+
+    assert not read - seeded, (
+        f"RecordFailure reads {sorted(read - seeded)}, which ValidateFailureSeed does not "
+        "seed: a pre-identity failure would die on an absent key before it could notify"
+    )
+    assert "mode" in read, "SPEC-152: without $.mode a failed refresh reads as a failed create"
 
 
 def _strings(value, key=None):

@@ -47,6 +47,9 @@ locals {
     "diff-schema"           = { handler = "diff_schema.handler", timeout = 15, memory = 256 }
     "apply-refresh"         = { handler = "apply_refresh.handler", timeout = 300, memory = 512 }
     "execute-ddl"           = { handler = "execute_ddl.handler", timeout = 300, memory = 512 }
+    # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
+    # on a failure path, so it takes the smallest shape any verb here has.
+    "notify-failure" = { handler = "tb_notify_failure.handler", timeout = 15, memory = 256 }
   }
 
   table_builder_function_names = {
