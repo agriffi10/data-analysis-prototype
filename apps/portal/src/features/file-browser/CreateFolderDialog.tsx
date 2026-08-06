@@ -1,8 +1,7 @@
-import {useEffect, useRef, useState} from 'react';
+import {useRef, useState} from 'react';
 import {validateFolderName} from './fileBrowser.service';
-import {Button} from '../../components/Button';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {Modal} from '../../components/Modal';
 
 type Props = {
   onCreate: (name: string) => void;
@@ -10,16 +9,12 @@ type Props = {
 };
 
 // SPEC-016 FR-004: prompt for a new folder name with client-side validation (the
-// same rules the service enforces) before any request is issued. Rendered in the
-// shared Modal (blur backdrop + focus trap); Enter creates, Escape cancels.
+// same rules the service enforces) before any request is issued. Chrome, focus and
+// Enter-to-submit come from FormDialog; Escape cancels via Modal.
 export function CreateFolderDialog({onCreate, onCancel}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   const validationError = validateFolderName(name);
   const showError = touched && validationError !== null;
@@ -30,42 +25,26 @@ export function CreateFolderDialog({onCreate, onCancel}: Props) {
   }
 
   return (
-    <Modal
+    <FormDialog
+      title="New folder"
       ariaLabel="Create folder"
-      onDismiss={onCancel}>
-      <div className="px-5 pb-4 pt-5">
-        <h2 className="text-md font-semibold text-text">New folder</h2>
-
-        <div className="mt-4">
-          <Input
-            id="new-folder-name"
-            ref={inputRef}
-            label="Folder name"
-            required
-            aria-required="true"
-            value={name}
-            error={showError ? validationError : null}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => setTouched(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit();
-            }}
-          />
-        </div>
+      submitLabel="Create"
+      autoFocusRef={inputRef}
+      onSubmit={submit}
+      onCancel={onCancel}>
+      <div className="mt-4">
+        <Input
+          id="new-folder-name"
+          ref={inputRef}
+          label="Folder name"
+          required
+          aria-required="true"
+          value={name}
+          error={showError ? validationError : null}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => setTouched(true)}
+        />
       </div>
-
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={submit}>
-          Create
-        </Button>
-      </div>
-    </Modal>
+    </FormDialog>
   );
 }

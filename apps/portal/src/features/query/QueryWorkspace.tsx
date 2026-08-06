@@ -6,6 +6,7 @@ import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
+import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
 import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, isTerminalState} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
@@ -1323,17 +1324,7 @@ export function QueryWorkspace() {
                   onClick={() => setClearOpen(true)}
                   disabled={!canClear}
                   aria-label="Clear query">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="h-4 w-4"
-                    aria-hidden="true">
-                    <path d="M3 6h18" />
-                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  </svg>
+                  <TrashLidIcon />
                   <span className={TOOLBAR_LABEL}>Clear</span>
                 </Button>
                 <Button
@@ -1341,17 +1332,7 @@ export function QueryWorkspace() {
                   onClick={() => setSaveOpen(true)}
                   disabled={!canSave}
                   aria-label="Save query">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="h-4 w-4"
-                    aria-hidden="true">
-                    <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-                    <path d="M9 4v5h6" />
-                    <path d="M8 21v-7h8v7" />
-                  </svg>
+                  <SaveIcon />
                   <span className={TOOLBAR_LABEL}>Save</span>
                 </Button>
                 <Button
@@ -1370,20 +1351,7 @@ export function QueryWorkspace() {
                   }}
                   disabled={!canSave}
                   aria-label="Create view">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="h-4 w-4"
-                    aria-hidden="true">
-                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="3"
-                    />
-                  </svg>
+                  <EyeIcon />
                   <span className={TOOLBAR_LABEL}>Create view</span>
                 </Button>
                 {activeIsInFlight ? (
@@ -1422,14 +1390,7 @@ export function QueryWorkspace() {
                       title="Run the selection or the statement under the cursor (⌘⏎)"
                       aria-label="Run statement"
                       className="rounded-r-none">
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        stroke="none"
-                        className="h-4 w-4"
-                        aria-hidden="true">
-                        <path d="M7 5v14l11-7z" />
-                      </svg>
+                      <PlayIcon />
                       <span className={TOOLBAR_LABEL}>Run Statement</span>
                     </Button>
                     <Menu

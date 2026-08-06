@@ -6,7 +6,15 @@ type BannerProps = {
   variant: BannerVariant;
   /** Bold first line above the body. */
   title?: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  /**
+   * Renders a "Try again" action inside the banner. For the retry-a-failed-read case
+   * both list pages had hand-rolled as an underlined button in the body — same markup,
+   * same wording, twice.
+   */
+  retry?: () => void;
+  /** Override the retry action's wording. */
+  retryLabel?: string;
   /** When provided, renders a Dismiss button that calls it. */
   onDismiss?: () => void;
   /** ARIA live-region role; defaults to 'alert'. */
@@ -31,7 +39,16 @@ const VARIANTS: Record<BannerVariant, string> = {
  *   Some items could not be removed.
  * </Banner>
  */
-export function Banner({variant, title, children, onDismiss, role = 'alert', className}: BannerProps) {
+export function Banner({
+  variant,
+  title,
+  children,
+  retry,
+  retryLabel = 'Try again',
+  onDismiss,
+  role = 'alert',
+  className
+}: BannerProps) {
   return (
     <div
       role={role}
@@ -39,6 +56,14 @@ export function Banner({variant, title, children, onDismiss, role = 'alert', cla
       <div className="min-w-0 flex-1">
         {title && <p className="font-medium">{title}</p>}
         {children}
+        {retry && (
+          <button
+            type="button"
+            onClick={retry}
+            className="font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            {retryLabel}
+          </button>
+        )}
       </div>
       {onDismiss && (
         <button

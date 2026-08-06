@@ -2,9 +2,8 @@ import {useState} from 'react';
 import {toUserMessage} from '../../lib/errorMessages';
 import {Banner} from '../../components/Banner';
 import {Drawer} from '../../components/Drawer';
-import {IconButton} from '../../components/IconButton';
+import {RefreshIconButton} from '../../components/RefreshIconButton';
 import {Pager} from '../../components/Pager';
-import {cx} from '../../lib/cx';
 import {useQueryHistory} from './useQueryHistory';
 import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
@@ -61,24 +60,11 @@ export function QueryHistoryPanel({open, onClose, username, onReopen, onRerun, r
   };
 
   const refreshButton = (
-    <IconButton
+    <RefreshIconButton
       label="Refresh history"
-      size="sm"
-      disabled={isRefreshing}
-      onClick={() => void handleRefresh()}>
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className={cx('h-4 w-4', isRefreshing && 'animate-spin')}
-        aria-hidden="true">
-        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-        <path d="M21 3v5h-5" />
-        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-        <path d="M3 21v-5h5" />
-      </svg>
-    </IconButton>
+      busy={isRefreshing}
+      onClick={() => void handleRefresh()}
+    />
   );
 
   const footer =

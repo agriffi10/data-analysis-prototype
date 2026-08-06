@@ -1,11 +1,12 @@
 import {useState} from 'react';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';
-import {IconButton} from '../../components/IconButton';
 import {PageLayout} from '../../components/PageLayout';
 import {Pager} from '../../components/Pager';
-import {cx} from '../../lib/cx';
+import {RefreshIconButton} from '../../components/RefreshIconButton';
+import {SegmentedFilter} from '../../components/SegmentedFilter';
 import {usePageTitle} from '../../hooks/usePageTitle';
+import {useClientPager} from '../../hooks/useClientPager';
 import {useAuth} from '../auth';
 import {useToast} from '../../components/toastContext';
 import {toUserMessage} from '../../lib/errorMessages';
@@ -15,6 +16,11 @@ import {NotificationRow} from './NotificationRow';
 const PAGE_SIZE = 10;
 
 type Filter = 'all' | 'unread';
+
+const FILTERS = [
+  {value: 'all', label: 'All'},
+  {value: 'unread', label: 'Unread'}
+] as const satisfies readonly {value: Filter; label: string}[];
 
 /**
  * Routed notifications page: newest-first list with 10/page Prev/Next, per-row
@@ -41,23 +47,19 @@ export function NotificationsPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const visible = filter === 'unread' ? notifications.filter((n) => !n.read) : notifications;
 
-  // Client-side pager over the in-memory list. Clamp so a shrunk list never strands
-  // on a blank page; snap to the newest page when new notifications arrive.
-  const [pageIndex, setPageIndex] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  const safeIndex = Math.min(pageIndex, pageCount - 1);
-  const start = safeIndex * PAGE_SIZE;
-  const pageItems = visible.slice(start, start + PAGE_SIZE);
+  // Clamped client-side pager: a shrunk list never strands the user on a blank page.
+  const {pageItems, pagerProps, resetToFirst} = useClientPager(visible, PAGE_SIZE);
 
+  // Snap to the newest page when new notifications arrive.
   const [prevLen, setPrevLen] = useState(notifications.length);
   if (notifications.length !== prevLen) {
     setPrevLen(notifications.length);
-    if (notifications.length > prevLen) setPageIndex(0);
+    if (notifications.length > prevLen) resetToFirst();
   }
 
   const applyFilter = (next: Filter) => {
     setFilter(next);
-    setPageIndex(0);
+    resetToFirst();
   };
 
   const [refreshing, setRefreshing] = useState(false);
@@ -65,7 +67,7 @@ export function NotificationsPage() {
     setRefreshing(true);
     await refresh();
     setRefreshing(false);
-    setPageIndex(0);
+    resetToFirst();
   };
 
   return (
@@ -75,28 +77,17 @@ export function NotificationsPage() {
       stackActionsOnMobile
       actions={
         <>
-          <FilterTabs
-            filter={filter}
+          <SegmentedFilter
+            label="Filter notifications"
+            options={FILTERS}
+            value={filter}
             onChange={applyFilter}
           />
-          <IconButton
+          <RefreshIconButton
             label="Refresh notifications"
-            size="sm"
-            disabled={refreshing}
-            onClick={() => void handleRefresh()}>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className={cx('h-4 w-4', refreshing && 'animate-spin')}
-              aria-hidden="true">
-              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-              <path d="M21 3v5h-5" />
-              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-              <path d="M3 21v-5h5" />
-            </svg>
-          </IconButton>
+            busy={refreshing}
+            onClick={() => void handleRefresh()}
+          />
           <Button
             variant="default"
             size="sm"
@@ -112,14 +103,9 @@ export function NotificationsPage() {
         <Banner
           variant="danger"
           title="Couldn’t load notifications."
-          className="mb-2">
-          <button
-            type="button"
-            onClick={() => void handleRefresh()}
-            className="font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-            Try again
-          </button>
-        </Banner>
+          retry={() => void handleRefresh()}
+          className="mb-2"
+        />
       )}
 
       {isLoading ? (
@@ -152,47 +138,10 @@ export function NotificationsPage() {
           </ul>
           <Pager
             className="mt-2"
-            hasPrev={safeIndex > 0}
-            hasNext={safeIndex < pageCount - 1}
-            onPrev={() => setPageIndex(Math.max(0, safeIndex - 1))}
-            onNext={() => setPageIndex(Math.min(pageCount - 1, safeIndex + 1))}
-            label={
-              <>
-                {start + 1}–{start + pageItems.length} of {visible.length}
-                <span className="sr-only"> (page {safeIndex + 1})</span>
-              </>
-            }
+            {...pagerProps}
           />
         </>
       )}
     </PageLayout>
-  );
-}
-
-// All / Unread segmented control: two toggle buttons in a labeled group; the active
-// one carries `aria-pressed` so the choice is never conveyed by styling alone.
-function FilterTabs({filter, onChange}: {filter: Filter; onChange: (next: Filter) => void}) {
-  return (
-    <div
-      role="group"
-      aria-label="Filter notifications"
-      className="inline-flex gap-0.5 rounded-md border border-border bg-surface-2 p-0.5">
-      {(['all', 'unread'] as const).map((value) => {
-        const active = filter === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(value)}
-            className={cx(
-              'h-7 rounded-sm px-3 text-sm font-medium capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-              active ? 'bg-surface font-semibold text-accent-text shadow-sm' : 'text-text-2 hover:text-text'
-            )}>
-            {value}
-          </button>
-        );
-      })}
-    </div>
   );
 }

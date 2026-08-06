@@ -1,5 +1,6 @@
 import type {S3FolderItem} from '../../types/s3.types';
 import {Button} from '../../components/Button';
+import {PencilIcon} from '../../components/icons';
 import {Drawer} from '../../components/Drawer';
 import {relativePath} from './fileBrowser.paths';
 import {DetailField} from './DetailField';
@@ -14,24 +15,6 @@ type Props = {
   onRequestRename: (folder: S3FolderItem) => void;
   onClose: () => void;
 };
-
-function PencilIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      className="h-4 w-4"
-      aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13.5 3.5l3 3L7 16l-3.5.5L4 13z"
-      />
-    </svg>
-  );
-}
 
 // Read-only details drawer for a folder (prefix). Folders have no HeadObject
 // metadata, so unlike MetadataPanel this renders synchronously from the listing

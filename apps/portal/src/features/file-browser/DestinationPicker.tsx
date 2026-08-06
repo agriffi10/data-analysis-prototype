@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {useFileBrowser} from './useFileBrowser';
 import {toUserMessage} from '../../lib/errorMessages';
 import type {SelectableItem} from './selectionContext';
@@ -33,6 +33,10 @@ type BaseProps = {
   // SPEC-124 FR-003: the list's aria-label. "Destination folders" is wrong in a
   // mode where files are selectable and nothing is a "destination".
   listLabel?: string;
+  // SPEC-155 FR-002: claim initial focus once the listing settles. For a dialog whose
+  // ENTIRE content is this picker (Move, Copy) — never where it is one section among
+  // others the user may already be operating (Save results), because it remounts there.
+  autoFocus?: boolean;
   // SPEC-124 FR-003: fired on mount and on EVERY navigation/selection change, so
   // the caller can render the resolved target and compute a confirm label without
   // the picker giving up ownership of its browse state. Must be referentially
@@ -129,6 +133,7 @@ export function DestinationPicker({
   busyLabel,
   selfMessage = "You can't copy a folder into itself.",
   listLabel = 'Destination folders',
+  autoFocus = false,
   selectableFiles = false,
   onTargetChange,
   onConfirm,
@@ -167,12 +172,37 @@ export function DestinationPicker({
     setSelectedFileKey(null);
   }
 
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
   function selectDestination(id: string) {
     const next = options.find((o) => o.id === id);
     if (!next) return;
     setDestId(id);
     navigateTo(next.rootPrefix); // switching connections resets to its root
   }
+
+  // A DIALOG DRAWS FOCUS, and this picker is rendered straight into `Modal`'s panel by
+  // Copy/Move rather than through `FormDialog`, so it gets no fallback from there —
+  // `Modal`'s `initialFocus: false` would leave focus on the panel, a Tab away from the
+  // list. OPT-IN, because the picker is not always the whole dialog: `SaveResultsDialog`
+  // embeds it below its own fields and remounts it (`key={space.id}`) whenever the user
+  // changes the Save-to select, so claiming focus there would yank it off the control
+  // they are operating.
+  //
+  // Deferred until the listing settles, not fired on mount: at mount the list is still
+  // loading and holds no buttons, so a mount-only effect would focus nothing for a user
+  // with one space and the first folder for a user whose listing happened to be cached —
+  // the same dialog behaving two ways. `focusClaimed` keeps it to once per mount, so
+  // navigating into a folder never steals focus from the button just pressed.
+  const focusClaimed = useRef(false);
+  useEffect(() => {
+    if (!autoFocus || focusClaimed.current || isLoading) return;
+    const target = selectRef.current ?? listRef.current?.querySelector('button');
+    if (!target) return;
+    focusClaimed.current = true;
+    target.focus();
+  }, [autoFocus, isLoading]);
 
   useEffect(() => {
     onTargetChange?.({prefix: browsePrefix, fileKey: selectedFileKey ?? undefined});
@@ -220,6 +250,7 @@ export function DestinationPicker({
             Destination connection
           </label>
           <select
+            ref={selectRef}
             id="dest-connection"
             className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             value={destId}
@@ -295,7 +326,9 @@ export function DestinationPicker({
           {!isLoading && error === null && navigableFolders.length === 0 && files.length === 0 && (
             <p className="py-4 text-center text-sm text-text-3">This folder is empty.</p>
           )}
-          <ul aria-label={listLabel}>
+          <ul
+            ref={listRef}
+            aria-label={listLabel}>
             {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
                 root. Shown only below the navigation floor. */}
             {browsePrefix !== active.rootPrefix && (

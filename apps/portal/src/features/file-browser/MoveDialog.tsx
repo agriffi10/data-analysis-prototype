@@ -51,6 +51,7 @@ export function MoveDialog({
         markerKey={markerKey}
         isBusy={isBusy}
         destinations={destinations}
+        autoFocus
         confirmLabel="Move here"
         busyLabel="Moving…"
         selfMessage="You can't move a folder into itself."

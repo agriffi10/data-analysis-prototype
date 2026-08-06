@@ -1,8 +1,7 @@
-import {useEffect, useRef, useState} from 'react';
+import {useRef, useState} from 'react';
 import {validateFolderName} from './fileBrowser.service';
-import {Button} from '../../components/Button';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {Modal} from '../../components/Modal';
 
 type Props = {
   kind: 'file' | 'folder';
@@ -34,11 +33,6 @@ export function RenameDialog({kind, currentName, isBusy = false, onRename, onCan
   const [name, setName] = useState(base);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
   // Recompose the full name from the (trimmed) base plus the locked extension.
   const trimmedBase = name.trim();
   const nextName = trimmedBase.length === 0 ? '' : trimmedBase + ext;
@@ -51,52 +45,35 @@ export function RenameDialog({kind, currentName, isBusy = false, onRename, onCan
   }
 
   return (
-    <Modal
+    <FormDialog
+      title={`Rename ${kind} “${currentName}”`}
       ariaLabel={`Rename ${kind}`}
-      dismissible={!isBusy}
-      onDismiss={onCancel}>
-      <div className="px-5 pb-4 pt-5">
-        <h2 className="text-md font-semibold text-text">
-          Rename {kind} “{currentName}”
-        </h2>
-
-        <div className="mt-4">
-          <Input
-            id="rename-input"
-            ref={inputRef}
-            label="New name"
-            required
-            aria-required="true"
-            value={name}
-            error={!unchanged ? validationError : null}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit();
-            }}
-            disabled={isBusy}
-          />
-          {ext && (
-            <p className="mt-1.5 text-xs text-text-3">
-              The <span className="font-mono text-text-2">{ext}</span> extension can’t be changed.
-            </p>
-          )}
-        </div>
+      submitLabel="Rename"
+      busy={isBusy}
+      busyLabel="Renaming…"
+      submitDisabled={!canRename}
+      autoFocusRef={inputRef}
+      autoFocusSelect
+      onSubmit={submit}
+      onCancel={onCancel}>
+      <div className="mt-4">
+        <Input
+          id="rename-input"
+          ref={inputRef}
+          label="New name"
+          required
+          aria-required="true"
+          value={name}
+          error={!unchanged ? validationError : null}
+          onChange={(e) => setName(e.target.value)}
+          disabled={isBusy}
+        />
+        {ext && (
+          <p className="mt-1.5 text-xs text-text-3">
+            The <span className="font-mono text-text-2">{ext}</span> extension can’t be changed.
+          </p>
+        )}
       </div>
-
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}
-          disabled={isBusy}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={submit}
-          disabled={!canRename}>
-          {isBusy ? 'Renaming…' : 'Rename'}
-        </Button>
-      </div>
-    </Modal>
+    </FormDialog>
   );
 }

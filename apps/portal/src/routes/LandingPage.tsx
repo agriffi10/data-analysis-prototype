@@ -7,7 +7,7 @@ import {Badge} from '../components/Badge';
 import {Button} from '../components/Button';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
 import {cx} from '../lib/cx';
-import {FolderIcon, DatabaseIcon, ConnectionsIcon} from '../components/icons';
+import {CheckIcon, FolderIcon, DatabaseIcon, ConnectionsIcon, PlayIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
 
 // ─── Inline icons ──────────────────────────────────────────────────────────────
@@ -25,38 +25,6 @@ function ShieldIcon() {
       <path d="M12 2 4 5v6c0 5 3.4 8.3 8 10 4.6-1.7 8-5 8-10V5z" />
     </svg>
   );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      aria-hidden="true">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function FilesFeatureIcon() {
-  return (
-    <FolderIcon
-      filled
-      className="h-5 w-5"
-    />
-  );
-}
-
-function QueryFeatureIcon() {
-  return <DatabaseIcon className="h-5 w-5" />;
-}
-
-function SharedFeatureIcon() {
-  return <ConnectionsIcon className="h-5 w-5" />;
 }
 
 // ─── Static app-preview illustration (decorative) ─────────────────────────────
@@ -304,12 +272,7 @@ function QueryShowcase() {
         </span>
         <div className="flex-1" />
         <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-white">
-          <svg
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className="h-3 w-3">
-            <path d="M7 5v14l11-7z" />
-          </svg>
+          <PlayIcon className="h-3 w-3" />
           Run
         </span>
       </div>
@@ -384,17 +347,22 @@ const NAV_LINKS: LandingNavLink[] = [
 
 const FEATURES = [
   {
-    icon: <FilesFeatureIcon />,
+    icon: (
+      <FolderIcon
+        filled
+        className="h-5 w-5"
+      />
+    ),
     title: 'Files & uploads',
     body: 'Drag-and-drop uploads, folders, and bulk move / copy / rename — then turn any folder into a queryable table.'
   },
   {
-    icon: <QueryFeatureIcon />,
+    icon: <DatabaseIcon className="h-5 w-5" />,
     title: 'SQL query workspace',
     body: 'A full SQL editor with saved queries, history, and paginated results you can save straight back into Files.'
   },
   {
-    icon: <SharedFeatureIcon />,
+    icon: <ConnectionsIcon className="h-5 w-5" />,
     title: 'Shared spaces',
     body: 'Create shared connections, invite members, and share tables — with notifications when a space is ready.'
   }
@@ -522,7 +490,7 @@ export default function LandingPage() {
             {!isAuthed && (
               <div className="mt-5 flex items-center justify-center gap-2 text-sm text-text-3">
                 <span className="text-success">
-                  <CheckIcon />
+                  <CheckIcon className="h-[14px] w-[14px]" />
                 </span>
                 Sign-in and sign-up are handled by AWS Cognito — we never see your password.
               </div>
