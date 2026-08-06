@@ -262,8 +262,13 @@ def test_a_multi_record_event_raises_instead_of_dropping_records():
     Terraform below sets ``batch_size = 1``. Nothing connected the two halves — ``grep -rn
     batch_size lambdas/`` returned zero hits — so a one-line infra edit would have silently
     dropped every notification but the first, in the channel that IS the completion channel
-    for four asynchronous control planes (SPEC-114). Failing loudly puts the batch in the
-    DLQ, where SPEC-126's drain turns it into a user notification.
+    for four asynchronous control planes (SPEC-114).
+
+    Failing loudly is not a delivery guarantee and must not be read as one: this queue's DLQ
+    is the ONE that SPEC-126 deliberately leaves undrained (circular — the drain delivers
+    through this same queue), so the batch waits there for an operator rather than becoming a
+    notification. What the raise buys is that a `batch_size` edit shows up as invocation
+    errors and a filling DLQ instead of as notifications that quietly never arrive.
     """
     s3 = _setup()
     body = json.dumps({"action": "create", "username": "alice", "message": "hi"})
@@ -319,7 +324,12 @@ def test_no_other_event_source_mapping_batches():
     )
     sizes = []
     mappings = 0
-    for path in sorted(glob.glob(os.path.join(infra, "*", "*.tf"))):
+    # Both depths: modules/<name>/*.tf AND infra/*.tf. A mapping added at the root would
+    # otherwise be invisible to the test whose whole job is guarding a scope claim.
+    roots = glob.glob(os.path.join(infra, "*", "*.tf")) + glob.glob(
+        os.path.join(infra, "..", "*.tf")
+    )
+    for path in sorted(roots):
         with open(path) as handle:
             text = handle.read()
         mappings += len(re.findall(r'resource\s+"aws_lambda_event_source_mapping"', text))

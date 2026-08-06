@@ -194,6 +194,31 @@ def test_the_layer_copy_list_was_actually_parsed(directory):
     assert len(_shipped_modules(directory)) >= 8, f"only found {_shipped_modules(directory)}"
 
 
+def test_no_lambda_directory_shadows_a_flat_layer_module():
+    """Guards the flat entries in ``LAYER_PACKAGES`` against a false positive.
+
+    ``config``, ``auth``, ``cache`` and ``notify`` are resolved to the shared-space layer by
+    NAME alone — there is no package prefix to disambiguate a flat module. If a verb ever
+    grows its own ``config.py``, ``import config`` in that verb would be read as an import
+    of the layer's, and ``test_every_imported_layer_package_is_attached`` would demand
+    ``layer: true`` on a function that needs no layer at all. ``config.py`` is the single
+    most likely local module name in this fleet, so the collision is worth failing on here —
+    where the message says what happened — rather than inside a confusing packaging assertion.
+    """
+    flat = {root for root, flag in LAYER_PACKAGES.items() if flag == "layer"}
+    shadows = sorted(
+        f"lambdas/{directory}/{module}.py"
+        for directory in HANDLER_DIRS
+        for module in flat
+        if (LAMBDAS / directory / f"{module}.py").exists()
+    )
+
+    assert not shadows, (
+        f"these shadow a flat shared-space layer module, so LAYER_PACKAGES would resolve "
+        f"their imports to the layer: {shadows}"
+    )
+
+
 def test_no_unchecked_explicit_copy_list_was_added():
     """A second per-file layer list must join ``EXPLICIT_COPY_LISTS``, not drift unchecked."""
     loops = re.findall(r"for m in [a-z0-9_ ]+; do", WORKFLOW.read_text())

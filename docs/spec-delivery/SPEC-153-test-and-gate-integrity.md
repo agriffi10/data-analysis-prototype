@@ -41,7 +41,12 @@ when the thing it guards is broken, which is the only property that makes a guar
   vendored, and already save-and-restored by the `captured_events` fixture.
 - **FR-005 — the notifications batch-size coupling is pinned on both sides.** `notifications_writer.handler`
   **raises** on a multi-record event instead of taking `records[0]` and discarding the rest; a test
-  asserts nothing is partially written. Two infra-reading tests pin `batch_size = 1` in
+  asserts nothing is partially written. **The raise is an operator-facing signal, not a delivery
+  guarantee** — this queue's DLQ is the one SPEC-126 deliberately leaves undrained (draining it would
+  be circular), so a batch waits there for someone who looks rather than becoming a notification. What
+  it buys is that a `batch_size` edit surfaces as invocation errors and a filling DLQ instead of as
+  notifications that quietly never arrive; the real guard is the test that stops the edit reaching
+  production. Two infra-reading tests pin `batch_size = 1` in
   `notifications/lambda.tf` and sweep every module for a second event-source mapping or a batching
   Pipe. The four `batch_size = 1` values under `*/pipe.tf` are EventBridge Pipes targeting state
   machines — no handler assumes a single record there, and the sweep guards that scope claim rather
@@ -49,8 +54,9 @@ when the thing it guards is broken, which is the only property that makes a guar
 - **FR-006 — the two corroborated-not-discharged premises carry tripwires.**
   `test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh` pins that a live `Order_ID`
   becomes `order_id` on refresh while the carried comment survives.
-  `test_a_table_this_pipeline_did_not_write_is_reconstructed` reconstructs a **foreign** projection
-  fixture, guarded by `test_the_foreign_fixture_is_not_the_renderers_own_output`. The self-referential
+  `test_the_reconstruction_ignores_properties_our_renderer_never_writes` reconstructs a fixture
+  carrying five TBLPROPERTIES this pipeline never emits, guarded by
+  `test_the_fixture_carries_properties_our_renderer_never_writes`. The self-referential
   round-trip was **kept and renamed** to
   `test_the_parser_is_a_left_inverse_of_the_renderer_on_the_renderers_own_output`, which is what it
   proves. Both tripwires are cross-referenced from `decisions.md`.
@@ -67,7 +73,12 @@ when the thing it guards is broken, which is the only property that makes a guar
   from "found nothing", in every gate mode. `summary-section.sh` renders a non-numeric count as a
   warning rather than "No findings.", and Apply gate's default became the sentinel `no-report` so a
   missing count hard-errors instead of printing "no findings". The deliberate no-target **skip** path
-  and the five hard-failing scanners are untouched.
+  and the five hard-failing scanners are untouched. **Knowingly residual:** FR-008's description scopes
+  the fix to `security.yml:648-649` and its Out of Scope says it "fixes one gate-input path and nothing
+  else", so only ZAP changed. `gitleaks` (`:452`) and `semgrep` (`:195`) still read a missing report as
+  `0`, and gitleaks is on `block` — but unlike ZAP, gitleaks legitimately writes no file when clean, so
+  the two are not parallel and disambiguating it is its own decision. Recorded here rather than left to
+  be discovered.
 - **FR-009 — mypy runs report-only over the shared layers.** Version-bounded `mypy>=2.3,<2.4`,
   configured in `pyproject.toml` with **every flag named**, including ones that match today's default,
   for the reason the ruff block states. Scope is the five shared layers; suites, `conftest.py` and
@@ -79,7 +90,7 @@ when the thing it guards is broken, which is the only property that makes a guar
   (a throttled `get_object` must not truncate a space's index) and
   `test_ACCEPTED_the_cap_evicts_by_position_so_a_replay_can_outlive_a_newer_run`.
 
-**1958 tests pass** (up from 1946), coverage **96.09%** against the 95 floor, ruff clean.
+**1959 tests pass** (up from 1946), coverage **96.09%** against the 95 floor, ruff clean.
 
 ## Numbers the next notch has to beat
 
@@ -115,14 +126,20 @@ partition-projected table. Lake Formation filters this repo's local CLI principa
 (`aws glue get-databases` returns `[]`), and hand-creating a table in the account from a laptop is a
 production mutation. What shipped instead is `_FOREIGN_PARAMETERS`, transcribed from AWS's published
 partition-projection reference (read 2026-08-06) and surrounded by the non-projection TBLPROPERTIES
-Athena and the Glue crawler stamp — provenance recorded in the file. It buys the property that
-mattered (the fixture is **not** the renderer's own image) and a guard test fails if it ever becomes
-so. **The verbatim capture is now an owed live check**, and the natural place to take it is the
-refresh arc's owed `GetTable` read-back, which is already scheduled against a real table.
+Athena and the Glue crawler stamp — provenance recorded in the file.
 
-**FR-004's randomised-order requirement** was discharged by two manual full runs — a shuffled order
-(seed 20260806) and a reversed order — both green (taken before the FR-001 consolidation, at 1959 tests). The repo has no ordering plugin and
-this spec did not add one.
+**Be precise about what that buys, because the first draft of this doc overstated it.** The
+`projection.*` values in the fixture are byte-identical to `ddl.projection_properties`' output, and
+**necessarily so**: the reconstruction re-renders and demands exact equality, so a fixture disagreeing
+on value format would be asserting a *refusal*, not a rebuild. The substitute proves the walk tolerates
+neighbouring properties it did not author and follows the table's partition-key order — and proves
+**nothing** about value-format disagreement, which is exactly what the real capture buys. Both the test
+names and the file's block comment say so outright. **The verbatim capture is an owed live check**,
+folded into the refresh arc's already-owed `GetTable` read-back.
+
+**FR-004's randomised-order requirement** was discharged by two manual full runs at the shipped tree —
+a shuffled order (seed 20260806) and a reversed order — both **1959 passed, 3 skipped**. The repo has
+no ordering plugin and this spec did not add one.
 
 ## Files
 

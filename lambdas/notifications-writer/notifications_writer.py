@@ -276,10 +276,18 @@ def handler(event, context):
     ``infra/modules/notifications/lambda.tf`` sets ``batch_size = 1``, and raising that is a
     one-line Terraform edit. This used to take ``records[0]`` and discard the rest, so the
     edit would have silently dropped every notification but the first. SPEC-153 FR-005 makes
-    it raise instead — loudly, into the DLQ, where SPEC-126's drain turns it into a user
-    notification — and pins the Terraform value by test. Raising rather than looping is
+    it raise instead, and pins the Terraform value by test. Raising rather than looping is
     deliberate: the single-writer model (FR-001/FR-004) serialises one user's inbox per
     invocation, so a batch is a design change to be made on purpose, not absorbed quietly.
+
+    BE CLEAR ABOUT WHERE THE RAISE GOES. Unlike the four control-plane request queues, THIS
+    DLQ IS DELIBERATELY UNDRAINED (modules/notifications/sqs.tf) — the drain's only delivery
+    channel is this very queue, so draining it would be circular. So the raise does NOT
+    become a user notification: it fails the invocation, retries to `maxReceiveCount`, and
+    the batch sits in the DLQ until its retention expires. The signal is OPERATOR-facing —
+    the function's invocation-error metric and the messages waiting in the DLQ — which is
+    what a `batch_size` edit deserves and is strictly better than delivering 1 of N. The
+    real guard is the test that stops the edit from reaching production at all.
     """
     records = event.get("Records", []) if isinstance(event, dict) else []
     if not records:

@@ -17,9 +17,11 @@ LAMBDAS = pathlib.Path(__file__).resolve().parent
 #: Every suite file except this one — its own regex source would otherwise match.
 _TEST_FILES = [p for p in sorted(LAMBDAS.rglob("test_*.py")) if p.name != pathlib.Path(__file__).name]
 
-#: ``pytest.raises(Exception)`` with nothing else inside the parentheses. A ``match=``, a
-#: narrower type, or a tuple of types all fall outside it.
-_BARE_RAISES = re.compile(r"pytest\.raises\(\s*Exception\s*\)")
+#: ``pytest.raises(Exception)`` / ``(BaseException)`` with nothing else inside the
+#: parentheses. A ``match=``, a narrower type, or a tuple of types all fall outside it.
+#: ``re.DOTALL``-friendly by allowing newlines, so wrapping the call across lines is not a
+#: way around the check.
+_BARE_RAISES = re.compile(r"pytest\.raises\(\s*(?:Base)?Exception\s*\)")
 
 
 def test_the_suite_sweep_found_the_files():
@@ -35,12 +37,13 @@ def test_no_exception_assertion_accepts_anything_at_all():
     still pins that the propagated error is the one under test rather than an incidental
     failure on the way to it.
     """
-    offenders = [
-        f"{path.relative_to(LAMBDAS)}:{number}"
-        for path in _TEST_FILES
-        for number, line in enumerate(path.read_text().splitlines(), 1)
-        if _BARE_RAISES.search(line)
-    ]
+    offenders = []
+    for path in _TEST_FILES:
+        text = path.read_text()
+        offenders += [
+            f"{path.relative_to(LAMBDAS)}:{text.count(chr(10), 0, match.start()) + 1}"
+            for match in _BARE_RAISES.finditer(text)
+        ]
 
     assert not offenders, (
         "pytest.raises(Exception) with no match= accepts an ImportError at cold start, "

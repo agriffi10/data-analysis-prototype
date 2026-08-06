@@ -51,10 +51,13 @@ import pytest
 _LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon")
 
 #: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
-#: Kept in sync with the layer directory by test_deploy_matrix.py's copy-list check.
-_FLAT_SHARED_MODULES = (
-    "config", "casio", "auth", "registry", "membership", "cache", "notify", "messages",
-    "teardown",
+#: DERIVED FROM THE DIRECTORY, never hand-listed: a hand-list drifts silently, and the leak
+#: this fixture exists to stop would reopen behind a comment claiming it cannot.
+_SHARED_SPACE_DIR = os.path.join(_HERE, "shared-space-common")
+_FLAT_SHARED_MODULES = frozenset(
+    name[:-3]
+    for name in os.listdir(_SHARED_SPACE_DIR)
+    if name.endswith(".py") and not name.startswith(("test_", "conftest.", "fakes."))
 )
 
 
@@ -68,7 +71,7 @@ def _shared_modules():
     for name, module in list(sys.modules.items()):
         if module is None:
             continue
-        flat = name in _FLAT_SHARED_MODULES and "shared-space-common" in (
+        flat = name in _FLAT_SHARED_MODULES and _SHARED_SPACE_DIR in (
             getattr(module, "__file__", "") or ""
         )
         if flat or name.split(".")[0] in _LAYER_PREFIXES:

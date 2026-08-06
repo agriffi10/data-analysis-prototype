@@ -387,23 +387,27 @@ def test_a_reconstructed_key_is_accepted_by_the_ddl_builder_that_will_receive_it
     assert "PARTITIONED BY (`year` int, `day` date, `region` string)" in statement
 
 
-# ── SPEC-153 FR-006: a fixture that did NOT come out of our own renderer ─────
+# ── SPEC-153 FR-006: a partial substitute for the owed GetTable capture ──────
 #
-# PROVENANCE. The projection.* keys and value formats below are transcribed from AWS's
-# published partition-projection reference (Athena user guide, "Partition projection with
-# Amazon Athena"), read 2026-08-06, NOT produced by ddl.projection_properties. The
-# surrounding non-projection TBLPROPERTIES are the ones Athena and the Glue crawler stamp
-# on a table created outside this pipeline (EXTERNAL, transient_lastDdlTime, classification,
-# has_encrypted_data, compression), which our renderer never writes and the reconstruction
-# must therefore ignore rather than choke on.
+# BE PRECISE ABOUT WHAT THIS IS AND IS NOT. FR-006 AC2 asks for a VERBATIM paste of a real
+# GetTable response for a hand-created partition-projected table. This is NOT that, and the
+# gap is recorded as an owed live check rather than papered over: Lake Formation filters this
+# repo's local CLI principal's catalog to empty (`aws glue get-databases` returns []), and
+# hand-creating a table in the account from a laptop is a production mutation.
 #
-# STILL OWED, and recorded as such in the delivery doc: FR-006 asks for a VERBATIM paste of
-# a real GetTable response. Lake Formation filters this repo's local CLI principal's catalog
-# to empty (`aws glue get-databases` returns []), and hand-creating a table in the account
-# from a laptop is a production mutation, so the capture belongs to a live check rather than
-# to this file. What this fixture buys today is the property that actually mattered: the
-# Parameters are not the renderer's own image, so the reconstruction is exercised against
-# key ordering, spacing and neighbouring properties it did not author.
+# PROVENANCE. The projection.* keys were transcribed from AWS's published partition-projection
+# reference (Athena user guide) on 2026-08-06; the surrounding TBLPROPERTIES are the ones
+# Athena and the Glue crawler stamp on a table this pipeline did not create — EXTERNAL,
+# transient_lastDdlTime, classification, has_encrypted_data, parquet.compression.
+#
+# WHAT IT PROVES: the reconstruction tolerates neighbouring properties it did not author, and
+# follows the TABLE's partition-key order rather than the property dict's.
+#
+# WHAT IT DOES NOT PROVE, stated so nobody reads more into it: the projection VALUES here are
+# byte-identical to what ddl.projection_properties emits — necessarily so, because the
+# reconstruction re-renders and demands exact equality, so any value format Athena accepts and
+# our renderer spells differently is a REFUSAL, not a rebuild. Value-format disagreement is
+# therefore entirely untested here, and it is exactly what the owed GetTable capture buys.
 _FOREIGN_PARAMETERS = {
     "EXTERNAL": "TRUE",
     "classification": "parquet",
@@ -423,13 +427,15 @@ _FOREIGN_PARAMETERS = {
 }
 
 
-def test_a_table_this_pipeline_did_not_write_is_reconstructed():
-    """The half the self-referential round-trip above cannot reach.
+def test_the_reconstruction_ignores_properties_our_renderer_never_writes():
+    """Part of what the self-referential round-trip above cannot reach — not all of it.
 
-    Declaration order here is dt, country, id — deliberately not the alphabetical order the
-    properties happen to be written in, and not the order our own fixtures use — so the
-    reconstruction is shown to follow the TABLE's partition-key order rather than the
-    property dict's.
+    Five TBLPROPERTIES here are ones this pipeline never emits, and the reconstruction must
+    walk past them rather than choke or fold them in. Declaration order is dt, country, id —
+    deliberately neither alphabetical nor the order our own fixtures use — so the walk is
+    shown to follow the TABLE's partition-key order rather than the property dict's.
+
+    See the block comment above for what this does NOT establish.
     """
     _install(_table(
         partition_keys=[("dt", "date"), ("country", "string"), ("id", "int")],
@@ -448,9 +454,15 @@ def test_a_table_this_pipeline_did_not_write_is_reconstructed():
     assert keys[2].get("digits") is None
 
 
-def test_the_foreign_fixture_is_not_the_renderers_own_output():
-    """Guards the guard: if these Parameters ever equal what our renderer emits, the test
-    above has quietly become another self-referential round-trip."""
+def test_the_fixture_carries_properties_our_renderer_never_writes():
+    """Guards the guard: the extra TBLPROPERTIES are what the test above actually exercises,
+    so if they were ever dropped it would silently become the round-trip test again.
+
+    It also pins the honest half of the claim: the projection subset MUST equal our renderer's
+    output, because the reconstruction demands exact equality and a fixture that disagreed on
+    value format would be asserting a refusal, not a rebuild. That is the boundary of what a
+    hand-authored fixture can reach, and why the real GetTable capture is still owed.
+    """
     from cpcommon import ddl
 
     ours = {"projection.enabled": "true"}
@@ -462,8 +474,13 @@ def test_the_foreign_fixture_is_not_the_renderers_own_output():
     ):
         ours.update(ddl.projection_properties(key))
 
-    assert ours != _FOREIGN_PARAMETERS, "the fixture is no longer foreign"
-    # …but it must still be a SUPERSET, or the fixture is foreign by being wrong.
+    extra = set(_FOREIGN_PARAMETERS) - set(ours)
+    assert extra >= {"EXTERNAL", "classification", "transient_lastDdlTime"}, (
+        f"the fixture lost the properties our renderer never writes — only {sorted(extra)} "
+        f"remain, so the test above no longer exercises anything the round-trip does not"
+    )
+    # The projection subset must MATCH ours: the reconstruction re-renders and demands exact
+    # equality, so a disagreeing value format would test a refusal rather than a rebuild.
     assert set(ours).issubset(_FOREIGN_PARAMETERS)
     assert all(_FOREIGN_PARAMETERS[k] == v for k, v in ours.items())
 

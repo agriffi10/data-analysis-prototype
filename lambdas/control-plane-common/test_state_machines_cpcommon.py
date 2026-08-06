@@ -93,13 +93,18 @@ def _states(asl):
 
 def _throwing_intrinsics(asl):
     """Every ``state.field = expression`` in ``asl`` holding an uncatchable intrinsic."""
-    return [
-        f"{name}.{field}.{key} = {found}"
-        for name, state in _states(asl)
-        for field in _INTRINSIC_FIELDS
-        for key, value in (state.get(field) or {}).items()
-        for found in _intrinsics_in(value)
-    ]
+    offenders = []
+    for name, state in _states(asl):
+        for field in _INTRINSIC_FIELDS:
+            block = state.get(field)
+            # JSONata-mode `Output`/`Assign` may be a bare STRING rather than a mapping, and
+            # a scan that raised AttributeError on one would break the day someone adopted
+            # it — the opposite of the point. Scan the value directly in that case.
+            items = block.items() if isinstance(block, dict) else [(None, block)]
+            for key, value in items:
+                where = f"{name}.{field}" if key is None else f"{name}.{field}.{key}"
+                offenders += [f"{where} = {found}" for found in _intrinsics_in(value)]
+    return offenders
 
 
 def test_every_expected_state_machine_is_being_checked():

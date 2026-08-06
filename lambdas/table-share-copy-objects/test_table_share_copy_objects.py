@@ -195,7 +195,7 @@ def test_copy_prefix_bounds_concurrency():
     assert n == 20 and len(fake.copies) == 20
     assert state["peak"] <= 2, f"the pool exceeded its bound: {state['peak']} in flight"
     # Guards the observation: a serial loop would also satisfy the bound above.
-    assert state["peak"] == 2, f"the pool never saturated ({state['peak']}) — bound unproven"
+    assert state["peak"] >= 2, f"the pool never saturated ({state['peak']}) — bound unproven"
 
 
 
