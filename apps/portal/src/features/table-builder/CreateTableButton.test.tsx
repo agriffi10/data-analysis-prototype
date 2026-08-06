@@ -1,5 +1,5 @@
 import {describe, it, expect, vi, beforeEach, type MockedFunction} from 'vitest';
-import {screen, fireEvent, within} from '@testing-library/react';
+import {screen, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 
 // Partial-mock: stub the network call, keep the real name suggestion/validation the
@@ -33,18 +33,18 @@ beforeEach(() => {
 });
 
 describe('CreateTableButton', () => {
-  it('opens the dialog with a name suggested from the current folder', () => {
-    renderButton();
-    fireEvent.click(screen.getByRole('button', {name: 'Create table'}));
+  it('opens the dialog with a name suggested from the current folder', async () => {
+    const {user} = renderButton();
+    await user.click(screen.getByRole('button', {name: 'Create table'}));
     expect((screen.getByLabelText('Table name') as HTMLInputElement).value).toBe('sales');
   });
 
   it('enqueues for the active space + current prefix and shows a success toast', async () => {
-    renderButton();
-    fireEvent.click(screen.getByRole('button', {name: 'Create table'}));
+    const {user} = renderButton();
+    await user.click(screen.getByRole('button', {name: 'Create table'}));
     // The dialog's confirm is also called "Create table"; scope to the dialog rather than
     // reaching for index [1], which silently follows any change in render order (FR-006).
-    fireEvent.click(
+    await user.click(
       within(screen.getByRole('dialog', {name: 'Create table from this folder'})).getByRole('button', {
         name: 'Create table'
       })
@@ -61,9 +61,14 @@ describe('CreateTableButton', () => {
   });
 
   it('passes the shared space kind + database through', async () => {
-    renderButton({spaceKind: 'shared', bucket: 'dat-prod-shared-space', database: 'salesdata', prefix: 'salesdata/'});
-    fireEvent.click(screen.getByRole('button', {name: 'Create table'}));
-    fireEvent.click(
+    const {user} = renderButton({
+      spaceKind: 'shared',
+      bucket: 'dat-prod-shared-space',
+      database: 'salesdata',
+      prefix: 'salesdata/'
+    });
+    await user.click(screen.getByRole('button', {name: 'Create table'}));
+    await user.click(
       within(screen.getByRole('dialog', {name: 'Create table from this folder'})).getByRole('button', {
         name: 'Create table'
       })
@@ -77,9 +82,9 @@ describe('CreateTableButton', () => {
   it('keeps the dialog open and shows friendly, mapped error text on a send failure', async () => {
     // Raw AWS message + code; the dialog shows the FR-001-mapped text, not 'SQS unavailable'.
     mockEnqueue.mockResolvedValue({success: false, error: {message: 'SQS unavailable', code: 'NetworkError'}});
-    renderButton();
-    fireEvent.click(screen.getByRole('button', {name: 'Create table'}));
-    fireEvent.click(
+    const {user} = renderButton();
+    await user.click(screen.getByRole('button', {name: 'Create table'}));
+    await user.click(
       within(screen.getByRole('dialog', {name: 'Create table from this folder'})).getByRole('button', {
         name: 'Create table'
       })
@@ -114,7 +119,8 @@ describe('CreateTableButton — declared partition keys (SPEC-071)', () => {
 
     await user.click(dialog().getByRole('button', {name: 'Add another key'}));
     await user.type(row(2).getByLabelText('Partition key 2 name'), 'region');
-    await user.selectOptions(row(2).getByLabelText('Type'), 'string');
+    // `string` is the default type for a new row, so it is NOT selected here — doing so would
+    // read as coverage of the select while exercising nothing.
     await user.type(row(2).getByLabelText('Partition key 2 values'), 'us-east, eu-west');
 
     await user.click(dialog().getByRole('button', {name: 'Create table'}));

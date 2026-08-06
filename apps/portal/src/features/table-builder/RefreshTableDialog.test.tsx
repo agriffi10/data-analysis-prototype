@@ -167,6 +167,10 @@ describe('RefreshTableDialog', () => {
       await user.click(screen.getByText(/allow columns to be removed/i));
 
       expect(optIn()).toBeChecked();
+      // The touch-target WIDTH is kept alongside, not replaced by, the behavioural half: the
+      // click assertion proves the label wraps the checkbox, and says nothing about it
+      // spanning the row — which is what makes it hittable on a phone (SPEC-095).
+      expect(optIn().closest('label')).toHaveClass('w-full');
     });
 
     it('declares the one-tree reflow for the table/folder rows', () => {

@@ -6,7 +6,7 @@ Every flow a user can actually perform now has at least one test that performs i
 spec closed was structural, not sloppy: a hook tested with `renderHook`, a component tested with a
 stub callback, and nothing testing the wire between them.
 
-**1499 → 1537 tests**, across three PRs (#380 phases 1–2, #381 phases 3–4, #382 phases 5–7).
+**1499 → 1539 tests**, across three PRs (#380 phases 1–2, #381 phases 3–4, #382 phases 5–7).
 
 ### The journeys that did not exist
 
@@ -44,10 +44,18 @@ stub callback, and nothing testing the wire between them.
   the listing resolves. `useCopy`'s mock factory stopped re-implementing `validateFolderName`; the
   copy it shipped **omitted the control-character rule entirely**.
 - **FR-009.** The `describe('at a narrow viewport')` that never changed the viewport is renamed to
-  what it pins; a redundant `animate-spin` beside `toBeDisabled()` is gone; the
-  `.closest('div')!.parentElement!` header chain is gone (that assertion belongs to
-  `PageLayout.test.tsx`, which already owns it). Class assertions that remain pin SPEC-095's
+  what it pins, and its one case with an accessible contract is asserted through it (the label's
+  `w-full` is kept *alongside*, not replaced — it is what makes the target hittable). A redundant
+  `animate-spin` beside `toBeDisabled()` is gone. Class assertions that remain pin SPEC-095's
   documented one-tree contract and say so.
+
+  **A deletion here was wrong and was reverted during review.** The `ConnectionsPage` header
+  assertion was removed on the grounds that `PageLayout.test.tsx` owned it. It does not:
+  `PageLayout.test.tsx` asserts the stacking only in a render that passes `stackActionsOnMobile`
+  *itself*, and the prop defaults to false — so it pins "the prop works", never "this page opts
+  in". Deleting it left `ConnectionsPage.tsx`'s bare `stackActionsOnMobile` unpinned, and a
+  tidy-up that dropped the prop would have kept every file green while the heading and the New
+  button collide at 400px. The DOM chain stays, with FR-009 AC3 explicitly yielding to AC5.
 
 ## The one production change, and why it was allowed
 
@@ -93,11 +101,33 @@ the reason written down.
   `hasPrev`/`hasNext`, row numbering across pages of unequal length, the execution-id reset and the
   per-execution page memory — none of which the workspace can see. §21 forbids testing the same
   *logic* at two levels, not the same *flow* with each level asserting what only it can.
-- **The dev-unauth guard is asserted as SOURCE, not behaviour**, and the file says so at length. The
-  expression is evaluated once at module load from `import.meta.env`, which Vite replaces statically;
-  there is no runtime seam, and `vi.stubEnv('DEV', false)` cannot change a binding a module already
-  computed. Sources arrive via `?raw` and the site list is checked against `import.meta.glob`, so a
-  fourth ungated reader fails the suite.
+- **The dev-unauth guard is asserted BOTH ways, and an earlier draft got this wrong.** That draft
+  claimed "there is no runtime seam" and tested source text only. There is a seam: `vite.config.ts`
+  defines no `DEV`, so `import.meta.env.DEV` is a live property under Vitest and
+  `vi.stubEnv` + `vi.resetModules()` + a dynamic import genuinely re-evaluates a module-scope const.
+  The security claim is now **behavioural** — with `DEV` false and the flag on, `listFiles` still
+  resolves credentials — with the opposite direction asserted too, so the test cannot pass by the
+  bypass being broken outright. The source assertions remain for `ProtectedLayout` and `FilesPage`,
+  which compute the same expression and which a render-level test would only cover one at a time;
+  sources arrive via `?raw` and the site list is checked against `import.meta.glob`, so a fourth
+  ungated reader fails the suite.
+
+## Verification
+
+`npx vitest run` (183 files, 1539 tests), `npx tsc -b`, `npx eslint src --quiet` and
+`npm run format:check` all green locally, and on CI for each of the three PRs. Every new guard was
+additionally verified to **fail** against the defect it targets, by breaking the production code and
+re-running: the dev-unauth `DEV` conjunct, the rail-node share provenance, the `ProtectedLayout`
+prefetch effect.
+
+## Known limits of what shipped
+
+- **The notification-link pair does not reach the producer.** The tests pin the link's shape to
+  `App.tsx`'s declared pattern, but the link is minted in Python
+  (`lambdas/data-quality-common/dqcommon/notify.py`, `_REPORT_ROUTE = "/data-quality"`), and nothing
+  joins the two languages. A rename on either side is caught only on its own side.
+- **The route-pattern check does not pin which element the route renders.** Swapping
+  `DataQualityReportPage` for a redirect would keep both tests green.
 
 ## Component inventory / help
 

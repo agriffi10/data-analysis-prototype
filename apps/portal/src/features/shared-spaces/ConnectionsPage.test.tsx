@@ -338,7 +338,7 @@ describe('ConnectionsPage — Leave / Delete / View (SPEC-054 / SPEC-075)', () =
     expect(within(drawer).getByText('Owner')).toBeInTheDocument();
     expect(within(drawer).getByText('bob')).toBeInTheDocument();
     // Read-only: no management controls.
-    expect(within(drawer).queryByRole('button', {name: /^Remove /})).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('button', {name: /Remove/})).not.toBeInTheDocument();
     expect(within(drawer).queryByRole('button', {name: /Add members/})).not.toBeInTheDocument();
   });
 
@@ -402,12 +402,18 @@ describe('ConnectionsPage — responsive reflow (SPEC-101)', () => {
     renderPage();
     await screen.findByText(/No shared connections yet/);
 
-    // The `.closest('div')!.parentElement!` chain that used to sit here is GONE (FR-009): the
-    // header's stacking is `PageLayout`'s behaviour, not this page's, and
-    // `PageLayout.test.tsx` already owns that assertion. Duplicating it here reached through
-    // two unnamed hops to re-assert someone else's contract. What is still this page's own is
-    // the button below — it passes the responsive label pair.
-    expect(screen.getByRole('button', {name: 'New shared connection'})).toBeInTheDocument();
+    // RESTORED after review, and the reasoning that removed it was wrong: `PageLayout.test.tsx`
+    // asserts this stacking only in a render that passes `stackActionsOnMobile` ITSELF, and the
+    // prop defaults to false — so it owns "the prop works", never "ConnectionsPage opts in".
+    // Deleting this left `ConnectionsPage.tsx`'s bare `stackActionsOnMobile` pinned nowhere: a
+    // tidy-up that dropped the prop would keep both files green while the heading and the New
+    // button collide at 400px.
+    //
+    // The DOM chain stays, which is FR-009 AC3 yielding to AC5 (no coverage decrease): the node
+    // is a layout `<div>` with no role, label or landmark, so there is nothing to query it by,
+    // and a worse test is not an improvement on a slightly ugly one.
+    const header = screen.getByRole('heading', {level: 1, name: 'Shared connections'}).closest('div')!.parentElement!;
+    expect(header).toHaveClass('flex-col', 'tablet:flex-row');
 
     const newBtn = screen.getByRole('button', {name: 'New shared connection'});
     expect(newBtn).toHaveClass('w-full', 'tablet:w-auto');

@@ -48,7 +48,7 @@ describe('MembersList (SPEC-075)', () => {
         members={roster}
       />
     );
-    expect(screen.queryByRole('button', {name: /^Remove /})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /Remove/})).not.toBeInTheDocument();
   });
 
   it('renders Remove per non-owner member when onRemove is given, and calls it', () => {

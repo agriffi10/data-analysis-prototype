@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {describe, it, expect, vi, afterEach} from 'vitest';
 import protectedLayoutSource from '../components/ProtectedLayout.tsx?raw';
 import fileBrowserServiceSource from '../features/file-browser/fileBrowser.service.ts?raw';
 import filesPageSource from '../routes/FilesPage.tsx?raw';
@@ -18,14 +18,19 @@ import filesPageSource from '../routes/FilesPage.tsx?raw';
  * ZERO test coverage — the flag was never stubbed anywhere in the suite — so nothing said the
  * guard was still there, and a refactor that dropped it would have looked like a tidy-up.
  *
- * READ AS SOURCE RATHER THAN EXERCISED, deliberately, and the limitation is worth stating
- * plainly. The expression is evaluated once at module load from `import.meta.env`, which Vite
- * statically replaces at build time; there is no runtime seam to drive, and
- * `vi.stubEnv('DEV', false)` cannot retroactively change a binding a module already computed.
- * What CAN be asserted — and is exactly what a reviewer checks by eye — is that every site
- * still conjoins `import.meta.env.DEV`. A source assertion is weaker than a behavioural one
- * and is named as such; it is also strictly stronger than the nothing that was here before,
- * and it fails the moment someone deletes the guard.
+ * TWO LAYERS, because neither alone is enough.
+ *
+ * The BEHAVIOURAL test is the one that matters, and it is the security claim stated directly:
+ * with `DEV` false and the flag set to `'true'`, the file-browser service must still sign its
+ * requests. `import.meta.env.DEV` is a live property under Vitest (`vite.config.ts` defines no
+ * `DEV`), so `vi.stubEnv` + `vi.resetModules()` + a dynamic import genuinely re-evaluates the
+ * module-scope const — the seam an earlier draft of this file wrongly claimed did not exist.
+ *
+ * The SOURCE tests cover what the behavioural one cannot reach: `ProtectedLayout` and
+ * `FilesPage` compute the same expression, and a render-level test of either would prove the
+ * guard held for that component only. Asserting that all three still conjoin
+ * `import.meta.env.DEV`, and that each reads the flag exactly once, is what a reviewer checks
+ * by eye — weaker than behaviour, and strictly stronger than the nothing that was here before.
  *
  * Sources come in through Vite's `?raw`, so a moved or renamed module is a build error here
  * rather than a check that quietly stops looking at anything.
@@ -63,5 +68,44 @@ describe('the dev-unauth bypass is gated on DEV at every site', () => {
         .slice()
         .sort()
     );
+  });
+});
+
+describe('with DEV false, the flag does NOT unsign requests', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  /** Re-imports the service after stubbing, so its module-scope const is recomputed. */
+  async function serviceWith(env: {DEV: boolean; flag: string}) {
+    vi.stubEnv('DEV', env.DEV);
+    vi.stubEnv('VITE_S3_DEV_UNAUTH', env.flag);
+    vi.resetModules();
+    const credentials = await import('./awsCredentials');
+    const getSessionCredentials = vi.spyOn(credentials, 'getSessionCredentials');
+    return {service: await import('../features/file-browser/fileBrowser.service'), getSessionCredentials};
+  }
+
+  it('still resolves credentials in a PRODUCTION build, flag or no flag', async () => {
+    // THE SECURITY CLAIM. `listFiles` takes the unsigned path only when the bypass is on; if
+    // the DEV conjunct were dropped, a stray VITE_S3_DEV_UNAUTH in a production build
+    // environment would send every listing unsigned. Asserting the credential lookup HAPPENS
+    // is how that shows up from outside the module.
+    const {service, getSessionCredentials} = await serviceWith({DEV: false, flag: 'true'});
+
+    await service.listFiles('some-bucket', 'alice/');
+
+    expect(getSessionCredentials).toHaveBeenCalled();
+  });
+
+  it('takes the unsigned path in a DEV build with the flag on', async () => {
+    // The other direction, so the test above cannot pass by the bypass being broken outright —
+    // which would satisfy "credentials were resolved" for entirely the wrong reason.
+    const {service, getSessionCredentials} = await serviceWith({DEV: true, flag: 'true'});
+
+    await service.listFiles('some-bucket', 'alice/');
+
+    expect(getSessionCredentials).not.toHaveBeenCalled();
   });
 });
