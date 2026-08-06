@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {Button} from '../../components/Button';
+import {FileRowIcon, FolderRowIcon, TrashIcon} from '../../components/icons';
 import {Badge} from '../../components/Badge';
 import {Banner} from '../../components/Banner';
 import {useFileBrowser} from './useFileBrowser';
@@ -109,41 +110,6 @@ function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string, rootLa
 
 // ─── Icons (inline, no icon library — SPEC-024) ───────────────────────────────
 
-function FolderIcon({className = 'h-5 w-5'}: {className?: string}) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className={`${className} shrink-0 text-accent`}
-      aria-hidden="true">
-      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-    </svg>
-  );
-}
-
-function FileIcon({className = 'h-5 w-5'}: {className?: string}) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      className={`${className} shrink-0 text-text-3`}
-      aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13.5 3H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7.5L13.5 3z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13 3v4.5H17.5"
-      />
-    </svg>
-  );
-}
-
 // Shared column widths so the header row and body rows line up.
 const COL_SIZE = 'w-24';
 const COL_MODIFIED = 'w-40';
@@ -190,7 +156,7 @@ function FolderRow({
         className="flex min-w-0 flex-1 items-center gap-2.5 px-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         onClick={onClick}
         aria-label={`Open folder ${folder.name}`}>
-        <FolderIcon />
+        <FolderRowIcon />
         <span className="truncate text-base font-medium text-text">{folder.name}</span>
       </button>
       <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-3`}>—</span>
@@ -264,7 +230,7 @@ function FileRow({
         </span>
       )}
       <span className="flex min-w-0 flex-1 items-center gap-2.5 px-4">
-        <FileIcon />
+        <FileRowIcon />
         <span className="truncate text-base font-medium text-text">{file.name}</span>
       </span>
       <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-2`}>{formatSize(file.size)}</span>
@@ -357,22 +323,6 @@ function BulkMoveIcon() {
       <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
       <path d="M10 8l4 4-4 4" />
       <path d="M14 12H3" />
-    </svg>
-  );
-}
-
-function BulkTrashIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-[15px] w-[15px]"
-      aria-hidden="true">
-      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
     </svg>
   );
 }
@@ -475,7 +425,7 @@ function SelectionToolbar({
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
         aria-label="Delete selected items">
-        <BulkTrashIcon />
+        <TrashIcon />
         <span className="hidden tablet:inline">Delete</span>
       </Button>
     </div>

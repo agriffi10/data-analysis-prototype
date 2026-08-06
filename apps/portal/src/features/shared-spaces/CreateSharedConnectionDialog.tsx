@@ -1,7 +1,6 @@
-import {useEffect, useRef, useState} from 'react';
-import {Button} from '../../components/Button';
+import {useRef, useState} from 'react';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {Modal} from '../../components/Modal';
 import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
 
 type Props = {
@@ -22,10 +21,6 @@ export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}:
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   const trimmed = name.trim();
   const valid = CATALOG_IDENTIFIER_RE.test(trimmed);
   const error = touched && !valid && trimmed.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
@@ -35,53 +30,37 @@ export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}:
   };
 
   return (
-    <Modal
+    <FormDialog
+      title="New shared connection"
       ariaLabel="Create shared connection"
-      onDismiss={onCancel}
-      dismissible={!busy}>
-      <div className="px-5 pb-4 pt-5">
-        <h2 className="mb-3 text-md font-semibold text-text">New shared connection</h2>
-        <p className="mb-3 text-sm text-text-2">
-          You&apos;ll be the owner and can add members. The name is{' '}
-          <strong className="font-semibold text-text">permanent</strong> (it can&apos;t be renamed) and must be{' '}
-          <strong className="font-semibold text-text">globally unique</strong> across all spaces.
-        </p>
-        <Input
-          ref={inputRef}
-          id="shared-connection-name"
-          label="Connection name"
-          required
-          aria-required="true"
-          value={name}
-          placeholder="e.g. sales_data"
-          error={error}
-          disabled={busy}
-          onChange={(e) => {
-            setTouched(true);
-            setName(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              attempt();
-            }
-          }}
-        />
-      </div>
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}
-          disabled={busy}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={attempt}
-          disabled={!valid || busy}>
-          {busy ? 'Creating…' : 'Create'}
-        </Button>
-      </div>
-    </Modal>
+      submitLabel="Create"
+      busy={busy}
+      busyLabel="Creating…"
+      submitDisabled={!valid}
+      autoFocusRef={inputRef}
+      onSubmit={attempt}
+      onCancel={onCancel}>
+      {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
+      <p className="mb-3 mt-3 text-sm text-text-2">
+        You&apos;ll be the owner and can add members. The name is{' '}
+        <strong className="font-semibold text-text">permanent</strong> (it can&apos;t be renamed) and must be{' '}
+        <strong className="font-semibold text-text">globally unique</strong> across all spaces.
+      </p>
+      <Input
+        ref={inputRef}
+        id="shared-connection-name"
+        label="Connection name"
+        required
+        aria-required="true"
+        value={name}
+        placeholder="e.g. sales_data"
+        error={error}
+        disabled={busy}
+        onChange={(e) => {
+          setTouched(true);
+          setName(e.target.value);
+        }}
+      />
+    </FormDialog>
   );
 }

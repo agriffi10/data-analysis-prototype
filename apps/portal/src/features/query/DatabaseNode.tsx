@@ -1,7 +1,8 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {cx} from '../../lib/cx';
-import {IconButton} from '../../components/IconButton';
+import {DatabaseRowIcon} from '../../components/icons';
+import {RefreshIconButton} from '../../components/RefreshIconButton';
 import {useSchema, invalidateSchema} from './useSchema';
 import {TableActionsMenu} from './TableActionsMenu';
 import {partitionSchema} from './schema.partition';
@@ -22,27 +23,6 @@ function Chevron({open, className}: {open: boolean; className?: string}) {
       className={cx('h-[13px] w-[13px] flex-none text-text-3 transition-transform', open && 'rotate-90', className)}
       aria-hidden="true">
       <path d="m9 6 6 6-6 6" />
-    </svg>
-  );
-}
-
-function DatabaseIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-[18px] w-[18px] flex-none"
-      aria-hidden="true">
-      <ellipse
-        cx="12"
-        cy="6"
-        rx="8"
-        ry="3"
-      />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
     </svg>
   );
 }
@@ -333,30 +313,19 @@ export function DatabaseNode({
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${connection.label}`}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-base font-semibold text-text-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           <Chevron open={expanded} />
-          <DatabaseIcon />
+          <DatabaseRowIcon />
           <span className="min-w-0 truncate">{connection.label}</span>
         </button>
         {/* SPEC-086: per-node refresh — only on an expanded (loaded) node; re-reads
-            just this database's tables/views, never toggling expansion. */}
+            just this database's tables/views, never toggling expansion. SPEC-155 FR-006:
+            it shares the app's one refresh glyph now, where it used to draw its own
+            two-path variant — a deliberate (small) visual change. */}
         {expanded && (
-          <IconButton
+          <RefreshIconButton
             label={`Refresh tables in ${connection.label}`}
-            size="sm"
-            disabled={isFetching}
-            onClick={() => void invalidateSchema(queryClient, connection.database)}>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              className={cx('h-4 w-4', isFetching && 'animate-spin')}>
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
-          </IconButton>
+            busy={isFetching}
+            onClick={() => void invalidateSchema(queryClient, connection.database)}
+          />
         )}
       </div>
       {body}

@@ -1,7 +1,6 @@
-import {useEffect, useRef, useState} from 'react';
-import {Button} from '../../components/Button';
+import {useRef, useState} from 'react';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {Modal} from '../../components/Modal';
 import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from './query.constants';
 
 type Props = {
@@ -24,10 +23,6 @@ export function CreateViewDialog({busy = false, targetDatabase, onCreate, onCanc
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   const trimmed = name.trim();
   const valid = CATALOG_IDENTIFIER_RE.test(trimmed);
   // Surface why Create is unavailable in text (WCAG 3.3.1), not just via disabling.
@@ -38,52 +33,36 @@ export function CreateViewDialog({busy = false, targetDatabase, onCreate, onCanc
   };
 
   return (
-    <Modal
+    <FormDialog
+      title="Create view"
       ariaLabel="Create view"
-      onDismiss={onCancel}
-      dismissible={!busy}>
-      <div className="px-5 pb-4 pt-5">
-        <h2 className="mb-3 text-md font-semibold text-text">Create view</h2>
-        <p className="mb-3 text-sm text-text-2">
-          Save the current query as a reusable view in{' '}
-          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text">{targetDatabase}</code>.
-        </p>
-        <Input
-          ref={inputRef}
-          id="create-view-name"
-          label="View name"
-          required
-          aria-required="true"
-          value={name}
-          placeholder="e.g. monthly_revenue"
-          error={error}
-          disabled={busy}
-          onChange={(e) => {
-            setTouched(true);
-            setName(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              attempt();
-            }
-          }}
-        />
-      </div>
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}
-          disabled={busy}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={attempt}
-          disabled={!valid || busy}>
-          {busy ? 'Creating…' : 'Create'}
-        </Button>
-      </div>
-    </Modal>
+      submitLabel="Create"
+      busy={busy}
+      busyLabel="Creating…"
+      submitDisabled={!valid}
+      autoFocusRef={inputRef}
+      onSubmit={attempt}
+      onCancel={onCancel}>
+      {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
+      <p className="mb-3 mt-3 text-sm text-text-2">
+        Save the current query as a reusable view in{' '}
+        <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text">{targetDatabase}</code>.
+      </p>
+      <Input
+        ref={inputRef}
+        id="create-view-name"
+        label="View name"
+        required
+        aria-required="true"
+        value={name}
+        placeholder="e.g. monthly_revenue"
+        error={error}
+        disabled={busy}
+        onChange={(e) => {
+          setTouched(true);
+          setName(e.target.value);
+        }}
+      />
+    </FormDialog>
   );
 }

@@ -1,15 +1,4 @@
-// Filled indigo folder, matching the sibling folder rows in FileBrowser.
-function FolderIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className="h-5 w-5 shrink-0 text-accent"
-      aria-hidden="true">
-      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-    </svg>
-  );
-}
+import {FolderRowIcon} from '../../components/icons';
 
 type Props = {
   /** Navigate to the parent prefix. */
@@ -38,7 +27,7 @@ export function ParentFolderRow({onNavigateUp, selectable, variant = 'grid'}: Pr
           className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
           onClick={onNavigateUp}
           aria-label="Go up to parent folder">
-          <FolderIcon />
+          <FolderRowIcon />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-base font-medium text-text-2">..</span>
             <span className="block truncate text-xs text-text-3">Up one level</span>
@@ -60,7 +49,7 @@ export function ParentFolderRow({onNavigateUp, selectable, variant = 'grid'}: Pr
         className="flex min-w-0 flex-1 items-center gap-2.5 px-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         onClick={onNavigateUp}
         aria-label="Go up to parent folder">
-        <FolderIcon />
+        <FolderRowIcon />
         <span className="truncate text-base font-medium text-text-2">..</span>
       </button>
       <span className="w-24 pr-4 text-right text-sm text-text-3">—</span>

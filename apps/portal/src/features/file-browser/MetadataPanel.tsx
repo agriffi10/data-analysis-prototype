@@ -4,6 +4,7 @@ import type {ObjectMetadata} from './fileBrowser.types';
 import type {S3FileItem} from '../../types/s3.types';
 import {toUserMessage} from '../../lib/errorMessages';
 import {Button} from '../../components/Button';
+import {DownloadIcon, PencilIcon} from '../../components/icons';
 import {Drawer} from '../../components/Drawer';
 import {getDownloadUrl} from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
@@ -21,42 +22,6 @@ type Props = {
   onRequestRename: (file: S3FileItem) => void;
   onClose: () => void;
 };
-
-function DownloadIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      className="h-4 w-4"
-      aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M10 3v9m0 0l-3.5-3.5M10 12l3.5-3.5M4 15.5h12"
-      />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      className="h-4 w-4"
-      aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13.5 3.5l3 3L7 16l-3.5.5L4 13z"
-      />
-    </svg>
-  );
-}
 
 // The Download + Rename action pair (SPEC-097). Download resolves a presigned URL
 // and downloads with attachment disposition (both authenticated + read-only);

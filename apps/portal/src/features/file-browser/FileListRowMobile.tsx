@@ -1,3 +1,4 @@
+import {FileRowIcon, FolderRowIcon} from '../../components/icons';
 import {cx} from '../../lib/cx';
 import {ChevronRightIcon, InfoIcon} from '../../components/icons';
 import {formatSize, formatDate} from './fileBrowser.format';
@@ -24,41 +25,6 @@ export type FileListRowMobileProps =
       isSelected: boolean;
       onToggleSelect: () => void;
     };
-
-function FolderIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className="h-5 w-5 shrink-0 text-accent"
-      aria-hidden="true">
-      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-    </svg>
-  );
-}
-
-function FileIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      className="h-5 w-5 shrink-0 text-text-3"
-      aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13.5 3H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7.5L13.5 3z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13 3v4.5H17.5"
-      />
-    </svg>
-  );
-}
 
 /**
  * Mobile (< tablet) two-line list row (56px) — the structural counterpart to the
@@ -110,7 +76,7 @@ export function FileListRowMobile(props: FileListRowMobileProps) {
         className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         onClick={isFolder ? props.onOpen : props.onActivate}
         aria-label={isFolder ? `Open folder ${name}` : `Download ${name}`}>
-        {isFolder ? <FolderIcon /> : <FileIcon />}
+        {isFolder ? <FolderRowIcon /> : <FileRowIcon />}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-medium text-text">{name}</span>
           <span className="block truncate text-xs text-text-3">{meta}</span>

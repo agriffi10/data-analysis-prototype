@@ -1,6 +1,6 @@
 import {Banner} from '../../components/Banner';
 import {IconButton} from '../../components/IconButton';
-import {ChevronLeftIcon} from '../../components/icons';
+import {ChevronLeftIcon, PlayIcon} from '../../components/icons';
 import {Pager} from '../../components/Pager';
 import {QueryStatusBar} from './QueryStatusBar';
 import type {QueryStatus} from './query.types';
@@ -73,14 +73,7 @@ export function QueryResultsMobile({
           onClick={onRun}
           disabled={runDisabled}
           className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          <svg
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            stroke="none"
-            className="h-4 w-4"
-            aria-hidden="true">
-            <path d="M7 5v14l11-7z" />
-          </svg>
+          <PlayIcon />
           Run
         </button>
       </div>

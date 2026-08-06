@@ -1,7 +1,6 @@
-import {useEffect, useRef, useState} from 'react';
-import {Button} from '../../components/Button';
+import {useRef, useState} from 'react';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {Modal} from '../../components/Modal';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import type {SavedQuery} from './query.types';
 
@@ -27,11 +26,6 @@ export function SaveQueryDialog({initialName, savedQueries, linkedId, onSave, on
   const [name, setName] = useState(initialName);
   const [collision, setCollision] = useState<SavedQuery | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
 
   const trimmed = name.trim();
   const canSave = trimmed.length > 0;
@@ -65,11 +59,17 @@ export function SaveQueryDialog({initialName, savedQueries, linkedId, onSave, on
   }
 
   return (
-    <Modal
+    <FormDialog
+      title="Save query"
       ariaLabel="Save query"
-      onDismiss={onCancel}>
-      <div className="px-5 pb-4 pt-5">
-        <h2 className="mb-3 text-md font-semibold text-text">Save query</h2>
+      submitLabel="Save"
+      submitDisabled={!canSave}
+      autoFocusRef={inputRef}
+      autoFocusSelect
+      onSubmit={attemptSave}
+      onCancel={onCancel}>
+      {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
+      <div className="mt-3">
         <Input
           ref={inputRef}
           id="saved-query-name"
@@ -79,27 +79,8 @@ export function SaveQueryDialog({initialName, savedQueries, linkedId, onSave, on
           value={name}
           placeholder="e.g. Monthly revenue"
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              attemptSave();
-            }
-          }}
         />
       </div>
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={attemptSave}
-          disabled={!canSave}>
-          Save
-        </Button>
-      </div>
-    </Modal>
+    </FormDialog>
   );
 }

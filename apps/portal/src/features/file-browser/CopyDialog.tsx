@@ -1,8 +1,8 @@
-import {useEffect, useRef, useState} from 'react';
+import {useRef, useState} from 'react';
 import {DestinationPicker} from './DestinationPicker';
 import type {SelectableItem} from './selectionContext';
 import type {FileSpaceTarget} from './useFileSpace';
-import {Button} from '../../components/Button';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 
@@ -33,21 +33,26 @@ type Props = {
 
 // The editable-name view for a same-folder copy (FR-003). Pre-filled with the
 // proposed `{name} (N)`; validated with the create-folder/rename rules; the user
-// can override before confirming.
-function SameFolderNameField({prompt}: {prompt: SameFolderPrompt}) {
+// can override before confirming. Its own dialog rather than a branch inside the
+// picker's shell, because the two have nothing in common below the title — and it
+// is the branch that IS a name prompt, so it takes the shared chrome.
+function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPrompt; itemCount: number}) {
   const [name, setName] = useState(prompt.proposedName);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
   const validationError = prompt.validate(name);
-  const canConfirm = validationError === null;
 
   return (
-    <>
+    <FormDialog
+      title={`Copy ${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}
+      ariaLabel="Copy to folder"
+      submitLabel="Copy"
+      submitDisabled={validationError !== null}
+      autoFocusRef={inputRef}
+      autoFocusSelect
+      className="max-w-lg"
+      onSubmit={() => prompt.onConfirm(name)}
+      onCancel={prompt.onCancel}>
       <p className="mt-2 text-sm text-text-2">Copying into the same folder. The copy will be named:</p>
       <div className="mt-3">
         <Input
@@ -59,25 +64,9 @@ function SameFolderNameField({prompt}: {prompt: SameFolderPrompt}) {
           value={name}
           error={validationError}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && canConfirm) prompt.onConfirm(name);
-          }}
         />
       </div>
-      <div className="-mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={prompt.onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={() => prompt.onConfirm(name)}
-          disabled={!canConfirm}>
-          Copy
-        </Button>
-      </div>
-    </>
+    </FormDialog>
   );
 }
 
@@ -99,7 +88,22 @@ export function CopyDialog({
   onCopy,
   onCancel
 }: Props) {
+  if (sameFolderPrompt) {
+    return (
+      <SameFolderCopyDialog
+        prompt={sameFolderPrompt}
+        itemCount={items.length}
+      />
+    );
+  }
+
   return (
+    // NOT `FormDialog`: the footer here belongs to `DestinationPicker`, which owns the
+    // confirm's label, its enabled-ness and the selected prefix it acts on, and is shared
+    // with `MoveDialog`. Hoisting that state into two parents to reach the shared chrome
+    // would cost more than the chrome saves. The panel therefore carries the body padding
+    // and the picker's footer bleeds back out with `-mx-5 -mb-4` — the one remaining
+    // variant, and this is its reason.
     <Modal
       ariaLabel="Copy to folder"
       dismissible={!isBusy}
@@ -109,26 +113,23 @@ export function CopyDialog({
         Copy {items.length} {items.length === 1 ? 'item' : 'items'}
       </h2>
 
-      {sameFolderPrompt ? (
-        <SameFolderNameField prompt={sameFolderPrompt} />
-      ) : (
-        <DestinationPicker
-          bucket={bucket}
-          items={items}
-          rootPrefix={rootPrefix}
-          rootLabel={rootLabel}
-          currentPrefix={currentPrefix}
-          markerKey={markerKey}
-          isBusy={isBusy}
-          destinations={destinations}
-          allowCurrentParent
-          confirmLabel="Copy here"
-          busyLabel="Copying…"
-          selfMessage="You can't copy a folder into itself."
-          onConfirm={onCopy}
-          onCancel={onCancel}
-        />
-      )}
+      <DestinationPicker
+        bucket={bucket}
+        items={items}
+        rootPrefix={rootPrefix}
+        rootLabel={rootLabel}
+        currentPrefix={currentPrefix}
+        markerKey={markerKey}
+        isBusy={isBusy}
+        destinations={destinations}
+        allowCurrentParent
+        autoFocus
+        confirmLabel="Copy here"
+        busyLabel="Copying…"
+        selfMessage="You can't copy a folder into itself."
+        onConfirm={onCopy}
+        onCancel={onCancel}
+      />
     </Modal>
   );
 }

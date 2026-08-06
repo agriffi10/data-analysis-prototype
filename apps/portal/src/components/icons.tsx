@@ -371,3 +371,229 @@ export function WarningIcon({className}: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Edit / rename (file-browser detail panels).
+ *
+ * The file browser's own glyphs follow. `PencilIcon`/`DownloadIcon` are 20-grid at 1.7
+ * stroke weight, sized to sit inside a row's action button; `TrashIcon` is 24-grid to
+ * sit level with text in a toolbar. Kept distinct from the 24-grid set above rather
+ * than folded into it — the grids do not render the same shape, and unifying them
+ * would move pixels on every file row.
+ *
+ * @example
+ * <PencilIcon className="h-4 w-4" />
+ */
+export function PencilIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      className={className}
+      aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 3.5l3 3L7 16l-3.5.5L4 13z"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Download — arrow into a tray (file-browser detail panels).
+ *
+ * @example
+ * <DownloadIcon className="h-4 w-4" />
+ */
+export function DownloadIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      className={className}
+      aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 3v9m0 0l-3.5-3.5M10 12l3.5-3.5M4 15.5h12"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Delete (the selection toolbar's bulk action).
+ *
+ * @example
+ * <TrashIcon />
+ */
+export function TrashIcon({className = 'h-[15px] w-[15px]'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  );
+}
+
+/**
+ * The folder glyph on a FILE-LIST ROW — filled and accent-coloured, because colour is
+ * what tells a folder from a file at a glance down a long list. Distinct from
+ * {@link FolderIcon}, which is the 24-grid navigation/branding folder; three row
+ * components had this one copied out.
+ *
+ * @example
+ * <FolderRowIcon />
+ */
+export function FolderRowIcon({className = 'h-5 w-5'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`${className} shrink-0 text-accent`}
+      aria-hidden="true">
+      <path d="M2 6a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414A1 1 0 0010.414 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
+  );
+}
+
+/** The file glyph on a file-list row — outlined and muted, the quiet half of the pair. */
+export function FileRowIcon({className = 'h-5 w-5'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      className={`${className} shrink-0 text-text-3`}
+      aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 3H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7.5L13.5 3z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13 3v4.5H17.5"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Run / execute (the query toolbar's Run buttons). Filled, not stroked — a solid
+ * triangle reads as "play" at 16px where an outlined one reads as a stray chevron.
+ *
+ * @example
+ * <PlayIcon />
+ */
+export function PlayIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="none"
+      className={className}
+      aria-hidden="true">
+      <path d="M7 5v14l11-7z" />
+    </svg>
+  );
+}
+
+/** Save (the query toolbar) — a floppy, still the least ambiguous save glyph there is. */
+export function SaveIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true">
+      <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+      <path d="M9 4v5h6" />
+      <path d="M8 21v-7h8v7" />
+    </svg>
+  );
+}
+
+/** View / preview (the query toolbar's Create view). */
+export function EyeIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+      />
+    </svg>
+  );
+}
+
+/**
+ * The query toolbar's Clear glyph — a lidded bin, drawn on a wider 24-grid than
+ * {@link TrashIcon}'s toolbar variant. The two are NOT the same artwork; unifying them
+ * is a visual change and belongs to whoever decides the toolbar's icon set, not to a
+ * de-duplication pass.
+ */
+export function TrashLidIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true">
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    </svg>
+  );
+}
+
+/**
+ * The schema rail's database glyph — 18px and `flex-none`, sized for a tree row.
+ * Distinct from {@link DatabaseIcon} (the nav/landing one) in size only; two rail
+ * components had it written out identically.
+ */
+export function DatabaseRowIcon({className = 'h-[18px] w-[18px] flex-none'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true">
+      <ellipse
+        cx="12"
+        cy="6"
+        rx="8"
+        ry="3"
+      />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </svg>
+  );
+}

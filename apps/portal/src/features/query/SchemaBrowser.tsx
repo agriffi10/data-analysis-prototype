@@ -1,4 +1,5 @@
 import {CollapsibleRail} from '../../components/CollapsibleRail';
+import {DatabaseRowIcon} from '../../components/icons';
 import {DatabaseNode} from './DatabaseNode';
 import {isConnectionUsable} from './query.types';
 import type {Connection, GlueTableSummary} from './query.types';
@@ -22,34 +23,13 @@ export type TableActions = {
   canViewSourceFiles: (table: GlueTableSummary) => boolean;
 };
 
-function DatabaseIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-[18px] w-[18px] flex-none"
-      aria-hidden="true">
-      <ellipse
-        cx="12"
-        cy="6"
-        rx="8"
-        ry="3"
-      />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    </svg>
-  );
-}
-
 // A provisioning/failed/leaving shared connection is shown but not expandable
 // and not selectable — a static row with its status label.
 function UnusableNode({connection}: {connection: Connection}) {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-2 text-base font-semibold text-text-3">
       <span className="w-[13px] flex-none" />
-      <DatabaseIcon />
+      <DatabaseRowIcon />
       <span className="min-w-0 truncate">{connection.label}</span>
       {connection.status && (
         <span className="ml-auto flex-none text-xs font-medium text-text-3">

@@ -1,6 +1,5 @@
 import {useId, useMemo, useState} from 'react';
-import {Button} from '../../components/Button';
-import {Modal} from '../../components/Modal';
+import {FormDialog} from '../../components/FormDialog';
 import {UsernameChipsField} from '../../components/UsernameChipsField';
 
 type Props = {
@@ -40,55 +39,46 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
   };
 
   return (
-    <Modal
+    // No `autoFocusRef`: the chips field focuses itself, and Enter inside its combobox
+    // commits a chip (it `preventDefault`s), so the form's submit never fires from it.
+    <FormDialog
+      title="Add members"
       ariaLabel="Add members"
-      onDismiss={onCancel}
-      dismissible={!busy}>
-      <div className="px-5 pb-4 pt-5">
-        <h2 className="mb-3 text-md font-semibold text-text">Add members</h2>
-        <p className="mb-3 text-sm text-text-2">
-          Start typing a username to see suggestions, or enter several separated by spaces, commas, or new lines. A name
-          that isn&rsquo;t recognised is reported back to you as a notification. Members get access to the same shared
-          files and tables.
-        </p>
-        <UsernameChipsField
-          label="Usernames"
-          listLabel="Members to add"
-          value={members}
-          onChange={setMembers}
-          exclude={existingSet}
-          excludeReason={(name) => `${name} is already a member of this space.`}
-          disabled={busy}
-          placeholder="e.g. bob, cara"
-          describedBy={helpId}
-          autoFocus
-        />
-        <p
-          id={helpId}
-          className="mt-1.5 text-xs text-text-3">
-          {members.length === 0
-            ? // This exact sentence is what tells a user their input did not take. Pinned by a
-              // test; do not reword it.
-              'No valid new usernames yet.'
-            : // The names themselves are no longer repeated here — the chips above carry them,
-              // and reading the same list twice is noise.
-              `${members.length} username${members.length === 1 ? '' : 's'} to add.`}
-        </p>
-      </div>
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}
-          disabled={busy}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={attempt}
-          disabled={members.length === 0 || busy}>
-          {busy ? 'Adding…' : 'Add'}
-        </Button>
-      </div>
-    </Modal>
+      submitLabel="Add"
+      busy={busy}
+      busyLabel="Adding…"
+      submitDisabled={members.length === 0}
+      onSubmit={attempt}
+      onCancel={onCancel}>
+      {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
+      <p className="mb-3 mt-3 text-sm text-text-2">
+        Start typing a username to see suggestions, or enter several separated by spaces, commas, or new lines. A name
+        that isn&rsquo;t recognised is reported back to you as a notification. Members get access to the same shared
+        files and tables.
+      </p>
+      <UsernameChipsField
+        label="Usernames"
+        listLabel="Members to add"
+        value={members}
+        onChange={setMembers}
+        exclude={existingSet}
+        excludeReason={(name) => `${name} is already a member of this space.`}
+        disabled={busy}
+        placeholder="e.g. bob, cara"
+        describedBy={helpId}
+        autoFocus
+      />
+      <p
+        id={helpId}
+        className="mt-1.5 text-xs text-text-3">
+        {members.length === 0
+          ? // This exact sentence is what tells a user their input did not take. Pinned by a
+            // test; do not reword it.
+            'No valid new usernames yet.'
+          : // The names themselves are no longer repeated here — the chips above carry them,
+            // and reading the same list twice is noise.
+            `${members.length} username${members.length === 1 ? '' : 's'} to add.`}
+      </p>
+    </FormDialog>
   );
 }

@@ -2,12 +2,13 @@ import {useState} from 'react';
 import {Link} from 'react-router';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';
-import {IconButton} from '../../components/IconButton';
 import {PageLayout} from '../../components/PageLayout';
 import {Pager} from '../../components/Pager';
-import {cx} from '../../lib/cx';
+import {RefreshIconButton} from '../../components/RefreshIconButton';
+import {SegmentedFilter} from '../../components/SegmentedFilter';
 import {spaceBuckets} from '../../lib/userSpace';
 import {usePageTitle} from '../../hooks/usePageTitle';
+import {useClientPager} from '../../hooks/useClientPager';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {usableSpaceTargets} from '../file-browser';
@@ -65,17 +66,12 @@ export function DataQualityPage() {
       ? runs
       : runs.filter((run) => (filter === 'clean' ? run.verdict === 'clean' : run.verdict !== 'clean'));
 
-  // Client-side pager over the in-memory list, clamped so a shrunk list never strands the
-  // user on a blank page (the NotificationsPage shape).
-  const [pageIndex, setPageIndex] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  const safeIndex = Math.min(pageIndex, pageCount - 1);
-  const start = safeIndex * PAGE_SIZE;
-  const pageItems = visible.slice(start, start + PAGE_SIZE);
+  // Clamped client-side pager: a shrunk list never strands the user on a blank page.
+  const {pageItems, pagerProps, resetToFirst} = useClientPager(visible, PAGE_SIZE);
 
   const applyFilter = (next: Filter) => {
     setFilter(next);
-    setPageIndex(0);
+    resetToFirst();
   };
 
   const [refreshing, setRefreshing] = useState(false);
@@ -83,7 +79,7 @@ export function DataQualityPage() {
     setRefreshing(true);
     await refresh();
     setRefreshing(false);
-    setPageIndex(0);
+    resetToFirst();
   };
 
   return (
@@ -93,28 +89,17 @@ export function DataQualityPage() {
       stackActionsOnMobile
       actions={
         <>
-          <FilterTabs
-            filter={filter}
+          <SegmentedFilter
+            label="Filter checks"
+            options={FILTERS}
+            value={filter}
             onChange={applyFilter}
           />
-          <IconButton
+          <RefreshIconButton
             label="Refresh data quality checks"
-            size="sm"
-            disabled={refreshing}
-            onClick={() => void handleRefresh()}>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className={cx('h-4 w-4', refreshing && 'animate-spin')}
-              aria-hidden="true">
-              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-              <path d="M21 3v5h-5" />
-              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-              <path d="M3 21v-5h5" />
-            </svg>
-          </IconButton>
+            busy={refreshing}
+            onClick={() => void handleRefresh()}
+          />
           {/* Starting a check NEVER depends on the history being readable, so this
               renders in every list state — including the error one. */}
           {spaces.length > 0 && (
@@ -133,14 +118,9 @@ export function DataQualityPage() {
         <Banner
           variant="danger"
           title={error}
-          className="mb-2">
-          <button
-            type="button"
-            onClick={() => void handleRefresh()}
-            className="font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-            Try again
-          </button>
-        </Banner>
+          retry={() => void handleRefresh()}
+          className="mb-2"
+        />
       )}
 
       {/* SPEC-124 FR-005. A check that has just started is NOT in the list and will not be
@@ -203,16 +183,7 @@ export function DataQualityPage() {
           </ul>
           <Pager
             className="mt-2"
-            hasPrev={safeIndex > 0}
-            hasNext={safeIndex < pageCount - 1}
-            onPrev={() => setPageIndex(Math.max(0, safeIndex - 1))}
-            onNext={() => setPageIndex(Math.min(pageCount - 1, safeIndex + 1))}
-            label={
-              <>
-                {start + 1}–{start + pageItems.length} of {visible.length}
-                <span className="sr-only"> (page {safeIndex + 1})</span>
-              </>
-            }
+            {...pagerProps}
           />
         </>
       )}
@@ -266,33 +237,5 @@ function CompletedOnlyNote() {
       </Link>{' '}
       instead.
     </p>
-  );
-}
-
-// All / Issues found / Clean segmented control — `aria-pressed` on each, so the choice is
-// never conveyed by styling alone.
-function FilterTabs({filter, onChange}: {filter: Filter; onChange: (next: Filter) => void}) {
-  return (
-    <div
-      role="group"
-      aria-label="Filter checks"
-      className="inline-flex gap-0.5 rounded-md border border-border bg-surface-2 p-0.5">
-      {FILTERS.map(({value, label}) => {
-        const active = filter === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(value)}
-            className={cx(
-              'h-7 rounded-sm px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-              active ? 'bg-surface font-semibold text-accent-text shadow-sm' : 'text-text-2 hover:text-text'
-            )}>
-            {label}
-          </button>
-        );
-      })}
-    </div>
   );
 }

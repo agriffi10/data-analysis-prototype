@@ -1,30 +1,21 @@
-import {IconButton} from '../../components/IconButton';
-import {cx} from '../../lib/cx';
+import {RefreshIconButton} from '../../components/RefreshIconButton';
 
 /**
  * Refresh-connections control. The actual work — force a credential/token refresh
  * so newly-granted membership tags are stamped, then re-read the per-user cache —
  * lives in `useConnections().refresh`; this is just the affordance. Disabled and
  * spinning while in flight; a failed refresh is non-destructive.
+ *
+ * SPEC-155 FR-006: this used to draw its own two-path refresh glyph. It now shares the
+ * app's one refresh icon, which is a deliberate (small) visual change.
  */
 export function RefreshConnectionsButton({refreshing, onRefresh}: {refreshing: boolean; onRefresh: () => void}) {
   return (
-    <IconButton
+    <RefreshIconButton
       label="Refresh connections"
-      disabled={refreshing}
-      onClick={onRefresh}>
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className={cx('h-4 w-4', refreshing && 'animate-spin')}>
-        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-        <path d="M21 3v6h-6" />
-      </svg>
-    </IconButton>
+      busy={refreshing}
+      size="md"
+      onClick={onRefresh}
+    />
   );
 }

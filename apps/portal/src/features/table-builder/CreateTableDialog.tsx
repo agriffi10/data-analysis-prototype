@@ -1,7 +1,6 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
-import {Button} from '../../components/Button';
+import {useMemo, useRef, useState} from 'react';
+import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {Modal} from '../../components/Modal';
 import {Banner} from '../../components/Banner';
 import {PartitionKeysField} from './PartitionKeysField';
 import {buildPartitionKeys, type DraftPartitionKey} from './partitionKeys';
@@ -34,11 +33,6 @@ export function CreateTableDialog({folderName, folderPath, busy = false, submitE
   const [keys, setKeys] = useState<DraftPartitionKey[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
   const trimmed = name.trim();
   const nameValid = isValidTableName(trimmed);
   const nameError = touched && !nameValid && trimmed.length > 0 ? CATALOG_IDENTIFIER_RULE : undefined;
@@ -51,82 +45,67 @@ export function CreateTableDialog({folderName, folderPath, busy = false, submitE
   };
 
   return (
-    <Modal
+    <FormDialog
+      title="Create table from this folder"
       ariaLabel="Create table from this folder"
-      onDismiss={onCancel}
-      dismissible={!busy}
-      className="flex max-h-[85vh] max-w-lg flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-5">
-        <h2 className="mb-1 text-md font-semibold text-text">Create table from this folder</h2>
-        <p className="mb-3 text-sm text-text-2">
-          Creates a queryable table over the files in this folder. It’s built in the background — you’ll be notified
-          when it’s ready or if it couldn’t be created.
-        </p>
+      submitLabel="Create table"
+      busy={busy}
+      busyLabel="Submitting…"
+      submitDisabled={!canSubmit}
+      autoFocusRef={inputRef}
+      autoFocusSelect
+      className="max-w-lg"
+      scrollBody
+      onSubmit={attempt}
+      onCancel={onCancel}>
+      {/* `mt-1` reproduces the gap the old markup got from an `mb-1` on the heading. */}
+      <p className="mb-3 mt-1 text-sm text-text-2">
+        Creates a queryable table over the files in this folder. It’s built in the background — you’ll be notified when
+        it’s ready or if it couldn’t be created.
+      </p>
 
-        {folderPath !== undefined && (
-          <div className="mb-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-text-2">Folder</span>
-            <p
-              className="mt-0.5 break-all rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-sm text-text"
-              title={folderPath || '/'}>
-              {folderPath || '/ (space root)'}
-            </p>
-          </div>
-        )}
+      {folderPath !== undefined && (
+        <div className="mb-4">
+          <span className="text-xs font-medium uppercase tracking-wide text-text-2">Folder</span>
+          <p
+            className="mt-0.5 break-all rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-sm text-text"
+            title={folderPath || '/'}>
+            {folderPath || '/ (space root)'}
+          </p>
+        </div>
+      )}
 
-        <Input
-          ref={inputRef}
-          id="create-table-name"
-          label="Table name"
-          required
-          aria-required="true"
-          value={name}
-          placeholder="e.g. sales_2026"
-          error={nameError}
-          disabled={busy}
-          onChange={(e) => {
-            setTouched(true);
-            setName(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              attempt();
-            }
-          }}
-        />
+      <Input
+        ref={inputRef}
+        id="create-table-name"
+        label="Table name"
+        required
+        aria-required="true"
+        value={name}
+        placeholder="e.g. sales_2026"
+        error={nameError}
+        disabled={busy}
+        onChange={(e) => {
+          setTouched(true);
+          setName(e.target.value);
+        }}
+      />
 
-        <PartitionKeysField
-          value={keys}
-          errors={partition.errors}
-          disabled={busy}
-          onChange={setKeys}
-        />
+      <PartitionKeysField
+        value={keys}
+        errors={partition.errors}
+        disabled={busy}
+        onChange={setKeys}
+      />
 
-        {submitError && (
-          <Banner
-            variant="danger"
-            className="mt-4"
-            role="alert">
-            {submitError}
-          </Banner>
-        )}
-      </div>
-
-      <div className="flex justify-end gap-2 rounded-b-lg border-t border-border bg-surface-2 px-5 py-4">
-        <Button
-          variant="ghost"
-          onClick={onCancel}
-          disabled={busy}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={attempt}
-          disabled={!canSubmit}>
-          {busy ? 'Submitting…' : 'Create table'}
-        </Button>
-      </div>
-    </Modal>
+      {submitError && (
+        <Banner
+          variant="danger"
+          className="mt-4"
+          role="alert">
+          {submitError}
+        </Banner>
+      )}
+    </FormDialog>
   );
 }
