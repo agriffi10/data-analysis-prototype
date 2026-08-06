@@ -1,3 +1,5 @@
+import {formatAbsoluteDate} from '../../lib/format';
+
 /**
  * Human-readable size, e.g. 1234 → "1.2 KB". Caps at GB. (The query feature has
  * a separate `formatBytes` with different rules — undefined handling, TB,
@@ -12,5 +14,5 @@ export function formatSize(bytes: number): string {
 
 /** Short last-modified date, e.g. "Mar 3, 2026". */
 export function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'});
+  return formatAbsoluteDate(date);
 }

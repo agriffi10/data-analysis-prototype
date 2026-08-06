@@ -1,3 +1,5 @@
+import {parseS3Url} from '../../lib/s3Url';
+
 /**
  * Split a Glue table's `s3://{bucket}/{prefix}` location into the bucket and
  * folder key a refresh request's `space` needs, or `null` when it isn't an S3 URL
@@ -15,8 +17,8 @@
  * parseTableLocation('s3://dat-prod-user-space/alice/sales'); // {bucket: 'dat-prod-user-space', prefix: 'alice/sales/'}
  */
 export function parseTableLocation(location: string | undefined): {bucket: string; prefix: string} | null {
-  const match = /^s3:\/\/([^/]+)\/(.+)$/.exec((location ?? '').trim());
-  if (!match) return null;
-  const [, bucket, key] = match;
+  const parsed = parseS3Url(location);
+  if (!parsed) return null;
+  const {bucket, key} = parsed;
   return {bucket, prefix: key.endsWith('/') ? key : `${key}/`};
 }

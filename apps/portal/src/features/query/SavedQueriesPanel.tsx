@@ -4,7 +4,7 @@ import {Banner} from '../../components/Banner';
 import {Drawer} from '../../components/Drawer';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {DocumentIcon} from '../../components/icons';
-import {formatRelativeTime} from './query.format';
+import {formatRelativeTime} from '../../lib/format';
 import type {SavedQuery} from './query.types';
 
 type Props = {

@@ -3,6 +3,7 @@ import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {PageLayout} from '../../components/PageLayout';
 import {cx} from '../../lib/cx';
+import {formatAbsoluteDate} from '../../lib/format';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {useToast} from '../../components/toastContext';
@@ -371,9 +372,7 @@ function metaLine(row: ConnectionRow): string | null {
 
 function formatCreated(iso?: string): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
+  return formatAbsoluteDate(iso) || null;
 }
 
 function ConnectionRowItem({

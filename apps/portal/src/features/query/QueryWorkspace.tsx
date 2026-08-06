@@ -6,9 +6,11 @@ import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
-import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, parseS3Url, isTerminalState} from './query.service';
+import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, isTerminalState} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
+import {parseS3Url} from '../../lib/s3Url';
+import {spaceBuckets} from '../../lib/userSpace';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
@@ -153,10 +155,9 @@ export function QueryWorkspace() {
   const username = user?.username ?? '';
   const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
-  // Save-results copy stays within it.
-  const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined;
-  // SPEC-055: the shared-space bucket (where shared-DB results land + a Save target).
-  const sharedSpaceBucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined;
+  // Save-results copy stays within it. SPEC-055: the shared-space bucket (where
+  // shared-DB results land + a Save target).
+  const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
 
   // SPEC-077: there is no active database. The rail browses every accessible
   // database; queries carry no execution context and must fully-qualify every
@@ -910,10 +911,9 @@ export function QueryWorkspace() {
   // Derive the in-space S3 key (folder) backing a table from its Glue LOCATION;
   // null when missing or outside the user's own prefix (FR-002 guard).
   const tablePrefix = (table: GlueTableSummary): string | null => {
-    if (!table.location) return null;
-    const match = /^s3:\/\/[^/]+\/(.+)$/.exec(table.location);
-    if (!match) return null;
-    const key = match[1].endsWith('/') ? match[1] : `${match[1]}/`;
+    const parsed = parseS3Url(table.location);
+    if (!parsed) return null;
+    const key = parsed.key.endsWith('/') ? parsed.key : `${parsed.key}/`;
     return username && key.startsWith(`${username}/`) ? key : null;
   };
 

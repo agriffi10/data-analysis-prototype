@@ -4,20 +4,10 @@ import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {isConnectionUsable} from '../query/query.types';
 import {toUserMessage} from '../../lib/errorMessages';
+import {spaceBuckets} from '../../lib/userSpace';
 import {dataQualityKeys} from './dataQualityKeys';
 import {getRunsIndex} from './dataQualityRuns.service';
 import type {DataQualityRunSummary} from './dataQuality.types';
-
-/**
- * Read at CALL time, never at module load: a module-level `import.meta.env` const is
- * captured before `vi.stubEnv` runs (same reason as `useDataQualityReport`).
- */
-function spaceBuckets(): {user?: string; shared?: string} {
-  return {
-    user: import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
-    shared: import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined
-  };
-}
 
 /** A space to read an index from: its name and the bucket that holds it. */
 export type RunsSource = {space: string; bucket: string};

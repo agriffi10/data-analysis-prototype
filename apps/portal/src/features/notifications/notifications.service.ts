@@ -1,8 +1,5 @@
-import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument} from '../../lib/s3Json';
+import {ok} from '../../lib/serviceResult';
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
@@ -71,15 +68,12 @@ function parseInbox(body: string | undefined): Notification[] {
  * empty state, not an error; any other S3 error surfaces as a typed failure.
  */
 export async function getNotifications(username: string): Promise<ServiceResult<Notification[]>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(new GetObjectCommand({Bucket: userSpaceBucket(), Key: inboxKey(username)}));
-      const body = await response.Body?.transformToString();
-      return {success: true, data: parseInbox(body)};
-    } catch (err) {
-      if (isNotFound(err)) return {success: true, data: []};
-      return toServiceError(err, 'Failed to load notifications');
-    }
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: inboxKey(username),
+    parse: (body) => ok(parseInbox(body)),
+    onMissing: () => ({success: true, data: []}),
+    fallbackMessage: 'Failed to load notifications'
   });
 }
 

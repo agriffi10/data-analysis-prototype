@@ -3,6 +3,7 @@ import {useQuery} from '@tanstack/react-query';
 import {getQueryStatus, isTerminalState} from './query.service';
 import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
+import {NO_KEY} from '../../lib/queryKeys';
 import {POLL_INTERVAL_MS, MAX_POLL_DURATION_MS} from './query.constants';
 import type {QueryStatus} from './query.types';
 
@@ -22,7 +23,7 @@ export function useQueryExecution(queryExecutionId: string | null) {
 
   return useQuery({
     // A stable placeholder key keeps the hook order constant while disabled.
-    queryKey: queryKeys.execution(queryExecutionId ?? '__none__'),
+    queryKey: queryKeys.execution(queryExecutionId ?? NO_KEY),
     enabled: queryExecutionId !== null,
     queryFn: async (): Promise<QueryStatus> => {
       const result = await getQueryStatus(queryExecutionId as string);

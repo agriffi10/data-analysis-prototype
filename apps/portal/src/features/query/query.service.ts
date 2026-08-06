@@ -259,14 +259,3 @@ export async function getTableDdl(p: {
   const ddl = results.data.rows.map((r) => r[0] ?? '').join('\n');
   return {success: true, data: ddl};
 }
-
-/**
- * Parse an `s3://bucket/key` URL into its parts; `null` if it isn't one. Exported
- * (SPEC-049) so the Save-results flow can derive the source key from a query's
- * `outputLocation` (`s3://{bucket}/{username}/athenaresults/{id}.csv`).
- */
-export function parseS3Url(url: string): {bucket: string; key: string} | null {
-  const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(url);
-  if (!match) return null;
-  return {bucket: match[1], key: match[2]};
-}

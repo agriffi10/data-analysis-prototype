@@ -7,7 +7,6 @@ import {
   runQuery,
   getQueryStatus,
   getQueryResults,
-  parseS3Url,
   getTableDdl,
   runStatementToCompletion,
   stopQuery,
@@ -299,19 +298,6 @@ describe('getQueryResults', () => {
       success: true,
       data: {columns: [], rows: [], nextToken: undefined}
     });
-  });
-});
-
-describe('parseS3Url (SPEC-049)', () => {
-  it('splits an s3:// URL into bucket + key', () => {
-    expect(parseS3Url('s3://user-bucket/alice/athenaresults/q-1.csv')).toEqual({
-      bucket: 'user-bucket',
-      key: 'alice/athenaresults/q-1.csv'
-    });
-  });
-
-  it('returns null for a non-s3 URL', () => {
-    expect(parseS3Url('not-an-s3-url')).toBeNull();
   });
 });
 

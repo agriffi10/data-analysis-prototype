@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {formatRelativeTime} from '../query/query.format';
+import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {splitLocation} from './dataQuality.format';
 import type {DataQualityRunSummary} from './dataQuality.types';
