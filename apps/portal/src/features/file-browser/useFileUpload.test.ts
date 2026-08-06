@@ -1,7 +1,6 @@
-import {renderHook, waitFor, act} from '@testing-library/react';
+import {waitFor, act} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useFileUpload} from './useFileUpload';
 import {uploadFile, createFolder} from './fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
@@ -19,13 +18,8 @@ const mockUpload = vi.mocked(uploadFile);
 const mockCreateFolder = vi.mocked(createFolder);
 const mockInvalidate = vi.mocked(invalidateListing);
 
-function wrapper() {
-  const client = new QueryClient();
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
-
 function render() {
-  return renderHook(() => useFileUpload('us', 'alice/'), {wrapper: wrapper()});
+  return renderHookWithProviders(() => useFileUpload('us', 'alice/'));
 }
 
 const file = new File(['hello'], 'report.pdf', {type: 'application/pdf'});

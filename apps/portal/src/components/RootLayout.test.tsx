@@ -1,39 +1,35 @@
-import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
+import {describe, it, expect, vi, afterEach} from 'vitest';
 import {render, screen, cleanup} from '@testing-library/react';
 import {MemoryRouter, Routes, Route, useNavigate} from 'react-router';
 import userEvent from '@testing-library/user-event';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClientProvider} from '@tanstack/react-query';
 import type {ReactNode} from 'react';
 import {RootLayout} from './RootLayout';
-import type {AuthContextValue} from '../features/auth';
+import {AuthContext} from '../features/auth/authContext';
+import {createTestQueryClient} from '../test/renderWithProviders';
+import {unauthenticated} from '../test/authFixtures';
 
-vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
 // The Header mounts useNotifications for the bell indicator — stub the read so
-// RootLayout tests make no S3/SQS call and stay focused on layout.
+// RootLayout tests make no S3/SQS call and stay focused on layout. This is the AWS
+// boundary and the only thing mocked here.
 vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 
-import {useAuth} from '../features/auth';
-
-const mockUseAuth = useAuth as unknown as MockedFunction<() => AuthContextValue>;
-
-// Header reads useNotifications (TanStack), which needs a QueryClientProvider.
+/**
+ * A bespoke tree, and this one genuinely is (SPEC-154 FR-007): every test here composes its
+ * own `MemoryRouter` + `Routes` because ROUTE COMPOSITION is the subject — `renderWithProviders`
+ * supplies a router of its own, and nesting two is not a thing React Router supports.
+ *
+ * Auth, though, is now the REAL `useAuth` reading an injected context (FR-002). The old
+ * `vi.mock('../features/auth')` replaced the whole barrel, so the provider never ran.
+ */
 const withProviders = (ui: ReactNode) => (
-  <QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>{ui}</QueryClientProvider>
+  <AuthContext.Provider value={unauthenticated()}>
+    <QueryClientProvider client={createTestQueryClient()}>{ui}</QueryClientProvider>
+  </AuthContext.Provider>
 );
-
-beforeEach(() => {
-  mockUseAuth.mockReturnValue({
-    status: 'unauthenticated',
-    user: null,
-    error: null,
-    signIn: vi.fn(),
-    signUp: vi.fn(),
-    signOut: vi.fn()
-  });
-});
 
 afterEach(() => {
   cleanup();

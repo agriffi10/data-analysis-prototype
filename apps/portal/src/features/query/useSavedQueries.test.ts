@@ -1,7 +1,6 @@
-import {renderHook, waitFor, act} from '@testing-library/react';
+import {waitFor, act} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useSavedQueries} from './useSavedQueries';
 import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
 import type {SavedQueriesStore, SavedQuery} from './query.types';
@@ -11,13 +10,6 @@ vi.mock('./savedQueries.service');
 const mockGet = vi.mocked(getSavedQueries);
 const mockUpsert = vi.mocked(upsertSavedQuery);
 const mockRemove = vi.mocked(removeSavedQuery);
-
-function wrapper() {
-  const client = new QueryClient({
-    defaultOptions: {queries: {retry: false}}
-  });
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
 
 function sq(id: string, name = id): SavedQuery {
   return {
@@ -41,17 +33,13 @@ beforeEach(() => {
 
 describe('useSavedQueries', () => {
   it('is disabled (loading, empty) while username is null', () => {
-    const {result} = renderHook(() => useSavedQueries(null), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useSavedQueries(null));
     expect(result.current.queries).toEqual([]);
     expect(mockGet).not.toHaveBeenCalled();
   });
 
   it('loads the user’s saved queries', async () => {
-    const {result} = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
     await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['a']));
   });
 
@@ -60,9 +48,7 @@ describe('useSavedQueries', () => {
       success: true,
       data: store([sq('b'), sq('a')])
     });
-    const {result} = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
     await waitFor(() => expect(result.current.queries).toHaveLength(1));
 
     await act(async () => {
@@ -73,9 +59,7 @@ describe('useSavedQueries', () => {
 
   it('remove seeds the cache so the entry disappears', async () => {
     mockRemove.mockResolvedValue({success: true, data: store([])});
-    const {result} = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
     await waitFor(() => expect(result.current.queries).toHaveLength(1));
 
     await act(async () => {
@@ -90,9 +74,7 @@ describe('useSavedQueries', () => {
       success: false,
       error: {message: 'access denied'}
     });
-    const {result} = renderHook(() => useSavedQueries('alice'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
     await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'access denied'})));
   });
 });

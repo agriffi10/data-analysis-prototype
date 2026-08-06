@@ -134,6 +134,7 @@ import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQuerie
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
+import {enqueueTableShare} from '../table-share/tableShare.service';
 import {QueryWorkspace} from './QueryWorkspace';
 import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
 import type {QueryTabsState, QueryState} from './query.types';
@@ -155,6 +156,7 @@ const mockReadCache = vi.mocked(readSharedConnectionsCache);
 const mockCopyObject = vi.mocked(copyObject);
 const mockListFiles = vi.mocked(listFiles);
 const mockEnqueueRefresh = vi.mocked(enqueueTableRefresh);
+const mockEnqueueShare = vi.mocked(enqueueTableShare);
 
 // SaveResultsDialog / runQuery outputLocation read these at render/module time.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
@@ -1376,5 +1378,108 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     await user.click(await screen.findByRole('button', {name: 'Back to queries'}));
 
     expect(await screen.findByRole('button', {name: 'History'})).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+// ── SPEC-154 FR-001: table share, driven end to end ─────────────────────────
+//
+// `enqueueTableShare` was mocked in this file and never asserted, and the flow's three
+// fragments each tested a stub: `TableShareDialog.test.tsx` asserted a `vi.fn()` prop,
+// `useTableShare.test.ts` was a bare `renderHook`, `DatabaseNode.test.tsx` asserted
+// `onShareTable` was called. Every half was green and the WIRE between them was untested — a
+// dialog that never mounts, a wrong `source`, or a dropped `onSubmit` all passed.
+//
+// Structured on the SPEC-145 refresh block above, deliberately: menu → dialog → submit →
+// service → toast, plus the failure path and the control's absence where it must not appear.
+describe('QueryWorkspace — share table (SPEC-093)', () => {
+  const shareDialog = () => screen.getByRole('dialog', {name: 'Share table sales_2026'});
+
+  async function openShareDialog(user: ReturnType<typeof renderWorkspace>['user'], table = 'sales_2026') {
+    await openTableMenu(user, table);
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Share table'}));
+    return screen.getByRole('dialog', {name: `Share table ${table}`});
+  }
+
+  beforeEach(() => {
+    mockEnqueueShare.mockResolvedValue(ok(undefined));
+  });
+
+  it('shares a table with two users from the rail menu and reports it as pending', async () => {
+    const {user} = renderWorkspace();
+
+    const dialog = await openShareDialog(user);
+    // The DATABASE comes from the rail node, not from anywhere in the dialog (SPEC-077),
+    // so it is worth seeing before the submit that carries it.
+    expect(within(dialog).getByText('alice.sales_2026')).toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText('Usernames'), 'bob, cara');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    const chips = within(dialog).getByRole('list', {name: 'Recipients'});
+    expect(within(chips).getByText('bob')).toBeInTheDocument();
+    expect(within(chips).getByText('cara')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Share'}));
+
+    expect(mockEnqueueShare).toHaveBeenCalledWith({
+      source: {database: 'alice', table: 'sales_2026'},
+      tableName: 'sales_2026',
+      recipients: [
+        {kind: 'user', name: 'bob'},
+        {kind: 'user', name: 'cara'}
+      ]
+    });
+    expect(await screen.findByText(/Sharing “alice\.sales_2026”/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: /Share table/})).not.toBeInTheDocument());
+  });
+
+  it('carries a renamed destination table and a shared-space recipient', async () => {
+    // The two fields most easily dropped between dialog and service: a `tableName` that is
+    // NOT the source table, and a recipient whose kind is `space` rather than `user`.
+    const {user} = renderWorkspace();
+    const dialog = await openShareDialog(user);
+
+    const nameField = within(dialog).getByLabelText('Table name for recipients');
+    await user.clear(nameField);
+    await user.type(nameField, 'sales_from_alice');
+
+    await user.click(within(dialog).getByRole('radio', {name: 'Shared spaces'}));
+    await user.type(within(dialog).getByLabelText('Space names'), 'salesteam');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+
+    await user.click(within(dialog).getByRole('button', {name: 'Share'}));
+
+    expect(mockEnqueueShare).toHaveBeenCalledWith({
+      source: {database: 'alice', table: 'sales_2026'},
+      tableName: 'sales_from_alice',
+      recipients: [{kind: 'space', name: 'salesteam'}]
+    });
+  });
+
+  it('keeps the dialog open with a user-safe error when the enqueue fails', async () => {
+    mockEnqueueShare.mockResolvedValue(fail('sqs exploded', 'NotAuthenticated'));
+    const {user} = renderWorkspace();
+    const dialog = await openShareDialog(user);
+
+    await user.type(within(dialog).getByLabelText('Usernames'), 'bob');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Share'}));
+
+    // SPEC-106: the mapped wording is asserted as RENDERED TEXT, never as a call to
+    // `toUserMessage` — the raw service text must not reach the user.
+    expect(await within(shareDialog()).findByRole('alert')).toHaveTextContent('Sign in to continue.');
+    expect(screen.queryByText('sqs exploded')).not.toBeInTheDocument();
+    // The entered recipient survives the failure, so a retry does not start from scratch.
+    expect(within(shareDialog()).getByRole('list', {name: 'Recipients'})).toHaveTextContent('bob');
+  });
+
+  it('offers no share item for a view, at the workspace level', async () => {
+    // Asserted HERE and not only in `DatabaseNode.test.tsx`: the rail's own test renders the
+    // node in isolation, so it cannot tell you the workspace wires the same table type through.
+    const {user} = renderWorkspace();
+    await openTableMenu(user, 'revenue_view');
+
+    expect(within(screen.getByRole('menu')).queryByRole('menuitem', {name: 'Share table'})).not.toBeInTheDocument();
+    // Guards the guard: the menu really did open, so the absence above means something.
+    expect(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
   });
 });

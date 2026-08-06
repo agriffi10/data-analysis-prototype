@@ -1,7 +1,8 @@
 import {renderHook, waitFor, act} from '@testing-library/react';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClientProvider} from '@tanstack/react-query';
+import {createTestQueryClient} from '../../test/renderWithProviders';
 import {UploadQueueProvider} from './UploadQueueProvider';
 import {useUploadQueue} from './uploadQueueContext';
 import {uploadQueueReducer, initialUploadQueueState, type UploadQueueState} from './uploadQueueContext';
@@ -156,8 +157,14 @@ describe('uploadQueueReducer', () => {
 // destination, so tests pass DEST explicitly.
 const DEST = {bucket: 'us', prefix: 'alice/'};
 
+/**
+ * BESPOKE ON PURPOSE (SPEC-154 FR-007): the tree under test IS `UploadQueueProvider`, and
+ * the shared harness has no way to nest a provider inside its own stack. The QueryClient is
+ * the harness's factory, though — a bare `new QueryClient()` leaves retries ON, so a mocked
+ * rejection waits for a backoff instead of failing the assertion.
+ */
 function wrapper() {
-  const client = new QueryClient();
+  const client = createTestQueryClient();
   return ({children}: {children: ReactNode}) =>
     createElement(QueryClientProvider, {client}, createElement(UploadQueueProvider, {children}));
 }

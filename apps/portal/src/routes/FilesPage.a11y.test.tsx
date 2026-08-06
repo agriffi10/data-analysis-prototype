@@ -37,6 +37,9 @@ vi.mock('../lib/awsCredentials', () => ({
   getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
 }));
 
+// Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
+// COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
+// hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
 const listFiles = vi.mocked(fileService.listFiles);
 const ok = <T,>(data: T) => ({success: true as const, data});
 

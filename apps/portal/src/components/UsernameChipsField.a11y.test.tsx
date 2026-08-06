@@ -1,7 +1,8 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {useState} from 'react';
 import {render, screen, cleanup, waitFor} from '@testing-library/react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClientProvider} from '@tanstack/react-query';
+import {createTestQueryClient} from '../test/renderWithProviders';
 import type {ReactElement} from 'react';
 import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../test/axe';
 import {AuthContext} from '../features/auth/authContext';
@@ -14,7 +15,10 @@ vi.mock('../features/user-directory/userDirectory.service', () => ({
   DIRECTORY_KEY: '_directory/usernames.json'
 }));
 
-const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+// Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
+// COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
+// hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
+const client = createTestQueryClient();
 
 function Harness({initial, renderChips = true}: {initial: string[]; renderChips?: boolean}): ReactElement {
   const [value, setValue] = useState(initial);

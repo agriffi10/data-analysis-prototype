@@ -1,7 +1,6 @@
-import {renderHook, waitFor, act} from '@testing-library/react';
+import {waitFor, act} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useFileBrowser} from './useFileBrowser';
 import {listFiles} from './fileBrowser.service';
 import type {FileListPage} from '../../types/s3.types';
@@ -12,13 +11,6 @@ const mockListFiles = vi.mocked(listFiles);
 
 // Fresh client per render with retries off, so an errored query fails fast
 // instead of waiting on the default retry/backoff.
-function wrapper() {
-  const client = new QueryClient({
-    defaultOptions: {queries: {retry: false}}
-  });
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
-
 function page(over: Partial<FileListPage> = {}): FileListPage {
   return {files: [], folders: [], isTruncated: false, ...over};
 }
@@ -47,9 +39,7 @@ describe('useFileBrowser', () => {
       data: page({files: [sampleFile], folders: [sampleFolder]})
     });
 
-    const {result} = renderHook(() => useFileBrowser('my-bucket'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket'));
 
     expect(result.current.isLoading).toBe(true);
     expect(result.current.files).toHaveLength(0);
@@ -63,9 +53,7 @@ describe('useFileBrowser', () => {
       data: page({files: [sampleFile], folders: [sampleFolder]})
     });
 
-    const {result} = renderHook(() => useFileBrowser('my-bucket'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -81,9 +69,7 @@ describe('useFileBrowser', () => {
       error: {message: 'Access Denied', code: 'AccessDenied'}
     });
 
-    const {result} = renderHook(() => useFileBrowser('my-bucket'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket'));
 
     // The hook exposes the raw error object (SPEC-106 #7) so consumers map by code.
     await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'Access Denied'})));
@@ -94,9 +80,7 @@ describe('useFileBrowser', () => {
   it('passes the prefix to listFiles', async () => {
     mockListFiles.mockResolvedValue({success: true, data: page()});
 
-    const {result} = renderHook(() => useFileBrowser('my-bucket', 'docs/'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket', 'docs/'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(mockListFiles).toHaveBeenCalledWith('my-bucket', 'docs/', undefined);
@@ -125,9 +109,7 @@ describe('useFileBrowser', () => {
       })
     });
 
-    const {result} = renderHook(() => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.files.map((f) => f.key)).toEqual(['alice/report.pdf']);
@@ -146,9 +128,7 @@ describe('useFileBrowser', () => {
         data: page({files: [fileA], isTruncated: false})
       });
 
-    const {result} = renderHook(() => useFileBrowser('my-bucket', 'p/'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket', 'p/'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.hasMore).toBe(true);

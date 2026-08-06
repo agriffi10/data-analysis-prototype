@@ -1,7 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {renderHook, waitFor, act} from '@testing-library/react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import type {ReactNode} from 'react';
+import {waitFor, act} from '@testing-library/react';
+import {renderHookWithProviders, createTestQueryClient} from '../../test/renderWithProviders';
 
 vi.mock('./notifications.service', () => ({
   getNotifications: vi.fn(),
@@ -23,12 +22,8 @@ const note = (id: string, read = false): Notification => ({
   timestamp: `2026-06-${id.padStart(2, '0')}T00:00:00.000Z`
 });
 
-function wrapper(client: QueryClient) {
-  return ({children}: {children: ReactNode}) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
-
 function newClient() {
-  return new QueryClient({defaultOptions: {queries: {retry: false}}});
+  return createTestQueryClient();
 }
 
 beforeEach(() => {
@@ -38,14 +33,14 @@ beforeEach(() => {
 
 describe('useNotifications — read + derived state', () => {
   it('is disabled and not loading when signed out', () => {
-    const {result} = renderHook(() => useNotifications(null), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications(null), {queryClient: newClient()});
     expect(result.current.isLoading).toBe(false);
     expect(mockGet).not.toHaveBeenCalled();
   });
 
   it('derives unreadCount / hasUnread from the list', async () => {
     mockGet.mockResolvedValue({success: true, data: [note('05'), note('04', true), note('03')]});
-    const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
     await waitFor(() => expect(result.current.notifications).toHaveLength(3));
     expect(result.current.unreadCount).toBe(2);
     expect(result.current.hasUnread).toBe(true);
@@ -53,7 +48,7 @@ describe('useNotifications — read + derived state', () => {
 
   it('surfaces a read error via isError', async () => {
     mockGet.mockResolvedValue({success: false, error: {message: 'boom'}});
-    const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
@@ -61,7 +56,7 @@ describe('useNotifications — read + derived state', () => {
 describe('useNotifications — optimistic mutations', () => {
   it('markRead optimistically flips read and enqueues', async () => {
     mockGet.mockResolvedValue({success: true, data: [note('05'), note('04')]});
-    const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
     await waitFor(() => expect(result.current.unreadCount).toBe(2));
 
     act(() => result.current.markRead('05'));
@@ -73,7 +68,7 @@ describe('useNotifications — optimistic mutations', () => {
 
   it('markAllRead optimistically clears unread', async () => {
     mockGet.mockResolvedValue({success: true, data: [note('05'), note('04')]});
-    const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
     await waitFor(() => expect(result.current.unreadCount).toBe(2));
 
     act(() => result.current.markAllRead());
@@ -86,7 +81,9 @@ describe('useNotifications — optimistic mutations', () => {
     mockGet.mockResolvedValue({success: true, data: [note('05')]});
     mockEnqueue.mockResolvedValue({success: false, error: {message: 'queue down'}});
     const onMutationError = vi.fn();
-    const {result} = renderHook(() => useNotifications('alice', {onMutationError}), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications('alice', {onMutationError}), {
+      queryClient: newClient()
+    });
     await waitFor(() => expect(result.current.unreadCount).toBe(1));
 
     act(() => result.current.markRead('05'));
@@ -100,7 +97,7 @@ describe('useNotifications — optimistic mutations', () => {
 
   it('composes mark-one-read then mark-all-read', async () => {
     mockGet.mockResolvedValue({success: true, data: [note('05'), note('04'), note('03')]});
-    const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+    const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
     await waitFor(() => expect(result.current.unreadCount).toBe(3));
 
     act(() => result.current.markRead('05'));
@@ -114,7 +111,7 @@ describe('useNotifications — optimistic mutations', () => {
     vi.useFakeTimers();
     try {
       mockGet.mockResolvedValue({success: true, data: [note('05')]});
-      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
       await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
       expect(mockGet).toHaveBeenCalledTimes(1);
 
@@ -137,7 +134,7 @@ describe('useNotifications — optimistic mutations', () => {
       mockGet.mockResolvedValue({success: true, data: [note('05')]});
       const client = newClient();
       const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
-      const {result, unmount} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(client)});
+      const {result, unmount} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
       await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
 
       act(() => result.current.markRead('05'));
@@ -164,7 +161,7 @@ describe('useNotifications — optimistic mutations', () => {
     try {
       // The writer hasn't caught up yet: every server read still returns it unread.
       mockGet.mockResolvedValue({success: true, data: [note('05')]});
-      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
       await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
 
       act(() => result.current.markRead('05'));
@@ -188,7 +185,7 @@ describe('useNotifications — optimistic mutations', () => {
     try {
       mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
       mockGet.mockResolvedValue({success: true, data: [note('05', true)]}); // writer caught up
-      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
       await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
 
       act(() => result.current.markRead('05'));
@@ -211,7 +208,7 @@ describe('useNotifications — background poll (FR-006)', () => {
     vi.useFakeTimers();
     try {
       mockGet.mockResolvedValue({success: true, data: [note('05', true)]});
-      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
       await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
       expect(mockGet).toHaveBeenCalledTimes(1);
       expect(result.current.hasUnread).toBe(false);
@@ -231,7 +228,7 @@ describe('useNotifications — background poll (FR-006)', () => {
       // First read delivers one unread item; a later read adds a second unread one.
       mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
       mockGet.mockResolvedValue({success: true, data: [note('06'), note('05')]});
-      const {result} = renderHook(() => useNotifications('alice'), {wrapper: wrapper(newClient())});
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
       await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
       const callsAfterFirst = mockGet.mock.calls.length;
 
@@ -252,8 +249,8 @@ describe('useNotifications — background poll (FR-006)', () => {
     try {
       // All read → the interval would normally poll; pausePoll must stop it.
       mockGet.mockResolvedValue({success: true, data: [note('05', true)]});
-      const {result} = renderHook(() => useNotifications('alice', {pausePoll: true}), {
-        wrapper: wrapper(newClient())
+      const {result} = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {
+        queryClient: newClient()
       });
       await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
       expect(mockGet).toHaveBeenCalledTimes(1);

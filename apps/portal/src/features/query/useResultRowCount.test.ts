@@ -1,7 +1,6 @@
-import {renderHook, waitFor} from '@testing-library/react';
+import {waitFor} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useResultRowCount} from './useResultRowCount';
 import {getQueryResults} from './query.service';
 import {ROW_COUNT_PAGE_SIZE} from './query.constants';
@@ -10,11 +9,6 @@ import type {QueryResultPage} from './query.types';
 vi.mock('./query.service');
 
 const mockGetQueryResults = vi.mocked(getQueryResults);
-
-function wrapper() {
-  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
 
 const cols = [{name: 'v', type: 'integer'}];
 function ok(rows: string[][], nextToken?: string) {
@@ -40,7 +34,7 @@ describe('useResultRowCount', () => {
       throw new Error(`unexpected token ${nextToken}`);
     });
 
-    const {result} = renderHook(() => useResultRowCount('q-1'), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
     expect(result.current.isCounting).toBe(true);
     await waitFor(() => expect(result.current.isCounting).toBe(false));
@@ -53,7 +47,7 @@ describe('useResultRowCount', () => {
   it('reports a single-page total immediately (no lingering pending)', async () => {
     mockGetQueryResults.mockResolvedValue(page(7));
 
-    const {result} = renderHook(() => useResultRowCount('q-1'), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
     await waitFor(() => expect(result.current.isCounting).toBe(false));
     expect(result.current.total).toBe(7);
@@ -63,7 +57,7 @@ describe('useResultRowCount', () => {
   it('reports 0 for a succeeded query that returned no rows', async () => {
     mockGetQueryResults.mockResolvedValue(page(0));
 
-    const {result} = renderHook(() => useResultRowCount('q-1'), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
     await waitFor(() => expect(result.current.isCounting).toBe(false));
     expect(result.current.total).toBe(0);
@@ -77,7 +71,7 @@ describe('useResultRowCount', () => {
       return page(42);
     });
 
-    const {result} = renderHook(() => useResultRowCount('q-1'), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
     await waitFor(() => expect(result.current.isCounting).toBe(false));
     expect(result.current.total).toBe(ROW_COUNT_PAGE_SIZE * 5 + 42);
@@ -85,7 +79,7 @@ describe('useResultRowCount', () => {
   });
 
   it('is disabled (no walk) when the execution id is null', () => {
-    const {result} = renderHook(() => useResultRowCount(null), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useResultRowCount(null));
 
     expect(result.current.isCounting).toBe(false);
     expect(result.current.total).toBeNull();
@@ -98,7 +92,7 @@ describe('useResultRowCount', () => {
       error: {message: 'boom'}
     });
 
-    const {result} = renderHook(() => useResultRowCount('q-1'), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
     await waitFor(() => expect(mockGetQueryResults).toHaveBeenCalled());
     expect(result.current.total).toBeNull();
@@ -109,8 +103,7 @@ describe('useResultRowCount', () => {
       queryExecutionId === 'q-1' ? page(3) : page(99)
     );
 
-    const {result, rerender} = renderHook(({id}) => useResultRowCount(id), {
-      wrapper: wrapper(),
+    const {result, rerender} = renderHookWithProviders(({id}) => useResultRowCount(id), {
       initialProps: {id: 'q-1' as string | null}
     });
     await waitFor(() => expect(result.current.total).toBe(3));

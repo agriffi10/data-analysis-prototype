@@ -1,23 +1,22 @@
-import {renderHook, act, waitFor} from '@testing-library/react';
+import {act, waitFor} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useCopy} from './useCopy';
 import {copyObject, copyFolder, objectExists} from './fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
 
-vi.mock('./fileBrowser.service', () => ({
+/**
+ * Mock the AWS boundary only. `validateFolderName` and `uploadPercent` are PURE and come
+ * through `importOriginal` — the factory used to re-implement the validator by hand, which
+ * claimed to "reuse the real validation rules" while omitting the control-character rule
+ * entirely and returning different messages. A hand-copied validator drifts from the one
+ * users hit and asserts the copy instead (SPEC-154 FR-008).
+ */
+vi.mock('./fileBrowser.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./fileBrowser.service')>()),
   copyObject: vi.fn(),
   copyFolder: vi.fn(),
-  objectExists: vi.fn(),
-  uploadPercent: (loaded: number, total: number) => (total > 0 ? Math.round((loaded / total) * 100) : 100),
-  // Reuse the real validation rules (non-empty trimmed, no `/`, no control chars).
-  validateFolderName: (name: string) => {
-    if (name.trim().length === 0) return 'Folder name cannot be empty.';
-    if (name !== name.trim()) return 'spaces';
-    if (name.includes('/')) return "no '/'";
-    return null;
-  }
+  objectExists: vi.fn()
 }));
 vi.mock('../../lib/queryClient', () => ({
   invalidateListing: vi.fn().mockResolvedValue(undefined)
@@ -28,15 +27,8 @@ const mockCopyFolder = vi.mocked(copyFolder);
 const mockObjectExists = vi.mocked(objectExists);
 const mockInvalidate = vi.mocked(invalidateListing);
 
-function wrapper() {
-  const client = new QueryClient();
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
-
 function render(username: string | undefined = 'alice') {
-  return renderHook(() => useCopy('us', 'alice/docs/', username), {
-    wrapper: wrapper()
-  });
+  return renderHookWithProviders(() => useCopy('us', 'alice/docs/', username));
 }
 
 beforeEach(() => {
@@ -127,7 +119,7 @@ describe('useCopy — copy to a different folder', () => {
   });
 
   it('errors and does nothing when there is no username', async () => {
-    const {result} = renderHook(() => useCopy('us', 'alice/docs/', undefined), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useCopy('us', 'alice/docs/', undefined));
     act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
 
     await waitFor(() => expect(result.current.error).toMatch(/signed in/i));

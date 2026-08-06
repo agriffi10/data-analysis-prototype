@@ -1,7 +1,6 @@
-import {renderHook, waitFor, act} from '@testing-library/react';
+import {waitFor, act} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useQueryResults} from './useQueryResults';
 import {getQueryResults} from './query.service';
 import type {QueryResultPage} from './query.types';
@@ -11,13 +10,6 @@ vi.mock('./query.service');
 const mockGetQueryResults = vi.mocked(getQueryResults);
 
 // Fresh client per render, retries off so an errored query fails fast.
-function wrapper() {
-  const client = new QueryClient({
-    defaultOptions: {queries: {retry: false}}
-  });
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
-
 const cols = [{name: 'v', type: 'integer'}];
 function ok(rows: string[][], nextToken?: string) {
   return {
@@ -39,9 +31,7 @@ beforeEach(() => {
 // pageSize = 2 in these tests so the range math is easy to assert.
 describe('useQueryResults', () => {
   it('loads the first page and reports that more is available', async () => {
-    const {result} = renderHook(() => useQueryResults('q-1', 2), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useQueryResults('q-1', 2));
 
     await waitFor(() => expect(result.current.isPending).toBe(false));
     expect(result.current.rows).toEqual([['1'], ['2']]);
@@ -54,9 +44,7 @@ describe('useQueryResults', () => {
   });
 
   it('Next fetches the next page forward and replaces the visible rows', async () => {
-    const {result} = renderHook(() => useQueryResults('q-1', 2), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useQueryResults('q-1', 2));
     await waitFor(() => expect(result.current.isPending).toBe(false));
 
     await act(async () => {
@@ -73,9 +61,7 @@ describe('useQueryResults', () => {
   });
 
   it('Prev returns to the previous page from cache, with no refetch', async () => {
-    const {result} = renderHook(() => useQueryResults('q-1', 2), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useQueryResults('q-1', 2));
     await waitFor(() => expect(result.current.isPending).toBe(false));
     await act(async () => {
       result.current.goNext();
@@ -93,8 +79,7 @@ describe('useQueryResults', () => {
   });
 
   it('resets to page 1 when the execution id changes', async () => {
-    const {result, rerender} = renderHook(({id}) => useQueryResults(id, 2), {
-      wrapper: wrapper(),
+    const {result, rerender} = renderHookWithProviders(({id}) => useQueryResults(id, 2), {
       initialProps: {id: 'q-1' as string | null}
     });
     await waitFor(() => expect(result.current.isPending).toBe(false));
@@ -109,8 +94,7 @@ describe('useQueryResults', () => {
   });
 
   it('re-pages to page 1 and refetches at the new size when the page size changes (SPEC-087)', async () => {
-    const {result, rerender} = renderHook(({size}) => useQueryResults('q-1', size), {
-      wrapper: wrapper(),
+    const {result, rerender} = renderHookWithProviders(({size}) => useQueryResults('q-1', size), {
       initialProps: {size: 2}
     });
     await waitFor(() => expect(result.current.isPending).toBe(false));
@@ -137,9 +121,7 @@ describe('useQueryResults', () => {
       if (nextToken === 'T2') return ok([['2'], ['3']]);
       throw new Error(`unexpected token ${nextToken}`);
     });
-    const {result} = renderHook(() => useQueryResults('q-1', 2), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useQueryResults('q-1', 2));
     await waitFor(() => expect(result.current.isPending).toBe(false));
     expect(result.current.rangeStart).toBe(1);
     expect(result.current.rangeEnd).toBe(1);
@@ -153,8 +135,7 @@ describe('useQueryResults', () => {
   });
 
   it('remembers each execution’s page when switching back (SPEC-078 result tabs)', async () => {
-    const {result, rerender} = renderHook(({id}) => useQueryResults(id, 2), {
-      wrapper: wrapper(),
+    const {result, rerender} = renderHookWithProviders(({id}) => useQueryResults(id, 2), {
       initialProps: {id: 'q-1' as string | null}
     });
     await waitFor(() => expect(result.current.isPending).toBe(false));
