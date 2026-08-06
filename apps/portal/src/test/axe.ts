@@ -1,6 +1,6 @@
 import type {ReactElement} from 'react';
 import type {RunOptions} from 'axe-core';
-import {render} from '@testing-library/react';
+import {act, render} from '@testing-library/react';
 import {configureAxe} from 'vitest-axe';
 import {expect} from 'vitest';
 
@@ -56,11 +56,27 @@ export const COMPONENT_AXE_OPTIONS: RunOptions = {
 export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunOptions): Promise<void> {
   const {container, unmount} = render(ui);
   try {
-    const results = await runAxe(container, axeOptions);
-    expect(results).toHaveNoViolations();
+    expect(await runAxeSettled(container, axeOptions)).toHaveNoViolations();
   } finally {
     unmount();
   }
+}
+
+/**
+ * Run axe with the whole traversal inside `act`.
+ *
+ * An axe pass takes real time, and a tree with an async boundary — a resolving query, a
+ * focus trap claiming focus — commits its update DURING it. Outside `act` that produces
+ * "An update to X inside a test was not wrapped in act(...)", and the warning is not only
+ * noise: the update lands while axe is walking, so the result describes a tree the user
+ * never sees. Wrapping the run makes React flush those updates first.
+ */
+async function runAxeSettled(container: Element, axeOptions?: RunOptions) {
+  let results!: Awaited<ReturnType<typeof runAxe>>;
+  await act(async () => {
+    results = await runAxe(container, axeOptions);
+  });
+  return results;
 }
 
 /**
@@ -73,6 +89,5 @@ export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunO
  * here; the axe configuration is still the one defined above and nowhere else.
  */
 export async function expectContainerHasNoA11yViolations(container: Element, axeOptions?: RunOptions): Promise<void> {
-  const results = await runAxe(container, axeOptions);
-  expect(results).toHaveNoViolations();
+  expect(await runAxeSettled(container, axeOptions)).toHaveNoViolations();
 }

@@ -26,6 +26,14 @@ export function createTestQueryClient(): QueryClient {
   });
 }
 
+/**
+ * `delay: null` types the whole string in one go instead of yielding a macrotask per
+ * keystroke — the default `delay: 0` costs a real event-loop turn per character, which
+ * is pure overhead in a jsdom suite with no debounce to exercise. A test that DOES need
+ * per-keystroke timing calls `userEvent.setup()` itself.
+ */
+export const USER_EVENT_OPTIONS = {delay: null} as const;
+
 export type ProviderOptions = {
   /** Initial router location (default `/`). */
   route?: string;
@@ -80,7 +88,7 @@ export function renderWithProviders(
     ),
     ...options
   });
-  return {...result, user: userEvent.setup(), queryClient: client};
+  return {...result, user: userEvent.setup(USER_EVENT_OPTIONS), queryClient: client};
 }
 
 /**

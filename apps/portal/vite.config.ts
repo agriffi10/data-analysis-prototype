@@ -14,6 +14,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Worker threads rather than forked processes: measurably faster to spawn, and
+    // nothing here needs process isolation. `isolate` stays ON — turning it off shares
+    // the module registry between files in a worker, and 122 of ours fail immediately
+    // because one file's `vi.mock` then leaks into the next.
+    pool: 'threads',
     coverage: {
       provider: 'v8',
       // `all` defaults to true in Vitest 4 with `include` set, so every source

@@ -112,11 +112,15 @@ describe('useNotifications — optimistic mutations', () => {
     try {
       mockGet.mockResolvedValue({success: true, data: [note('05')]});
       const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
       expect(mockGet).toHaveBeenCalledTimes(1);
 
       act(() => result.current.markRead('05'));
-      await vi.waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      });
 
       // The reconcile invalidate fires ~2.5s after enqueue → a second read.
       await act(async () => {
@@ -135,7 +139,9 @@ describe('useNotifications — optimistic mutations', () => {
       const client = newClient();
       const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
       const {result, unmount} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
 
       act(() => result.current.markRead('05'));
       // Let the enqueue resolve so onSuccess schedules the reconcile timers.
@@ -162,10 +168,14 @@ describe('useNotifications — optimistic mutations', () => {
       // The writer hasn't caught up yet: every server read still returns it unread.
       mockGet.mockResolvedValue({success: true, data: [note('05')]});
       const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
 
       act(() => result.current.markRead('05'));
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+      });
 
       // A reconcile refetch lands while the server still reports unread — the overlay
       // must hold the optimistic read instead of snapping back to unread.
@@ -186,10 +196,14 @@ describe('useNotifications — optimistic mutations', () => {
       mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
       mockGet.mockResolvedValue({success: true, data: [note('05', true)]}); // writer caught up
       const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
 
       act(() => result.current.markRead('05'));
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+      });
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_500);
@@ -209,7 +223,9 @@ describe('useNotifications — background poll (FR-006)', () => {
     try {
       mockGet.mockResolvedValue({success: true, data: [note('05', true)]});
       const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
-      await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
+      });
       expect(mockGet).toHaveBeenCalledTimes(1);
       expect(result.current.hasUnread).toBe(false);
 
@@ -229,7 +245,9 @@ describe('useNotifications — background poll (FR-006)', () => {
       mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
       mockGet.mockResolvedValue({success: true, data: [note('06'), note('05')]});
       const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
       const callsAfterFirst = mockGet.mock.calls.length;
 
       // The poll does NOT suspend on unread — a later poll picks up the 2nd item and
@@ -238,7 +256,9 @@ describe('useNotifications — background poll (FR-006)', () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
       expect(mockGet.mock.calls.length).toBeGreaterThan(callsAfterFirst);
-      await vi.waitFor(() => expect(result.current.unreadCount).toBe(2));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(2));
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -252,7 +272,9 @@ describe('useNotifications — background poll (FR-006)', () => {
       const {result} = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {
         queryClient: newClient()
       });
-      await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
+      });
       expect(mockGet).toHaveBeenCalledTimes(1);
 
       await act(async () => {

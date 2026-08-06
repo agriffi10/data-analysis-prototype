@@ -1,0 +1,696 @@
+import {describe, expect, it, vi} from 'vitest';
+import {fireEvent, render, screen, within} from '@testing-library/react';
+import {CreateTableDialog} from './CreateTableDialog';
+import {PartitionKeysField} from './PartitionKeysField';
+import {buildPartitionKey, buildPartitionKeys, emptyDraftKey, parseValues, validateDraftKey} from './partitionKeys';
+import type {DraftPartitionKey} from './partitionKeys';
+import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
+import {renderWithProviders} from '../../test/renderWithProviders';
+import {RefreshTableDialog} from './RefreshTableDialog';
+import {parseRefreshLink} from './tableRefresh.link';
+import {parseTableLocation} from './tableRefresh.location';
+import type {TableRefreshTarget} from './tableRefresh.types';
+
+// ─── from CreateTableDialog.test.tsx ───
+describe('CreateTableDialog', () => {
+  function renderDialog(props?: Partial<React.ComponentProps<typeof CreateTableDialog>>) {
+    const onSubmit = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <CreateTableDialog
+        folderName="Sales 2026"
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        {...props}
+      />
+    );
+    return {onSubmit, onCancel};
+  }
+
+  const nameInput = () => screen.getByLabelText('Table name') as HTMLInputElement;
+  const createBtn = () => screen.getByRole('button', {name: 'Create table'});
+  const addKeysBtn = () => screen.getByRole('button', {name: 'Add partition keys'});
+
+  describe('CreateTableDialog — name', () => {
+    it('pre-fills a catalog-safe suggestion from the folder name', () => {
+      renderDialog();
+      expect(nameInput().value).toBe('sales_2026');
+      expect(createBtn()).toBeEnabled();
+    });
+
+    it('disables Create when the name is invalid', () => {
+      renderDialog();
+      fireEvent.change(nameInput(), {target: {value: 'Bad Name'}});
+      expect(createBtn()).toBeDisabled();
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+
+    it('submits a flat request (no partition keys) with the entered name', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.change(nameInput(), {target: {value: 'my_table'}});
+      fireEvent.click(createBtn());
+      expect(onSubmit).toHaveBeenCalledWith({tableName: 'my_table', partitionKeys: []});
+    });
+
+    it('submits on Enter in the name field', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.keyDown(nameInput(), {key: 'Enter'});
+      expect(onSubmit).toHaveBeenCalledWith({tableName: 'sales_2026', partitionKeys: []});
+    });
+
+    it('shows the current folder path when provided', () => {
+      renderDialog({folderPath: 'alice/sales/2026/'});
+      expect(screen.getByText('alice/sales/2026/')).toBeInTheDocument();
+    });
+
+    it('labels the space root when the folder path is empty', () => {
+      renderDialog({folderPath: ''});
+      expect(screen.getByText('/ (space root)')).toBeInTheDocument();
+    });
+  });
+
+  describe('CreateTableDialog — partition keys', () => {
+    it('adds a key and blocks Create until the row is valid, then sends it', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.click(addKeysBtn());
+
+      // A blank row is invalid → Create is disabled.
+      expect(createBtn()).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'region'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 values'), {target: {value: 'us, eu'}});
+      expect(createBtn()).toBeEnabled();
+
+      fireEvent.click(createBtn());
+      expect(onSubmit).toHaveBeenCalledWith({
+        tableName: 'sales_2026',
+        partitionKeys: [{name: 'region', type: 'string', values: ['us', 'eu']}]
+      });
+    });
+
+    it('builds an integer key with a range', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'year'}});
+      fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'integer'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 minimum'), {target: {value: '2020'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 maximum'), {target: {value: '2026'}});
+      fireEvent.click(createBtn());
+      expect(onSubmit).toHaveBeenCalledWith({
+        tableName: 'sales_2026',
+        partitionKeys: [{name: 'year', type: 'integer', range: [2020, 2026]}]
+      });
+    });
+
+    it('removes a key, returning to a flat request', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.click(screen.getByRole('button', {name: 'Remove partition key 1'}));
+      // Back to the collapsed affordance.
+      expect(addKeysBtn()).toBeInTheDocument();
+      fireEvent.click(createBtn());
+      expect(onSubmit).toHaveBeenCalledWith({tableName: 'sales_2026', partitionKeys: []});
+    });
+
+    it('reorders keys (granularity order)', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'month'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 values'), {target: {value: '01,02'}});
+      fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
+      fireEvent.change(screen.getByLabelText('Partition key 2 name'), {target: {value: 'year'}});
+      fireEvent.change(screen.getByLabelText('Partition key 2 values'), {target: {value: '2025,2026'}});
+
+      // Move the second row (year) up so it leads (coarsest first).
+      fireEvent.click(screen.getByRole('button', {name: 'Move partition key 2 earlier'}));
+      fireEvent.click(createBtn());
+
+      const call = onSubmit.mock.calls[0][0];
+      expect(call.partitionKeys.map((k: {name: string}) => k.name)).toEqual(['year', 'month']);
+    });
+
+    it('flags a duplicate key name', () => {
+      renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'region'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 values'), {target: {value: 'us'}});
+      fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
+      fireEvent.change(screen.getByLabelText('Partition key 2 name'), {target: {value: 'region'}});
+      fireEvent.change(screen.getByLabelText('Partition key 2 values'), {target: {value: 'eu'}});
+
+      const row2 = screen.getByRole('group', {name: 'Partition key 2'});
+      expect(within(row2).getByText(/duplicate/i)).toBeInTheDocument();
+      expect(createBtn()).toBeDisabled();
+    });
+  });
+
+  describe('CreateTableDialog — busy + error', () => {
+    it('locks the form and shows a submit error', () => {
+      renderDialog({busy: true, submitError: 'SQS is unavailable'});
+      expect(nameInput()).toBeDisabled();
+      expect(screen.getByText('SQS is unavailable')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Submitting…'})).toBeDisabled();
+    });
+  });
+
+  describe('CreateTableDialog — a11y', () => {
+    it('has no axe violations (dialog, no keys)', async () => {
+      await expectNoA11yViolations(
+        <CreateTableDialog
+          folderName="events"
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+        COMPONENT_AXE_OPTIONS
+      );
+    });
+
+    it('has no axe violations in the dynamic partition-key rows', async () => {
+      const year = {...emptyDraftKey(), name: 'year', type: 'integer' as const, min: '2020', max: '2026'};
+      const region = {...emptyDraftKey(), name: 'region', type: 'string' as const, values: 'us,eu'};
+      await expectNoA11yViolations(
+        <PartitionKeysField
+          value={[year, region]}
+          errors={[{}, {}]}
+          onChange={vi.fn()}
+        />,
+        COMPONENT_AXE_OPTIONS
+      );
+    });
+  });
+});
+
+// ─── from RefreshTableDialog.test.tsx ───
+describe('RefreshTableDialog', () => {
+  const TARGET: TableRefreshTarget = {
+    database: 'alice',
+    table: {
+      name: 'sales_2026',
+      columns: [{name: 'region', type: 'string'}],
+      location: 's3://dat-prod-user-space/alice/sales/2026/'
+    },
+    pending: null
+  };
+
+  const LINKED: TableRefreshTarget = {
+    ...TARGET,
+    pending: {database: 'alice', tableName: 'sales_2026', columns: ['legacy_id', 'Order ID']}
+  };
+
+  function render(target = TARGET, props: Partial<React.ComponentProps<typeof RefreshTableDialog>> = {}) {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    const rendered = renderWithProviders(
+      <RefreshTableDialog
+        target={target}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+        {...props}
+      />
+    );
+    return {...rendered, onConfirm, onCancel};
+  }
+
+  const confirmButton = () => screen.getByRole('button', {name: 'Refresh table'});
+  const optIn = () => screen.getByRole('checkbox', {name: /allow columns to be removed/i});
+
+  describe('RefreshTableDialog', () => {
+    it('names the table and the folder it will re-read', () => {
+      render();
+      expect(screen.getByRole('alertdialog', {name: /alice\.sales_2026/})).toBeInTheDocument();
+      expect(screen.getByText('alice.sales_2026')).toBeInTheDocument();
+      expect(screen.getByText('s3://dat-prod-user-space/alice/sales/2026/')).toBeInTheDocument();
+    });
+
+    it('states what a refresh does and does not do', () => {
+      render();
+      expect(screen.getByText(/files are not modified/i)).toBeInTheDocument();
+      expect(screen.getByText(/partition keys are not changed/i)).toBeInTheDocument();
+      // SPEC-149 made the rebuild in-place, so there is no unavailability window to warn about.
+      expect(screen.getByText(/stays queryable/i)).toBeInTheDocument();
+      expect(screen.getByText(/arrives as a notification/i)).toBeInTheDocument();
+    });
+
+    it('offers the opt-in unchecked with confirm enabled — an additive refresh needs no tick', async () => {
+      const {onConfirm, user} = render();
+      expect(optIn()).not.toBeChecked();
+      expect(confirmButton()).toBeEnabled();
+      await user.click(confirmButton());
+      expect(onConfirm).toHaveBeenCalledWith(false);
+    });
+
+    it('passes the ticked opt-in to confirm', async () => {
+      const {onConfirm, user} = render();
+      await user.click(optIn());
+      await user.click(confirmButton());
+      expect(onConfirm).toHaveBeenCalledWith(true);
+    });
+
+    it('names the consequence of removal beside the box', () => {
+      render();
+      expect(screen.getByText(/dropped from the table/i)).toBeInTheDocument();
+      expect(screen.getByText(/will stop working/i)).toBeInTheDocument();
+    });
+
+    it('shows no removed-columns block when opened normally', () => {
+      render();
+      expect(screen.queryByRole('list', {name: /columns that would be removed/i})).not.toBeInTheDocument();
+      expect(screen.queryByText(/previous refresh was stopped/i)).not.toBeInTheDocument();
+    });
+
+    it('names the link-borne columns and explains why the refresh was stopped', () => {
+      render(LINKED);
+      expect(screen.getByText(/previous refresh was stopped/i)).toBeInTheDocument();
+      expect(screen.getByText(/no longer in the files/i)).toBeInTheDocument();
+      const list = screen.getByRole('list', {name: /columns that would be removed/i});
+      expect(within(list).getByText('legacy_id')).toBeInTheDocument();
+      // Not a catalog-safe identifier — column names never have to be.
+      expect(within(list).getByText('Order ID')).toBeInTheDocument();
+    });
+
+    it('gates confirm on the opt-in in the link-borne state', async () => {
+      const {onConfirm, user} = render(LINKED);
+      expect(optIn()).not.toBeChecked();
+      expect(confirmButton()).toBeDisabled();
+
+      await user.click(optIn());
+      expect(confirmButton()).toBeEnabled();
+      await user.click(confirmButton());
+      expect(onConfirm).toHaveBeenCalledWith(true);
+    });
+
+    it('never pre-checks the box, even reopened for the same pending removal', () => {
+      const {unmount} = render(LINKED);
+      expect(optIn()).not.toBeChecked();
+      unmount();
+      render(LINKED);
+      expect(optIn()).not.toBeChecked();
+    });
+
+    it('locks the dialog and shows progress while the enqueue is in flight', () => {
+      render(TARGET, {busy: true});
+      expect(screen.getByRole('button', {name: 'Starting…'})).toBeDisabled();
+      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled();
+      expect(optIn()).toBeDisabled();
+    });
+
+    it('surfaces a submit error inline without closing', () => {
+      render(TARGET, {submitError: 'Sign in to continue.'});
+      expect(screen.getByRole('alert')).toHaveTextContent('Sign in to continue.');
+      expect(confirmButton()).toBeEnabled();
+    });
+
+    it('cancels on Escape when not busy', async () => {
+      const {onCancel, user} = render();
+      await user.keyboard('{Escape}');
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it('does not dismiss on Escape while busy', async () => {
+      const {onCancel, user} = render(TARGET, {busy: true});
+      await user.keyboard('{Escape}');
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    // SPEC-095/145 FR-007: one tree, `tablet:` only — no `*Mobile` twin, and nothing in the
+    // dialog reads `useIsMobile`.
+    //
+    // RENAMED FROM `describe('at a narrow viewport')` (SPEC-154 FR-009), because it never
+    // changed the viewport — and could not usefully: jsdom applies no media queries, so a
+    // `tablet:` class assertion says nothing about what a narrow-screen user sees while
+    // breaking on any refactor to equivalent CSS. What these cases actually pin is the
+    // RESPONSIVE CONTRACT in the markup, which is a real thing to guard and is now named as
+    // such. The one case with an accessible contract available is asserted through it instead.
+    describe('the responsive contract in the markup (not a rendered viewport)', () => {
+      // The viewport cap itself belongs to `Modal` and is asserted in Modal.test.tsx —
+      // asserting it here would pass no matter what this component does.
+      it('scrolls a long column list rather than growing without bound', () => {
+        render({...LINKED, pending: {...LINKED.pending!, columns: Array.from({length: 20}, (_, i) => `col_${i}`)}});
+        expect(screen.getByRole('list', {name: /columns that would be removed/i})).toHaveClass(
+          'max-h-32',
+          'overflow-y-auto'
+        );
+        // The behavioural half: however long the list gets, confirm is still reachable.
+        expect(confirmButton()).toBeInTheDocument();
+      });
+
+      it('makes the whole opt-in label a click target for the checkbox', async () => {
+        // ACCESSIBLE CONTRACT, not a class string: what matters is that clicking the label's
+        // TEXT toggles the checkbox — which is what a `w-full` label buys and what a screen
+        // reader and a touch user both depend on. The class assertion it replaces would have
+        // passed on a label that wrapped nothing.
+        const {user} = render();
+        expect(optIn()).not.toBeChecked();
+
+        await user.click(screen.getByText(/allow columns to be removed/i));
+
+        expect(optIn()).toBeChecked();
+        // The touch-target WIDTH is kept alongside, not replaced by, the behavioural half: the
+        // click assertion proves the label wraps the checkbox, and says nothing about it
+        // spanning the row — which is what makes it hittable on a phone (SPEC-095).
+        expect(optIn().closest('label')).toHaveClass('w-full');
+      });
+
+      it('declares the one-tree reflow for the table/folder rows', () => {
+        // Class-string assertion KEPT, with the reason FR-009 asks for: SPEC-095's "reflow on
+        // ONE tree" is a documented constraint with no accessible equivalent — the guarantee is
+        // precisely that no `*Mobile` twin exists, which is a fact about the markup.
+        render();
+        expect(screen.getByText('alice.sales_2026').parentElement).toHaveClass('flex-col', 'tablet:flex-row');
+      });
+    });
+
+    it('persists nothing — no localStorage access on any path', async () => {
+      const setItem = vi.spyOn(Storage.prototype, 'setItem');
+      const getItem = vi.spyOn(Storage.prototype, 'getItem');
+      const {user} = render(LINKED);
+      await user.click(optIn());
+      await user.click(confirmButton());
+      expect(setItem).not.toHaveBeenCalled();
+      expect(getItem).not.toHaveBeenCalled();
+      setItem.mockRestore();
+      getItem.mockRestore();
+    });
+  });
+});
+
+// ─── from RefreshTableDialog.a11y.test.tsx ───
+describe('RefreshTableDialog.a11y', () => {
+  const noop = () => {};
+
+  const TARGET: TableRefreshTarget = {
+    database: 'alice',
+    table: {name: 'sales_2026', columns: [], location: 's3://dat-prod-user-space/alice/sales/2026/'},
+    pending: null
+  };
+
+  describe('RefreshTableDialog a11y', () => {
+    it('has no axe violations in the plain state', async () => {
+      await expectNoA11yViolations(
+        <RefreshTableDialog
+          target={TARGET}
+          onConfirm={noop}
+          onCancel={noop}
+        />,
+        COMPONENT_AXE_OPTIONS
+      );
+    });
+
+    it('has no axe violations in the link-borne state', async () => {
+      await expectNoA11yViolations(
+        <RefreshTableDialog
+          target={{
+            ...TARGET,
+            pending: {database: 'alice', tableName: 'sales_2026', columns: ['legacy_id', 'Order ID']}
+          }}
+          onConfirm={noop}
+          onCancel={noop}
+        />,
+        COMPONENT_AXE_OPTIONS
+      );
+    });
+
+    it('has no axe violations with a submit error while busy', async () => {
+      await expectNoA11yViolations(
+        <RefreshTableDialog
+          target={TARGET}
+          busy
+          submitError="Failed to submit the request"
+          onConfirm={noop}
+          onCancel={noop}
+        />,
+        COMPONENT_AXE_OPTIONS
+      );
+    });
+  });
+});
+
+// ─── from partitionKeys.test.ts ───
+describe('partitionKeys', () => {
+  // Build a draft from partial overrides on a blank row (with a stable id).
+  function draft(over: Partial<DraftPartitionKey>): DraftPartitionKey {
+    return {...emptyDraftKey(), ...over};
+  }
+
+  describe('emptyDraftKey', () => {
+    it('defaults to a string key with a date format and unique id', () => {
+      const a = emptyDraftKey();
+      const b = emptyDraftKey();
+      expect(a.type).toBe('string');
+      expect(a.format).toBe('yyyy-MM-dd');
+      expect(a.id).not.toBe(b.id);
+    });
+  });
+
+  describe('parseValues', () => {
+    it('splits, trims, and drops empties', () => {
+      expect(parseValues(' us, eu , , apac ')).toEqual(['us', 'eu', 'apac']);
+      expect(parseValues('')).toEqual([]);
+    });
+  });
+
+  describe('validateDraftKey — name', () => {
+    it('requires a name', () => {
+      expect(validateDraftKey(draft({name: '', type: 'string', values: 'a'}), []).name).toBeTruthy();
+    });
+
+    it('enforces the catalog-safe rule', () => {
+      expect(validateDraftKey(draft({name: 'Year', type: 'string', values: 'a'}), []).name).toBeTruthy();
+      expect(validateDraftKey(draft({name: '1year', type: 'string', values: 'a'}), []).name).toBeTruthy();
+    });
+
+    it('flags a duplicate name against the set', () => {
+      const a = draft({name: 'year', type: 'string', values: 'x'});
+      const b = draft({name: 'year', type: 'string', values: 'y'});
+      expect(validateDraftKey(b, [a, b]).name).toMatch(/duplicate/i);
+    });
+  });
+
+  describe('validateDraftKey — integer', () => {
+    it('requires whole-number min and max', () => {
+      const e = validateDraftKey(draft({name: 'y', type: 'integer', min: 'x', max: '1.5'}), []);
+      expect(e.min).toBeTruthy();
+      expect(e.max).toBeTruthy();
+    });
+
+    it('requires min < max', () => {
+      const e = validateDraftKey(draft({name: 'y', type: 'integer', min: '5', max: '5'}), []);
+      expect(e.max).toMatch(/greater/i);
+    });
+
+    it('accepts a valid range and blank digits', () => {
+      expect(validateDraftKey(draft({name: 'year', type: 'integer', min: '2020', max: '2026'}), [])).toEqual({});
+    });
+
+    it('rejects non-positive / non-integer digits', () => {
+      expect(
+        validateDraftKey(draft({name: 'y', type: 'integer', min: '0', max: '9', digits: '0'}), []).digits
+      ).toBeTruthy();
+      expect(
+        validateDraftKey(draft({name: 'y', type: 'integer', min: '0', max: '9', digits: 'x'}), []).digits
+      ).toBeTruthy();
+    });
+  });
+
+  describe('validateDraftKey — date', () => {
+    it('requires start, end, and format', () => {
+      const e = validateDraftKey(draft({name: 'd', type: 'date', start: '', end: '', format: ''}), []);
+      expect(e.start).toBeTruthy();
+      expect(e.end).toBeTruthy();
+      expect(e.format).toBeTruthy();
+    });
+
+    it('accepts a complete date config', () => {
+      expect(
+        validateDraftKey(draft({name: 'day', type: 'date', start: '2020-01-01', end: 'NOW', format: 'yyyy-MM-dd'}), [])
+      ).toEqual({});
+    });
+  });
+
+  describe('validateDraftKey — string', () => {
+    it('requires at least one value', () => {
+      expect(validateDraftKey(draft({name: 's', type: 'string', values: '  '}), []).values).toBeTruthy();
+    });
+  });
+
+  describe('buildPartitionKey', () => {
+    it('builds an integer key with optional digits', () => {
+      expect(
+        buildPartitionKey(draft({name: 'year', type: 'integer', min: '2020', max: '2026', digits: '4'}), [])
+      ).toEqual({
+        name: 'year',
+        type: 'integer',
+        range: [2020, 2026],
+        digits: 4
+      });
+      expect(buildPartitionKey(draft({name: 'year', type: 'integer', min: '2020', max: '2026'}), [])).toEqual({
+        name: 'year',
+        type: 'integer',
+        range: [2020, 2026]
+      });
+    });
+
+    it('builds a date key', () => {
+      expect(
+        buildPartitionKey(draft({name: 'day', type: 'date', start: '2020-01-01', end: 'NOW', format: 'yyyy-MM-dd'}), [])
+      ).toEqual({name: 'day', type: 'date', range: ['2020-01-01', 'NOW'], format: 'yyyy-MM-dd'});
+    });
+
+    it('builds a string enum key', () => {
+      expect(buildPartitionKey(draft({name: 'region', type: 'string', values: 'us, eu'}), [])).toEqual({
+        name: 'region',
+        type: 'string',
+        values: ['us', 'eu']
+      });
+    });
+
+    it('returns null for an invalid draft', () => {
+      expect(buildPartitionKey(draft({name: '', type: 'string', values: 'a'}), [])).toBeNull();
+    });
+  });
+
+  describe('buildPartitionKeys', () => {
+    it('treats an empty list as a valid flat table', () => {
+      expect(buildPartitionKeys([])).toEqual({valid: true, keys: [], errors: []});
+    });
+
+    it('builds all keys in order when every row is valid', () => {
+      const rows = [
+        draft({name: 'year', type: 'integer', min: '2020', max: '2026'}),
+        draft({name: 'region', type: 'string', values: 'us,eu'})
+      ];
+      const result = buildPartitionKeys(rows);
+      expect(result.valid).toBe(true);
+      expect(result.keys.map((k) => k.name)).toEqual(['year', 'region']);
+    });
+
+    it('is invalid and sends no keys when any row is invalid', () => {
+      const rows = [
+        draft({name: 'year', type: 'integer', min: '2020', max: '2026'}),
+        draft({name: '', type: 'string'})
+      ];
+      const result = buildPartitionKeys(rows);
+      expect(result.valid).toBe(false);
+      expect(result.keys).toEqual([]);
+      expect(result.errors[1].name).toBeTruthy();
+    });
+  });
+});
+
+// ─── from tableRefresh.link.test.ts ───
+describe('tableRefresh.link', () => {
+  describe('parseRefreshLink', () => {
+    it('parses the link SPEC-144 mints', () => {
+      expect(parseRefreshLink('?refreshTable=sales.orders&removed=legacy_id,old_total')).toEqual({
+        database: 'sales',
+        tableName: 'orders',
+        columns: ['legacy_id', 'old_total']
+      });
+    });
+
+    it('works without the leading question mark and beside other parameters', () => {
+      expect(parseRefreshLink('tab=2&refreshTable=alice.sales_2026&removed=gone&x=1')).toEqual({
+        database: 'alice',
+        tableName: 'sales_2026',
+        columns: ['gone']
+      });
+    });
+
+    it('decodes each name individually, so a comma inside one is not a separator', () => {
+      // The exact string tbcommon.notify builds for these names.
+      expect(parseRefreshLink('?refreshTable=sales.orders&removed=Order%20ID,a%26b,x%23y,co%2Cmma')).toEqual({
+        database: 'sales',
+        tableName: 'orders',
+        columns: ['Order ID', 'a&b', 'x#y', 'co,mma']
+      });
+    });
+
+    it('keeps names that are not catalog-safe identifiers (column names never are)', () => {
+      expect(parseRefreshLink('?refreshTable=sales.orders&removed=id,ts,Amount,first%20name')?.columns).toEqual([
+        'id',
+        'ts',
+        'Amount',
+        'first name'
+      ]);
+    });
+
+    it('caps the list at 20 names', () => {
+      const names = Array.from({length: 25}, (_, i) => `col_${i}`);
+      expect(parseRefreshLink(`?refreshTable=sales.orders&removed=${names.join(',')}`)?.columns).toHaveLength(20);
+    });
+
+    it('drops a name with a malformed escape but keeps the rest', () => {
+      expect(parseRefreshLink('?refreshTable=sales.orders&removed=good,%E0%A4%A,also_good')?.columns).toEqual([
+        'good',
+        'also_good'
+      ]);
+    });
+
+    // The parser reports what the URL said; the CALLER decides that an empty list is
+    // not the link-borne state (QueryWorkspace), because gating confirm behind the
+    // removals opt-in is only informed consent when the columns are named.
+    it('reports an empty column list rather than inventing names', () => {
+      expect(parseRefreshLink('?refreshTable=sales.orders')).toEqual({
+        database: 'sales',
+        tableName: 'orders',
+        columns: []
+      });
+      expect(parseRefreshLink('?refreshTable=sales.orders&removed=')?.columns).toEqual([]);
+      expect(parseRefreshLink('?refreshTable=sales.orders&removed=%E0%A4%A')?.columns).toEqual([]);
+    });
+
+    it.each([
+      ['no refreshTable at all', '?removed=legacy_id'],
+      ['an empty refreshTable', '?refreshTable=&removed=legacy_id'],
+      ['no dot separator', '?refreshTable=orders'],
+      ['a database that is not catalog-safe', '?refreshTable=Sales.orders'],
+      ['a table that is not catalog-safe', '?refreshTable=sales.Orders'],
+      ['a table with a path traversal', '?refreshTable=sales.../../etc'],
+      ['an over-long table name', `?refreshTable=sales.${'a'.repeat(64)}`],
+      ['a too-short table name', '?refreshTable=sales.ab']
+    ])('ignores the parameters entirely when there is %s', (_label, search) => {
+      expect(parseRefreshLink(search)).toBeNull();
+    });
+  });
+});
+
+// ─── from tableRefresh.location.test.ts ───
+describe('tableRefresh.location', () => {
+  describe('parseTableLocation', () => {
+    it('splits an s3 location into bucket and prefix', () => {
+      expect(parseTableLocation('s3://user-space/alice/sales/')).toEqual({
+        bucket: 'user-space',
+        prefix: 'alice/sales/'
+      });
+    });
+
+    it('normalises a missing trailing slash', () => {
+      expect(parseTableLocation('s3://user-space/alice/sales')).toEqual({bucket: 'user-space', prefix: 'alice/sales/'});
+    });
+
+    it('keeps a shared-space location intact (the rail shows shared tables too)', () => {
+      expect(parseTableLocation('s3://shared-space/salesteam/2026/q1/')).toEqual({
+        bucket: 'shared-space',
+        prefix: 'salesteam/2026/q1/'
+      });
+    });
+
+    it('trims surrounding whitespace', () => {
+      expect(parseTableLocation('  s3://user-space/alice/sales/  ')).toEqual({
+        bucket: 'user-space',
+        prefix: 'alice/sales/'
+      });
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['empty', ''],
+      ['a bucket with no key', 's3://user-space'],
+      ['a bucket with an empty key', 's3://user-space/'],
+      ['another scheme', 'https://user-space.s3.amazonaws.com/alice/'],
+      ['a bare path', '/alice/sales/']
+    ])('returns null for %s', (_label, value) => {
+      expect(parseTableLocation(value)).toBeNull();
+    });
+  });
+});
