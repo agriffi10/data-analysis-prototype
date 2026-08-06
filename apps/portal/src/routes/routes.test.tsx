@@ -12,6 +12,22 @@ vi.mock('../features/shared-spaces', () => ({
   ConnectionsPage: () => <div>connections-view</div>
 }));
 
+vi.mock('../features/notifications/notifications.service', () => ({
+  getNotifications: vi.fn(),
+  enqueueNotificationAction: vi.fn()
+}));
+vi.mock('../features/query/SqlEditor', () => ({
+  SqlEditor: ({value}: {value: string}) => (
+    <textarea
+      aria-label="SQL editor"
+      defaultValue={value}
+    />
+  )
+}));
+vi.mock('aws-amplify/auth', () => ({
+  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
+}));
+
 describe('ConnectionsPage', () => {
   // The route component is a thin wrapper: it sets the page title and renders the
   // feature view (covered by features/shared-spaces/ConnectionsPage.test.tsx). Mock
@@ -27,10 +43,6 @@ describe('ConnectionsPage', () => {
 });
 
 // ─── from NotificationsPage.test.tsx ───
-vi.mock('../features/notifications/notifications.service', () => ({
-  getNotifications: vi.fn(),
-  enqueueNotificationAction: vi.fn()
-}));
 
 describe('NotificationsPage', () => {
   // Thin route wrapper around the notifications feature page. Render the real
@@ -67,18 +79,6 @@ describe('NotificationsPage', () => {
 });
 
 // ─── from QueryPage.test.tsx ───
-vi.mock('../features/query/SqlEditor', () => ({
-  SqlEditor: ({value}: {value: string}) => (
-    <textarea
-      aria-label="SQL editor"
-      defaultValue={value}
-    />
-  )
-}));
-
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 describe('QueryPage', () => {
   // The lazy Monaco editor is stubbed to a plain textarea so the route renders

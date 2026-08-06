@@ -66,10 +66,21 @@ export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunO
  * Run axe with the whole traversal inside `act`.
  *
  * An axe pass takes real time, and a tree with an async boundary — a resolving query, a
- * focus trap claiming focus — commits its update DURING it. Outside `act` that produces
- * "An update to X inside a test was not wrapped in act(...)", and the warning is not only
- * noise: the update lands while axe is walking, so the result describes a tree the user
- * never sees. Wrapping the run makes React flush those updates first.
+ * focus trap claiming focus — commits its update DURING it. Outside `act` React logs
+ * "An update to X inside a test was not wrapped in act(...)" for every one.
+ *
+ * This wrapper silences that, and NOTHING MORE — be precise about what it does not do,
+ * because the obvious reading is wrong. `act` DEFERS the pending updates to the end of
+ * its scope; it does not flush them before the run. And what axe inspects is unchanged
+ * either way: axe-core snapshots the flattened tree when `run()` starts, so an update
+ * landing mid-walk was never observable. Measured, not assumed — a component that swaps
+ * in an `<img>` with no `alt` on a resolved microtask reports ZERO violations with and
+ * without this wrapper, while the DOM afterwards holds the violating node.
+ *
+ * The standing consequence: these helpers check the tree as of the first paint. A state
+ * a component reaches asynchronously has to be waited for by the CALLER — render, await
+ * what you expect to appear, then hand the container to
+ * {@link expectContainerHasNoA11yViolations}.
  */
 async function runAxeSettled(container: Element, axeOptions?: RunOptions) {
   let results!: Awaited<ReturnType<typeof runAxe>>;

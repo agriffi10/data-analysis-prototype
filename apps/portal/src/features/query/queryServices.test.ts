@@ -22,6 +22,9 @@ import type {QueryHistory, QueryHistoryEntry, SavedQueriesStore, SavedQuery} fro
 // ─── from glue.service.test.ts ───
 vi.mock('../../lib/glueClient', () => ({getGlueClient: vi.fn()}));
 
+vi.mock('../../lib/athenaClient', () => ({getAthenaClient: vi.fn()}));
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+
 describe('glue.service', () => {
   const mockGetClient = getGlueClient as unknown as MockedFunction<() => Promise<unknown>>;
 
@@ -139,7 +142,6 @@ describe('glue.service', () => {
 });
 
 // ─── from query.service.test.ts ───
-vi.mock('../../lib/athenaClient', () => ({getAthenaClient: vi.fn()}));
 
 describe('query.service', () => {
   const mockGetClient = getAthenaClient as unknown as MockedFunction<() => Promise<unknown>>;
@@ -603,7 +605,6 @@ describe('query.service', () => {
 });
 
 // ─── from queryHistory.service.test.ts ───
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
 describe('queryHistory.service', () => {
   const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;

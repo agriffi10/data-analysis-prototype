@@ -11,6 +11,13 @@ import {getRunsIndex, runsIndexKey} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
 // ─── from dataQuality.format.test.ts ───
+vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
+vi.mock('../../lib/awsCredentials', () => ({
+  getIdToken: vi.fn(),
+  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
+}));
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+
 describe('dataQuality.format', () => {
   describe('locationLabel', () => {
     it('names a folder by its own segment and a file by its basename', () => {
@@ -103,12 +110,6 @@ describe('dataQuality.format', () => {
 });
 
 // ─── from dataQuality.service.test.ts ───
-vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
-
-vi.mock('../../lib/awsCredentials', () => ({
-  getIdToken: vi.fn(),
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
 
 describe('dataQuality.service', () => {
   const mockGetSqs = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
@@ -241,7 +242,6 @@ describe('dataQuality.service', () => {
 });
 
 // ─── from dataQualityReport.service.test.ts ───
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
 describe('dataQualityReport.service', () => {
   const send = vi.fn();

@@ -9,6 +9,8 @@ import type {ServiceResult} from '../types/service.types';
 // ─── from sqsClient.test.ts ───
 vi.mock('./awsCredentials', () => ({getSessionCredentials: vi.fn()}));
 
+vi.mock('./s3Client', () => ({getS3Client: vi.fn()}));
+
 describe('sqsClient', () => {
   // The client builder's only real dependency is the shared credential provider —
   // mock that boundary and assert the ServiceResult wiring (success + both failure
@@ -75,7 +77,6 @@ describe('sqsClient', () => {
 });
 
 // ─── from s3Json.test.ts ───
-vi.mock('./s3Client', () => ({getS3Client: vi.fn()}));
 
 describe('s3Json', () => {
   const send = vi.fn();

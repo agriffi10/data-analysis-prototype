@@ -17,6 +17,8 @@ vi.mock('./tableBuild.service', async (orig) => ({
   enqueueTableRefresh: vi.fn()
 }));
 
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+
 describe('CreateTableButton', () => {
   // Partial-mock: stub the network call, keep the real name suggestion/validation the
   // dialog relies on.
@@ -149,7 +151,6 @@ describe('CreateTableButton', () => {
 });
 
 // ─── from useTableRefresh.test.ts ───
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
 describe('useTableRefresh', () => {
   // Integration style: the real hook, the real QueryClient and the real auth

@@ -1746,8 +1746,9 @@ describe('QueryWorkspace.a11y', () => {
   // mocked. The QueryClient is pre-seeded so the schema rail shows real tables at
   // axe time rather than a transient loading state.
 
-  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
-  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
+  // NOTE: the env stubs this section needs are set once at the top of the file. A
+  // `vi.stubEnv` inside a describe body runs at COLLECTION time and applies file-wide,
+  // so a second copy here would not be scoped to this section anyway.
 
   /**
    * The real workspace inside seeded providers (schema tables warm in the cache).

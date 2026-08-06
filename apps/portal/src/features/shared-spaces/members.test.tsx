@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {AddMembersDialog} from './AddMembersDialog';
 import {parseMemberInput} from './memberInput';
@@ -465,8 +465,12 @@ describe('ManageMembersDrawer', () => {
       expect(screen.getByRole('combobox', {name: 'Usernames'})).toBeInTheDocument();
       expect(onClose).not.toHaveBeenCalled();
 
-      // 2 — the dialog only.
-      await user.keyboard('{Escape}');
+      // 2 — the dialog only. Wrapped in an ASYNC act: closing the dialog unmounts its
+      // subtree and something in it suspends, which `user.keyboard`'s own synchronous
+      // act cannot await ("A component suspended inside an `act` scope…").
+      await act(async () => {
+        await user.keyboard('{Escape}');
+      });
       await waitFor(() => expect(screen.queryByRole('combobox', {name: 'Usernames'})).not.toBeInTheDocument());
       expect(onClose).not.toHaveBeenCalled();
 

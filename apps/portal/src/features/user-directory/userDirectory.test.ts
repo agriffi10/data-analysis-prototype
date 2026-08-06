@@ -4,6 +4,8 @@ import {DIRECTORY_KEY, getUserDirectory} from './userDirectory.service';
 import {getS3Client} from '../../lib/s3Client';
 
 // ─── from usernameTrie.test.ts ───
+vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+
 describe('usernameTrie', () => {
   const NAMES = ['alice', 'alicia', 'bob', 'bob_smith', 'carol', 'malice', 'robert_bob'];
 
@@ -148,7 +150,6 @@ describe('usernameTrie', () => {
 });
 
 // ─── from userDirectory.service.test.ts ───
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
 }));

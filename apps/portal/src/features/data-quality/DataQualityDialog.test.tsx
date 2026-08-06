@@ -10,7 +10,10 @@ import type {ServiceResult} from '../../types/service.types';
 import * as service from './dataQuality.service';
 
 // ─── from DataQualityDialog.test.tsx ───
-vi.mock('./dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
+
+vi.mock('./dataQuality.service', () => ({
+  enqueueQualityCheck: vi.fn().mockResolvedValue({success: true, data: {requestId: 'req-1'}})
+}));
 
 describe('DataQualityDialog', () => {
   // Integration style (react.md §21): render the real dialog over the real
@@ -128,9 +131,9 @@ describe('DataQualityDialog', () => {
 });
 
 // ─── from DataQualityDialog.a11y.test.tsx ───
-vi.mock('./dataQuality.service', () => ({
-  enqueueQualityCheck: vi.fn().mockResolvedValue({success: true, data: {requestId: 'req-1'}})
-}));
+// One registration for the file: vitest hoists every `vi.mock`, so a second one here
+// would silently win over the first rather than scope to its own section. The default
+// resolution is what the a11y cases need; the behaviour cases set their own per test.
 
 describe('DataQualityDialog.a11y', () => {
   const space: DataQualitySpace = {kind: 'personal', bucket: 'user-space', prefix: 'alice/'};
