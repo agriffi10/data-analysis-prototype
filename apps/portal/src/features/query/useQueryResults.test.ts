@@ -9,7 +9,6 @@ vi.mock('./query.service');
 
 const mockGetQueryResults = vi.mocked(getQueryResults);
 
-// Fresh client per render, retries off so an errored query fails fast.
 const cols = [{name: 'v', type: 'integer'}];
 function ok(rows: string[][], nextToken?: string) {
   return {

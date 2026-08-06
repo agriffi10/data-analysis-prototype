@@ -1,6 +1,8 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen, fireEvent, cleanup} from '@testing-library/react';
+import {useState} from 'react';
 import {Header} from './Header';
+import {AuthContext} from '../features/auth/authContext';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authValue, authenticated, unauthenticated} from '../test/authFixtures';
 import type {AuthContextValue} from '../features/auth';
@@ -77,20 +79,48 @@ describe('Header hamburger (SPEC-095 FR-002)', () => {
 });
 
 describe('Header authentication controls (SPEC-154 FR-002)', () => {
-  it('signs the user out when Sign out is clicked', async () => {
+  it('signs the user out when Sign out is clicked, and the header follows', async () => {
     // Nothing in the suite had ever clicked this control: `Header.tsx` renders
     // `onClick={() => void signOut()}` and coverage was three spy-count assertions inside
     // the auth provider's own test plus a synthetic probe button. A dropped handler, a
     // renamed label or a control rendered for the wrong auth state all passed green.
-    const auth = authenticated('alice');
-    const {user} = renderHeader(auth);
+    //
+    // The RESULTING UI STATE is the second half, and it needs the real provider's transition
+    // standing in: the fixture's `signOut` cannot flip a context it does not own, so the test
+    // re-renders with the signed-out value and asserts the header stops offering the account
+    // controls. Without that, "the click ran" says nothing about what the user then sees.
+    const signOut = vi.fn();
+
+    // A minimal stand-in for the real provider's transition: signing out flips the context
+    // the way `AuthProvider` does. `auth: null` keeps the harness from installing its own.
+    function WithAuthState() {
+      const [signedIn, setSignedIn] = useState(true);
+      const value = signedIn
+        ? authValue({
+            signOut: async () => {
+              signOut();
+              setSignedIn(false);
+            }
+          })
+        : unauthenticated();
+      return (
+        <AuthContext.Provider value={value}>
+          <Header />
+        </AuthContext.Provider>
+      );
+    }
+
+    const {user} = renderWithProviders(<WithAuthState />, {auth: null, route: '/files'});
+    expect(screen.getByText('alice')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', {name: 'Sign out'}));
 
-    expect(auth.signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', {name: 'Sign out'})).not.toBeInTheDocument();
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
   });
 
-  it('offers no Sign out control when signed out', async () => {
+  it('offers no Sign out control when signed out', () => {
     renderHeader();
 
     expect(screen.queryByRole('button', {name: 'Sign out'})).not.toBeInTheDocument();

@@ -1428,6 +1428,7 @@ describe('QueryWorkspace — share table (SPEC-093)', () => {
         {kind: 'user', name: 'cara'}
       ]
     });
+    expect(mockEnqueueShare).toHaveBeenCalledTimes(1);
     expect(await screen.findByText(/Sharing “alice\.sales_2026”/)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole('dialog', {name: /Share table/})).not.toBeInTheDocument());
   });
@@ -1470,6 +1471,37 @@ describe('QueryWorkspace — share table (SPEC-093)', () => {
     expect(screen.queryByText('sqs exploded')).not.toBeInTheDocument();
     // The entered recipient survives the failure, so a retry does not start from scratch.
     expect(within(shareDialog()).getByRole('list', {name: 'Recipients'})).toHaveTextContent('bob');
+  });
+
+  it('takes the source database from the RAIL NODE, not from the signed-in username', async () => {
+    // THE ASSERTION THE OTHER SHARE TESTS CANNOT MAKE. In the default fixture the personal
+    // database name IS the username (SPEC-033), so `source.database === 'alice'` is satisfied
+    // by reading the rail node, by reading `auth.user.username`, or by hard-coding it — three
+    // very different programs, one passing assertion. Sharing from a SHARED-SPACE node is the
+    // only tree where those three answers differ, and the FR names a wrong `source` as one of
+    // the failures this journey exists to catch.
+    mockReadCache.mockResolvedValue(
+      ok({version: 1, connections: [{name: 'salesdata', role: 'member', status: 'active'}]})
+    );
+    mockListTables.mockImplementation(async (database: string) =>
+      ok(database === 'salesdata' ? [{...salesTable, name: 'team_orders'}] : [salesTable])
+    );
+    const {user} = renderWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Expand salesdata'}));
+    await openTableMenu(user, 'team_orders');
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Share table'}));
+
+    const dialog = screen.getByRole('dialog', {name: 'Share table team_orders'});
+    expect(within(dialog).getByText('salesdata.team_orders')).toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText('Usernames'), 'bob');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Share'}));
+
+    expect(mockEnqueueShare).toHaveBeenCalledWith(
+      expect.objectContaining({source: {database: 'salesdata', table: 'team_orders'}})
+    );
   });
 
   it('offers no share item for a view, at the workspace level', async () => {

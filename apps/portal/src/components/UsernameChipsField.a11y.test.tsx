@@ -1,8 +1,7 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {useState} from 'react';
 import {render, screen, cleanup, waitFor} from '@testing-library/react';
-import {QueryClientProvider} from '@tanstack/react-query';
-import {createTestQueryClient} from '../test/renderWithProviders';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import type {ReactElement} from 'react';
 import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../test/axe';
 import {AuthContext} from '../features/auth/authContext';
@@ -17,8 +16,10 @@ vi.mock('../features/user-directory/userDirectory.service', () => ({
 
 // Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
 // COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
-// hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
-const client = createTestQueryClient();
+// hand it. The client is bespoke too, and that is load-bearing: the pattern below warms
+// the cache in one render and reuses it in the next, which `createTestQueryClient`'s
+// `gcTime: 0` would defeat — axe would then inspect a loading state and pass vacuously.
+const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
 function Harness({initial, renderChips = true}: {initial: string[]; renderChips?: boolean}): ReactElement {
   const [value, setValue] = useState(initial);

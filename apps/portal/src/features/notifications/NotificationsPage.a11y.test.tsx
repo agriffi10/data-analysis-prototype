@@ -1,7 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {render, screen, cleanup, waitFor} from '@testing-library/react';
-import {QueryClientProvider} from '@tanstack/react-query';
-import {createTestQueryClient} from '../../test/renderWithProviders';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {MemoryRouter} from 'react-router';
 import type {ReactElement, ReactNode} from 'react';
 import {AuthContext} from '../auth/authContext';
@@ -24,7 +23,9 @@ import type {Notification} from './notifications.types';
 
 // Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
 // COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
-// hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
+// hand it. The client is bespoke too, and that is load-bearing: the pattern below warms
+// the cache in one render and reuses it in the next, which `createTestQueryClient`'s
+// `gcTime: 0` would defeat — axe would then inspect a loading state and pass vacuously.
 const mockGet = vi.mocked(getNotifications);
 
 const data: Notification[] = [
@@ -36,7 +37,7 @@ const data: Notification[] = [
 // `expectNoA11yViolations` reuses the cache warmed by the preceding render — axe then
 // runs against the populated list, not the loading state.
 function withProviders(ui: ReactNode): ReactElement {
-  const client = createTestQueryClient();
+  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
   return (
     <QueryClientProvider client={client}>
       <AuthContext.Provider value={authValue()}>

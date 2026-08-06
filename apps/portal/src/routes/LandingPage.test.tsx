@@ -12,7 +12,7 @@ import LandingPage from './LandingPage';
 // (real `useAuth`), and the return-path branch is driven through the real
 // `takeReturnPath` (backed by jsdom sessionStorage). A sibling `/files` route lets
 // us observe navigation/redirects as rendered output.
-function renderApp(auth: AuthContextValue = unauthenticated()) {
+function renderApp(auth: AuthContextValue) {
   return renderWithProviders(
     <Routes>
       <Route

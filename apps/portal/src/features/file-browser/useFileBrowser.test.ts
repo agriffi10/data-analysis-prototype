@@ -9,8 +9,6 @@ vi.mock('./fileBrowser.service');
 
 const mockListFiles = vi.mocked(listFiles);
 
-// Fresh client per render with retries off, so an errored query fails fast
-// instead of waiting on the default retry/backoff.
 function page(over: Partial<FileListPage> = {}): FileListPage {
   return {files: [], folders: [], isTruncated: false, ...over};
 }

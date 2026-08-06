@@ -1,7 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {render, screen, cleanup} from '@testing-library/react';
-import {QueryClientProvider} from '@tanstack/react-query';
-import {createTestQueryClient} from '../../test/renderWithProviders';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import type {ReactElement} from 'react';
 import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
 import {StartQualityCheckDialog} from './StartQualityCheckDialog';
@@ -18,7 +17,9 @@ vi.mock('../../lib/awsCredentials', () => ({
 
 // Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
 // COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
-// hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
+// hand it. The client is bespoke too, and that is load-bearing: the pattern below warms
+// the cache in one render and reuses it in the next, which `createTestQueryClient`'s
+// `gcTime: 0` would defeat — axe would then inspect a loading state and pass vacuously.
 const mockList = vi.mocked(fileBrowserService.listFiles);
 
 const spaces: FileSpaceTarget[] = [
@@ -31,7 +32,7 @@ const spaces: FileSpaceTarget[] = [
 // render is already resolved for the render inside expectNoA11yViolations — otherwise axe
 // would inspect the picker's "Loading…" line, not its rows (the DataQualityPage.a11y
 // precedent).
-const client = createTestQueryClient();
+const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
 function dialog(): ReactElement {
   return (

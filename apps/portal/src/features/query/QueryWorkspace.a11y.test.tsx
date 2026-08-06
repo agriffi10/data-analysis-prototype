@@ -63,9 +63,6 @@ vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
 vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 
 /** The real workspace inside seeded providers (schema tables warm in the cache). */
-// Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
-// COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
-// hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
 function workspace(): ReactElement {
   const client = createTestQueryClient();
   client.setQueryData(queryKeys.connections('alice'), {version: 1, connections: []});
@@ -77,6 +74,9 @@ function workspace(): ReactElement {
   client.setQueryData(queryKeys.savedQueries('alice'), {version: 1, queries: []});
   return (
     <AuthContext.Provider value={authValue()}>
+      // Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a // COMPOSED ELEMENT and
+      renders it itself, so there is no `renderWithProviders` result to // hand it. The QueryClient is still the
+      harness's, so retry behaviour cannot drift.
       <QueryClientProvider client={client}>
         <MemoryRouter>
           <ToastProvider>
