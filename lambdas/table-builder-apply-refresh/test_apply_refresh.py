@@ -656,12 +656,8 @@ def test_the_verb_narrates_the_columns_it_declared():
     not file contents: permitted by the field rule."""
     _install()
     events = []
-    real_info = m.observability.info
     m.observability.info = lambda message, **fields: events.append((message, fields))
-    try:
-        m.handler(_event(), None)
-    finally:
-        m.observability.info = real_info
+    m.handler(_event(), None)
 
     applying = next(fields for message, fields in events if message == "applying refresh")
     assert applying["column_names"] == ["order_id", "amount"]
@@ -669,6 +665,53 @@ def test_the_verb_narrates_the_columns_it_declared():
     applied = next(fields for message, fields in events if message == "refresh applied")
     assert applied["post_condition_ok"] is True
     assert applied["previous_version_archived"] is True
+
+
+# ── SPEC-153 FR-006: the Athena case-fold premise, pinned ────────────────────
+
+
+def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
+    """The premise SPEC-149 made OURS, written down as behaviour instead of prose.
+
+    AWS documents that Athena lowercases every column name it creates through DDL, so a
+    portal-created table's live columns are already lowercase and the fold below is a no-op.
+    SPEC-149's in-place ``UpdateTable`` bypasses Athena entirely, which is why this verb does
+    the fold itself — and that turned a documented property of Athena into a property of OUR
+    code. If the premise is wrong (a pre-149 table, an ``ALTER TABLE`` a user ran, a table
+    created outside the pipeline), the first refresh REWRITES the casing of every column
+    while ``diff-schema`` — which folds case to compare — reports the columns unchanged. No
+    test and no notification would say so.
+
+    Every other fixture in this file supplies already-lowercase live columns, so they assume
+    the conclusion. This one does not: the live table carries ``Order_ID`` and the refresh is
+    a pure add, yet what lands is ``order_id``.
+
+    ACCEPTED, and CORROBORATED-NOT-DISCHARGED: the AWS documentation is strong evidence and
+    is why 149 hard-codes the fold, but documentation is the same class of evidence that had
+    SPEC-144 FR-001 reversed mid-build. The check that would discharge it is a live
+    ``GetTable`` read-back after refreshing a table carrying a mixed-case column, and it is
+    recorded as owed. Note the comment survives the re-casing — the carry is keyed on
+    ``casefold()`` — so this is a rename, not a column swap.
+
+    If this starts failing, the fold changed: revisit the decision (decisions.md, "Removing a
+    column needs an opt-in" / SPEC-149's apply entry), do not delete the test.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "Order_ID", "Type": "string", "Comment": "the shop's own id"}],
+    }
+    glue, _ = _install(table=_live_table(StorageDescriptor=storage))
+
+    m.handler(_event(columns=[
+        {"name": "Order_ID", "type": "string"},
+        {"name": "amount", "type": "string"},
+    ]), None)
+
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [c["Name"] for c in written] == ["order_id", "amount"], (
+        "the fold is no longer being applied on write"
+    )
+    assert written[0]["Comment"] == "the shop's own id", "the carried comment was lost"
 
 
 def test_traced_is_outermost_above_notifies_on_failure():

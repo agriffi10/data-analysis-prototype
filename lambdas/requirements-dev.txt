@@ -15,3 +15,9 @@
 ruff>=0.16,<0.17
 pytest>=8
 pytest-cov>=5
+
+# mypy is BOUNDED TO A MINOR for the reason stated above ruff: an unpinned checker can
+# widen what it enforces in a patch release and redden every open PR at once. It runs
+# REPORT-ONLY over the shared layers today (SPEC-153 FR-009); the rule set is selected
+# explicitly in pyproject.toml rather than inherited, and the ratchet path is recorded there.
+mypy>=2.3,<2.4

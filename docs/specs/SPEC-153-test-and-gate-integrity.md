@@ -1,7 +1,7 @@
 # Spec: Test & Gate Integrity — Closing the Guards That Pass by Coincidence
 
 **ID:** SPEC-153
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-137 (its post-mortem is this spec's subject — the code/infra split whose gates were all blind), SPEC-138 (the scanner gates and the "did not run is never clean" rule), SPEC-125 (`shared-space-common` and the fakes FR-002 deepens), SPEC-149 (the case-folding premise FR-006 pins), SPEC-143 (the projection reconstruction FR-006 pins)
 

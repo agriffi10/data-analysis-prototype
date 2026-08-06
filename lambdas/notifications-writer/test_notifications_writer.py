@@ -252,6 +252,127 @@ def test_empty_event_rejected():
     _raises(lambda: w.handler({"Records": []}, None), w.ValidationError, "no SQS records")
 
 
+# ── SPEC-153 FR-005: the batch-size coupling is pinned on both sides ──────────
+
+
+def test_a_multi_record_event_raises_instead_of_dropping_records():
+    """The handler's single-record assumption is now enforced, not assumed.
+
+    It used to take ``records[0]`` and discard the rest, which is correct ONLY because the
+    Terraform below sets ``batch_size = 1``. Nothing connected the two halves — ``grep -rn
+    batch_size lambdas/`` returned zero hits — so a one-line infra edit would have silently
+    dropped every notification but the first, in the channel that IS the completion channel
+    for four asynchronous control planes (SPEC-114).
+
+    Failing loudly is not a delivery guarantee and must not be read as one: this queue's DLQ
+    is the ONE that SPEC-126 deliberately leaves undrained (circular — the drain delivers
+    through this same queue), so the batch waits there for an operator rather than becoming a
+    notification. What the raise buys is that a `batch_size` edit shows up as invocation
+    errors and a filling DLQ instead of as notifications that quietly never arrive.
+    """
+    s3 = _setup()
+    body = json.dumps({"action": "create", "username": "alice", "message": "hi"})
+
+    _raises(
+        lambda: w.handler({"Records": [{"body": body}, {"body": body}]}, None),
+        w.ValidationError,
+        "batch_size = 1",
+    )
+
+    assert _inbox(s3, "alice") is None  # nothing partially written
+
+
+def test_the_notifications_event_source_mapping_still_sets_batch_size_one():
+    """The infra half of the coupling above.
+
+    The handler is written for exactly one record per invocation. If this value ever moves,
+    the handler now raises rather than dropping — but the intended fix is to keep it at 1
+    and change the handler deliberately, so this test fails first and says why.
+
+    SCOPE: this is the only ``aws_lambda_event_source_mapping`` in the repo. The four
+    ``batch_size = 1`` values under ``infra/modules/*/pipe.tf`` are EventBridge Pipes whose
+    target is a state machine, not a Lambda handler — no handler assumes a single record
+    there — and they are asserted separately below so a batching Pipe cannot appear unnoticed.
+    """
+    import os
+    import re
+
+    infra = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules"
+    )
+    with open(os.path.join(infra, "notifications", "lambda.tf")) as handle:
+        tf = handle.read()
+    assert re.search(r"^\s*batch_size\s*=\s*1\s*$", tf, re.MULTILINE), (
+        "notifications/lambda.tf must keep batch_size = 1 — notifications_writer.handler "
+        "processes exactly one record per invocation"
+    )
+
+
+def test_no_other_event_source_mapping_batches():
+    """Guards the scope comment above rather than trusting it.
+
+    Counts the event-source mappings and Pipe batch sizes across every module, and requires
+    every one of them to be 1. A new mapping — or a Pipe raised to a batch — fails here and
+    has to state which handler it belongs to.
+    """
+    import glob
+    import os
+    import re
+
+    infra = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules"
+    )
+    sizes = []
+    mappings = 0
+    # Both depths: modules/<name>/*.tf AND infra/*.tf. A mapping added at the root would
+    # otherwise be invisible to the test whose whole job is guarding a scope claim.
+    roots = glob.glob(os.path.join(infra, "*", "*.tf")) + glob.glob(
+        os.path.join(infra, "..", "*.tf")
+    )
+    for path in sorted(roots):
+        with open(path) as handle:
+            text = handle.read()
+        mappings += len(re.findall(r'resource\s+"aws_lambda_event_source_mapping"', text))
+        sizes += [(os.path.basename(os.path.dirname(path)), v)
+                  for v in re.findall(r"^\s*batch_size\s*=\s*(\d+)\s*$", text, re.MULTILINE)]
+
+    assert mappings == 1, f"a new Lambda event-source mapping appeared ({mappings} found)"
+    assert len(sizes) >= 5, f"the batch_size sweep found only {sizes} — did the shape change?"
+    assert all(v == "1" for _, v in sizes), f"a batching source appeared: {sizes}"
+
+
+# ── SPEC-153 FR-010: what a redelivery does is stated, not assumed ────────────
+
+
+def test_ACCEPTED_a_redelivered_create_writes_a_SECOND_inbox_entry():
+    """Today's behaviour, accepted by decision — not an oversight, and not a bug report.
+
+    These pipelines are at-least-once. ``apply_create`` mints ``uuid.uuid4().hex`` per
+    invocation, so the same SQS message delivered twice (a visibility-timeout redelivery,
+    which FIFO's 5-minute producer-side ``MessageDeduplicationId`` window does not bound)
+    lands as two inbox rows for one event. ``dqcommon.index_store`` handles the equivalent
+    case by replacing the row and has a test saying so; the user-facing inbox does not.
+
+    ACCEPTED because the blast radius is one duplicated line in a read-only list — no
+    access is granted, nothing is overwritten, and the user can dismiss it — while the fix
+    with real teeth is a producer-supplied idempotency key, a contract change across four
+    control planes and the browser producer. Recorded in decisions.md.
+
+    If this starts failing, the writer became idempotent: revisit the decision and the
+    delivery-doc note, do not delete the test.
+    """
+    s3 = _setup()
+    record = {"body": json.dumps({"action": "create", "username": "alice", "message": "hi"})}
+
+    w.handler({"Records": [record]}, None)
+    w.handler({"Records": [record]}, None)  # same message, redelivered
+
+    inbox = _inbox(s3, "alice")
+    assert len(inbox) == 2
+    assert inbox[0]["message"] == inbox[1]["message"] == "hi"
+    assert inbox[0]["id"] != inbox[1]["id"]
+
+
 if __name__ == "__main__":
     import sys
 

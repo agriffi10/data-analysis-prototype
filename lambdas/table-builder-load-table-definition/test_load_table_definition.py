@@ -350,12 +350,20 @@ def test_declared_keys_are_reconstructed_in_the_tables_own_order():
     assert [k["type"] for k in out["partitionKeys"]] == ["integer", "date", "string"]
 
 
-def test_the_reconstruction_round_trips_through_the_create_paths_own_renderer():
+def test_the_parser_is_a_left_inverse_of_the_renderer_on_the_renderers_own_output():
     """FR-005 AC5 — EXACT equality, which is the point of writing it this way.
 
     Any property the reconstruction drops, and any it would rewrite, fails here. It is
     also the only check that can catch the two shapes prose gets wrong: a `string` key
     written as `enum`, and a `date` key's four properties.
+
+    RENAMED BY SPEC-153 FR-006 to say what it proves and no more. The fixture's Parameters
+    come from ``ddl.projection_properties`` — the very renderer the reconstruction
+    re-renders through — so this is render → parse → render compared against render. That
+    establishes the parser is a left inverse of the renderer ON THE RENDERER'S OWN IMAGE,
+    which is worth having and is not the same claim as "reads tables this pipeline did not
+    write". The old name implied the second. ``test_a_table_this_pipeline_did_not_write_is
+    _reconstructed`` below is the one that reaches outside the image.
     """
     _install(_partitioned_table())
 
@@ -377,6 +385,104 @@ def test_a_reconstructed_key_is_accepted_by_the_ddl_builder_that_will_receive_it
     )
 
     assert "PARTITIONED BY (`year` int, `day` date, `region` string)" in statement
+
+
+# ── SPEC-153 FR-006: a partial substitute for the owed GetTable capture ──────
+#
+# BE PRECISE ABOUT WHAT THIS IS AND IS NOT. FR-006 AC2 asks for a VERBATIM paste of a real
+# GetTable response for a hand-created partition-projected table. This is NOT that, and the
+# gap is recorded as an owed live check rather than papered over: Lake Formation filters this
+# repo's local CLI principal's catalog to empty (`aws glue get-databases` returns []), and
+# hand-creating a table in the account from a laptop is a production mutation.
+#
+# PROVENANCE. The projection.* keys were transcribed from AWS's published partition-projection
+# reference (Athena user guide) on 2026-08-06; the surrounding TBLPROPERTIES are the ones
+# Athena and the Glue crawler stamp on a table this pipeline did not create — EXTERNAL,
+# transient_lastDdlTime, classification, has_encrypted_data, parquet.compression.
+#
+# WHAT IT PROVES: the reconstruction tolerates neighbouring properties it did not author, and
+# follows the TABLE's partition-key order rather than the property dict's.
+#
+# WHAT IT DOES NOT PROVE, stated so nobody reads more into it: the projection VALUES here are
+# byte-identical to what ddl.projection_properties emits — necessarily so, because the
+# reconstruction re-renders and demands exact equality, so any value format Athena accepts and
+# our renderer spells differently is a REFUSAL, not a rebuild. Value-format disagreement is
+# therefore entirely untested here, and it is exactly what the owed GetTable capture buys.
+_FOREIGN_PARAMETERS = {
+    "EXTERNAL": "TRUE",
+    "classification": "parquet",
+    "has_encrypted_data": "false",
+    "parquet.compression": "SNAPPY",
+    "transient_lastDdlTime": "1751328000",
+    "projection.enabled": "true",
+    "projection.country.type": "enum",
+    "projection.country.values": "US,CA,MX",
+    "projection.dt.type": "date",
+    "projection.dt.range": "2020-01-01,NOW",
+    "projection.dt.format": "yyyy-MM-dd",
+    "projection.dt.interval": "1",
+    "projection.dt.interval.unit": "DAYS",
+    "projection.id.type": "integer",
+    "projection.id.range": "1,1000",
+}
+
+
+def test_the_reconstruction_ignores_properties_our_renderer_never_writes():
+    """Part of what the self-referential round-trip above cannot reach — not all of it.
+
+    Five TBLPROPERTIES here are ones this pipeline never emits, and the reconstruction must
+    walk past them rather than choke or fold them in. Declaration order is dt, country, id —
+    deliberately neither alphabetical nor the order our own fixtures use — so the walk is
+    shown to follow the TABLE's partition-key order rather than the property dict's.
+
+    See the block comment above for what this does NOT establish.
+    """
+    _install(_table(
+        partition_keys=[("dt", "date"), ("country", "string"), ("id", "int")],
+        parameters=_FOREIGN_PARAMETERS,
+    ))
+
+    keys = m.handler(_event(), None)["partitionKeys"]
+
+    assert [k["name"] for k in keys] == ["dt", "country", "id"]
+    assert [k["type"] for k in keys] == ["date", "string", "integer"]
+    assert keys[0]["range"] == ["2020-01-01", "NOW"]
+    assert keys[0]["format"] == "yyyy-MM-dd"
+    assert keys[1]["values"] == ["US", "CA", "MX"]
+    assert keys[2]["range"] == [1, 1000]
+    # An integer key with no projection.id.digits must not acquire one.
+    assert keys[2].get("digits") is None
+
+
+def test_the_fixture_carries_properties_our_renderer_never_writes():
+    """Guards the guard: the extra TBLPROPERTIES are what the test above actually exercises,
+    so if they were ever dropped it would silently become the round-trip test again.
+
+    It also pins the honest half of the claim: the projection subset MUST equal our renderer's
+    output, because the reconstruction demands exact equality and a fixture that disagreed on
+    value format would be asserting a refusal, not a rebuild. That is the boundary of what a
+    hand-authored fixture can reach, and why the real GetTable capture is still owed.
+    """
+    from cpcommon import ddl
+
+    ours = {"projection.enabled": "true"}
+    for key in (
+        {"name": "dt", "type": "date", "range": ["2020-01-01", "NOW"], "format": "yyyy-MM-dd",
+         "interval": 1, "interval.unit": "DAYS"},
+        {"name": "country", "type": "string", "values": ["US", "CA", "MX"]},
+        {"name": "id", "type": "integer", "range": [1, 1000]},
+    ):
+        ours.update(ddl.projection_properties(key))
+
+    extra = set(_FOREIGN_PARAMETERS) - set(ours)
+    assert extra >= {"EXTERNAL", "classification", "transient_lastDdlTime"}, (
+        f"the fixture lost the properties our renderer never writes — only {sorted(extra)} "
+        f"remain, so the test above no longer exercises anything the round-trip does not"
+    )
+    # The projection subset must MATCH ours: the reconstruction re-renders and demands exact
+    # equality, so a disagreeing value format would test a refusal rather than a rebuild.
+    assert set(ours).issubset(_FOREIGN_PARAMETERS)
+    assert all(_FOREIGN_PARAMETERS[k] == v for k, v in ours.items())
 
 
 def test_an_unpartitioned_table_is_not_subject_to_any_of_it():
@@ -508,12 +614,8 @@ def test_an_enum_value_containing_a_comma_is_split_the_way_athena_splits_it():
 def test_the_verb_narrates_the_load_without_naming_any_data():
     _install(_partitioned_table())
     events = []
-    real_info = m.observability.info
     m.observability.info = lambda message, **fields: events.append((message, fields))
-    try:
-        m.handler(_event(), None)
-    finally:
-        m.observability.info = real_info
+    m.handler(_event(), None)
 
     message, fields = events[0]
     assert message == "loaded table definition"

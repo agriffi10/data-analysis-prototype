@@ -18,7 +18,6 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import pytest
 import table_share_copy_objects as m
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
@@ -70,24 +69,11 @@ def _setup(**kwargs):
     return fake
 
 
-#: See the twin note in the inspect-source suite: tscommon is NOT covered by conftest's
-#: module snapshot, so an unrestored stub here leaks into the copy_plan suite.
-_PATCHED = []
-
-
-@pytest.fixture(autouse=True)
-def _restore_shared_modules():
-    yield
-    while _PATCHED:
-        module, name, original = _PATCHED.pop()
-        setattr(module, name, original)
-
-
 def _event(objects):
     # The plan travels by POINTER now (tscommon.copy_plan): inline, the object list pushed
     # the Map's state to 95% of Step Functions' 256 KB payload limit. The verb loads it, so
     # the fixture stubs the load rather than putting the list on the state.
-    _PATCHED.append((m.copy_plan, "load", m.copy_plan.load))
+    # No local restore: conftest's snapshot covers tscommon since SPEC-153 FR-004.
     m.copy_plan.load = lambda key: objects
     return {
         "recipient": {
@@ -168,8 +154,35 @@ def test_deterministic_failure_is_copy_failed():
 
 
 def test_copy_prefix_bounds_concurrency():
-    # Sanity: the pool accepts a custom bound and still copies everything.
+    """The bound is OBSERVED, not inferred from the copy count (SPEC-153 FR-007).
+
+    This used to assert only that 20 objects were copied — true of an unbounded pool, a
+    pool of one, and a serial loop alike, so the name promised more than the body checked.
+    The fake now records peak in-flight copies, which is the property ``concurrency=`` is
+    for: ``copy_prefix`` fans out across a whole prefix, and an unbounded pool would open a
+    connection per object.
+    """
+    import threading
+    import time
+
+    lock = threading.Lock()
+    state = {"in_flight": 0, "peak": 0}
     fake = _setup()
+    real_copy = fake.copy_object
+
+    def _observed(**kwargs):
+        with lock:
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+        time.sleep(0.02)  # long enough for the pool to saturate its workers
+        try:
+            return real_copy(**kwargs)
+        finally:
+            with lock:
+                state["in_flight"] -= 1
+
+    fake.copy_object = _observed
+
     n = copy_mod.copy_prefix(
         "user-bkt",
         "alice/sales/",
@@ -178,7 +191,11 @@ def test_copy_prefix_bounds_concurrency():
         "bob/shared_tables/orders_copy/",
         concurrency=2,
     )
+
     assert n == 20 and len(fake.copies) == 20
+    assert state["peak"] <= 2, f"the pool exceeded its bound: {state['peak']} in flight"
+    # Guards the observation: a serial loop would also satisfy the bound above.
+    assert state["peak"] >= 2, f"the pool never saturated ({state['peak']}) — bound unproven"
 
 
 

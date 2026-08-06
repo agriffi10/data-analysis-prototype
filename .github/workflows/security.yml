@@ -646,7 +646,20 @@ jobs:
               } > body.md
             fi
           else
-            echo "::warning title=ZAP::no JSON report produced — reporting 0, which may not mean clean."
+            # SPEC-153 FR-008. This used to warn and then pass `0` to the gate anyway —
+            # harmless under `report`, but under `block` a scanner that produced nothing
+            # would have read as a clean pass, which is exactly what decisions.md forbids
+            # with "'did not run' is never 'clean'". A scan that ran and left no readable
+            # report is a BROKEN SCAN, and a broken scan fails its job in every gate mode.
+            # This is a different condition from the deliberate no-target skip above, which
+            # is a written decision and is unchanged: that path never reaches this step.
+            echo "::error title=ZAP::the scan ran but produced no readable JSON report at" \
+                 "'$report'. This is a BROKEN SCAN, not a clean one — no finding count can" \
+                 "be derived from it. (A scan that completed and found nothing writes a" \
+                 "report with an empty alerts array and is reported as 0 findings.)"
+            .github/scripts/summary-section.sh \
+              "OWASP ZAP baseline — ${{ steps.target.outputs.url }}" "scan produced no report" body.md
+            exit 1
           fi
           .github/scripts/summary-section.sh "OWASP ZAP baseline — ${{ steps.target.outputs.url }}" "$count" body.md
           echo "ZAP_FINDINGS=$count" >> "$GITHUB_ENV"
@@ -665,4 +678,8 @@ jobs:
 
       - name: Apply gate
         if: always() && steps.target.outputs.skip == 'false'
-        run: .github/scripts/apply-gate.sh ZAP "$GATE_ZAP" "${ZAP_FINDINGS:-0}"
+        # The default is a SENTINEL, not 0 (SPEC-153 FR-008). ZAP_FINDINGS is unset only when
+        # Summarize did not reach its export — i.e. the scan produced no report — and
+        # apply-gate.sh hard-errors on a non-numeric count in every gate mode. Defaulting to
+        # 0 here would have printed "ZAP: no findings" on a job that never counted anything.
+        run: .github/scripts/apply-gate.sh ZAP "$GATE_ZAP" "${ZAP_FINDINGS:-no-report}"
