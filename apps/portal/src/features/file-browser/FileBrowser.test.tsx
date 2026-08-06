@@ -4,6 +4,7 @@ import type {ReactElement} from 'react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {FileBrowser} from './FileBrowser';
 import {UploadQueueProvider} from './UploadQueueProvider';
+import {UPLOAD_CONCURRENCY} from './upload.types';
 import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {getSessionCredentials} from '../../lib/awsCredentials';
@@ -532,5 +533,260 @@ describe('FileBrowser — responsive', () => {
     renderBrowser({writable: false, username: undefined});
     await screen.findByText('report.csv');
     expect(screen.queryByLabelText('File actions')).not.toBeInTheDocument();
+  });
+});
+
+// ── SPEC-154 FR-003: a collision is RESOLVED through the UI ─────────────────
+//
+// The suite asserted the prompt APPEARS and stopped there; resolution was invoked on hook
+// internals (`act(() => result.current.copyCollision?.onOverwriteAll())`). So the
+// retry-with-`overwrite: true` round trip had never been observed by a user-driven test — on
+// a flow CLAUDE.md flags as non-atomic and collision-prone, where the wrong answer silently
+// destroys a file.
+describe('FileBrowser — resolving a collision through the UI (SPEC-154 FR-003)', () => {
+  const collisionPrompt = () => screen.getByRole('alertdialog', {name: 'File already exists'});
+
+  async function uploadInto(user: ReturnType<typeof renderBrowser>['user'], name = 'notes.txt') {
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    const input = await screen.findByLabelText('Choose files');
+    await user.upload(input, new File(['data'], name, {type: 'text/plain'}));
+  }
+
+  it('drives an upload collision to Overwrite and retries with overwrite: true', async () => {
+    // The provider routes on the error CODE, so the first result has to carry it.
+    mock.uploadFile
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never)
+      .mockResolvedValue(ok({key: 'alice/notes.txt'}) as never);
+
+    const {user} = renderBrowser();
+    await uploadInto(user);
+
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Overwrite the existing notes.txt'})
+    );
+
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalledTimes(2));
+    expect(mock.uploadFile.mock.calls[0][0]).toMatchObject({key: 'alice/notes.txt', overwrite: false});
+    expect(mock.uploadFile.mock.calls[1][0]).toMatchObject({key: 'alice/notes.txt', overwrite: true});
+    // The user-visible result, not just the call: the item reaches its terminal state.
+    expect(await screen.findByText('Uploaded')).toBeInTheDocument();
+  });
+
+  it('drives the same collision to Rename and retries under the new key', async () => {
+    mock.uploadFile
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never)
+      .mockResolvedValue(ok({key: 'alice/notes-2.txt'}) as never);
+
+    const {user} = renderBrowser();
+    await uploadInto(user);
+
+    const prompt = await screen.findByRole('alertdialog');
+    await user.click(within(prompt).getByRole('button', {name: 'Rename'}));
+    const field = within(collisionPrompt()).getByLabelText('New name');
+    await user.clear(field);
+    await user.type(field, 'notes-2.txt');
+    await user.click(within(collisionPrompt()).getByRole('button', {name: 'Save as new name'}));
+
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalledTimes(2));
+    // A rename must NOT smuggle an overwrite in with it — that is the whole point of
+    // offering the choice.
+    expect(mock.uploadFile.mock.calls[1][0]).toMatchObject({key: 'alice/notes-2.txt', overwrite: false});
+    expect(await screen.findByText('Uploaded')).toBeInTheDocument();
+  });
+
+  it('cancels a collision without writing anything', async () => {
+    mock.uploadFile.mockResolvedValue({
+      success: false,
+      error: {message: 'exists', code: 'Collision'}
+    } as never);
+
+    const {user} = renderBrowser();
+    await uploadInto(user);
+    await screen.findByRole('alertdialog');
+
+    await user.click(within(collisionPrompt()).getByRole('button', {name: 'Cancel'}));
+
+    expect(mock.uploadFile).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+});
+
+// FR-003 AC3/AC5: the BATCH prompt, and the summary banner a user actually reads.
+describe('FileBrowser — resolving a BATCH collision through the UI (SPEC-154 FR-003)', () => {
+  const batchPrompt = () => screen.getByRole('alertdialog', {name: 'Destination already has items'});
+
+  async function copySelectionToDocs(user: ReturnType<typeof renderBrowser>['user']) {
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Copy selected items'}));
+    const picker = await screen.findByRole('dialog');
+    await user.click(within(picker).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(await within(picker).findByRole('button', {name: 'Copy here'}));
+  }
+
+  it('drives a batch copy collision to Overwrite all and retries the collided items', async () => {
+    mock.copyObject
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never)
+      .mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}) as never);
+
+    const {user} = renderBrowser();
+    await copySelectionToDocs(user);
+
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Overwrite all'}));
+
+    await waitFor(() => expect(mock.copyObject).toHaveBeenCalledTimes(2));
+    expect(mock.copyObject.mock.calls[0][0]).toMatchObject({overwrite: false});
+    expect(mock.copyObject.mock.calls[1][0]).toMatchObject({overwrite: true});
+    // AC5: the user-visible result, not only the service call.
+    expect(await screen.findByText(/Copied 1 item/)).toBeInTheDocument();
+  });
+
+  it('cancels a batch collision without copying the collided item', async () => {
+    mock.copyObject.mockResolvedValue({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await copySelectionToDocs(user);
+    await screen.findByRole('alertdialog');
+
+    await user.click(within(batchPrompt()).getByRole('button', {name: 'Cancel'}));
+
+    expect(mock.copyObject).toHaveBeenCalledTimes(1);
+    // Cancelling still finalises: nothing was copied, and the banner says so rather than
+    // leaving the user with a dialog that vanished and no account of what happened.
+    expect(await screen.findByText(/Copied 0 items/)).toBeInTheDocument();
+  });
+});
+
+// ── SPEC-154 FR-004: an upload watched to completion ────────────────────────
+//
+// The most-used flow in the app had one UI-level test whose only assertion was
+// `expect(mock.uploadFile).toHaveBeenCalled()`. Above it, `UploadList.test.tsx` mocks the
+// context the provider supplies, so every visible state was asserted against hand-fed items;
+// below it, `UploadQueueProvider.test.tsx` tests the reducer through `renderHook`. Nothing
+// spanned them — so the real provider driving the real list was untested end to end.
+//
+// This renders the REAL `UploadQueueProvider` behind the REAL `UploadList` (both already in
+// `renderBrowser`'s tree) and watches one file through the states a user sees.
+describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', () => {
+  async function chooseFile(user: ReturnType<typeof renderBrowser>['user'], name = 'up.txt') {
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    const input = await screen.findByLabelText('Choose files');
+    await user.upload(input, new File(['data'], name, {type: 'text/plain'}));
+  }
+
+  it('progresses queued → uploading (with progress) → Uploaded', async () => {
+    // Hold the upload open so the intermediate state is observable rather than skipped:
+    // a resolved-immediately mock would go straight to Uploaded and the progress bar — the
+    // thing a user stares at — would never render.
+    let finish!: (value: unknown) => void;
+    mock.uploadFile.mockImplementation((async (params: {onProgress?: (l: number, t: number) => void}) => {
+      params.onProgress?.(50, 100);
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    }) as never);
+
+    const {user} = renderBrowser();
+    await chooseFile(user);
+
+    const progress = await screen.findByRole('progressbar', {name: 'Uploading up.txt'});
+    expect(progress).toHaveAttribute('aria-valuenow', '50');
+
+    finish(ok({key: 'alice/up.txt'}));
+
+    expect(await screen.findByText('Uploaded')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('shows the Failed state with the MAPPED message, never the raw AWS text', async () => {
+    mock.uploadFile.mockResolvedValue({
+      success: false,
+      error: {message: 'AccessDenied: not authorized to perform s3:PutObject', code: 'AccessDenied'}
+    } as never);
+
+    const {user} = renderBrowser();
+    await chooseFile(user);
+
+    expect(await screen.findByText('Failed')).toBeInTheDocument();
+    // SPEC-106: `toUserMessage` wording is what reaches the user.
+    expect(screen.queryByText(/s3:PutObject/)).not.toBeInTheDocument();
+  });
+
+  it('cancelling an in-flight upload aborts the request and marks the item Cancelled', async () => {
+    // The mock honours the signal, because the transition depends on it: the provider only
+    // aborts, and it is the SERVICE resolving with code `Cancelled` that moves the row. A
+    // mock that ignored the signal would leave the item stuck at uploading and the test would
+    // be asserting the abort call alone.
+    //
+    // NOTE ON THE SPEC: FR-004 AC3 says cancelling "removes it". It does not — the row stays,
+    // labelled Cancelled, until the user dismisses it or clears finished uploads. That is
+    // deliberate in `UploadQueueProvider` (an in-flight cancel transitions; only a QUEUED item
+    // is dropped), and it is the better behaviour — a row that vanishes gives no confirmation
+    // the cancel took. Asserted as it is, and recorded in the delivery doc.
+    let seenSignal: AbortSignal | undefined;
+    mock.uploadFile.mockImplementation((async (params: {signal?: AbortSignal}) => {
+      seenSignal = params.signal;
+      return new Promise((resolve) => {
+        params.signal?.addEventListener('abort', () =>
+          resolve({success: false, error: {message: 'aborted', code: 'Cancelled'}})
+        );
+      });
+    }) as never);
+
+    const {user} = renderBrowser();
+    await chooseFile(user);
+    await screen.findByRole('progressbar', {name: 'Uploading up.txt'});
+
+    await user.click(screen.getByRole('button', {name: 'Cancel upload of up.txt'}));
+
+    expect(seenSignal?.aborted).toBe(true);
+    // The badge and the row's subtext both read "Cancelled" — the point is that the row is
+    // still there and says so, not which of the two elements says it.
+    expect(await screen.findAllByText('Cancelled')).not.toHaveLength(0);
+    expect(screen.getByText('up.txt')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('a QUEUED upload is dropped outright when cancelled', async () => {
+    // The other half of the cancel contract, and the half FR-004 AC3 describes: nothing was
+    // written for a queued item, so it leaves no trace rather than a Cancelled row.
+    mock.uploadFile.mockImplementation((async () => new Promise(() => {})) as never);
+
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    const input = await screen.findByLabelText('Choose files');
+    await user.upload(input, [
+      new File(['a'], 'a.txt', {type: 'text/plain'}),
+      new File(['b'], 'b.txt', {type: 'text/plain'}),
+      new File(['c'], 'c.txt', {type: 'text/plain'}),
+      new File(['d'], 'd.txt', {type: 'text/plain'})
+    ]);
+    await screen.findByText('Queued');
+
+    await user.click(screen.getByRole('button', {name: 'Cancel upload of d.txt'}));
+
+    await waitFor(() => expect(screen.queryByText('d.txt')).not.toBeInTheDocument());
+    expect(screen.queryAllByText('Cancelled')).toHaveLength(0);
+  });
+
+  it('holds the fourth file at Queued while three are in flight (UPLOAD_CONCURRENCY)', async () => {
+    // AC4: the gate IS observable at this level, so it is asserted here rather than left to
+    // the provider test. Four files, a mock that never settles, and the fourth must not start.
+    mock.uploadFile.mockImplementation((async () => new Promise(() => {})) as never);
+
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    const input = await screen.findByLabelText('Choose files');
+    await user.upload(input, [
+      new File(['a'], 'a.txt', {type: 'text/plain'}),
+      new File(['b'], 'b.txt', {type: 'text/plain'}),
+      new File(['c'], 'c.txt', {type: 'text/plain'}),
+      new File(['d'], 'd.txt', {type: 'text/plain'})
+    ]);
+
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalledTimes(UPLOAD_CONCURRENCY));
+    expect(await screen.findByText('Queued')).toBeInTheDocument();
+    // Guards the guard: three really did start, so the fourth being Queued means the gate
+    // held rather than the whole batch having stalled.
+    expect(screen.getAllByRole('progressbar')).toHaveLength(UPLOAD_CONCURRENCY);
   });
 });
