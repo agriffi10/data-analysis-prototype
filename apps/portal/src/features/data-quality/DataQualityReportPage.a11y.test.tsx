@@ -30,6 +30,10 @@ const mockCache = vi.mocked(sharedSpaces.readSharedConnectionsCache);
 // warmed by the first `render` is reused by the render inside expectNoA11yViolations,
 // so axe sees the populated report rather than the loading line. The
 // NotificationsPage.a11y precedent.
+// Bespoke tree AND bespoke client, both deliberate (SPEC-154 FR-007):
+// `expectNoA11yViolations` takes a COMPOSED ELEMENT, and the default `gcTime` is what
+// the warm-cache note below depends on — `createTestQueryClient`'s `gcTime: 0` would
+// leave the second render cold and axe would inspect a loading state.
 const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
 function withProviders(): ReactElement {

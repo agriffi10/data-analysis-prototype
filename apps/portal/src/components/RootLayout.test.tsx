@@ -1,39 +1,28 @@
-import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
-import {render, screen, cleanup} from '@testing-library/react';
-import {MemoryRouter, Routes, Route, useNavigate} from 'react-router';
-import userEvent from '@testing-library/user-event';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import type {ReactNode} from 'react';
+import {describe, it, expect, vi, afterEach} from 'vitest';
+import {screen, cleanup} from '@testing-library/react';
+import {Routes, Route, useNavigate} from 'react-router';
 import {RootLayout} from './RootLayout';
-import type {AuthContextValue} from '../features/auth';
+import {renderWithProviders} from '../test/renderWithProviders';
+import {unauthenticated} from '../test/authFixtures';
 
-vi.mock('../features/auth', () => ({useAuth: vi.fn()}));
 // The Header mounts useNotifications for the bell indicator — stub the read so
-// RootLayout tests make no S3/SQS call and stay focused on layout.
+// RootLayout tests make no S3/SQS call and stay focused on layout. This is the AWS
+// boundary and the only thing mocked here.
 vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 
-import {useAuth} from '../features/auth';
-
-const mockUseAuth = useAuth as unknown as MockedFunction<() => AuthContextValue>;
-
-// Header reads useNotifications (TanStack), which needs a QueryClientProvider.
-const withProviders = (ui: ReactNode) => (
-  <QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>{ui}</QueryClientProvider>
-);
-
-beforeEach(() => {
-  mockUseAuth.mockReturnValue({
-    status: 'unauthenticated',
-    user: null,
-    error: null,
-    signIn: vi.fn(),
-    signUp: vi.fn(),
-    signOut: vi.fn()
-  });
-});
+/**
+ * Route composition IS the subject here, so each test supplies its own `<Routes>` — but
+ * *inside* the harness's router rather than beside a hand-rolled one (SPEC-154 FR-007),
+ * which is what `LandingPage.test.tsx` already does. `route` sets the entry point.
+ *
+ * Auth is the REAL `useAuth` reading an injected context (FR-002). The old
+ * `vi.mock('../features/auth')` replaced the whole barrel, so the provider never ran.
+ */
+const renderAt = (route: string, routes: React.ReactElement) =>
+  renderWithProviders(routes, {route, auth: unauthenticated()});
 
 afterEach(() => {
   cleanup();
@@ -41,19 +30,16 @@ afterEach(() => {
 
 describe('RootLayout', () => {
   it('renders the shared header and the child route content on non-landing routes', () => {
-    render(
-      withProviders(
-        <MemoryRouter initialEntries={['/files']}>
-          <Routes>
-            <Route element={<RootLayout />}>
-              <Route
-                path="/files"
-                element={<div>CHILD CONTENT</div>}
-              />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      )
+    renderAt(
+      '/files',
+      <Routes>
+        <Route element={<RootLayout />}>
+          <Route
+            path="/files"
+            element={<div>CHILD CONTENT</div>}
+          />
+        </Route>
+      </Routes>
     );
 
     // "Data Workspace" comes from the Header's BrandMark.
@@ -62,19 +48,16 @@ describe('RootLayout', () => {
   });
 
   it('suppresses the app header on the landing route (it has its own nav)', () => {
-    render(
-      withProviders(
-        <MemoryRouter initialEntries={['/']}>
-          <Routes>
-            <Route element={<RootLayout />}>
-              <Route
-                path="/"
-                element={<div>LANDING CONTENT</div>}
-              />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      )
+    renderAt(
+      '/',
+      <Routes>
+        <Route element={<RootLayout />}>
+          <Route
+            path="/"
+            element={<div>LANDING CONTENT</div>}
+          />
+        </Route>
+      </Routes>
     );
 
     // The stub landing route renders no brand mark, so the only source of
@@ -93,30 +76,27 @@ describe('RootLayout', () => {
       throw new Error('render failed');
     }
 
-    function renderAt(initialEntry: string) {
-      return render(
-        withProviders(
-          <MemoryRouter initialEntries={[initialEntry]}>
-            <Routes>
-              <Route element={<RootLayout />}>
-                <Route
-                  path="/files"
-                  element={<Boom />}
-                />
-                <Route
-                  path="/help"
-                  element={<div>HELP CONTENT</div>}
-                />
-              </Route>
-            </Routes>
-          </MemoryRouter>
-        )
+    function renderBoomAt(initialEntry: string) {
+      return renderAt(
+        initialEntry,
+        <Routes>
+          <Route element={<RootLayout />}>
+            <Route
+              path="/files"
+              element={<Boom />}
+            />
+            <Route
+              path="/help"
+              element={<div>HELP CONTENT</div>}
+            />
+          </Route>
+        </Routes>
       );
     }
 
     it('contains a throwing page while the header survives', () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-      renderAt('/files');
+      renderBoomAt('/files');
 
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(screen.getByText('Data Workspace')).toBeInTheDocument();
@@ -133,26 +113,24 @@ describe('RootLayout', () => {
         return <button onClick={() => navigate('/help')}>go to help</button>;
       }
 
-      const user = userEvent.setup();
-      render(
-        withProviders(
-          <MemoryRouter initialEntries={['/files']}>
-            {/* Outside the layout, so it survives the throw the way real nav does. */}
-            <GoHelp />
-            <Routes>
-              <Route element={<RootLayout />}>
-                <Route
-                  path="/files"
-                  element={<Boom />}
-                />
-                <Route
-                  path="/help"
-                  element={<div>HELP CONTENT</div>}
-                />
-              </Route>
-            </Routes>
-          </MemoryRouter>
-        )
+      const {user} = renderAt(
+        '/files',
+        <>
+          {/* Outside the layout, so it survives the throw the way real nav does. */}
+          <GoHelp />
+          <Routes>
+            <Route element={<RootLayout />}>
+              <Route
+                path="/files"
+                element={<Boom />}
+              />
+              <Route
+                path="/help"
+                element={<div>HELP CONTENT</div>}
+              />
+            </Route>
+          </Routes>
+        </>
       );
       expect(screen.getByRole('alert')).toBeInTheDocument();
 

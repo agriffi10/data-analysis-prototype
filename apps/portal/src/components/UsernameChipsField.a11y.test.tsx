@@ -14,6 +14,11 @@ vi.mock('../features/user-directory/userDirectory.service', () => ({
   DIRECTORY_KEY: '_directory/usernames.json'
 }));
 
+// Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
+// COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
+// hand it. The client is bespoke too, and that is load-bearing: the pattern below warms
+// the cache in one render and reuses it in the next, which `createTestQueryClient`'s
+// `gcTime: 0` would defeat — axe would then inspect a loading state and pass vacuously.
 const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
 function Harness({initial, renderChips = true}: {initial: string[]; renderChips?: boolean}): ReactElement {

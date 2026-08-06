@@ -62,6 +62,31 @@ describe('LandingPage when unauthenticated', () => {
     expect(screen.getAllByRole('button', {name: /create( your)? account/i}).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', {name: /go to dashboard/i})).not.toBeInTheDocument();
   });
+
+  it('runs the sign-in action when Sign in is clicked (SPEC-154 FR-002)', async () => {
+    // The suite asserted these controls EXIST and never clicked one. A dropped `onClick`,
+    // a handler wired to the wrong action, or a button that renders but does nothing all
+    // passed — on the app's front door.
+    const auth = unauthenticated();
+    const {user} = renderApp(auth);
+
+    await user.click(screen.getAllByRole('button', {name: /^sign in$/i})[0]);
+
+    expect(auth.signIn).toHaveBeenCalledTimes(1);
+    expect(auth.signUp).not.toHaveBeenCalled();
+  });
+
+  it('runs the sign-UP action when Create account is clicked', async () => {
+    // The pair matters: both controls sit side by side and both are one word from the
+    // other's handler, so asserting one without the other cannot catch a swap.
+    const auth = unauthenticated();
+    const {user} = renderApp(auth);
+
+    await user.click(screen.getAllByRole('button', {name: /create( your)? account/i})[0]);
+
+    expect(auth.signUp).toHaveBeenCalledTimes(1);
+    expect(auth.signIn).not.toHaveBeenCalled();
+  });
 });
 
 describe('LandingPage responsive markers (SPEC-104)', () => {

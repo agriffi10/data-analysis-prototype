@@ -1,7 +1,6 @@
-import {renderHook, act, waitFor} from '@testing-library/react';
+import {act, waitFor} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useMove} from './useMove';
 import {moveObject, moveFolder} from './fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
@@ -19,15 +18,8 @@ const mockMoveObject = vi.mocked(moveObject);
 const mockMoveFolder = vi.mocked(moveFolder);
 const mockInvalidate = vi.mocked(invalidateListing);
 
-function wrapper() {
-  const client = new QueryClient();
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
-
 function render(username: string | undefined = 'alice') {
-  return renderHook(() => useMove('us', 'alice/docs/', username, 'alice/'), {
-    wrapper: wrapper()
-  });
+  return renderHookWithProviders(() => useMove('us', 'alice/docs/', username, 'alice/'));
 }
 
 beforeEach(() => {
@@ -99,7 +91,7 @@ describe('useMove — rename', () => {
   });
 
   it('errors and does nothing when there is no username', async () => {
-    const {result} = renderHook(() => useMove('us', 'alice/docs/', undefined, 'alice/'), {wrapper: wrapper()});
+    const {result} = renderHookWithProviders(() => useMove('us', 'alice/docs/', undefined, 'alice/'));
     act(() => result.current.renameItem({type: 'file', key: 'alice/docs/a.txt'}, 'b.txt'));
 
     await waitFor(() => expect(result.current.error).toMatch(/signed in/i));

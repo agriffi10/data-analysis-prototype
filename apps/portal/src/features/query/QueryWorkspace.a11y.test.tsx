@@ -74,6 +74,9 @@ function workspace(): ReactElement {
   client.setQueryData(queryKeys.savedQueries('alice'), {version: 1, queries: []});
   return (
     <AuthContext.Provider value={authValue()}>
+      // Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a // COMPOSED ELEMENT and
+      renders it itself, so there is no `renderWithProviders` result to // hand it. The QueryClient is still the
+      harness's, so retry behaviour cannot drift.
       <QueryClientProvider client={client}>
         <MemoryRouter>
           <ToastProvider>

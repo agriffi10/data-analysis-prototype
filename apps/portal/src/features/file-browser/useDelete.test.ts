@@ -1,7 +1,6 @@
-import {renderHook, act} from '@testing-library/react';
+import {act} from '@testing-library/react';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {createElement, type ReactNode} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {useDelete, type DeleteSummary} from './useDelete';
 import {deleteObjects, deleteFolder} from './fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
@@ -19,15 +18,8 @@ const mockDeleteObjects = vi.mocked(deleteObjects);
 const mockDeleteFolder = vi.mocked(deleteFolder);
 const mockInvalidate = vi.mocked(invalidateListing);
 
-function wrapper() {
-  const client = new QueryClient();
-  return ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client}, children);
-}
-
 function render(username: string | undefined = 'alice') {
-  return renderHook(() => useDelete('us', 'alice/', username, 'alice/'), {
-    wrapper: wrapper()
-  });
+  return renderHookWithProviders(() => useDelete('us', 'alice/', username, 'alice/'));
 }
 
 const file = (key: string): SelectableItem => ({type: 'file', key});
@@ -73,9 +65,7 @@ describe('useDelete', () => {
 
   it('does nothing and surfaces an error when there is no username', async () => {
     // Pass undefined directly — render()'s default would otherwise mask it.
-    const {result} = renderHook(() => useDelete('us', 'alice/', undefined, 'alice/'), {
-      wrapper: wrapper()
-    });
+    const {result} = renderHookWithProviders(() => useDelete('us', 'alice/', undefined, 'alice/'));
     let summary: DeleteSummary | null = null;
     await act(async () => {
       summary = await result.current.runDelete([file('alice/a.txt')]);

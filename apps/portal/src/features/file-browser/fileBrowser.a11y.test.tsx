@@ -1,17 +1,36 @@
 import {describe, it, vi, beforeEach} from 'vitest';
-import {expectNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
+import {screen, cleanup} from '@testing-library/react';
+import {expectNoA11yViolations, expectContainerHasNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {CollisionPrompt} from './CollisionPrompt';
 import {DestinationPicker} from './DestinationPicker';
 import {UploadList} from './UploadList';
 import {useUploadQueue} from './uploadQueueContext';
 import type {UploadQueueContextValue} from './uploadQueueContext';
 import type {UploadItem} from './upload.types';
-import {useFileBrowser} from './useFileBrowser';
-import type {UseFileBrowserResult} from './useFileBrowser';
+import {listFiles} from './fileBrowser.service';
 import type {SelectableItem} from './selectionContext';
 
+/**
+ * The AWS boundary, and nothing else (SPEC-154 FR-008). `DestinationPicker` renders through
+ * the REAL `useFileBrowser` — the hook §21 names in its 🔴 list — so the accessibility
+ * guarantee is asserted against the tree a user actually gets, folder rows and all, rather
+ * than against a hand-built `UseFileBrowserResult`. A stubbed hook could return a shape the
+ * component never produces and the axe pass would say nothing about the real one.
+ */
+vi.mock('./fileBrowser.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./fileBrowser.service')>()),
+  listFiles: vi.fn()
+}));
+
+/**
+ * `useUploadQueue` STAYS mocked, and this is the one line of justification FR-008 asks for.
+ * The four states below (uploading / done / failed / collision) are INPUTS to this render,
+ * not outcomes to be driven: reaching them through a real provider means performing four
+ * uploads, which is an upload test with an axe assertion bolted on — and that flow is
+ * SPEC-154 FR-004's subject, tested there against the real provider.
+ */
 vi.mock('./uploadQueueContext', () => ({useUploadQueue: vi.fn()}));
-vi.mock('./useFileBrowser');
 
 const noop = () => {};
 
@@ -45,20 +64,16 @@ function setQueue(items: UploadItem[]) {
   } as UploadQueueContextValue);
 }
 
-const browserBase: UseFileBrowserResult = {
-  files: [],
-  folders: [{type: 'folder', prefix: 'alice/archive/', name: 'archive'}],
-  isLoading: false,
-  error: null,
-  refresh: vi.fn(),
-  hasMore: false,
-  loadMore: vi.fn(),
-  isLoadingMore: false
-};
-
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(useFileBrowser).mockReturnValue(browserBase);
+  vi.mocked(listFiles).mockResolvedValue({
+    success: true,
+    data: {
+      files: [],
+      folders: [{type: 'folder', prefix: 'alice/archive/', name: 'archive'}],
+      isTruncated: false
+    }
+  });
 });
 
 describe('UploadList accessibility (every state)', () => {
@@ -89,8 +104,11 @@ describe('CollisionPrompt accessibility', () => {
 });
 
 describe('DestinationPicker accessibility', () => {
-  it('has no violations', async () => {
-    await expectNoA11yViolations(
+  it('has no violations once the real listing has resolved', async () => {
+    // The container is checked AFTER the folder row arrives, not on first paint: the real
+    // hook renders a loading state first, and axing that would assert nothing about the
+    // populated tree this test is named for.
+    const {container} = renderWithProviders(
       <DestinationPicker
         bucket="us"
         items={[{type: 'file', key: 'alice/docs/f.txt'} satisfies SelectableItem]}
@@ -101,8 +119,12 @@ describe('DestinationPicker accessibility', () => {
         busyLabel="Copying…"
         onConfirm={noop}
         onCancel={noop}
-      />,
-      COMPONENT_AXE_OPTIONS
+      />
     );
+
+    await screen.findByText('archive');
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+    cleanup();
   });
 });
