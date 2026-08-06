@@ -57,7 +57,9 @@ describe('MoveDialog', () => {
     const {user, onMove} = renderDialog();
 
     await user.click(await screen.findByRole('button', {name: /open folder archive/i}));
-    await waitFor(() => expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined, expect.any(AbortSignal))
+    );
 
     await user.click(screen.getByRole('button', {name: /move here/i}));
     expect(onMove).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
@@ -73,9 +75,13 @@ describe('MoveDialog', () => {
 
     // Descend, then the ".." row appears and climbs back to the root.
     await user.click(screen.getByRole('button', {name: /open folder archive/i}));
-    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('us', 'alice/archive/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenLastCalledWith('us', 'alice/archive/', undefined, expect.any(AbortSignal))
+    );
     await user.click(await screen.findByRole('button', {name: /go up to parent folder/i}));
-    await waitFor(() => expect(mock.listFiles).toHaveBeenLastCalledWith('us', 'alice/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenLastCalledWith('us', 'alice/', undefined, expect.any(AbortSignal))
+    );
 
     // The root is a valid destination for items that live in a subfolder.
     const moveHere = screen.getByRole('button', {name: /move here/i});

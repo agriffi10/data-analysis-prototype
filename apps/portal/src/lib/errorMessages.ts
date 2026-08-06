@@ -245,6 +245,42 @@ export function toUserMessage(error: MappableError): UserFacingMessage {
   return GENERIC;
 }
 
+/**
+ * The user-safe SENTENCE for an error — `toUserText(...)`, which is what
+ * 40+ call sites actually wanted.
+ *
+ * Also accepts the `{code?, message?}` pair directly, so the six sites that had been
+ * rebuilding an error object by hand (`toUserMessage({code: e.code, message: e.message})`)
+ * can pass their parts. `toUserMessage` stays for the one consumer that wants the
+ * `title` too — `ErrorBanner`.
+ *
+ * @example
+ * setError(toUserText(result.error));
+ * setError(toUserText({code: outcome.code, message: outcome.message}));
+ */
+export function toUserText(error: MappableError): string {
+  return toUserMessage(error).message;
+}
+
+/**
+ * Report a fire-and-forget failure the user is deliberately NOT being told about.
+ *
+ * For the background writes whose failure must not interrupt what the user is doing —
+ * appending to query history, saving a query — where the choice is between an
+ * interruption nobody asked for and a silence nobody can debug. This is the third
+ * option: one consistent tag, and dev-only, on the same discipline as `logOriginal`
+ * (production never prints, so a user's console never carries our internals).
+ *
+ * @param scope - The subsystem, e.g. `'query-history'`. Becomes `[scope]` in the log.
+ * @param error - The caught value; logged as-is for a developer, never rendered.
+ *
+ * @example
+ * void history.appendEntry(entry).catch((e) => logBackgroundFailure('query-history', e));
+ */
+export function logBackgroundFailure(scope: string, error: unknown): void {
+  if (import.meta.env.DEV) console.warn(`[${scope}] background operation failed:`, error);
+}
+
 function fromRule(rule: ErrorRule, serviceMessage: string | undefined): UserFacingMessage {
   // Passthrough: the service authored user-safe text (possibly parameterized).
   // Guard against an empty/absent message so we still never surface nothing.

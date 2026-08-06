@@ -10,7 +10,9 @@ import {
   getTableDdl,
   runStatementToCompletion,
   stopQuery,
-  isTerminalState
+  isTerminalState,
+  isAbandoned,
+  ABANDONED_CODE
 } from './query.service';
 
 const mockGetClient = getAthenaClient as unknown as MockedFunction<() => Promise<unknown>>;
@@ -429,5 +431,45 @@ describe('getTableDdl', () => {
     expect(result.success).toBe(true);
     const start = send.mock.calls.find((c) => c[0].constructor.name === 'StartQueryExecutionCommand');
     expect(start?.[0].input.QueryString).toBe('SHOW CREATE VIEW alice.foo');
+  });
+});
+
+describe('runStatementToCompletion honours an AbortSignal (SPEC-155 FR-006)', () => {
+  it('stops polling when the caller has navigated away', async () => {
+    // Without this the poller kept asking for ~36 s after the workspace unmounted.
+    let calls = 0;
+    clientWithSend(async () => {
+      calls += 1;
+      return calls === 1 ? {QueryExecutionId: 'q-abandon'} : {QueryExecution: {Status: {State: 'RUNNING'}}};
+    });
+
+    const controller = new AbortController();
+    const pending = runStatementToCompletion({
+      sql: 'DROP TABLE alice.t',
+      database: 'alice',
+      username: 'alice',
+      signal: controller.signal
+    });
+    controller.abort();
+
+    const result = await pending;
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    // Its OWN code, not 'Cancelled' — that one is owned by an upload rule whose text is
+    // "Upload cancelled.", which an abandoned poll would then have announced to a user
+    // who had simply navigated away.
+    expect(result.error.code).toBe(ABANDONED_CODE);
+    expect(isAbandoned(result)).toBe(true);
+  });
+
+  it('polls normally when no signal is given', async () => {
+    let calls = 0;
+    clientWithSend(async () => {
+      calls += 1;
+      return calls === 1 ? {QueryExecutionId: 'q-ok'} : {QueryExecution: {Status: {State: 'SUCCEEDED'}}};
+    });
+
+    const result = await runStatementToCompletion({sql: 'DROP TABLE alice.t', database: 'alice', username: 'alice'});
+    expect(result.success).toBe(true);
   });
 });

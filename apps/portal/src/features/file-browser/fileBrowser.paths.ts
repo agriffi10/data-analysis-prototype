@@ -72,3 +72,55 @@ export function fileExtension(name: string, opts?: {fallback?: string; maxLen?: 
   const ext = name.slice(dot + 1).toUpperCase();
   return opts?.maxLen ? ext.slice(0, opts.maxLen) : ext;
 }
+
+export type BreadcrumbItem = {
+  label: string;
+  prefix: string | undefined;
+};
+
+/**
+ * The crumb trail from the space root down to `prefix`, clamped so nothing above the
+ * root is ever shown — the raw root segment is a username, and `rootLabel` stands in
+ * for it. Two components had written this out: the browser and the destination picker,
+ * whose copy silently lacked the unclamped branch.
+ *
+ * A crumb's `prefix` is `undefined` only in the unclamped (dev-unauth) case, where the
+ * root crumb is "Home" and navigating to it means "no prefix at all".
+ */
+export function buildBreadcrumbs(prefix: string | undefined, rootPrefix: string, rootLabel?: string): BreadcrumbItem[] {
+  if (!rootPrefix) {
+    // No root clamping — standard Home-rooted breadcrumb
+    const crumbs: BreadcrumbItem[] = [{label: 'Home', prefix: undefined}];
+    if (!prefix) return crumbs;
+
+    const parts = prefix.split('/').filter(Boolean);
+    parts.forEach((part, i) => {
+      crumbs.push({
+        label: part,
+        prefix: parts.slice(0, i + 1).join('/') + '/'
+      });
+    });
+
+    return crumbs;
+  }
+
+  // Root-clamped breadcrumb: show only segments at or below rootPrefix. The root
+  // crumb uses rootLabel when provided (so the raw prefix segment — e.g. the
+  // username — is never shown), otherwise the last path segment.
+  const rootParts = rootPrefix.split('/').filter(Boolean);
+  const label = rootLabel ?? rootParts[rootParts.length - 1] ?? rootPrefix;
+  const crumbs: BreadcrumbItem[] = [{label, prefix: rootPrefix}];
+
+  if (!prefix || prefix === rootPrefix) return crumbs;
+
+  const allParts = prefix.split('/').filter(Boolean);
+  const subParts = allParts.slice(rootParts.length);
+  subParts.forEach((part, i) => {
+    crumbs.push({
+      label: part,
+      prefix: [...rootParts, ...subParts.slice(0, i + 1)].join('/') + '/'
+    });
+  });
+
+  return crumbs;
+}

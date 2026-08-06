@@ -1,29 +1,25 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {deleteObjects, deleteFolder} from './fileBrowser.service';
 import type {SelectableItem} from './selectionContext';
+import type {BulkOperationState} from './fileBrowser.types';
 
 /**
  * The outcome surfaced to the UI after a (possibly mixed file + folder) delete:
  * how many objects S3 removed, and any per-item failures to report.
  */
-export type DeleteSummary = {
-  deletedCount: number;
-  /** `message` is technical; the summary banner maps `code` (SPEC-106). */
-  errors: {key: string; message: string; code?: string}[];
-};
+export type DeleteSummary = NonNullable<BulkOperationState['summary']>;
 
-export type UseDeleteResult = {
-  isDeleting: boolean;
-  /** Last completed delete (success or partial). */
-  summary: DeleteSummary | null;
-  /** Systemic failure (e.g. not signed in). */
-  error: string | null;
+/**
+ * Delete's `BulkOperationState` plus the one action only it has. `progress` and
+ * `collision` are always `null`: a delete reports no percentage (it is one batched
+ * call plus a recursive walk, not a per-object stream) and has no overwrite
+ * confirmation to make — the warn-and-confirm happens before it starts.
+ */
+export type UseDeleteResult = BulkOperationState & {
   runDelete: (items: SelectableItem[]) => Promise<DeleteSummary | null>;
-  dismissSummary: () => void;
-  dismissError: () => void;
 };
 
 /**
@@ -46,7 +42,7 @@ export function useDelete(
   rootPrefix: string
 ): UseDeleteResult {
   const queryClient = useQueryClient();
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
   const [summary, setSummary] = useState<DeleteSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +53,7 @@ export function useDelete(
     }
     if (items.length === 0) return null;
 
-    setIsDeleting(true);
+    setIsBusy(true);
     setError(null);
     setSummary(null);
 
@@ -74,8 +70,8 @@ export function useDelete(
     if (fileKeys.length > 0) {
       const result = await deleteObjects({bucket, keys: fileKeys, username});
       if (!result.success) {
-        setError(toUserMessage(result.error).message);
-        setIsDeleting(false);
+        setError(toUserText(result.error));
+        setIsBusy(false);
         return null;
       }
       deleted.push(...result.data.deleted);
@@ -101,16 +97,18 @@ export function useDelete(
 
     await invalidateListing(queryClient, bucket, prefix);
 
-    const result: DeleteSummary = {deletedCount: deleted.length, errors};
+    const result: DeleteSummary = {count: deleted.length, errors};
     setSummary(result);
-    setIsDeleting(false);
+    setIsBusy(false);
     return result;
   }
 
   return {
-    isDeleting,
-    summary,
+    isBusy,
+    progress: null,
     error,
+    summary,
+    collision: null,
     runDelete,
     dismissSummary: () => setSummary(null),
     dismissError: () => setError(null)

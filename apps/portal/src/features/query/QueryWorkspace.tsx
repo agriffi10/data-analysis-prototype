@@ -7,7 +7,14 @@ import {Menu} from '../../components/Menu';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
 import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
-import {runQuery, stopQuery, getTableDdl, runStatementToCompletion, isTerminalState} from './query.service';
+import {
+  runQuery,
+  stopQuery,
+  getTableDdl,
+  runStatementToCompletion,
+  isAbandoned,
+  isTerminalState
+} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
 import {parseS3Url} from '../../lib/s3Url';
@@ -48,7 +55,7 @@ import {CreateViewDialog} from './CreateViewDialog';
 import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {useToast} from '../../components/toastContext';
-import {toUserMessage} from '../../lib/errorMessages';
+import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import {QueryStatusBar} from './QueryStatusBar';
 import {QueryResultsTable} from './QueryResultsTable';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
@@ -154,6 +161,21 @@ function TabExecutionPoller({
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
+  // SPEC-155 FR-006: background statements (Create view, Drop) poll Athena for up to
+  // ~36 s. Leaving the workspace abandons that poller — the statement itself carries on
+  // server-side; what stops is us waiting for it.
+  //
+  // The controller is CREATED IN THE EFFECT, not in a ref initializer. StrictMode runs
+  // mount → cleanup → mount in dev, so a controller made once and aborted in the
+  // cleanup would leave the ref holding an already-aborted signal for the component's
+  // whole life — every Create view and Drop table would submit, then immediately report
+  // failure. Measured; not hypothetical.
+  const backgroundRuns = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    backgroundRuns.current = controller;
+    return () => controller.abort();
+  }, []);
   const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
   // Save-results copy stays within it. SPEC-055: the shared-space bucket (where
@@ -475,7 +497,7 @@ export function QueryWorkspace() {
           dataScannedBytes: status.dataScannedBytes,
           durationMs: status.engineExecutionTimeMillis
         }
-      }).catch((e) => console.warn('[query-history] update failed', e));
+      }).catch((e) => logBackgroundFailure('query-history', e));
 
       // SPEC-077: a user-typed DDL fully-qualifies its own target; refresh that
       // database's schema (there's no active database to assume).
@@ -530,7 +552,7 @@ export function QueryWorkspace() {
             // the QueryStatus/history record for developers (SPEC-106 FR-004).
             failure: {
               statementIndex: cur.currentIndex,
-              reason: toUserMessage({code: status.state, message: status.stateChangeReason}).message
+              reason: toUserText({code: status.state, message: status.stateChangeReason})
             }
           })
         }));
@@ -546,7 +568,7 @@ export function QueryWorkspace() {
           patchRun((cur) => ({
             ...cur,
             done: true,
-            failure: {statementIndex: next.index, reason: toUserMessage(started.error).message}
+            failure: {statementIndex: next.index, reason: toUserText(started.error)}
           }));
           return;
         }
@@ -575,7 +597,7 @@ export function QueryWorkspace() {
             savedQueryId: run.savedQuery.id,
             savedQueryName: run.savedQuery.name
           })
-        }).catch((e) => console.warn('[query-history] append failed', e));
+        }).catch((e) => logBackgroundFailure('query-history', e));
         patchRun((cur) => ({
           ...cur,
           executionId: nextId,
@@ -637,7 +659,7 @@ export function QueryWorkspace() {
           username
         });
         if (!result.success) {
-          const message = toUserMessage(result.error).message;
+          const message = toUserText(result.error);
           // An owned submit installs no run when it fails, so nothing would mark
           // the error as that surface's — hand it to the owner instead of the
           // tab, which the editor shell also reads.
@@ -664,7 +686,7 @@ export function QueryWorkspace() {
             savedQueryId: linkedSaved.id,
             savedQueryName: linkedSaved.name
           })
-        }).catch((e) => console.warn('[query-history] append failed', e));
+        }).catch((e) => logBackgroundFailure('query-history', e));
         updateRuns((r) => ({
           ...r,
           [tabId]: {
@@ -685,7 +707,7 @@ export function QueryWorkspace() {
       } catch (e) {
         // Services don't throw by contract, but an unreported submit would leave
         // a caller waiting on an outcome that never comes.
-        const message = toUserMessage(e).message;
+        const message = toUserText(e);
         if (owner) owner.onOutcome(false, message);
         else setRunErrors((err) => ({...err, [tabId]: message}));
       } finally {
@@ -780,7 +802,7 @@ export function QueryWorkspace() {
         }
         toast.push({
           variant: 'danger',
-          message: `Couldn’t save results. ${toUserMessage(result.error).message}`
+          message: `Couldn’t save results. ${toUserText(result.error)}`
         });
         return;
       }
@@ -884,7 +906,7 @@ export function QueryWorkspace() {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
-    saved.upsert(query).catch((e) => console.warn('[saved-queries] save failed', e));
+    saved.upsert(query).catch((e) => logBackgroundFailure('saved-queries', e));
     tabs.setActiveTabMeta({label: name, savedQueryId: query.id});
     setSaveOpen(false);
     editorRef.current?.focus();
@@ -904,7 +926,7 @@ export function QueryWorkspace() {
   // FR-007: delete a saved query (JSON rewrite, never an S3 delete) and unlink any
   // open tab pointing at it (the tab keeps its SQL; a later Save creates new).
   const handleDeleteSaved = (id: string) => {
-    saved.remove(id).catch((e) => console.warn('[saved-queries] delete failed', e));
+    saved.remove(id).catch((e) => logBackgroundFailure('saved-queries', e));
     tabs.unlinkSavedQuery(id);
   };
 
@@ -942,7 +964,7 @@ export function QueryWorkspace() {
         if (!result.success) {
           toast.push({
             variant: 'danger',
-            message: `Couldn’t load DDL for ${table.name}. ${toUserMessage(result.error).message}`
+            message: `Couldn’t load DDL for ${table.name}. ${toUserText(result.error)}`
           });
           return;
         }
@@ -1092,13 +1114,17 @@ export function QueryWorkspace() {
     const sql = `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`;
     setCreateViewInFlight(true);
     void (async () => {
-      const result = await runStatementToCompletion({sql, database, username});
+      const result = await runStatementToCompletion({sql, database, username, signal: backgroundRuns.current?.signal});
+      // We stopped waiting because the user left. The view is still being created, and
+      // `ToastProvider` sits above the router — so a toast here would surface on
+      // whatever page they went to, about something that did not fail.
+      if (isAbandoned(result)) return;
       setCreateViewInFlight(false);
       setCreateViewOpen(false);
       if (!result.success) {
         toast.push({
           variant: 'danger',
-          message: `Couldn’t create view ${name}. ${toUserMessage(result.error).message}`
+          message: `Couldn’t create view ${name}. ${toUserText(result.error)}`
         });
         return;
       }
@@ -1112,7 +1138,7 @@ export function QueryWorkspace() {
         status: status.state,
         dataScannedBytes: status.dataScannedBytes,
         durationMs: status.engineExecutionTimeMillis
-      }).catch((e) => console.warn('[query-history] append failed', e));
+      }).catch((e) => logBackgroundFailure('query-history', e));
 
       if (status.state === 'SUCCEEDED') {
         void invalidateSchema(queryClient, database);
@@ -1120,7 +1146,7 @@ export function QueryWorkspace() {
       } else {
         toast.push({
           variant: 'danger',
-          message: `Couldn’t create view ${name}. ${toUserMessage({code: status.state, message: status.stateChangeReason}).message}`
+          message: `Couldn’t create view ${name}. ${toUserText({code: status.state, message: status.stateChangeReason})}`
         });
       }
     })();
@@ -1136,14 +1162,16 @@ export function QueryWorkspace() {
       const result = await runStatementToCompletion({
         sql,
         database,
-        username
+        username,
+        signal: backgroundRuns.current?.signal
       });
+      if (isAbandoned(result)) return; // see handleCreateView — nobody to tell
       setDropInFlight(false);
       setDropping(null);
       if (!result.success) {
         toast.push({
           variant: 'danger',
-          message: `Couldn’t drop ${table.name}. ${toUserMessage(result.error).message}`
+          message: `Couldn’t drop ${table.name}. ${toUserText(result.error)}`
         });
         return;
       }
@@ -1157,7 +1185,7 @@ export function QueryWorkspace() {
         status: status.state,
         dataScannedBytes: status.dataScannedBytes,
         durationMs: status.engineExecutionTimeMillis
-      }).catch((e) => console.warn('[query-history] append failed', e));
+      }).catch((e) => logBackgroundFailure('query-history', e));
 
       if (status.state === 'SUCCEEDED') {
         void invalidateSchema(queryClient, database);
@@ -1165,7 +1193,7 @@ export function QueryWorkspace() {
       } else {
         toast.push({
           variant: 'danger',
-          message: `Couldn’t drop ${table.name}. ${toUserMessage({code: status.state, message: status.stateChangeReason}).message}`
+          message: `Couldn’t drop ${table.name}. ${toUserText({code: status.state, message: status.stateChangeReason})}`
         });
       }
     })();
@@ -1192,7 +1220,7 @@ export function QueryWorkspace() {
     runErrors[activeTabId] ??
     batchFailureMessage ??
     (activeStatus?.state === 'FAILED'
-      ? toUserMessage({code: activeStatus.state, message: activeStatus.stateChangeReason}).message
+      ? toUserText({code: activeStatus.state, message: activeStatus.stateChangeReason})
       : null);
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;

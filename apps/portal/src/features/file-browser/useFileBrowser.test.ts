@@ -81,7 +81,7 @@ describe('useFileBrowser', () => {
     const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket', 'docs/'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(mockListFiles).toHaveBeenCalledWith('my-bucket', 'docs/', undefined);
+    expect(mockListFiles).toHaveBeenCalledWith('my-bucket', 'docs/', undefined, expect.any(AbortSignal));
   });
 
   it('hides the prefix marker from the listing by exact key (SPEC-014 FR-002)', async () => {
@@ -137,6 +137,6 @@ describe('useFileBrowser', () => {
     await waitFor(() => expect(result.current.hasMore).toBe(false));
     // Merged across pages and globally re-sorted (a before b).
     expect(result.current.files.map((f) => f.name)).toEqual(['a.txt', 'b.txt']);
-    expect(mockListFiles).toHaveBeenNthCalledWith(2, 'my-bucket', 'p/', 'T2');
+    expect(mockListFiles).toHaveBeenNthCalledWith(2, 'my-bucket', 'p/', 'T2', expect.any(AbortSignal));
   });
 });

@@ -225,6 +225,8 @@ describe('listFiles', () => {
     await listFiles('test-bucket', 'some/prefix/');
 
     expect(mockSend).toHaveBeenCalledOnce();
+    // The second argument is the SDK's per-call options, now carrying the caller's
+    // AbortSignal (SPEC-155 FR-006) — undefined here because no signal was passed.
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         input: {
@@ -234,7 +236,8 @@ describe('listFiles', () => {
           MaxKeys: LISTING_PAGE_SIZE,
           ContinuationToken: undefined
         }
-      })
+      }),
+      {abortSignal: undefined}
     );
   });
 
@@ -258,7 +261,8 @@ describe('listFiles', () => {
           ContinuationToken: 'TOKEN-1',
           MaxKeys: LISTING_PAGE_SIZE
         })
-      })
+      }),
+      {abortSignal: undefined}
     );
   });
 
@@ -1387,7 +1391,6 @@ describe('getDownloadUrl', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.url).toBe('https://signed.example/report.pdf');
-    expect(typeof result.data.expiresAt).toBe('string');
 
     const [, command, options] = mockGetSignedUrl.mock.calls[0];
     expect(command).toBeInstanceOf(GetObjectCommand);
@@ -1752,5 +1755,37 @@ describe('createFolder', () => {
     if (result.success) return;
     expect(result.error.code).toBe('Collision');
     expect(mockSend).toHaveBeenCalledTimes(1); // only the HEAD
+  });
+});
+
+describe('getDownloadUrl escapes the Content-Disposition filename (SPEC-155 FR-007)', () => {
+  /** The `ResponseContentDisposition` the presigner was handed. */
+  function disposition(): string {
+    const command = mockGetSignedUrl.mock.calls[0][1] as {input: {ResponseContentDisposition?: string}};
+    return command.input.ResponseContentDisposition ?? '';
+  }
+
+  it('escapes a double quote, which S3 allows in a key and which would end the header value early', async () => {
+    mockGetSignedUrl.mockResolvedValue('https://signed.example/x');
+
+    await getDownloadUrl({bucket: 'us', key: 'alice/we"rd.csv', fileName: 'we"rd.csv'});
+
+    expect(disposition()).toBe('attachment; filename="we\\"rd.csv"');
+  });
+
+  it('escapes backslashes BEFORE quotes, so an escape is never itself re-escaped', async () => {
+    mockGetSignedUrl.mockResolvedValue('https://signed.example/x');
+
+    await getDownloadUrl({bucket: 'us', key: 'alice/a\\b.csv', fileName: 'a\\b.csv'});
+
+    expect(disposition()).toBe('attachment; filename="a\\\\b.csv"');
+  });
+
+  it('leaves an ordinary name untouched', async () => {
+    mockGetSignedUrl.mockResolvedValue('https://signed.example/x');
+
+    await getDownloadUrl({bucket: 'us', key: 'alice/report.csv', fileName: 'report.csv'});
+
+    expect(disposition()).toBe('attachment; filename="report.csv"');
   });
 });

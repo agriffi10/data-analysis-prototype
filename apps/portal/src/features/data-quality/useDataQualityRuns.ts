@@ -3,7 +3,7 @@ import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {isConnectionUsable} from '../query/query.types';
-import {toUserMessage} from '../../lib/errorMessages';
+import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import {spaceBuckets} from '../../lib/userSpace';
 import {dataQualityKeys} from './dataQualityKeys';
 import {getRunsIndex} from './dataQualityRuns.service';
@@ -90,9 +90,9 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
       for (const {source, result} of failed) {
         // A skipped space is operator information, not a user-facing error: the page still
         // renders every space that did load.
-        console.warn(
-          `[data-quality] skipping runs for space "${source.space}":`,
-          result.success ? '' : result.error.message
+        logBackgroundFailure(
+          'data-quality',
+          `skipping runs for space "${source.space}": ${result.success ? '' : result.error.message}`
         );
       }
       if (failed.length === settled.length) {
@@ -115,7 +115,7 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
   return {
     runs: query.data ?? [],
     isLoading: connectionsLoading || (sources.length > 0 && query.isPending),
-    error: query.error ? toUserMessage(query.error).message : undefined,
+    error: query.error ? toUserText(query.error) : undefined,
     refresh
   };
 }

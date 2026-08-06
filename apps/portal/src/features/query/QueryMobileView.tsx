@@ -3,7 +3,7 @@ import {Banner} from '../../components/Banner';
 import {DocumentIcon} from '../../components/icons';
 import {Pager} from '../../components/Pager';
 import {cx} from '../../lib/cx';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {formatRelativeTime} from '../../lib/format';
@@ -125,7 +125,7 @@ export function QueryMobileView({
           <Banner
             variant="danger"
             title={tab === 'saved' ? 'Couldn’t load saved queries.' : 'Couldn’t load history.'}>
-            {toUserMessage(error).message}
+            {toUserText(error)}
           </Banner>
         )}
 

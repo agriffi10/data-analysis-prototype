@@ -3,8 +3,6 @@
 export type DownloadUrl = {
   /** Presigned GetObject URL. */
   url: string;
-  /** ISO timestamp the URL stops working. */
-  expiresAt: string;
 };
 
 export type UploadResult = {key: string};
@@ -68,3 +66,37 @@ export const PART_CONCURRENCY = 4;
 const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 const envMax = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES);
 export const MAX_UPLOAD_BYTES = Number.isFinite(envMax) && envMax > 0 ? envMax : DEFAULT_MAX_UPLOAD_BYTES;
+
+/**
+ * One failed item in a bulk operation. `key` is the S3 key or prefix that failed —
+ * the RAW path, not a label, so the render site owns how much of it to show.
+ *
+ * `message` is technical and must never be rendered; the banner maps `code` through
+ * `toUserMessage` (SPEC-106).
+ */
+export type BulkOperationError = {key: string; message: string; code?: string};
+
+/**
+ * The feedback surface of a bulk file operation — delete, move, copy.
+ *
+ * Three hooks had grown near-identical shapes that differed only in the names
+ * (`deletedCount`/`movedCount`/`copiedCount`, `errors[].key` vs `errors[].item`), and
+ * `FileBrowser` rendered the same four blocks three times to match. One shape, one
+ * renderer: `OperationFeedback`.
+ *
+ * An operation that cannot produce one of these reports it as absent, never as a
+ * degenerate value — delete has no progress and no batch collision, so both are `null`.
+ */
+export type BulkOperationState = {
+  isBusy: boolean;
+  /** 0..100 while a folder operation runs; `null` when there is nothing to report. */
+  progress: number | null;
+  /** A systemic failure that stopped the whole operation. Dismissible. */
+  error: string | null;
+  /** The last completed run: how many succeeded, and which items didn't. */
+  summary: {count: number; errors: BulkOperationError[]} | null;
+  /** One Overwrite-all/Cancel confirmation covering the batch, where the op has one. */
+  collision: {count: number; onOverwriteAll: () => void; onCancel: () => void} | null;
+  dismissError: () => void;
+  dismissSummary: () => void;
+};

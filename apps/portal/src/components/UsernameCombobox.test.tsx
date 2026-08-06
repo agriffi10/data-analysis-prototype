@@ -329,14 +329,13 @@ describe('UsernameCombobox — an unlisted name is always accepted (FR-005)', ()
 
 describe('UsernameCombobox — Escape in the real composition', () => {
   /**
-   * Mirrors `ManageMembersDrawer`: a Modal inside a Drawer, with the drawer's `closeOnEscape`
-   * GATED on the modal being open.
+   * Mirrors `ManageMembersDrawer`: a Modal inside a Drawer, exactly as it ships — no
+   * `closeOnEscape` gate, because since SPEC-155 FR-006 `useEscapeKey` dispatches by
+   * TREE DEPTH, so the nested modal owns Escape and the drawer stays put.
    *
-   * The gate is not decoration. Both `Modal` and `Drawer` register **document-level** Escape
-   * listeners through `useEscapeKey`, so with a bare Modal inside a bare Drawer one keydown
-   * closes both and the stated order is unreachable. The shipped order exists only because
-   * `ManageMembersDrawer` passes `closeOnEscape={!addOpen && !removing}` — so a fixture without
-   * that gate would fail, and the combobox would get blamed for something it does not control.
+   * That layering is not decoration for this test: both `Modal` and `Drawer` register
+   * document-level Escape listeners, and if the wrong one won, one keydown would close
+   * both and the combobox would get blamed for something it does not control.
    */
   function DrawerFixture({onDrawerClose, onModalClose}: {onDrawerClose: () => void; onModalClose: () => void}) {
     const [modalOpen, setModalOpen] = useState(true);
@@ -344,8 +343,7 @@ describe('UsernameCombobox — Escape in the real composition', () => {
       <Drawer
         open
         title="Members"
-        onClose={onDrawerClose}
-        closeOnEscape={!modalOpen}>
+        onClose={onDrawerClose}>
         {modalOpen && (
           <Modal
             ariaLabel="Add members"

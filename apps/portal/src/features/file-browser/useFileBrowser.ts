@@ -36,10 +36,12 @@ export function useFileBrowser(bucket: string, prefix?: string, markerKey?: stri
   // continuation token; pages accumulate in query.data.pages.
   const query = useInfiniteQuery({
     queryKey: fileBrowserKeys.list(bucket, normalizedPrefix),
-    queryFn: async ({pageParam}) => {
+    queryFn: async ({pageParam, signal}) => {
       // The service never throws; unwrap its ServiceResult and throw here so
-      // TanStack Query treats a failed listing as a query error.
-      const result = await listFiles(bucket, prefix, pageParam);
+      // TanStack Query treats a failed listing as a query error. `signal` is TanStack's
+      // own per-query signal — it fires when the query is cancelled (the last observer
+      // unmounts, or the key changes), so leaving a folder stops its listing request.
+      const result = await listFiles(bucket, prefix, pageParam, signal);
       return unwrap(result);
     },
     initialPageParam: undefined as string | undefined,

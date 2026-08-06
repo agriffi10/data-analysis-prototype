@@ -1,13 +1,11 @@
-import {useState} from 'react';
 import {useObjectMetadata} from './useObjectMetadata';
 import type {ObjectMetadata} from './fileBrowser.types';
 import type {S3FileItem} from '../../types/s3.types';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {Button} from '../../components/Button';
 import {DownloadIcon, PencilIcon} from '../../components/icons';
 import {Drawer} from '../../components/Drawer';
-import {getDownloadUrl} from './fileBrowser.service';
-import {triggerBrowserDownload} from './fileBrowser.download';
+import {useFileDownload} from './useFileDownload';
 import {formatSize} from './fileBrowser.format';
 import {relativePath} from './fileBrowser.paths';
 import {DetailField} from './DetailField';
@@ -38,18 +36,8 @@ function PanelActions({
   canModify: boolean;
   onRequestRename: (file: S3FileItem) => void;
 }) {
-  const [downloading, setDownloading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function download() {
-    if (downloading) return;
-    setDownloading(true);
-    setError(null);
-    const result = await getDownloadUrl({bucket, key: file.key, fileName: file.name});
-    setDownloading(false);
-    if (result.success) triggerBrowserDownload(result.data.url);
-    else setError(`Could not download ${file.name}. ${toUserMessage(result.error).message}`);
-  }
+  const dl = useFileDownload(bucket);
+  const downloading = dl.downloadingKey === file.key;
 
   return (
     <div className="mb-5 flex flex-col gap-2">
@@ -57,7 +45,7 @@ function PanelActions({
         <Button
           variant="primary"
           className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
-          onClick={() => void download()}
+          onClick={() => void dl.download(file)}
           disabled={downloading}
           aria-busy={downloading}
           aria-label={`Download ${file.name}`}>
@@ -75,11 +63,11 @@ function PanelActions({
           </Button>
         )}
       </div>
-      {error && (
+      {dl.error && (
         <div
           role="alert"
           className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm text-danger">
-          {error}
+          {dl.error}
         </div>
       )}
     </div>
@@ -195,7 +183,7 @@ export function MetadataPanel({bucket, file, rootPrefix, canModify, onRequestRen
           role="alert"
           className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm">
           <p className="font-medium text-danger">Couldn’t load details</p>
-          <p className="mt-1 text-danger/80">{toUserMessage(error).message}</p>
+          <p className="mt-1 text-danger/80">{toUserText(error)}</p>
         </div>
       )}
 

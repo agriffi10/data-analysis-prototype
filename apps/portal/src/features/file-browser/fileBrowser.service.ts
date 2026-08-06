@@ -46,16 +46,17 @@ const BULK_KEY_PAGE_SIZE = 1000;
 export async function listFiles(
   bucket: string,
   prefix?: string,
-  continuationToken?: string
+  continuationToken?: string,
+  abortSignal?: AbortSignal
 ): Promise<ServiceResult<FileListPage>> {
   if (devUnauthenticated) {
-    return listWithClient(s3Client, bucket, prefix, continuationToken);
+    return listWithClient(s3Client, bucket, prefix, continuationToken, abortSignal);
   }
 
   const clientResult = await getS3Client();
   if (!clientResult.success) return clientResult;
 
-  const result = await listWithClient(clientResult.data, bucket, prefix, continuationToken);
+  const result = await listWithClient(clientResult.data, bucket, prefix, continuationToken, abortSignal);
   if (result.success || !isExpiryError(result.error.code)) return result;
 
   // Credentials expired mid-session — refresh once and retry transparently.
@@ -68,7 +69,8 @@ async function listWithClient(
   client: S3Client,
   bucket: string,
   prefix?: string,
-  continuationToken?: string
+  continuationToken?: string,
+  abortSignal?: AbortSignal
 ): Promise<ServiceResult<FileListPage>> {
   try {
     const command = new ListObjectsV2Command({
@@ -79,7 +81,10 @@ async function listWithClient(
       ContinuationToken: continuationToken
     });
 
-    const response = await client.send(command);
+    // SPEC-155 FR-006: the SDK aborts the in-flight request, not just the promise —
+    // navigating out of a folder mid-listing stops the request on the wire. TanStack
+    // Query hands the caller a signal per query; this is where it lands.
+    const response = await client.send(command, {abortSignal});
 
     const folders = (response.CommonPrefixes ?? [])
       .filter((p): p is {Prefix: string} => typeof p.Prefix === 'string')
@@ -786,12 +791,14 @@ export async function getDownloadUrl(params: {
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
-      ResponseContentDisposition: `attachment; filename="${downloadName}"`
+      // S3 permits `"` in a key, and a quote in the name would close the quoted-string
+      // early and let the rest be read as Content-Disposition parameters. RFC 6266
+      // quoted-string escaping: backslash the backslashes first, then the quotes.
+      ResponseContentDisposition: `attachment; filename="${downloadName.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
     });
 
     const url = await getSignedUrl(client, command, {expiresIn});
-    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-    return {success: true, data: {url, expiresAt}};
+    return {success: true, data: {url}};
   } catch (err) {
     return toServiceError(err, 'Failed to generate download URL');
   }
@@ -906,12 +913,18 @@ export async function uploadFile(params: {
       });
     }
 
-    if (signal) {
-      signal.addEventListener('abort', () => void upload.abort(), {once: true});
-    }
+    // `{once: true}` fires the listener at most once but does NOT remove it when the
+    // upload finishes normally — so a long-lived queue signal accumulated one closure
+    // per completed file, each holding its Upload alive. Removed in `finally`.
+    const onAbort = () => void upload.abort();
+    signal?.addEventListener('abort', onAbort, {once: true});
 
-    await upload.done();
-    return {success: true, data: {key}};
+    try {
+      await upload.done();
+      return {success: true, data: {key}};
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
   } catch (err) {
     if (signal?.aborted) {
       return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};

@@ -3,7 +3,7 @@ import {useQuery} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
 import {isConnectionUsable} from '../query/query.types';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {unwrap} from '../../lib/serviceResult';
 import {spaceBuckets} from '../../lib/userSpace';
 import {dataQualityKeys} from './dataQualityKeys';
@@ -94,7 +94,7 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
     report: query.data,
     space,
     isLoading: connectionsLoading || (!!space && query.isPending),
-    error: query.error ? toUserMessage(query.error).message : undefined,
+    error: query.error ? toUserText(query.error) : undefined,
     isInaccessible
   };
 }

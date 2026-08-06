@@ -103,7 +103,9 @@ beforeEach(() => {
 describe('FilesPage — personal space (SPEC-013/044)', () => {
   it('defaults to the personal space: lists {username}/ in the user bucket, writable', async () => {
     renderAt('/files');
-    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined, expect.any(AbortSignal))
+    );
     // The username is the root breadcrumb crumb, and write controls are present.
     expect(rootCrumb().getByText('alice')).toBeInTheDocument();
     expect(await screen.findByRole('button', {name: 'New folder'})).toBeInTheDocument();
@@ -111,19 +113,25 @@ describe('FilesPage — personal space (SPEC-013/044)', () => {
 
   it('seeds the browser at an in-space ?prefix= deep link', async () => {
     renderAt('/files?prefix=alice%2Fsales%2F');
-    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/sales/', undefined));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/sales/', undefined, expect.any(AbortSignal))
+    );
   });
 
   it('ignores an out-of-space ?prefix= and falls back to the space root', async () => {
     renderAt('/files?prefix=bob%2Fsecret%2F');
-    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined, expect.any(AbortSignal))
+    );
   });
 });
 
 describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
   it('targets the shared bucket + space root for an active ?space=', async () => {
     renderAt('/files?space=marketing_data');
-    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('shared-bucket', 'marketing_data/', undefined));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('shared-bucket', 'marketing_data/', undefined, expect.any(AbortSignal))
+    );
     expect(rootCrumb().getByText('marketing_data')).toBeInTheDocument();
   });
 
@@ -131,14 +139,18 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
     // Unknown space → fallback; the browser targets the personal space and a
     // non-blocking status notice explains the switch.
     const unknown = renderAt('/files?space=ghost');
-    await waitFor(() => expect(listFiles).toHaveBeenLastCalledWith('user-bucket', 'alice/', undefined));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenLastCalledWith('user-bucket', 'alice/', undefined, expect.any(AbortSignal))
+    );
     expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
     unknown.unmount();
 
     // A provisioning (not-yet-usable) space resolves the same way.
     listFiles.mockClear();
     renderAt('/files?space=sales_2026');
-    await waitFor(() => expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined, expect.any(AbortSignal))
+    );
     expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
   });
 });

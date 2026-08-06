@@ -1,6 +1,6 @@
 import {useCallback, useRef, useState} from 'react';
 import {useToast} from '../../components/toastContext';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {enqueueQualityCheck} from './dataQuality.service';
 import {locationLabel} from './dataQuality.format';
 import type {DataQualitySpace} from './dataQuality.types';
@@ -82,7 +82,7 @@ export function useDataQualityCheck(): UseDataQualityCheckResult {
             });
           }
         } else {
-          toast.push({variant: 'danger', message: toUserMessage(result.error).message});
+          toast.push({variant: 'danger', message: toUserText(result.error)});
         }
         return result.success;
       } finally {

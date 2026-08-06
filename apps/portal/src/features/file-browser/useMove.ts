@@ -1,18 +1,15 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {moveObject, moveFolder, uploadPercent} from './fileBrowser.service';
 import {leafName, fileParent, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
+import type {BulkOperationState} from './fileBrowser.types';
 
 // Aggregated outcome of a rename or (possibly multi-item, recursive) move:
 // how many objects S3 relocated, and any per-item/per-key failures (FR-004).
-export type MoveSummary = {
-  movedCount: number;
-  /** `message` is technical; the summary banner maps `code` (SPEC-106). */
-  errors: {key: string; message: string; code?: string}[];
-};
+export type MoveSummary = NonNullable<BulkOperationState['summary']>;
 
 // A rename hit an existing destination (FR-005). The user picks Overwrite or a
 // new name; either re-runs the rename. Single item, so a new name is offered.
@@ -32,19 +29,14 @@ type MoveCollision = {
   onCancel: () => void;
 };
 
-export type UseMoveResult = {
-  isBusy: boolean;
-  progress: number | null; // 0..100 while a folder operation runs, else null
-  error: string | null;
-  summary: MoveSummary | null;
+export type UseMoveResult = BulkOperationState & {
+  /** A rename hit an existing name: single item, so a NEW NAME is offered as well
+   *  as Overwrite — which is why it is not the shared `collision`. */
   renameCollision: RenameCollision | null;
-  moveCollision: MoveCollision | null;
   renameItem: (item: SelectableItem, newName: string) => void;
   // `destBucket` defaults to the source bucket; pass a different connection's
   // bucket to move across connections (feedback 2026-06-30).
   moveItems: (items: SelectableItem[], destPrefix: string, destBucket?: string) => void;
-  dismissError: () => void;
-  dismissSummary: () => void;
   cancelCollision: () => void;
 };
 
@@ -151,13 +143,13 @@ export function useMove(
         });
         return;
       }
-      setError(toUserMessage({code: outcome.code, message: outcome.message}).message);
+      setError(toUserText({code: outcome.code, message: outcome.message}));
       setIsBusy(false);
       return;
     }
 
     await invalidate([sourcePrefix]);
-    setSummary({movedCount: outcome.moved, errors: outcome.errors});
+    setSummary({count: outcome.moved, errors: outcome.errors});
     setIsBusy(false);
   }
 
@@ -240,7 +232,7 @@ export function useMove(
 
   async function finalizeMove(acc: Acc, destPrefix: string, destBucket: string) {
     await invalidateMove(destPrefix, destBucket);
-    setSummary({movedCount: acc.moved, errors: acc.errors});
+    setSummary({count: acc.moved, errors: acc.errors});
     setIsBusy(false);
   }
 
@@ -250,7 +242,7 @@ export function useMove(
     error,
     summary,
     renameCollision,
-    moveCollision,
+    collision: moveCollision,
     renameItem: (item, newName) => void runRename(item, newName, false),
     moveItems: (items, destPrefix, destBucket = bucket) =>
       void runMove(items, destPrefix, destBucket, false, {moved: 0, errors: []}),

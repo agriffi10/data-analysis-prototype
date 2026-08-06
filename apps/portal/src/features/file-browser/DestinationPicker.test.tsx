@@ -74,7 +74,9 @@ describe('DestinationPicker', () => {
     const {user, onConfirm} = renderPicker();
 
     await user.click(await screen.findByRole('button', {name: /open folder archive/i}));
-    await waitFor(() => expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined, expect.any(AbortSignal))
+    );
 
     await user.click(screen.getByRole('button', {name: /copy here/i}));
     expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
@@ -158,11 +160,15 @@ describe('DestinationPicker', () => {
     const {user, onConfirm} = renderPicker({destinations, currentPrefix: 'alice/docs/'});
     const selector = screen.getByLabelText(/destination connection/i);
     // Default selection is the source space (us / alice/).
-    await waitFor(() => expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/', undefined, expect.any(AbortSignal))
+    );
 
     // Switch to the shared connection: browsing re-targets its bucket + root.
     await user.selectOptions(selector, 'team');
-    await waitFor(() => expect(mock.listFiles).toHaveBeenCalledWith('shared', 'team/', undefined));
+    await waitFor(() =>
+      expect(mock.listFiles).toHaveBeenCalledWith('shared', 'team/', undefined, expect.any(AbortSignal))
+    );
 
     // Confirming reports the shared bucket as the destination bucket.
     await user.click(screen.getByRole('button', {name: /copy here/i}));

@@ -1,20 +1,17 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../../lib/queryClient';
-import {toUserMessage} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {copyObject, copyFolder, objectExists, uploadPercent, validateFolderName} from './fileBrowser.service';
 import {leafName, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
+import type {BulkOperationState} from './fileBrowser.types';
 
 /**
  * Aggregated outcome of a (possibly multi-item, recursive) copy: how many
  * objects S3 duplicated, and any per-item/per-key failures.
  */
-export type CopySummary = {
-  copiedCount: number;
-  /** `message` is technical; the summary banner maps `code` (SPEC-106). */
-  errors: {item: string; message: string; code?: string}[];
-};
+export type CopySummary = NonNullable<BulkOperationState['summary']>;
 
 // A copy into a different folder hit existing destination objects. One
 // confirmation covers the whole batch: Overwrite all (re-run just the collided
@@ -37,18 +34,10 @@ type SameFolderPrompt = {
   onCancel: () => void;
 };
 
-export type UseCopyResult = {
-  isBusy: boolean;
-  /** 0..100 while a folder operation runs, else null. */
-  progress: number | null;
-  error: string | null;
-  summary: CopySummary | null;
-  copyCollision: CopyCollision | null;
+export type UseCopyResult = BulkOperationState & {
   sameFolderPrompt: SameFolderPrompt | null;
   /** `destBucket` defaults to the source bucket; pass a different connection's bucket to copy across connections. */
   copyItems: (items: SelectableItem[], destPrefix: string, destBucket?: string) => void;
-  dismissError: () => void;
-  dismissSummary: () => void;
   cancelCollision: () => void;
 };
 
@@ -102,6 +91,10 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   // Runs a same-folder copy of a single item to an explicit (already-validated,
   // non-colliding) name within `destPrefix`. Folder copies recurse.
   async function runSameFolderCopy(item: SelectableItem, destPrefix: string, name: string) {
+    if (!username) {
+      setError('You must be signed in to copy files.');
+      return;
+    }
     setIsBusy(true);
     setError(null);
     setSummary(null);
@@ -115,7 +108,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         bucket,
         sourceKey: item.key,
         destKey: `${destPrefix}${name}`,
-        username: username!,
+        username,
         // The name was HEAD-checked free (or the user picked it), but a genuine
         // collision still gets a clear failure rather than a silent clobber.
         overwrite: false
@@ -128,7 +121,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
         bucket,
         sourcePrefix: item.prefix,
         destPrefix: `${destPrefix}${name}/`,
-        username: username!,
+        username,
         onProgress: (p, t) => setProgress(uploadPercent(p, t))
       });
       outcome = r.success
@@ -136,7 +129,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
             ok: true,
             copied: r.data.copied.length,
             errors: r.data.errors.map((e) => ({
-              item: e.key,
+              key: e.key,
               message: e.message,
               code: e.code
             }))
@@ -147,20 +140,24 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     setProgress(null);
 
     if (!outcome.ok) {
-      setError(toUserMessage({code: outcome.code, message: outcome.message}).message);
+      setError(toUserText({code: outcome.code, message: outcome.message}));
       setIsBusy(false);
       return;
     }
 
     // Same-folder copy is always within the source bucket.
     await invalidateDest(destPrefix, bucket);
-    setSummary({copiedCount: outcome.copied, errors: outcome.errors});
+    setSummary({count: outcome.copied, errors: outcome.errors});
     setIsBusy(false);
   }
 
   // Opens the editable same-folder prompt with a freshly-computed non-colliding
   // name. Single item only (the destination is its own parent).
   async function startSameFolderCopy(item: SelectableItem, destPrefix: string) {
+    if (!username) {
+      setError('You must be signed in to copy files.');
+      return;
+    }
     setIsBusy(true);
     setError(null);
     setSummary(null);
@@ -197,6 +194,10 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     overwrite: boolean,
     acc: Acc
   ) {
+    if (!username) {
+      setError('You must be signed in to copy files.');
+      return;
+    }
     setIsBusy(true);
     setError(null);
     setSummary(null);
@@ -211,31 +212,31 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
           bucket,
           sourceKey: item.key,
           destKey: destPrefix + leafName(item.key),
-          username: username!,
+          username,
           destBucket,
           overwrite
         });
         if (r.success) acc.copied += 1;
         else if (r.error.code === 'Collision') collided.push(item);
-        else acc.errors.push({item: item.key, message: r.error.message, code: r.error.code});
+        else acc.errors.push({key: item.key, message: r.error.message, code: r.error.code});
       } else {
         const {leaf} = folderParts(item.prefix);
         const r = await copyFolder({
           bucket,
           sourcePrefix: item.prefix,
           destPrefix: `${destPrefix}${leaf}/`,
-          username: username!,
+          username,
           destBucket,
           overwrite,
           onProgress: (p, t) => setProgress(uploadPercent(p, t))
         });
         if (r.success) {
           acc.copied += r.data.copied.length;
-          acc.errors.push(...r.data.errors.map((e) => ({item: e.key, message: e.message, code: e.code})));
+          acc.errors.push(...r.data.errors.map((e) => ({key: e.key, message: e.message, code: e.code})));
         } else if (r.error.code === 'Collision') {
           collided.push(item);
         } else {
-          acc.errors.push({item: item.prefix, message: r.error.message, code: r.error.code});
+          acc.errors.push({key: item.prefix, message: r.error.message, code: r.error.code});
         }
       }
     }
@@ -264,7 +265,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
   async function finalizeCopy(acc: Acc, destPrefix: string, destBucket: string) {
     // Copy is additive: only the DESTINATION listing changed.
     await invalidateDest(destPrefix, destBucket);
-    setSummary({copiedCount: acc.copied, errors: acc.errors});
+    setSummary({count: acc.copied, errors: acc.errors});
     setIsBusy(false);
   }
 
@@ -295,7 +296,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     progress,
     error,
     summary,
-    copyCollision,
+    collision: copyCollision,
     sameFolderPrompt,
     copyItems,
     dismissError: () => setError(null),
