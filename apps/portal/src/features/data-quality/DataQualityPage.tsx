@@ -6,6 +6,7 @@ import {IconButton} from '../../components/IconButton';
 import {PageLayout} from '../../components/PageLayout';
 import {Pager} from '../../components/Pager';
 import {cx} from '../../lib/cx';
+import {spaceBuckets} from '../../lib/userSpace';
 import {usePageTitle} from '../../hooks/usePageTitle';
 import {useAuth} from '../auth';
 import {useConnections} from '../query/useConnections';
@@ -41,12 +42,8 @@ export function DataQualityPage() {
   // prefix, and a third derivation of that mapping would be the one that drifts.
   const {user} = useAuth();
   const {connections} = useConnections(user?.username ?? null);
-  const spaces = usableSpaceTargets(
-    connections,
-    user?.username ?? null,
-    import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
-    import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined
-  );
+  const buckets = spaceBuckets();
+  const spaces = usableSpaceTargets(connections, user?.username ?? null, buckets.user, buckets.shared);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [started, setStarted] = useState<string | null>(null);
   const {start: startCheck, isPending} = useDataQualityCheck();

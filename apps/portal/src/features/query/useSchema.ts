@@ -2,6 +2,7 @@ import {useQueries, useQuery, type QueryClient} from '@tanstack/react-query';
 import {getDatabase, listTables} from './glue.service';
 import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
+import {NO_KEY} from '../../lib/queryKeys';
 import type {GlueTableSummary} from './query.types';
 import type {DatabaseSchema} from './sqlCompletions';
 
@@ -23,7 +24,7 @@ async function fetchSchema(db: string): Promise<SchemaData> {
  */
 export function useSchema(databaseName: string | null) {
   return useQuery({
-    queryKey: queryKeys.schema(databaseName ?? '__none__'),
+    queryKey: queryKeys.schema(databaseName ?? NO_KEY),
     enabled: databaseName !== null,
     queryFn: () => fetchSchema(databaseName as string)
   });

@@ -1,8 +1,5 @@
-import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument} from '../../lib/s3Json';
+import {ok} from '../../lib/serviceResult';
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
@@ -126,19 +123,11 @@ function parseCache(body: string | undefined): SharedConnectionsCache {
  * the empty state (personal-only), not an error.
  */
 export async function readSharedConnectionsCache(username: string): Promise<ServiceResult<SharedConnectionsCache>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(
-        new GetObjectCommand({
-          Bucket: userSpaceBucket(),
-          Key: cacheKey(username)
-        })
-      );
-      const body = await response.Body?.transformToString();
-      return {success: true, data: parseCache(body)};
-    } catch (err) {
-      if (isNotFound(err)) return {success: true, data: emptyCache()};
-      return toServiceError(err, 'Failed to load shared connections');
-    }
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: cacheKey(username),
+    parse: (body) => ok(parseCache(body)),
+    onMissing: () => ({success: true, data: emptyCache()}),
+    fallbackMessage: 'Failed to load shared connections'
   });
 }

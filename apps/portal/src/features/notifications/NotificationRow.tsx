@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {formatRelativeTime} from '../query/query.format';
+import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {isSafeInAppPath} from './notificationLink';

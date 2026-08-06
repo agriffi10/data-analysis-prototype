@@ -3,6 +3,7 @@ import {useMutation, useQuery, useQueryClient, type QueryClient} from '@tanstack
 import {getNotifications, enqueueNotificationAction} from './notifications.service';
 import {unwrap} from '../../lib/serviceResult';
 import {notificationsKeys} from './notificationsKeys';
+import {NO_KEY} from '../../lib/queryKeys';
 import type {Notification} from './notifications.types';
 
 // Background poll cadence for the unread indicator. Runs continuously (not just
@@ -56,7 +57,7 @@ export function useNotifications(
   options: UseNotificationsOptions = {}
 ): UseNotificationsResult {
   const queryClient = useQueryClient();
-  const key = notificationsKeys.list(username ?? '__none__');
+  const key = notificationsKeys.list(username ?? NO_KEY);
   const onMutationError = options.onMutationError;
   const pausePoll = options.pausePoll === true;
 

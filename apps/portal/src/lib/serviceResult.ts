@@ -24,6 +24,20 @@ export function unwrap<T>(result: ServiceResult<T>): T {
 }
 
 /**
+ * The success branch of a `ServiceResult`, as a one-word expression.
+ *
+ * `toServiceError`'s counterpart. Worth having only where a result is built somewhere
+ * other than a `return` — `lib/s3Json.ts`'s `parse` callbacks, where six call sites had
+ * otherwise written `{success: true, data: parseX(body)}` by hand.
+ *
+ * @example
+ * parse: (body) => ok(parseStore(body))
+ */
+export function ok<T>(data: T): {success: true; data: T} {
+  return {success: true, data};
+}
+
+/**
  * Map a thrown value to the failure branch of a `ServiceResult`.
  *
  * The canonical adapter for the service layer's "never throw — return a result"

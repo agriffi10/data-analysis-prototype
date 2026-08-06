@@ -1,8 +1,5 @@
-import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument} from '../../lib/s3Json';
+import {ok} from '../../lib/serviceResult';
 import {userSpaceBucket} from '../../lib/userSpace';
 import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
 import type {ServiceResult} from '../../types/service.types';
@@ -31,20 +28,25 @@ const EMPTY: UserDirectory = {usernames: [], generatedAt: null};
  * @returns Always a `ServiceResult`; never throws.
  */
 export async function getUserDirectory(): Promise<ServiceResult<UserDirectory>> {
-  const bucket = userSpaceBucket();
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket, Key: DIRECTORY_KEY}));
-      const body = await response.Body?.transformToString();
-      const parsed: unknown = body ? JSON.parse(body) : null;
-      return {success: true, data: toDirectory(parsed)};
-    } catch (err) {
-      // The directory has never been built, or the daily builder has not run yet.
-      if (isNotFound(err)) return {success: true, data: EMPTY};
-      if (err instanceof SyntaxError) return {success: true, data: EMPTY};
-      return toServiceError(err, 'Failed to load the user directory');
-    }
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: DIRECTORY_KEY,
+    parse: (body) => ok(parseDirectory(body)),
+    // The directory has never been built, or the daily builder has not run yet.
+    onMissing: () => ({success: true, data: EMPTY}),
+    fallbackMessage: 'Failed to load the user directory'
   });
+}
+
+/** TOTAL: a body that isn't JSON is as empty as one that is JSON of the wrong shape. */
+function parseDirectory(body: string | undefined): UserDirectory {
+  let parsed: unknown;
+  try {
+    parsed = body ? JSON.parse(body) : null;
+  } catch {
+    return EMPTY;
+  }
+  return toDirectory(parsed);
 }
 
 /**

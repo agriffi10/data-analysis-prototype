@@ -1,9 +1,6 @@
-import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument, writeJsonDocument} from '../../lib/s3Json';
+import {ok} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
 import {QUERY_HISTORY_MAX} from './query.constants';
@@ -40,35 +37,23 @@ function parseHistory(body: string | undefined): QueryHistory {
 
 /** Reads + parses the history file. A missing file is the empty state, not an error. */
 export async function getQueryHistory(username: string): Promise<ServiceResult<QueryHistory>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(new GetObjectCommand({Bucket: userSpaceBucket(), Key: historyKey(username)}));
-      const body = await response.Body?.transformToString();
-      return {success: true, data: parseHistory(body)};
-    } catch (err) {
-      if (isNotFound(err)) return {success: true, data: emptyHistory()};
-      return toServiceError(err, 'Failed to load query history');
-    }
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: historyKey(username),
+    parse: (body) => ok(parseHistory(body)),
+    onMissing: () => ({success: true, data: emptyHistory()}),
+    fallbackMessage: 'Failed to load query history'
   });
 }
 
 // Overwrite the history file (PutObject — never a delete). Concurrent writes
 // are last-writer-wins on a single user's own file, which is acceptable here.
 async function writeHistory(username: string, history: QueryHistory): Promise<ServiceResult<void>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: userSpaceBucket(),
-          Key: historyKey(username),
-          Body: JSON.stringify(history),
-          ContentType: 'application/json'
-        })
-      );
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, 'Failed to save query history');
-    }
+  return writeJsonDocument({
+    bucket: userSpaceBucket(),
+    key: historyKey(username),
+    value: history,
+    fallbackMessage: 'Failed to save query history'
   });
 }
 

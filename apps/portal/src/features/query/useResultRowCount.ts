@@ -2,6 +2,7 @@ import {useQuery} from '@tanstack/react-query';
 import {getQueryResults} from './query.service';
 import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
+import {NO_KEY} from '../../lib/queryKeys';
 import {ROW_COUNT_PAGE_SIZE} from './query.constants';
 
 export type UseRowCountResult = {
@@ -28,7 +29,7 @@ export type UseRowCountResult = {
  */
 export function useResultRowCount(queryExecutionId: string | null): UseRowCountResult {
   const query = useQuery<number>({
-    queryKey: queryKeys.rowCount(queryExecutionId ?? '__none__'),
+    queryKey: queryKeys.rowCount(queryExecutionId ?? NO_KEY),
     enabled: queryExecutionId !== null,
     staleTime: Infinity,
     gcTime: Infinity,

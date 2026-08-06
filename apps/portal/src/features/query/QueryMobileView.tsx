@@ -6,7 +6,7 @@ import {cx} from '../../lib/cx';
 import {toUserMessage} from '../../lib/errorMessages';
 import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
-import {formatRelativeTime} from './query.format';
+import {formatRelativeTime} from '../../lib/format';
 import type {MobileHomeTab, QueryHistoryEntry, SavedQuery} from './query.types';
 
 type QueryMobileViewProps = {

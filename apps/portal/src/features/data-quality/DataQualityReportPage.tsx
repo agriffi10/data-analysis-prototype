@@ -6,7 +6,7 @@ import {WarningIcon, InfoIcon} from '../../components/icons';
 import {usePageTitle} from '../../hooks/usePageTitle';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {cx} from '../../lib/cx';
-import {formatCount} from '../query/query.format';
+import {formatCount} from '../../lib/format';
 import {useDataQualityReport} from './useDataQualityReport';
 import {useDataQualityCheck} from './useDataQualityCheck';
 import {

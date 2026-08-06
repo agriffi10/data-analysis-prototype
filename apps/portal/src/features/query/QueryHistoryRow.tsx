@@ -1,6 +1,7 @@
 import {cx} from '../../lib/cx';
 import {DocumentIcon} from '../../components/icons';
-import {formatBytes, formatDurationMs, formatRelativeTime} from './query.format';
+import {formatBytes} from './query.format';
+import {formatDurationMs, formatRelativeTime} from '../../lib/format';
 import type {QueryHistoryEntry, QueryState} from './query.types';
 
 // Status → badge presentation. A prior-session entry left non-terminal (tab

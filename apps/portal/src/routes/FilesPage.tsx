@@ -17,6 +17,7 @@ import {useConnections} from '../features/query/useConnections';
 import {useAcknowledgeMembership} from '../features/shared-spaces';
 import type {Connection} from '../features/query/query.types';
 import {usePageTitle} from '../hooks/usePageTitle';
+import {spaceBuckets} from '../lib/userSpace';
 
 // Dev-only fallback: browse a static/public test bucket without auth for local
 // work without AWS. Honoured ONLY in a dev build (matches the service +
@@ -25,9 +26,6 @@ const devUnauthenticated = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UN
 const devBucket = import.meta.env.VITE_S3_BUCKET_NAME as string | undefined;
 const rawDevPrefix = (import.meta.env.VITE_S3_ROOT_PREFIX as string | undefined) ?? '';
 const devPrefix = rawDevPrefix && !rawDevPrefix.endsWith('/') ? `${rawDevPrefix}/` : rawDevPrefix;
-
-const userSpaceBucket = import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined;
-const sharedSpaceBucket = import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined;
 
 // A single synthetic space for the dev-unauth path — the spaces concept doesn't
 // apply without auth, but the Sidebar still renders one entry for layout parity.
@@ -41,6 +39,7 @@ const noopSelect = () => {};
 export default function FilesPage() {
   const {user} = useAuth();
   usePageTitle('Files');
+  const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
 
   // Hooks run unconditionally; the dev-unauth path below overrides the targets.
   const {connections, isLoading: connectionsLoading} = useConnections(user?.username ?? null);
@@ -67,7 +66,7 @@ export default function FilesPage() {
         console.warn(`[prefix-marker] could not ensure marker: ${result.error.message}`);
       }
     })();
-  }, [user]);
+  }, [user, userSpaceBucket]);
 
   // A `/files?space=…&prefix=…` deep-link seeds the browser. The prefix is
   // honoured only when it's within the resolved space's root (the navigation

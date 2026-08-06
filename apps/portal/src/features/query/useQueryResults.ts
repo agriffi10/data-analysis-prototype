@@ -3,6 +3,7 @@ import {useInfiniteQuery} from '@tanstack/react-query';
 import {getQueryResults} from './query.service';
 import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
+import {NO_KEY} from '../../lib/queryKeys';
 import type {QueryColumn, QueryResultPage} from './query.types';
 
 export type UseQueryResultsResult = {
@@ -74,7 +75,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
   );
 
   const query = useInfiniteQuery({
-    queryKey: queryKeys.results(queryExecutionId ?? '__none__', pageSize),
+    queryKey: queryKeys.results(queryExecutionId ?? NO_KEY, pageSize),
     enabled: queryExecutionId !== null,
     queryFn: async ({pageParam}): Promise<QueryResultPage> => {
       const result = await getQueryResults({

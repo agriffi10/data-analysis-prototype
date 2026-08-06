@@ -68,8 +68,10 @@ const cache: SharedConnectionsCache = {
   ]
 };
 
-// FilesPage reads the bucket env in module-level consts (evaluated at import), so
-// the env must be stubbed BEFORE the module loads — hence the dynamic import.
+// The BUCKET vars are read at call time now (SPEC-155 FR-006, via `spaceBuckets()`),
+// but the dev-unauth trio — `devUnauthenticated`, `devBucket`, `devPrefix` — is still
+// evaluated at import, so the env must be stubbed BEFORE the module loads. Hence the
+// dynamic import.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
 vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 const {default: FilesPage} = await import('./FilesPage');

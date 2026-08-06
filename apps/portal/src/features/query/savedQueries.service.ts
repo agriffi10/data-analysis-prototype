@@ -1,9 +1,6 @@
-import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument, writeJsonDocument} from '../../lib/s3Json';
+import {ok} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {SavedQueriesStore, SavedQuery} from './query.types';
 
@@ -33,35 +30,23 @@ function parseStore(body: string | undefined): SavedQueriesStore {
 
 /** Reads + parses the store. A missing file is the empty state, not an error. */
 export async function getSavedQueries(username: string): Promise<ServiceResult<SavedQueriesStore>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(new GetObjectCommand({Bucket: userSpaceBucket(), Key: storeKey(username)}));
-      const body = await response.Body?.transformToString();
-      return {success: true, data: parseStore(body)};
-    } catch (err) {
-      if (isNotFound(err)) return {success: true, data: emptyStore()};
-      return toServiceError(err, 'Failed to load saved queries');
-    }
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: storeKey(username),
+    parse: (body) => ok(parseStore(body)),
+    onMissing: () => ({success: true, data: emptyStore()}),
+    fallbackMessage: 'Failed to load saved queries'
   });
 }
 
 // Overwrite the store file (PutObject — never a delete). Last-writer-wins on a
 // single user's own file is acceptable.
 async function writeStore(username: string, store: SavedQueriesStore): Promise<ServiceResult<void>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: userSpaceBucket(),
-          Key: storeKey(username),
-          Body: JSON.stringify(store),
-          ContentType: 'application/json'
-        })
-      );
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, 'Failed to save query');
-    }
+  return writeJsonDocument({
+    bucket: userSpaceBucket(),
+    key: storeKey(username),
+    value: store,
+    fallbackMessage: 'Failed to save query'
   });
 }
 

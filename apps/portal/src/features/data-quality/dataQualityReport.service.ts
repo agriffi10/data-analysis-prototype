@@ -1,8 +1,4 @@
-import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument} from '../../lib/s3Json';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityReport} from './dataQuality.types';
 
@@ -42,6 +38,25 @@ function isReport(doc: unknown): doc is DataQualityReport {
 }
 
 /**
+ * Interpret a report body. TOTAL: a body that isn't JSON at all and one that is JSON but
+ * not a report are the same user-facing outcome, so the `SyntaxError` is caught here rather
+ * than left to escape as an exception.
+ */
+function parseReport(body: string | undefined): ServiceResult<DataQualityReport> {
+  const unreadable: ServiceResult<DataQualityReport> = {
+    success: false,
+    error: {message: 'That report could not be read.', code: 'DataQualityReportUnreadable'}
+  };
+  let parsed: unknown;
+  try {
+    parsed = body ? JSON.parse(body) : null;
+  } catch {
+    return unreadable;
+  }
+  return isReport(parsed) ? {success: true, data: parsed} : unreadable;
+}
+
+/**
  * Read one report. A missing object and a malformed one both surface as a typed failure
  * rather than an empty success: unlike the notifications inbox, "not there" is NOT a
  * legitimate empty state here — the user followed a link to a specific report, so the
@@ -54,34 +69,14 @@ export async function getQualityReport(
   space: string,
   requestId: string
 ): Promise<ServiceResult<DataQualityReport>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket, Key: reportKey(space, requestId)}));
-      const body = await response.Body?.transformToString();
-      const parsed: unknown = body ? JSON.parse(body) : null;
-      if (!isReport(parsed)) {
-        return {
-          success: false,
-          error: {message: 'That report could not be read.', code: 'DataQualityReportUnreadable'}
-        };
-      }
-      return {success: true, data: parsed};
-    } catch (err) {
-      if (isNotFound(err)) {
-        return {
-          success: false,
-          error: {message: 'That report could not be found.', code: 'DataQualityReportNotFound'}
-        };
-      }
-      // A body that isn't JSON at all lands here as a SyntaxError; it is the same
-      // user-facing outcome as a structurally-invalid one.
-      if (err instanceof SyntaxError) {
-        return {
-          success: false,
-          error: {message: 'That report could not be read.', code: 'DataQualityReportUnreadable'}
-        };
-      }
-      return toServiceError(err, 'Failed to load the data quality report');
-    }
+  return readJsonDocument<DataQualityReport>({
+    bucket,
+    key: reportKey(space, requestId),
+    parse: parseReport,
+    onMissing: () => ({
+      success: false,
+      error: {message: 'That report could not be found.', code: 'DataQualityReportNotFound'}
+    }),
+    fallbackMessage: 'Failed to load the data quality report'
   });
 }

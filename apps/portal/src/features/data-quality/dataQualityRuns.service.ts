@@ -1,8 +1,5 @@
-import {GetObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
-import {isNotFound} from '../../lib/s3Errors';
+import {readJsonDocument} from '../../lib/s3Json';
+import {ok} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityRunSummary} from './dataQuality.types';
 import {REPORTS_FOLDER} from './dataQualityReport.service';
@@ -34,6 +31,24 @@ function isEntry(value: unknown): value is Omit<DataQualityRunSummary, 'space'> 
 }
 
 /**
+ * Interpret an index body. TOTAL: a body that is not JSON, is not an object, or carries no
+ * `entries` array reads as the empty list, mirroring the writer — which rebuilds the index
+ * on the next run rather than treating a corrupt one as fatal. `space` is stamped onto every
+ * entry here because the entry on S3 does not carry its own, and the row's link needs it.
+ */
+function parseIndex(body: string | undefined, space: string): DataQualityRunSummary[] {
+  let parsed: unknown;
+  try {
+    parsed = body ? JSON.parse(body) : null;
+  } catch {
+    return [];
+  }
+  const entries = (parsed as {entries?: unknown})?.entries;
+  if (!Array.isArray(entries)) return [];
+  return entries.filter(isEntry).map((entry) => ({...entry, space}));
+}
+
+/**
  * Read one space's runs index.
  *
  * A MISSING INDEX IS AN EMPTY SUCCESS, not a failure: a space where no check has ever
@@ -45,22 +60,11 @@ function isEntry(value: unknown): value is Omit<DataQualityRunSummary, 'space'> 
  * entry on S3 does not carry its own space, and the row's link needs it.
  */
 export async function getRunsIndex(bucket: string, space: string): Promise<ServiceResult<DataQualityRunSummary[]>> {
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket, Key: runsIndexKey(space)}));
-      const body = await response.Body?.transformToString();
-      const parsed: unknown = body ? JSON.parse(body) : null;
-      const entries = (parsed as {entries?: unknown})?.entries;
-      if (!Array.isArray(entries)) {
-        // A corrupt index reads as empty, mirroring the writer, which rebuilds it on the
-        // next run rather than treating it as fatal.
-        return {success: true, data: []};
-      }
-      return {success: true, data: entries.filter(isEntry).map((entry) => ({...entry, space}))};
-    } catch (err) {
-      if (isNotFound(err)) return {success: true, data: []};
-      if (err instanceof SyntaxError) return {success: true, data: []};
-      return toServiceError(err, 'Failed to load data quality checks');
-    }
+  return readJsonDocument({
+    bucket,
+    key: runsIndexKey(space),
+    parse: (body) => ok(parseIndex(body, space)),
+    onMissing: () => ({success: true, data: []}),
+    fallbackMessage: 'Failed to load data quality checks'
   });
 }

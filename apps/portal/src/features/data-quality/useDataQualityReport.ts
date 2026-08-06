@@ -5,22 +5,10 @@ import {useConnections} from '../query/useConnections';
 import {isConnectionUsable} from '../query/query.types';
 import {toUserMessage} from '../../lib/errorMessages';
 import {unwrap} from '../../lib/serviceResult';
+import {spaceBuckets} from '../../lib/userSpace';
 import {dataQualityKeys} from './dataQualityKeys';
 import {getQualityReport} from './dataQualityReport.service';
 import type {DataQualityReport, DataQualitySpace} from './dataQuality.types';
-
-/**
- * Read at CALL time, never at module load: a module-level `import.meta.env` const is
- * captured before `vi.stubEnv` runs, so a test would silently exercise the deployed
- * bucket names instead of its own. Same reason `lib/userSpace.ts` and the enqueue
- * services do it this way.
- */
-function spaceBuckets(): {user?: string; shared?: string} {
-  return {
-    user: import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
-    shared: import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined
-  };
-}
 
 export type UseDataQualityReportResult = {
   report: DataQualityReport | undefined;

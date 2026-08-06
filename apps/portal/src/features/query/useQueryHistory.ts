@@ -2,6 +2,7 @@ import {useQuery, useMutation, useQueryClient} from '@tanstack/react-query';
 import {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
+import {NO_KEY} from '../../lib/queryKeys';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
 
 export type UseQueryHistoryResult = {
@@ -27,7 +28,7 @@ export type UseQueryHistoryResult = {
  */
 export function useQueryHistory(username: string | null): UseQueryHistoryResult {
   const queryClient = useQueryClient();
-  const key = queryKeys.history(username ?? '__none__');
+  const key = queryKeys.history(username ?? NO_KEY);
 
   const query = useQuery({
     queryKey: key,
