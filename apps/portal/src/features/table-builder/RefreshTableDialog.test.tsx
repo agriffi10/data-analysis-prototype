@@ -134,28 +134,45 @@ describe('RefreshTableDialog', () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
-  // SPEC-095/145 FR-007: one tree, `tablet:` only — no `*Mobile` twin, and nothing
-  // in the dialog reads `useIsMobile`. What a 400px viewport needs is structural.
-  describe('at a narrow viewport', () => {
+  // SPEC-095/145 FR-007: one tree, `tablet:` only — no `*Mobile` twin, and nothing in the
+  // dialog reads `useIsMobile`.
+  //
+  // RENAMED FROM `describe('at a narrow viewport')` (SPEC-154 FR-009), because it never
+  // changed the viewport — and could not usefully: jsdom applies no media queries, so a
+  // `tablet:` class assertion says nothing about what a narrow-screen user sees while
+  // breaking on any refactor to equivalent CSS. What these cases actually pin is the
+  // RESPONSIVE CONTRACT in the markup, which is a real thing to guard and is now named as
+  // such. The one case with an accessible contract available is asserted through it instead.
+  describe('the responsive contract in the markup (not a rendered viewport)', () => {
     // The viewport cap itself belongs to `Modal` and is asserted in Modal.test.tsx —
     // asserting it here would pass no matter what this component does.
-    it('scrolls the column list rather than pushing confirm off-screen', () => {
+    it('scrolls a long column list rather than growing without bound', () => {
       render({...LINKED, pending: {...LINKED.pending!, columns: Array.from({length: 20}, (_, i) => `col_${i}`)}});
       expect(screen.getByRole('list', {name: /columns that would be removed/i})).toHaveClass(
         'max-h-32',
         'overflow-y-auto'
       );
+      // The behavioural half: however long the list gets, confirm is still reachable.
       expect(confirmButton()).toBeInTheDocument();
     });
 
-    it('gives the opt-in a full-width touch target', () => {
-      render();
-      const label = optIn().closest('label');
-      expect(label).toHaveClass('w-full');
-      expect(label).toContainElement(optIn());
+    it('makes the whole opt-in label a click target for the checkbox', async () => {
+      // ACCESSIBLE CONTRACT, not a class string: what matters is that clicking the label's
+      // TEXT toggles the checkbox — which is what a `w-full` label buys and what a screen
+      // reader and a touch user both depend on. The class assertion it replaces would have
+      // passed on a label that wrapped nothing.
+      const {user} = render();
+      expect(optIn()).not.toBeChecked();
+
+      await user.click(screen.getByText(/allow columns to be removed/i));
+
+      expect(optIn()).toBeChecked();
     });
 
-    it('reflows the table/folder rows on one tree', () => {
+    it('declares the one-tree reflow for the table/folder rows', () => {
+      // Class-string assertion KEPT, with the reason FR-009 asks for: SPEC-095's "reflow on
+      // ONE tree" is a documented constraint with no accessible equivalent — the guarantee is
+      // precisely that no `*Mobile` twin exists, which is a fact about the markup.
       render();
       expect(screen.getByText('alice.sales_2026').parentElement).toHaveClass('flex-col', 'tablet:flex-row');
     });

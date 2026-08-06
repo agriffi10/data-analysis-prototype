@@ -48,7 +48,7 @@ describe('MembersList (SPEC-075)', () => {
         members={roster}
       />
     );
-    expect(screen.queryByRole('button', {name: 'Remove'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /^Remove /})).not.toBeInTheDocument();
   });
 
   it('renders Remove per non-owner member when onRemove is given, and calls it', () => {
@@ -60,9 +60,10 @@ describe('MembersList (SPEC-075)', () => {
         onRemove={onRemove}
       />
     );
-    // Owner has no Remove.
-    expect(within(screen.getByText('alice').closest('li')!).queryByRole('button', {name: 'Remove'})).toBeNull();
-    fireEvent.click(within(screen.getByText('bob').closest('li')!).getByRole('button', {name: 'Remove'}));
+    // Owner has no Remove. Queried by the member-naming label since SPEC-154 FR-006, which
+    // also retires the `.closest('li')` reach this needed to disambiguate identical buttons.
+    expect(screen.queryByRole('button', {name: 'Remove alice'})).toBeNull();
+    fireEvent.click(screen.getByRole('button', {name: 'Remove bob'}));
     expect(onRemove).toHaveBeenCalledWith('bob');
   });
 });

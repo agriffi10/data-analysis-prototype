@@ -75,15 +75,16 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→153 are COMPLETE; 154→156 are written, not built.**
+**The 2026-08-05 audit arc: 150→154 are COMPLETE; 155 and 156 are written, not built.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
 teardown that **freed the name with objects still under it**. Both are Phase-5 verified. **152 gave
 every plane a `NotifyFailure`**, so "it just never came back" is no longer reachable. **153 closed ten
 guards that passed by coincidence** and left **mypy report-only at a 21-finding baseline** as the next
-ratchet notch. The remaining audit specs are **154** (untested journeys) and **155**/**156** (the reuse
-cluster).
+ratchet notch. **154 closed the frontend journey gaps** — table share, sign-in/out, collision
+resolution, upload-to-completion, pagination and the dev-unauth guard all now have a test that
+performs them. The remaining audit specs are **155**/**156** (the reuse cluster).
 
 **The username-directory arc (146 → 147 → 148) is COMPLETE and deployed.** The daily builder
 publishes `_directory/usernames.json`; both `AddMembersDialog` and `TableShareDialog` suggest

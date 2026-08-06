@@ -1,7 +1,7 @@
 # Spec: Frontend Journey Coverage — Testing the Wires Between Tested Halves
 
 **ID:** SPEC-154
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-045 (`vitest-axe` and the a11y assertion practice), SPEC-215-era test rework (`src/test/renderWithProviders.tsx`, the harness this spec finishes adopting), SPEC-078 (the run scopes whose keyboard entry points SPEC-150 FR-010 covers and this spec builds on), SPEC-093 (table share, the feature with no integration coverage), SPEC-150 (whose FR-010 fixes the Monaco mock this spec's script tests depend on)
 

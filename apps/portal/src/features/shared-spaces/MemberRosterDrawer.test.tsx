@@ -31,7 +31,7 @@ describe('MemberRosterDrawer (SPEC-075 FR-003)', () => {
   it('is read-only — no Add and no per-member Remove', () => {
     setup();
     expect(screen.queryByRole('button', {name: /Add members/})).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Remove'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /^Remove /})).not.toBeInTheDocument();
   });
 
   it('offers a Refresh control that re-reads connection state', () => {

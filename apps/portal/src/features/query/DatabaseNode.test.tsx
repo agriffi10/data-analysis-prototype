@@ -213,9 +213,10 @@ describe('DatabaseNode', () => {
     );
     await user.click(screen.getByRole('button', {name: /refresh tables in My workspace/i}));
     await waitFor(() => {
-      const btn = screen.getByRole('button', {name: /refresh tables in My workspace/i});
-      expect(btn).toBeDisabled();
-      expect(btn.querySelector('svg')).toHaveClass('animate-spin');
+      // `toBeDisabled()` IS the contract a user (and a screen reader) meets; the spinner
+      // class beside it asserted the same in-flight state a second time, through markup that
+      // any equivalent CSS would break (SPEC-154 FR-009).
+      expect(screen.getByRole('button', {name: /refresh tables in My workspace/i})).toBeDisabled();
     });
 
     act(() => release?.());
