@@ -86,8 +86,25 @@ def _matrix_row(function: str) -> dict:
     return {}
 
 
+#: boto3 IS STUBBED, and the reason is the same one that makes this probe meaningful.
+#:
+#: The Lambda RUNTIME provides boto3; no layer does, and nothing in `lambdas/` declares it.
+#: `observability.init` runs at module scope and — whenever `LOGS_QUEUE_URL` is set, which it
+#: is on every deployed function — eagerly builds an SQSSink through `clients.sqs()`. So a
+#: faithful cold start really does touch boto3, and in Lambda it is always there.
+#:
+#: CI's `lambdas` job installs only ruff/pytest, so the real import fails there and passed
+#: locally purely because a developer machine happens to have boto3 — the probe would have
+#: been asserting a property of the laptop. Stubbing keeps the scope honest: what is under
+#: test is whether the LAYERS the matrix row grants satisfy the module's imports.
 _PROBE = """
-import importlib, sys
+import importlib, sys, types
+
+boto3 = types.ModuleType("boto3")
+boto3.client = lambda *a, **k: types.SimpleNamespace()
+boto3.resource = lambda *a, **k: types.SimpleNamespace()
+sys.modules["boto3"] = boto3
+
 module = importlib.import_module(sys.argv[1])
 assert callable(module.handler), "handler is not callable"
 print("IMPORT_OK", file=sys.stderr)
@@ -111,6 +128,13 @@ def test_a_notify_failure_verb_imports_from_only_the_layers_its_row_grants(funct
 
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     env["PYTHONPATH"] = os.pathsep.join([*granted, str(LAMBDAS / function)])
+    # LOGS_QUEUE_URL IS FORCED, not inherited, and that is a correctness fix rather than
+    # tidiness. `observability.init` runs at module scope and takes the SQSSink branch only
+    # when this is set — so leaving it to the ambient environment made the probe exercise a
+    # DIFFERENT cold-start path depending on what else had run: green locally (unset, stdout
+    # sink) and red in CI (set, SQS sink). Every deployed function has it, so pinning it here
+    # tests the fuller path, identically everywhere.
+    env["LOGS_QUEUE_URL"] = "https://sqs.us-east-1.amazonaws.com/1/dat-prod-logs.fifo"
 
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [sys.executable, "-c", _PROBE, module],
