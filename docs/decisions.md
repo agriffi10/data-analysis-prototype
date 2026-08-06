@@ -50,6 +50,8 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [The username directory is built from S3, not Cognito (146)](#the-username-directory-is-built-from-s3-not-cognito-spec-146)
 - [Every authenticated user can read the username directory (146)](#every-authenticated-user-can-read-the-username-directory-spec-146)
 - [Compiler and coverage defaults are declared, never inherited (150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
+- [A partial teardown never frees the space name (151)](#a-partial-teardown-never-frees-the-space-name-spec-151)
+- [Every DDL literal goes through `literal()` (151)](#every-ddl-literal-goes-through-literal-spec-151)
 
 ---
 
@@ -444,3 +446,62 @@ checked nothing**, because that config is solution-style (project references onl
 `files`/`include`). `tsc -b` is the only invocation covering the app *and* its `*.test.tsx` files.
 SPEC-150 confirmed the gate empirically on a scratch PR: with the #361 defect reintroduced, Lint and
 Format check passed, **Build failed**, and Test was skipped.
+
+
+### A partial teardown never frees the space name (SPEC-151)
+
+`delete_objects` and `batch_delete_table` both answer **HTTP 200 with a per-item `Errors` array** — a
+key or table that failed individually does not raise. Both return values were discarded, so a
+partially-failed teardown was indistinguishable from a complete one, and `delete_space` went on to
+`reg.delete(space)` — the line commented "LAST — the name is now free to reuse". The next space
+created with that name would inherit another tenant's objects.
+
+Both helpers now raise `teardown.TeardownIncompleteError`, and the rule is: **a teardown that could
+not finish must leave the registry record intact.** The record is what reserves the name, so keeping
+it is what stops reuse; the caller's existing `except` already records a terminal `failed`, and
+`reg.delete` is inside the `try` it never reaches. `forget-space` inherits this for free — both verbs
+share the helpers.
+
+Three details that are decisions rather than implementation:
+
+- **Counts, never keys.** The message reaches logs and the registry's `failed` record, and the field
+  rule binds what a call site chooses to emit. "3 object(s) under `sales/` could not be deleted" is
+  enough to tell a partial failure from a total one.
+- **Every page is attempted before raising.** A denial on one key must not strand the rest of the
+  space's objects, and the count is only meaningful whole.
+- **The Glue raise lands BEFORE `delete_database`.** Dropping a database whose tables survived is how
+  the catalog and the bucket start disagreeing.
+
+This meets **SPEC-054**'s written acceptance criterion — teardown leaves "never a dangling …
+half-deleted resource" — which had been recorded and never implemented. **Do NOT "improve" this by
+deleting the record and reporting the failure elsewhere:** the record IS the lock.
+
+### Every DDL literal goes through `literal()` (SPEC-151)
+
+`cpcommon.ddl` renders **every** string literal in a `CREATE EXTERNAL TABLE` through `literal()` —
+`TBLPROPERTIES` keys and values and the `LOCATION`, alongside the column comments that already did.
+Raw `f"'{value}'"` is forbidden in DDL construction.
+
+The demonstrated consequence of the old form: a partition enum value of
+`eu','projection.enabled'='false` rendered as
+`'projection.region.values'='eu','projection.enabled'='false'`, **injecting a property that switched
+partition projection off**. Blast radius is **self-scoped** — a user can only reach a table in their
+own database and Athena rejects multi-statement DDL — so this is robustness, not cross-tenant
+escalation. The sharper everyday path is data-quality, where the `LOCATION` and the partition values
+both come from **S3 key segments**: a folder named `year=2024'` or `o'brien` broke the temp-table DDL
+and killed the whole check as `query_failed`.
+
+**Two escapers exist and must not be confused.** `cpcommon.ddl.literal` escapes with a **backslash**,
+which is Hive's rule and what Athena parses `CREATE`/`DROP` with. `dqcommon.sql._literal_dml` **doubles
+the quote**, which is Trino's rule and what Athena parses `SELECT` with. Using the Hive form in a
+query would render a backslash into the S3 path being matched, and the predicate would silently match
+nothing. Each lives in its own module with a docstring saying so; `tscommon.ddl._lit` is the
+table-share twin of the DDL one and has always done this.
+
+Ordinary values render **byte-identically** to the old form, which is why the golden-DDL tests are
+untouched — a rendering change that moved any existing statement would have been a different and much
+riskier decision.
+
+**Corroborated, not demonstrated:** the escaped form has never been exercised against Athena itself.
+The tests assert the rendered string. If a `'` in a partition segment ever still fails, suspect the
+engine's acceptance of `\'` before suspecting the renderer.

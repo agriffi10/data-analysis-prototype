@@ -108,7 +108,9 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Or from <b>Data quality</b>: click <b>New quality check</b>, choose the space, then browse to the folder you want checked. Click a file first if you want to check just that one file.',
           'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.',
           'When it finishes you’ll get a <b>notification</b> naming what was checked. Click it to open the full report — the findings live there, not in the notification.',
-          'The report shows every finding: row and column counts, blank values, columns whose values don’t match their type, repeated rows, and — for a folder — any file whose columns disagree with the rest.'
+          'The report shows every finding: row and column counts, blank values, columns whose values don’t match their type, repeated rows, and — for a folder — any file whose columns disagree with the rest.',
+          'Checking <b>one file</b> reports on that file alone — its neighbours in the same folder are not counted, even though they sit alongside it.',
+          'If a source turns out to have <b>no rows at all</b> — an empty or header-only export — the report says so as a finding rather than calling it clean.'
         ],
         callout: {
           kind: 'tip',
