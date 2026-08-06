@@ -44,11 +44,38 @@ path is a raw engine name SPEC-106 FR-008 forbids showing, so what carries the i
 
 **FR-002's suppression could not be one mechanism.** `NotifyFailure` sits on every failure path —
 the paths where no verb ran cannot be selected for in ASL — so an ordinary failure would notify
-twice. table-builder and table-share read Lambda's own `Error` name (a **dot** means an engine name
-and no handler code ran; `TransientError` is excluded, which closes the un-notified exhausted-retry
-gap as a side effect). shared-spaces cannot use that test at all, because five of its seven verbs
-emit no failure message and the guard would restore their silence — it reproduces the verb's FIFO
-dedup token instead. Full reasoning: `decisions.md`.
+twice. table-builder and table-share suppress on one positively-identified name,
+`Error == "TerminalError"`; everything else notifies, including an exhausted `TransientError`, which
+closes the un-notified-retry gap as a side effect. shared-spaces cannot use that test at all,
+because five of its seven verbs emit no failure message and the guard would restore their silence —
+it reproduces the verb's FIFO dedup token instead. Full reasoning: `decisions.md`.
+
+## What the fresh-context review changed
+
+The review ran the suite, `ruff`, `tofu validate`, and four mutation experiments. It confirmed no
+uncatchable `States.Runtime` was introduced, the dedup tokens match character-for-character,
+recipient trust holds in all three verbs, and the "no deploy-role expansion" claim is true across
+all three policies. It found three things worth fixing, all in the suppression logic and its guards:
+
+- **The suppression heuristic was wrong in the dangerous direction.** It originally inferred "a verb
+  already notified" from the *absence of a dot* in Lambda's `Error` name. `cpcommon.config` calls
+  `_require` at module scope and raises a bare `RuntimeError` — this fleet's own recorded outage
+  (PR #196, quoted verbatim in `lambda.tf`) — which the heuristic would have **silenced**, on
+  precisely the class SPEC-152 exists to report. Replaced with the single name `TerminalError`,
+  accepting a duplicate on the unexpected-exception path exactly as FR-002 directs.
+- **A seeded error wore a verb's name.** `DiffMissingSeed` manufactured `Error: "TerminalError"` for
+  a path where `diff-schema` *returned successfully* without a `$.diff` — no exception, no
+  decorator, nobody told. It now seeds `DiffMissing`; the user-facing text is unchanged.
+- **The cold-start probe over-claimed.** Its docstring said it would catch a layer that fails to
+  publish what the code imports; it would not, because it puts source trees on `sys.path`. The gap
+  was live and specific to `shared-space-common`, the one layer built from an explicit module list —
+  deleting `messages` from that list left the whole suite green. A second test now joins the
+  workflow's list against the directory, and the docstring says what it does not cover.
+
+Two cosmetic findings were also taken: the `create` phrasing now matches what `create_space` already
+emits (no "the", inconsistent with `delete` — deliberately, because users cannot tell which code
+sent the message), and the delete dedup's dependence on `delete` being owner-only is now asserted
+rather than left in a comment.
 
 ## What changed
 

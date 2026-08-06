@@ -30,7 +30,7 @@ a message, and a crash here would replace a friendly notification with nothing.
 import logging
 
 from cpcommon import observability
-from cpcommon.errors import TransientError, failure_reason
+from cpcommon.errors import TerminalError, failure_reason
 from tscommon import messages, notify
 
 logger = logging.getLogger()
@@ -45,29 +45,25 @@ observability.init(service="table-share")
 def _verb_already_notified(error) -> bool:
     """True when ``@notifies_on_failure`` ran, so this emit would be a second message.
 
-    THE QUESTION IS WHETHER A VERB'S PYTHON RAN, and Lambda's own ``Error`` field answers
-    it without any guessing. An exception raised inside a handler surfaces as its BARE
-    class name — ``TerminalError``, ``KeyError``, ``ClientError`` — because Lambda reports
-    ``type(exc).__name__``. Every error that means no handler code ran is an ENGINE name
-    and carries a dot: ``States.Timeout``, ``States.DataLimitExceeded``, ``Lambda.Unknown``,
-    ``Runtime.ImportModuleError`` (raised at IMPORT, before the handler is entered).
+    ONE NAME, NOT A HEURISTIC, and the narrowness is the point. ``TerminalError`` is the
+    only error this function will treat as already-reported, because it is the only one
+    that is POSITIVE evidence: a verb raised it deliberately and the decorator's
+    ``emit_terminal`` fired on the way out.
 
-    ``TransientError`` is the one in-verb exception the decorator deliberately leaves
-    un-notified — a Retry was still pending when it saw it — so an exhausted retry has told
-    the sender nothing and must not be suppressed here.
+    AN EARLIER VERSION INFERRED THIS FROM THE ABSENCE OF A DOT — bare class name means a
+    handler ran, dotted engine name means it did not. It is wrong in the dangerous
+    direction. ``tscommon.config`` and ``cpcommon.config`` both call ``_require`` at MODULE
+    SCOPE and raise a bare ``RuntimeError``; that is not a hypothetical shape but this
+    fleet's own recorded outage (PR #196). A dot-free name would have suppressed it —
+    silencing the exact class of failure this spec was written to report.
 
-    THE DEFAULT IS TO SPEAK. A malformed, absent or non-dict error is not evidence that a
-    verb ran; FR-002 ranks a duplicate above a silence, so anything unrecognisable falls
-    through to a notification.
+    THE PRICE IS PAID DELIBERATELY. An unexpected in-verb exception (a ``KeyError``, a
+    ``ClientError``) notifies through the decorator's ``emit_unexpected`` AND again here,
+    and the two carry the same generic sentence. FR-002 settles it: "a duplicate
+    notification is preferable to none". A guess that suppresses is unrecoverable; a
+    duplicate is a papercut on a path that is already a bug.
     """
-    if not isinstance(error, dict):
-        return False
-    name = error.get("Error")
-    if not isinstance(name, str) or not name:
-        return False
-    if "." in name:
-        return False
-    return name != TransientError.__name__
+    return isinstance(error, dict) and error.get("Error") == TerminalError.__name__
 
 
 # @traced is OUTERMOST and is the ONLY decorator here: @notifies_on_failure would be

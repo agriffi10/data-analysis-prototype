@@ -84,7 +84,7 @@ def test_a_cold_start_import_failure_reaches_the_user():
     message = fake.messages()[0]
     assert len(fake.calls) == 1
     assert "create_space" not in message and "registry" not in message
-    assert 'We couldn\'t create the shared workspace "sales"' in message
+    assert 'We couldn\'t create shared workspace "sales"' in message
 
 
 def test_a_step_functions_timeout_still_notifies():
@@ -148,7 +148,17 @@ def test_the_dedup_token_matches_the_create_verbs_own_emit():
 
 
 def test_the_dedup_token_matches_the_delete_verbs_own_emit():
-    """delete_space emits to the OWNER, and delete is owner-only, so owner == actor."""
+    """delete_space keys its token on the registry OWNER while this verb keys on the
+    validated ACTOR. They are the same string only because delete is owner-only — so that
+    premise is asserted here rather than left in a comment. If delete ever widens to
+    non-owners the pair stops collapsing, which is a duplicate rather than a silence, but
+    it should be a visible decision and not a surprise."""
+    import config as ss_config
+
+    assert "delete" in ss_config.OWNER_ONLY_ACTIONS, (
+        "delete is no longer owner-only, so delete_space's owner-keyed token and this "
+        "verb's actor-keyed token can diverge"
+    )
     fake = _arm()
     nf.handler(_event({"Error": "States.Timeout"}, action="delete"), None)
     assert fake.calls[0]["MessageDeduplicationId"] == "r-1:delete-failed:alice"
@@ -205,7 +215,7 @@ def test_an_absent_space_degrades_rather_than_quoting_nothing():
     message = fake.messages()[0]
     assert len(fake.calls) == 1
     assert '""' not in message
-    assert "We couldn't create the shared workspace:" in message
+    assert "We couldn't create shared workspace:" in message
 
 
 def test_the_handler_never_raises_on_a_junk_event():

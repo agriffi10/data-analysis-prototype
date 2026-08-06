@@ -37,8 +37,14 @@ __all__ = ["failure_message"]
 #: context, so an action added to the machine without a phrase here is visibly missing
 #: rather than silently mistranslated. Every phrase ends where the quoted space name
 #: begins, so none of them needs a marker.
+#
+# `create` READS WITHOUT "the" ON PURPOSE, and the inconsistency with its neighbours is
+# copied deliberately from the verbs: create_space emits 'We couldn't create shared
+# workspace "x"' and delete_space emits 'We couldn't delete the shared workspace "x"'.
+# A user cannot tell which code sent the message in their inbox, so matching what they
+# already receive beats an internal tidiness they will never see.
 _ACTION_PHRASES = {
-    "create": "create the shared workspace",
+    "create": "create shared workspace",
     "add_members": "add members to the shared workspace",
     "remove_members": "remove members from the shared workspace",
     "leave": "leave the shared workspace",

@@ -132,6 +132,24 @@ def test_a_verbs_own_terminal_error_is_suppressed():
     assert fake.calls == []
 
 
+def test_an_init_phase_runtime_error_is_never_suppressed():
+    """THE REGRESSION THAT KILLED THE FIRST VERSION OF THIS GUARD. `tscommon.config` and
+    `cpcommon.config` both call `_require` at MODULE SCOPE and raise a bare `RuntimeError`
+    — PR #196's shape. A discriminator reading "a bare class name means a handler ran"
+    would have suppressed it, silencing the class SPEC-152 exists to report."""
+    fake = _arm()
+    nf.handler(_event({"Error": "RuntimeError", "Cause": "required environment variable is unset"}), None)
+    assert len(fake.calls) == 1, "an import-time RuntimeError was silenced"
+
+
+def test_an_unexpected_in_verb_exception_is_allowed_to_duplicate():
+    """FR-002 settles the tie: 'a duplicate notification is preferable to none'."""
+    fake = _arm()
+    nf.handler(_event({"Error": "ClientError", "Cause": "An error occurred (AccessDenied)"}), None)
+    assert len(fake.calls) == 1
+    assert "AccessDenied" not in fake.messages()[0]
+
+
 def test_an_engine_name_is_never_mistaken_for_a_verb_exception():
     for engine in ("States.Timeout", "States.DataLimitExceeded", "Lambda.Unknown",
                    "Runtime.ImportModuleError", "Lambda.ServiceException"):

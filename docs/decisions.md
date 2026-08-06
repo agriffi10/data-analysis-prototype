@@ -533,13 +533,34 @@ by copying `$.error.Error` alone, and every message would silently degrade to th
 This state sits on *every* failure path, because the paths where no verb ran cannot be selected for in
 ASL — so an ordinary failure would otherwise notify twice.
 
-- **table-builder / table-share** suppress in Python via `_verb_already_notified`, which reads Lambda's
-  own `Error` name: an in-handler exception surfaces as its **bare class name** (`TerminalError`,
-  `KeyError`), while everything meaning *no handler code ran* is an **engine name carrying a dot**
-  (`States.Timeout`, `Runtime.ImportModuleError` — raised at import, before the handler is entered).
-  `TransientError` is excluded, because the decorator deliberately leaves an exhausted retry
-  un-notified — a gap this spec therefore also closes. **The default is to speak:** a malformed or
-  absent error is not evidence a verb ran, and FR-002 ranks a duplicate above a silence.
+- **table-builder / table-share** suppress in Python via `_verb_already_notified`, on **one name**:
+  `Error == "TerminalError"`. That is the only *positive* evidence available — a verb raised it
+  deliberately and the decorator's `emit_terminal` fired — and it is the only case where the
+  decorator's message is strictly better, because it carries `err.tokens` (without which a
+  `columns_removed` refusal cannot name the columns). Everything else notifies, including an
+  exhausted `TransientError`, which the decorator deliberately leaves un-notified — a gap this spec
+  therefore also closes.
+
+  **The obvious generalisation is wrong in the dangerous direction, and was caught in review.** An
+  earlier version inferred the same thing from the *absence of a dot*: bare class name means a
+  handler ran, dotted engine name means it did not. But `cpcommon.config` calls `_require` at
+  **module scope** and raises a bare `RuntimeError` — not a hypothetical, this fleet's own recorded
+  outage (`lambda.tf`: "check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset", PR #196). The
+  heuristic would have suppressed it, silencing the exact class of failure the spec exists to
+  report. The set of dot-free names meaning "a verb notified" is unbounded and unknowable from the
+  payload; the set meaning `TerminalError` is one string.
+
+  **The price is a duplicate on the unexpected-exception path** — a `KeyError` inside a verb
+  notifies through `emit_unexpected` and again here, same generic sentence. FR-002 settles it: a
+  duplicate is preferable to none. A guess that suppresses is unrecoverable; a duplicate is a
+  papercut on a path that is already a bug.
+
+  **A seeded error must not wear a verb's name.** table-builder's `DiffMissingSeed` (the
+  `RouteByChange` `Default`) manufactured `Error: "TerminalError"` for a case where `diff-schema`
+  *returned successfully* without a `$.diff` — so no exception was raised and no decorator fired. It
+  now seeds `DiffMissing`, because a defensive seed whose whole purpose is the shouldn't-happen case
+  is the last thing that should buy itself a `Fail` state and silence. The user-facing text is
+  unchanged: neither code is registered, so both render the generic clause.
 - **shared-spaces** cannot use that test, because five of its seven verbs emit **no** failure message
   at all and a "did a verb run" guard would restore their silence. It reproduces the verb's **FIFO
   dedup token** byte-for-byte instead (`{requestId}:{action}-failed:{actor}`), so SQS drops the second
@@ -582,3 +603,11 @@ cannot tell you the named layer actually publishes what the code imports. The en
 **inherited**, unlike `test_layer_import_safety.py` which scrubs it: these verbs reach `cpcommon.config`
 through their domain notifier, so the import-time `_require` is *supposed* to run. Only `sys.path` is
 scrubbed, because packaging is what is under test.
+
+**One layer needs a second guard, and only one.** The probe puts layer SOURCE TREES on `sys.path`, so a
+module present on disk but absent from a layer's *build* is invisible to it. Every layer copies a
+**package** (`cp -r cpcommon`) except `shared-space-common`, which publishes **flat modules** from an
+explicit `for m in config casio auth …` list in the workflow — so a new module there ships only if
+someone remembers to name it. Review confirmed the gap was live: deleting `messages` from that list left
+the entire suite green while the deployed layer lost it. `test_the_shared_space_layer_publishes_every_module_it_has`
+now joins the workflow's list against the directory.

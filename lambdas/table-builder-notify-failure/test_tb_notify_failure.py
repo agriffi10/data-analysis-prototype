@@ -141,18 +141,47 @@ def test_a_verbs_own_terminal_error_is_suppressed():
     assert fake.calls == []
 
 
-def test_the_suppression_covers_the_decorators_generic_emit_too():
-    """An unexpected (non-Terminal) exception notifies through emit_unexpected. Lambda
-    reports it under its BARE class name, which is the same evidence that a handler ran."""
+def test_an_init_phase_runtime_error_is_never_suppressed():
+    """THE REGRESSION THAT KILLED THE FIRST VERSION OF THIS GUARD, and it is this fleet's
+    own outage rather than a hypothetical: `cpcommon.config` calls `_require` at MODULE
+    SCOPE and raises a bare `RuntimeError` (lambda.tf records it verbatim —
+    "check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset", PR #196).
+
+    An earlier discriminator read "a bare class name means a handler ran" and would have
+    SUPPRESSED this — silencing the exact class of failure SPEC-152 exists to report, on
+    the plane it actually happened to. Suppression is now one positively-identified name.
+    """
+    fake = _arm()
+    nf.handler(_event({"Error": "RuntimeError", "Cause": "required environment variable is unset"}), None)
+    assert len(fake.calls) == 1, "an import-time RuntimeError was silenced"
+    assert "COGNITO" not in fake.messages()[0]
+
+
+def test_a_seeded_error_no_verb_raised_is_never_suppressed():
+    """DiffMissingSeed's shape. RouteByChange's Default seeds an error when diff-schema
+    RETURNED successfully but without a $.diff — so no exception was raised, no decorator
+    fired, and nobody has told the user anything. It carried the name `TerminalError` until
+    SPEC-152, which would have bought it a Fail state and permanent silence."""
+    fake = _arm()
+    nf.handler(_event({"Error": "DiffMissing", "Cause": "diff-schema returned no diff"}), None)
+    assert len(fake.calls) == 1
+    assert "diff-schema" not in fake.messages()[0]
+
+
+def test_an_unexpected_in_verb_exception_is_allowed_to_duplicate():
+    """FR-002 settles the tie: 'a duplicate notification is preferable to none'. The
+    decorator's emit_unexpected already sent the same generic sentence, and this sends it
+    again — accepted, because the alternative is a guess that can suppress a real silence.
+    Pinned so the duplicate reads as a decision rather than an oversight."""
     fake = _arm()
     nf.handler(_event({"Error": "ClientError", "Cause": "An error occurred (AccessDenied)"}), None)
-    assert fake.calls == []
+    assert len(fake.calls) == 1
+    assert "AccessDenied" not in fake.messages()[0]
 
 
 def test_an_engine_name_is_never_mistaken_for_a_verb_exception():
-    """The whole discriminator in one assertion: a dot means the engine named it, and no
-    handler code ran. If this ever inverts, every pre-verb failure goes silent again —
-    which is the bug SPEC-152 exists to fix."""
+    """Every no-verb-ran shape reaches the user. If this ever inverts, pre-verb failures go
+    silent again — which is the bug SPEC-152 exists to fix."""
     for engine in ("States.Timeout", "States.DataLimitExceeded", "Lambda.Unknown",
                    "Runtime.ImportModuleError", "Lambda.ServiceException"):
         fake = _arm()
