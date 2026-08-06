@@ -1,6 +1,9 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen, cleanup, waitFor, within} from '@testing-library/react';
+import appSource from '../../App.tsx?raw';
+import {Routes, Route} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
+import {DataQualityReportPage} from '../data-quality/DataQualityReportPage';
 import {NotificationsPage} from './NotificationsPage';
 import type {Notification} from './notifications.types';
 
@@ -8,6 +11,11 @@ import type {Notification} from './notifications.types';
 // hooks (useNotifications, usePageTitle) and real children (NotificationRow, Pager,
 // filter tabs). Mock ONLY the AWS boundary — the notifications service (S3 read +
 // SQS enqueue). Auth + router + QueryClient come from the shared harness.
+// The report page the deep link lands on reads its own S3 boundary; stub it so this test is
+// about ROUTING, not about the report.
+vi.mock('../data-quality/dataQualityReport.service', () => ({
+  getQualityReport: vi.fn().mockResolvedValue({success: false, error: {message: 'not found'}})
+}));
 vi.mock('./notifications.service', () => ({
   getNotifications: vi.fn(),
   enqueueNotificationAction: vi.fn()
@@ -148,5 +156,58 @@ describe('NotificationsPage (SPEC-060)', () => {
     await user.click(screen.getByRole('button', {name: /^unread$/i}));
     expect(screen.getByText('No unread notifications.')).toBeInTheDocument();
     expect(screen.queryByText('Message 0')).not.toBeInTheDocument();
+  });
+});
+
+// ── SPEC-154 FR-006: a notification's link is FOLLOWED, not just inspected ──
+//
+// The links are LAMBDA-AUTHORED (SPEC-114 mints them server-side), and the only assertion on
+// them was `toHaveAttribute('href', '/data-quality/alice/req-1')` — which pins the string a
+// producer emits against the string a test hard-codes, and says nothing about whether the
+// app's route table still matches it. Rename the route and both stay green while every
+// notification link in production 404s.
+describe('NotificationsPage — following a notification link (SPEC-114)', () => {
+  it('lands on the report route the link names', async () => {
+    mockGet.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'n1',
+          message: 'Data quality check finished',
+          read: false,
+          timestamp: '2026-06-28T00:00:00.000Z',
+          link: '/data-quality/alice/req-1'
+        }
+      ]
+    });
+
+    // The REAL route table, so the link is resolved by the same `<Routes>` the app ships.
+    const {user} = renderWithProviders(
+      <Routes>
+        <Route
+          path="/notifications"
+          element={<NotificationsPage />}
+        />
+        <Route
+          path="/data-quality/:space/:requestId"
+          element={<DataQualityReportPage />}
+        />
+      </Routes>,
+      {route: '/notifications'}
+    );
+
+    await user.click(await screen.findByRole('link', {name: /Data quality check finished/}));
+
+    // The report page renders — which is only possible if the link's shape and the route's
+    // pattern still agree. Its own content is the report page's subject, not this test's.
+    expect(await screen.findByRole('heading', {name: /data quality/i})).toBeInTheDocument();
+    expect(screen.queryByText('Message 0')).not.toBeInTheDocument();
+  });
+
+  it('uses the pattern the app actually routes on', () => {
+    // GUARDS THE TEST ABOVE, which declares both the link and the route and so would keep
+    // agreeing with itself after a rename. The app's route table is the third party: read it
+    // as data and require the pattern this file exercises to be one App.tsx really declares.
+    expect(appSource).toContain('path="/data-quality/:space/:requestId"');
   });
 });

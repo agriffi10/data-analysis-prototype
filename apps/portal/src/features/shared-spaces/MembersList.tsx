@@ -53,6 +53,13 @@ export function MembersList({owner, members, onRemove, busy = false}: MembersLis
               variant="ghost"
               size="sm"
               className="text-danger hover:bg-danger-soft hover:text-danger"
+              // The visible text is "Remove" on every row, so a screen-reader user hearing the
+              // list of controls gets N identical buttons with no way to tell which member each
+              // one acts on. Naming the member is the accessible fix and it is also what makes
+              // the removal journey testable by a stable query (SPEC-154 FR-006, the spec's
+              // additive-accessibility exception). Appearance is unchanged — `aria-label`
+              // overrides the accessible name only, not the rendered text.
+              aria-label={`Remove ${member.username}`}
               onClick={() => onRemove(member.username)}
               disabled={busy}>
               Remove

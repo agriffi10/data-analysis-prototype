@@ -34,29 +34,27 @@ function setup(overrides: Partial<Parameters<typeof ManageMembersDrawer>[0]> = {
     onRemoveMembers: vi.fn(),
     ...overrides
   };
-  renderWithProviders(<ManageMembersDrawer {...props} />);
-  return props;
+  const {user} = renderWithProviders(<ManageMembersDrawer {...props} />);
+  return {...props, user};
 }
 
 describe('ManageMembersDrawer (SPEC-053 FR-001/003)', () => {
   it('lists members, marks the owner, and offers no Remove for the owner', () => {
     setup();
-    const ownerRow = screen.getByText('alice').closest('li')!;
-    expect(within(ownerRow).getByText('Owner')).toBeInTheDocument();
-    expect(within(ownerRow).queryByRole('button', {name: 'Remove'})).not.toBeInTheDocument();
-
-    const memberRow = screen.getByText('bob').closest('li')!;
-    expect(within(memberRow).getByRole('button', {name: 'Remove'})).toBeInTheDocument();
+    expect(within(screen.getByText('alice').closest('li')!).getByText('Owner')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Remove alice'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Remove bob'})).toBeInTheDocument();
   });
 
-  it('removing a member confirms, then calls onRemoveMembers with that user', () => {
-    const {onRemoveMembers} = setup();
+  it('removing a member confirms, then calls onRemoveMembers with that user', async () => {
+    const {onRemoveMembers, user} = setup();
     // Row Remove opens the confirm dialog (no request yet).
-    fireEvent.click(screen.getByRole('button', {name: 'Remove'}));
+    await user.click(screen.getByRole('button', {name: 'Remove bob'}));
     expect(onRemoveMembers).not.toHaveBeenCalled();
     expect(screen.getByText(/lose access to its/)).toBeInTheDocument();
-    // The dialog's confirm is the second "Remove" button; confirm it.
-    fireEvent.click(screen.getAllByRole('button', {name: 'Remove'}).at(-1)!);
+    // The row control and the dialog's confirm no longer share a name, so this is an exact
+    // query rather than "the last one" (SPEC-154 FR-006).
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', {name: 'Remove'}));
     expect(onRemoveMembers).toHaveBeenCalledWith(['bob']);
   });
 

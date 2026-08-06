@@ -192,6 +192,78 @@ describe('ConnectionsPage — Manage members (SPEC-053)', () => {
       payload: {members: ['bob']}
     });
   });
+
+  // SPEC-154 FR-006: removal was the one member action with no path from the drawer to the
+  // service. The FR names why it is worth driving: the request carries `managing.name` from a
+  // CLOSURE, and a closure over the wrong space removes someone from a space the user did not
+  // choose. That cannot go wrong with one space in the fixture, so there are two.
+  it('removing a member from the drawer enqueues remove_members for the space being managed', async () => {
+    mockRead.mockResolvedValue(
+      cache([
+        {
+          name: 'first',
+          role: 'owner',
+          status: 'active',
+          members: [
+            {username: 'alice', status: 'active'},
+            {username: 'bob', status: 'active'}
+          ]
+        },
+        {
+          name: 'second',
+          role: 'owner',
+          status: 'active',
+          members: [
+            {username: 'alice', status: 'active'},
+            {username: 'bob', status: 'active'}
+          ]
+        }
+      ])
+    );
+    const {user} = renderPage();
+
+    // Manage the SECOND space, so a closure that captured the first — or the list's head —
+    // sends the request against the wrong name and fails here.
+    await user.click(within(await rowFor('second')).getByRole('button', {name: 'Manage'}));
+    const drawer = await screen.findByRole('dialog', {name: 'Manage members'});
+    await user.click(within(drawer).getByRole('button', {name: 'Remove bob'}));
+
+    const confirm = await screen.findByRole('alertdialog', {name: 'Remove bob'});
+    await user.click(within(confirm).getByRole('button', {name: 'Remove'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue).toHaveBeenCalledWith({
+      action: 'remove_members',
+      actor: 'alice',
+      space: 'second',
+      payload: {members: ['bob']}
+    });
+  });
+
+  it('offers no Remove against the owner', async () => {
+    // The owner cannot be removed from their own space, and the drawer is where that would
+    // be gotten wrong — MembersList only renders Remove for non-owners.
+    mockRead.mockResolvedValue(
+      cache([
+        {
+          name: 'owned',
+          role: 'owner',
+          status: 'active',
+          members: [
+            {username: 'alice', status: 'active'},
+            {username: 'bob', status: 'active'}
+          ]
+        }
+      ])
+    );
+    const {user} = renderPage();
+
+    await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
+    const drawer = await screen.findByRole('dialog', {name: 'Manage members'});
+
+    expect(within(drawer).queryByRole('button', {name: 'Remove alice'})).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', {name: 'Remove bob'})).toBeInTheDocument();
+  });
 });
 
 describe('ConnectionsPage — Leave / Delete / View (SPEC-054 / SPEC-075)', () => {
@@ -266,7 +338,7 @@ describe('ConnectionsPage — Leave / Delete / View (SPEC-054 / SPEC-075)', () =
     expect(within(drawer).getByText('Owner')).toBeInTheDocument();
     expect(within(drawer).getByText('bob')).toBeInTheDocument();
     // Read-only: no management controls.
-    expect(within(drawer).queryByRole('button', {name: 'Remove'})).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('button', {name: /Remove/})).not.toBeInTheDocument();
     expect(within(drawer).queryByRole('button', {name: /Add members/})).not.toBeInTheDocument();
   });
 
@@ -305,6 +377,10 @@ describe('ConnectionsPage — responsive reflow (SPEC-101)', () => {
     renderPage();
 
     const sales = await rowFor('sales');
+    // CLASS ASSERTIONS KEPT, with the reason FR-009 requires: SPEC-095's "reflow on ONE tree"
+    // is a documented constraint whose whole content is which utility classes the single tree
+    // carries. jsdom applies no media queries, so there is nothing rendered to observe and no
+    // accessible equivalent to assert — the alternative is not a better test, it is no test.
     // Card stacks on mobile, rows at ≥ tablet.
     expect(sales).toHaveClass('flex-col', 'tablet:flex-row');
     // Pills stack under the name on mobile, inline at ≥ tablet.
@@ -326,6 +402,16 @@ describe('ConnectionsPage — responsive reflow (SPEC-101)', () => {
     renderPage();
     await screen.findByText(/No shared connections yet/);
 
+    // RESTORED after review, and the reasoning that removed it was wrong: `PageLayout.test.tsx`
+    // asserts this stacking only in a render that passes `stackActionsOnMobile` ITSELF, and the
+    // prop defaults to false — so it owns "the prop works", never "ConnectionsPage opts in".
+    // Deleting this left `ConnectionsPage.tsx`'s bare `stackActionsOnMobile` pinned nowhere: a
+    // tidy-up that dropped the prop would keep both files green while the heading and the New
+    // button collide at 400px.
+    //
+    // The DOM chain stays, which is FR-009 AC3 yielding to AC5 (no coverage decrease): the node
+    // is a layout `<div>` with no role, label or landmark, so there is nothing to query it by,
+    // and a worse test is not an improvement on a slightly ugly one.
     const header = screen.getByRole('heading', {level: 1, name: 'Shared connections'}).closest('div')!.parentElement!;
     expect(header).toHaveClass('flex-col', 'tablet:flex-row');
 
