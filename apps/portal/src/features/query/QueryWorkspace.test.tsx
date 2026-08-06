@@ -137,7 +137,7 @@ import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
 import {enqueueTableShare} from '../table-share/tableShare.service';
 import {QueryWorkspace} from './QueryWorkspace';
-import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
+import {QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX, DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
 import type {QueryTabsState, QueryState} from './query.types';
 
 const mockRunQuery = vi.mocked(runQuery);
@@ -1555,7 +1555,17 @@ describe('QueryWorkspace — results pagination (SPEC-087)', () => {
     expect(screen.queryByText('us-east')).not.toBeInTheDocument();
     // The token is the whole mechanism — a Next that refetched page 1 would still "work"
     // visually on a fixture that returned the same rows twice.
-    expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({nextToken: 't-2'}));
+    //
+    // `maxRows` is load-bearing in this assertion, not decoration: `useResultRowCount` walks
+    // every page of the same execution in the background through this same mock, threading
+    // the token itself, so `objectContaining({nextToken: 't-2'})` alone is satisfied by the
+    // row-count walker even if the pager never threads anything. The walker uses
+    // ROW_COUNT_PAGE_SIZE; only the pager asks for the display page size.
+    expect(mockGetResults).toHaveBeenCalledWith({
+      queryExecutionId: 'q-1',
+      nextToken: 't-2',
+      maxRows: DEFAULT_RESULTS_PAGE_SIZE
+    });
   });
 
   it('Prev returns to page 1 without refetching it', async () => {
@@ -1565,16 +1575,19 @@ describe('QueryWorkspace — results pagination (SPEC-087)', () => {
     await runOnce(user);
     await user.click(await screen.findByRole('button', {name: 'Next'}));
     await screen.findByText('ap-south');
-    const callsAfterNext = mockGetResults.mock.calls.length;
+    // Count only the PAGER's calls: `useResultRowCount` shares this mock and its background
+    // walk would otherwise make the totals drift for reasons that have nothing to do with Prev.
+    const pagerCalls = () => mockGetResults.mock.calls.filter((c) => c[0].maxRows === DEFAULT_RESULTS_PAGE_SIZE).length;
+    const afterNext = pagerCalls();
 
     await user.click(screen.getByRole('button', {name: 'Prev'}));
 
     expect(await screen.findByText('us-east')).toBeInTheDocument();
     // Cached pages are the point of the infinite query: going back must cost nothing.
-    expect(mockGetResults).toHaveBeenCalledTimes(callsAfterNext);
+    expect(pagerCalls()).toBe(afterNext);
   });
 
-  it('changing Rows per page re-fetches at the new size and persists across result tabs', async () => {
+  it('changing Rows per page re-fetches at the new size', async () => {
     seedSingle('SELECT 1');
     const {user} = renderWorkspace();
     await runOnce(user);
@@ -1585,11 +1598,39 @@ describe('QueryWorkspace — results pagination (SPEC-087)', () => {
     await user.type(rowsPerPage, '25{Enter}');
 
     await waitFor(() => expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: 25})));
+  });
 
-    // SPEC-087: the setting is workspace-global, so a second result tab inherits it rather
-    // than silently reverting to the default.
-    await user.click(screen.getByRole('button', {name: 'Run statement'}));
-    await waitFor(() => expect(screen.getByLabelText('Rows per page')).toHaveValue('25'));
+  it('carries Rows per page across REAL result tabs, not just across a re-run', async () => {
+    // The first draft of this test re-ran in the same query tab and re-read the field. That
+    // proved nothing: no second result tab exists on that path, the execution id is unchanged,
+    // and `ResultsPageSizeControl` never unmounts — so it was reading back its own untouched
+    // local draft. Moving `useResultsPageSize` down into `QueryResultsTable`, which is the
+    // exact regression SPEC-087's "workspace-global" wording forbids, would have passed.
+    //
+    // A `script-tabs` run is the tree where the claim is falsifiable: two statements, two
+    // result tabs, one shared size.
+    queueRuns('q-1', 'q-2');
+    seedSingle('SELECT 1; SELECT 2');
+    const {user} = renderWorkspace();
+    await screen.findByLabelText('SQL editor');
+
+    await user.click(screen.getByRole('button', {name: 'editor: Run Script → tab per statement'}));
+    await screen.findByRole('tablist', {name: 'Result tabs'});
+
+    // The control is disabled mid-batch; wait for the run to settle before typing into it.
+    const rowsPerPage = () => screen.getByLabelText('Rows per page') as HTMLInputElement;
+    await waitFor(() => expect(rowsPerPage()).toBeEnabled());
+    await user.clear(rowsPerPage());
+    await user.type(rowsPerPage(), '25{Enter}');
+    await waitFor(() => expect(rowsPerPage()).toHaveValue('25'));
+
+    const resultTabs = within(screen.getByRole('tablist', {name: 'Result tabs'})).getAllByRole('tab');
+    await user.click(resultTabs[1]);
+
+    expect(rowsPerPage()).toHaveValue('25');
+    await waitFor(() =>
+      expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-2', maxRows: 25}))
+    );
   });
 });
 
@@ -1611,12 +1652,18 @@ describe('QueryWorkspace — result-view settings that survive a tab switch (SPE
       activeTabId: 'a',
       nextQueryNumber: 3
     });
-    // A client with a REAL gcTime, deliberately. The harness's `gcTime: 0` drops the results
-    // query the moment the table unmounts on a tab switch, so coming back re-fetches from
-    // cold: `columns.length` is 0 for a beat, `useColumnWidths` re-seeds to defaults, and the
-    // width is lost. That is an artefact of the test client, not of the product — the app
-    // runs on TanStack's default gcTime and the cache is still warm. Asserting the reset
-    // would have pinned the harness's behaviour as if it were the feature's.
+    // A client with a REAL gcTime, deliberately, and the mechanism is worth stating precisely
+    // because the obvious reading is wrong. It is NOT the table unmounting: `useQueryResults`
+    // and `useColumnWidths` both live at the workspace level, above that boundary, exactly so
+    // they survive. What happens is that switching tabs sends `displayExecutionId` to null, so
+    // the results query KEY changes and `q-1` is left with no observer — which the harness's
+    // `gcTime: 0` evicts instantly. Coming back re-fetches cold, `columns.length` is 0 for a
+    // beat, and `useColumnWidths` re-seeds to defaults.
+    //
+    // Production sets no `gcTime` (lib/queryClient.ts), so TanStack's 5-minute default keeps
+    // the pages cached and the dip never happens. Asserting the reset here would have pinned
+    // the test client's behaviour as if it were the feature's. (The persistence is bounded by
+    // that cache rather than by the session — see the delivery doc.)
     const {user, container} = renderWorkspace(undefined, {
       queryClient: new QueryClient({defaultOptions: {queries: {retry: false, staleTime: 0}}})
     });
@@ -1648,8 +1695,14 @@ describe('QueryWorkspace — result-view settings that survive a tab switch (SPE
     const {user, unmount} = renderWorkspace();
     await screen.findByRole('button', {name: 'sales_2026'});
 
+    // The precondition, so the assertion after the click cannot pass by having started true.
+    expect(screen.getByRole('button', {name: /Results layout/})).toHaveAttribute('aria-pressed', 'false');
+
     await user.click(screen.getByRole('button', {name: /Results layout/}));
     expect(screen.getByRole('button', {name: /Results layout/})).toHaveAttribute('aria-pressed', 'true');
+    // NOTE: only the SELECTION and its persistence are asserted. "Applies" is unobservable in
+    // jsdom — the pane container measures 0, so `clampEditorHeight` returns MIN_EDITOR_HEIGHT
+    // for every preset and the three would render identically. Recorded rather than faked.
 
     // SPEC-079 persists per user for the session, so a remount must not silently revert —
     // the failure a hook test cannot see is the workspace not reading the stored value back.

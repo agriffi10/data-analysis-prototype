@@ -640,6 +640,29 @@ describe('FileBrowser — resolving a BATCH collision through the UI (SPEC-154 F
     expect(await screen.findByText(/Copied 1 item/)).toBeInTheDocument();
   });
 
+  it('drives a batch MOVE collision to Overwrite all', async () => {
+    // `useMove` has its own `runMove`/`finalizeMove` pair behind the same BatchOverwritePrompt,
+    // so a copy-only test leaves the move retry path untested — and a move that quietly
+    // overwrote (or quietly did not) is the more destructive of the two.
+    mock.moveObject
+      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never)
+      .mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}) as never);
+
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    const picker = await screen.findByRole('dialog');
+    await user.click(within(picker).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(await within(picker).findByRole('button', {name: 'Move here'}));
+
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Overwrite all'}));
+
+    await waitFor(() => expect(mock.moveObject).toHaveBeenCalledTimes(2));
+    expect(mock.moveObject.mock.calls[0][0]).toMatchObject({overwrite: false});
+    expect(mock.moveObject.mock.calls[1][0]).toMatchObject({overwrite: true});
+    expect(await screen.findByText(/Moved 1 item/)).toBeInTheDocument();
+  });
+
   it('cancels a batch collision without copying the collided item', async () => {
     mock.copyObject.mockResolvedValue({success: false, error: {message: 'exists', code: 'Collision'}} as never);
 

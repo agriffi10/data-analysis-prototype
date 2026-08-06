@@ -101,7 +101,11 @@ The most-used flow in the app has one UI-level test whose only assertion is `exp
 
 - [ ] A test renders a **real** `UploadQueueProvider` behind a **real** `UploadList`, enqueues a file, and asserts the visible progression: queued → uploading (progress shown) → Uploaded.
 - [ ] A failing upload shows the Failed state with the mapped message.
-- [ ] Cancelling an in-flight upload removes it and aborts the request.
+- [ ] Cancelling an in-flight upload aborts the request and marks it **Cancelled**; cancelling a
+  **queued** upload removes it outright. *(Corrected during the build: this AC originally read
+  "removes it", which the app does not do and should not — `UploadQueueProvider` transitions an
+  in-flight cancel to a terminal `cancelled` row and drops only a queued one, so the user gets
+  confirmation the cancel took rather than a row that silently vanishes. Both halves are asserted.)*
 - [ ] The concurrency gate is observable at this level, or the test records why it is not and leaves the provider-level test as its home.
 - [ ] Multipart internals stay out of scope — the SDK ctor args are already correctly pinned at `fileBrowser.service.ts`'s service test.
 
