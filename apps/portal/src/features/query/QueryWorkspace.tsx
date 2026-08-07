@@ -1,10 +1,8 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useLocation, useNavigate, useSearchParams} from 'react-router';
+import {useLocation, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
-import {getTableDdl} from './query.service';
-import {parseS3Url} from '../../lib/s3Url';
 import {spaceBuckets} from '../../lib/userSpace';
 import {useQueryResults} from './useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
@@ -17,6 +15,7 @@ import {useTabRuns} from './useTabRuns';
 import {useRunDdl} from './useRunDdl';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useSaveResults} from './useSaveResults';
+import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from '../connections/useConnections';
@@ -29,11 +28,10 @@ import {
   stripTrailingSemicolons
 } from './query.sql';
 import {ResultTabs} from './ResultTabs';
-import {SchemaBrowser, SchemaTree, type TableActions} from './SchemaBrowser';
+import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {useIsMobile} from '../../lib/useBreakpoint';
-import {useProvideNavRail} from '../../components/navRailContext';
 import {useTableShare} from '../table-share';
 import {parseRefreshLink, useTableRefresh} from '../table-builder';
 import {useToast} from '../../components/toastContext';
@@ -191,7 +189,6 @@ export function QueryWorkspace() {
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
-  const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
   // The list fields feed the mobile browse-first home (SPEC-100 FR-004); the
   // desktop drawer subscribes to the same cache key, so this adds no fetch.
@@ -440,124 +437,22 @@ export function QueryWorkspace() {
     tabs.unlinkSavedQuery(id);
   };
 
-  // ── SPEC-044 table actions ──────────────────────────────────────────────
-  // Derive the in-space S3 key (folder) backing a table from its Glue LOCATION;
-  // null when missing or outside the user's own prefix (FR-002 guard).
-  const tablePrefix = (table: GlueTableSummary): string | null => {
-    const parsed = parseS3Url(table.location);
-    if (!parsed) return null;
-    const key = parsed.key.endsWith('/') ? parsed.key : `${parsed.key}/`;
-    return username && key.startsWith(`${username}/`) ? key : null;
-  };
-
-  // SPEC-077 FR-007: each per-table action takes the database from the rail node
-  // the table was invoked from (a table under `db_a` acts on `db_a.<table>`) —
-  // there is no active-database selection to source it from.
-  const tableActions = {
-    canViewSourceFiles: (table: GlueTableSummary) => tablePrefix(table) !== null,
-    // Deep-link the file browser to the table's data folder (location-based; no db).
-    onViewSourceFiles: (_database: string, table: GlueTableSummary) => {
-      const key = tablePrefix(table);
-      if (!key) return;
-      navigate(`/files?prefix=${encodeURIComponent(key)}`);
-    },
-    // SHOW CREATE TABLE against the node's database → a new, non-run "DDL: {table}" tab.
-    onViewDdl: (database: string, table: GlueTableSummary) => {
-      toast.push({variant: 'info', message: `Loading DDL for ${table.name}…`});
-      void (async () => {
-        const result = await getTableDdl({
-          database,
-          table: table.name,
-          username,
-          isView: table.tableType === 'VIRTUAL_VIEW'
-        });
-        if (!result.success) {
-          toast.push({
-            variant: 'danger',
-            message: `Couldn’t load DDL for ${table.name}. ${toUserText(result.error)}`
-          });
-          return;
-        }
-        toast.dismiss();
-        // SPEC-100: the drawer puts these actions on a phone too, where there is
-        // no editor to open a tab into — show the DDL in the read-only view.
-        if (isMobile) {
-          mobile.viewSql(result.data, `DDL: ${table.name}`);
-          return;
-        }
-        const id = tabs.openTab({
-          label: `DDL: ${table.name}`,
-          sql: result.data
-        });
-        if (id === null) setLimitOpen(true);
-        else editorRef.current?.focus();
-      })();
-    },
-    // Open a "{table}" tab pre-filled with an unbounded, fully-qualified SELECT *
-    // + auto-run — the results pager (at the user's page size) walks the whole
-    // table; the workgroup bytes-scanned cutoff is the cost guard (SPEC-105).
-    onViewData: (database: string, table: GlueTableSummary) => {
-      const sql = `SELECT * FROM ${database}.${table.name}`;
-      // SPEC-100: on a phone the run goes to the mobile results view; opening a
-      // tab there would run a query with nothing able to display it.
-      if (isMobile) {
-        mobile.runSql(sql, table.name);
-        return;
-      }
-      const id = tabs.openTab({label: table.name, sql});
-      if (id === null) {
-        setLimitOpen(true);
-        return;
-      }
-      editorRef.current?.focus();
-      submitBatch(splitSqlStatements(sql), 'script-single', id); // auto-run into the just-opened tab
-    },
-    // SPEC-145: open the Refresh dialog for this rail table. Unlike Share, `open`
-    // takes the whole summary — the request's space is derived from the table's own
-    // `location`, the only thing in the workspace that knows where its files live.
-    onRefreshTable: (database: string, table: GlueTableSummary) => refresh.open(database, table),
-    // SPEC-093: open the Share dialog for this rail table (base tables only — the
-    // menu omits the item for views); submission + toasts live in useTableShare.
-    onShareTable: (database: string, table: GlueTableSummary) => share.open(database, table.name),
-    // Confirm, then drop in the background (handled on confirm) — carries the node's db.
-    onDropTable: (database: string, table: GlueTableSummary) => setDropping({database, table})
-  };
-
-  // SPEC-100 FR-005: below `tablet` the inline rail is gone, so the same tree is
-  // fed into the mobile AppNavDrawer's contextual slot. The registered node must
-  // keep a stable identity (useProvideNavRail registers it in an effect), so the
-  // drawer's copy delegates through a ref to the current handlers rather than
-  // closing over the per-render `tableActions` object.
-  const tableActionsRef = useRef(tableActions);
-  useEffect(() => {
-    tableActionsRef.current = tableActions;
+  // SPEC-044/077/100: the per-table rail actions, and the mobile nav-rail copy
+  // that has to be fed the same handlers.
+  const tableActions = useTableActions({
+    username,
+    isMobile,
+    connections,
+    toast,
+    mobile,
+    submitBatch,
+    openTab: tabs.openTab,
+    onTabLimit: () => setLimitOpen(true),
+    focusEditor: () => editorRef.current?.focus(),
+    onRefreshTable: refresh.open,
+    onShareTable: share.open,
+    onDropTable: setDropping
   });
-  const railActions = useMemo<TableActions>(
-    () => ({
-      canViewSourceFiles: (table) => tableActionsRef.current.canViewSourceFiles(table),
-      onViewSourceFiles: (database, table) => tableActionsRef.current.onViewSourceFiles(database, table),
-      onViewDdl: (database, table) => tableActionsRef.current.onViewDdl(database, table),
-      onViewData: (database, table) => tableActionsRef.current.onViewData(database, table),
-      onRefreshTable: (database, table) => tableActionsRef.current.onRefreshTable(database, table),
-      onShareTable: (database, table) => tableActionsRef.current.onShareTable(database, table),
-      onDropTable: (database, table) => tableActionsRef.current.onDropTable(database, table)
-    }),
-    []
-  );
-  const navRail = useMemo(
-    () =>
-      isMobile ? (
-        <div className="p-3">
-          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Databases</p>
-          <SchemaTree
-            connections={connections}
-            actions={railActions}
-          />
-        </div>
-      ) : null,
-    [isMobile, connections, railActions]
-  );
-  useProvideNavRail(navRail);
 
   // SPEC-048/077: turn the active tab's SQL into a named view, in the background
   // (the editor keeps showing the user's SELECT). The target database is derived
