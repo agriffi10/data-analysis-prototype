@@ -1,6 +1,5 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useNavigate, useSearchParams} from 'react-router';
-import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
@@ -8,8 +7,6 @@ import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
 import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
 import {getTableDdl} from './query.service';
-import {copyObject} from '../file-browser/fileBrowser.service';
-import {invalidateListing} from '../../lib/queryClient';
 import {parseS3Url} from '../../lib/s3Url';
 import {spaceBuckets} from '../../lib/userSpace';
 import {useQueryResults} from './useQueryResults';
@@ -22,6 +19,7 @@ import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
 import {useRunDdl} from './useRunDdl';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
+import {useSaveResults} from './useSaveResults';
 import {useEditorLayout} from './useEditorLayout';
 import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
@@ -44,7 +42,7 @@ import {TableShareDialog, useTableShare} from '../table-share';
 import {RefreshTableDialog, parseRefreshLink, useTableRefresh} from '../table-builder';
 import {DropTableDialog} from './DropTableDialog';
 import {CreateViewDialog} from './CreateViewDialog';
-import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
+import {SaveResultsDialog} from './SaveResultsDialog';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {useToast} from '../../components/toastContext';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
@@ -76,7 +74,6 @@ const TOOLBAR_LABEL = 'hidden desktop:inline';
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
-  const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
   // Save-results copy stays within it. SPEC-055: the shared-space bucket (where
   // shared-DB results land + a Save target).
@@ -111,32 +108,6 @@ export function QueryWorkspace() {
       // sessionStorage unavailable — nothing to clean up.
     }
   }, []);
-
-  // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
-  // first, then every shared space they currently belong to (usable). The picker
-  // excludes each space's protected `athenaresults/` folder.
-  const saveSpaces = useMemo<DestinationSpace[]>(() => {
-    if (!userSpaceBucket) return [];
-    const personal: DestinationSpace = {
-      id: 'personal',
-      label: 'My files',
-      bucket: userSpaceBucket,
-      rootPrefix: `${username}/`,
-      rootLabel: 'My Files'
-    };
-    const shared: DestinationSpace[] = sharedSpaceBucket
-      ? connections
-          .filter((c) => c.kind === 'shared' && isConnectionUsable(c))
-          .map((c) => ({
-            id: c.database,
-            label: c.database,
-            bucket: sharedSpaceBucket,
-            rootPrefix: `${c.database}/`,
-            rootLabel: c.database
-          }))
-      : [];
-    return [personal, ...shared];
-  }, [userSpaceBucket, sharedSpaceBucket, username, connections]);
 
   const tabs = useQueryTabs(username);
   const {activeTab, activeTabId} = tabs;
@@ -234,20 +205,6 @@ export function QueryWorkspace() {
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
-  // SPEC-049: Save results.
-  const [saveResultsOpen, setSaveResultsOpen] = useState(false);
-  const [saveInFlight, setSaveInFlight] = useState(false);
-  // A pending overwrite confirm when the chosen destination key already exists.
-  // SPEC-055: carries source + dest buckets so the retry repeats the same
-  // (possibly cross-bucket) copy.
-  const [overwritePrompt, setOverwritePrompt] = useState<{
-    sourceBucket: string;
-    sourceKey: string;
-    destBucket: string;
-    destPrefix: string;
-    filename: string;
-  } | null>(null);
-
   const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
   // The list fields feed the mobile browse-first home (SPEC-100 FR-004); the
@@ -346,6 +303,18 @@ export function QueryWorkspace() {
     activeBatchDone && activeRun.statements.length === 1 && activeStatus?.state === 'SUCCEEDED';
   const displayExecutionId = displayedResultTab?.executionId ?? (soleStatementSucceeded ? activeRun.executionId : null);
   const displayOutputLocation = displayedResultTab?.outputLocation ?? activeStatus?.outputLocation;
+
+  // SPEC-049/055: the Save-results dialog, its destination list, the overwrite
+  // warn-and-confirm and the default file name.
+  const saveResults = useSaveResults({
+    username,
+    userSpaceBucket,
+    sharedSpaceBucket,
+    connections,
+    outputLocation: displayOutputLocation,
+    linkedSavedName: activeLinkedSaved?.name,
+    toast
+  });
   // What the EDITOR shell may show: never a run the mobile surface submitted
   // (those carry a token and leave the editor buffer untouched by design).
   const editorExecutionId = editorOwnsRun ? activeExecutionId : null;
@@ -398,88 +367,6 @@ export function QueryWorkspace() {
     tabs.setActiveSql(entry.sql);
     setHistoryOpen(false);
     submitBatch(splitSqlStatements(entry.sql), 'script-single');
-  };
-
-  // SPEC-049: copy the query's complete Athena result object into the user's space.
-  // A server-side CopyObject of `{username}/athenaresults/{id}.csv` captures ALL
-  // rows, independent of how many pages the results table loaded. The destination
-  // listing is invalidated so the new file appears if the user browses there, and a
-  // success toast offers a "View in Files" deep-link (SPEC-044).
-  const doSaveCopy = (args: {
-    sourceBucket: string;
-    sourceKey: string;
-    destBucket: string;
-    destPrefix: string;
-    filename: string;
-    overwrite: boolean;
-  }) => {
-    const destKey = `${args.destPrefix}${args.filename}`;
-    setSaveInFlight(true);
-    void (async () => {
-      const result = await copyObject({
-        bucket: args.sourceBucket,
-        destBucket: args.destBucket,
-        sourceKey: args.sourceKey,
-        destKey,
-        username,
-        overwrite: args.overwrite
-      });
-      setSaveInFlight(false);
-      if (!result.success) {
-        // A destination collision returns to a warn-and-confirm (SPEC-039).
-        if (result.error.code === 'Collision') {
-          setSaveResultsOpen(false);
-          setOverwritePrompt({
-            sourceBucket: args.sourceBucket,
-            sourceKey: args.sourceKey,
-            destBucket: args.destBucket,
-            destPrefix: args.destPrefix,
-            filename: args.filename
-          });
-          return;
-        }
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t save results. ${toUserText(result.error)}`
-        });
-        return;
-      }
-      setSaveResultsOpen(false);
-      setOverwritePrompt(null);
-      void invalidateListing(queryClient, args.destBucket, args.destPrefix);
-      // SPEC-055: the Files browser only renders the personal space until SPEC-057,
-      // so the "View in Files" deep-link is offered only for a personal-space save.
-      const isPersonalDest = args.destBucket === userSpaceBucket;
-      toast.push({
-        variant: 'success',
-        message: `Saved to ${args.destPrefix}${args.filename}`,
-        ...(isPersonalDest && {
-          action: {
-            label: 'View in Files',
-            onClick: () => {
-              toast.dismiss();
-              navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
-            }
-          }
-        })
-      });
-    })();
-  };
-
-  const handleSaveResults = (args: {destBucket: string; destPrefix: string; filename: string}) => {
-    // SPEC-078: save the DISPLAYED result (the active result tab's execution),
-    // not necessarily the batch's last statement.
-    const outputLocation = displayOutputLocation;
-    if (!outputLocation) return;
-    const parsed = parseS3Url(outputLocation);
-    if (!parsed) {
-      toast.push({
-        variant: 'danger',
-        message: 'Couldn’t read the query result location.'
-      });
-      return;
-    }
-    doSaveCopy({...args, sourceBucket: parsed.bucket, sourceKey: parsed.key, overwrite: false});
   };
 
   // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
@@ -735,19 +622,6 @@ export function QueryWorkspace() {
   // (a result object with columns) — not a DDL / no-result statement. SPEC-078:
   // it saves the displayed result tab's execution.
   const canSaveResults = displayExecutionId !== null && !!displayOutputLocation && results.columns.length > 0;
-
-  // SPEC-049: default file name — the saved query's name when the tab is linked,
-  // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
-  const savedResultsDefaultName = (() => {
-    const d = new Date();
-    const p = (n: number) => String(n).padStart(2, '0');
-    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
-    const base = activeLinkedSaved?.name
-      ? // eslint-disable-next-line no-control-regex
-        activeLinkedSaved.name.replace(/[/\x00-\x1f]/g, '-').trim()
-      : 'query-results';
-    return `${base}-${stamp}`;
-  })();
 
   return (
     // Cap the workspace to the viewport (minus the h-14 header) so the results
@@ -1039,7 +913,7 @@ export function QueryWorkspace() {
                     hasResultSet={hasResultSet}
                     totalRowCount={rowCount.total}
                     canSaveResults={canSaveResults}
-                    onSaveResults={() => setSaveResultsOpen(true)}
+                    onSaveResults={saveResults.openDialog}
                   />
                 )}
 
@@ -1212,39 +1086,27 @@ export function QueryWorkspace() {
           onCancel={() => setDropping(null)}
         />
       )}
-      {saveResultsOpen && saveSpaces.length > 0 && (
+      {saveResults.open && saveResults.spaces.length > 0 && (
         <SaveResultsDialog
-          spaces={saveSpaces}
-          defaultName={savedResultsDefaultName}
-          isBusy={saveInFlight}
-          onSave={handleSaveResults}
-          onCancel={() => setSaveResultsOpen(false)}
+          spaces={saveResults.spaces}
+          defaultName={saveResults.defaultName}
+          isBusy={saveResults.busy}
+          onSave={saveResults.save}
+          onCancel={saveResults.closeDialog}
         />
       )}
-      {overwritePrompt && (
+      {saveResults.overwritePrompt && (
         <ConfirmDialog
-          title={`Overwrite “${overwritePrompt.filename}”?`}
+          title={`Overwrite “${saveResults.overwritePrompt.filename}”?`}
           ariaLabel="Confirm overwrite"
           confirmLabel="Overwrite"
           confirmVariant="danger"
-          busy={saveInFlight}
+          busy={saveResults.busy}
           busyLabel="Saving…"
-          onConfirm={() =>
-            doSaveCopy({
-              sourceBucket: overwritePrompt.sourceBucket,
-              sourceKey: overwritePrompt.sourceKey,
-              destBucket: overwritePrompt.destBucket,
-              destPrefix: overwritePrompt.destPrefix,
-              filename: overwritePrompt.filename,
-              overwrite: true
-            })
-          }
-          onCancel={() => {
-            setOverwritePrompt(null);
-            setSaveResultsOpen(true); // return to the dialog with the name editable
-          }}>
+          onConfirm={saveResults.confirmOverwrite}
+          onCancel={saveResults.cancelOverwrite}>
           <p className="mt-3 text-sm text-text-2">
-            A file named “{overwritePrompt.filename}” already exists in that folder. Saving will replace it.
+            A file named “{saveResults.overwritePrompt.filename}” already exists in that folder. Saving will replace it.
           </p>
         </ConfirmDialog>
       )}
