@@ -16,7 +16,14 @@ from cpcommon import results
 
 
 def test_the_table_builder_prefix_is_unchanged():
-    """Was ``f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"``."""
+    """Was ``f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"``.
+
+    Distinct database and actor even though a personal space makes them equal, so this
+    assertion can fail on a swapped argument by itself rather than leaning on its siblings.
+    """
+    assert results.results_location("user-bkt", "alice_db", "alice") == (
+        "s3://user-bkt/alice_db/athenaresults/alice/"
+    )
     assert results.results_location("user-bkt", "alice", "alice") == (
         "s3://user-bkt/alice/athenaresults/alice/"
     )
@@ -66,8 +73,14 @@ def test_the_temp_table_ddl_output_is_unchanged():
 
 def test_an_absent_report_prefix_gives_the_bucket_root():
     """Drop's fallback, now shared. Create had no fallback and would have built `s3:///ddl/`
-    from an empty prefix — unreachable there (the field is required), and the shared builder
-    resolves it to the location drop already used rather than to a broken URI."""
+    from an empty prefix.
+
+    Unreachable there, but NOT because the field is required — `events.require` only rejects
+    a value that is blank after stripping, so `"/"` would pass it and rstrip to empty. The real
+    guarantee is that `dq_validate_authorize._validate_destination` is the only writer of
+    `reportPrefix` and builds it as `f"{space_root}/{REPORTS_PREFIX}/{request_id}/"`, which
+    always contains a literal segment. The shared builder resolves the case to the location
+    drop already used rather than to a broken URI."""
     assert results.ddl_output("user-bkt", "") == "s3://user-bkt/"
 
 
@@ -76,6 +89,9 @@ def test_no_plane_builds_an_athenaresults_prefix_by_hand():
 
     `tbcommon/results.py` explained why this must exist once; two more copies were written
     anyway. A grep is what stops a fourth.
+
+    A tripwire, not a proof: hoisting the folder name to a module constant evades it. It
+    catches the copy-paste, which is how the three copies actually arose.
 
     Matched per LINE and on `s3://` too, because naming the folder is not building a prefix:
     `s3_listing._IGNORED_SUBTREES` and `dqcommon.config`'s reserved list both name

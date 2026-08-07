@@ -41,7 +41,9 @@ import pytest
 # `cpcommon.observability`, `tbcommon`, `tscommon`, `dqcommon` or the shared-space flat
 # modules — so the leak the fixture exists to stop was still live everywhere else, and the
 # suites that hit it worked around it locally: `test_table_share_copy_objects.py` restored
-# `tscommon.athena` by hand with a comment naming this gap, and five files hand-rolled
+# `tscommon.athena` by hand with a comment naming this gap (that module is gone — SPEC-156
+# FR-005 replaced it with a bound runner INSTANCE, which this fixture cannot restore either,
+# so its test restores locally), and five files hand-rolled
 # try/finally around `observability.info`. Matching by PREFIX rather than by name means a
 # new module in an existing layer is covered the day it is written, which a hand-list is not.
 #

@@ -10,6 +10,11 @@ success.
 
 The service name is the control plane, not the function, so one share's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
+
+Attributes:
+  athena_mod: Table-share's DDL runner, with this plane's reason codes bound. Held at module
+    level so a timing test can replace its ``_now`` and ``_sleep`` seams, which is the whole
+    reason the per-plane wrapper it replaced existed (SPEC-156 FR-005).
 """
 
 import logging
@@ -17,8 +22,6 @@ import logging
 from cpcommon import athena, config, observability, results
 from tscommon import ddl, notify
 
-#: Table-share's DDL runner. Module-level so a timing test can replace its `_now` and `_sleep`
-#: seams, which is what the deleted `tscommon.athena` wrapper existed to expose.
 athena_mod = athena.bound_runner("create_failed", "create_timeout")
 
 logger = logging.getLogger()

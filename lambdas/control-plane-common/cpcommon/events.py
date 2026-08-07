@@ -18,7 +18,7 @@ from .errors import TerminalError
 MALFORMED = "malformed_event"
 
 
-def parse_sqs_request(event: Any, *, reason: str = MALFORMED, exc: Any = None) -> dict:
+def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> dict:
     """Extracts and JSON-parses the single SQS record body an EventBridge Pipe forwards.
 
     The Pipe forwards the raw SQS batch as a JSON array; this takes the single record and

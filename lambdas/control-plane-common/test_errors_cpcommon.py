@@ -41,7 +41,7 @@ def test_canonical_set_covers_every_code_the_migrated_copies_needed():
         "SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable", "503", "500",
         # generic / Glue throttles
         "Throttling", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded",
-        # Athena 5xx (athena_run / tscommon-athena)
+        # Athena 5xx (cpcommon.athena.BoundRunner, both planes)
         "InternalServerException", "InternalErrorException", "ServiceUnavailableException",
     }
     missing = required - errors._TRANSIENT_CODES

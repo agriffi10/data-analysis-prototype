@@ -54,3 +54,51 @@ def test_malformed_inputs_raise_terminal_with_the_callers_reason(event, detail):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-156 FR-005: the `exc=` factory path ────────────────────────────────
+# shared-space-validate's own envelope parser was deleted in favour of this one, and the only
+# thing that copy existed for was the exception TYPE its Step Function's Catch is written
+# against. Nothing else in the tree asserts those four detail strings, so replacing them all
+# with a constant left the whole suite green — these are that guard.
+
+
+class _AuthorizationError(Exception):
+    """Stands in for shared-space's own type: a one-argument factory, not a TerminalError."""
+
+
+def test_the_exc_factory_carries_the_callers_type_on_every_envelope_failure():
+    for event, detail in (
+        ([], "empty event"),
+        ("not-an-envelope", "unrecognised event shape"),
+        ([{"body": ""}], "missing message body"),
+        ([{}], "missing message body"),
+    ):
+        try:
+            events.parse_sqs_request(event, reason=events.MALFORMED, exc=_AuthorizationError)
+        except _AuthorizationError as exc:
+            assert str(exc) == detail, f"{event!r} -> {str(exc)!r}"
+        else:
+            raise AssertionError(f"expected _AuthorizationError for {event!r}")
+
+
+def test_the_exc_factory_reports_the_json_error_verbatim():
+    try:
+        events.parse_sqs_request(
+            [{"body": "{oops"}], reason=events.MALFORMED, exc=_AuthorizationError
+        )
+    except _AuthorizationError as exc:
+        assert str(exc).startswith("body is not valid JSON: ")
+    else:
+        raise AssertionError("expected _AuthorizationError")
+
+
+def test_the_default_path_is_untouched_by_the_new_parameter():
+    """Every existing caller passes no `exc`, and must still get a TerminalError."""
+    try:
+        events.parse_sqs_request([], reason=events.MALFORMED)
+    except TerminalError as exc:
+        assert exc.reason == events.MALFORMED
+        assert exc.detail == "empty event"
+    else:
+        raise AssertionError("expected TerminalError")

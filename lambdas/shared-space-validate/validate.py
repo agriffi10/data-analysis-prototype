@@ -84,7 +84,9 @@ def _parse_request(event):
       AuthorizationError: On an empty batch, an unrecognised event shape, a missing body, a
         body that is not valid JSON, or an unsupported schema version.
     """
-    req = events.parse_sqs_request(event, exc=auth.AuthorizationError)
+    req = events.parse_sqs_request(
+        event, reason=events.MALFORMED, exc=auth.AuthorizationError
+    )
     if req.get("schemaVersion") != config.SCHEMA_VERSION:
         raise auth.AuthorizationError(f"unsupported schemaVersion: {req.get('schemaVersion')!r}")
     return req
