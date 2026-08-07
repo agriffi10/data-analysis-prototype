@@ -145,12 +145,18 @@ browser-direct.
   consolidated (SPEC-062; table-builder post-072) — the union policy lives in the module's
   `execution.json.tftpl`. Creates on LF-gated DBs come via **TBAC** (Authorization Model →
   Analytics); roles are LF admins for Describe only.
-- **Layers.** Every verb attaches `cpcommon` (SPEC-107/125: boto/JWKS clients, env config, ID-token
-  verification, notifications send, observability, `errors`) + a domain layer
-  (`shared-space-common` / `tbcommon` / `tscommon` / `dqcommon`). polars is its own layer, attached
-  only to verbs that read file bytes (table-builder `infer-schema`, data-quality `inspect-source`).
+- **Layers.** Every verb attaches `cpcommon` (SPEC-107/125: boto/JWKS clients, lazily-resolving env
+  config, ID-token verification, notifications send + FIFO `dedup_id`, observability, `errors`,
+  `messages`, `cas`, `results`, `athena.bound_runner`, `events`, `ddl`, `glue`, `s3_listing`) + a
+  domain layer (`shared-space-common` / `tbcommon` / `tscommon` / `dqcommon`). polars is its own
+  layer, attached only to verbs that read file bytes (table-builder `infer-schema`, data-quality
+  `inspect-source`). **SPEC-156 folded the deliberate twins onto `cpcommon`** — the CAS loop, the
+  failure-message resolver, the results-location builder, the JWKS path, the SQS parser, the Athena
+  DDL runner and the dedup-id builder each exist once now; a domain layer holds its *tables and
+  wording*, not its own copy of the algorithm.
 - **Replay-safe.** Verbs tolerate already-exists/already-absent; `CREATE … IF NOT EXISTS`;
-  deterministic S3 keys; shared JSON mutates under **ETag compare-and-swap** (`casio`, SPEC-082).
+  deterministic S3 keys; shared JSON mutates under **ETag compare-and-swap** (`cpcommon.cas`,
+  SPEC-082; consolidated from three copies by SPEC-156 FR-001).
 - **The 256 KB SFN state cap.** `States.DataLimitExceeded` escapes every `Catch` — the worst failure
   mode (no notification). Pass **S3 pointers between states, never inline lists** (learned
   independently in table-share PR #256 and data-quality). Never decode an error `Cause` in ASL

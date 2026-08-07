@@ -1,8 +1,8 @@
 # Spec: Lambda Layer Consolidation — Folding the Deliberate Twins onto `cpcommon`
 
 **ID:** SPEC-156
-**Status:** In Progress
-**Last Updated:** 2026-08-05
+**Status:** Completed
+**Last Updated:** 2026-08-07
 **Depends On:** SPEC-107 (`cpcommon`, the shared layer this spec consolidates onto), SPEC-125 (which `dqcommon/index_store.py:20` names as the point where the CAS twins converge — it has shipped), SPEC-151 (fixes `casio.is_precondition` **in place**; this spec then moves it — land 151 first), SPEC-153 (the `conftest` snapshot and paginating fakes that make cross-layer refactoring safe)
 
 > **Reference:** from the 2026-08-05 codebase audit. Pure consolidation in the Lambda layers, with no behaviour change and no new infrastructure.
@@ -56,13 +56,13 @@ None of this is broken today. All of it is a maintenance surface where a fix rea
 
 #### Acceptance Criteria
 
-- [ ] `cpcommon.cas` exports the loop and the `is_precondition` predicate, handling `PreconditionFailed`/`412` **and** `ConditionalRequestConflict`/`409` (the union SPEC-151 establishes).
-- [ ] All three call sites use it; the three local copies are deleted.
-- [ ] **The retry-cap divergence is resolved explicitly** — one value, chosen deliberately, with the reason recorded. Preserving three caps through a "consolidation" is a failed consolidation.
-- [ ] Each call site's distinctive behaviour is preserved: `index_store`'s same-`requestId` replacement and cap, `log_sweep`'s append semantics, `casio`'s callers' expectations.
-- [ ] The existing tests for all three pass unchanged, including `log-sweep`'s `test_a_read_failure_never_overwrites_an_existing_day` and `index_store`'s contention tests.
-- [ ] `index_store.py:20`'s docstring is updated — the twin no longer exists, so the instruction to keep it in sync must not survive.
-- [ ] `shared-space-common` gains no new layer dependency it did not already have (`casio.py:21` already imports from `cpcommon.errors`).
+- [x] `cpcommon.cas` exports the loop and the `is_precondition` predicate, handling `PreconditionFailed`/`412` **and** `ConditionalRequestConflict`/`409` (the union SPEC-151 establishes).
+- [x] All three call sites use it; the three local copies are deleted.
+- [x] **The retry-cap divergence is resolved explicitly** — one value, chosen deliberately, with the reason recorded. Preserving three caps through a "consolidation" is a failed consolidation.
+- [x] Each call site's distinctive behaviour is preserved: `index_store`'s same-`requestId` replacement and cap, `log_sweep`'s append semantics, `casio`'s callers' expectations.
+- [x] The existing tests for all three pass unchanged, including `log-sweep`'s `test_a_read_failure_never_overwrites_an_existing_day` and `index_store`'s contention tests.
+- [x] `index_store.py:20`'s docstring is updated — the twin no longer exists, so the instruction to keep it in sync must not survive.
+- [x] `shared-space-common` gains no new layer dependency it did not already have (`casio.py:21` already imports from `cpcommon.errors`).
 
 ### FR-002: One failure-message resolver path
 
@@ -108,13 +108,13 @@ ship a literal brace group. That behaviour must move into the shared path, not b
 
 #### Acceptance Criteria
 
-- [ ] `cpcommon.messages.Resolver` gains an optional prefix template and access-denied clause, so all three planes can express their wording through it.
-- [ ] The three domain modules retain only their message **tables**; the resolution logic is shared.
-- [ ] `tscommon` gains the tokens mechanism it lacks, and `tscommon.notify.emit_failure` passes `err.tokens` through rather than discarding them.
-- [ ] `too_many_recipients` takes its cap from a token rather than a baked literal, and renders the same text as today for the current cap.
-- [ ] The dedup-id builder moves to `cpcommon.notify`; both copies are deleted.
-- [ ] **Every message string a user can receive is byte-identical** — asserted by the existing message tests passing unchanged across all three planes.
-- [ ] The dedup-token rule (one per *outcome*, not per verb — SPEC-114) is preserved.
+- [x] `cpcommon.messages.Resolver` gains an optional prefix template and access-denied clause, so all three planes can express their wording through it.
+- [x] The three domain modules retain only their message **tables**; the resolution logic is shared.
+- [x] `tscommon` gains the tokens mechanism it lacks, and `tscommon.notify.emit_failure` passes `err.tokens` through rather than discarding them.
+- [x] `too_many_recipients` takes its cap from a token rather than a baked literal, and renders the same text as today for the current cap.
+- [x] The dedup-id builder moves to `cpcommon.notify`; both copies are deleted.
+- [x] **Every message string a user can receive is byte-identical** — asserted by the existing message tests passing unchanged across all three planes.
+- [x] The dedup-token rule (one per *outcome*, not per verb — SPEC-114) is preserved.
 
 ### FR-003: One results-location builder
 
@@ -124,10 +124,10 @@ ship a literal brace group. That behaviour must move into the shared path, not b
 
 #### Acceptance Criteria
 
-- [ ] `cpcommon.results.results_location(bucket, database, actor, *, sub=None)` is the single builder.
-- [ ] All five sites use it; the three local copies are deleted.
-- [ ] **The prefix each plane produces is unchanged**, asserted per plane — this is the Lake Formation denial risk the original comment names, so a differing prefix is a failure of this FR, not a tidy-up.
-- [ ] If the three shapes genuinely differ today, the difference is enumerated in the delivery doc and each is expressed through the shared builder's parameters rather than normalised away.
+- [x] `cpcommon.results.results_location(bucket, database, actor, *, sub=None)` is the single builder.
+- [x] All five sites use it; the three local copies are deleted.
+- [x] **The prefix each plane produces is unchanged**, asserted per plane — this is the Lake Formation denial risk the original comment names, so a differing prefix is a failure of this FR, not a tidy-up.
+- [x] If the three shapes genuinely differ today, the difference is enumerated in the delivery doc and each is expressed through the shared builder's parameters rather than normalised away.
 
 ### FR-004: One JWKS verification path, and a lazily-resolving config
 
@@ -137,31 +137,31 @@ ship a literal brace group. That behaviour must move into the shared path, not b
 
 #### Acceptance Criteria
 
-- [ ] `cpcommon.config` resolves lazily — module `__getattr__` or accessor functions — so importing `cpcommon.auth` or `cpcommon.clients` does not require variables the importing function does not use.
-- [ ] A missing variable still fails **loudly at first use**, with the same error text as today. Laziness must not become silence.
-- [ ] `notifications-writer` uses `cpcommon.auth` for verification and `cpcommon.clients` for S3; its local copies are deleted.
-- [ ] The two verifiers are asserted to accept and reject identically **before** the deletion — a parity test written against both, run once, then reduced to the shared path.
-- [ ] `test_layer_import_safety.py`'s scrubbed-environment probe covers `notifications-writer` and still passes: this function is one of the three singletons SPEC-137 took down, so its cold-start import safety is the acceptance criterion that matters most here.
-- [ ] The other two singletons are checked for the same eager-import blocker and adopted if they carry it.
-- [ ] `cpcommon/auth.py:1-18`'s docstring becomes true, or is corrected.
+- [x] `cpcommon.config` resolves lazily — module `__getattr__` or accessor functions — so importing `cpcommon.auth` or `cpcommon.clients` does not require variables the importing function does not use.
+- [x] A missing variable still fails **loudly at first use**, with the same error text as today. Laziness must not become silence.
+- [x] `notifications-writer` uses `cpcommon.auth` for verification and `cpcommon.clients` for S3; its local copies are deleted.
+- [x] The two verifiers are asserted to accept and reject identically **before** the deletion — a parity test written against both, run once, then reduced to the shared path.
+- [x] `test_layer_import_safety.py`'s scrubbed-environment probe covers `notifications-writer` and still passes: this function is one of the three singletons SPEC-137 took down, so its cold-start import safety is the acceptance criterion that matters most here.
+- [x] The other two singletons are checked for the same eager-import blocker and adopted if they carry it.
+- [x] `cpcommon/auth.py:1-18`'s docstring becomes true, or is corrected.
 
 ### FR-005: One SQS envelope parser and one Athena runner
 
 #### Acceptance Criteria
 
-- [ ] `cpcommon.events.parse_sqs_request` gains an `exc=` factory parameter defaulting to `TerminalError`; `shared-space-validate/validate.py:57-77`'s `_extract_record` + `_parse_request` are deleted in favour of it, passing `AuthorizationError`.
-- [ ] `cpcommon/events.py:11-13`'s docstring — which states that table-share verbs do **not** adopt this — is corrected: `table_share_validate_authorize.py:139` calls it.
-- [ ] `cpcommon.athena.bound_runner(fail_reason, timeout_reason)` returns the bound DDL runner; `table-builder-execute-ddl/athena_run.py` and `tscommon/athena.py` are deleted in favour of it.
-- [ ] `_now`/`_sleep` remain injectable at call time so the existing timing tests keep working.
-- [ ] Poll constants and both planes' reason codes are unchanged.
+- [x] `cpcommon.events.parse_sqs_request` gains an `exc=` factory parameter defaulting to `TerminalError`; `shared-space-validate/validate.py:57-77`'s `_extract_record` + `_parse_request` are deleted in favour of it, passing `AuthorizationError`.
+- [x] `cpcommon/events.py:11-13`'s docstring — which states that table-share verbs do **not** adopt this — is corrected: `table_share_validate_authorize.py:139` calls it.
+- [x] `cpcommon.athena.bound_runner(fail_reason, timeout_reason)` returns the bound DDL runner; `table-builder-execute-ddl/athena_run.py` and `tscommon/athena.py` are deleted in favour of it.
+- [x] `_now`/`_sleep` remain injectable at call time so the existing timing tests keep working.
+- [x] Poll constants and both planes' reason codes are unchanged.
 
 ### FR-006: Dead code and over-public helpers
 
 #### Acceptance Criteria
 
-- [ ] `cpcommon/bounded_read.py:145-154` `S3RangeReader.readall` is deleted — verified to have no caller anywhere in the tree, and its own docstring concedes "the footer probe never calls it". `io.RawIOBase` supplies a default if one is ever needed.
-- [ ] `cpcommon/s3_listing.is_ignored` is made private (`_is_ignored`) **or** left public with a one-line note that it is public for its own test's benefit. It is **not** dead — `s3_listing.py:79` calls it internally — so deletion is wrong.
-- [ ] No other module or function is removed without a tree-wide grep recorded in the PR.
+- [x] `cpcommon/bounded_read.py:145-154` `S3RangeReader.readall` is deleted — verified to have no caller anywhere in the tree, and its own docstring concedes "the footer probe never calls it". `io.RawIOBase` supplies a default if one is ever needed.
+- [x] `cpcommon/s3_listing.is_ignored` is made private (`_is_ignored`) **or** left public with a one-line note that it is public for its own test's benefit. It is **not** dead — `s3_listing.py:79` calls it internally — so deletion is wrong.
+- [x] No other module or function is removed without a tree-wide grep recorded in the PR.
 
 ---
 
