@@ -1,8 +1,8 @@
 import {cx} from '../lib/cx';
 import {FolderIcon} from './icons';
-import {isConnectionUsable} from '../features/query/query.types';
-import type {Connection} from '../features/query/query.types';
-import {connectionStatusLabel} from '../features/shared-spaces/connectionStatus';
+import {isConnectionUsable} from '../features/connections/connection.types';
+import type {Connection} from '../features/connections/connection.types';
+import {connectionStatusLabel} from '../features/connections/connectionStatus';
 
 export type SpacesListProps = {
   /** Personal first, then shared A–Z (from `useConnections`). Empty in dev-unauth. */

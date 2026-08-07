@@ -10,7 +10,7 @@ import {PageLayout} from './PageLayout';
 import {PrimaryNav} from './PrimaryNav';
 import {Sidebar} from './Sidebar';
 import {ErrorBoundary} from './ErrorBoundary';
-import type {Connection} from '../features/query/query.types';
+import type {Connection} from '../features/connections/connection.types';
 import userEvent from '@testing-library/user-event';
 
 // ─── from AppNavDrawer.test.tsx ───

@@ -1,6 +1,6 @@
 import {useEffect} from 'react';
 import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
-import type {Connection} from '../query/query.types';
+import type {Connection} from '../connections/connection.types';
 
 // Once-per-session-per-space dedup lives in sessionStorage so a re-render (or React
 // StrictMode's double-effect) can't enqueue twice, and a new tab/session re-acks.

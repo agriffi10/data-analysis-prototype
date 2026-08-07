@@ -1,5 +1,5 @@
 import {createContext, useContext} from 'react';
-import type {ToastState} from '../features/query/Toast';
+import type {ToastState} from './Toast';
 
 // SPEC-106 FR-003 — context + hook for the app-level toast host. Kept separate
 // from ToastProvider.tsx so that component file only exports a component

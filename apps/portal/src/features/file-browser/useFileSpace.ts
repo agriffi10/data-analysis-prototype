@@ -1,7 +1,7 @@
 import {useCallback, useMemo} from 'react';
 import {useSearchParams} from 'react-router';
-import {isConnectionUsable} from '../query/query.types';
-import type {Connection} from '../query/query.types';
+import {isConnectionUsable} from '../connections/connection.types';
+import type {Connection} from '../connections/connection.types';
 
 // SPEC-057 Data Model: the file browser's active "space" — derived from a
 // `Connection` (SPEC-047/052). Selecting a space points the browser at that

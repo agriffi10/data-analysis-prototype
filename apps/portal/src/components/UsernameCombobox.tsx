@@ -13,7 +13,7 @@ import {Input} from './Input';
 import {cx} from '../lib/cx';
 import {useUserDirectory} from '../features/user-directory';
 import {parseMemberInputDetailed} from '../features/shared-spaces/memberInput';
-import {CATALOG_IDENTIFIER_RULE} from '../features/query/query.constants';
+import {CATALOG_IDENTIFIER_RULE} from '../lib/catalogIdentifier';
 
 export type UsernameComboboxProps = {
   label: string;

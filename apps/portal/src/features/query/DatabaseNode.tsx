@@ -6,7 +6,8 @@ import {RefreshIconButton} from '../../components/RefreshIconButton';
 import {useSchema, invalidateSchema} from './useSchema';
 import {TableActionsMenu} from './TableActionsMenu';
 import {partitionSchema} from './schema.partition';
-import type {Connection, GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from './query.types';
+import type {Connection} from '../connections/connection.types';
 import type {TableActions} from './SchemaBrowser';
 
 // SPEC-063: a single database in the schema rail — a disclosure node that, when

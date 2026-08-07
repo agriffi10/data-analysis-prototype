@@ -5,7 +5,7 @@ import {Input} from '../../components/Input';
 import {UsernameCombobox} from '../../components/UsernameCombobox';
 import type {UsernameComboboxHandle} from '../../components/UsernameCombobox';
 import {Banner} from '../../components/Banner';
-import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 import {parseMemberInput} from '../shared-spaces';
 import type {ShareRecipient} from './tableShare.types';
 import type {ShareTarget} from './useTableShare';

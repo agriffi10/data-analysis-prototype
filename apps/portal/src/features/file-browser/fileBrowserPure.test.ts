@@ -23,7 +23,7 @@ import type {ReactNode} from 'react';
 import {act, renderHook} from '@testing-library/react';
 import {MemoryRouter} from 'react-router';
 import {useFileSpace} from './useFileSpace';
-import type {Connection} from '../query/query.types';
+import type {Connection} from '../connections/connection.types';
 
 // ─── from fileBrowser.download.test.ts ───
 describe('fileBrowser.download', () => {

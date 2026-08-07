@@ -30,7 +30,7 @@ import {useQueryTabs} from './useQueryTabs';
 import {useEditorLayout} from './useEditorLayout';
 import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
-import {useConnections} from './useConnections';
+import {useConnections} from '../connections/useConnections';
 import {invalidateSchema, useAllSchemas, useSchema} from './useSchema';
 import {
   deriveViewTargetDatabase,
@@ -66,7 +66,7 @@ import {CloseTabDialog} from './CloseTabDialog';
 import {TabLimitDialog} from './TabLimitDialog';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import type {SqlEditorHandle} from './SqlEditor';
-import {isConnectionUsable} from './query.types';
+import {isConnectionUsable} from '../connections/connection.types';
 import type {
   MobileHomeTab,
   MobileQueryView,

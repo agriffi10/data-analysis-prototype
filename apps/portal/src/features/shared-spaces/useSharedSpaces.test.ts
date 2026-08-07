@@ -4,7 +4,7 @@ import {act, renderHook} from '@testing-library/react';
 import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
 import {useAcknowledgeMembership} from './useAcknowledgeMembership';
 import {useManageMembers} from './useManageMembers';
-import type {Connection} from '../query/query.types';
+import type {Connection} from '../connections/connection.types';
 
 // ─── from useAcknowledgeMembership.test.ts ───
 vi.mock('./sharedSpaces.service', () => ({

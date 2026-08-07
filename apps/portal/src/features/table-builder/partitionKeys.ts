@@ -1,4 +1,4 @@
-import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 import type {PartitionKey} from './tableBuild.types';
 
 export type PartitionType = 'integer' | 'date' | 'string';

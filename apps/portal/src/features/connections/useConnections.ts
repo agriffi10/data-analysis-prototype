@@ -3,9 +3,9 @@ import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {unwrap} from '../../lib/serviceResult';
 import {getSessionCredentials} from '../../lib/awsCredentials';
-import {queryKeys} from './queryKeys';
+import {queryKeys} from '../query/queryKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import type {Connection} from './query.types';
+import type {Connection} from './connection.types';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 
 // After an async action (create/add/leave/delete), the pipeline writes the

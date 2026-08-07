@@ -1,4 +1,4 @@
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 import type {PendingRemoval} from './tableRefresh.types';
 
 /** Mirrors `tbcommon.messages.MAX_NAMED_COLUMNS` — the link never carries more. */

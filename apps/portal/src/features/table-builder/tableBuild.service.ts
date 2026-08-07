@@ -1,5 +1,5 @@
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableBuildRequest} from './tableBuild.types';
 import type {TableRefreshRequest} from './tableRefresh.types';

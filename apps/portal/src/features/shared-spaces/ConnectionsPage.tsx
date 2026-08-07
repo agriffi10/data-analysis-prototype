@@ -5,7 +5,7 @@ import {PageLayout} from '../../components/PageLayout';
 import {cx} from '../../lib/cx';
 import {formatAbsoluteDate} from '../../lib/format';
 import {useAuth} from '../auth';
-import {useConnections} from '../query/useConnections';
+import {useConnections} from '../connections/useConnections';
 import {useToast} from '../../components/toastContext';
 import {toUserText} from '../../lib/errorMessages';
 import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
@@ -17,7 +17,7 @@ import {MemberRosterDrawer} from './MemberRosterDrawer';
 import {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 import {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
-import {connectionStatusLabel} from './connectionStatus';
+import {connectionStatusLabel} from '../connections/connectionStatus';
 import type {Member, SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
 
 // One renderable shared-connection row, normalized from the cache (via
