@@ -98,15 +98,19 @@ describe('fileBrowser.paths', () => {
       expect(fileExtension('report.pdf.')).toBe('File'); // trailing dot → no ext
     });
 
-    it('fileExtension labels the compression suffixes rather than chipping a bare GZ', () => {
-      expect(fileExtension('backup.tar.gz')).toBe('GZIP');
-      expect(fileExtension('backup.TGZ')).toBe('GZIP');
-      expect(fileExtension('logs.bz2')).toBe('BZIP');
-      expect(fileExtension('logs.zst')).toBe('ZSTD');
-      expect(fileExtension('logs.xz')).toBe('XZ'); // unmapped: already readable
-      expect(fileExtension('bundle.7z')).toBe('7ZIP');
-      expect(fileExtension('backup.tar.gz', {maxLen: 4})).toBe('GZIP'); // survives the upload-list cap
-      expect(fileExtension('archive.zip')).toBe('ZIP'); // unmapped extensions are untouched
+    it('chips every compression suffix as ZIP rather than a bare GZ', () => {
+      // The codec is not the answer the user acts on — "compressed" is — so they
+      // deliberately collapse onto one label rather than reading GZIP vs ZSTD.
+      expect(fileExtension('backup.tar.gz')).toBe('ZIP');
+      expect(fileExtension('backup.TGZ')).toBe('ZIP');
+      expect(fileExtension('logs.bz2')).toBe('ZIP');
+      expect(fileExtension('logs.zst')).toBe('ZIP');
+      expect(fileExtension('logs.xz')).toBe('ZIP');
+      expect(fileExtension('bundle.7z')).toBe('ZIP');
+      expect(fileExtension('archive.zip')).toBe('ZIP');
+      expect(fileExtension('backup.tar.gz', {maxLen: 4})).toBe('ZIP'); // survives the upload-list cap
+      expect(fileExtension('backup.tar')).toBe('TAR'); // an uncompressed archive is untouched
+      expect(fileExtension('report.pdf')).toBe('PDF'); // unmapped extensions are untouched
     });
 
     it('isAtRoot recognizes the space root (clamped and unclamped)', () => {

@@ -64,23 +64,27 @@ export function parentPrefix(currentPrefix: string, rootPrefix: string): string 
 /**
  * Chip labels for extensions whose raw uppercase form reads as noise — the
  * compression suffixes, where `foo.tar.gz` would otherwise chip as a bare `GZ`.
- * Keyed on the lowercased extension. Keep every value to **4 characters or
- * fewer**: the upload list chips at `maxLen: 4`, and a label that truncates is
- * worse than the raw extension this map exists to replace.
+ * Keyed on the lowercased extension. They all read `ZIP`: the chip answers "what
+ * kind of thing is this", and *compressed* is the answer a user acts on — the
+ * particular codec is not, and naming it (`GZIP` vs `ZSTD`) reads as a
+ * distinction that matters here when it doesn't. Keep every value to **4
+ * characters or fewer**: the upload list chips at `maxLen: 4`, and a label that
+ * truncates is worse than the raw extension this map exists to replace.
  */
 const EXTENSION_LABELS: Record<string, string> = {
-  gz: 'GZIP',
-  gzip: 'GZIP',
-  tgz: 'GZIP',
-  bz2: 'BZIP',
-  tbz2: 'BZIP',
-  zst: 'ZSTD',
-  '7z': '7ZIP'
+  gz: 'ZIP',
+  gzip: 'ZIP',
+  tgz: 'ZIP',
+  bz2: 'ZIP',
+  tbz2: 'ZIP',
+  xz: 'ZIP',
+  zst: 'ZIP',
+  '7z': 'ZIP'
 };
 
 /**
  * Uppercased file extension for a type chip, e.g. `report.pdf` → `PDF`, with a
- * friendlier label for the compression suffixes (`backup.tar.gz` → `GZIP`).
+ * friendlier label for the compression suffixes (`backup.tar.gz` → `ZIP`).
  * Returns `fallback` when there's no extension; `maxLen` caps the chip width.
  */
 export function fileExtension(name: string, opts?: {fallback?: string; maxLen?: number}): string {
