@@ -224,7 +224,8 @@ protect with a stale value: two overlapping requests on one space were **last-wr
 roster**, and a concurrent remove reinstated a just-added member (SPEC-151 FR-004).
 
 Nothing serializes those requests. `shared-spaces/pipe.tf` is `FIRE_AND_FORGET` and the FIFO
-group id is one global constant, which `casio`'s own module docstring says outright.
+group id is one global constant, which `cpcommon.cas`'s module docstring says outright (it was
+`casio`'s until SPEC-156 FR-001 moved the loop).
 
 **Four callers, not three.** `acknowledge-membership` is one too, and it is the only one that
 *adds* to `acknowledged`. Left out of the conversion, it would have kept passing a whole computed
