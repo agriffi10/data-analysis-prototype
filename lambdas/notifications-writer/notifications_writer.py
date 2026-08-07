@@ -1,19 +1,32 @@
 """Notifications writer — the single writer of each user's notifications inbox.
 
-The notifications FIFO queue triggers this Lambda directly (SQS event-source mapping,
-batch size 1), so each invocation carries exactly one action-discriminated envelope
-(``create`` | ``markRead`` | ``markAllRead``). The handler read-modify-writes
-``{username}/user_settings/notifications.json`` in the user-space bucket and is the
-ONLY writer of that object; per-user serialization comes from FIFO
-MessageGroupId=username plus batch size 1. There is no delete — notifications are only
-ever marked read.
+The notifications FIFO queue triggers this Lambda directly with a batch size of one, so each
+invocation carries exactly one action-discriminated envelope. The handler read-modify-writes
+the user's inbox object and is the only writer of it; per-user serialization comes from the
+FIFO message group plus that batch size. There is no delete — notifications are only ever
+marked read.
 
-Actor binding: markRead/markAllRead carry the caller's Cognito ID token, and the
-target username is the verified ``cognito:username`` claim (any body ``username`` is
-ignored). ``create`` is trusted-producer-only (gated by sqs:SendMessage; the portal
-role has none) and uses the body ``username``. A schema-invalid or unauthorized
-message raises, so the record retries and then lands in the DLQ — never a partial
-write.
+Actor binding differs by action. The user-originated actions carry the caller's Cognito ID
+token and the target is the verified username claim, so any body username is ignored. Creation
+is trusted-producer-only, gated by send permission the portal role does not hold, and uses the
+body username. A schema-invalid or unauthorized message raises, so the record retries and then
+lands in the dead-letter queue — never a partial write.
+
+This is the delivery channel for every failure notification in the system, and its dead-letter
+queue is deliberately left undrained: draining it would ask the queue that just failed to
+deliver to deliver the news about itself. A message that dies here dies silently by design, so
+these events are the only account of it that exists.
+
+Attributes:
+  VALID_ACTIONS: The three actions an envelope may carry.
+  USER_ACTIONS: The subset that requires a verified token.
+  USER_SPACE_BUCKET: Set by Terraform.
+  USER_POOL_ID: Set by Terraform.
+  APP_CLIENT_ID: Set by Terraform.
+  NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
+  REGION: Provided by the Lambda runtime.
+  _s3: Lazily initialised, cached across warm invocations, module-level so tests patch it.
+  _jwk_client: The same, for the JWKS client.
 """
 
 import json
@@ -25,18 +38,13 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from cpcommon import observability  # after the logger, before any handler
+from cpcommon import observability
 
-# THE DELIVERY CHANNEL FOR EVERY FAILURE NOTIFICATION IN THE SYSTEM, and the notifications DLQ
-# is deliberately left undrained — draining it would ask the queue that just failed to deliver
-# to deliver the news about itself (SPEC-126 FR-006). A message that dies here dies silently by
-# design, so these events are the only account of it that exists.
 observability.init(service="notifications")
 
 VALID_ACTIONS = frozenset({"create", "markRead", "markAllRead"})
 USER_ACTIONS = frozenset({"markRead", "markAllRead"})
 
-# Set by Terraform (lambda.tf). AWS_REGION is provided by the Lambda runtime.
 USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
 USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
 APP_CLIENT_ID = os.environ.get("COGNITO_APP_CLIENT_ID", "")
@@ -46,20 +54,30 @@ REGION = os.environ.get("AWS_REGION", "")
 _ISSUER = f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}"
 _JWKS_URL = f"{_ISSUER}/.well-known/jwks.json"
 
-# Lazily-initialised, cached across warm invocations. Module-level so tests patch them.
 _s3 = None
 _jwk_client = None
 
 
 class ValidationError(Exception):
-    """Schema-invalid message — raise so the record retries then lands in the DLQ; no write."""
+    """A schema-invalid message. Raising retries the record into the DLQ with no write."""
 
 
 class AuthorizationError(Exception):
-    """Missing/invalid token on a user-originated action — raise -> retry -> DLQ; no write."""
+    """A missing or invalid token on a user-originated action. Raising retries into the DLQ."""
 
 
 def _s3c():
+    """Returns the per-container S3 client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 S3 client.
+
+    Raises:
+      None.
+    """
     global _s3
     if _s3 is None:
         import boto3
@@ -69,6 +87,17 @@ def _s3c():
 
 
 def _get_jwk_client():
+    """Returns the per-container JWKS client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached PyJWKClient for the user pool.
+
+    Raises:
+      None.
+    """
     global _jwk_client
     if _jwk_client is None:
         from jwt import PyJWKClient
@@ -78,10 +107,20 @@ def _get_jwk_client():
 
 
 def verified_username(id_token):
-    """Verify a Cognito ID token and return the trusted ``cognito:username`` claim.
+    """Verifies a Cognito ID token and returns the trusted username claim.
 
-    Offline JWKS verification of issuer, audience, expiry, and signature — the
-    server-side, unspoofable username decision.
+    Offline JWKS verification of issuer, audience, expiry and signature — the server-side,
+    unspoofable username decision.
+
+    Args:
+      id_token: The raw JWT.
+
+    Returns:
+      The verified ``cognito:username``.
+
+    Raises:
+      AuthorizationError: When the token is absent, fails any verification step, is not an ID
+        token, or carries no username claim.
     """
     import jwt
 
@@ -97,7 +136,7 @@ def verified_username(id_token):
             issuer=_ISSUER,
             options={"require": ["exp", "iss", "aud"]},
         )
-    except Exception as exc:  # any verify failure = untrusted
+    except Exception as exc:
         raise AuthorizationError(f"token verification failed: {exc}") from exc
 
     if claims.get("token_use") != "id":
@@ -109,21 +148,53 @@ def verified_username(id_token):
 
 
 def _now_iso():
-    """ISO-8601 UTC with millisecond precision, matching the wire contract example."""
+    """Returns the current time in ISO-8601 UTC with millisecond precision.
+
+    Matches the wire contract's example format.
+
+    Args:
+      None.
+
+    Returns:
+      The timestamp string.
+
+    Raises:
+      None.
+    """
     now = time.time()
     base = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
     return f"{base}.{int((now % 1) * 1000):03d}Z"
 
 
 def _inbox_key(username):
+    """Builds the S3 key of one user's inbox object.
+
+    Args:
+      username: The inbox owner.
+
+    Returns:
+      The object key under their own prefix.
+
+    Raises:
+      None.
+    """
     return f"{username}/user_settings/notifications.json"
 
 
 def load_inbox(username):
-    """Return the user's notifications list.
+    """Reads a user's notifications list.
 
-    A missing or corrupt object is treated as an empty array — never an error that
-    would block a ``create``.
+    A missing or corrupt object is treated as an empty list rather than an error that would
+    block a create.
+
+    Args:
+      username: The inbox owner.
+
+    Returns:
+      The notifications, or an empty list.
+
+    Raises:
+      ClientError: On any S3 fault other than a missing key.
     """
     s3 = _s3c()
     try:
@@ -139,9 +210,19 @@ def load_inbox(username):
 
 
 def save_inbox(username, notifications):
-    """Cap to the most-recent NOTIFICATIONS_MAX by timestamp and write the whole document.
+    """Caps the inbox to the most recent notifications and writes the whole document.
 
-    One PutObject; never an S3 delete.
+    One put, never an S3 delete.
+
+    Args:
+      username: The inbox owner.
+      notifications: The full list to write.
+
+    Returns:
+      The capped list as written.
+
+    Raises:
+      ClientError: On any S3 write fault.
     """
     capped = sorted(notifications, key=lambda n: n.get("timestamp", ""), reverse=True)[
         :NOTIFICATIONS_MAX
@@ -156,18 +237,24 @@ def save_inbox(username, notifications):
 
 
 def apply_create(notifications, message, link=None):
-    """Prepend a new notification with a server-assigned id/timestamp and read=false.
+    """Prepends a new unread notification with a server-assigned id and timestamp.
 
-    ``link`` is a CONTRACT CHANGE TO A SHIPPED PIPELINE (SPEC-113 FR-008), which is why
-    it is called out rather than assumed: the SPEC-058 record gains one optional field
-    and nothing else. It is written only when a producer supplies a non-empty string, so
-    every existing producer — table-builder, table-share, the shared-space verbs — keeps
-    writing byte-identical records, and every notification already in a user's inbox
-    stays valid.
+    The link is written only when a producer supplies a non-empty string, so every existing
+    producer keeps writing byte-identical records and every notification already in a user's
+    inbox stays valid. Its value is not validated here: the browser decides whether a link is
+    safe to turn into an anchor, because that is where it becomes one, and a second opinion in
+    this Lambda could only disagree with the one that actually matters.
 
-    The value is NOT validated here. The browser decides whether a link is safe to turn
-    into an anchor (``isSafeInAppPath``), because that is where it becomes one; a second
-    opinion in this Lambda could only disagree with the one that actually matters.
+    Args:
+      notifications: The current list.
+      message: The rendered notification body.
+      link: Optional in-app path.
+
+    Returns:
+      A new list with the notification at the front.
+
+    Raises:
+      None.
     """
     notification = {
         "id": uuid.uuid4().hex,
@@ -181,13 +268,22 @@ def apply_create(notifications, message, link=None):
 
 
 def apply_mark_read(notifications, notification_id):
-    """Set read=true on the matching id; returns ``(notifications, matched)``.
+    """Marks the matching notification read and reports how many matched.
 
-    An id that matches nothing is NOT an error — the inbox is capped, so a genuinely
-    old notification can age out between the browser reading it and the click landing.
-    But it is the one way a markRead can complete, write, and report success while
-    changing nothing, so the caller reports ``matched`` rather than letting the two
-    outcomes look identical in the logs.
+    An id that matches nothing is not an error — the inbox is capped, so a genuinely old
+    notification can age out between the browser reading it and the click landing. But it is
+    the one way a mark-read can complete, write and report success while changing nothing, so
+    the count is returned rather than letting the two outcomes look identical in the logs.
+
+    Args:
+      notifications: The current list, mutated in place.
+      notification_id: The id to mark read.
+
+    Returns:
+      A ``(notifications, matched count)`` tuple.
+
+    Raises:
+      None.
     """
     matched = 0
     for note in notifications:
@@ -198,13 +294,35 @@ def apply_mark_read(notifications, notification_id):
 
 
 def apply_mark_all_read(notifications):
-    """Set read=true on every notification."""
+    """Marks every notification read.
+
+    Args:
+      notifications: The current list, mutated in place.
+
+    Returns:
+      The same list.
+
+    Raises:
+      None.
+    """
     for note in notifications:
         note["read"] = True
     return notifications
 
 
 def _parse_record(record):
+    """Parses and shape-checks one SQS record's body.
+
+    Args:
+      record: The SQS record.
+
+    Returns:
+      The parsed request dict.
+
+    Raises:
+      ValidationError: On a missing body, a body that is not valid JSON, a body that is not an
+        object, or an unknown action.
+    """
     body = record.get("body") if isinstance(record, dict) else None
     if not body:
         raise ValidationError("missing message body")
@@ -221,10 +339,20 @@ def _parse_record(record):
 
 
 def _resolve_username(req):
-    """Derive the target username.
+    """Derives the target username for a request.
 
-    User-originated actions REQUIRE a verified token and ignore any body username;
-    ``create`` is a trusted producer and uses the body username.
+    User-originated actions require a verified token and ignore any body username; creation is
+    a trusted producer and uses the body username.
+
+    Args:
+      req: The parsed request.
+
+    Returns:
+      The target username.
+
+    Raises:
+      AuthorizationError: When a user-originated action's token cannot be verified.
+      ValidationError: When a create carries no username.
     """
     action = req["action"]
     if action in USER_ACTIONS:
@@ -236,10 +364,19 @@ def _resolve_username(req):
 
 
 def process(req):
-    """Validate the request, resolve the trusted target user, apply the read-modify-write.
+    """Validates the request, resolves the trusted target, and applies the read-modify-write.
+
+    Args:
+      req: The parsed request.
 
     Returns:
-        A small structured result for logging.
+      A small structured result for logging: the action, the username, the resulting count, and
+      the match count for a mark-read.
+
+    Raises:
+      ValidationError: When a create has no message, or a mark-read has no id.
+      AuthorizationError: When a user-originated action's token cannot be verified.
+      ClientError: On any S3 fault.
     """
     action = req["action"]
     username = _resolve_username(req)
@@ -255,7 +392,7 @@ def process(req):
         if not notification_id or not isinstance(notification_id, str):
             raise ValidationError("markRead requires an id")
         updated, matched = apply_mark_read(load_inbox(username), notification_id)
-    else:  # markAllRead
+    else:
         updated = apply_mark_all_read(load_inbox(username))
 
     saved = save_inbox(username, updated)
@@ -267,27 +404,40 @@ def process(req):
 
 @observability.traced("write")
 def handler(event, context):
-    """SQS event-source-mapping entry point (batch size 1 → one record per invocation).
+    """SQS event-source-mapping entry point, one record per invocation.
 
-    A raised exception fails the invocation so the record retries then lands in the
-    DLQ; no partial write occurs.
+    The single-record assumption is code and infrastructure coupling: it holds only because the
+    Terraform sets a batch size of one, and raising that is a one-line edit. This used to take
+    the first record and discard the rest, so the edit would have silently dropped every
+    notification but the first. It now raises instead, and a test pins the Terraform value.
+    Raising rather than looping is deliberate: the single-writer model serialises one user's
+    inbox per invocation, so a batch is a design change to be made on purpose, not absorbed
+    quietly.
 
-    The single-record assumption is CODE/INFRA COUPLING: it holds only because
-    ``infra/modules/notifications/lambda.tf`` sets ``batch_size = 1``, and raising that is a
-    one-line Terraform edit. This used to take ``records[0]`` and discard the rest, so the
-    edit would have silently dropped every notification but the first. SPEC-153 FR-005 makes
-    it raise instead, and pins the Terraform value by test. Raising rather than looping is
-    deliberate: the single-writer model (FR-001/FR-004) serialises one user's inbox per
-    invocation, so a batch is a design change to be made on purpose, not absorbed quietly.
+    Be clear about where that raise goes. Unlike the four control-plane request queues, this
+    dead-letter queue is deliberately undrained, because the drain's only delivery channel is
+    this very queue. So the raise does not become a user notification: it fails the invocation,
+    retries to the receive limit, and the batch sits in the DLQ until its retention expires. The
+    signal is operator-facing — the function's invocation-error metric and the waiting messages —
+    which is what a batch-size edit deserves, and strictly better than delivering one of many.
+    The real guard is the test that stops the edit reaching production at all.
 
-    BE CLEAR ABOUT WHERE THE RAISE GOES. Unlike the four control-plane request queues, THIS
-    DLQ IS DELIBERATELY UNDRAINED (modules/notifications/sqs.tf) — the drain's only delivery
-    channel is this very queue, so draining it would be circular. So the raise does NOT
-    become a user notification: it fails the invocation, retries to `maxReceiveCount`, and
-    the batch sits in the DLQ until its retention expires. The signal is OPERATOR-facing —
-    the function's invocation-error metric and the messages waiting in the DLQ — which is
-    what a `batch_size` edit deserves and is strictly better than delivering 1 of N. The
-    real guard is the test that stops the edit from reaching production at all.
+    A mark-read that matched nothing wrote the inbox back unchanged. That is not a failure, but
+    it is the signature of "mark as read did nothing", so it gets its own event rather than
+    hiding inside an indistinguishable success.
+
+    Args:
+      event: The SQS event.
+      context: The Lambda context, unused.
+
+    Returns:
+      The structured result from processing the record.
+
+    Raises:
+      ValidationError: When the event carries no records, more than one record, or the record
+        fails validation. No partial write occurs.
+      AuthorizationError: When a user-originated action's token cannot be verified.
+      ClientError: On any S3 fault.
     """
     records = event.get("Records", []) if isinstance(event, dict) else []
     if not records:
@@ -305,9 +455,6 @@ def handler(event, context):
     req = _parse_record(record)
     result = process(req)
     logger.info("notifications %(action)s for %(username)s -> %(count)d", result)
-    # A markRead that matched nothing wrote the inbox back unchanged. It is not a failure
-    # (see apply_mark_read), but it is the signature of "mark as read did nothing", so it
-    # gets its own event rather than hiding inside an indistinguishable success.
     if result.get("matched") == 0:
         observability.warning(
             "markRead matched no notification",

@@ -1,15 +1,13 @@
-"""Best-effort outcome notifications for the table-builder pipeline (domain side).
+"""Best-effort outcome notifications for the table-builder pipeline.
 
-The shared primitives (``emit_notification`` + the ``notifies_on_failure`` skeleton)
-moved to ``cpcommon.notify`` (SPEC-107). This module keeps the table-builder-specific
-emitters: the actor is always the recipient (no fan-out); FIFO dedup id is
-``{requestId}:{step}``; failure/success wording comes from ``tbcommon.messages``.
+The shared primitives live in ``cpcommon.notify``; this module keeps the table-builder
+specifics — the actor is always the recipient with no fan-out, the FIFO dedup id is
+``{requestId}:{step}``, and the wording comes from ``tbcommon.messages``.
 
-Each verb Lambda emits one "create" notification at its terminal branch — a failure
-message when it raises ``TerminalError``, a success message when execute-ddl creates
-the table. A missed notification must never change or fail the pipeline outcome, so
-every emit goes through ``cpcommon.notify.emit_notification`` (catches and logs, never
-raises, no-op when the queue URL is unset).
+Each verb emits one notification at its terminal branch: a failure message when it raises,
+a success message when the table is created or refreshed. A missed notification must never
+change or fail the pipeline outcome, so every emit goes through
+``cpcommon.notify.emit_notification``, which catches, logs and never raises.
 """
 
 import json
@@ -26,7 +24,6 @@ from .messages import (
     success_message,
 )
 
-# Re-exported so verbs (and tests) can keep calling ``notify.emit_notification``.
 __all__ = [
     "emit_created",
     "emit_failure",
@@ -39,27 +36,46 @@ __all__ = [
 
 
 def _dedup(request_id: str, step: str) -> str | None:
-    """FIFO dedup id "{requestId}:{step}"; None without a requestId (content dedup)."""
+    """Composes the FIFO deduplication id for one verb's notification.
+
+    Args:
+      request_id: The run's request id, if the event carries one.
+      step: The verb name.
+
+    Returns:
+      ``{requestId}:{step}``, or None to fall back to the queue's content-based dedup.
+
+    Raises:
+      None.
+    """
     return f"{request_id}:{step}" if request_id else None
 
 
 def _columns_removed_link(database: str, table: str, tokens: dict) -> str | None:
-    """The in-app link that lets SPEC-145's dialog name the removed columns.
+    """Builds the in-app link that lets the refresh dialog name the removed columns.
 
-    BUILT HERE, not carried on the TerminalError. ``emit_notification`` already takes a
-    ``link=``, but nothing on this plane passed one and the exception would have grown a
-    transport field for exactly one caller.
+    Built here rather than carried on the exception: ``emit_notification`` already takes a
+    link, and the exception would have grown a transport field for exactly one caller.
 
-    **The column names are percent-encoded, and that is not belt-and-braces.** The database
-    and table are catalog-safe identifiers; the COLUMN NAMES ARE NOT — they come verbatim
-    from a file header or a Glue column and are never validated anywhere in this plane. A
-    header of ``Order ID`` puts a raw space in the URL; one containing ``&`` invents a query
-    parameter; one containing ``#`` truncates the rest into a fragment. Encoding each name
-    individually keeps the comma as the separator and the value as itself.
+    The column names are percent-encoded, and that is not belt-and-braces. The database and
+    table are catalog-safe identifiers; the column names are not — they come verbatim from a
+    file header or a Glue column and are never validated anywhere in this plane. A header of
+    ``Order ID`` puts a raw space in the URL, one containing an ampersand invents a query
+    parameter, and one containing a hash truncates the rest into a fragment. Encoding each
+    name individually keeps the comma as the separator and the value as itself. The path is
+    a safe in-app path by construction, decided by its literal prefix, so the assertion worth
+    making is about the parameters.
 
-    The path satisfies ``isSafeInAppPath`` (SPEC-061) by construction — the literal ``/q``
-    prefix decides it — so the assertion worth making is about the *parameters*, which is
-    what the tests check.
+    Args:
+      database: The catalog-safe database name.
+      table: The catalog-safe table name.
+      tokens: The refusal's tokens, carrying ``removedNames`` as a JSON list.
+
+    Returns:
+      The in-app path, or None when there is no database, table or decodable name list.
+
+    Raises:
+      None.
     """
     if not database or not table:
         return None
@@ -74,11 +90,23 @@ def _columns_removed_link(database: str, table: str, tokens: dict) -> str | None
 
 
 def emit_failure(event: dict, err: TerminalError, step: str) -> None:
-    """Emit the actor-addressed failure notification for a verb's TerminalError.
+    """Emits the actor-addressed failure notification for a verb's terminal error.
 
-    Best-effort. Reads the actor/table/database/requestId/mode from the validated event.
-    An unauthorized failure raised before the actor is bound has no recipient, so the
-    emit is a no-op, not a lost message.
+    The error's detail — raw Athena text — is deliberately not forwarded to the user message;
+    it stays on the exception for logs and the SFN record. Its tokens are the opposite channel
+    and are forwarded, because they exist to fill the markers in a body.
+
+    Args:
+      event: The validated task input, read for actor, table, database, request id and mode.
+      err: The terminal error being reported.
+      step: The verb name, used in the dedup id.
+
+    Returns:
+      None. An unauthorized failure raised before the actor is bound has no recipient, so the
+      emit is a no-op rather than a lost message.
+
+    Raises:
+      None.
     """
     space = event.get("space") or {}
     database = space.get("database", "")
@@ -88,10 +116,6 @@ def emit_failure(event: dict, err: TerminalError, step: str) -> None:
         if err.reason == "columns_removed"
         else None
     )
-    # err.detail (raw Athena StateChangeReason) is deliberately NOT forwarded to the
-    # user message — it stays on the TerminalError for logs + the SFN record (FR-008).
-    # err.tokens is the OPPOSITE channel and IS forwarded: it exists to fill the markers
-    # in a body, and raw service text is forbidden in it (cpcommon.errors).
     emit_notification(
         event.get("actor", ""),
         failure_message(err.reason, table, database, event.get("mode", "create"), err.tokens),
@@ -101,12 +125,20 @@ def emit_failure(event: dict, err: TerminalError, step: str) -> None:
 
 
 def emit_unexpected(event, step: str) -> None:
-    """Emit the actor-addressed failure notification for an UNEXPECTED verb exception.
+    """Emits the actor-addressed failure notification for an unexpected verb exception.
 
-    Best-effort. Uses the generic "unexpected_error" reason (no leaked internals) and
-    reads the actor/table/database/requestId from the running request. Tolerates a
-    non-dict event (e.g. validate-authorize's raw SQS array, whose failures happen
-    before the actor is bound): there is no recipient, so the emit is a no-op.
+    Uses the generic unexpected-error reason so no internals leak.
+
+    Args:
+      event: The running request. A non-dict event is tolerated — validate-authorize's raw
+        SQS array fails before the actor is bound — and yields no recipient.
+      step: The verb name, used in the dedup id.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     data = event if isinstance(event, dict) else {}
     space = data.get("space") or {}
@@ -123,19 +155,36 @@ def emit_unexpected(event, step: str) -> None:
 
 
 def notifies_on_failure(step: str, *, notify_terminal: bool = True):
-    """table-builder ``notifies_on_failure`` — binds the domain emitters into the shared
-    ``cpcommon.notify`` skeleton (SPEC-107).
+    """Binds table-builder's emitters into the shared failure-notification skeleton.
 
-    By default it also binds ``emit_failure`` so a verb's ``TerminalError`` notifies the
-    actor at the decorator — the worker verbs no longer need their own
-    ``try/except TerminalError``. ``notify_terminal=False`` for validate-authorize, which
-    notifies inside its own actor-aware orchestration (the actor isn't bound until after
-    the token is verified)."""
+    Args:
+      step: The verb name carried into the notification.
+      notify_terminal: Whether a terminal error also notifies at the decorator, so worker
+        verbs need no ``try/except`` of their own. False for validate-authorize, which
+        notifies inside its own actor-aware orchestration because the actor is not bound
+        until the token is verified.
+
+    Returns:
+      A decorator for the verb handler.
+
+    Raises:
+      None.
+    """
     return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
 
 
 def emit_created(event: dict) -> None:
-    """Emit the actor-addressed success notification for a created table (best-effort)."""
+    """Emits the actor-addressed success notification for a newly created table.
+
+    Args:
+      event: The task input, read for actor, table, database and request id.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     space = event.get("space") or {}
     emit_notification(
         event.get("actor", ""),
@@ -145,11 +194,22 @@ def emit_created(event: dict) -> None:
 
 
 def emit_refresh_outcome(event: dict, status: str, diff: dict | None = None) -> None:
-    """Emit the actor-addressed success notification for a refresh (best-effort).
+    """Emits the actor-addressed success notification for a refresh.
 
-    ONE dedup token for both outcomes — `{requestId}:refresh` — because the token is per
-    OUTCOME, not per verb (SPEC-114): a run produces `refreshed` or `unchanged`, never
-    both, and the two are emitted by different verbs on different branches.
+    One dedup token covers both outcomes, because the token is per outcome rather than per
+    verb: a run produces either a refreshed or an unchanged result, never both, and the two
+    are emitted by different verbs on different branches.
+
+    Args:
+      event: The task input, read for actor, table, database and request id.
+      status: ``refreshed`` or ``unchanged``.
+      diff: The classifier's result, read for the added, retyped and removed counts.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     space = event.get("space") or {}
     counts = diff or {}

@@ -1,39 +1,39 @@
-"""Cognito post-confirmation trigger (SPEC-033).
+"""Cognito post-confirmation trigger: provisions a confirmed user's analytics workspace.
 
-When a user finishes signing up, provision their private analytics workspace:
+Three steps. First, create a Glue database named exactly as the username — the pre-signup
+trigger has already enforced that it is a catalog-safe identifier, so it is used verbatim, and
+it must equal the username for the portal role's IAM policy to scope Glue by the username
+principal tag. That principal-tag scoping is the per-user isolation gate.
 
-  1. Create a Glue database named EXACTLY as their username (SPEC-033 FR-002). The
-     username is already a catalog-safe identifier (the pre-signup Lambda enforces
-     ``^[a-z][a-z0-9_]{2,62}$``, SPEC-033 FR-001), so it is used verbatim and
-     unsanitised as the database name — it must equal the username for the portal
-     role's IAM policy to scope Glue to ``database/${aws:PrincipalTag/username}``
-     (SPEC-032 FR-006). That principal-tag scoping is the per-user isolation gate.
+Second, a Lake Formation grant giving the shared portal role full use of that database and its
+tables. This does not isolate users — every user shares the role — it merely lets the role use
+the database at all under Lake Formation enforcement. The IAM principal tag is still the gate,
+so the role can only ever touch its own session's database.
 
-  2. Lake Formation ``GrantPermissions`` giving the SHARED portal role full use of
-     that database + its tables. This grant does NOT isolate users (every user shares
-     the role) — it merely lets the role use the database at all under LF enforcement
-     (SPEC-032 removed the IAMAllowedPrincipals "Super" grant). The IAM principal tag
-     is still the gate, so the role can only ever touch its own session's database.
+Third, tag the database so the shared control-plane execution roles get table-creation rights
+via tag-based access control: those roles are granted on the tag, not per database, and a table
+created in the database inherits the tag. This runs last, so a tagging failure never costs the
+user their own portal-role grant — only control-plane access, which the backfill reconciles.
 
-  3. Tag the database ``portal-managed=true`` (a Lake Formation LF-Tag) so the shared
-     control-plane execution roles (table-builder / table-share / data-quality) get
-     CREATE_TABLE on it via TBAC — those roles are granted on the tag, not per-DB
-     (infra/modules/analytics/lakeformation.tf). A table created in the DB inherits the
-     tag, so it is reachable by the same grant. Runs LAST, so a tagging failure never
-     costs the user their own portal-role grant above (only control-plane access, which
-     the backfill reconciles).
+Provisioning is idempotent, every step tolerating an already-exists or already-granted result,
+and non-fatal: the handler always returns the event, so a transient AWS error never blocks
+sign-up. Only a real sign-up confirmation is acted on; password-reset confirmations are ignored.
+No tables are created — the database is empty until the user runs DDL.
 
-Design rules (FR-002):
-  - Idempotent: every step tolerates "already exists / already granted".
-  - Non-fatal: the handler ALWAYS returns the event, so a transient AWS error never
-    blocks sign-up. Failures are logged at ERROR with the username + step so an
-    operator can re-run the backfill (backfill.py, FR-004).
-  - Only ``PostConfirmation_ConfirmSignUp`` is acted on; password-reset confirmations
-    (``PostConfirmation_ConfirmForgotPassword``) are ignored.
-  - No tables are created — the database is empty until the user runs DDL (SPEC-034).
+The reusable logic lives in ``provision_user`` so the backfill script can run the exact same
+sequence for a pre-existing user. The service name is ``auth``, shared with pre-signup, because
+one signup touches both triggers.
 
-The reusable provisioning logic lives in ``provision_user`` so backfill.py can run
-the exact same create-database + grant sequence for a pre-existing user (FR-004).
+Attributes:
+  PORTAL_ROLE_ARN: The shared portal role the Lake Formation grant targets, set in Terraform.
+  PORTAL_MANAGED_TAG_KEY: The Lake Formation tag key stamped on every user database. It must
+    match the tag Terraform declares. Note this is not the dotted table property recording that
+    the portal created a table, which grants nothing.
+  PORTAL_MANAGED_TAG_VALUE: The tag value.
+  _DATABASE_PERMISSIONS: Read metadata plus define, alter and drop tables, enabling both
+    external-table creation and create-table-as-select.
+  _TABLE_PERMISSIONS: Read, writes and table DDL on all tables in the database. Row-level
+    delete is deliberately not granted.
 """
 
 import logging
@@ -44,38 +44,36 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from cpcommon import observability  # after the logger, before any handler
+from cpcommon import observability
 
-# `service` is "auth", shared with pre-signup: one signup touches both triggers.
 observability.init(service="auth")
 
 glue = boto3.client("glue")
 lf = boto3.client("lakeformation")
 
-# The shared portal role the LF grant targets (set in Terraform, FR-003).
 PORTAL_ROLE_ARN = os.environ["PORTAL_ROLE_ARN"]
 
-# LF-Tag stamped on every user database so the shared control-plane execution roles
-# (table-builder / table-share / data-quality) get CREATE_TABLE on it via TBAC — those
-# roles are granted on this tag, not per-DB (infra/modules/analytics/lakeformation.tf).
-# Key/value MUST match aws_lakeformation_lf_tag.portal_managed there.
-# NOT `portal.managed` (dotted), which is a table TBLPROPERTY recording that the
-# portal created a table and grants nothing (cpcommon/ddl.py, SPEC-143 FR-007).
 PORTAL_MANAGED_TAG_KEY = "portal-managed"
 PORTAL_MANAGED_TAG_VALUE = "true"
 
-# Database-level permissions: read metadata + define/alter/drop tables, enabling
-# CREATE EXTERNAL TABLE and CREATE TABLE AS SELECT (CTAS).
 _DATABASE_PERMISSIONS = ["DESCRIBE", "CREATE_TABLE", "ALTER", "DROP"]
 
-# Table-level permissions on ALL tables in the database: read + writes
-# (INSERT INTO / CTAS materialisation) + table DDL. Row-level DELETE is NOT granted
-# in v1 (SPEC-033 Resolved open question).
 _TABLE_PERMISSIONS = ["SELECT", "INSERT", "DESCRIBE", "ALTER", "DROP"]
 
 
 def _ensure_database(db):
-    """Create Glue database ``db`` if absent. Tolerates a concurrent/prior create."""
+    """Creates the user's Glue database if it is absent.
+
+    Args:
+      db: The database name, which is the username.
+
+    Returns:
+      None.
+
+    Raises:
+      ClientError: On any Glue fault other than the database already existing, which is
+        tolerated so a concurrent or prior create is a no-op.
+    """
     try:
         glue.create_database(DatabaseInput={"Name": db})
         logger.info("Created Glue database %s", db)
@@ -84,14 +82,24 @@ def _ensure_database(db):
 
 
 def _tag_database(db):
-    """Attach the ``portal-managed`` LF-Tag to ``db``.
+    """Attaches the portal-managed Lake Formation tag to the user's database.
 
-    This is what grants the control-plane execution roles CREATE_TABLE on the database
-    (they are granted on the tag, not per-DB — see the analytics module). Idempotent:
-    re-assigning the same tag value is a no-op. ``add_lf_tags_to_resource`` reports
-    per-tag problems in a ``Failures`` list rather than raising, so a non-empty
-    ``Failures`` is turned into an exception — the caller decides how to react
-    (handler swallows it to avoid blocking sign-up; backfill lets it surface).
+    This is what grants the control-plane execution roles table-creation rights, since they are
+    granted on the tag rather than per database. Idempotent: re-assigning the same tag value is
+    a no-op.
+
+    Args:
+      db: The database name.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the tagging call reports per-tag failures. The API reports those in a
+        list rather than raising, so they are turned into an exception and the caller decides
+        how to react — the handler swallows it to avoid blocking sign-up, the backfill lets it
+        surface.
+      ClientError: On any other Lake Formation fault.
     """
     resp = lf.add_lf_tags_to_resource(
         Resource={"Database": {"Name": db}},
@@ -104,10 +112,19 @@ def _tag_database(db):
 
 
 def _grant_role_full_access(db):
-    """Grant the shared portal role full DB + table access on ``db`` via Lake Formation.
+    """Grants the shared portal role full database and table access via Lake Formation.
 
-    LF ``GrantPermissions`` is idempotent — re-granting an existing permission
-    succeeds — so this is safe to re-run (backfill / retries).
+    Granting is idempotent — re-granting an existing permission succeeds — so this is safe to
+    re-run from a retry or the backfill.
+
+    Args:
+      db: The database name.
+
+    Returns:
+      None.
+
+    Raises:
+      ClientError: On any Lake Formation fault.
     """
     lf.grant_permissions(
         Principal={"DataLakePrincipalIdentifier": PORTAL_ROLE_ARN},
@@ -123,12 +140,21 @@ def _grant_role_full_access(db):
 
 
 def provision_user(username):
-    """Create the user's Glue database and grant the portal role on it.
+    """Creates the user's Glue database, grants the portal role on it, and tags it.
 
-    Idempotent. Reused verbatim by backfill.py (FR-004). Raises on a genuine,
-    non-"already exists" AWS error so the caller (handler / backfill) decides how to
-    react — the Lambda handler swallows it to avoid blocking sign-up; the backfill
-    script lets it surface.
+    Idempotent, and reused verbatim by the backfill script.
+
+    Args:
+      username: The confirmed username, which is also the database name.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When tagging reports failures.
+      ClientError: On a genuine, non-already-exists AWS error, so the caller decides how to
+        react — the Lambda handler swallows it to avoid blocking sign-up, the backfill script
+        lets it surface.
     """
     _ensure_database(username)
     _grant_role_full_access(username)
@@ -137,25 +163,35 @@ def provision_user(username):
 
 @observability.traced("post-confirmation")
 def handler(event, context):
-    """Cognito Post-Confirmation trigger: provision the confirmed user's Glue database.
+    """Cognito post-confirmation trigger: provisions the confirmed user's Glue database.
 
-    Returns the event unchanged (the trigger contract). A provisioning failure is logged,
-    not raised, so it never blocks sign-up; the operator re-runs ``backfill.py`` to
-    reconcile.
+    A user who signed up successfully and has no Glue database is the whole reason the backfill
+    script exists, and the failure is swallowed on purpose, so it is recorded explicitly —
+    without that the only trace would be a CloudWatch line in a log group nobody is watching.
+
+    The username is permitted metadata: it is the Glue database name. The trigger event itself
+    is never recorded, because it carries the user's email address.
+
+    Args:
+      event: The Cognito trigger event.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event unchanged, which is the trigger contract. Password-reset confirmations return
+      immediately without provisioning.
+
+    Raises:
+      None. A provisioning failure is recorded rather than raised, so it never blocks sign-up;
+      the operator re-runs the backfill to reconcile.
     """
-    # Only act on a real sign-up confirmation; ignore forgot-password confirmations.
     if event.get("triggerSource") != "PostConfirmation_ConfirmSignUp":
         return event
 
-    username = event["userName"]  # already catalog-safe (FR-001); == Glue DB name
+    username = event["userName"]
     try:
         provision_user(username)
-    except Exception as exc:  # noqa: BLE001 - never block sign-up on a provisioning error
-        # Logged for the operator to re-run backfill.py; sign-up still completes.
+    except Exception as exc:  # noqa: BLE001
         logger.error("Failed to provision user=%s: %s", username, exc)
-        # A user who signed up successfully and has NO Glue database — the whole reason
-        # backfill.py exists. It is swallowed on purpose (never block sign-up), so without
-        # this event the only trace is a CloudWatch line in a log group nobody is watching.
         observability.error(
             "provisioning failed; user has no database",
             username=username,
@@ -165,7 +201,5 @@ def handler(event, context):
         )
         return event
 
-    # The username is permitted metadata — it IS the Glue database name (SPEC-033). The
-    # trigger event is NOT logged: it carries request.userAttributes.email.
     observability.info("user provisioned", username=username, database=username)
     return event

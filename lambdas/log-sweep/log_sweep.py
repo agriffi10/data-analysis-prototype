@@ -1,38 +1,44 @@
-"""Sweep the structured-logging queue into one NDJSON object per service per day (SPEC-127/129).
+"""Sweeps the structured-logging queue into one NDJSON object per service per day.
 
-Every control-plane verb emits ``log-foundry`` events to a FIFO SQS queue. This function is the
-other end: an EventBridge schedule fires it every 10 minutes, it drains what is there, groups the
-events by ``(service, year, month, day)``, and **appends** them to that day's object at
-``s3://{admin-bucket}/logs/service={service}/year=YYYY/month=MM/day=DD/data.jsonl``.
+Every control-plane verb emits events to a FIFO SQS queue. This function is the other end: a
+schedule fires it every ten minutes, it drains what is there, groups the events by service and
+date, and appends them to that day's object under the admin bucket.
 
-**It pulls; it never long-polls.** The delivery model is the whole point of the design. An SQS
-event-source mapping or an EventBridge Pipe holds an always-on managed poll loop against a queue
-that is empty most of the time, and that idle long-polling was the bulk of this account's SQS
-request volume — the problem #270/#271 fixed by converting the DLQ drain from four event-source
-mappings to one scheduled sweep. A scheduled consumer that then called ``receive_message`` with
-``WaitTimeSeconds=20`` would reintroduce the same cost from a different direction, spending 20
-billed seconds per empty round doing nothing. Hence ``WaitTimeSeconds=0`` below, which is
-mandatory rather than an oversight.
+It pulls; it never long-polls. An always-on managed poll loop against a queue that is empty
+most of the time was the bulk of this account's SQS request volume, and a scheduled consumer
+that then waited on each receive would reintroduce the same cost from a different direction.
+The zero wait below is mandatory rather than an oversight.
 
-**Every message is routable, so every message is deletable.** A sweep that left messages it
-could not understand on the queue would build a slow poison loop: the same body received,
-rejected and redelivered every 10 minutes until retention expires. An unparseable body, or one
-whose ``service`` is missing or malformed, is written verbatim under
-``logs/service=_unrouted/`` and then deleted — see :func:`_route`, where ``service`` is treated
-as untrusted input on a path.
+Every message is routable, so every message is deletable. A sweep that left messages it could
+not understand on the queue would build a slow poison loop. An unparseable body, or one whose
+service is missing or malformed, is written verbatim under the unrouted partition and then
+deleted.
 
-**Appending costs a read, and S3 has no append.** One object per day per service means
-read-modify-write: GET what is there, concatenate, PUT it back. Two consequences are designed
-for rather than discovered:
+Appending costs a read, and S3 has no append, so one object per day per service means
+read-modify-write. Two consequences are designed for rather than discovered: overlapping sweeps
+would lose updates, so every write is conditional and a precondition failure re-reads and
+re-applies; and a day's file is rewritten in full on every sweep, so the bytes moved per day
+scale with the square of the day's volume.
 
-* **Lost updates.** Two overlapping sweeps would both read the same object and the second PUT
-  would silently erase the first one's events. Every write is therefore conditional —
-  ``If-None-Match: *`` to create, ``If-Match: <etag>`` to extend — and a precondition failure
-  re-reads and re-applies, the same CAS loop ``dqcommon.index_store`` uses for the runs index.
-* **The object only grows.** A day's file is rewritten in full on every sweep, so the bytes moved
-  per day scale with the square of the day's volume. :data:`LARGE_OBJECT_WARN_BYTES` logs when a
-  day's object gets big enough for that to matter, because the alternative is discovering it as a
-  timeout months later.
+Attributes:
+  _sweep_id: Set once per invocation and prepended to every CloudWatch line by the filter below.
+  ADMIN_BUCKET: Destination bucket, set by Terraform.
+  LOGS_QUEUE_URL: Source queue, set by Terraform.
+  LOGS_PREFIX: Root prefix for the partitioned layout.
+  DAY_OBJECT: The per-day object's basename.
+  SERVICE_RE: The service name rule. A service becomes part of an S3 key and arrives inside a
+    message body, so it is untrusted input on a path — the same class of surface every
+    validate-authorize verb exists to police.
+  UNROUTED: Where a body goes when it cannot be routed. Not a valid service name, since the
+    pattern forbids a leading underscore, so a real service can never collide with it.
+  MAX_ROUNDS: Receive rounds per sweep.
+  MAX_MESSAGES: Message cap per sweep. The next schedule tick picks up any remainder, so the cap
+    costs latency on a backlog, never data.
+  MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
+    messages queued.
+  LARGE_OBJECT_WARN_BYTES: Size at which the read-modify-write cost is worth knowing about. The
+    function has finite memory and a finite timeout, and the alternative is discovering this as
+    a timeout months later.
 """
 
 import json
@@ -50,21 +56,31 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="observability")
 
-#: Set once per invocation (FR-007) and prepended to every CloudWatch line by ``_SweepIdFilter``.
 _sweep_id = ""
 
 
 class _SweepIdFilter(logging.Filter):
-    """Prepend this invocation's ``sweep_id`` to every CloudWatch line the sweep writes.
+    """Prepends this invocation's sweep id to every CloudWatch line the sweep writes.
 
-    A filter rather than an edit to each ``logger.*`` call, for two reasons. The structured
-    events and the CloudWatch lines are two accounts of the same sweep, and a join key present on
-    only one side of the join is not a join key — so *every* line needs it, including the ones in
-    ``_read_day`` and ``_append_day`` that know nothing about the invocation. And a line added
-    later gets the id for free, which is the difference between a property and a convention.
+    A filter rather than an edit to each logging call, for two reasons. The structured events
+    and the CloudWatch lines are two accounts of the same sweep, and a join key present on only
+    one side of the join is not a join key — so every line needs it, including the ones in
+    helpers that know nothing about the invocation. And a line added later gets the id for free,
+    which is the difference between a property and a convention.
     """
 
     def filter(self, record):
+        """Prefixes the record's message with the sweep id when one is set.
+
+        Args:
+          record: The log record.
+
+        Returns:
+          True, always — this filter annotates rather than excludes.
+
+        Raises:
+          None.
+        """
         if _sweep_id and not str(record.msg).startswith("[sweep "):
             record.msg = f"[sweep {_sweep_id}] {record.msg}"
         return True
@@ -77,42 +93,39 @@ LOGS_QUEUE_URL = os.environ.get("LOGS_QUEUE_URL", "")
 LOGS_PREFIX = "logs"
 DAY_OBJECT = "data.jsonl"
 
-#: `service` becomes part of an S3 key and arrives inside a message body, so it is untrusted
-#: input on a path — the same class of surface every validate-authorize verb exists to police.
-#: Anything that does not match lands under service=_unrouted rather than building a key.
 SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{2,62}$")
 
-#: Where a body goes when it cannot be routed. Not a valid `service` (the pattern above forbids
-#: a leading underscore), so a real service can never collide with it.
 UNROUTED = "_unrouted"
 
-#: One sweep is bounded: 100 rounds of 10. The next schedule tick picks up any remainder ten
-#: minutes later, so the cap costs latency on a backlog, never data.
 MAX_ROUNDS = 100
 MAX_MESSAGES = 1000
 
-#: CAS attempts per day-object before giving up and leaving the messages queued.
 MAX_CAS_ATTEMPTS = 5
 
-#: Read-modify-write moves the whole object every sweep. At this size that is worth knowing
-#: about — the function has 512 MB and a 300s timeout, and both are finite.
 LARGE_OBJECT_WARN_BYTES = 64 * 1024 * 1024
 
 
 def _partition(event):
-    """Return ``(year, month, day, fell_back)`` for an event, from the EVENT's own timestamp.
+    """Derives the date partition for one event, from the event's own timestamp.
 
     Deliberately not the sweep's clock. A delayed or replayed event stamped with sweep time
     lands in the wrong day and becomes invisible to anyone querying the window it actually
     belongs to — which is precisely the window they would be querying while debugging it.
 
-    Falls back to the sweep clock when the timestamp is missing or unparseable; the caller
-    counts those so a systematic problem shows up rather than hiding in the partitions.
+    Args:
+      event: The parsed event, or None when the body could not be routed.
+
+    Returns:
+      A ``(year, month, day, fell back)`` tuple. The fallback flag is set when the timestamp was
+      missing or unparseable and the sweep clock was used instead; the caller counts those so a
+      systematic problem shows up rather than hiding in the partitions.
+
+    Raises:
+      None.
     """
     raw = event.get("timestamp") if isinstance(event, dict) else None
     if isinstance(raw, str):
         try:
-            # fromisoformat parses a trailing "Z" natively from 3.11 on; the floor is 3.12.
             parsed = datetime.fromisoformat(raw)
             return parsed.strftime("%Y"), parsed.strftime("%m"), parsed.strftime("%d"), False
         except ValueError:
@@ -122,11 +135,20 @@ def _partition(event):
 
 
 def _route(body):
-    """Return ``(service, event_or_none)`` for one raw message body.
+    """Decides which service partition one raw message body belongs to.
 
-    A body that is not valid JSON, is not an object, or carries a missing/malformed ``service``
-    routes to ``_unrouted`` and is preserved VERBATIM — the point of _unrouted is to be able to
-    see what actually arrived, so nothing is normalised on the way in.
+    A body that is not valid JSON, is not an object, or carries a missing or malformed service
+    routes to the unrouted partition and is preserved verbatim — the point of that partition is
+    to be able to see what actually arrived, so nothing is normalised on the way in.
+
+    Args:
+      body: The raw SQS message body.
+
+    Returns:
+      A ``(service, parsed event or None)`` tuple.
+
+    Raises:
+      None.
     """
     try:
         event = json.loads(body)
@@ -141,35 +163,65 @@ def _route(body):
 
 
 def _day_key(service, year, month, day):
-    """The Hive-partitioned key for one service-day.
+    """Builds the Hive-partitioned key for one service-day.
 
-    ``service=`` is a partition column like the date parts, so an Athena table over ``logs/``
-    can prune on it — the reason it is ``service={name}`` rather than a bare directory.
+    The service is a partition column like the date parts, so an Athena table over the log
+    prefix can prune on it — the reason it is a partition assignment rather than a bare
+    directory.
+
+    Args:
+      service: The service name.
+      year: The four-digit year.
+      month: The two-digit month.
+      day: The two-digit day.
+
+    Returns:
+      The object key.
+
+    Raises:
+      None.
     """
     return f"{LOGS_PREFIX}/service={service}/year={year}/month={month}/day={day}/{DAY_OBJECT}"
 
 
 def _read_day(key):
-    """Return ``(existing_bytes, etag)``. ``(b"", None)`` when the object does not exist yet.
+    """Reads a day object's current contents and entity tag.
 
-    A read failure is reported as "absent with no etag", which makes the following write use
-    ``If-None-Match: *`` — so a transient read error can never cause a silent OVERWRITE of a
+    A read failure is reported as absent with no tag, which makes the following write a
+    create-only conditional — so a transient read error can never cause a silent overwrite of a
     day's logs. It fails the write instead, and the messages stay queued for the next sweep.
+
+    Args:
+      key: The day object's key.
+
+    Returns:
+      An ``(existing bytes, etag)`` tuple, empty and None when the object does not exist yet.
+
+    Raises:
+      None.
     """
     try:
         response = clients.s3().get_object(Bucket=ADMIN_BUCKET, Key=key)
         return response["Body"].read(), response.get("ETag")
-    except Exception as err:  # noqa: BLE001 - absent is the ordinary case on the day's first sweep
+    except Exception as err:  # noqa: BLE001
         logger.info("log-sweep: no existing object at %s (%s); creating it", key, err)
         return b"", None
 
 
 def _is_precondition(exc):
-    """True when a conditional PutObject lost to a concurrent writer.
+    """Reports whether a conditional write lost to a concurrent writer.
 
-    ``PreconditionFailed``/412 is If-Match losing; ``ConditionalRequestConflict``/409 is what S3
-    returns when two If-None-Match creates race — which is exactly what two sweeps would do on
-    the first event of a new day. Same predicate as ``dqcommon.index_store``.
+    One code is a failed match-on-tag; the other is what S3 returns when two create-only writes
+    race, which is exactly what two sweeps would do on the first event of a new day.
+
+    Args:
+      exc: The write fault.
+
+    Returns:
+      True when the fault is a precondition failure.
+
+    Raises:
+      None.
     """
     code = str(((getattr(exc, "response", {}) or {}).get("Error") or {}).get("Code", ""))
     return code in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
@@ -177,16 +229,26 @@ def _is_precondition(exc):
 
 @observability.step("append-day")
 def _append_day(key, new_lines):
-    """Append lines to a day's object under CAS. Returns True only if they landed.
+    """Appends lines to a day's object under a compare-and-swap loop.
 
     Re-reads and re-applies on a precondition failure rather than retrying the same write: the
-    whole point is that the object changed underneath us, so the new content has to be rebuilt
-    on top of what the winner wrote.
+    whole point is that the object changed underneath, so the new content has to be rebuilt on
+    top of what the winner wrote. Contention is recorded once per retry, because the retry count
+    is the signal — a sweep that succeeds on the fourth attempt is a sweep that nearly did not.
 
-    One destination, one child span, and the events below are per-destination — never per
-    message (SPEC-131 FR-005). ``reason`` on the failure path is a stable token rather than a
-    stringified exception: a reason you can filter on is worth more than a message you can read
-    once.
+    One destination, one child span, and every event here is per destination, never per message.
+    The failure reason is a stable token rather than a stringified exception: a reason you can
+    filter on is worth more than a message you can read once.
+
+    Args:
+      key: The day object's key.
+      new_lines: The message bodies to append.
+
+    Returns:
+      True only if the lines landed. On False the messages stay on the queue and redeliver.
+
+    Raises:
+      None.
     """
     payload = ("\n".join(new_lines) + "\n").encode("utf-8")
     observability.info("appending", key=key, events=len(new_lines))
@@ -199,8 +261,6 @@ def _append_day(key, new_lines):
                 len(existing) / 1024 / 1024,
             )
             observability.warning("day object is large", key=key, bytes=len(existing))
-        # A day's object always ends in a newline (below), so concatenation needs no separator —
-        # but tolerate a hand-edited object that doesn't.
         if existing and not existing.endswith(b"\n"):
             existing += b"\n"
         kwargs = {
@@ -222,7 +282,7 @@ def _append_day(key, new_lines):
                 bytes=len(existing) + len(payload),
             )
             return True
-        except Exception as err:  # every failure path is total (see handler)
+        except Exception as err:
             if _is_precondition(err):
                 logger.info(
                     "log-sweep: %s changed under us (attempt %d/%d); re-reading",
@@ -230,8 +290,6 @@ def _append_day(key, new_lines):
                     attempt + 1,
                     MAX_CAS_ATTEMPTS,
                 )
-                # Once per retry, because the retry COUNT is the contention signal — a sweep
-                # that succeeds on attempt 4 is a sweep that nearly didn't.
                 observability.warning(
                     "day object changed under us",
                     key=key,
@@ -239,7 +297,6 @@ def _append_day(key, new_lines):
                     attempts=MAX_CAS_ATTEMPTS,
                 )
                 continue
-            # Not a race: a real write failure. The messages stay on the queue and redeliver.
             logger.exception("log-sweep: failed to write %s (%d events left queued)", key, len(new_lines))
             observability.error(
                 "append failed", key=key, events=len(new_lines), reason="write-failed"
@@ -259,13 +316,20 @@ def _append_day(key, new_lines):
 
 @observability.step("receive")
 def _receive_all():
-    """Short-poll the queue until a round comes back empty or the cap is hit.
-
-    Returns ``(messages, truncated)``. ``truncated`` is surfaced by the caller rather than
-    swallowed: a silent cap reads as "swept everything" when it didn't.
+    """Short-polls the queue until a round comes back empty or the cap is hit.
 
     Its own child span because the poll loop and the writes have completely different failure
     modes, and this is the half that is billed per round.
+
+    Args:
+      None.
+
+    Returns:
+      A ``(messages, truncated)`` tuple. The caller surfaces the truncation rather than
+      swallowing it: a silent cap reads as "swept everything" when it did not.
+
+    Raises:
+      ClientError: On any SQS receive fault.
     """
     sqs = clients.sqs()
     messages = []
@@ -275,7 +339,7 @@ def _receive_all():
         batch = sqs.receive_message(
             QueueUrl=LOGS_QUEUE_URL,
             MaxNumberOfMessages=10,
-            WaitTimeSeconds=0,  # short poll — see the module docstring; this is mandatory
+            WaitTimeSeconds=0,
             MessageAttributeNames=[],
         ).get("Messages", [])
         if not batch:
@@ -285,7 +349,23 @@ def _receive_all():
 
 
 def _delete(receipts):
-    """Delete a group's messages, in SQS's batch-of-10 chunks."""
+    """Deletes a group's messages in the batch size SQS accepts.
+
+    A failed delete only means those events will be appended again next sweep, producing
+    duplicate ids that a reader collapses — the events are already durable in S3. One event is
+    emitted per group rather than per failed chunk, because a chunk is ten messages and a
+    per-chunk emitter would scale with the message count on exactly the path where the queue is
+    already unhappy.
+
+    Args:
+      receipts: The receipt handles to delete.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     sqs = clients.sqs()
     undeleted = 0
     for i in range(0, len(receipts), 10):
@@ -296,13 +376,9 @@ def _delete(receipts):
                 Entries=[{"Id": str(n), "ReceiptHandle": r} for n, r in enumerate(chunk)],
             )
         except Exception:
-            # The events are already durable in S3; a failed delete only means they will be
-            # appended again next sweep, producing duplicate log_ids that a reader collapses.
             logger.exception("log-sweep: failed to delete %d messages", len(chunk))
             undeleted += len(chunk)
     if undeleted:
-        # ONE event per group, not per failed chunk — a chunk is 10 messages, so a per-chunk
-        # emitter would be O(messages) on exactly the path where the queue is already unhappy.
         observability.warning(
             "delete failed; events will be appended again next sweep",
             events=undeleted,
@@ -312,31 +388,48 @@ def _delete(receipts):
 
 @observability.traced("sweep")
 def handler(event, context):
-    """Drain the logs queue into the day's objects. Total: no message can make this raise.
+    """Drains the logs queue into the day's objects.
 
-    The sweep instruments ITSELF (``service="observability"``), which is what makes the pipe
-    verifiable end to end without instrumenting a control plane. The self-reference is safe —
-    this invocation's own events go through the same queue and are collected by the NEXT
-    scheduled sweep, never recursively within this one.
+    The sweep instruments itself, which is what makes the pipe verifiable end to end without
+    instrumenting a control plane. The self-reference is safe: this invocation's own events go
+    through the same queue and are collected by the next scheduled sweep, never recursively
+    within this one.
 
-    **That self-reference is also why the event count here is bounded** (SPEC-131 FR-005).
-    Every emitter below is per-sweep or per-day-group, never per message: this function emits
-    into the queue it drains, so an event per message consumed would mean draining M messages
-    produced ~M more, and the queue would have a floor it could never get below — permanently
-    busy carrying its own telemetry, with the day objects growing to match. Day-groups are
-    bounded by the number of control planes; messages are bounded by nothing.
+    That self-reference is also why the event count here is bounded. Every emitter is per sweep
+    or per day-group, never per message: this function emits into the queue it drains, so an
+    event per message consumed would mean draining a batch produced about as many more, and the
+    queue would have a floor it could never get below — permanently busy carrying its own
+    telemetry, with the day objects growing to match. Day-groups are bounded by the number of
+    control planes; messages are bounded by nothing.
 
-    **The existing ``logger`` calls stay alongside the structured events, deliberately, and
-    this is the one function where that is not duplication to copy into a verb.** The sink is
-    SQS-only (SPEC-127, user decision), so a sweep that cannot write to S3 cannot report through
-    the structured store that it could not write to S3 — the mechanism that would carry the
-    report is the thing that failed. Its CloudWatch line is the only account of that failure
-    that exists.
+    The plain logging calls stay alongside the structured events deliberately, and this is the
+    one function where that is not duplication to copy into a verb. The sink is the queue only,
+    so a sweep that cannot write to S3 cannot report through the structured store that it could
+    not write to S3 — the mechanism that would carry the report is the thing that failed. Its
+    CloudWatch line is the only account of that failure that exists.
+
+    Messages are deleted strictly after a successful append. The resulting guarantee is
+    at-least-once: a sweep that writes and then dies before deleting will append those events
+    again next round, producing duplicate ids that a reader collapses on. Losing logs is worse
+    than duplicating them. Unrouted bodies are counted but never recorded in an event — they are
+    already preserved verbatim in their own partition, and echoing unbounded queue input into a
+    day object risks precisely the growth this design is careful about.
+
+    The summary's level carries the outcome, so a partly-failed sweep is reachable without
+    reading a field: an earlier version reported the counts and no failure count at all, so a
+    sweep that wrote two destinations of three read as a success in every field it had.
+
+    Args:
+      event: Ignored; the schedule carries no payload.
+      context: The Lambda context, unused.
+
+    Returns:
+      A dict of the messages swept, events written and day-groups touched.
+
+    Raises:
+      None. Total by design: no message can make this raise.
     """
     global _sweep_id
-    # Before any emitter, so every event of this invocation carries it — including the boundary
-    # spans, which is what joins the two accounts. `traced`'s _reset_baggage() clears it between
-    # warm invocations, so a sweep can never inherit the previous one's id.
     _sweep_id = sweep_id = uuid.uuid4().hex
     observability.stamp(sweep_id=sweep_id)
 
@@ -353,7 +446,7 @@ def handler(event, context):
     if not messages:
         return {"swept": 0, "written": 0}
 
-    groups = defaultdict(list)  # (service, year, month, day) -> [(body, receipt), ...]
+    groups = defaultdict(list)
     undated = 0
     unrouted = 0
     for message in messages:
@@ -372,16 +465,11 @@ def handler(event, context):
         key = _day_key(service, year, month, day)
         if _append_day(key, [b for b, _ in items]):
             written += len(items)
-            # Strictly AFTER a successful append. The resulting guarantee is at-least-once: a
-            # sweep that writes and then dies before deleting will append those events again
-            # next round, producing duplicate log_ids that a reader collapses on. Losing logs
-            # is worse than duplicating them.
             _delete([r for _, r in items if r])
         else:
             failed += len(items)
 
     if truncated:
-        # Explicit, with the count — a silent cap reads as "swept everything" when it didn't.
         logger.warning(
             "log-sweep: hit the %d-message cap; %d messages taken this round, remainder next sweep",
             MAX_MESSAGES,
@@ -392,10 +480,6 @@ def handler(event, context):
         logger.warning("log-sweep: %d event(s) had no usable timestamp; used the sweep clock", undated)
         observability.warning("events had no usable timestamp", undated=undated)
     if unrouted:
-        # The body itself is NOT logged. Not on sensitivity grounds — it is already preserved
-        # verbatim under logs/service=_unrouted/, where it can be read deliberately — but
-        # because it is unbounded input from a queue, and echoing it into a day object risks
-        # precisely the growth the read-modify-write design is careful about.
         observability.warning("bodies could not be routed", unrouted=unrouted)
 
     logger.info(
@@ -405,9 +489,6 @@ def handler(event, context):
         len(groups),
         written,
     )
-    # Level carries the outcome, so "a sweep that partly failed" is reachable without reading a
-    # field: the old summary reported swept/groups/written and no failure count at all, so a
-    # sweep that wrote two destinations of three read as a success in every field it had.
     outcome = observability.error if failed else observability.info
     outcome(
         "swept",

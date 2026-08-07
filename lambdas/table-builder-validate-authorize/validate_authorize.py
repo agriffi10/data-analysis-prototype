@@ -1,19 +1,18 @@
 """validate-authorize — the table-builder Step Function's first task.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted
-actor, authorizes the target space/DB, and validates the table name, partition keys,
-and in-space location. Read-only — no provisioning side effects. A failed check
-raises TerminalError with a stable reason, so the state machine's Catch records the
-failure and no downstream verb runs.
+Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor,
+authorizes the target space and database, and validates the table name, partition keys and
+in-space location. Read-only, with no provisioning side effects. A failed check raises a
+terminal error with a stable reason, so the state machine's Catch records the failure and no
+downstream verb runs.
 
-Both MODES land here (SPEC-143): a create and a refresh are authorized identically —
-same actor, same space, same database — and only the partition-key rule differs, since a
-refresh declares none. The mode is validated rather than defaulted silently, so an
-unknown value fails as a typed terminal here instead of falling through the state
-machine's Choice default into a create.
+Both modes land here: a create and a refresh are authorized identically — same actor, same
+space, same database — and only the partition-key rule differs, since a refresh declares none.
+The mode is validated rather than defaulted silently, so an unknown value fails as a typed
+terminal here instead of falling through the state machine's default into a create.
 
-Emits the validated, normalized request the next states consume:
-{mode, allowRemovals, actor, space, tableName, partitionKeys, location, requestId}.
+The service name is the control plane, not the function, so one build's five invocations stay
+one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
@@ -27,37 +26,51 @@ from tbcommon.config import PARTITION_TYPES
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
 
 def _load_registry(database: str):
-    """Load the shared-space registry record, mapping a throttle to ``TransientError``.
+    """Loads the shared-space registry record, mapping a throttle to a transient error.
 
-    ``registry.load`` catches only ``NoSuchKey``, so a throttle on the underlying
-    ``get_object`` propagates as a bare ``ClientError`` — which the ValidateAuthorize
-    Retry list does not name, so it would permanently fail the request. Mapping it (paired
-    with adding ``TransientError`` to that Retry list) is what gets it retried. Mapped
-    HERE, at the verb, not in ``cpcommon.registry.load``: that is shared with the
-    shared-space verbs, whose state machine does not retry ``TransientError``.
+    The shared loader catches only a missing key, so a throttle on the underlying read
+    propagates as a bare ClientError, which this verb's Retry list does not name and would
+    permanently fail the request. Mapped here at the verb rather than in the shared loader,
+    which the shared-space verbs also use and whose state machine does not retry transients.
+
+    Args:
+      database: The shared space's database name.
+
+    Returns:
+      The registry record, or None when the space is not registered.
+
+    Raises:
+      TransientError: On a retryable S3 fault.
+      ClientError: Any deterministic fault propagates.
     """
     try:
         return reg.load(database)
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, f"registry load {database}")
         raise
 
 
 def _validate_mode(mode):
-    """Normalize the request mode to a literal; absent means the shipped create path.
+    """Normalises the request mode to a literal; absent means the shipped create path.
 
-    Returns the literal string (never ``None``) so the state machine's Choice always has a
-    field to test — a missing ``$.mode`` would fall to its Default, which is create, but
-    relying on that would make an unknown mode indistinguishable from an old producer's
-    envelope. SPEC-067's envelope carries no ``mode`` at all and must keep routing to
-    create, which is why absent is accepted rather than required.
+    Always returns a literal so the state machine's choice has a field to test. A missing mode
+    would fall to its default, which is create, but relying on that would make an unknown mode
+    indistinguishable from an old producer's envelope — and the original envelope carries no
+    mode at all and must keep routing to create, which is why absent is accepted rather than
+    required.
+
+    Args:
+      mode: The request's mode, or None.
+
+    Returns:
+      ``create`` or ``refresh``.
+
+    Raises:
+      TerminalError: ``invalid_mode`` on any other value.
     """
     if mode is None:
         return "create"
@@ -67,11 +80,22 @@ def _validate_mode(mode):
 
 
 def _validate_allow_removals(flag, mode):
-    """Normalize the removal opt-in to a bool; it is meaningful only on a refresh.
+    """Normalises the removal opt-in to a boolean; it is meaningful only on a refresh.
 
-    Rejected rather than ignored when it rides a create: a request that asks for something
-    the mode cannot do is a producer bug, and silently dropping the flag would let a future
-    caller believe removals were opted into when nothing read the field.
+    Rejected rather than ignored when it rides a create: a request that asks for something the
+    mode cannot do is a producer bug, and silently dropping the flag would let a future caller
+    believe removals were opted into when nothing read the field.
+
+    Args:
+      flag: The request's opt-in value, or None.
+      mode: The validated mode.
+
+    Returns:
+      The opt-in as a boolean.
+
+    Raises:
+      TerminalError: ``removals_flag_not_applicable`` when the value is not a boolean, or is
+        set on a create.
     """
     if flag is None:
         return False
@@ -83,7 +107,17 @@ def _validate_allow_removals(flag, mode):
 
 
 def _normalize_prefix(prefix):
-    """Trim, drop a leading slash, ensure a single trailing slash."""
+    """Trims a prefix, drops a leading slash and ensures a single trailing one.
+
+    Args:
+      prefix: The raw prefix, or None.
+
+    Returns:
+      The normalised prefix, which is "" when there was none.
+
+    Raises:
+      None.
+    """
     p = (prefix or "").strip().lstrip("/")
     if p and not p.endswith("/"):
         p += "/"
@@ -91,12 +125,42 @@ def _normalize_prefix(prefix):
 
 
 def _validate_table_name(name):
+    """Checks the requested table name against the catalog-safe identifier rule.
+
+    Args:
+      name: The requested table name.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``invalid_table_name`` when it is not a catalog-safe identifier.
+    """
     if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.match(name):
         raise TerminalError("invalid_table_name", f"{name!r}")
 
 
 def _validate_partition_keys(keys):
-    """Validate the user-declared partition keys; [] or None means a flat table."""
+    """Validates the user-declared partition keys, in full, before any renderer sees them.
+
+    Every refusal is one reason code and names the offending key. Unvalidated, these reached
+    the renderer as a bare KeyError or TypeError inside a later verb, which the user was told
+    about as "something went wrong" — a message that cannot be acted on for a request they
+    could simply have fixed. Booleans are excluded from the numeric bounds explicitly rather
+    than by accident, since a boolean is an int in Python and would render as a capitalised
+    word into a projection range.
+
+    Args:
+      keys: The declared partition keys. An empty list or None means a flat table.
+
+    Returns:
+      The keys unchanged.
+
+    Raises:
+      TerminalError: ``invalid_partition_keys`` for a non-list, a non-object key, an invalid or
+        duplicate name, an unknown type, a malformed range, a date key with no format, an empty
+        or non-string enum value list, or a non-integer digit count.
+    """
     if not keys:
         return []
     if not isinstance(keys, list):
@@ -114,35 +178,26 @@ def _validate_partition_keys(keys):
         ptype = key.get("type")
         if ptype not in PARTITION_TYPES:
             raise TerminalError("invalid_partition_keys", f"{name}: invalid type {ptype!r}")
-        # EVERY refusal below is `invalid_partition_keys` and names the key (SPEC-151
-        # FR-007). Unvalidated, these reached the renderer as a bare KeyError or TypeError
-        # inside infer-schema, which the user was told about as "something went wrong" —
-        # a message that cannot be acted on for a request they could simply have fixed.
         if ptype in ("integer", "date"):
             rng = key.get("range")
             if not (isinstance(rng, list) and len(rng) == 2):
                 raise TerminalError("invalid_partition_keys", f"{name}: range must be [min, max]")
             for bound in rng:
-                # `bool` is an int in Python, and `True` would render as the string "True"
-                # into a projection range — excluded explicitly rather than by accident.
                 if isinstance(bound, bool) or not isinstance(bound, (int, str)):
                     raise TerminalError(
                         "invalid_partition_keys", f"{name}: range bounds must be numbers or strings"
                     )
             if ptype == "date":
-                # ddl._projection_props does key["format"] unguarded, so a request without
-                # it raised KeyError from inside the renderer.
                 fmt = key.get("format")
                 if not isinstance(fmt, str) or not fmt.strip():
                     raise TerminalError(
                         "invalid_partition_keys", f"{name}: date keys need a non-empty format"
                     )
-        else:  # string → projection enum
+        else:
             values = key.get("values")
             if not (isinstance(values, list) and len(values) >= 1):
                 raise TerminalError("invalid_partition_keys", f"{name}: values must be a non-empty list")
             if not all(isinstance(v, str) for v in values):
-                # ",".join over a non-string raises TypeError inside the renderer.
                 raise TerminalError(
                     "invalid_partition_keys", f"{name}: every value must be a string"
                 )
@@ -153,7 +208,24 @@ def _validate_partition_keys(keys):
 
 
 def _authorize_space(space, actor):
-    """Authorize ``actor`` for the target space; return the normalized prefix."""
+    """Authorizes the actor for the target space and returns its normalised prefix.
+
+    A personal space must be the actor's own database in the user-space bucket, with the
+    location inside their prefix. A shared space must list the actor as an active member, live
+    in the shared-space bucket, and have the location inside the space's own prefix.
+
+    Args:
+      space: The request's space dict.
+      actor: The verified username.
+
+    Returns:
+      The normalised prefix.
+
+    Raises:
+      TerminalError: ``forbidden`` when the space is missing, its kind is unknown, the actor is
+        not entitled to it, the bucket is wrong, or the location escapes it.
+      TransientError: On a retryable fault loading the registry.
+    """
     if not isinstance(space, dict):
         raise TerminalError("forbidden", "missing space")
     kind = space.get("kind")
@@ -181,44 +253,75 @@ def _authorize_space(space, actor):
     return prefix
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """SFN entry point: parse → verify → authorize → validate → assemble the build state.
+    """Step Functions entry point: parses, verifies, authorizes and assembles the build state.
 
-    A thin shim; the orchestration (including the notify-on-failure envelope) lives in
-    ``_validate_and_authorize`` so it is testable without a Lambda context.
+    A thin shim; the orchestration lives below so it is testable without a Lambda context.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    Args:
+      event: The EventBridge Pipe envelope carrying the SQS record.
+      context: The Lambda context, unused.
+
+    Returns:
+      The validated, normalised request the downstream states consume.
+
+    Raises:
+      TerminalError: ``unauthorized`` before the actor is bound, or any validation reason
+        afterwards.
+      TransientError: On a retryable fault loading the registry.
     """
     return _validate_and_authorize(event)
 
 
 def _validate_and_authorize(event) -> dict:
+    """Verifies the token, authorizes the space, validates the request and shapes the state.
+
+    The actor comes from the verified token, never the body, and the token verification sits
+    outside the notifying try deliberately: an unauthorized failure raises before the actor is
+    known, so there is no recipient to notify and the SFN still records it. From there on a
+    terminal validation failure notifies the actor best-effort before the Catch records it, and
+    that notification reads its mode from the request rather than the local variable, which is
+    unbound when the mode check is what raised — without it every failure this verb notifies
+    would read as a create failure, including one only a refresh can reach.
+
+    The space authorization runs identically for both modes: the catalog is not the
+    authorization boundary, so the prefix the producer believes the table points at is
+    authorized here, and the refresh entry verb re-checks the location it actually finds.
+
+    The database is the field that matters most in the record: this plane's silent-create
+    incident was a create targeting a database the role could not write to, and which database
+    the request aimed at was the first thing nobody could answer.
+
+    Args:
+      event: The EventBridge Pipe envelope.
+
+    Returns:
+      The validated request: mode, removal opt-in, actor, space, table name, partition keys,
+      location and request id.
+
+    Raises:
+      TerminalError: ``unauthorized`` for a bad token, ``invalid_mode``,
+        ``removals_flag_not_applicable``, ``forbidden``, ``invalid_table_name``,
+        ``partition_keys_not_refreshable`` or ``invalid_partition_keys``.
+      TransientError: On a retryable fault loading the registry.
+    """
     req = events.parse_sqs_request(event, reason="unauthorized")
     space = req.get("space") or {}
 
-    # The actor comes from the verified token, never the body. An unauthorized failure
-    # raises before the actor is known — there is no recipient to notify (the SFN still
-    # records it), so this is deliberately outside the try below.
     actor = auth.verified_username(req.get("idToken"))
 
-    # From here the actor is known, so a terminal validation failure notifies the actor
-    # (best-effort) before the SFN Catch records it.
     try:
         mode = _validate_mode(req.get("mode"))
         allow_removals = _validate_allow_removals(req.get("allowRemovals"), mode)
-        # Runs identically for both modes: the catalog is not the authorization boundary,
-        # so the prefix the producer BELIEVES the table points at is authorized here, and
-        # load-table-definition re-checks the location it actually finds.
         prefix = _authorize_space(space, actor)
         table_name = req.get("tableName")
         _validate_table_name(table_name)
         if mode == "refresh":
-            # A refresh that accepted keys would be offering to CHANGE them, which the
-            # arc forbids: they were user-declared at create time and are recorded
-            # nowhere but on the table, so load-table-definition reconstructs them.
             if req.get("partitionKeys"):
                 raise TerminalError(
                     "partition_keys_not_refreshable",
@@ -234,10 +337,6 @@ def _validate_and_authorize(event) -> dict:
                 "tableName": req.get("tableName"),
                 "space": {"database": space.get("database")},
                 "requestId": req.get("requestId"),
-                # From the REQUEST, not the local `mode`, which is unbound when
-                # _validate_mode is what raised. Without it every failure this verb
-                # notifies reads "Couldn't create table" — including
-                # partition_keys_not_refreshable, which only a refresh can reach.
                 "mode": req.get("mode"),
             },
             err,
@@ -262,9 +361,6 @@ def _validate_and_authorize(event) -> dict:
         "requestId": req.get("requestId"),
     }
     logger.info("validated table %s in %s for %s", table_name, space.get("database"), actor)
-    # The DATABASE is the field that matters most on this plane: the silent-create incident was
-    # a CREATE that targeted a per-user or per-shared-space database the role could not write
-    # to, and "which database did this request aim at" was the first thing nobody could answer.
     observability.info(
         "validated",
         mode=mode,

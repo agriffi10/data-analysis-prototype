@@ -1,16 +1,14 @@
-"""Best-effort outcome notifications for the table-share pipeline (domain side, SPEC-094).
+"""Best-effort outcome notifications for the table-share pipeline.
 
-The shared primitives (``emit_notification`` + the ``notifies_on_failure`` skeleton)
-moved to ``cpcommon.notify`` (SPEC-107). This module keeps the table-share-specific
-emitters: the SENDER (actor) hears every outcome (per-recipient success/failure + a
-whole-request failure); on a recipient SUCCESS the target party is also told — a user
-recipient directly, a shared-space recipient via the space's OWNER (from the registry;
-owner only, never members). Failures notify the sender only (architecture §8). The
-notifications queue has content-based dedup, so no per-message dedup id is needed.
+The shared primitives live in ``cpcommon.notify``; this module keeps the table-share
+specifics. The sender hears every outcome — per-recipient successes and failures, plus a
+whole-request failure. On a recipient success the target party is also told: a user recipient
+directly, a shared-space recipient via the space's owner, never its members. Failures notify
+the sender only. The notifications queue has content-based dedup, so no per-message dedup id
+is needed.
 
-A missed notification must never change or fail the share outcome, so every emit goes
-through ``cpcommon.notify.emit_notification`` (catches and logs, never raises, no-op
-when the queue URL is unset).
+A missed notification must never change or fail the share outcome, so every emit goes through
+``cpcommon.notify.emit_notification``, which catches, logs and never raises.
 """
 
 import logging
@@ -29,7 +27,6 @@ from .messages import (
 
 logger = logging.getLogger()
 
-# Re-exported so verbs (and tests) can keep calling ``notify.emit_notification``.
 __all__ = [
     "emit_failure",
     "emit_notification",
@@ -40,11 +37,21 @@ __all__ = [
 
 
 def _context(event) -> tuple[str, str, str, dict | None]:
-    """(actor, source_table, table_name, recipient|None) from either event shape.
+    """Reads the notification context out of either event shape a verb can receive.
 
-    Whole-request verbs carry the request at the top level; the Map verbs carry
-    {recipient, request}. Tolerates a non-dict event (validate-authorize's raw SQS
-    array) — no actor means every emit is a no-op, never an error.
+    Whole-request verbs carry the request at the top level; the Map verbs carry the recipient
+    alongside it.
+
+    Args:
+      event: The verb's event. A non-dict is tolerated — validate-authorize's raw SQS array
+        fails before the actor is bound — and yields no actor, so every emit is a no-op rather
+        than an error.
+
+    Returns:
+      An ``(actor, source table, result table name, recipient or None)`` tuple.
+
+    Raises:
+      None.
     """
     data = event if isinstance(event, dict) else {}
     request = data.get("request") if isinstance(data.get("request"), dict) else data
@@ -59,16 +66,26 @@ def _context(event) -> tuple[str, str, str, dict | None]:
 
 
 def emit_failure(event, err: TerminalError, step: str) -> None:
-    """Emit the sender-addressed failure notification for a verb's TerminalError.
+    """Emits the sender-addressed failure notification for a verb's terminal error.
 
-    Best-effort. A Map-verb event names the failed recipient; a whole-request event
-    does not. An unauthorized failure raised before the actor is bound has no
-    recipient, so the emit is a no-op, not a lost message.
+    The error's detail — raw Athena text — is deliberately not forwarded to the user message;
+    it stays on the exception for logs and the SFN record.
+
+    Args:
+      event: The verb's event. A Map-verb event names the failed recipient; a whole-request
+        event does not.
+      err: The terminal error being reported.
+      step: The verb name, unused here because this queue deduplicates on content.
+
+    Returns:
+      None. An unauthorized failure raised before the actor is bound has no recipient, so the
+      emit is a no-op rather than a lost message.
+
+    Raises:
+      None.
     """
     actor, source_table, table_name, recipient = _context(event)
     recipient = recipient or {}
-    # err.detail (raw Athena StateChangeReason) is deliberately NOT forwarded to the
-    # user message — it stays on the TerminalError for logs + the SFN record (FR-008).
     emit_notification(
         actor,
         failure_message(
@@ -82,9 +99,19 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
 
 
 def emit_unexpected(event, step: str) -> None:
-    """Emit the sender-addressed failure notification for an UNEXPECTED verb exception.
+    """Emits the sender-addressed failure notification for an unexpected verb exception.
 
-    Best-effort; the generic "unexpected_error" reason (no leaked internals).
+    Uses the generic unexpected-error reason so no internals leak.
+
+    Args:
+      event: The verb's event.
+      step: The verb name, unused here because this queue deduplicates on content.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     actor, source_table, _table_name, recipient = _context(event)
     recipient = recipient or {}
@@ -100,24 +127,39 @@ def emit_unexpected(event, step: str) -> None:
 
 
 def notifies_on_failure(step: str, *, notify_terminal: bool = True):
-    """table-share ``notifies_on_failure`` — binds the domain emitters into the shared
-    ``cpcommon.notify`` skeleton (SPEC-107).
+    """Binds table-share's emitters into the shared failure-notification skeleton.
 
-    By default it also binds ``emit_failure`` so a verb's ``TerminalError`` notifies the
-    sender at the decorator — the Map/whole-request worker verbs no longer need their own
-    ``try/except TerminalError``. ``notify_terminal=False`` for validate-authorize, which
-    notifies inside its own actor-aware orchestration (the sender isn't bound until after
-    the token is verified)."""
+    Args:
+      step: The verb name carried into the notification.
+      notify_terminal: Whether a terminal error also notifies at the decorator, so the Map and
+        whole-request worker verbs need no ``try/except`` of their own. False for
+        validate-authorize, which notifies inside its own actor-aware orchestration because the
+        sender is not bound until the token is verified.
+
+    Returns:
+      A decorator for the verb handler.
+
+    Raises:
+      None.
+    """
     return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
 
 
 def emit_recipient_success(event: dict) -> None:
-    """Emit both success notifications for one created recipient table (best-effort).
+    """Emits both success notifications for one created recipient table.
 
-    Sender: the per-recipient "Shared … as …" outcome. Success target: a user
-    recipient in their own inbox; a space recipient via the space's registry
-    ``owner`` — skipped (one log line) when the record or its owner can't be resolved,
-    without affecting the sender's message (FR-002).
+    The sender gets the per-recipient outcome. The success target gets its own: a user
+    recipient in their inbox, a space recipient via the space's registered owner.
+
+    Args:
+      event: The Map verb's event, carrying the request and the recipient.
+
+    Returns:
+      None. The owner notification is skipped with one log line when the record or its owner
+      cannot be resolved, without affecting the sender's message.
+
+    Raises:
+      None.
     """
     actor, source_table, table_name, recipient = _context(event)
     recipient = recipient or {}
@@ -130,7 +172,7 @@ def emit_recipient_success(event: dict) -> None:
         return
     try:
         owner = (reg.load(name) or {}).get("owner") or ""
-    except Exception:  # owner lookup is best-effort (FR-002)
+    except Exception:
         logger.exception("owner lookup failed for space %s; skipping owner notification", name)
         return
     if not owner:

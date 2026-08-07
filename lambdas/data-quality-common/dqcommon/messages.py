@@ -1,48 +1,64 @@
-"""User-facing data-quality notification text + reason codes (SPEC-109 seeds; SPEC-114 fills).
+"""User-facing data-quality notification text and reason codes.
 
-Registers this domain's reason codes with ``cpcommon.messages`` (SPEC-107 FR-005): that
-gives a DOMAIN-SCOPED resolver over the shared base table, and — the part that matters at
-every raise site — makes each code a VALID ``TerminalError`` reason. Raising a
-``TerminalError`` with a code that isn't registered here is a ``ValueError`` AT THE RAISE
-SITE, so a typo can never reach a user as a silent generic message.
+Registers this domain's reason codes with the shared registry, which gives a domain-scoped
+resolver over the shared base table and — the part that matters at every raise site — makes each
+code a valid terminal reason. Raising with a code that is not registered here is a validation
+error at the raise site, so a typo can never reach a user as a silent generic message. Reason
+codes are exported constants: no bare string literals at raise sites. Raw AWS, Athena or Python
+text never reaches a notification body; it stays in CloudWatch and the execution history.
 
-Reason codes are EXPORTED CONSTANTS: no bare string literals at raise sites.
+Every code is registered here rather than in the spec that introduced its verb, and that is
+load-bearing. A terminal error validates its reason at construction against a process-global set
+that each domain layer extends at import. The deployed functions attach only their own layers
+and never import another domain's, but the test suite imports every layer into one process,
+where a sibling domain happens to register several of the same names. Deferring registration
+would therefore have shipped codes that pass CI and raise in production, and the failure state
+would record that raw validation text as the user-facing reason — the exact leak the messaging
+rule forbids. The tests assert against the table below, never against the global registry, for
+the same reason.
 
-Raw AWS/Athena/Python text never reaches a notification body (SPEC-106) — it stays in
-CloudWatch and the SFN execution history. SPEC-114 adds the verdict/top-issues wording and
-the emitters; this module carries only what SPEC-109's validate-authorize raises.
+Note what is deliberately absent: there is no reason code for a failed ragged or duplicates
+query. Those degrade the report to not-computed and the request still succeeds, so they never
+become a terminal at all. Only the profile query's failure is terminal.
+
+Attributes:
+  UNAUTHORIZED: A shared base code, re-exported so verb code has one import for every reason it
+    raises. Base codes must not be re-declared in the domain table — the resolver hard-errors on
+    a domain re-defining one.
+  FORBIDDEN: A shared base code, re-exported for the same reason.
+  UNEXPECTED_ERROR: The generic catch-all the failure decorator emits for an unexpected
+    exception. Also a shared base code, re-exported for the same reason.
+  INVALID_REQUEST: A malformed envelope — a missing, renamed or wrong-typed field, or no request
+    id.
+  NO_DATA_FILES: inspect-source terminal.
+  UNSUPPORTED_FORMAT: inspect-source terminal.
+  MIXED_FORMATS: inspect-source terminal.
+  TOO_MANY_FILES: inspect-source terminal.
+  COMPRESSED_SOURCE_TOO_LARGE: inspect-source terminal.
+  UNREADABLE_HEADER: inspect-source terminal.
+  TOO_MANY_PARTITION_VALUES: inspect-source terminal.
+  PARTITION_LAYOUT_MISMATCH: inspect-source terminal.
+  TOO_MANY_COLUMNS: Temp-table and profile-query terminal.
+  QUERY_FAILED: Profile-query terminal.
+  QUERY_TIMEOUT: Profile-query terminal.
+  _BODIES: Reason code to the clause following the "Couldn't check data quality" prefix. Caps
+    are baked in from the config at import, so a message quoting a limit cannot drift from the
+    constant that enforces it. The remaining markers carry per-request context only a raise site
+    knows. Substitution is a plain replace on named markers, never string formatting, so a
+    literal brace in an S3 key cannot raise.
+  resolver: The domain-scoped resolver over the shared base table.
 """
 
 from cpcommon import messages as _cpmessages
 
 from . import config
 
-# ── Exported reason-code constants ───────────────────────────────────────────
-# `unauthorized` / `forbidden` are cpcommon BASE codes, re-exported so verb code has ONE
-# import for every reason it raises. They must NOT be re-declared in _BODIES below — the
-# resolver hard-errors on a domain re-defining a shared base code.
 UNAUTHORIZED = _cpmessages.UNAUTHORIZED
 FORBIDDEN = _cpmessages.FORBIDDEN
-#: The generic catch-all `notifies_on_failure` emits for an UNEXPECTED exception (SPEC-114
-#: FR-003) — also a cpcommon base code, re-exported for the same one-import reason.
 UNEXPECTED_ERROR = _cpmessages.UNEXPECTED_ERROR
 
-#: A malformed envelope: missing/renamed/wrong-typed field, or no requestId (SPEC-109 FR-001).
 INVALID_REQUEST = "invalid_request"
 
-# ── inspect-source terminals (SPEC-110 FR-007) ───────────────────────────────
-# These are registered HERE, not in SPEC-114, and that is load-bearing rather than
-# tidiness. TerminalError validates its reason AT CONSTRUCTION against a PROCESS-GLOBAL
-# set (cpcommon/errors.py) that each domain layer extends AT IMPORT. The deployed
-# data-quality functions attach cpcommon + dqcommon (+ polars) and never import
-# tbcommon — but `pytest lambdas/` imports every domain layer into ONE process, where
-# tbcommon happens to register no_data_files / unsupported_format / mixed_formats
-# (tbcommon/messages.py). Deferring registration would therefore have shipped three
-# codes that pass CI and raise ValueError in production, and RecordFailure would record
-# that raw ValueError text as the user-facing reason (the exact leak SPEC-106 FR-008
-# forbids). test_messages.py asserts against _BODIES, never is_known_reason, for the
-# same reason. This is the PR #196 shape: a test process satisfying an import-time
-# contract that a deployed function does not.
 NO_DATA_FILES = "no_data_files"
 UNSUPPORTED_FORMAT = "unsupported_format"
 MIXED_FORMATS = "mixed_formats"
@@ -52,28 +68,10 @@ UNREADABLE_HEADER = "unreadable_header"
 TOO_MANY_PARTITION_VALUES = "too_many_partition_values"
 PARTITION_LAYOUT_MISMATCH = "partition_layout_mismatch"
 
-# ── temp-table + profile-query terminals (SPEC-111 FR-001/FR-004) ────────────
-# Registered here for the same reason as the block above: TerminalError validates its
-# reason at CONSTRUCTION against a process-global set, so a code that isn't in _BODIES
-# raises ValueError at the raise site — in production, on the deployed function, where
-# `pytest lambdas/` would not have caught it.
-#
-# NOTE what is NOT here: there is no reason code for a failed RAGGED or DUPLICATES query.
-# That is the point of FR-003 — those two degrade the report to `not_computed` and the
-# request still SUCCEEDS, so they never become a terminal at all. Only the PROFILE
-# query's failure is terminal.
 TOO_MANY_COLUMNS = "too_many_columns"
 QUERY_FAILED = "query_failed"
 QUERY_TIMEOUT = "query_timeout"
 
-# reason -> the clause after 'Couldn't check data quality[ on "{location}"]: '.
-#
-# Caps are baked in from dqcommon.config at import (an f-string), so a message that
-# quotes a limit cannot drift from the constant that enforces it. The remaining
-# {token} markers carry per-request context (the offending object, an observed count)
-# that only the raise site knows; SPEC-114's emitter fills them via failure_message(...).
-# Substitution is str.replace on named markers, never str.format, so a literal brace in
-# an S3 key can't raise (SPEC-083 FR-005 / SPEC-106).
 _BODIES = {
     INVALID_REQUEST: "the request was malformed. Please try again.",
     NO_DATA_FILES: "no supported data files were found there.",
@@ -83,8 +81,6 @@ _BODIES = {
         f"that folder has more than the {config.DQ_MAX_OBJECTS} files this check supports "
         "({count} found). Please check a smaller folder."
     ),
-    # NOT "the file is too big": the same data uncompressed passes, so that would be untrue
-    # and would send the user to do the wrong thing (SPEC-110 FR-004 / SPEC-114 FR-002).
     COMPRESSED_SOURCE_TOO_LARGE: (
         "{object} is a compressed file larger than "
         f"{config.DQ_MAX_GZIP_OBJECT_BYTES // 1024**3} GB. A .gz file can't be split across "
@@ -105,37 +101,42 @@ _BODIES = {
         f"that data has more than the {config.DQ_MAX_COLUMNS} columns this check supports "
         "({count} found). Please check a narrower set of files."
     ),
-    # NO RAW ATHENA TEXT (SPEC-106 FR-008). The StateChangeReason stays in CloudWatch and
-    # the Step Function execution history, where an operator can read it; the user gets a
-    # sentence they can act on. Athena's failure text routinely names internal serde
-    # classes and byte offsets, which tells a user nothing and leaks implementation.
     QUERY_FAILED: "the check couldn't be completed. Please contact the Administrator.",
-    # DELIBERATELY not "the check timed out" — that reads as a transient hiccup worth
-    # retrying, and this is not: the DML query timeout is an ACCOUNT-LEVEL Service Quota
-    # (30 minutes by default), so the identical request will time out again. Tell the user
-    # the thing that actually changes the outcome.
     QUERY_TIMEOUT: (
         "that source is too large to finish checking in the time available. "
         "Please check a smaller folder."
     ),
 }
 
-#: Domain-scoped resolver (shared base table + the domain table above), SPEC-107 FR-005.
 resolver = _cpmessages.register(_BODIES)
 
 
 def failure_message(reason: str, location: str = "", **tokens: str) -> str:
-    """Map a terminal reason (+ context) to the message the actor sees.
+    """Maps a terminal reason and its context to the message the actor sees.
 
-    An unknown reason falls back to the shared generic rather than leaking the code, and no
-    raw AWS/Athena text is ever interpolated (SPEC-106 FR-008). SPEC-114 extends this with
-    the verdict/top-issues wording.
+    The compressed-source wording does not say the file is too big, because the same data
+    uncompressed passes — that would be untrue and would send the user to do the wrong thing.
+    The query-failure wording carries no raw Athena text: that stays in CloudWatch and the
+    execution history where an operator can read it, and Athena's failure text routinely names
+    internal serde classes and byte offsets, which tells a user nothing and leaks
+    implementation. The timeout wording deliberately avoids the word timeout, which reads as a
+    transient hiccup worth retrying — the query timeout is an account-level quota, so the
+    identical request will time out again, and the message names the thing that actually changes
+    the outcome.
 
-    ``tokens`` fill the per-request {object}/{count}/{key}/{formats} markers in _BODIES —
-    the context only a raise site knows (caps are already baked in at import). A marker
-    left unfilled survives into the body verbatim, so SPEC-114's emitter must pass the
-    tokens for whichever reason it is rendering; test_messages.py pins which reasons take
-    which.
+    Args:
+      reason: The terminal reason code. An unknown one falls back to the shared generic rather
+        than leaking the code.
+      location: The checked location, named in the sentence when known.
+      **tokens: Per-request marker values only a raise site knows. Caps are already baked in at
+        import. A marker left unfilled survives into the body verbatim, so the emitter must pass
+        the tokens for whichever reason it is rendering; the tests pin which reasons take which.
+
+    Returns:
+      The full actor-facing sentence.
+
+    Raises:
+      None.
     """
     if reason in (UNAUTHORIZED, FORBIDDEN):
         return "You don't have access to check data quality there."
@@ -144,20 +145,27 @@ def failure_message(reason: str, location: str = "", **tokens: str) -> str:
 
 
 def success_message(location: str) -> str:
-    """The message the actor sees when a check COMPLETES.
+    """Composes the message the actor sees when a check completes.
 
-    NAMES THE LOCATION AND SAYS IT FINISHED — nothing else. The message used to carry the
-    verdict, the first two findings, the total count and two caveat clauses; that is the
-    report's job, and the notification links straight to it
-    (``dqcommon.notify.report_link``). An inbox line that restates the findings is both
-    read and ignored in the same glance, and it forced every reader to reconcile a
-    one-line summary against the page it links to. Narrowing it also retires FR-001's
-    "unqualified clean" problem outright: this wording makes no claim about the data at
-    all, so there is nothing to qualify.
+    It names the location and says it finished, and nothing else. The message used to carry the
+    verdict, the first findings, the total count and two caveat clauses; that is the report's
+    job, and the notification links straight to it. An inbox line that restates the findings is
+    both read and ignored in the same glance, and it forced every reader to reconcile a one-line
+    summary against the page it links to. Narrowing it also retires the unqualified-clean problem
+    outright: this wording makes no claim about the data at all, so there is nothing to qualify.
 
-    The caller adds the report link separately; this function returns text only, and the
-    text becomes the link's accessible name — which is why it names the location rather
-    than saying "your check finished".
+    The caller adds the report link separately; this returns text only, and that text becomes the
+    link's accessible name — which is why it names the location rather than saying "your check
+    finished".
+
+    Args:
+      location: The checked location, named in the sentence when known.
+
+    Returns:
+      The full actor-facing sentence.
+
+    Raises:
+      None.
     """
     where = f' on "{location}"' if location else ""
     return f"Data quality check{where} finished — open the report for details."

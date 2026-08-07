@@ -1,85 +1,111 @@
-"""Data-quality domain configuration (SPEC-108 FR-003).
+"""Data-quality domain configuration.
 
-Config style for this arc, settled here:
+Two kinds of value, and the split is settled. Per-deployment values — queue URLs, the workgroup
+name, bucket names, the Cognito pair — are environment variables validated at import, and they
+live in ``cpcommon.config``; do not re-declare them here. The tuning caps below are module
+constants, because they are product decisions rather than deployment knobs: changing one changes
+what the report means, so it should be a reviewed code change rather than a per-environment
+variable somebody can drift.
 
-- **Per-deployment values** (queue URLs, the workgroup name, bucket names, the Cognito
-  pair) are ENV VARS validated at import — and they live in ``cpcommon.config``, whose
-  ``_require`` fail-fast runs at cold start for every verb that attaches the layer
-  (SPEC-083 FR-001 / SPEC-107 FR-001). Do not re-declare them here.
-- **``DQ_*`` tuning caps are MODULE CONSTANTS here.** They are product decisions, not
-  deployment knobs: changing one changes what the report means, so it should be a
-  reviewed code change rather than a per-environment env var somebody can drift.
+Sizing evidence for the scan budget and the sample floor is in ``docs/lambda-rationale.md``.
 
-The constants below are declared in the foundation so the later specs share one source;
-each is consumed by the spec named against it.
+Attributes:
+  RESERVED_PREFIXES: First-path-segment prefixes a report may not be written under and a check
+    may not target. Keep in sync with the file-converter arc's own blocklist: the two lists
+    exist separately because the arcs are independent, and they must not drift apart. The
+    file-converter's scratch prefix is included defensively — this arc never writes it, but a
+    check must not treat a sibling pipeline's scratch space as a valid destination either.
+  MARKER_BASENAME: The space prefix marker that must never be overwritten.
+  DQ_MAX_OBJECTS: Max objects under the target location. There is deliberately no maximum total
+    size: that ceiling was a Lambda artefact, and Athena reads the data now.
+  DQ_MAX_GZIP_OBJECT_BYTES: Max size of a single compressed source object. The one place a byte
+    count still matters on the Athena path, and not about memory: gzip is not splittable, so one
+    large compressed file is processed by exactly one worker no matter how much the engine
+    parallelises, and simply runs until the DML query timeout kills it. Failing here in seconds,
+    telling the user to decompress or split, beats failing at minute thirty. There is
+    deliberately no equivalent cap on uncompressed objects, which Athena splits across workers.
+  DQ_MAX_PARTITION_VALUES: Max observed values per detected partition key, bounding both the
+    manifest and the projection DDL's enum list. At the current defaults this guard is
+    unreachable, because a partition value only exists if an object sits under it, so breaching
+    it means breaching the object cap first. It goes live the moment the object cap is raised
+    above it, which is exactly why it is kept: the projection enum needs a ceiling that does not
+    depend on a sibling constant nobody remembered to look at. A test pins the relationship.
+  EXT_FORMAT: Extension to canonical format. Deliberately different from table-builder's map in
+    two ways, both decisions for this arc rather than inherited behaviour: plain text is treated
+    as CSV, and Parquet is accepted because the convert-then-verify workflow is the natural one
+    and rejecting it would leave the two arcs unable to talk to each other.
+  GZIP_SUFFIX: The compressed-object suffix. Compressed Parquet is rejected rather than
+    half-supported — Athena cannot read it and its footer cannot be range-read through gzip.
+  DQ_MAX_COLUMNS: The profile query's column ceiling. Several casts and aggregates per column
+    approach Athena's query-string cap on a very wide table, so a wider source is rejected with
+    a clear message rather than emitting an unparseable query.
+  DQ_MAX_QUERY_BYTES: Athena's hard cap on a query string. Not a tuning knob but the engine's
+    documented limit, named here so the builders can check themselves against it rather than
+    repeating a magic number. Athena rejects an over-length statement after every bit of
+    inspection work has been paid for, which is why the checks are on the rendered length rather
+    than on a proxy like the file or column count.
+  DQ_TYPE_DOMINANCE_THRESHOLD: The share of a column's non-null values its dominant parseable
+    type must cover for the stragglers to be reported. A column that is almost all integers with
+    a handful of placeholders has a real problem worth flagging; one that is 40% integers is not
+    a broken numeric column but free text containing some numbers, and reporting most of its
+    values as offending would be noise. Below the threshold the column is reported as text with
+    no issue.
+  DQ_OFFENDING_VALUE_SAMPLE: How many non-parsing values the profile query keeps per column. The
+    aggregate collecting them must be bounded — a naive collect-then-truncate accumulates every
+    row, which on a large source with a badly-typed column is the whole column in memory.
+  DQ_QUERY_POLL_SECONDS: The Step Function's wait between query polls. Declared here so the
+    constant and the state machine cannot drift; the template carries the same number with a
+    pointer back to this line.
+  DQ_SCAN_TOTAL_BYTES: The byte-scan budget, per request and never per file, divided across the
+    manifest's files. Every encoding figure is labelled sampled with its coverage percentage.
+  DQ_SCAN_HEAD_FRACTION: The share of a file's budget spent on a contiguous head window, because
+    corruption clusters at the start of a badly-exported file — a byte-order mark, a
+    codepage-encoded header row, an accented name in the first records.
+  DQ_SCAN_SAMPLE_COUNT: How many evenly-placed ranged reads spend the rest of a file's share, so
+    corruption confined to the middle or tail is still reachable.
+  DQ_SCAN_MIN_SAMPLE_BYTES: The floor that makes the sample count an "up to" rather than an
+    "always". Load-bearing for the timeout even though the byte budget is already safe: requests
+    cost too, and a flat head-plus-samples per file would be tens of thousands of sequential
+    reads on a large manifest.
+  DQ_TOP_ISSUES: How many human-readable issues the report renders for the notification body.
+    The notification is a sentence or two, not a report: past a handful the user stops reading
+    and the real finding is buried. The full detail is in the report object.
+  DQ_OFFSET_SAMPLE: How many invalid-sequence byte offsets the report keeps as examples. The
+    count is the finding; the offsets exist so an operator can go and look at one. It also
+    bounds memory — a mis-encoded large export contains tens of millions of invalid sequences,
+    and retaining an offset for each would exhaust the function on precisely the file the check
+    exists to diagnose.
+  DQ_SCAN_READ_CHUNK_BYTES: Bytes pulled from a stream at a time. Peak memory is this, not the
+    budget: the decode is streaming, so a large head window is never held whole, and without
+    that property the budget would exhaust the function.
+  DQ_INDEX_MAX_ENTRIES: Entries kept in a space's runs index, oldest dropped first. The cap is
+    what keeps the index worth having — the dashboard fetches the whole file on every load, so
+    an uncapped index makes the page slower the more the feature is used, which is the exact
+    failure the index was introduced to avoid.
+  DQ_INDEX_CAS_RETRIES: Compare-and-swap attempts before an index append gives up and is
+    swallowed. Contention is a few concurrent checks in one space, so a small cap is plenty;
+    this mirrors the shared-space primitive rather than inventing a number.
 """
 
-# SPEC-109 — where a report may NOT be written, and where a check may not target.
-#
-# The report destination ({space}/_data-quality-reports/{requestId}/) must resolve inside
-# the requesting space and must not collide with any of these first-path-segment prefixes.
-#
-# KEEP IN SYNC with the file-converter arc's reserved-prefix blocklist (SPEC-116). The two
-# lists exist separately because the arcs are independent, and they must not drift apart —
-# if you add a prefix here, add it there. `_fc-work/` is the file-converter's scratch
-# prefix, included here DEFENSIVELY: this arc never writes it, but a check must not treat
-# the sibling pipeline's scratch space as a valid destination either.
 RESERVED_PREFIXES = frozenset(
     {
-        "athenaresults",          # Athena query output (SPEC-032)
-        "user_settings",          # the notification inbox + saved queries (SPEC-058/043)
-        "shared_tables",          # table-share copy destinations (SPEC-088)
-        "_data-quality-reports",  # this arc's own reports
-        "_fc-work",               # the file-converter's scratch prefix (SPEC-116)
-        "_directory",             # the published username directory (SPEC-146)
+        "athenaresults",
+        "user_settings",
+        "shared_tables",
+        "_data-quality-reports",
+        "_fc-work",
+        "_directory",
     }
 )
 
-#: The space prefix marker that must never be overwritten (SPEC-014).
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
-# SPEC-110 — source inspection caps.
-# Max objects under the target location. Mirrors tscommon's SHARE_MAX_OBJECTS. There is
-# deliberately NO max total size: that ceiling was a Lambda artefact, and Athena — not a
-# Lambda — reads the data now.
 DQ_MAX_OBJECTS = 1000
 
-# Max size of a single COMPRESSED (.gz) source object.
-#
-# The one place a byte count still matters on the Athena path, and it is not about memory:
-# gzip is NOT SPLITTABLE. A single large .csv.gz is processed by EXACTLY ONE Athena worker
-# no matter how much the engine parallelizes, so it simply runs until the 30-minute DML
-# query timeout (an account quota — architecture §7.2) kills it. Failing here, in seconds,
-# telling the user to decompress or split the file, is strictly better than failing at
-# minute 30 with query_timeout. There is deliberately NO equivalent cap on UNCOMPRESSED
-# objects: Athena splits those across workers, which is the whole point of this design.
-DQ_MAX_GZIP_OBJECT_BYTES = 1 * 1024**3  # 1 GiB
+DQ_MAX_GZIP_OBJECT_BYTES = 1 * 1024**3
 
-# Max OBSERVED values per detected partition key. Bounds two things at once: the manifest
-# (which records the values) and SPEC-111's partition-projection DDL (whose enum lists
-# them).
-#
-# NOTE, and check this before tuning either cap: at these defaults this guard is
-# UNREACHABLE. A partition value only exists because at least one object sits under it,
-# so N distinct values imply >= N objects — and with this cap equal to DQ_MAX_OBJECTS,
-# breaching it means breaching the object cap first, which raises too_many_files. The
-# guard goes LIVE the moment DQ_MAX_OBJECTS is raised above it (or this is lowered), which
-# is exactly why it is kept rather than deleted: the projection enum needs a ceiling that
-# does not depend on a sibling constant nobody remembered to look at.
-# test_the_object_cap_dominates_the_partition_value_cap_at_the_defaults pins the relationship.
 DQ_MAX_PARTITION_VALUES = 1000
 
-# Extension → canonical format (SPEC-110 FR-002).
-#
-# DELIBERATELY DIFFERENT from table-builder's map (table-builder-inspect-source/
-# inspect_source.py:22-28) in two ways — both new decisions for this arc, not inherited
-# behaviour, so neither should be "corrected" back into line:
-#
-#   .txt   — absent from table-builder's map; treated as CSV here.
-#   .parquet — the convert-then-verify workflow is the natural one (run the file converter
-#              on a messy CSV, then check the resulting Parquet). Rejecting Parquet as
-#              "out of scope for a quality checker" would leave the two arcs unable to
-#              talk to each other, so this must not be dropped.
 EXT_FORMAT = {
     ".csv": "csv",
     ".txt": "csv",
@@ -89,33 +115,51 @@ EXT_FORMAT = {
     ".parquet": "parquet",
 }
 
-#: Extensions that are never readable through a gzip wrapper (see ``classify`` in the verb).
-#: .parquet.gz is unreadable by Athena AND un-probeable by polars (the footer can't be
-#: range-read through gzip), so it is rejected rather than half-supported.
 GZIP_SUFFIX = ".gz"
 
 
 def is_compressed(key: str) -> bool:
-    """True when ``key`` names a gzip-wrapped object.
+    """Reports whether an object key names a gzip-wrapped object.
 
-    SHARED rather than per-verb, and CASE-INSENSITIVE, because the two readings must never
-    drift: inspect-source classifies ``SALES.CSV.GZ`` as compressed csv (it lowercases),
-    so a case-SENSITIVE test anywhere downstream lets a gzip object through as plain text.
-    byte-scan reading DEFLATE output as UTF-8 yields roughly 42 fabricated "invalid
-    encoding" findings per 100 bytes — a confident, entirely false corruption report over a
-    file that is fine, on exactly the Windows-tooling population that produces both
-    uppercase extensions and the codepage files the check is for.
+    Shared rather than per-verb, and case-insensitive, because the two readings must never
+    drift: inspect-source lowercases before classifying, so a case-sensitive test anywhere
+    downstream would let a gzip object through as plain text. Reading compressed bytes as text
+    yields roughly forty fabricated invalid-encoding findings per hundred bytes — a confident,
+    entirely false corruption report over a file that is fine, on exactly the tooling population
+    that produces both uppercase extensions and the codepage files the check is for.
+
+    Args:
+      key: The object key.
+
+    Returns:
+      True when the key ends in the gzip suffix, in any case.
+
+    Raises:
+      None.
     """
     return key.lower().endswith(GZIP_SUFFIX)
 
 
 def _validate_caps() -> None:
-    """Fail fast at import if a cap was edited into something meaningless.
+    """Fails fast at import if a cap was edited into something meaningless.
 
-    The DQ_* caps are module constants rather than env vars (see the header): they are
-    product decisions, so they change by reviewed code edit. This guards that edit —
-    lambdas.md §6 wants caps validated at init, and a cap of 0 or -1 would otherwise
-    surface as an inexplicable terminal on every request instead of a cold-start error.
+    The caps are module constants rather than environment variables, so they change by reviewed
+    code edit — this guards that edit. A cap of zero or a negative number would otherwise
+    surface as an inexplicable terminal failure on every request instead of a cold-start error.
+    The two ratios are validated separately: one outside its range would make every column
+    either always-flagged or never-flagged, which looks like a broken checker rather than a
+    broken config, and the other would either spend nothing on the head window or spend the
+    whole share there — both silently changing what "sampled" means in a user's report.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When any count is not a positive integer, or either ratio is not a float in
+        the open-closed unit interval.
     """
     for name, value in (
         ("DQ_MAX_OBJECTS", DQ_MAX_OBJECTS),
@@ -137,13 +181,6 @@ def _validate_caps() -> None:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise RuntimeError(f"dqcommon.config.{name} must be a positive int, got {value!r}")
 
-    # Ratios, not counts — validated separately.
-    #
-    # DQ_TYPE_DOMINANCE_THRESHOLD outside (0, 1] would make every column either
-    # always-flagged or never-flagged, which looks like a broken checker rather than a
-    # broken config. DQ_SCAN_HEAD_FRACTION outside (0, 1] would either spend nothing on the
-    # head window or spend the whole share there, leaving the ranged samples nothing —
-    # both silently change what "sampled" means in a user's report.
     for name, ratio in (
         ("DQ_TYPE_DOMINANCE_THRESHOLD", DQ_TYPE_DOMINANCE_THRESHOLD),
         ("DQ_SCAN_HEAD_FRACTION", DQ_SCAN_HEAD_FRACTION),
@@ -153,117 +190,33 @@ def _validate_caps() -> None:
                 f"dqcommon.config.{name} must be a float in (0, 1], got {ratio!r}"
             )
 
-# SPEC-111 — the profile query's column ceiling.
-# Athena caps a query STRING at 262,144 bytes. Four TRY_CASTs plus a null-ratio and a
-# sample aggregate per column approaches that on a very wide table, so a source wider
-# than this is rejected with a clear message rather than emitting an unparseable query.
+
 DQ_MAX_COLUMNS = 200
 
-# Athena's hard cap on a query STRING, in bytes. Not a tuning knob — it is the engine's
-# documented limit, named here so the builders can check themselves against it instead of
-# repeating a magic 262_144 (dqcommon.sql's ragged guard, SPEC-142 FR-003, and the profile
-# query's size test). Athena rejects an over-length statement AFTER every bit of inspection
-# work has been paid for, which is why the checks are on the RENDERED length rather than on
-# a proxy like the file or column count.
 DQ_MAX_QUERY_BYTES = 262_144
 
-# SPEC-111 — a column's dominant parseable type must cover at least this share of its
-# NON-NULL values for the stragglers to be reported as a type-consistency issue.
-#
-# The shape of the judgement: a column that is 99% integers with a handful of "N/A"s has
-# a real problem worth flagging. A column that is 40% integers is not a broken numeric
-# column, it is free text that happens to contain some numbers — reporting 60% of its
-# values as "offending" would be noise. Below the threshold the column is reported as
-# `text` with NO issue.
 DQ_TYPE_DOMINANCE_THRESHOLD = 0.90
 
-# SPEC-111 — how many non-parsing values the profile query keeps as examples, per column.
-#
-# The aggregate that collects them MUST be bounded (dqcommon.sql uses Trino's n-ary
-# max_by, whose accumulator holds only N values). A naive array_agg-then-truncate
-# accumulates O(rows) — on a 250 GB source with a badly-typed column that is the whole
-# column in memory, which fails the query rather than sampling it.
 DQ_OFFENDING_VALUE_SAMPLE = 10
 
-# SPEC-111 — the Step Function's Wait interval between GetQueryExecution polls.
-# Declared here so the constant and the state machine's Wait cannot drift; the ASL
-# template carries the same number with a pointer back to this line.
 DQ_QUERY_POLL_SECONDS = 30
 
-# SPEC-112 — the byte-scan budget, PER REQUEST (never per file).
-# Divided across the files in the manifest; every encoding figure is labelled sampled
-# with its coverage percentage. v3 bounded this PER FILE (256 MiB x up to 1000 files
-# ~= 276 GB through one 1024 MB Lambda in 300 s ~= 920 MB/s sustained, against a
-# real-world ~60-100 MB/s) — it would have passed on a three-file fixture and timed out
-# in production. That is the exact error class this arc's re-architecture exists to
-# eliminate, so the budget is per REQUEST.
-DQ_SCAN_TOTAL_BYTES = 2 * 1024**3  # 2 GiB
+DQ_SCAN_TOTAL_BYTES = 2 * 1024**3
 
-# SPEC-112 — how each file's share of the budget is spent.
-#
-# A head window first, because corruption CLUSTERS AT THE START of a badly-exported file:
-# a BOM, a codepage-encoded header row, an accented name in the first records. The rest of
-# the share is spread as evenly-placed ranged reads so a corruption confined to the middle
-# or tail of a large file is still reachable, rather than the scan proving only that the
-# first N bytes are clean.
 DQ_SCAN_HEAD_FRACTION = 0.5
 DQ_SCAN_SAMPLE_COUNT = 20
 
-# The floor that makes DQ_SCAN_SAMPLE_COUNT an "up to" rather than an "always", and it is
-# load-bearing for the TIMEOUT even though the BYTE budget above is already safe.
-#
-# THE SECOND DISASTER, which the per-request byte budget does NOT prevent: bytes are not
-# the only cost — REQUESTS are. A flat 1 head + 20 ranged reads per file is 21,000
-# sequential GetObjects on a 1000-file manifest. At ~30 ms of round-trip each that is
-# ~630 s against this function's 300 s ceiling (locals.tf), while reading only the 2 GiB
-# the byte budget permits. It would have timed out on exactly the large folders the budget
-# rewrite was meant to save, for a completely different reason.
-#
-# So a file's share only buys a ranged read when that read is worth a round trip. Measured
-# across the range (share = 2 GiB / fileCount, head = half of it):
-#
-#   files=1     20 samples     21 GETs    ~36 s
-#   files=12    20 samples    252 GETs    ~43 s
-#   files=100    2 samples    300 GETs    ~44 s
-#   files=1000   0 samples   1000 GETs    ~65 s     <- 21,000 GETs / ~630 s without this
-#
-# Both costs are now bounded: never more than DQ_SCAN_TOTAL_BYTES, and never more than
-# ~1000 requests. At 1000 files each file's whole 2 MiB share goes to its head window,
-# which is the right trade — one contiguous 2 MiB read of a file beats 21 scattered 100 KiB
-# ones for finding a corrupt export, and the report says the coverage is sampled either way.
-DQ_SCAN_MIN_SAMPLE_BYTES = 4 * 1024**2  # 4 MiB
+DQ_SCAN_MIN_SAMPLE_BYTES = 4 * 1024**2
 
-# SPEC-112 — how many human-readable issues the report renders for the notification body.
-# The notification is a sentence or two, not a report: past a handful the user stops
-# reading and the real finding is buried. The full detail is in report.json.
 DQ_TOP_ISSUES = 5
 
-# SPEC-112 — how many invalid-sequence byte offsets the report keeps as examples.
-# The COUNT is the finding; the offsets exist so an operator can go and look at one.
-# It also BOUNDS MEMORY: a mis-encoded 250 MB export contains tens of millions of invalid
-# sequences, and retaining an offset for each is ~42 bytes apiece — over a gigabyte in a
-# 1024 MB function, i.e. an OOM on precisely the file the check exists to diagnose.
 DQ_OFFSET_SAMPLE = 10
 
-# SPEC-112 — bytes pulled from a stream at a time. PEAK MEMORY IS THIS, NOT THE BUDGET:
-# the decode is streaming, so a 512 MiB head window on a 2-file manifest is never held
-# whole. Without that property the 2 GiB budget would OOM a 1024 MB function.
 DQ_SCAN_READ_CHUNK_BYTES = 256 * 1024
 
-# SPEC-123 — entries kept in a space's runs index, oldest dropped first.
-# THE CAP IS WHAT KEEPS THE INDEX WORTH HAVING. The dashboard fetches this whole file on
-# every load, so an uncapped index makes the page slower the more the feature is used —
-# which is the exact failure the index was introduced to avoid (listing the reports prefix
-# and GETting every report). 200 rows is 20 pages at 10/page; past that a user wants a
-# search, not a longer list.
 DQ_INDEX_MAX_ENTRIES = 200
 
-# SPEC-123 — CAS attempts before the index append gives up (and is swallowed).
-# Contention is a few concurrent checks in one space, so a small cap is plenty; this
-# mirrors shared-space-common's casio.MAX_CAS_ATTEMPTS (6) rather than inventing a number.
 DQ_INDEX_CAS_RETRIES = 5
 
 
-# Called at the BOTTOM: it reads every cap above, including the two declared after its
-# own def.
 _validate_caps()

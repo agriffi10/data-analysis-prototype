@@ -1,33 +1,35 @@
-"""apply-refresh — the refresh branch's terminal task (SPEC-149, replacing SPEC-144's DDL).
+"""apply-refresh — the refresh branch's terminal task.
 
-Replaces the table's definition IN PLACE with one ``glue:UpdateTable``. SPEC-144 rebuilt it
-by dropping the table and creating it again through Athena, which worked but carried two
-costs no amount of care removed: for a second or two the user's table DID NOT EXIST, and the
-rebuilt catalog entry was a NEW entry — so the table's identity, its ``Description``, its
-``Owner`` and any Lake Formation grant made directly on it were gone.
+Replaces the table's definition in place with one Glue update. The earlier design rebuilt it
+by dropping the table and creating it again through Athena, which worked but carried two costs
+no amount of care removed: for a second or two the user's table did not exist, and the rebuilt
+catalog entry was a new entry, so the table's identity, description, owner and any Lake
+Formation grant made directly on it were gone.
 
-A READ-MODIFY-WRITE, NEVER A REBUILD FROM SPEC-143's CAPTURE, and it is the one thing here
-worth getting right. ``UpdateTable`` replaces the WHOLE definition: a ``TableInput`` that
-omits a field does not leave that field alone, it CLEARS it. ``clone_definition`` never
-carried ``Description`` or ``Owner`` and deliberately strips ``EXTERNAL``, so building the
-input from the capture would delete exactly what this verb exists to preserve. It reads the
-live table immediately before writing it and mutates only the columns and the
-``projection.*`` parameters.
+It is a read-modify-write, never a rebuild from the captured definition, and that is the one
+thing here worth getting right: an update replaces the whole definition, so a field the input
+omits is cleared rather than left alone. The capture never carried the description or owner
+and deliberately strips the external flag, so building the input from it would delete exactly
+what this verb exists to preserve. The live table is read immediately before it is written, and
+only the columns and projection parameters are changed.
 
-WHAT THIS RETIRES. There is no moment at which the table is absent, so no concurrent refresh
-can see ``table_not_found`` mid-rebuild — and A FAILED UPDATE CHANGES NOTHING, which retires
-SPEC-144's "a committed drop followed by exhausted retries notifies nobody" exposure
-outright: there is no committed destructive step left to be silent about.
+There is no moment at which the table is absent, so no concurrent refresh can see a missing
+table mid-rebuild, and a failed update changes nothing. What that does not retire, stated
+rather than implied: two refreshes on one database still overlap, and Glue offers no
+compare-and-set to close it. The worst case degrades from one run seeing no table to
+last-write-wins between two definitions. See ``docs/lambda-rationale.md``.
 
-WHAT IT DOES NOT RETIRE, stated rather than implied, because SPEC-144 FR-006 AC1 claimed a
-serialization guarantee that did not exist. The Pipe still invokes ``StartExecution`` as
-``FIRE_AND_FORGET`` (``infra/modules/table-builder/pipe.tf``), so two refreshes on one
-database still overlap, and GLUE OFFERS NO COMPARE-AND-SET TO CLOSE IT: ``UpdateTable``'s
-``VersionId`` is documented only as "the version ID at which to update the table contents",
-alongside ``TransactionId`` and ``ViewUpdateAction``, with no precondition-failure error.
-What changes is the severity — the worst case degrades from "one run sees no table" to
-last-write-wins between two definitions, and ``ConcurrentModificationException``, which Glue
-raises on genuine simultaneity, is retried.
+Attributes:
+  _TABLE_INPUT_FIELDS: The fields a Glue table update accepts. An allowlist rather than a
+    denylist of what a read adds, and the difference is not cosmetic — a read returns 25
+    members and the input accepts 14, so a denylist has to name 11 and goes stale the next
+    time AWS adds a field. A rejected field fails the call loudly; an unstripped one Glue
+    silently accepts is worse. The tests pin this against botocore's own service model.
+  _GLUE_RETRYABLE: Glue faults worth retrying, matched directly here rather than through the
+    shared classifier — this is the only Glue write in the repo, the one call where a spurious
+    terminal failure is user-visible. Two of these are also in the shared set now, so every
+    read path gets them too; they are kept here because this verb matches against this set
+    directly and removing them would change behaviour.
 """
 
 import logging
@@ -39,21 +41,8 @@ from tbcommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
-#: The fields ``glue:UpdateTable``'s ``TableInput`` accepts.
-#:
-#: AN ALLOWLIST, NOT A DENYLIST OF WHAT ``GetTable`` ADDS, and the difference is not
-#: cosmetic: ``Table`` returns 25 members and ``TableInput`` accepts these 14, so a denylist
-#: has to name 11 — and it goes stale the next time AWS adds a field to ``Table``. That drift
-#: is already visible (``IcebergTableMetadata``, ``Status``, ``IsMultiDialectView`` and
-#: ``IsMaterializedView`` all postdate the obvious ``CreateTime``/``CreatedBy`` set). A
-#: rejected field fails the call loudly; an unstripped one Glue silently accepts is worse.
-#: ``test_apply_refresh`` pins this tuple against botocore's own service model, so the list
-#: is verified against the API on every run rather than once during a build.
 _TABLE_INPUT_FIELDS = frozenset({
     "Name",
     "Description",
@@ -71,69 +60,51 @@ _TABLE_INPUT_FIELDS = frozenset({
     "ViewDefinition",
 })
 
-#: Glue faults that are worth retrying and that ``cpcommon.errors`` does not classify.
-#:
-#: THE SHARED SET IS SPELLED FOR S3, ATHENA AND GENERIC THROTTLES, and Glue's own names miss
-#: it by a word: it lists ``InternalError``/``InternalServerException`` but Glue raises
-#: ``InternalServiceException``, and it has no entry at all for ``OperationTimeoutException``
-#: — which is Glue's most routine transient. Unclassified, they fall through to the terminal
-#: branch below and a request dies permanently telling the user nothing was changed, when the
-#: state machine's Retry would very likely have succeeded.
-#:
-#: Handled HERE rather than widened in ``cpcommon`` because that set is shared by every
-#: control plane, and this is the only Glue WRITE in the repo — the one call where a spurious
-#: terminal failure is user-visible. Read off the operation's own modelled error shapes.
-#:
-#: THE GAP THAT REASONING LEFT IS NOW CLOSED (SPEC-151 FR-008). It was sound for the write
-#: and silent about the READS: `check-table-absent`, `load-table-definition`, `create-space`
-#: and `teardown` all turned a routine Glue hiccup into a permanently failed request.
-#: ``InternalServiceException`` and ``OperationTimeoutException`` are now in
-#: ``cpcommon.errors._TRANSIENT_CODES``, so every read path gets them from the shared
-#: classifier. They are kept in the set below too — this verb matches against it DIRECTLY
-#: rather than through ``raise_if_transient``, so removing them would change behaviour here.
 _GLUE_RETRYABLE = frozenset({
     "InternalServiceException",
     "OperationTimeoutException",
     "ResourceNotReadyException",
     "FederationSourceRetryableException",
-    # Glue's guard on two simultaneous modifications. A re-invocation re-reads the live table
-    # and writes again, which is exactly what a lost race wants — and is safe in a way
-    # SPEC-144's destructive pair never was.
     "ConcurrentModificationException",
 })
 
 
 def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_columns: list[dict]) -> list[dict]:
-    """The Glue ``Columns`` an in-place refresh writes: fresh names and types, carrying the
-    metadata only the old table holds.
+    """Builds the Glue columns an in-place refresh writes: fresh names and types, carried metadata.
 
-    LOWERCASED, because this write bypasses the folding the create path gets for free. AWS
-    documents that "Athena automatically lowers any upper case names in DDL queries when it
-    creates databases, tables, or columns" — so every table this plane built through the
-    Athena create path carries lower-case columns, and an ``UpdateTable`` writing the file
-    header's own casing would leave a mixed-case catalog entry the create path could never
-    have produced. The fold is the create path's behaviour, reproduced.
+    Names are lowercased, because this write bypasses the folding the create path gets for
+    free. AWS documents that Athena lowers any upper-case names in DDL when it creates
+    databases, tables or columns, so every table this plane built through the Athena create
+    path carries lower-case columns, and writing the file header's own casing would leave a
+    mixed-case catalog entry the create path could never have produced.
 
-    ``Comment`` and per-column ``Parameters`` are carried from the live column of the same
-    folded name. Inference returns names and types and has nothing to say about what a column
-    MEANS, so both are metadata only the table holds — and a rebuild is exactly where they
-    would silently disappear. A column that is new, or whose metadata was never set, is
-    written with neither.
+    Comments and per-column parameters are carried from the live column of the same folded
+    name. Inference returns names and types and has nothing to say about what a column means,
+    so both are metadata only the table holds, and a rebuild is exactly where they would
+    silently disappear. A column that is new, or whose metadata was never set, is written with
+    neither.
 
-    A data column colliding with a PARTITION KEY is dropped: Glue keeps partition keys in
-    their own ``PartitionKeys`` field, which this verb passes through untouched, and one name
-    declared in both is not a valid table.
+    A data column colliding with a partition key is dropped: Glue keeps partition keys in their
+    own field, which this verb passes through untouched, and one name declared in both is not a
+    valid table.
 
-    TWO COLUMNS THAT DIFFER ONLY BY CASE ARE REFUSED, and the check is here because the fold
-    above is what creates the collision. A header of ``Amount,amount`` is two distinct fields
-    to the inference step and one column name to Glue. SPEC-144 got this refusal for free —
-    Athena rejects a ``CREATE`` with duplicate column names — but ``UpdateTable`` performs no
-    such validation, and the post-condition cannot catch it either, because it compares NAME
-    SETS: both spellings collapse to one entry on each side and compare equal, so the verb
-    would report success while the table under-reported a column and failed at query time.
+    Args:
+      columns: The freshly inferred columns.
+      live_partition_keys: The live table's partition keys, used only to drop collisions.
+      live_columns: The live table's columns, the source of the carried metadata.
+
+    Returns:
+      The Glue column entries to write.
 
     Raises:
-        TerminalError: ``update_failed`` when the fold collapses two columns into one.
+      TerminalError: ``update_failed`` when the fold collapses two columns into one. The check
+        is here because the fold is what creates the collision — a header of ``Amount,amount``
+        is two fields to inference and one column name to Glue. The create path got this
+        refusal for free because Athena rejects duplicate column names, but an update performs
+        no such validation, and the post-condition cannot catch it either because it compares
+        name sets: both spellings collapse to one entry on each side and compare equal, so the
+        verb would report success while the table under-reported a column and failed at query
+        time.
     """
     carried = {(c.get("Name") or "").casefold(): c for c in live_columns}
     partition_names = {(k.get("Name") or "").casefold() for k in live_partition_keys}
@@ -162,22 +133,30 @@ def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_co
 
 
 def _write_parameters(live_parameters: dict, partition_keys: list[dict]) -> dict:
-    """The table ``Parameters`` an in-place refresh writes.
+    """Builds the table parameters an in-place refresh writes.
 
-    Every ``projection.*`` key is REPLACED — the live ones dropped, the regenerated ones
-    rendered from the reconstructed partition keys through the CREATE PATH'S OWN renderer
-    (``ddl.projection_properties``), so the two paths cannot drift. Every other key is passed
-    through untouched: ``EXTERNAL``, ``skip.header.line.count``, and whatever a user set with
-    ``ALTER TABLE`` are all things a refresh does not own.
+    Every projection key is replaced — the live ones dropped, the regenerated ones rendered
+    from the reconstructed partition keys through the create path's own renderer, so the two
+    paths cannot drift. Every other key passes through untouched: the external flag, the
+    header-skip count, and whatever a user set by hand are all things a refresh does not own.
 
-    The projection keys are NOT lower-cased like the column names are. They embed the
-    PARTITION key's name, and this verb writes the live ``PartitionKeys`` back unchanged — so
-    folding them here would produce properties naming a partition key that does not exist.
+    The projection keys are not lowercased like the column names are. They embed the partition
+    key's name, and this verb writes the live partition keys back unchanged, so folding them
+    would produce properties naming a partition key that does not exist.
 
-    The portal's creation marker is re-asserted through ``ddl.mark_managed`` so a table this
-    path touches stays marked (SPEC-143 FR-007) — through the shared helper rather than by
-    name, because a verb that can NAME the marker is a verb that can branch on it, and a
-    tree-wide test forbids exactly that.
+    The portal's creation marker is re-asserted through the shared helper rather than by name,
+    because a verb that can name the marker is a verb that can branch on it, and a tree-wide
+    test forbids exactly that.
+
+    Args:
+      live_parameters: The live table's parameters.
+      partition_keys: The reconstructed declared partition keys.
+
+    Returns:
+      The parameters to write.
+
+    Raises:
+      ValueError: If a partition key cannot be rendered.
     """
     parameters = ddl.mark_managed({
         key: value for key, value in live_parameters.items() if not key.startswith("projection.")
@@ -190,13 +169,18 @@ def _write_parameters(live_parameters: dict, partition_keys: list[dict]) -> dict
 
 
 def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dict]) -> dict:
-    """The Glue TableInput for an in-place refresh: the LIVE table, minus the read-only
-    fields Glue rejects, with columns and projection.* replaced.
+    """Projects the live table into the update input, with columns and projection replaced.
 
-    A READ-MODIFY-WRITE, never a rebuild from SPEC-143's capture. UpdateTable replaces the
-    WHOLE definition, so any field this input omits is CLEARED — and the capture never
-    carried Description or Owner and deliberately strips EXTERNAL. Building from it would
-    delete exactly what this spec exists to preserve.
+    Args:
+      live_table: The table as Glue just returned it.
+      columns: The freshly inferred columns.
+      partition_keys: The reconstructed declared partition keys.
+
+    Returns:
+      The table input to write, carrying every accepted field of the live table.
+
+    Raises:
+      TerminalError: ``update_failed`` when two columns collapse to one name.
     """
     table_input = {key: value for key, value in live_table.items() if key in _TABLE_INPUT_FIELDS}
 
@@ -210,11 +194,23 @@ def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dic
 
 
 def _get_table(database: str, table: str) -> dict:
-    """The live definition, read immediately before it is written.
+    """Reads the live definition immediately before it is written.
 
-    ``EntityNotFoundException`` is matched on the botocore CODE rather than the client's
-    modelled exception class, so the check does not depend on a fake exposing ``.exceptions``.
-    A throttle here is retryable — nothing has been written yet.
+    A missing table is matched on the botocore code rather than the client's modelled exception
+    class, so the check does not depend on a fake exposing its exception namespace.
+
+    Args:
+      database: The target database.
+      table: The target table name.
+
+    Returns:
+      The live Glue table dict.
+
+    Raises:
+      TerminalError: ``table_not_found`` when the table does not exist.
+      TransientError: On a retryable Glue fault. Nothing has been written yet, so a throttle
+        here is safe to retry.
+      ClientError: Any deterministic Glue fault propagates.
     """
     client = clients.glue()
     try:
@@ -230,18 +226,28 @@ def _get_table(database: str, table: str) -> dict:
 
 
 def _update(database: str, table_input: dict) -> None:
-    """Replace the definition in place.
+    """Replaces the table definition in place.
 
-    ``SkipArchive=False`` is passed EXPLICITLY rather than left to the default. The default
-    already archives — AWS documents that "UpdateTable always creates an archived version of
-    the table before updating it" unless ``skipArchive`` is set — and the retained version is
-    the manual rollback path for a refresh that landed but was not wanted (FR-004). Saying so
-    means a future SDK default cannot quietly take it away, and lets a test assert it.
+    Archiving is requested explicitly rather than left to the default. The default already
+    archives, and the retained version is the manual rollback path for a refresh that landed but
+    was not wanted — saying so means a future SDK default cannot quietly take it away, and lets
+    a test assert it.
 
-    A FAILED UPDATE CHANGES NOTHING, which is why every deterministic fault maps to ONE
-    reason: ``update_failed`` tells the user nothing was changed, and that is true whether
-    Glue refused on permissions or on the input. The raw text stays in the operator-only
-    detail (SPEC-106 FR-008).
+    A failed update changes nothing, which is why every deterministic fault maps to one reason:
+    it tells the user nothing was changed, and that is true whether Glue refused on permissions
+    or on the input. The raw text stays in the operator-only detail.
+
+    Args:
+      database: The target database.
+      table_input: The projected table input.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``table_not_found`` when the table vanished, or ``update_failed`` on any
+        other deterministic fault.
+      TransientError: On a retryable Glue fault.
     """
     client = clients.glue()
     name = table_input.get("Name")
@@ -258,20 +264,27 @@ def _update(database: str, table_input: dict) -> None:
 
 
 def _post_condition(database: str, table: str, expected: set) -> int:
-    """Read the table back and confirm the new definition landed.
+    """Reads the table back and confirms the new definition landed.
 
-    CHECKED RATHER THAN ASSUMED because this plane's canonical failure was a verb that
-    COMPLETED while the catalog did not agree (SPEC-135, PRs #243-246). An accepted
-    ``UpdateTable`` proves the CALL was accepted, not that the definition landed as intended.
+    Checked rather than assumed, because this plane's canonical failure was a verb that
+    completed while the catalog did not agree. An accepted update proves the call was accepted,
+    not that the definition landed as intended. The comparison is on the case-folded name set
+    rather than a count: same cost, and a count cannot tell an update that landed from one that
+    landed against a definition carrying the same number of columns.
 
-    Compares the case-folded NAME SET rather than a count: same cost, and a count cannot tell
-    an update that landed from one that landed against a definition carrying the same number
-    of columns.
+    Args:
+      database: The target database.
+      table: The target table name.
+      expected: The case-folded column names the update wrote.
 
-    TERMINAL, NEVER TRANSIENT, including on a throttle. The update is already committed, so a
-    Step Functions Retry would re-read a table that has ALREADY changed and write it again —
-    and a verification failing is not evidence that repeating the work it was verifying will
-    help. Unlike SPEC-144 that repeat would no longer be destructive; it is still pointless.
+    Returns:
+      The number of columns the catalog now reports.
+
+    Raises:
+      TerminalError: ``update_failed`` when the table cannot be read back or the names do not
+        match. Terminal even on a throttle: the update is already committed, so a Retry would
+        re-read a table that has already changed and write it again, and a verification failing
+        is not evidence that repeating the work it was verifying will help.
     """
     glue = clients.glue()
     try:
@@ -295,21 +308,48 @@ def _post_condition(database: str, table: str, expected: set) -> int:
     return len(actual)
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("apply-refresh")
 @notify.notifies_on_failure("apply")
 def handler(event: dict, context) -> dict:
-    """SFN entry point: replace the table's definition in place with the refreshed columns.
+    """Step Functions entry point: replaces the table's definition with the refreshed columns.
 
-    Delegates to ``_apply``. A terminal failure notifies the actor before the SFN ``Catch``
-    records it — and every terminal outcome here leaves the table exactly as it was.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    Args:
+      event: The task input, carrying the actor, space, table name and inferred columns.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with a refreshed status and the applied column count.
+
+    Raises:
+      TerminalError: ``table_not_found`` or ``update_failed``. Every terminal outcome here
+        leaves the table exactly as it was, and the actor is notified before the SFN Catch
+        records it.
+      TransientError: On a retryable Glue fault.
     """
     return _apply(event)
 
 
 def _apply(event: dict) -> dict:
+    """Reads the live table, writes the new definition, and verifies it landed.
+
+    Column names are schema and are permitted in the record — they are what an operator needs
+    to see what the update actually declared. There is no rendered statement to record, because
+    there is no statement.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with a refreshed status and the applied column count, after notifying the actor.
+
+    Raises:
+      TerminalError: ``table_not_found`` or ``update_failed``.
+      TransientError: On a retryable Glue fault.
+    """
     events.require(event, "actor")
     database = events.require(event, "space", "database")
     table = events.require(event, "tableName")
@@ -326,9 +366,6 @@ def _apply(event: dict) -> dict:
         table=table,
         column_count=len(written),
         partition_key_count=len(partition_keys),
-        # Schema, not file contents — permitted by the field rule, and what an operator needs
-        # to see what the update actually declared. The `ddl` field SPEC-144 logged has no
-        # successor here: there is no statement to reproduce.
         column_names=written,
     )
 
@@ -345,8 +382,6 @@ def _apply(event: dict) -> dict:
         table=table,
         applied_column_count=applied,
         post_condition_ok=True,
-        # The previous definition is retained as a Glue table version (FR-004) — the manual
-        # rollback path, named in the delivery doc.
         previous_version_archived=True,
     )
     notify.emit_refresh_outcome(event, "refreshed", event.get("diff"))

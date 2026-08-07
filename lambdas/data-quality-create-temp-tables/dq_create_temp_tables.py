@@ -1,21 +1,18 @@
-"""data-quality create-temp-tables — build the throwaway tables Athena profiles through.
+"""data-quality create-temp-tables — builds the throwaway tables Athena profiles through.
 
-The verb that turns "a folder of files" into "something SQL can read". It creates:
+The verb that turns a folder of files into something SQL can read. It creates the typed table
+over the source, whose column list comes from the per-file probes — the explicit list is not
+optional, since Athena does not auto-detect a Parquet schema, which is exactly why inspect-source
+carries a Parquet reader. For CSV it also creates the single-column raw-line table over the same
+location, which is what makes ragged-row detection possible at scale.
 
-  - the TYPED table ``dq_tmp_{hex32}`` over the source, whose column list comes from
-    SPEC-110's per-file probes. The explicit list is not optional: Athena does NOT
-    auto-detect a Parquet schema, so a CREATE EXTERNAL TABLE over Parquet or JSON must
-    name every column and type — which is exactly why inspect-source carries a Parquet
-    reader (SPEC-108 FR-003 / SPEC-110 FR-005).
-  - for CSV only, the single-column RAW-LINE table ``dq_tmp_raw_{hex32}`` over the same
-    location, which is what makes ragged-row detection possible at 250 GB (see
-    ``dqcommon.sql.RAW_LINE_SERDE`` for why it exists and why the delimiter is written as
-    an escape sequence).
+Both live in the user's own Glue database, or the shared space's, which is exactly why every
+failure path in the state machine must reach the cleanup verb: a leaked temp table is visible in
+the Query workspace's schema rail and eventually collides with a real table name.
 
-Both live in the USER'S OWN Glue database (personal) or the shared space's (shared) —
-which is exactly why every failure path in the state machine must reach drop-temp-tables.
-A leaked dq_tmp_ table is visible in the Query workspace's schema rail and eventually
-collides with a real table name.
+The service name is the control plane, not the function: one data-quality run is nine
+invocations, and they are only one queryable set if they share it. The per-verb identity rides as
+the ``verb`` field.
 """
 
 import logging
@@ -29,19 +26,25 @@ from dqcommon import messages, notify, sql
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
-# invocations, and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
 observability.init(service="data-quality")
 
 
 def _database(event: dict) -> str:
-    """Return the Glue database the temp tables are created in.
+    """Resolves the Glue database the temp tables are created in.
 
-    The database IS the space: a personal check uses the actor's own database (username =
-    database name, SPEC-033), a shared check uses the space's. Both are re-derived from
-    the state validate-authorize already proved the actor may use — the request body never
-    carried a database, and it must not start being trusted for one here.
+    The database is the space: a personal check uses the actor's own database, since a username is
+    a database name, and a shared check uses the space's. Both are re-derived from the state the
+    validate verb already proved the actor may use — the request body never carried a database,
+    and it must not start being trusted for one here.
+
+    Args:
+      event: The task input, carrying the space and actor.
+
+    Returns:
+      The database name.
+
+    Raises:
+      TerminalError: ``invalid_request`` on an unknown space kind or a missing field.
     """
     space = event.get("space") or {}
     kind = space.get("kind")
@@ -54,25 +57,33 @@ def _database(event: dict) -> str:
 
 
 def _location(bucket: str, manifest: dict, location: str) -> str:
-    """Return the ``s3://`` FOLDER URI the external tables read.
+    """Resolves the folder URI the external tables read.
 
-    Always a folder with a trailing slash, even when the user targeted a single file: an
-    Athena external table's LOCATION is a PREFIX, so pointing it at an object key yields a
-    table over nothing — a check that reports zero rows and looks like a clean result. A
-    one-file target therefore becomes a table over the file's PARENT FOLDER.
+    Always a folder with a trailing slash, even when the user targeted a single file: an external
+    table's location is a prefix, so pointing it at an object key yields a table over nothing — a
+    check that reports zero rows and looks like a clean result. A one-file target therefore
+    becomes a table over the file's parent folder.
 
-    THAT PROMOTION IS NOT SUFFICIENT ON ITS OWN, and the earlier version of this docstring
-    claimed it was ("still correct here because the manifest listed exactly that one
-    object"). It is not: Athena reads a LOCATION RECURSIVELY, so the table covers every
-    file in the parent folder, not the one that was listed. What makes a single-file check
-    correct is the ``"$path"`` predicate the QUERIES carry — see ``sql.single_file_path``,
-    which is the one definition both this verb and start-profile-query decide on
-    (SPEC-151 FR-001).
+    That promotion is not sufficient on its own. Athena reads a location recursively, so the table
+    covers every file in the parent folder rather than the one that was listed. What makes a
+    single-file check correct is the path predicate the queries carry, decided by the one shared
+    definition both this verb and the query builder consult.
+
+    Args:
+      bucket: The source bucket.
+      manifest: The source manifest.
+      location: The request's target location.
+
+    Returns:
+      The ``s3://`` folder URI, slash-terminated.
+
+    Raises:
+      TerminalError: ``invalid_request`` when the manifest carries no files. inspect-source raises
+        a no-data terminal long before this, so an empty manifest means something else wrote it —
+        refuse rather than build a table over the space root.
     """
     files = manifest.get("files") or []
     if not files:
-        # inspect-source raises no_data_files long before this, so an empty manifest means
-        # something else wrote it. Refuse rather than build a table over the space root.
         raise TerminalError(messages.INVALID_REQUEST, "manifest carries no files")
 
     prefix = location.rstrip("/")
@@ -83,12 +94,23 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
 
 @observability.step("run-ddl")
 def _run_ddl(query: str, database: str, output_location: str) -> None:
-    """Run one catalog DDL statement to completion.
+    """Runs one catalog DDL statement to completion.
 
-    The shared start+poll runner is the right tool HERE and the wrong tool for the profile
-    query: a CREATE returns in seconds, whereas a profiling query over 250 GB can outlast
-    Lambda's 900-second ceiling — which is why that poll lives in the state machine
-    instead (SPEC-108 FR-004 / SPEC-111 FR-004).
+    The shared submit-and-poll runner is the right tool here and the wrong tool for the profile
+    query: a create returns in seconds, whereas a profiling query over a large source can outlast
+    Lambda's ceiling, which is why that poll lives in the state machine instead.
+
+    Args:
+      query: The DDL statement.
+      database: The target database.
+      output_location: The ``s3://`` results prefix.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``query_failed`` or ``query_timeout``.
+      TransientError: On a retryable Athena fault.
     """
     athena.run_ddl(
         query=query,
@@ -101,6 +123,35 @@ def _run_ddl(query: str, database: str, output_location: str) -> None:
 
 
 def _create(event: dict) -> dict:
+    """Reads the manifest, names the temp tables, and creates them.
+
+    The names go into the state before any create runs. If the second create fails, or the verb
+    dies after creating and before returning, the cleanup verb still receives both names. They are
+    pure functions of the request id so they could be re-derived downstream — but only for as long
+    as two verbs agree on the derivation, and a leaked table in the user's own database is not a
+    bug worth risking on that.
+
+    The DDL results location goes under the request's own report prefix rather than the space's
+    results folder, so it inherits whatever retention the reports get and never clutters a folder
+    the user browses. A DDL statement's results are an empty metadata file, but Athena still
+    demands a location.
+
+    Whether the raw-line table exists is recorded, because it decides whether the ragged check can
+    run at all — so a missing ragged finding downstream reads as designed rather than as a bug.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with the database, table names and column count attached.
+
+    Raises:
+      TerminalError: ``invalid_request`` for a missing field or an empty manifest,
+        ``too_many_columns`` when the source is too wide — the count comes from the column list
+        rather than from parsing the exception's text, because a token that reaches a user must
+        never be scraped out of a log message — or a query failure from the creates.
+      TransientError: On a retryable Athena or S3 fault.
+    """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     request_id = events.require(event, "requestId", reason=messages.INVALID_REQUEST)
     manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
@@ -115,8 +166,6 @@ def _create(event: dict) -> dict:
     try:
         sql.check_column_count(columns)
     except sql.TooManyColumnsError as exc:
-        # The count comes from `columns`, not from parsing str(exc): the exception's text is
-        # log prose, and a token that reaches a user must never be scraped out of a message.
         raise TerminalError(
             messages.TOO_MANY_COLUMNS, str(exc), tokens={"count": f"{len(columns):,}"}
         ) from exc
@@ -125,22 +174,12 @@ def _create(event: dict) -> dict:
     raw_table = sql.raw_table_name(request_id) if fmt == "csv" else None
     table_location = _location(bucket, manifest, location)
 
-    # THE NAMES GO INTO THE STATE BEFORE ANY CREATE RUNS (FR-001). If the second create
-    # fails, or the verb dies after creating and before returning, drop-temp-tables still
-    # receives both names and cleans up. They are pure functions of requestId so they
-    # COULD be re-derived downstream — but only for as long as two verbs agree on the
-    # derivation, and a leaked table in the user's own database is not a bug worth
-    # risking on that.
     out = dict(event)
     out["database"] = database
     out["tempTable"] = table
     out["tempRawTable"] = raw_table
     out["columnCount"] = len(columns)
 
-    # A DDL statement's "results" are an empty metadata file, but Athena still demands an
-    # output location. It goes under the request's own report prefix rather than the
-    # space's athenaresults/, so it inherits whatever retention the reports get and never
-    # clutters a folder the user browses.
     ddl_output = f"s3://{bucket}/{report_prefix.rstrip('/')}/ddl/"
 
     _run_ddl(
@@ -166,8 +205,6 @@ def _create(event: dict) -> dict:
         "created temp tables",
         database=database,
         table=table,
-        # Whether the raw-line table exists decides whether the ragged check can run at all,
-        # so "no ragged finding" downstream reads as designed rather than as a bug.
         raw_table=raw_table,
         columns=len(columns),
         format=fmt,
@@ -176,20 +213,34 @@ def _create(event: dict) -> dict:
     return out
 
 
-# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
-# catches on its way out, so if it were outermost the span would close status="ok" on an
-# invocation that actually failed and notified. Outermost traced sees the exception the
-# handler really raised.
 @observability.traced("create-temp-tables")
 @notify.notifies_on_failure("create-temp-tables")
 def handler(event, context) -> dict:
-    """Create the temp table(s) and thread their names onward."""
+    """Creates the temp tables and threads their names onward.
+
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way out,
+    so if it were outermost the span would close as successful on an invocation that actually
+    failed and notified.
+
+    The failure is recorded in one place rather than at each raise site. The detail is safe to
+    record here: every raise in this module interpolates a space kind, a count, or a literal —
+    never anything read from a file.
+
+    Args:
+      event: The task input.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the database, table names and column count attached.
+
+    Raises:
+      TerminalError: ``invalid_request``, ``too_many_columns``, ``query_failed`` or
+        ``query_timeout``.
+      TransientError: On a retryable Athena or S3 fault.
+    """
     try:
         return _create(event)
     except TerminalError as err:
-        # One place rather than each raise site, for the reason SPEC-128 FR-001 gives about
-        # per-call-site bookkeeping. `detail` is safe here: every raise in this module
-        # interpolates a space kind, a count, or a literal — never anything read from a file.
         observability.error(
             "create-temp-tables failed",
             step="run-ddl",

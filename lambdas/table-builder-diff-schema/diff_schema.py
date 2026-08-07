@@ -1,18 +1,17 @@
-"""diff-schema — the refresh branch's classifier (SPEC-144).
+"""diff-schema — the refresh branch's classifier.
 
 Two schemas exist by this point: the one the table currently declares, threaded forward by
 load-table-definition, and the one the data now implies, freshly inferred by infer-schema.
 This verb is about the gap between them.
 
 Most of the time it is additive and applies without ceremony. A removal is different: it
-breaks every saved query, view and dashboard referencing the column, and it breaks them
-somewhere the person who ran the refresh is not looking. So a removal is REFUSED unless the
-request opted in — and the refusal IS the warning, naming the columns in a notification and
-changing nothing.
+breaks every saved query, view and dashboard referencing the column, somewhere the person who
+ran the refresh is not looking. So a removal is refused unless the request opted in — and the
+refusal is the warning, naming the columns in a notification and changing nothing.
 
-This verb also owns the no-change notification. The state machine has no notification
-state, every notification on this plane is emitted in-Lambda, and on the unchanged path no
-Lambda runs after this one.
+This verb also owns the no-change notification. The state machine has no notification state,
+every notification on this plane is emitted in-Lambda, and on the unchanged path no Lambda
+runs after this one.
 """
 
 import logging
@@ -24,14 +23,22 @@ from tbcommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
 
 def _by_folded_name(columns: list[dict], partition_key_names: set[str]) -> dict:
-    """``{folded name: column}``, excluding partition keys (also matched folded)."""
+    """Indexes columns by case-folded name, excluding the partition keys.
+
+    Args:
+      columns: Column dicts, each carrying at least a name.
+      partition_key_names: Partition key names to exclude; matched case-folded too.
+
+    Returns:
+      A mapping of case-folded column name to the original column dict.
+
+    Raises:
+      KeyError: If a column has no name.
+    """
     excluded = {name.casefold() for name in partition_key_names}
     return {
         c["name"].casefold(): c for c in columns if c["name"].casefold() not in excluded
@@ -39,31 +46,35 @@ def _by_folded_name(columns: list[dict], partition_key_names: set[str]) -> dict:
 
 
 def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names: set[str]) -> dict:
-    """Classify the change between two column lists. Pure — no AWS calls.
+    """Classifies the change between a table's declared columns and its freshly inferred ones.
 
-    MATCHED CASE-INSENSITIVELY, and this reverses SPEC-144 FR-001 as written (amended
-    2026-08-04). Its premise — that Athena treats ``Amount`` and ``amount`` as distinct —
-    is not what this pipeline sees: the create path issues ``CREATE EXTERNAL TABLE``
-    through Athena, whose Hive-backed DDL FOLDS column names, so a CSV header of
-    ``Amount`` is stored in Glue as ``amount``. Nothing here normalises them —
-    ``infer-schema`` reads the header verbatim and ``load-table-definition`` reads Glue
-    verbatim — so a case-sensitive match would report every column of every mixed-case
-    table as BOTH added and removed, on a folder where nothing changed. Worse, it would be
-    unescapable: opting into the removal rebuilds with ``Amount``, Athena folds it again,
-    and the next refresh says the same thing.
+    Pure — no AWS calls. Names are matched case-insensitively, because the create path issues
+    CREATE EXTERNAL TABLE through Athena, whose Hive-backed DDL folds column names: a CSV
+    header of ``Amount`` is stored in Glue as ``amount``. Nothing here normalises them, so a
+    case-sensitive match would report every column of every mixed-case table as both added and
+    removed on a folder where nothing changed — and it would be inescapable, since opting into
+    the removal rebuilds with the original casing, Athena folds it again, and the next refresh
+    says the same thing. A true rename is still caught; the only thing this cannot see is a
+    pure case change, which under those semantics is not a change at all.
 
-    A true rename (``amount`` → ``total``) is still caught; the only thing this cannot see
-    is a pure case change, which under those same Hive semantics is not a change at all.
-    Names are REPORTED as they appear, so the message names what the user would recognise.
+    Partition keys are excluded here rather than assumed excluded upstream: infer-schema emits
+    the full inferred list and the partition-collision drop happens inside the DDL builder,
+    where it affects only the DDL body, so a data column named after a partition key does reach
+    here and would otherwise be reported on every single refresh.
 
-    IT EXCLUDES PARTITION KEYS ITSELF rather than assuming an upstream verb did.
-    ``infer-schema`` emits the FULL inferred list, and the partition-collision drop happens
-    inside ``build_create_table_ddl``, where it affects only the DDL body — so a data
-    column named after a partition key does reach here, and would otherwise be reported as
-    added or removed on every single refresh.
+    Args:
+      existing: The columns the table currently declares.
+      inferred: The columns the data now implies.
+      partition_key_names: Declared partition key names, excluded from the comparison.
 
-    ``unchanged`` is a count rather than a list: it is the one part nobody needs by name,
-    and on a wide table it would dominate the state payload.
+    Returns:
+      ``{"changed", "added", "removed", "retyped", "unchanged"}``. Names are reported as they
+      appear, so the message names what the user would recognise. ``unchanged`` is a count
+      rather than a list — it is the one part nobody needs by name, and on a wide table it
+      would dominate the state payload.
+
+    Raises:
+      KeyError: If a column is missing its name or type.
     """
     old = _by_folded_name(existing, partition_key_names)
     new = _by_folded_name(inferred, partition_key_names)
@@ -86,22 +97,51 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
     }
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("diff-schema")
 @notify.notifies_on_failure("diff")
 def handler(event: dict, context) -> dict:
-    """SFN entry point: classify the change and enforce the removal opt-in.
+    """Step Functions entry point: classifies the change and enforces the removal opt-in.
 
-    Delegates to ``_diff`` and notifies the actor on a terminal failure (best-effort)
-    before the SFN ``Catch`` records it — which on the ``columns_removed`` path is not
-    incidental, it IS the warning FR-003 promises.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified. On the removal path that notification is not incidental —
+    it is the warning.
+
+    Args:
+      event: The task input, carrying both column lists and the removal opt-in.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the classified diff attached, and a status of unchanged when nothing
+      differs.
+
+    Raises:
+      TerminalError: ``columns_removed`` when a removal was not opted into, or
+        ``malformed_event`` when a required field is missing.
     """
     return _diff(event)
 
 
 def _diff(event: dict) -> dict:
+    """Classifies the change, refuses an un-opted-into removal, and notifies a no-op.
+
+    Column names are schema and are permitted in the record; column values and sampled rows
+    are not and appear nowhere. The request id and verb ride as baggage from the span.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with the diff attached. On the unchanged path it also sets a status, because
+      the success state reads that field and a Pass state's JSONPath raises an uncatchable
+      runtime error on an absent key, so the no-op path must set it here rather than rely on a
+      verb that never runs.
+
+    Raises:
+      TerminalError: ``columns_removed`` when a removal was not opted into. Nothing is changed,
+        and the tokens are what carry the column names into the notification and the link the
+        browser names them back from.
+    """
     existing = events.require(event, "existingColumns")
     inferred = events.require(event, "columns")
     partition_key_names = {k["name"] for k in (event.get("partitionKeys") or [])}
@@ -116,9 +156,6 @@ def _diff(event: dict) -> dict:
         len(removed_names),
         len(diff["retyped"]),
     )
-    # Column NAMES are schema and are permitted; column VALUES and sampled rows are not and
-    # appear nowhere (the field rule, decisions.md). `request_id` and `verb` ride as
-    # baggage from @traced.
     observability.info(
         "diffed schema",
         database=(event.get("space") or {}).get("database"),
@@ -134,9 +171,6 @@ def _diff(event: dict) -> dict:
     )
 
     if removed_names and not event.get("allowRemovals"):
-        # The refusal IS the warning: it names the columns, and nothing is changed. tokens
-        # is what carries them into the notification, and the link built from them is what
-        # lets the browser name them back to the user (SPEC-145 FR-005).
         raise TerminalError(
             "columns_removed",
             f"{len(removed_names)} column(s) would be removed and allowRemovals is false",
@@ -146,11 +180,6 @@ def _diff(event: dict) -> dict:
     out = dict(event)
     out["diff"] = diff
     if not diff["changed"]:
-        # RecordSuccess reads $.status, and a Pass state's JSONPath raises an UNCATCHABLE
-        # States.Runtime on an absent key — so the no-op path must set it here, not rely on
-        # a verb that never runs.
         out["status"] = "unchanged"
-        # No Lambda runs after this one on the unchanged path, and the state machine has no
-        # notification state, so the outcome is emitted here or nowhere.
         notify.emit_refresh_outcome(event, "unchanged")
     return out

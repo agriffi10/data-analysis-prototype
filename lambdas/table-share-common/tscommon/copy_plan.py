@@ -1,26 +1,26 @@
-"""The copy plan, passed between states by POINTER rather than inline.
+"""The copy plan, passed between states by pointer rather than inline.
 
-``inspect-source`` writes the source object list here and threads its KEY onward;
-``copy-objects`` loads it once per recipient.
+inspect-source writes the source object list here and threads its key onward; copy-objects
+loads it once per recipient. The list runs to the object cap, and the Map copies the whole
+state into every item, so inline it reached 95% of the state-payload limit at the shipped
+caps — and breaching that destroys every per-recipient outcome the Map exists to preserve. By
+pointer the same state is about a third. The same indirection, for the same reason, as the
+data-quality manifest. Measurements: ``docs/lambda-rationale.md``.
 
-WHY IT IS NOT ON THE STATE, measured rather than assumed: the list runs to
-``SHARE_MAX_OBJECTS`` (1000) entries, and the Map's ``ItemSelector`` copies the WHOLE state
-into every item, then ``ResultPath`` merges the per-recipient results back into it. At the
-shipped caps with ordinary Hive keys (``year=/month=/day=/hour=/part-…parquet``, ~140
-chars) that reached **249 KB — 95%** of Step Functions' 256 KB state-payload limit, and
-**71% with zero failures**. Breaching it raises ``States.DataLimitExceeded`` ON THE MAP,
-which routes to the whole-request ``RecordFailure`` and destroys every per-recipient
-outcome the Map exists to preserve — turning a partial success into a total failure, on
-exactly the requests that already went worst. By pointer the same state is ~34%.
+It lives in the admin bucket rather than a user's space: the SPA never browses it, so the plan
+needs no hidden-folder convention, and a user cannot delete it out from under a running
+execution — they do hold delete rights in their own space. Nothing deletes it here either; a
+lifecycle rule expires it.
 
-This is the same indirection, for the same reason, as SPEC-110's data-quality manifest.
+``messages`` is imported for its side effect as well as its constants: it registers this
+domain's reason codes, and a terminal error validates its reason at construction. Without the
+import, the failure below raises a validation error in any process that has not separately
+imported it — true of a process importing only this module, and the same class of import-order
+trap that once shipped three unraisable reason codes.
 
-WHERE IT LIVES, and why not in a user's space: the admin bucket. The SPA never browses it,
-so the plan needs no hidden-folder convention (note ``athenaresults/`` is NOT hidden — only
-locked as a copy destination — so it would have shown control-plane JSON to users), and a
-user cannot delete it out from under a running execution; they DO hold ``s3:DeleteObject``
-in their own space. Nothing deletes it here either: the ``expire-table-share-copy-plans``
-lifecycle rule in ``analytics/s3.tf`` expires it.
+Attributes:
+  PREFIX: Prefix inside the admin bucket, matching the lifecycle rule's filter.
+  BASENAME: The plan object's basename.
 """
 
 import hashlib
@@ -30,45 +30,39 @@ from cpcommon import clients, errors
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 
-# Imported for its SIDE EFFECT as well as its constants: tscommon.messages registers this
-# domain's reason codes with cpcommon at import, and TerminalError validates its reason
-# against that registry AT CONSTRUCTION. Without this import, `copy_failed` below raises
-# ValueError in any process that has not separately imported tscommon.messages — which
-# happens to be true of the deployed verbs (they import notify, which imports messages) and
-# NOT true of a process that imports only this module. The same class of import-order trap
-# that shipped three unraisable reason codes in SPEC-110.
 from . import messages  # noqa: F401
 
-#: Prefix inside the admin bucket. Matches the lifecycle rule's filter.
 PREFIX = "table-share"
 BASENAME = "copy-plan.json"
 
 
 def plan_key(request: dict) -> str:
-    """``table-share/{hash}/copy-plan.json`` — a pure function of the request.
+    """Derives the plan's S3 key as a pure function of the request.
 
-    Table-share has no ``requestId`` (unlike the data-quality arc), so the key is a digest
-    of the fields that identify the share. That makes it replay-safe the same way: a Step
-    Functions ``Retry`` of inspect-source rewrites the SAME key with the same content rather
-    than leaving a second plan behind.
+    Table-share has no request id, so the key is a digest of the fields that identify the
+    share. That makes it replay-safe: a Retry of inspect-source rewrites the same key with the
+    same content rather than leaving a second plan behind.
 
-    TWO EXECUTIONS *CAN* OVERLAP ON ONE KEY, and an earlier version of this docstring
-    claimed otherwise — wrongly. The FIFO ``MessageGroupId`` is ``{database}.{table}``, but
-    the Pipe is ``invocation_type = "FIRE_AND_FORGET"`` (pipe.tf), so SQS considers the
-    message handled as soon as ``StartExecution`` RETURNS, not when the execution finishes.
-    A group serializes starts, not runs. Redelivery after a Pipes crash and a DLQ redrive
-    open the same window.
+    Two executions can overlap on one key. The FIFO message group is the source table, but the
+    Pipe is fire-and-forget, so SQS considers the message handled as soon as the start call
+    returns rather than when the execution finishes — a group serializes starts, not runs, and
+    redelivery after a crash or a redrive opens the same window. It is still safe as a bounded
+    claim: a collision needs the same actor, source database, source table and result name, and
+    those requests list the same prefix, so both plans describe the same object set and either
+    is correct for either execution. The residual exposure is a source mutated between the two
+    listings, where the earlier execution would copy the later snapshot. Nothing here silently
+    mixes two different sources, because the digest covers the database and table. Making it
+    airtight would take an execution-unique salt threaded through the state, which costs an ASL
+    payload-shape change the bounded exposure did not justify.
 
-    WHY IT IS STILL SAFE, stated as the bounded claim it actually is: a collision needs the
-    same actor, source database, source table AND result name. Those requests list the SAME
-    prefix, so both plans describe the same object set and either is correct for either
-    execution. The residual exposure is a source MUTATED between the two listings — the
-    earlier execution would then copy the later snapshot. Nothing here silently mixes two
-    different sources, because the digest covers the database and table (pinned by test).
+    Args:
+      request: The share request, carrying the actor, source and result name.
 
-    Making it airtight would take an execution-unique salt (``$$.Execution.Name`` threaded
-    in), which costs an ASL payload-shape change; the bounded exposure above did not justify
-    it. Recorded so the next person weighs it rather than re-deriving it.
+    Returns:
+      The plan key under the admin bucket.
+
+    Raises:
+      None.
     """
     source = request.get("source") or {}
     digest = hashlib.sha256(
@@ -85,12 +79,20 @@ def plan_key(request: dict) -> str:
 
 
 def write(request: dict, objects: list) -> str:
-    """Write the plan and return its key.
+    """Writes the plan to the admin bucket and returns its key.
+
+    Args:
+      request: The share request, which determines the key.
+      objects: The planned source objects.
+
+    Returns:
+      The key the plan was written to.
 
     Raises:
-        TransientError: on a retryable S3 fault, so the caller's Step Function ``Retry``
-            re-runs inspect-source — which is safe, because the key is a pure function of
-            the request and the verb is read-only besides this write.
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs inspect-source —
+        safe, because the key is a pure function of the request and the verb is read-only
+        besides this write.
+      ClientError: Any deterministic fault propagates.
     """
     key = plan_key(request)
     body = json.dumps({"objects": objects}, separators=(",", ":")).encode()
@@ -98,25 +100,35 @@ def write(request: dict, objects: list) -> str:
         clients.s3().put_object(
             Bucket=cpconfig.ADMIN_BUCKET, Key=key, Body=body, ContentType="application/json"
         )
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
         raise
     return key
 
 
 def load(key: str) -> list:
-    """Return the plan's object list.
+    """Reads a plan back and returns its object list.
+
+    An empty plan is refused rather than treated as no work: it would copy nothing and report
+    success, leaving the recipient a table pointing at an empty prefix. inspect-source already
+    rejects an empty source, so an empty plan here means the object is wrong, not the source.
+
+    Args:
+      key: The plan key.
+
+    Returns:
+      The planned objects.
 
     Raises:
-        TransientError: on a retryable S3 fault (the Map item's ``Retry`` re-runs it).
-        TerminalError: ``copy_failed`` when the plan cannot be read or parsed. By this point
-            inspect-source has already written it, so a failure here means the object is
-            missing or corrupt — which no retry fixes, and copying a PARTIAL set of objects
-            would silently give the recipient an incomplete table.
+      TransientError: On a retryable S3 fault; the Map item's Retry re-runs it.
+      TerminalError: ``copy_failed`` when the plan cannot be read, is not valid JSON, or
+        carries no objects. By this point inspect-source has already written it, so a failure
+        here means the object is missing or corrupt, which no retry fixes — and copying a
+        partial set would silently give the recipient an incomplete table.
     """
     try:
         body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, f"get {cpconfig.ADMIN_BUCKET}/{key}")
         raise TerminalError("copy_failed", f"could not read copy plan {key}: {err}") from err
 
@@ -127,8 +139,5 @@ def load(key: str) -> list:
 
     objects = plan.get("objects")
     if not isinstance(objects, list) or not objects:
-        # An empty plan would copy nothing and report success — the recipient would get a
-        # table pointing at an empty prefix. inspect-source rejects an empty source
-        # (source_empty), so an empty plan here means the object is wrong, not the source.
         raise TerminalError("copy_failed", f"copy plan {key} carries no objects")
     return objects

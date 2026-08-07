@@ -1,16 +1,13 @@
 """Per-user shared-connections cache in the user-space bucket.
 
-The cache at ``{username}/user_settings/shared-connections.json`` is the UI projection
-of a user's spaces (the registry is the source of truth; the browser only reads this).
-The privileged orchestrator role may write any user's prefix. Every write is a
-read-modify-write, never an S3 delete.
+The cache is the UI projection of a user's spaces — the registry is the source of truth and the
+browser only reads this. The privileged orchestrator role may write any user's prefix. Every
+write is a read-modify-write, never an S3 delete.
 
-Concurrent control-plane executions can touch the same user's cache (the Pipe starts
-the Standard state machine fire-and-forget, so serial intake is not serial execution),
-and a plain read-then-write would lose updates. Every mutation is therefore an
-optimistic compare-and-swap: read the object and its ETag, modify, then ``PutObject``
-conditioned on that ETag (``If-Match``) or on absence (``If-None-Match: *``); a 412
-means a concurrent writer won, so re-read and retry.
+Concurrent executions can touch the same user's cache, because the Pipe starts the state
+machine fire-and-forget and serial intake is not serial execution, so a plain read-then-write
+would lose updates. Every mutation is therefore an optimistic compare-and-swap through the
+shared primitive.
 """
 
 import json
@@ -24,27 +21,53 @@ logger = logging.getLogger()
 
 
 def _key(username):
+    """Builds the S3 key of one user's cache object.
+
+    Args:
+      username: The cache owner.
+
+    Returns:
+      The object key under their own prefix.
+
+    Raises:
+      None.
+    """
     return f"{username}/user_settings/shared-connections.json"
 
 
 def _is_absent(exc):
-    """True when a GetObject error means the object isn't there.
+    """Reports whether a read error means the object is not there.
 
-    ``NoSuchKey``/404 is the normal missing-object signal; S3 returns ``403
-    AccessDenied`` for a missing key when the caller lacks ``s3:ListBucket``. Treating
-    403 as absent is safe only because the create path is conditional: a
-    present-but-unreadable object misread as absent would make the ``If-None-Match: *``
-    create fail with 412 rather than overwrite real data. (The registry deliberately
-    does NOT treat 403 as absent — its admin-bucket role has ``s3:ListBucket``.)
+    A missing-key code is the normal signal; S3 also returns a denial for a missing key when the
+    caller lacks list permission. Treating the denial as absent is safe only because the create
+    path is conditional: a present-but-unreadable object misread as absent makes the create-only
+    write fail on its precondition rather than overwrite real data. The registry deliberately
+    does not treat a denial as absent, because its role does hold list permission.
+
+    Args:
+      exc: The read fault.
+
+    Returns:
+      True when the object should be treated as absent.
+
+    Raises:
+      None.
     """
     return casio.error_code(exc) in ("NoSuchKey", "NotFound", "404", "AccessDenied", "403")
 
 
 def _read(username):
-    """Return ``(connections, etag)`` for the user's cache.
+    """Reads a user's cache and its entity tag.
 
-    A missing object yields ``([], None)``; etag None marks create-if-absent on the
-    write back. Any S3 error other than absence propagates.
+    Args:
+      username: The cache owner.
+
+    Returns:
+      A ``(connections, etag)`` tuple. A missing object yields an empty list and no tag, which
+      marks create-if-absent on the write back.
+
+    Raises:
+      ClientError: On any S3 error other than absence.
     """
     s3 = clients.s3()
     try:
@@ -65,10 +88,18 @@ def _read(username):
 
 
 def _write(username, connections, etag):
-    """Write the user's cache conditionally.
+    """Writes a user's cache conditionally on the tag it was read at.
 
-    ``If-Match`` the read ETag (update) or ``If-None-Match: *`` when absent (create).
-    Raises the S3 ClientError on a precondition failure so the CAS loop can retry.
+    Args:
+      username: The cache owner.
+      connections: The full connection list to write.
+      etag: The tag to match, or None to write only if the object is absent.
+
+    Returns:
+      None.
+
+    Raises:
+      ClientError: On a precondition failure, so the CAS loop can retry, or any other S3 fault.
     """
     kwargs = {
         "Bucket": cpconfig.USER_SPACE_BUCKET,
@@ -84,11 +115,20 @@ def _write(username, connections, etag):
 
 
 def _mutate(username, fn):
-    """Compare-and-swap the user's cache through ``fn(connections) -> connections``.
+    """Compare-and-swaps a user's cache through a transform.
 
-    Read (+ETag), apply ``fn``, write conditionally; retry on a concurrent-writer
-    precondition failure. A no-op change skips the write so removing an absent entry
-    stays a true no-op. The CAS loop is the shared ``casio`` primitive (SPEC-082).
+    A no-op change skips the write, so removing an absent entry stays a true no-op.
+
+    Args:
+      username: The cache owner.
+      fn: Takes the current connections and returns the new list.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
     """
     casio.cas_mutate(
         read=lambda: _read(username),
@@ -99,9 +139,32 @@ def _mutate(username, fn):
 
 
 def upsert_entry(username: str, entry: dict) -> None:
-    """Compare-and-swap the user's cache, upserting ``entry`` by name."""
+    """Inserts or replaces one connection entry in a user's cache, by name.
+
+    Args:
+      username: The cache owner.
+      entry: The entry to write, keyed by its name.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
 
     def apply(connections):
+        """Replaces any same-named entry and appends the new one.
+
+        Args:
+          connections: The current list.
+
+        Returns:
+          The updated list.
+
+        Raises:
+          None.
+        """
         kept = [c for c in connections if c.get("name") != entry["name"]]
         kept.append(entry)
         return kept
@@ -110,44 +173,98 @@ def upsert_entry(username: str, entry: dict) -> None:
 
 
 def remove_entry(username: str, name: str) -> None:
-    """Remove the user's cache entry for ``name`` (compare-and-swap; never an S3 delete).
+    """Removes a user's cache entry for one space. Never an S3 delete.
 
-    Idempotent — a missing cache or absent entry is a no-op (no write).
+    Idempotent — a missing cache or absent entry writes nothing.
+
+    Args:
+      username: The cache owner.
+      name: The space name to remove.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
     """
 
     def apply(connections):
+        """Drops any entry with the given name.
+
+        Args:
+          connections: The current list.
+
+        Returns:
+          The filtered list.
+
+        Raises:
+          None.
+        """
         return [c for c in connections if c.get("name") != name]
 
     _mutate(username, apply)
 
 
 def write_owner_pending(owner: str, name: str) -> None:
-    """Seed the creator's cache with a ``provisioning`` owner entry on create-accept.
+    """Seeds the creator's cache with a provisioning entry when a create is accepted.
 
-    Written before any provisioning work so the space survives a browser reload even
-    if provisioning later fails (an unrecorded create vanishes from the UI).
-    Superseded by ``write_owner_projection`` (``active``) or a ``failed`` upsert, both
-    of which replace this entry by name; ``createdAt``/``members`` are intentionally
-    omitted and supplied by the authoritative ``active`` write.
+    Written before any provisioning work, so the space survives a browser reload even if
+    provisioning later fails — an unrecorded create vanishes from the UI. Superseded by the
+    active projection or a failed upsert, both of which replace this entry by name. The creation
+    date and roster are intentionally omitted and supplied by the authoritative active write.
+
+    Args:
+      owner: The creator.
+      name: The space name.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
     """
     upsert_entry(owner, {"name": name, "role": "owner", "status": "provisioning"})
 
 
 def write_owner_deleting(owner: str, name: str) -> None:
-    """Mark the owner's cache entry ``deleting`` once a delete is accepted.
+    """Marks the owner's cache entry as deleting once a delete is accepted.
 
-    Written after verification so the card shows a durable "Deleting…" state instead
-    of reconciling back to ``active`` mid-cascade. Superseded by the entry's removal
-    on success or a ``failed`` upsert on error.
+    Written after verification so the card shows a durable deleting state instead of reconciling
+    back to active mid-cascade. Superseded by the entry's removal on success or a failed upsert
+    on error.
+
+    Args:
+      owner: The space's owner.
+      name: The space name.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
     """
     upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting"})
 
 
 def _member_projection(members, owner, acknowledged):
-    """Build the ``[{username, status}]`` projection (SPEC-073).
+    """Builds the roster projection carrying each member's join status.
 
-    A member is ``active`` once they've acknowledged the space (or they're the owner,
-    always active); otherwise ``pending`` — invited but not yet signed in to pick it up.
+    A member is active once they have acknowledged the space, or if they are the owner, who is
+    always active; otherwise they are pending — invited but not yet signed in to pick it up.
+
+    Args:
+      members: The current member names.
+      owner: The space's owner.
+      acknowledged: The members who have acknowledged.
+
+    Returns:
+      A list of ``{username, status}`` dicts.
+
+    Raises:
+      None.
     """
     ack = set(acknowledged or [])
     return [
@@ -159,12 +276,22 @@ def _member_projection(members, owner, acknowledged):
 def write_owner_projection(
     owner: str, name: str, members: list[str], acknowledged: list[str], created_at: str | None = None
 ) -> None:
-    """Update the owner's cache entry with the current member roster + join status.
+    """Updates the owner's cache entry with the current roster and join statuses.
 
-    This is the owner-readable projection the Manage drawer renders; members never see
-    this list. Members are stored as ``{username, status}`` (SPEC-073) where status is
-    derived from ``acknowledged``. ``created_at`` (when known) is carried so the
-    Connections card can render its "created <date>" meta line.
+    Args:
+      owner: The space's owner.
+      name: The space name.
+      members: The current member names.
+      acknowledged: The members who have acknowledged.
+      created_at: The creation date, when known, so the connections card can render its meta
+        line.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
     """
     entry = {
         "name": name,
@@ -180,12 +307,26 @@ def write_owner_projection(
 def write_member_entry(
     member: str, name: str, owner: str, members: list[str], acknowledged: list[str], created_at: str | None = None
 ) -> None:
-    """Write a member's cache entry for a space they belong to.
+    """Writes one member's cache entry for a space they belong to.
 
-    As of SPEC-075 a member's entry carries the same ``{username, status}`` roster the
-    owner sees (SPEC-053's member-privacy stance is reversed), plus the ``owner`` name
-    and ``createdAt`` for the Connections card. The read-only roster view renders it;
-    members get no add/remove power.
+    A member's entry carries the same roster the owner sees, reversing the earlier
+    member-privacy stance, plus the owner's name and the creation date. The read-only roster
+    view renders it; members get no add or remove power.
+
+    Args:
+      member: The member whose cache is written.
+      name: The space name.
+      owner: The space's owner.
+      members: The current member names.
+      acknowledged: The members who have acknowledged.
+      created_at: The creation date, when known.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
     """
     entry = {
         "name": name,
@@ -202,13 +343,35 @@ def write_member_entry(
 def write_roster_to_all(
     members: list[str], name: str, owner: str, acknowledged: list[str], created_at: str | None = None
 ) -> None:
-    """Fan the current roster out to the owner + every member's cache (SPEC-075).
+    """Fans the current roster out to the owner and every member's cache.
 
-    Called by add/remove/leave *after* the registry write (the consistency point) so
-    each remaining member's cache reflects the same roster the owner sees. Per-member
-    writes are best-effort: one member's cache failing is logged and skipped rather than
-    aborting the rest of the fan-out (the registry mutation already committed). The
-    owner projection is written last, preserving the verbs' prior end state.
+    Called by add, remove and leave after the registry write, which is the consistency point, so
+    each remaining member's cache reflects the same roster the owner sees. Per-member writes are
+    best-effort: one member's cache failing is logged and skipped rather than aborting the rest
+    of the fan-out, because the registry mutation already committed. What that costs is one
+    member seeing a stale roster while everyone else sees the current one — invisible from either
+    side, which is why it is named in the record. The owner projection is written last,
+    preserving the verbs' prior end state.
+
+    Per-member events are acceptable here, a deliberate exception to the per-item prohibition
+    elsewhere. The bound is structural rather than a hope: membership is capped by the Cognito
+    attribute slot model, so a fan-out can emit at most that many events. The sweep's
+    prohibition exists because its per-message count is unbounded and it emits into the queue it
+    drains; neither is true here.
+
+    Args:
+      members: The current member names.
+      name: The space name.
+      owner: The space's owner.
+      acknowledged: The members who have acknowledged.
+      created_at: The creation date, when known.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the owner projection's CAS attempts are exhausted.
+      ClientError: On a non-precondition S3 fault writing the owner projection.
     """
     written, failed = [], []
     for member in members:
@@ -217,22 +380,13 @@ def write_roster_to_all(
         try:
             write_member_entry(member, name, owner, members, acknowledged, created_at)
             written.append(member)
-        except Exception:  # best-effort fan-out — never abort the others on one failure
+        except Exception:
             logger.exception("roster fan-out to %s for %s failed (best-effort)", member, name)
             failed.append(member)
-            # WARNING, not error: the fan-out continues and the registry mutation already
-            # committed. What it costs is one member seeing a stale roster while everyone else
-            # sees the current one — invisible from either side, which is why it is named.
             observability.warning(
                 "roster fan-out failed for one member", space=name, member=member, store="cache"
             )
     write_owner_projection(owner, name, members, acknowledged, created_at)
-    # PER-MEMBER EVENTS ARE ACCEPTABLE HERE, and this is a deliberate exception to the
-    # per-item prohibition in SPEC-131 FR-005 and the per-file caution in SPEC-132 FR-002.
-    # The bound is STRUCTURAL, not a hope: membership is capped at ten by the Cognito
-    # attribute slot model (membership.MAX_SHARED_MEMBERSHIPS), so a fan-out can emit at most
-    # ten events. The sweep's prohibition exists because its per-message count is unbounded
-    # AND it emits into the queue it drains; neither is true here.
     observability.info(
         "roster fanned out",
         space=name,

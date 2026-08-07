@@ -1,42 +1,34 @@
-"""Glue catalog reads shared by the control planes that read a LIVE table (SPEC-143).
+"""Glue catalog reads shared by the control planes that read a live table.
 
-``clone_definition`` moved here from ``tscommon.glue`` verbatim — signature, return
-tuple, excluded parameters and reason codes unchanged — because the refresh path
-(table-builder) asks the catalog the same question table-share does: *is this table a
-shape I can faithfully reproduce?* A view has no data files, a managed table's files are
-not the portal's to re-read, and a catalog-partitioned table's partitions live in the
-catalog rather than in the projection properties. Both callers must refuse all three, and
-the checks are fiddly enough that two copies would drift.
+The refresh path asks the catalog the same question table-share does: is this table a shape
+I can faithfully reproduce? A view has no data files, a managed table's files are not the
+portal's to re-read, and a catalog-partitioned table's partitions live in the catalog rather
+than in the projection properties. Both callers must refuse all three, and the checks are
+fiddly enough that two copies would drift. ``tscommon.glue`` re-exports ``clone_definition``,
+so table-share's verbs and tests are untouched.
 
-``tscommon.glue`` re-exports it, so table-share's verbs and tests are untouched.
+The shape reason codes are registered here rather than by a domain's import side effect,
+because ``TerminalError`` validates its reason at the raise site and a table-builder Lambda
+never imports tscommon. Without the registration, every shape refusal on the refresh path
+would raise ``ValueError`` from inside the constructor and surface as a generic error — the
+exact refusals this module exists to state clearly would be the ones it could not state.
+Registration marks a code valid; the user-facing wording stays in each domain's table, and a
+caller that speaks a different vocabulary maps the codes at its own call site.
 
-WHY THE REASON CODES ARE REGISTERED HERE. ``TerminalError`` validates its reason against
-``cpcommon.messages`` AT THE RAISE SITE, and these four codes were registered only by
-``tscommon.messages``' import side effect. A table-builder Lambda attaches cpcommon +
-tbcommon and never imports tscommon — so without the registration below, every shape
-refusal on the refresh path would raise ``ValueError`` from inside the TerminalError
-constructor and surface as the generic ``unexpected_error``, i.e. the exact refusals this
-module exists to state clearly would be the ones it could not state. Registration marks a
-code VALID; the user-facing WORDING stays in each domain's own table (tscommon's for a
-share, tbcommon's for the mapped refresh codes — the refresh path maps these to its own
-vocabulary at its call site, SPEC-143 FR-004).
+Attributes:
+  _EXCLUDED_PARAMETERS: Source-only parameters never carried into a clone — Hive
+    bookkeeping, the implicit EXTERNAL flag that the recipient CREATE re-establishes, and
+    the portal's own creation marker, which inherited would have a copy claim it was built
+    by the call that built its source. Note ``portal.managed`` (a table property, dotted) is
+    not ``portal-managed`` (the Lake Formation tag on databases, hyphenated).
+  _SHAPE_REASONS: The refusals raised below, registered at import.
 """
 
 from . import config, messages
 from .errors import TerminalError
 
-# Source-only parameters never carried into the clone: Hive bookkeeping, the implicit
-# EXTERNAL flag (the recipient CREATE re-establishes it), and the portal's own creation
-# marker — inheriting it would have a copy claim it was built by the call that built its
-# SOURCE (SPEC-143 FR-007).
-#
-# NOTE 'portal.managed' (a table TBLPROPERTY, dotted) is NOT 'portal-managed' (the Lake
-# Formation tag on DATABASES, hyphenated — infra/modules/analytics/lakeformation.tf).
-# Unrelated jobs, one character apart.
 _EXCLUDED_PARAMETERS = frozenset({"transient_lastDdlTime", "EXTERNAL", "portal.managed"})
 
-# Shape refusals raised below. Registered at import so they are valid TerminalError
-# reasons in ANY control plane that imports this module — see the module docstring.
 _SHAPE_REASONS = (
     "source_is_view",
     "source_not_external",
@@ -47,12 +39,22 @@ messages.register_reasons(_SHAPE_REASONS)
 
 
 def _parse_location(location: str) -> dict:
-    """Resolve the table LOCATION to a single listable prefix in a known bucket.
+    """Resolves a table LOCATION to a single listable prefix in a known bucket.
 
-    The rule (architecture §12, nailed here): it must parse as s3://bucket/prefix, the
-    bucket must be one of the two LF-registered data buckets, and the prefix is normalized
-    to a trailing slash (an object-level LOCATION simply lists empty and fails as
-    source_empty downstream).
+    It must parse as ``s3://bucket/prefix``, the bucket must be one of the two
+    Lake-Formation-registered data buckets, and the prefix is normalised to a trailing
+    slash. An object-level LOCATION simply lists empty and fails as an empty source
+    downstream.
+
+    Args:
+      location: The raw LOCATION from the table's storage descriptor.
+
+    Returns:
+      ``{"bucket": …, "prefix": …}`` with the prefix slash-terminated.
+
+    Raises:
+      TerminalError: ``source_location_unsupported`` if the LOCATION does not parse or names
+        a bucket outside the portal's data buckets.
     """
     if not isinstance(location, str) or not location.startswith("s3://"):
         raise TerminalError("source_location_unsupported", f"unresolvable LOCATION {location!r}")
@@ -71,25 +73,29 @@ def _parse_location(location: str) -> dict:
 
 
 def clone_definition(table: dict) -> tuple[dict, dict, bool]:
-    """Validate the source shape and return (tableDefinition, location, partitioned).
+    """Validates a live table's shape and projects it into a reproducible definition.
 
-    Rejections are whole-request terminal failures: views (no data files), managed/
-    non-external tables, and catalog-partitioned sources (partition keys without
-    projection props — the clone would declare partitions with zero registered entries and
-    return nothing; copying partition metadata is deferred).
+    The refusal details are operator-facing and deliberately say nothing about sharing: two
+    arcs read them now, and a refresh failure explaining that a table "can't be shared" sends
+    its reader to the wrong control plane. The user-facing wording stays per-domain, where it
+    can say either.
 
-    The four reason codes read from table-share's vocabulary because that is where they
-    were written and table-share's behaviour is unchanged by the move. A caller that
-    speaks a different vocabulary MAPS them at its own call site (the refresh path's
-    ``cannot_refresh_*``, SPEC-143 FR-004) rather than parameterising them here: the stems
-    differ, so no prefix substitution produces both sets.
+    Args:
+      table: A Glue ``GetTable`` response's table dict.
+
+    Returns:
+      A ``(definition, location, partitioned)`` tuple — the projected definition, the parsed
+      bucket and prefix, and whether the source declares partition keys.
+
+    Raises:
+      TerminalError: ``source_is_view`` for a view, which has no data files;
+        ``source_not_external`` for a managed table, whose files are not the portal's to
+        re-read; ``source_catalog_partitioned`` for partition keys without projection
+        properties, where the clone would declare partitions with zero registered entries
+        and return nothing; ``source_location_unsupported`` for an unresolvable LOCATION.
     """
     name = table.get("Name", "?")
     table_type = table.get("TableType", "")
-    # The DETAILS are operator-facing and deliberately say nothing about sharing: two arcs
-    # read them now, and a refresh failure in logs/service=table-builder/ explaining that a
-    # table "can't be shared" sends its reader to the wrong control plane. The USER-facing
-    # wording stays per-domain (tscommon/tbcommon messages.py), where it can say either.
     if table_type == "VIRTUAL_VIEW":
         raise TerminalError("source_is_view", f"{name}: a view has no data files")
     if table_type != "EXTERNAL_TABLE":
@@ -114,6 +120,17 @@ def clone_definition(table: dict) -> tuple[dict, dict, bool]:
         )
 
     def _columns(cols):
+        """Projects Glue column dicts to the portal's lowercase-keyed shape.
+
+        Args:
+          cols: Glue column dicts.
+
+        Returns:
+          A list of ``{name, type}`` dicts, carrying ``comment`` only when set.
+
+        Raises:
+          None.
+        """
         return [
             {"name": c.get("Name"), "type": c.get("Type"), **({"comment": c["Comment"]} if c.get("Comment") else {})}
             for c in cols

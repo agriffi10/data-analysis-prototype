@@ -1,19 +1,20 @@
-"""data-quality drop-temp-tables — cleanup, reached on EVERY path.
+"""data-quality drop-temp-tables — cleanup, reached on every path.
 
-The state machine invokes this twice over: once on the success path, and once as
-``DropTempTablesOnFailure`` from every verb's Catch (a state has one ``Next``, hence the
-twin). Without the failure-path invocation, every failed request would LEAK a temp table
-into the user's own Glue database, where it shows up in the Query workspace's schema rail
-and eventually collides with a real table name.
+The state machine invokes this twice over: once on the success path, and once from every verb's
+Catch, since a state has one successor. Without the failure-path invocation, every failed request
+would leak a temp table into the user's own Glue database, where it shows up in the Query
+workspace's schema rail and eventually collides with a real table name.
 
-Two properties make it safe to call from anywhere:
+Two properties make it safe to call from anywhere. It touches Glue only — no object-delete
+permission is granted anywhere in this arc, so reaching this verb from a validator failure, where
+the body-supplied location has not been authorized yet, cannot delete anything of the user's. And
+it is idempotent and tolerant of never having had anything to do: the drop is conditional, and a
+request that failed before the tables were created carries no table names at all, which is a
+successful no-op rather than an error.
 
-  - **It touches GLUE ONLY.** No ``s3:DeleteObject`` is granted anywhere in this arc, so
-    reaching this verb from a validator failure — where the body-supplied location has not
-    been authorized yet — cannot delete anything of the user's.
-  - **It is idempotent, and tolerant of never having had anything to do.** ``DROP TABLE IF
-    EXISTS`` makes a repeat a no-op, and a request that failed before create-temp-tables
-    ran carries no table names at all, which is a successful no-op rather than an error.
+The service name is the control plane, not the function: one data-quality run is nine
+invocations, and they are only one queryable set if they share it. The per-verb identity rides as
+the ``verb`` field.
 """
 
 import logging
@@ -25,27 +26,35 @@ from dqcommon import messages, notify, sql
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
-# invocations, and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
 observability.init(service="data-quality")
 
 
 @observability.step("drop-table")
 def _drop(database: str, table: str, output_location: str) -> bool:
-    """Drop one table. Returns True if the DROP ran, False if it failed (logged).
+    """Drops one temp table, reporting rather than raising on failure.
 
-    CLEANUP NEVER RAISES — and that is a deliberate trade, not an oversight.
+    Cleanup never raises, and that is a deliberate trade. On the failure path, raising would
+    replace the reason the user is actually notified about with a cleanup error. On the success
+    path it is worse: the report is already written and the check genuinely succeeded, so a Glue
+    hiccup here would tell the user their check failed while their report sits in S3.
 
-    On the FAILURE path, raising would replace the reason the user is actually notified
-    about with a cleanup error (FR-005). On the SUCCESS path it is worse: the report is
-    already written and the check genuinely succeeded, so a Glue hiccup here would tell
-    the user their check failed while their report sits in S3. Neither is worth it.
+    The cost of swallowing is a leaked temp table. It is bounded to one table in one database,
+    observable in the log at error level, and recoverable by hand — strictly better than either
+    failure mode above. The outcome is threaded onto the state too, so an operator can see it in
+    the execution history without reading CloudWatch, and the leak is recorded at warning rather
+    than error because the request did not fail and must not read as though it did. The event
+    names the table, because the recovery is a human running a drop by hand.
 
-    The cost of swallowing is a leaked temp table. It is bounded (one table, in one
-    database), observable (this log line, at ERROR), and recoverable by hand — strictly
-    better than either failure mode above. The outcome is also threaded onto the state so
-    an operator can see it in the execution history without reading CloudWatch.
+    Args:
+      database: The database the table lives in.
+      table: The table to drop.
+      output_location: The ``s3://`` results prefix for the DDL statement.
+
+    Returns:
+      True when the drop ran, False when it failed.
+
+    Raises:
+      None.
     """
     try:
         athena.run_ddl(
@@ -58,15 +67,12 @@ def _drop(database: str, table: str, output_location: str) -> bool:
         )
         logger.info("dropped %s.%s", database, table)
         return True
-    except Exception as exc:  # cleanup is best-effort by design (see docstring)
+    except Exception as exc:
         logger.exception(
             "LEAKED TEMP TABLE: could not drop %s.%s — it must be removed by hand",
             database,
             table,
         )
-        # WARNING, not error: the request did not fail and must not read as though it did
-        # (SPEC-132 FR-003). What it costs is one leaked table, by design — so the event says
-        # which one, because the recovery is a human running a DROP by hand.
         observability.warning(
             "temp table leaked",
             database=database,
@@ -77,14 +83,28 @@ def _drop(database: str, table: str, output_location: str) -> bool:
 
 
 def _cleanup(event: dict) -> dict:
+    """Drops whichever temp tables the run created and threads the outcome onward.
+
+    A run with no database or table names was reached before the tables were created — the
+    overwhelmingly common failure case, a validator or inspection failure. Nothing to do is the
+    correct outcome there, so it is recorded as a clean no-op. The dropped and failed tables are
+    named rather than only counted, because recovering a leaked table means running a drop by
+    hand and a count does not say which one.
+
+    Args:
+      event: The task input, carrying the database and any temp table names.
+
+    Returns:
+      The event with the cleanup outcome attached.
+
+    Raises:
+      None.
+    """
     database = event.get("database")
     tables = [name for name in (event.get("tempTable"), event.get("tempRawTable")) if name]
 
     out = dict(event)
     if not database or not tables:
-        # Reached before create-temp-tables ran — the overwhelmingly common failure case
-        # (a validator or inspection failure). Nothing to do IS the correct outcome here,
-        # so it is logged at INFO and reported as a clean no-op.
         logger.info(
             "nothing to drop for requestId=%s (database=%r, tables=%s)",
             event.get("requestId"),
@@ -107,8 +127,6 @@ def _cleanup(event: dict) -> dict:
         "cleaned up",
         database=database,
         tables=len(tables),
-        # Named, not just counted: recovering a leaked table means running a DROP by hand,
-        # and a count does not say which one.
         dropped=dropped,
         failed=failed,
         skipped=False,
@@ -117,28 +135,34 @@ def _cleanup(event: dict) -> dict:
     return out
 
 
-# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
-# catches on its way out, so if it were outermost the span would close status="ok" on an
-# invocation that actually failed and notified. Outermost traced sees the exception the
-# handler really raised.
 @observability.traced("drop-temp-tables")
 @notify.notifies_on_failure("drop-temp-tables")
 def handler(event, context) -> dict:
-    """Drop both temp tables (if any) and thread the cleanup outcome onward.
+    """Drops both temp tables, if any, and threads the cleanup outcome onward.
 
-    THREE LAYERS KEEP CLEANUP FROM EVER MISREPORTING AN OUTCOME, because this verb runs on
-    both paths and a naive version gets each one wrong in a different way:
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way out,
+    so if it were outermost the span would close as successful on an invocation that actually
+    failed and notified.
 
-    1. ``_drop`` swallows a failed DROP outright, so the ordinary case — Glue throttling,
-       an AccessDenied, a table that vanished — never becomes a terminal at all.
-    2. On the FAILURE path, anything that does escape collapses into the real cause: it was
-       emitted seconds earlier under the same ``{requestId}:failure`` dedup id (pinned by
-       ``test_a_cleanup_failure_cannot_mask_the_real_reason``).
-    3. On the SUCCESS path there is no earlier failure to collapse into, so notify-failure
-       suppresses instead: ``RecordFailure`` carries ``$.reportKey``, and a non-null value
-       there means the report was written and the user was already told. Only a
-       LAMBDA-LEVEL failure of this function — an import error, a timeout — can reach that
-       point, which is exactly why no verb-side guard could have covered it.
+    Three layers keep cleanup from ever misrepresenting an outcome, because this verb runs on both
+    paths and a naive version gets each one wrong in a different way. The per-table drop swallows
+    a failure outright, so the ordinary case — throttling, a denial, a table that vanished — never
+    becomes a terminal at all. On the failure path, anything that does escape collapses into the
+    real cause, which was emitted seconds earlier under the same dedup id, pinned by test. On the
+    success path there is no earlier failure to collapse into, so the notify verb suppresses
+    instead: the recorded failure carries the report key, and a non-null value there means the
+    report was written and the user was already told. Only a Lambda-level failure of this function
+    can reach that point, which is exactly why no verb-side guard could have covered it.
+
+    Args:
+      event: The task input.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the cleanup outcome attached.
+
+    Raises:
+      None from the drops themselves; a Lambda-level failure is caught by the state machine.
     """
     request = dict(event) if isinstance(event, dict) else {}
     return _cleanup(request)

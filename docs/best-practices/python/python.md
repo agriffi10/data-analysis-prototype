@@ -160,8 +160,34 @@ Close what you open; avoid mutable module/class state.
 ## §14 Docstrings & comments
 Docstrings describe the interface and are the **primary source of context**; comments explain the non-obvious and should be rare.
 
+> **`lambdas/` is stricter, and the rule there is absolute (2026-08-06).** No inline comments at
+> all — the only `#` permitted is a lint directive (`# noqa: <rule>`, `# type: ignore[<code>]`).
+> **Every** module, class, method and function, `_private` ones included, carries a docstring with
+> **all three sections written out**, using `None.` where a section is empty:
+>
+> ```python
+> def connect_to_next_port(self, minimum: int) -> int:
+>     """Connects to the next available port.
+>
+>     Args:
+>       minimum: A port value greater or equal to 1024.
+>
+>     Returns:
+>       The new minimum port.
+>
+>     Raises:
+>       ConnectionError: If no available port is found.
+>     """
+> ```
+>
+> The first line says what the method does **and its context**, in the present tense. An optional
+> paragraph after it carries the non-obvious *why* — that paragraph is where a comment's content
+> goes. Module-level constants are documented in the module docstring's `Attributes:` block.
+> Reasoning longer than a paragraph belongs in `docs/lambda-rationale.md` behind a pointer, not in
+> the file. Sections use **2-space** indentation under the header.
+
 - ✅ Triple-double-quoted `"""` docstrings (PEP 257) for every public module, function, class, and method — plus any nontrivial or non-obvious function. First line a summary ending in a period, ≤ the docstring line limit; multi-line = summary, blank line, details, closing `"""` on its own line. 🔴 No docstring on a `lambda`. Enough info to call it without reading the body.
-- ✅ Use the section format when it adds info: **`Args:`** (each param + description; note types if not annotated), **`Returns:`** (or **`Yields:`** for generators; omit if it only returns `None` or the summary already says it), **`Raises:`** (exceptions relevant to the interface).
+- ✅ Use the section format when it adds info: **`Args:`** (each param + description; note types if not annotated), **`Returns:`** (or **`Yields:`** for generators; omit if it only returns `None` or the summary already says it), **`Raises:`** (exceptions relevant to the interface). Under `lambdas/` these are **not optional** — see the block above.
 - ✅ Class docstring below the `class` line summarizing what an **instance represents** (an `Exception` subclass says what it *represents*, not when it's raised); document public attributes in an `Attributes:` section.
 - ✅ **When code needs explaining, prefer expanding the docstring over adding comments.** Docstrings are discoverable (`help()`, hover, generated docs); scattered comments are not.
 - ✅ **Comments explain *why*, not *what*** — tricky logic, non-obvious decisions; assume the reader knows Python. Complete sentences, proper capitalization/punctuation, kept in sync with the code. 🔴 No verbose or paragraph-length comments, and never a comment that just narrates *what* the next line does. 🔴 Never leave a comment that contradicts the code. Block comments at the code's indent (`# ` prefix); inline comments ≥2 spaces from code, used sparingly.

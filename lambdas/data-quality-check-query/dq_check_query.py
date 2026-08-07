@@ -1,19 +1,31 @@
-"""data-quality check-query — one GetQueryExecution per query, no waiting.
+"""data-quality check-query — one describe per query, with no waiting.
 
-The read half of the poll loop. The Step Function does the waiting
-(``StartProfileQuery -> WaitForQuery(30s) -> CheckQuery -> Choice``), and this verb only
-reports. THE POLL IS NOT IN THIS LAMBDA, and that is the whole reason the arc works:
-table-builder's execute-ddl polls Athena inside a 300-second Lambda, which is fine for a
-CREATE TABLE returning in seconds and fatal for a profiling query over 250 GB against
-Lambda's hard 900-second ceiling. A Standard Step Functions execution can wait for a year.
+The read half of the poll loop. The Step Function does the waiting and this verb only reports.
+The poll is not in this Lambda, and that is the whole reason the arc works: polling Athena inside
+a Lambda is fine for a create returning in seconds and fatal for a profiling query over hundreds
+of gigabytes against Lambda's hard ceiling. A Standard execution can wait for a year.
 
-WHERE THE THREE QUERIES DIVERGE (FR-004):
+Where the three queries diverge: a failed or cancelled profile query is a terminal, and one
+killed by the account's query-timeout quota is its own terminal. A failed ragged or duplicates
+query degrades that figure to not-computed with a reason, and the request still succeeds — a
+ragged-row count is not worth losing the null ratios, the type consistency and the row counts
+over.
 
-  - **profile** — FAILED/CANCELLED is a TERMINAL ``query_failed``; a query killed by the
-    account's DML query-timeout quota is a terminal ``query_timeout``.
-  - **ragged** and **duplicates** — failure or timeout DEGRADES that figure to
-    ``not_computed`` with a reason, and the request still SUCCEEDS. A ragged-row count is
-    not worth losing the null ratios, the type consistency and the row counts over.
+The service name is the control plane, not the function: one data-quality run is nine
+invocations, and they are only one queryable set if they share it. The per-verb identity rides as
+the ``verb`` field.
+
+Attributes:
+  PENDING: The aggregate value the state machine's choice loops on.
+  SETTLED: The aggregate value that lets it move on.
+  _PENDING_STATES: Athena states meaning the query is still going.
+  _FAILED_STATES: Athena states meaning it will not finish.
+  _DEGRADABLE: Query keys whose failure degrades the report instead of ending the request.
+  _TIMEOUT_MARKERS: Athena's wording when the account-level query-timeout quota kills a query.
+    That quota is an account and region service quota, not a workgroup setting: there is no
+    workgroup timeout field to raise and no config value to look for, and the limit moves only via
+    a support request. Anyone hunting for a Terraform attribute is looking for something that does
+    not exist; the infra module carries the same warning beside the workgroup.
 """
 
 import logging
@@ -25,51 +37,59 @@ from dqcommon import messages, notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
-# invocations, and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
 observability.init(service="data-quality")
 
-#: The state-machine Choice loops while this is RUNNING (see ``_aggregate``).
 PENDING = "RUNNING"
 SETTLED = "SUCCEEDED"
 
 _PENDING_STATES = frozenset({"QUEUED", "RUNNING"})
 _FAILED_STATES = frozenset({"FAILED", "CANCELLED"})
 
-#: Query keys whose failure degrades the report instead of ending the request.
 _DEGRADABLE = ("ragged", "duplicates")
 
-# Athena's wording when the account-level DML query-timeout Service Quota kills a query.
-#
-# THE QUOTA IS AN ACCOUNT/REGION SERVICE QUOTA, NOT A WORKGROUP SETTING. There is no
-# workgroup timeout field to raise and no config value to look for — the limit (30 minutes
-# by default, raisable to 240) moves only via a support request. Anyone hunting for a
-# Terraform attribute is looking for something that does not exist; the infra module's
-# athena.tf carries the same warning beside the workgroup.
 _TIMEOUT_MARKERS = ("timeout", "timed out", "exceeded the limit")
 
 
 def _is_timeout(reason) -> bool:
-    """True when Athena's raw reason indicates the DML query-timeout quota fired.
+    """Reports whether Athena's raw reason indicates the query-timeout quota fired.
 
-    Matched on TEXT because Athena reports the quota kill as a FAILED query with a reason
-    string rather than a distinct state. The consequence of a miss is mild and one-way:
-    the user gets ``query_failed`` ("contact the Administrator") instead of
-    ``query_timeout`` ("that source is too large") — a less useful message, never a wrong
-    outcome, and the raw reason is in the logs either way.
+    Matched on text because Athena reports the quota kill as a failed query with a reason string
+    rather than a distinct state. The consequence of a miss is mild and one-way: the user gets the
+    generic failure message instead of the size-specific one — less useful, never a wrong outcome,
+    and the raw reason is in the logs either way.
+
+    Args:
+      reason: Athena's raw state-change reason, or None.
+
+    Returns:
+      True when any known marker appears.
+
+    Raises:
+      None.
     """
     lowered = (reason or "").lower()
     return any(marker in lowered for marker in _TIMEOUT_MARKERS)
 
 
 def _describe(block):
-    """Refresh one query block from Athena, leaving already-settled blocks alone."""
+    """Refreshes one query block from Athena, leaving already-settled blocks alone.
+
+    A block that has succeeded, or already degraded, is returned untouched: re-describing would
+    burn an API call per poll, and re-deciding a degraded figure could flip it back.
+
+    Args:
+      block: The state's block for one query, or None when the query was never submitted.
+
+    Returns:
+      The refreshed block, or the input unchanged.
+
+    Raises:
+      TerminalError: When the execution cannot be described at all.
+      TransientError: On a retryable Athena fault.
+    """
     if not block or not block.get("queryExecutionId"):
         return block
     if block.get("status") not in _PENDING_STATES:
-        # Already SUCCEEDED, or already degraded to not_computed. Re-describing would burn
-        # an API call per poll, and re-deciding a not_computed could flip it back.
         return block
 
     described = athena.describe_query(
@@ -82,10 +102,20 @@ def _describe(block):
 
 
 def _degrade(name, block):
-    """Turn a failed ragged/duplicates query into a not_computed figure.
+    """Turns a failed ragged or duplicates query into a not-computed figure.
 
-    The raw Athena reason is kept ON THE BLOCK for SPEC-112 to turn into report wording
-    and for the execution history. It is not a user-facing string (SPEC-106 FR-008).
+    The raw Athena reason is kept on the block for the report to turn into wording and for the
+    execution history. It is not a user-facing string.
+
+    Args:
+      name: The query's name, for the log line.
+      block: The failed block.
+
+    Returns:
+      The degraded block.
+
+    Raises:
+      None.
     """
     logger.warning(
         "%s query %s did not complete (%s) — degrading to not_computed",
@@ -100,55 +130,89 @@ def _degrade(name, block):
 
 
 def _check_profile(block):
-    """Raise the terminal for a failed profile query. Its failure ends the request."""
+    """Raises the terminal for a failed profile query, whose failure ends the request.
+
+    The friendly message carries no raw Athena text — the state-change reason stays in CloudWatch
+    and the execution history. It goes in the terminal's detail, which is exactly where that
+    boundary sits: recorded for an operator, never shown to a user.
+
+    Args:
+      block: The profile query's block.
+
+    Returns:
+      None, when the query has not failed.
+
+    Raises:
+      TerminalError: ``query_timeout`` when the quota fired, ``query_failed`` otherwise.
+    """
     status = (block or {}).get("status")
     if status not in _FAILED_STATES:
         return
 
     reason = block.get("reason")
-    # The friendly message carries NO raw Athena text — the StateChangeReason stays in
-    # CloudWatch and the SFN execution history. It goes in the TerminalError DETAIL, which
-    # is exactly where that boundary sits: recorded for an operator, never shown to a user
-    # (SPEC-106 FR-008; dqcommon.messages owns the wording they do see).
     if _is_timeout(reason):
         raise TerminalError(messages.QUERY_TIMEOUT, f"profile query timed out: {reason}")
     raise TerminalError(messages.QUERY_FAILED, f"profile query {status}: {reason}")
 
 
 def _aggregate(blocks):
-    """Collapse the three statuses into the ONE value the Choice branches on.
+    """Collapses the three statuses into the one value the state machine's choice branches on.
 
-    WHY AN AGGREGATE RATHER THAN THREE CHOICE RULES: ``ragged`` is null for JSON/Parquet,
-    and a Choice rule reading ``$.ragged.status`` on a null raises States.Runtime — which
-    a Choice state CANNOT Catch, so the execution would die without reaching NotifyFailure
-    and the user would be told nothing at all, the worst failure mode in this pipeline.
-    Step Functions does not document short-circuit evaluation of ``And``, so an ``IsNull``
-    guard is not reliably safe either. The "is anything still running" decision is made
-    here, in Python, where all three statuses already are and a null is simply a null.
+    An aggregate rather than three choice rules, because the ragged block is null for formats that
+    are not line-delimited, and a choice rule reading through a null raises a runtime error a
+    choice state cannot catch — so the execution would die without reaching the notify state and
+    the user would be told nothing at all, the worst failure mode in this pipeline. Step Functions
+    does not document short-circuit evaluation of its boolean combinators, so a null guard is not
+    reliably safe either. The "is anything still running" decision is made here, in Python, where
+    all three statuses already are and a null is simply a null.
+
+    Args:
+      blocks: The three query blocks, any of which may be None.
+
+    Returns:
+      The pending or settled value.
+
+    Raises:
+      None.
     """
     return PENDING if any(b and b.get("status") in _PENDING_STATES for b in blocks) else SETTLED
 
 
 def _settled(status) -> bool:
-    """True once a query will never be described again — the only time worth narrating."""
+    """Reports whether a query will never be described again.
+
+    Args:
+      status: The query's current status.
+
+    Returns:
+      True once the query has reached a state the poll will not revisit.
+
+    Raises:
+      None.
+    """
     return bool(status) and status not in _PENDING_STATES
 
 
 def _narrate(name, before, after) -> None:
-    """Emit AT MOST ONE event, and only when this poll is the one that settled the query.
+    """Emits at most one event, and only when this poll is the one that settled the query.
 
-    THE POLL IS THE HAZARD, not the query (SPEC-132 FR-005). This verb is invoked from a
-    30-second Wait loop for as long as the profiling query runs — minutes to tens of minutes
-    by design, since the poll was moved into the state machine to escape Lambda's 900-second
-    ceiling. Anything said on every poll is multiplied by fifty, and fifty copies of "still
-    running" is not information: the span.start/span.end pair already records that a poll
-    happened.
+    The poll is the hazard, not the query. This verb is invoked from a wait loop for as long as
+    the profiling query runs — minutes to tens of minutes by design, since the poll was moved into
+    the state machine to escape Lambda's ceiling. Anything said on every poll is multiplied many
+    times over, and repeated copies of "still running" are not information: the span pair already
+    records that a poll happened. So a transition into a pending state says nothing either, and an
+    already-settled block cannot re-emit because the describe step stops describing it.
 
-    So a transition into a PENDING state (QUEUED -> RUNNING) says nothing either, and an
-    already-settled block cannot re-emit because :func:`_describe` stops describing it.
+    Args:
+      name: The query's name.
+      before: The block as it was before this poll.
+      after: The block as it is now.
 
-    ``reason`` is Athena's ``StateChangeReason`` — permitted, and the thing an operator
-    actually needs (FR-004). It is schema-and-service text, never a result row.
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     before_status = (before or {}).get("status")
     after_status = (after or {}).get("status")
@@ -163,8 +227,6 @@ def _narrate(name, before, after) -> None:
         "reason": reason,
     }
     if after_status == "not_computed":
-        # Degraded, not failed: the request still succeeds, and losing a ragged-row count is
-        # not worth losing the null ratios and row counts over.
         observability.warning("query degraded", **fields)
     elif after_status in _FAILED_STATES:
         if name == "profile" and _is_timeout(reason):
@@ -177,11 +239,21 @@ def _narrate(name, before, after) -> None:
 
 @observability.step("describe-queries")
 def _describe_all(event):
-    """Refresh all three blocks as ONE step.
+    """Refreshes all three blocks as one step.
 
-    One child span per invocation, not one per query: three spans on a poll that repeats
-    fifty times is a hundred and fifty extra events for a duration an operator reads as a
-    single number anyway — "how long did Athena take to answer this poll".
+    One child span per invocation, not one per query: three spans on a poll that repeats many
+    times is a large number of extra events for a duration an operator reads as a single number
+    anyway — how long Athena took to answer this poll.
+
+    Args:
+      event: The task input, carrying the three query blocks.
+
+    Returns:
+      The three refreshed blocks.
+
+    Raises:
+      TerminalError: When an execution cannot be described at all.
+      TransientError: On a retryable Athena fault.
     """
     return {
         "profile": _describe(event.get("profile")),
@@ -191,6 +263,18 @@ def _describe_all(event):
 
 
 def _check(event):
+    """Refreshes every query, degrades the degradable ones, and aggregates the verdict.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with the refreshed blocks and the aggregate status attached.
+
+    Raises:
+      TerminalError: ``query_failed`` or ``query_timeout`` when the profile query failed.
+      TransientError: On a retryable Athena fault.
+    """
     out = dict(event)
     described = _describe_all(event)
 
@@ -217,12 +301,24 @@ def _check(event):
     return out
 
 
-# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
-# catches on its way out, so if it were outermost the span would close status="ok" on an
-# invocation that actually failed and notified. Outermost traced sees the exception the
-# handler really raised.
 @observability.traced("check-query")
 @notify.notifies_on_failure("check-query")
 def handler(event, context) -> dict:
-    """Report every query's status; never wait, sleep, or loop."""
+    """Reports every query's status. Never waits, sleeps or loops.
+
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way out,
+    so if it were outermost the span would close as successful on an invocation that actually
+    failed and notified.
+
+    Args:
+      event: The task input, carrying the three query blocks.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the refreshed blocks and the aggregate status attached.
+
+    Raises:
+      TerminalError: ``query_failed`` or ``query_timeout`` when the profile query failed.
+      TransientError: On a retryable Athena fault.
+    """
     return _check(dict(event) if isinstance(event, dict) else {})

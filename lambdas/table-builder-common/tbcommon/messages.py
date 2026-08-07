@@ -1,11 +1,25 @@
 """User-facing notification text for table-builder outcomes.
 
-One place maps each stable terminal reason code to friendly text addressed to the
-actor, so every verb + its tests agree on the wording. Kept ASCII (no smart quotes).
+One place maps each stable terminal reason code to friendly text addressed to the actor, so
+every verb and its tests agree on the wording. Kept ASCII — no smart quotes. This module
+keeps its own bespoke ``failure_message`` wording rather than using a ``cpcommon`` resolver,
+and registers its reason codes with cpcommon at import so they pass ``TerminalError``'s
+raise-time validation.
 
-This module keeps its own bespoke ``failure_message`` wording (SPEC-107 FR-002 —
-unchanged); it registers the table-builder domain reason codes with cpcommon at import
-so they pass ``TerminalError``'s raise-time validation (SPEC-107 FR-005).
+Attributes:
+  _ACCESS_DENIED: Reasons meaning "not allowed", where no table name is surfaced because the
+    request may not have got far enough to trust one.
+  _BODIES: Reason code to the clause following ``Couldn't create table "{name}": ``. The
+    DDL-failure reasons carry no raw Athena text — that stays in logs and the SFN record for
+    operators, never in the actor's notification. The refresh reasons read correctly under
+    either verb because ``failure_message`` picks the prefix from the request's mode.
+  _MARKERS: Every marker any body declares, read off the bodies rather than listed, so a new
+    one is blanked-when-absent automatically instead of shipping literally the first time a
+    caller forgets it. The pattern matches any brace group rather than lowercase words,
+    because the surrounding code is camelCase and a camelCase marker would otherwise be
+    missed by the discovery and rendered raw — the exact failure this exists to prevent.
+  MAX_NAMED_COLUMNS: Longest list of column names named in a body or carried in a link, so
+    neither a notification nor a URL is unbounded by a user's schema.
 """
 
 import json
@@ -13,14 +27,8 @@ import re
 
 from cpcommon import messages as _cpmessages
 
-# Reasons that mean "not allowed" — no table name is surfaced (the request may not
-# even have got far enough to trust one).
 _ACCESS_DENIED = frozenset({"unauthorized", "forbidden"})
 
-# reason -> the clause after 'Couldn't create table "{name}": '. {database} is
-# filled per-call where relevant. The DDL-failure reasons carry NO raw Athena
-# StateChangeReason (SPEC-106 FR-008) — that detail stays in logs + the SFN
-# terminal record for operators, never in the actor's notification.
 _BODIES = {
     "invalid_table_name": "the name isn't a valid table name.",
     "invalid_partition_keys": "the partition keys aren't valid (check names, types, and ranges).",
@@ -35,8 +43,6 @@ _BODIES = {
     "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",
     "ddl_timeout": "creating the table failed. Please try again or contact the Administrator.",
     "malformed_event": "the request was malformed. Please try again.",
-    # Refresh-path reasons (SPEC-143/144). failure_message() picks the "create"/"refresh"
-    # prefix from the request's mode, so these read correctly under either.
     "invalid_mode": "the request was malformed. Please try again.",
     "partition_keys_not_refreshable": (
         "a refresh keeps the table's existing partition keys - to change them, drop the "
@@ -54,52 +60,40 @@ _BODIES = {
     ),
     "definition_too_large": "that table has too many columns to refresh.",
     "format_changed": "the folder's file format no longer matches the table's - build a new table instead.",
-    # SPEC-144. `columns_removed` is the only body that reads a token, and it is the
-    # WARNING itself: nothing has changed, and the specific names are what makes the
-    # opt-in an informed one rather than a dare.
     "columns_removed": (
         "these columns are no longer in the data and would be removed: {removed}. Nothing "
         "was changed - refresh again and confirm the removal to apply it."
     ),
     "removals_flag_not_applicable": "the request was malformed. Please try again.",
-    # SPEC-149. The ONE failure wording the refresh apply needs, because the apply is now a
-    # single in-place glue:UpdateTable: it either replaced the definition or it did not, and
-    # a failure leaves the table exactly as it was. SPEC-144's TWO rebuild reasons are GONE —
-    # the second of them described a state of the world (the old table removed, the new one
-    # not created) that this path cannot reach, and keeping it would be the message layer's
-    # version of dead code.
     "update_failed": "the table couldn't be updated. Nothing was changed. Please try again or contact the Administrator.",
-    # Generic catch-all for an unexpected (non-terminal) verb exception — emitted by
-    # notify.notifies_on_failure so an unexpected failure still reaches the actor.
     "unexpected_error": "something went wrong. Please try again.",
 }
 
 
-#: Every `{marker}` any body declares, read off the bodies rather than listed, so a new one
-#: is blanked-when-absent automatically instead of shipping literally the first time a
-#: caller forgets it. The pattern matches ANY brace group, not `[a-z_]+`: the surrounding
-#: code is camelCase throughout, so a `{removedCount}` would otherwise be missed by the
-#: discovery and rendered raw to the user — the exact failure this exists to prevent.
 _MARKERS = frozenset(re.findall(r"\{([^{}]*)\}", " ".join(_BODIES.values())))
 
-#: Longest list of column names named in a body or carried in a link, so neither a
-#: notification nor a URL is unbounded by a user's schema.
 MAX_NAMED_COLUMNS = 20
 
 
 def removed_tokens(names: list[str]) -> dict:
-    """The tokens a ``columns_removed`` TerminalError carries.
+    """Builds both halves of the tokens a columns-removed refusal carries.
 
-    Both halves are built HERE so the cap and the encoding cannot drift apart: `removed` is
-    the display string the body renders (capped, with an "and N more" tail), and
-    `removedNames` is the machine-readable list the notification link is built from.
+    Built together so the cap and the encoding cannot drift apart. Two separate values rather
+    than one re-split string, because splitting the display string back apart is wrong twice
+    over: the "and N more" tail is not a column name, and column names are not catalog-safe.
+    They come verbatim from a file header or a Glue column and are never validated, so one
+    containing a comma, a space or an ampersand would be silently mangled. JSON is the
+    separator-free encoding that makes the round trip exact.
 
-    Two separate values rather than one re-split string, because splitting the display
-    string back apart is wrong twice over — the tail is not a column name, and **column
-    names are not catalog-safe**. They come verbatim from a file header or a Glue column
-    (`infer_schema` and `load_table_definition` never validate them), so one containing a
-    comma, a space or an ampersand would be silently mangled. JSON is the separator-free
-    encoding that makes the round trip exact.
+    Args:
+      names: Every column name that would be removed.
+
+    Returns:
+      ``{"removed": …, "removedNames": …}`` — the capped display string the message body
+      renders, and the JSON list the notification link is built from.
+
+    Raises:
+      None.
     """
     shown = list(names)[:MAX_NAMED_COLUMNS]
     display = ", ".join(shown)
@@ -116,26 +110,36 @@ def failure_message(
     mode: str = "create",
     tokens: dict | None = None,
 ) -> str:
-    """Map a terminal reason (+ context) to the message the actor sees.
+    """Maps a terminal reason and its context to the message the actor sees.
 
-    An unknown reason falls back to a generic couldn't-{verb} line rather than leaking the
-    code. No raw AWS/Athena text is ever interpolated (SPEC-106 FR-008).
+    Substitution is ``str.replace``, never ``str.format``, and every declared marker is
+    substituted rather than only the supplied ones — an absent token must leave a sentence
+    rather than a literal brace group on the user's screen. The trusted context wins over the
+    payload: tokens come from a raise site and must not shadow the database this layer was
+    told about. No raw AWS or Athena text is ever interpolated.
 
-    ``mode`` picks the verb. It reaches the access-denied short-circuit too, and that is
-    not a detail: `forbidden` is the ORDINARY outcome of refreshing from a stale schema
-    rail, so a create-only line would tell a user they can't *create* a table they were
-    trying to refresh — about the most confusing thing this layer could say.
+    Args:
+      reason: The terminal reason code. An unknown one falls back to a generic line rather
+        than leaking the code.
+      table_name: The table the request names, if one is trusted yet.
+      database: The database the request names.
+      mode: ``create`` or ``refresh``, picking the verb. It reaches the access-denied
+        short-circuit too, and that is not a detail — ``forbidden`` is the ordinary outcome of
+        refreshing from a stale schema rail, so a create-only line would tell a user they
+        cannot create a table they were trying to refresh.
+      tokens: Optional marker values from the raise site.
+
+    Returns:
+      The full actor-facing sentence.
+
+    Raises:
+      None.
     """
     verb = "refresh" if mode == "refresh" else "create"
     if reason in _ACCESS_DENIED:
         return f"You don't have access to {verb} a table here."
     name = table_name or "your table"
     body = _BODIES.get(reason, "something went wrong.")
-    # str.replace, never str.format (SPEC-083 FR-005). Every DECLARED marker is
-    # substituted, not just the supplied ones — an absent token must leave a sentence
-    # rather than a literal "{removed}" on the user's screen.
-    # The trusted context wins over the payload: tokens come from a raise site and must
-    # not be able to shadow the database this layer was told about.
     values = {**(tokens or {}), "database": database}
     for marker in _MARKERS:
         body = body.replace("{" + marker + "}", values.get(marker) or "")
@@ -143,6 +147,18 @@ def failure_message(
 
 
 def _plural(count: int, noun: str) -> str:
+    """Renders a count with its noun, pluralised by a trailing s.
+
+    Args:
+      count: The number to render.
+      noun: The singular noun.
+
+    Returns:
+      The count and noun as one string.
+
+    Raises:
+      None.
+    """
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
@@ -154,12 +170,26 @@ def success_message(
     retyped: int = 0,
     removed: int = 0,
 ) -> str:
-    """The message emitted on a successful terminal outcome.
+    """Composes the message emitted on a successful terminal outcome.
 
-    ``unchanged`` reads differently from ``refreshed`` on purpose (FR-002): a refresh that
-    found nothing must not look like one that changed something, or a user concludes the
-    button is broken — and the counts are what make "it worked" checkable rather than
-    merely reassuring.
+    An unchanged refresh reads differently from one that changed something on purpose: a
+    refresh that found nothing must not look like one that did, or a user concludes the button
+    is broken — and the counts are what make "it worked" checkable rather than merely
+    reassuring.
+
+    Args:
+      table_name: The table the request named.
+      database: The database it lives in.
+      status: ``created``, ``refreshed`` or ``unchanged``.
+      added: Columns added by a refresh.
+      retyped: Columns retyped by a refresh.
+      removed: Columns removed by a refresh.
+
+    Returns:
+      The full actor-facing sentence.
+
+    Raises:
+      None.
     """
     if status == "unchanged":
         return f'Table "{table_name}" is already up to date - no schema changes were found.'
@@ -176,7 +206,4 @@ def success_message(
     return f'Table "{table_name}" is ready to query in "{database}".'
 
 
-# Register the domain reason codes (incl. the base codes redundantly — idempotent) so a
-# TerminalError raised with any of them passes cpcommon's raise-time check (FR-005).
 _cpmessages.register_reasons(_BODIES)
-
