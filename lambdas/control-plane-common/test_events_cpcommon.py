@@ -88,7 +88,12 @@ def test_the_exc_factory_reports_the_json_error_verbatim():
             [{"body": "{oops"}], reason=events.MALFORMED, exc=_AuthorizationError
         )
     except _AuthorizationError as exc:
-        assert str(exc).startswith("body is not valid JSON: ")
+        # The interpolated decoder text IS the byte-identity this test is named for: dropping
+        # `{err}` and keeping the prefix left the whole suite green.
+        try:
+            json.loads("{oops")
+        except ValueError as expected:
+            assert str(exc) == f"body is not valid JSON: {expected}"
     else:
         raise AssertionError("expected _AuthorizationError")
 

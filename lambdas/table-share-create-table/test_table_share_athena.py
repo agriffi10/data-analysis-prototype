@@ -22,6 +22,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import pytest
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
 from table_share_create_table import athena_mod
@@ -70,6 +71,21 @@ class _FakeClock:
 
     def sleep(self, seconds):
         self.t += seconds
+
+
+@pytest.fixture(autouse=True)
+def _restore_the_runner_seams():
+    """Puts the runner's clock seams back after every test.
+
+    `_setup` mutates them on the BoundRunner instance the verb module holds, and conftest's
+    shared-layer snapshot restores module namespaces — it cannot reach an instance attribute.
+    Without this a later-sorting file inherits a spent `_FakeClock` whose `now()` returns a
+    frozen scripted value, so a real poll-loop test would pass or hang for a reason unrelated
+    to what it asserts. The sibling suites in this directory carry the same fixture.
+    """
+    saved = (athena_mod._now, athena_mod._sleep)
+    yield
+    athena_mod._now, athena_mod._sleep = saved
 
 
 def _setup(fake):
