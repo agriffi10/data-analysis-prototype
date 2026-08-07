@@ -1,4 +1,4 @@
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 
 /**
  * Parse single-or-bulk member input (comma / whitespace / newline separated) into a

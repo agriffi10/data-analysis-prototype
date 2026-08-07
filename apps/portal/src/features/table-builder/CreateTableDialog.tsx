@@ -5,7 +5,7 @@ import {Banner} from '../../components/Banner';
 import {PartitionKeysField} from './PartitionKeysField';
 import {buildPartitionKeys, type DraftPartitionKey} from './partitionKeys';
 import {isValidTableName, suggestTableName} from './tableBuild.service';
-import {CATALOG_IDENTIFIER_RULE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 import type {PartitionKey} from './tableBuild.types';
 
 type Props = {

@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useState} from 'react';
-import {Toast} from '../features/query/Toast';
+import {Toast} from './Toast';
 import {ToastContext, type ToastApi, type ToastInput} from './toastContext';
 
 /**

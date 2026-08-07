@@ -1,8 +1,8 @@
 # Spec: Browser Shared Primitives & Component Decomposition
 
 **ID:** SPEC-155
-**Status:** In Progress — phases 1–3 merged (#383, #384, #385); 4–6 remain. Running state: `SPEC-155-PROGRESS.md`
-**Last Updated:** 2026-08-06
+**Status:** Completed
+**Last Updated:** 2026-08-07
 **Depends On:** SPEC-150 (its FR-004/FR-005/FR-009 change the same `lib/` files this spec refactors — land 150 first), SPEC-154 (the journey tests that make the decomposition in Phase 5 safe), SPEC-106 (`toUserMessage`, whose call-site ergonomics FR-008 addresses), SPEC-095 (the responsive rules any extracted component must keep)
 
 > **Reference:** from the 2026-08-05 codebase audit. This is the reuse and structure work, deliberately separated from behaviour change so a reviewer can read a diff and know nothing user-visible moved.
@@ -56,12 +56,12 @@ The outcome is a smaller surface to change when a rule changes: one place to fix
 
 #### Description
 
-`savedQueries.service.ts:35`, `queryHistory.service.ts:41`, `notifications.service.ts:72`, `sharedSpaces.service.ts:126`, `dataQualityReport.service.ts:57` and `dataQualityRuns.service.ts:48` share one skeleton. `writeStore` (`savedQueries:50`) and `writeHistory` (`queryHistory:57`) are byte-equivalent apart from key and message.
+`savedQueries.service.ts:35`, `queryHistory.service.ts:41`, `notifications.service.ts:72`, `sharedSpaces.service.ts:126`, `dataQualityReport.service.ts:57` and `dataQualityRuns.service.ts:48` share one skeleton. (A **seventh** — `userDirectory.service.ts` — shipped in SPEC-147 after this audit named the first six, and was converted with them.) `writeStore` (`savedQueries:50`) and `writeHistory` (`queryHistory:57`) are byte-equivalent apart from key and message.
 
 #### Acceptance Criteria
 
-- [ ] `lib/s3Json.ts` exports `readJsonDocument<T>({bucket, key, parse, whenMissing, fallbackMessage})` and `writeJsonDocument({bucket, key, value, fallbackMessage})`, both returning `ServiceResult` and neither throwing.
-- [ ] All six readers and both writers are expressed through it; each service retains only its key builder, its `parse`/validity predicate and its wording.
+- [x] `lib/s3Json.ts` exports `readJsonDocument<T>({bucket, key, parse, onMissing, fallbackMessage})` and `writeJsonDocument({bucket, key, value, fallbackMessage})`, both returning `ServiceResult` and neither throwing. (The option is `onMissing`, not `whenMissing` as first drafted — it matches the repo's `on*` callback convention, including this spec's own `onWriteSuccess`.)
+- [x] All **seven** readers and both writers are expressed through it; each service retains only its key builder, its `parse`/validity predicate and its wording.
 - [ ] Not-found still yields the empty document, not an error, for every reader that does so today.
 - [ ] The **cache-reconcile asymmetry is resolved explicitly**: `useQueryHistory` invalidates after seeding while `useSavedQueries` does not (leaving the cache unreconciled against S3 after a read-modify-write). Decide which is correct, apply it to both, and record the decision. Do not preserve the difference by accident.
 - [ ] Every existing service test passes **unchanged**. New tests cover `s3Json` directly.

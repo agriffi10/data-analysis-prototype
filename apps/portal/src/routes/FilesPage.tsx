@@ -8,14 +8,14 @@ import {
   usableSpaceTargets,
   type FileSpaceTarget
 } from '../features/file-browser';
-import {Sidebar} from '../components/Sidebar';
-import {SpacesList} from '../components/SpacesList';
+import {Sidebar} from '../features/connections/Sidebar';
+import {SpacesList} from '../features/connections/SpacesList';
 import {useProvideNavRail} from '../components/navRailContext';
 import {Banner} from '../components/Banner';
 import {useAuth} from '../features/auth';
-import {useConnections} from '../features/query/useConnections';
+import {useConnections} from '../features/connections/useConnections';
 import {useAcknowledgeMembership} from '../features/shared-spaces';
-import type {Connection} from '../features/query/query.types';
+import type {Connection} from '../features/connections/connection.types';
 import {usePageTitle} from '../hooks/usePageTitle';
 import {spaceBuckets} from '../lib/userSpace';
 import {logBackgroundFailure} from '../lib/errorMessages';

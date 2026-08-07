@@ -13,7 +13,6 @@ export {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 export {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 export {parseMemberInput, parseMemberInputDetailed} from './memberInput';
 export {ConnectionsPage} from './ConnectionsPage';
-export {connectionStatusLabel} from './connectionStatus';
 export type {
   Member,
   MemberStatus,

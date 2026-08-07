@@ -1,8 +1,8 @@
 import {useMemo} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
-import {useConnections} from '../query/useConnections';
-import {isConnectionUsable} from '../query/query.types';
+import {useConnections} from '../connections/useConnections';
+import {isConnectionUsable} from '../connections/connection.types';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import {spaceBuckets} from '../../lib/userSpace';
 import {dataQualityKeys} from './dataQualityKeys';

@@ -10,7 +10,7 @@ import {spaceBuckets} from '../../lib/userSpace';
 import {usePageTitle} from '../../hooks/usePageTitle';
 import {useClientPager} from '../../hooks/useClientPager';
 import {useAuth} from '../auth';
-import {useConnections} from '../query/useConnections';
+import {useConnections} from '../connections/useConnections';
 import {usableSpaceTargets} from '../file-browser';
 import {useDataQualityRuns} from './useDataQualityRuns';
 import {useDataQualityCheck, type DataQualityTarget} from './useDataQualityCheck';

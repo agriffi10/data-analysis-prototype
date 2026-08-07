@@ -15,8 +15,8 @@ import {MobileActionBar} from './MobileActionBar';
 import {Modal} from './Modal';
 import {ConfirmDialog} from './ConfirmDialog';
 import {Drawer} from './Drawer';
-import {Toast} from '../features/query/Toast';
-import type {ToastState} from '../features/query/Toast';
+import {Toast} from './Toast';
+import type {ToastState} from './Toast';
 import userEvent from '@testing-library/user-event';
 
 // ─── from Banner.test.tsx ───

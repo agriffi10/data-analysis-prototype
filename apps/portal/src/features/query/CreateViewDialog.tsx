@@ -1,7 +1,7 @@
 import {useRef, useState} from 'react';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
-import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from './query.constants';
+import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 
 type Props = {
   /** In-flight while the CREATE VIEW runs in the background — locks Create + dismiss. */

@@ -1,0 +1,198 @@
+import {Button} from '../../components/Button';
+import {Menu} from '../../components/Menu';
+import {cx} from '../../lib/cx';
+import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
+import {EditorLayoutControl} from './EditorLayoutControl';
+import type {EditorLayoutPreset} from './query.constants';
+
+// SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
+// actions fit the narrower main column; each button keeps its `aria-label`.
+const TOOLBAR_LABEL = 'hidden desktop:inline';
+
+type Props = {
+  preset: EditorLayoutPreset;
+  onPresetChange: (next: EditorLayoutPreset) => void;
+  /** The batch hasn't reached a terminal state — the run split button becomes Stop. */
+  isInFlight: boolean;
+  canRun: boolean;
+  canClear: boolean;
+  /** Gates Save query and Create view alike: FR-001 disables them only when the buffer is empty. */
+  canSave: boolean;
+  onClear: () => void;
+  onSave: () => void;
+  onCreateView: () => void;
+  onStop: () => void;
+  onRunStatement: () => void;
+  onRunScript: (scope: 'script-single' | 'script-tabs') => void;
+};
+
+/**
+ * The editor toolbar: the SPEC-079 layout preset on the left, then Clear, Save
+ * and Create view, and the SPEC-078 run split button — which is replaced by a
+ * single Stop while a batch is in flight.
+ */
+export function QueryToolbar({
+  preset,
+  onPresetChange,
+  isInFlight,
+  canRun,
+  canClear,
+  canSave,
+  onClear,
+  onSave,
+  onCreateView,
+  onStop,
+  onRunStatement,
+  onRunScript
+}: Props) {
+  return (
+    <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
+      <EditorLayoutControl
+        preset={preset}
+        onChange={onPresetChange}
+      />
+      <div className="flex-1" />
+      <Button
+        variant="ghost"
+        onClick={onClear}
+        disabled={!canClear}
+        aria-label="Clear query">
+        <TrashLidIcon />
+        <span className={TOOLBAR_LABEL}>Clear</span>
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={onSave}
+        disabled={!canSave}
+        aria-label="Save query">
+        <SaveIcon />
+        <span className={TOOLBAR_LABEL}>Save</span>
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={onCreateView}
+        disabled={!canSave}
+        aria-label="Create view">
+        <EyeIcon />
+        <span className={TOOLBAR_LABEL}>Create view</span>
+      </Button>
+      {isInFlight ? (
+        <Button
+          variant="ghost"
+          onClick={onStop}
+          aria-label="Stop the running query"
+          className="text-danger hover:bg-danger-soft hover:text-danger">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="h-4 w-4"
+            aria-hidden="true">
+            <rect
+              x="6"
+              y="6"
+              width="12"
+              height="12"
+              rx="2"
+            />
+          </svg>
+          <span className={TOOLBAR_LABEL}>Stop</span>
+        </Button>
+      ) : (
+        // SPEC-078 FR-005: three distinct run scopes as a split button.
+        // Run Statement stays the primary action (⌘⏎); the two whole-script
+        // scopes — which differ only in how results are shown — live in an
+        // attached dropdown so the toolbar stays compact.
+        <div className="inline-flex items-stretch">
+          <Button
+            variant="primary"
+            onClick={onRunStatement}
+            disabled={!canRun}
+            title="Run the selection or the statement under the cursor (⌘⏎)"
+            aria-label="Run statement"
+            className="rounded-r-none">
+            <PlayIcon />
+            <span className={TOOLBAR_LABEL}>Run Statement</span>
+          </Button>
+          <Menu
+            ariaLabel="More run options"
+            align="right"
+            trigger={({open, toggle, ref, menuId}) => (
+              <Button
+                ref={ref}
+                variant="primary"
+                onClick={toggle}
+                disabled={!canRun}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-controls={open ? menuId : undefined}
+                aria-label="More run options"
+                title="More run options"
+                className="rounded-l-none border-l border-white/25 px-2">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className={cx('h-4 w-4 transition-transform', open && 'rotate-180')}
+                  aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </Button>
+            )}
+            items={[
+              {
+                kind: 'action',
+                label: 'Run Query Tab',
+                icon: (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M5 4l8 8-8 8" />
+                    <path d="M14 20h6" />
+                  </svg>
+                ),
+                onSelect: () => onRunScript('script-single')
+              },
+              {
+                kind: 'action',
+                label: 'Run Multiple Queries',
+                icon: (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-4 w-4"
+                    aria-hidden="true">
+                    <path d="M4 4l6 8-6 8" />
+                    <rect
+                      x="13"
+                      y="5"
+                      width="7"
+                      height="5"
+                      rx="1"
+                    />
+                    <rect
+                      x="13"
+                      y="14"
+                      width="7"
+                      height="5"
+                      rx="1"
+                    />
+                  </svg>
+                ),
+                onSelect: () => onRunScript('script-tabs')
+              }
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  );
+}

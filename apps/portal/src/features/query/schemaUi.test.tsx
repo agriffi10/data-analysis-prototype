@@ -8,7 +8,8 @@ import {SchemaBrowser} from './SchemaBrowser';
 import type {TableActions} from './SchemaBrowser';
 import {getDatabase, listTables} from './glue.service';
 import {useAllSchemas, useSchema} from './useSchema';
-import type {Connection, GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from './query.types';
+import type {Connection} from '../connections/connection.types';
 import * as glue from './glue.service';
 
 vi.mock('./glue.service', async (importActual) => {

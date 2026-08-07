@@ -48,5 +48,42 @@ export default defineConfig([
       // produce noise on this glob.
       'security/detect-non-literal-regexp': 'off'
     }
+  },
+  {
+    // SPEC-155 FR-005 — layering. `src/components/` is the shared presentation layer;
+    // features compose it, not the other way round. Before this rule, ToastProvider and
+    // Sidebar imported from `features/query/`, which made the query feature a de-facto
+    // shared layer nobody had declared.
+    files: ['src/components/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/features/*', '**/features/**'],
+              message:
+                'components/ is the shared presentation layer and must not import from features/. Move the shared piece into lib/, components/ or hooks/ instead.'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    // The two exemptions to the rule above, both deliberate.
+    //
+    // Header and ProtectedLayout are app chrome: they exist to wire features into the
+    // shell, so they compose features by definition. Getting them under the rule would
+    // mean a separate app-shell layer — a re-layering of its own, not an import fix.
+    // They are named here rather than left as a silent violation; a third file needs an
+    // explicit edit to this list.
+    //
+    // Tests mount real features by design (react.md §21: integration-style, mock only the
+    // AWS boundary), so the rule can only produce noise on that glob.
+    files: ['src/components/**/*.test.{ts,tsx}', 'src/components/Header.tsx', 'src/components/ProtectedLayout.tsx'],
+    rules: {
+      'no-restricted-imports': 'off'
+    }
   }
 ]);

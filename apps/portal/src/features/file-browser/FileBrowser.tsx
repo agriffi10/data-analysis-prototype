@@ -1,7 +1,5 @@
 import {useState} from 'react';
 import {Button} from '../../components/Button';
-import {FileRowIcon, FolderRowIcon, TrashIcon} from '../../components/icons';
-import {Badge} from '../../components/Badge';
 import {Banner} from '../../components/Banner';
 import {useFileBrowser} from './useFileBrowser';
 import {useFileUpload} from './useFileUpload';
@@ -9,34 +7,28 @@ import {useDelete} from './useDelete';
 import {useMove} from './useMove';
 import {useCopy} from './useCopy';
 import {useFileDownload} from './useFileDownload';
-import {formatSize, formatDate} from './fileBrowser.format';
-import {buildBreadcrumbs, fileExtension, isAtRoot, parentPrefix} from './fileBrowser.paths';
+import {buildBreadcrumbs, isAtRoot, parentPrefix} from './fileBrowser.paths';
 import {UploadDropzone} from './UploadDropzone';
 import {UploadDrawer} from './UploadDrawer';
 import {UploadList} from './UploadList';
 import {useUploadQueue} from './uploadQueueContext';
 import {CreateFolderDialog} from './CreateFolderDialog';
 import {CollisionPrompt} from './CollisionPrompt';
-import {MetadataPanel} from './MetadataPanel';
-import {FolderDetailsPanel} from './FolderDetailsPanel';
-import {ParentFolderRow} from './ParentFolderRow';
-import {FileListRowMobile} from './FileListRowMobile';
 import {MobileActionBar} from '../../components/MobileActionBar';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed} from './protectedFolders';
-import {DeleteConfirmDialog} from './DeleteConfirmDialog';
 import {OperationFeedback} from './OperationFeedback';
-import {RenameDialog} from './RenameDialog';
-import {MoveDialog} from './MoveDialog';
-import {CopyDialog} from './CopyDialog';
-import {DataQualityDialog} from '../data-quality';
+import {SelectionToolbar} from './SelectionToolbar';
+import {FileListTable, type FileListProps} from './FileListTable';
+import {FileListMobile} from './FileListMobile';
+import {FileBrowserDialogs} from './FileBrowserDialogs';
+import {useFileBrowserDialogs} from './useFileBrowserDialogs';
+import {useSharedSpaceAccessRecovery} from './useSharedSpaceAccessRecovery';
 import {SelectionProvider} from './SelectionProvider';
 import {CreateTableButton} from '../table-builder';
-import {useSelection, itemId, type SelectableItem} from './selectionContext';
+import {useSelection, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
-import {getSessionCredentials} from '../../lib/awsCredentials';
 import {toUserText} from '../../lib/errorMessages';
 import {useIsMobile} from '../../lib/useBreakpoint';
-import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,330 +52,6 @@ type Props = {
   // affordance when a listing is denied because the membership tag hasn't propagated
   // to this session's token yet (shared-spaces architecture §3).
 };
-
-// ─── Icons (inline, no icon library — SPEC-024) ───────────────────────────────
-
-// Shared column widths so the header row and body rows line up.
-const COL_SIZE = 'w-24';
-const COL_MODIFIED = 'w-40';
-const COL_TYPE = 'w-28';
-// Trailing actions column. Files show an always-visible Details button (plus a
-// Download button in read-only mode, where there's no selection toolbar). All
-// other actions (move/copy/rename/delete/download) live in the selection toolbar.
-const COL_ACTIONS = 'w-44';
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function FolderRow({
-  folder,
-  onClick,
-  onDetails,
-  selectable,
-  isSelected,
-  onToggleSelect
-}: {
-  folder: S3FolderItem;
-  onClick: () => void;
-  onDetails: (folder: S3FolderItem) => void;
-  selectable: boolean;
-  isSelected: boolean;
-  onToggleSelect: () => void;
-}) {
-  return (
-    <li
-      className={`flex h-12 items-center border-b border-border-2 last:border-0 ${
-        isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
-      }`}>
-      {selectable && (
-        <span className="flex w-10 shrink-0 items-center justify-center">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-accent"
-            checked={isSelected}
-            onChange={onToggleSelect}
-            aria-label={`Select folder ${folder.name}`}
-          />
-        </span>
-      )}
-      <button
-        className="flex min-w-0 flex-1 items-center gap-2.5 px-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-        onClick={onClick}
-        aria-label={`Open folder ${folder.name}`}>
-        <FolderRowIcon />
-        <span className="truncate text-base font-medium text-text">{folder.name}</span>
-      </button>
-      <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-3`}>—</span>
-      <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`} />
-      <span className={`hidden ${COL_TYPE} pr-4 text-right desktop:block`}>
-        <Badge>Folder</Badge>
-      </span>
-      {/* Always-visible Details (mirrors file rows). Rename/Delete/Move/Copy
-          still live in the selection toolbar. */}
-      <span className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}>
-        <button
-          className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          onClick={() => onDetails(folder)}
-          aria-label={`Details for ${folder.name}`}>
-          Details
-        </button>
-      </span>
-    </li>
-  );
-}
-
-function FileRow({
-  file,
-  onDownload,
-  onActivate,
-  onDetails,
-  isDownloading,
-  selectable,
-  isSelected,
-  onToggleSelect
-}: {
-  file: S3FileItem;
-  // Read-only fallback only: in the authenticated flow Download lives in the
-  // selection toolbar, so this is undefined there and no row Download shows.
-  onDownload?: (file: S3FileItem) => void;
-  // SPEC-081: double-click anywhere on the row downloads it (both flows), reusing
-  // the same presigned-URL path as the Download control.
-  onActivate: () => void;
-  onDetails: (file: S3FileItem) => void;
-  isDownloading: boolean;
-  selectable: boolean;
-  isSelected: boolean;
-  onToggleSelect: () => void;
-}) {
-  // Double-click to download. `select-none` keeps the gesture from leaving the
-  // filename text highlighted; clearing any range is a belt-and-suspenders.
-  function handleActivate() {
-    window.getSelection()?.removeAllRanges();
-    onActivate();
-  }
-  return (
-    <li
-      onDoubleClick={handleActivate}
-      title={`Double-click to download ${file.name}`}
-      className={`flex h-12 cursor-pointer items-center select-none border-b border-border-2 last:border-0 ${
-        isSelected ? 'bg-accent-soft' : 'hover:bg-surface-2'
-      }`}>
-      {selectable && (
-        // Double-clicking the checkbox must not download (it retains its own
-        // toggle behavior); stop the row's dblclick from firing.
-        <span
-          className="flex w-10 shrink-0 items-center justify-center"
-          onDoubleClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-accent"
-            checked={isSelected}
-            onChange={onToggleSelect}
-            aria-label={`Select ${file.name}`}
-          />
-        </span>
-      )}
-      <span className="flex min-w-0 flex-1 items-center gap-2.5 px-4">
-        <FileRowIcon />
-        <span className="truncate text-base font-medium text-text">{file.name}</span>
-      </span>
-      <span className={`${COL_SIZE} pr-4 text-right text-sm text-text-2`}>{formatSize(file.size)}</span>
-      <span className={`${COL_MODIFIED} pr-4 text-right text-sm text-text-2`}>{formatDate(file.lastModified)}</span>
-      <span className={`hidden ${COL_TYPE} pr-4 text-right desktop:block`}>
-        <Badge>{fileExtension(file.name)}</Badge>
-      </span>
-      {/* Always-visible Details (no hover menu). Download appears here only in
-          read-only mode (no selection toolbar); otherwise it's a toolbar action.
-          Double-clicking a button runs its own action, not the row download. */}
-      <span
-        className={`${COL_ACTIONS} flex items-center justify-end gap-1 pr-4`}
-        onDoubleClick={(e) => e.stopPropagation()}>
-        <button
-          className="h-7 rounded-md px-2 text-sm text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          onClick={() => onDetails(file)}
-          aria-label={`Details for ${file.name}`}>
-          Details
-        </button>
-        {onDownload && (
-          <button
-            className="h-7 rounded-md px-2 text-sm text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            onClick={() => onDownload(file)}
-            disabled={isDownloading}
-            aria-label={`Download ${file.name}`}>
-            {isDownloading ? '…' : 'Download'}
-          </button>
-        )}
-      </span>
-    </li>
-  );
-}
-
-// ─── Selection toolbar (SPEC-018 FR-001 UI / FR-004) ──────────────────────────
-
-// Bulk-action glyphs (icon-only on mobile, SPEC-099 FR-006).
-function BulkCopyIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-[15px] w-[15px]"
-      aria-hidden="true">
-      <rect
-        x="9"
-        y="9"
-        width="11"
-        height="11"
-        rx="2"
-      />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function QualityCheckIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-[15px] w-[15px]"
-      aria-hidden="true">
-      {/* A magnifier over a document — inspecting, not changing. */}
-      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" />
-      <circle
-        cx="16"
-        cy="13"
-        r="4"
-      />
-      <path d="M19 16l3 3" />
-    </svg>
-  );
-}
-
-function BulkMoveIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-[15px] w-[15px]"
-      aria-hidden="true">
-      <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
-      <path d="M10 8l4 4-4 4" />
-      <path d="M14 12H3" />
-    </svg>
-  );
-}
-
-function SelectionToolbar({
-  allItems,
-  onRequestDelete,
-  onRequestMove,
-  onRequestCopy,
-  onRequestQualityCheck,
-  isBusy
-}: {
-  allItems: SelectableItem[];
-  onRequestDelete: () => void;
-  onRequestMove: () => void;
-  onRequestCopy: () => void;
-  /** Absent when the space can't be resolved (no space name) — the action is then omitted. */
-  onRequestQualityCheck?: () => void;
-  isBusy: boolean;
-}) {
-  const {count, isSelected, selectAll, clear} = useSelection();
-
-  const allSelected = allItems.length > 0 && allItems.every((i) => isSelected(itemId(i)));
-  const someSelected = allItems.some((i) => isSelected(itemId(i)));
-
-  const active = count > 0;
-
-  // A focused bulk-action bar (SPEC-096): whole-selection Copy / Move / Delete
-  // only (Download + Rename live in the details panel, SPEC-097). Labelled at
-  // ≥ tablet, icon-only on mobile (SPEC-099 FR-006).
-  return (
-    <div
-      className={`mb-4 flex h-11 items-center gap-2 rounded-lg border px-3 tablet:gap-3 tablet:px-4 ${
-        active ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
-      }`}>
-      <input
-        type="checkbox"
-        className="h-4 w-4 accent-accent"
-        checked={allSelected}
-        ref={(el) => {
-          if (el) el.indeterminate = someSelected && !allSelected;
-        }}
-        onChange={() => (allSelected ? clear() : selectAll(allItems))}
-        aria-label="Select all"
-      />
-
-      <span
-        aria-live="polite"
-        className={`text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}>
-        {active ? `${count} selected` : 'Select all'}
-      </span>
-
-      <div className="flex-1" />
-
-      {/* SPEC-113: a read-only diagnostic on ONE file or folder. It lives here rather
-          than on the top toolbar because it is scoped to the SELECTION, like its
-          neighbours — and here it is already reachable at every breakpoint (labelled
-          at ≥ tablet, icon-only on mobile) without a second mount. `user_settings` and
-          `_data-quality-reports` need no guard: they are filtered out of the listing
-          entirely, so they can never be selected. */}
-      {onRequestQualityCheck && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
-          onClick={onRequestQualityCheck}
-          disabled={count !== 1 || isBusy}
-          aria-label="Check data quality of the selected item">
-          <QualityCheckIcon />
-          <span className="hidden tablet:inline">Check quality</span>
-        </Button>
-      )}
-
-      <Button
-        variant="ghost"
-        size="sm"
-        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
-        onClick={onRequestCopy}
-        disabled={count === 0 || isBusy}
-        aria-label="Copy selected items">
-        <BulkCopyIcon />
-        <span className="hidden tablet:inline">Copy</span>
-      </Button>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
-        onClick={onRequestMove}
-        disabled={count === 0 || isBusy}
-        aria-label="Move selected items">
-        <BulkMoveIcon />
-        <span className="hidden tablet:inline">Move</span>
-      </Button>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-3"
-        onClick={onRequestDelete}
-        disabled={count === 0 || isBusy}
-        aria-label="Delete selected items">
-        <TrashIcon />
-        <span className="hidden tablet:inline">Delete</span>
-      </Button>
-    </div>
-  );
-}
 
 // ─── Browser content (inside the SelectionProvider) ───────────────────────────
 
@@ -416,23 +84,7 @@ function FileBrowserContent({
     isLoadingMore
   } = useFileBrowser(bucket, prefix, markerKey);
 
-  // A shared space the user was just added to can list-deny until their session's
-  // token is re-minted with the new membership-slot tag (architecture §3). Detect
-  // that case so we can offer a one-click "refresh access" instead of a dead error.
-  const accessError = error as {message?: string; code?: string} | null;
-  const isAccessDenied =
-    !!accessError &&
-    (accessError.code === 'AccessDenied' || /not authorized|access denied|listbucket/i.test(accessError.message ?? ''));
-  const justAddedToShared = spaceKind === 'shared' && isAccessDenied;
-  const [refreshingAccess, setRefreshingAccess] = useState(false);
-  const refreshAccess = async () => {
-    setRefreshingAccess(true);
-    // Re-mint the ID token so the Identity Pool stamps the new shared_space_k tag,
-    // then re-list. A failed re-mint just leaves the error in place.
-    await getSessionCredentials(true);
-    refreshListing();
-    setRefreshingAccess(false);
-  };
+  const access = useSharedSpaceAccessRecovery({error, spaceKind, refreshListing});
 
   // Hide app-managed root folders (e.g. user_settings/) from the listing so they
   // never surface to users; everything downstream uses the filtered list.
@@ -453,10 +105,6 @@ function FileBrowserContent({
   // Multi-file upload queue (SPEC-020) — enqueue from the dropzone; progress,
   // cancel, and per-file collisions now live in the in-drawer UploadList.
   const {enqueue} = useUploadQueue();
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  // Upload drawer (right slide-over) — the "add files" surface only.
-  const [uploadOpen, setUploadOpen] = useState(false);
-
   // Multi-select + delete (SPEC-018). Selection comes from the surrounding
   // SelectionProvider; delete is only offered in the authenticated, writable flow
   // (a username is required for the marker guard).
@@ -471,71 +119,15 @@ function FileBrowserContent({
   const move = useMove(bucket, currentPrefix, username, rootPrefix);
   const copy = useCopy(bucket, currentPrefix, username);
   const canModify = writable && !!username;
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  // The item being renamed (null = closed) and the items being moved (null = no
-  // move dialog). Move is selection-driven (like delete); rename is per-row.
-  const [renaming, setRenaming] = useState<{
-    item: SelectableItem;
-    name: string;
-    kind: 'file' | 'folder';
-  } | null>(null);
-  const [moving, setMoving] = useState<SelectableItem[] | null>(null);
-  // The items being copied (null = no copy dialog). Like move, selection- or
-  // row-driven. Stays open across the same-folder name prompt (SPEC-039 FR-003).
-  const [copying, setCopying] = useState<SelectableItem[] | null>(null);
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
   // throwing. The hidden marker is filtered out, so it never exposes this action.
   const dl = useFileDownload(bucket);
 
-  // SPEC-017: the file whose read-only metadata drawer is open (null = closed).
-  const [detailsFile, setDetailsFile] = useState<S3FileItem | null>(null);
-  // The folder whose read-only details drawer is open (null = closed). Folders
-  // carry no HeadObject metadata, so this renders synchronously from the listing.
-  const [detailsFolder, setDetailsFolder] = useState<S3FolderItem | null>(null);
-  // SPEC-113: the one selected file/folder awaiting a data-quality check (null = closed).
-  const [checkingQuality, setCheckingQuality] = useState<SelectableItem | null>(null);
-
-  async function handleConfirmDelete() {
-    const items = [...selection.selected.values()];
-    await del.runDelete(items);
-    selection.clear();
-    setConfirmOpen(false);
-  }
-
-  function handleConfirmMove(destPrefix: string, destBucket: string) {
-    const items = moving ?? [];
-    setMoving(null);
-    selection.clear();
-    move.moveItems(items, destPrefix, destBucket);
-  }
-
-  function handleConfirmCopy(destPrefix: string, destBucket: string) {
-    const items = copying ?? [];
-    // A same-folder copy (destination = current parent in the SAME bucket) opens
-    // the editable auto-number prompt inside the dialog (FR-003), so the dialog
-    // must stay open — only close it for the ordinary different-folder / different-
-    // connection case.
-    const sameFolder = destBucket === bucket && destPrefix === currentPrefix;
-    if (!sameFolder) {
-      setCopying(null);
-      selection.clear();
-    }
-    copy.copyItems(items, destPrefix, destBucket);
-  }
-
-  // Rename from a details panel (SPEC-097): open the rename dialog pre-scoped to
-  // that object and close the panel. Rename = move within the same parent.
-  function openRenameFile(file: S3FileItem) {
-    setRenaming({item: {type: 'file', key: file.key}, name: file.name, kind: 'file'});
-    setDetailsFile(null);
-  }
-
-  function openRenameFolder(folder: S3FolderItem) {
-    setRenaming({item: {type: 'folder', prefix: folder.prefix}, name: folder.name, kind: 'folder'});
-    setDetailsFolder(null);
-  }
+  // SPEC-155 FR-009: every dialog/drawer flag, and the handlers that turn one
+  // into an operation (including who clears the selection).
+  const dialogs = useFileBrowserDialogs({bucket, currentPrefix, del, move, copy});
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
@@ -550,6 +142,23 @@ function FileBrowserContent({
     ...files.map((f) => ({type: 'file' as const, key: f.key}))
   ];
   const selectedItems = [...selection.selected.values()];
+
+  // Same data + handlers for both list surfaces (SPEC-099 FR-002/003); the caller
+  // mount-gates which markup renders.
+  const fileListProps: FileListProps = {
+    folders,
+    files,
+    selectable: canModify,
+    atRoot,
+    onNavigateUp: () => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined),
+    onOpenFolder: (folder) => setPrefix(folder.prefix),
+    onFolderDetails: dialogs.openFolderDetails,
+    onFileDetails: dialogs.openFileDetails,
+    onActivateFile: (file) => void dl.download(file),
+    downloadingKey: dl.downloadingKey,
+    isSelected: selection.isSelected,
+    onToggleSelect: selection.toggle
+  };
 
   return (
     // Writable mobile flows get bottom padding so the fixed MobileActionBar never
@@ -612,14 +221,14 @@ function FileBrowserContent({
             <Button
               variant="default"
               className="shrink-0"
-              onClick={() => setCreatingFolder((v) => !v)}
+              onClick={dialogs.toggleCreateFolder}
               disabled={isBusy}>
               New folder
             </Button>
             <Button
               variant="primary"
               className="shrink-0"
-              onClick={() => setUploadOpen(true)}>
+              onClick={dialogs.openUpload}>
               Upload
             </Button>
           </div>
@@ -633,14 +242,14 @@ function FileBrowserContent({
           <Button
             variant="default"
             className="!h-11 flex-1"
-            onClick={() => setCreatingFolder((v) => !v)}
+            onClick={dialogs.toggleCreateFolder}
             disabled={isBusy}>
             New folder
           </Button>
           <Button
             variant="primary"
             className="!h-11 flex-1"
-            onClick={() => setUploadOpen(true)}>
+            onClick={dialogs.openUpload}>
             Upload
           </Button>
         </MobileActionBar>
@@ -650,13 +259,13 @@ function FileBrowserContent({
           to the SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
       {writable && (
         <>
-          {creatingFolder && (
+          {dialogs.creatingFolder && (
             <CreateFolderDialog
               onCreate={(name) => {
-                setCreatingFolder(false);
+                dialogs.closeCreateFolder();
                 createNewFolder(name);
               }}
-              onCancel={() => setCreatingFolder(false)}
+              onCancel={dialogs.closeCreateFolder}
             />
           )}
 
@@ -686,8 +295,8 @@ function FileBrowserContent({
               (feedback 2026-06-30) and persists for the session, so the drawer can
               be closed and reopened without losing or interrupting uploads. */}
           <UploadDrawer
-            open={uploadOpen}
-            onClose={() => setUploadOpen(false)}
+            open={dialogs.uploadOpen}
+            onClose={dialogs.closeUpload}
             destinationLabel={destinationLabel}>
             <UploadDropzone onFiles={(files) => enqueue(files, {bucket, prefix: currentPrefix})} />
             <UploadList />
@@ -743,10 +352,10 @@ function FileBrowserContent({
       {canModify && hasContent && (
         <SelectionToolbar
           allItems={allItems}
-          onRequestDelete={() => setConfirmOpen(true)}
-          onRequestMove={() => setMoving([...selection.selected.values()])}
-          onRequestCopy={() => setCopying([...selection.selected.values()])}
-          onRequestQualityCheck={username ? () => setCheckingQuality(selectedItems[0] ?? null) : undefined}
+          onRequestDelete={dialogs.openConfirmDelete}
+          onRequestMove={dialogs.openMove}
+          onRequestCopy={dialogs.openCopy}
+          onRequestQualityCheck={username ? dialogs.openQualityCheck : undefined}
           isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}
         />
       )}
@@ -766,7 +375,7 @@ function FileBrowserContent({
         <div
           role="alert"
           className="rounded-lg border border-danger-soft bg-danger-soft p-4 text-danger">
-          {justAddedToShared ? (
+          {access.justAddedToShared ? (
             <>
               <p className="font-medium">Applying your access…</p>
               <p className="mt-1 text-sm">
@@ -777,9 +386,9 @@ function FileBrowserContent({
                 variant="default"
                 size="sm"
                 className="mt-3"
-                onClick={() => void refreshAccess()}
-                disabled={refreshingAccess}>
-                {refreshingAccess ? 'Refreshing…' : 'Refresh access'}
+                onClick={() => void access.refreshAccess()}
+                disabled={access.refreshing}>
+                {access.refreshing ? 'Refreshing…' : 'Refresh access'}
               </Button>
             </>
           ) : (
@@ -823,226 +432,32 @@ function FileBrowserContent({
           mobile — same data + handlers. */}
       {(hasContent || (isEmpty && !atRoot)) &&
         (isMobile ? (
-          // Mobile (< tablet): compact two-line card list — same data + handlers
-          // as the table (SPEC-099 FR-003). Mount-gated (not CSS-hidden) so the
-          // two structurally-distinct markups never both live in the DOM.
-          <ul
-            aria-label="File list"
-            className="overflow-hidden rounded-lg border border-border bg-surface">
-            {!atRoot && (
-              <ParentFolderRow
-                variant="mobile"
-                selectable={canModify}
-                onNavigateUp={() => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined)}
-              />
-            )}
-            {folders.map((folder) => (
-              <FileListRowMobile
-                key={folder.prefix}
-                kind="folder"
-                folder={folder}
-                onOpen={() => setPrefix(folder.prefix)}
-                onDetails={setDetailsFolder}
-                selectable={canModify}
-                isSelected={selection.isSelected(folder.prefix)}
-                onToggleSelect={() => selection.toggle({type: 'folder', prefix: folder.prefix})}
-              />
-            ))}
-            {files.map((file) => (
-              <FileListRowMobile
-                key={file.key}
-                kind="file"
-                file={file}
-                onActivate={() => void dl.download(file)}
-                onDetails={setDetailsFile}
-                isDownloading={dl.downloadingKey === file.key}
-                selectable={canModify}
-                isSelected={selection.isSelected(file.key)}
-                onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}
-              />
-            ))}
-          </ul>
+          <FileListMobile {...fileListProps} />
         ) : (
-          // Desktop/tablet: data table. Type column sheds at tablet (`hidden
-          // desktop:block`); columns stay aligned (SPEC-099 FR-002).
-          <div className="overflow-hidden rounded-lg border border-border bg-surface">
-            {/* Column header — visual only; the labels are not programmatically
-                tied to the list rows below, so hide this decorative row from AT
-                (each row already exposes its own values as text). */}
-            <div
-              aria-hidden="true"
-              className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
-              {canModify && <span className="w-10 shrink-0" />}
-              <span className="min-w-0 flex-1 px-4">Name</span>
-              <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>
-              <span className={`${COL_MODIFIED} pr-4 text-right`}>Modified</span>
-              <span className={`hidden ${COL_TYPE} pr-4 text-right desktop:block`}>Type</span>
-              <span className={`${COL_ACTIONS} pr-4`} />
-            </div>
-            <ul aria-label="File list">
-              {/* Parent-folder (`..`) row — first row when below the space root
-                  (SPEC-098). Navigation only: non-selectable, excluded from
-                  select-all (it's never in `allItems`). */}
-              {!atRoot && (
-                <ParentFolderRow
-                  selectable={canModify}
-                  onNavigateUp={() => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined)}
-                />
-              )}
-              {folders.map((folder) => (
-                <FolderRow
-                  key={folder.prefix}
-                  folder={folder}
-                  onClick={() => setPrefix(folder.prefix)}
-                  onDetails={setDetailsFolder}
-                  selectable={canModify}
-                  isSelected={selection.isSelected(folder.prefix)}
-                  onToggleSelect={() => selection.toggle({type: 'folder', prefix: folder.prefix})}
-                />
-              ))}
-              {files.map((file) => (
-                <FileRow
-                  key={file.key}
-                  file={file}
-                  // Read-only browse has no selection toolbar, so keep a per-row
-                  // Download there; the authenticated flow downloads from the toolbar.
-                  onDownload={canModify ? undefined : dl.download}
-                  // SPEC-081: double-click downloads in both flows.
-                  onActivate={() => void dl.download(file)}
-                  onDetails={setDetailsFile}
-                  isDownloading={dl.downloadingKey === file.key}
-                  selectable={canModify}
-                  isSelected={selection.isSelected(file.key)}
-                  onToggleSelect={() => selection.toggle({type: 'file', key: file.key})}
-                />
-              ))}
-            </ul>
-          </div>
+          <FileListTable
+            {...fileListProps}
+            // Read-only browse has no selection toolbar, so keep a per-row Download
+            // there; the authenticated flow downloads from the toolbar.
+            onRowDownload={canModify ? undefined : dl.download}
+          />
         ))}
 
-      {/* Metadata drawer (SPEC-017) — shared Drawer; closes via button, Escape, or backdrop */}
-      {detailsFile && (
-        <MetadataPanel
-          bucket={bucket}
-          file={detailsFile}
-          rootPrefix={rootPrefix}
-          canModify={canModify}
-          onRequestRename={openRenameFile}
-          onClose={() => setDetailsFile(null)}
-        />
-      )}
-
-      {/* Folder details drawer — synchronous, no metadata fetch */}
-      {detailsFolder && (
-        <FolderDetailsPanel
-          bucket={bucket}
-          folder={detailsFolder}
-          rootPrefix={rootPrefix}
-          canModify={canModify}
-          onRequestRename={openRenameFolder}
-          onClose={() => setDetailsFolder(null)}
-        />
-      )}
-
-      {/* Delete confirmation (SPEC-018 FR-004) — modal; nothing deleted until confirmed */}
-      {confirmOpen && (
-        <DeleteConfirmDialog
-          items={selectedItems}
-          isDeleting={del.isBusy}
-          onConfirm={handleConfirmDelete}
-          onCancel={() => setConfirmOpen(false)}
-        />
-      )}
-
-      {/* Rename dialog (SPEC-019 FR-002) — modal */}
-      {renaming && (
-        <RenameDialog
-          kind={renaming.kind}
-          currentName={renaming.name}
-          isBusy={move.isBusy}
-          onRename={(newName) => {
-            move.renameItem(renaming.item, newName);
-            setRenaming(null);
-            // The renamed item's key/prefix changes, so its stale id would linger
-            // in the selection as a ghost selection (the row is gone from the
-            // listing). Clear the selection like move/delete/copy do.
-            selection.clear();
-          }}
-          onCancel={() => setRenaming(null)}
-        />
-      )}
-
-      {/* Move dialog (SPEC-019 FR-003) — destination-folder picker */}
-      {moving && (
-        <MoveDialog
-          bucket={bucket}
-          items={moving}
-          rootPrefix={rootPrefix}
-          rootLabel={rootLabel}
-          currentPrefix={currentPrefix}
-          markerKey={markerKey}
-          isBusy={move.isBusy}
-          destinations={destinations}
-          onMove={handleConfirmMove}
-          onCancel={() => setMoving(null)}
-        />
-      )}
-
-      {/* Copy dialog (SPEC-039 FR-004) — destination picker + same-folder name
-          field. Stays open across the same-folder auto-number prompt (FR-003);
-          the prompt's confirm/cancel close the dialog (and clear the selection). */}
-      {copying && (
-        <CopyDialog
-          bucket={bucket}
-          items={copying}
-          rootPrefix={rootPrefix}
-          rootLabel={rootLabel}
-          currentPrefix={currentPrefix}
-          markerKey={markerKey}
-          isBusy={copy.isBusy}
-          destinations={destinations}
-          sameFolderPrompt={
-            copy.sameFolderPrompt && {
-              ...copy.sameFolderPrompt,
-              onConfirm: (name) => {
-                copy.sameFolderPrompt?.onConfirm(name);
-                setCopying(null);
-                selection.clear();
-              },
-              onCancel: () => {
-                copy.sameFolderPrompt?.onCancel();
-                setCopying(null);
-              }
-            }
-          }
-          onCopy={handleConfirmCopy}
-          onCancel={() => {
-            copy.cancelCollision();
-            setCopying(null);
-          }}
-        />
-      )}
-
-      {/* SPEC-113: confirm a read-only data-quality check on the one selected item.
-          The space root prefix (not the current folder) is what identifies the space
-          to the control plane; `location` is the item itself. */}
-      {checkingQuality && username && (
-        <DataQualityDialog
-          target={{
-            space: {kind: spaceKind ?? 'personal', bucket, prefix: rootPrefix},
-            location: checkingQuality.type === 'file' ? checkingQuality.key : checkingQuality.prefix
-          }}
-          kind={checkingQuality.type}
-          // Shown space-relative, matching the breadcrumbs — the raw `{space}/` prefix
-          // is noise the user never sees anywhere else in the browser.
-          displayPath={
-            (checkingQuality.type === 'file' ? checkingQuality.key : checkingQuality.prefix).slice(rootPrefix.length) ||
-            rootLabel ||
-            rootPrefix
-          }
-          onClose={() => setCheckingQuality(null)}
-        />
-      )}
+      <FileBrowserDialogs
+        dialogs={dialogs}
+        bucket={bucket}
+        rootPrefix={rootPrefix}
+        rootLabel={rootLabel}
+        currentPrefix={currentPrefix}
+        markerKey={markerKey}
+        username={username}
+        spaceKind={spaceKind}
+        destinations={destinations}
+        canModify={canModify}
+        selectedItems={selectedItems}
+        del={del}
+        move={move}
+        copy={copy}
+      />
 
       {/* Load more — only when the current prefix has further pages (SPEC-015) */}
       {hasContent && hasMore && (

@@ -1,4 +1,4 @@
-import type {SharedConnectionStatus} from './sharedSpaces.types';
+import type {SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
 
 // Status is always conveyed as text + icon, never color-only.
 const STATUS_LABELS: Record<SharedConnectionStatus, string> = {

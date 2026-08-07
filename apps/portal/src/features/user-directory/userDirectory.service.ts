@@ -1,7 +1,7 @@
 import {readJsonDocument} from '../../lib/s3Json';
 import {ok} from '../../lib/serviceResult';
 import {userSpaceBucket} from '../../lib/userSpace';
-import {CATALOG_IDENTIFIER_RE} from '../query/query.constants';
+import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 import type {ServiceResult} from '../../types/service.types';
 import type {UserDirectory} from './userDirectory.types';
 

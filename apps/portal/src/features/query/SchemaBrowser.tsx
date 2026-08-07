@@ -1,9 +1,10 @@
 import {CollapsibleRail} from '../../components/CollapsibleRail';
 import {DatabaseRowIcon} from '../../components/icons';
 import {DatabaseNode} from './DatabaseNode';
-import {isConnectionUsable} from './query.types';
-import type {Connection, GlueTableSummary} from './query.types';
-import {connectionStatusLabel} from '../shared-spaces/connectionStatus';
+import type {GlueTableSummary} from './query.types';
+import {isConnectionUsable} from '../connections/connection.types';
+import type {Connection} from '../connections/connection.types';
+import {connectionStatusLabel} from '../connections/connectionStatus';
 
 /**
  * Per-table actions, wired in QueryWorkspace. Each carries the `database` of the

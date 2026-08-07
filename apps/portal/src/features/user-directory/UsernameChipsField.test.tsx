@@ -2,16 +2,16 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useState} from 'react';
 import type {ReactElement} from 'react';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {renderWithProviders} from '../test/renderWithProviders';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {UsernameChipsField} from './UsernameChipsField';
-import {getUserDirectory} from '../features/user-directory';
+import {getUserDirectory} from './userDirectory.service';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../test/axe';
-import {AuthContext} from '../features/auth/authContext';
-import {authValue} from '../test/authFixtures';
+import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
+import {AuthContext} from '../auth/authContext';
+import {authValue} from '../../test/authFixtures';
 
 // ─── from UsernameChipsField.test.tsx ───
-vi.mock('../features/user-directory/userDirectory.service', () => ({
+vi.mock('./userDirectory.service', () => ({
   getUserDirectory: vi.fn(),
   DIRECTORY_KEY: '_directory/usernames.json'
 }));

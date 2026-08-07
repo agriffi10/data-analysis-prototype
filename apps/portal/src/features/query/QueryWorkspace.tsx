@@ -1,158 +1,51 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useLocation, useNavigate, useSearchParams} from 'react-router';
-import {useQueryClient} from '@tanstack/react-query';
+import {useLocation, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
-import {Button} from '../../components/Button';
-import {Menu} from '../../components/Menu';
-import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
-import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
-import {
-  runQuery,
-  stopQuery,
-  getTableDdl,
-  runStatementToCompletion,
-  isAbandoned,
-  isTerminalState
-} from './query.service';
-import {copyObject} from '../file-browser/fileBrowser.service';
-import {invalidateListing} from '../../lib/queryClient';
-import {parseS3Url} from '../../lib/s3Url';
 import {spaceBuckets} from '../../lib/userSpace';
-import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
-import {ResultsPageSizeControl} from './ResultsPageSizeControl';
 import {useResultRowCount} from './useResultRowCount';
 import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
+import {useTabRuns} from './useTabRuns';
+import {useRunDdl} from './useRunDdl';
+import {useMobileQuerySurface} from './useMobileQuerySurface';
+import {useSaveResults} from './useSaveResults';
+import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
-import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
-import {useConnections} from './useConnections';
-import {invalidateSchema, useAllSchemas, useSchema} from './useSchema';
+import {useConnections} from '../connections/useConnections';
+import {useAllSchemas, useSchema} from './useSchema';
 import {
   deriveViewTargetDatabase,
-  isResultProducingSql,
   resolveRunStatements,
   sameSql,
-  schemaChangingDatabase,
   splitSqlStatements,
-  statementHint,
   stripTrailingSemicolons
 } from './query.sql';
-import {ResultTabs} from './ResultTabs';
-import {SchemaBrowser, SchemaTree, type TableActions} from './SchemaBrowser';
+import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {useIsMobile} from '../../lib/useBreakpoint';
-import {useProvideNavRail} from '../../components/navRailContext';
-import {TableShareDialog, useTableShare} from '../table-share';
-import {RefreshTableDialog, parseRefreshLink, useTableRefresh} from '../table-builder';
-import {DropTableDialog} from './DropTableDialog';
-import {CreateViewDialog} from './CreateViewDialog';
-import {SaveResultsDialog, type DestinationSpace} from './SaveResultsDialog';
-import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {useTableShare} from '../table-share';
+import {parseRefreshLink, useTableRefresh} from '../table-builder';
 import {useToast} from '../../components/toastContext';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
-import {QueryStatusBar} from './QueryStatusBar';
-import {QueryResultsTable} from './QueryResultsTable';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
 import {SavedQueriesPanel} from './SavedQueriesPanel';
 import {QueryTabStrip} from './QueryTabStrip';
-import {ClearQueryDialog} from './ClearQueryDialog';
-import {CloseTabDialog} from './CloseTabDialog';
-import {TabLimitDialog} from './TabLimitDialog';
-import {SaveQueryDialog} from './SaveQueryDialog';
+import {QueryResultsRegion} from './QueryResultsRegion';
+import {QueryToolbar} from './QueryToolbar';
+import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
-import {isConnectionUsable} from './query.types';
-import type {
-  MobileHomeTab,
-  MobileQueryView,
-  ParsedStatement,
-  QueryHistoryEntry,
-  QueryStatus,
-  QueryTab,
-  ResultTab,
-  RunScope,
-  SavedQuery,
-  GlueTableSummary
-} from './query.types';
+import {isConnectionUsable} from '../connections/connection.types';
+import type {QueryHistoryEntry, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
-
-// SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
-// actions fit the narrower main column; each button keeps its `aria-label`.
-const TOOLBAR_LABEL = 'hidden desktop:inline';
-
-// SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
-// fresh Run). SPEC-078 extends it to a sequential batch: the statements in
-// scope, the in-flight statement's execution, and the result tabs accumulated
-// as result-producing statements succeed. `submittedSql` is the CURRENT
-// statement's text, kept so the background finalizer can decide whether a
-// succeeded DDL should refresh the schema.
-type TabRun = {
-  scope: RunScope;
-  /** The statements in scope, execution order (length >= 1). */
-  statements: ParsedStatement[];
-  /** 0-based index of the statement `executionId` belongs to. */
-  currentIndex: number;
-  executionId: string;
-  /** Batch start — the elapsed timer spans the whole batch. */
-  startedAt: number;
-  submittedSql: string;
-  /** One entry per result-producing statement that has SUCCEEDED, in order. */
-  resultTabs: ResultTab[];
-  activeResultTabIndex: number;
-  /** The batch reached a terminal state (success, failure, or Stop). */
-  done: boolean;
-  /** Stop was pressed — the finalizer must not start the next statement. */
-  halted?: boolean;
-  /** Set when a statement failed (or failed to start); drives the banner. */
-  failure?: {statementIndex: number; reason: string};
-  /** Saved-query link captured at submit, recorded on every statement's history entry. */
-  savedQuery?: {id: string; name: string};
-  /** Submitter-supplied identity, so a caller can tell ITS run from a later one (SPEC-100). */
-  token?: number;
-};
-
-// SPEC-041 FR-004: a headless poller, one per tab holding an execution. Each runs
-// its own useQueryExecution so a backgrounded query keeps polling to terminal
-// (its status/history finalize without waiting for the user to return). Reports
-// status up and finalizes history exactly once per execution id.
-function TabExecutionPoller({
-  tabId,
-  executionId,
-  submittedSql,
-  onStatus,
-  onFinalize
-}: {
-  tabId: string;
-  executionId: string;
-  submittedSql: string;
-  onStatus: (tabId: string, status: QueryStatus | undefined) => void;
-  onFinalize: (tabId: string, executionId: string, status: QueryStatus, sql: string) => void;
-}) {
-  const execution = useQueryExecution(executionId);
-  const status = execution.data;
-  const finalizedRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    onStatus(tabId, status);
-  }, [tabId, status, onStatus]);
-
-  useEffect(() => {
-    if (!status || !isTerminalState(status.state)) return;
-    if (finalizedRef.current === executionId) return;
-    finalizedRef.current = executionId;
-    onFinalize(tabId, executionId, status, submittedSql);
-  }, [tabId, status, executionId, submittedSql, onFinalize]);
-
-  return null;
-}
 
 // SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
 // (main), wired to the SPEC-034 data layer. SPEC-041 makes the editor multi-tab:
@@ -161,22 +54,6 @@ function TabExecutionPoller({
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
-  // SPEC-155 FR-006: background statements (Create view, Drop) poll Athena for up to
-  // ~36 s. Leaving the workspace abandons that poller — the statement itself carries on
-  // server-side; what stops is us waiting for it.
-  //
-  // The controller is CREATED IN THE EFFECT, not in a ref initializer. StrictMode runs
-  // mount → cleanup → mount in dev, so a controller made once and aborted in the
-  // cleanup would leave the ref holding an already-aborted signal for the component's
-  // whole life — every Create view and Drop table would submit, then immediately report
-  // failure. Measured; not hypothetical.
-  const backgroundRuns = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    backgroundRuns.current = controller;
-    return () => controller.abort();
-  }, []);
-  const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
   // Save-results copy stays within it. SPEC-055: the shared-space bucket (where
   // shared-DB results land + a Save target).
@@ -212,32 +89,6 @@ export function QueryWorkspace() {
     }
   }, []);
 
-  // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
-  // first, then every shared space they currently belong to (usable). The picker
-  // excludes each space's protected `athenaresults/` folder.
-  const saveSpaces = useMemo<DestinationSpace[]>(() => {
-    if (!userSpaceBucket) return [];
-    const personal: DestinationSpace = {
-      id: 'personal',
-      label: 'My files',
-      bucket: userSpaceBucket,
-      rootPrefix: `${username}/`,
-      rootLabel: 'My Files'
-    };
-    const shared: DestinationSpace[] = sharedSpaceBucket
-      ? connections
-          .filter((c) => c.kind === 'shared' && isConnectionUsable(c))
-          .map((c) => ({
-            id: c.database,
-            label: c.database,
-            bucket: sharedSpaceBucket,
-            rootPrefix: `${c.database}/`,
-            rootLabel: c.database
-          }))
-      : [];
-    return [personal, ...shared];
-  }, [userSpaceBucket, sharedSpaceBucket, username, connections]);
-
   const tabs = useQueryTabs(username);
   const {activeTab, activeTabId} = tabs;
 
@@ -268,38 +119,6 @@ export function QueryWorkspace() {
     [layout]
   );
 
-  // Per-tab run state, keyed by tab id (in-memory for the session). The ref is
-  // the synchronous source of truth (every write goes through updateRuns, from
-  // event handlers/effects only — never render): the batch finalizer and the
-  // Stop handler read/write it without waiting for a commit, so a Stop is
-  // visible to an in-flight advancement immediately. State mirrors it for render.
-  const [runs, setRuns] = useState<Record<string, TabRun>>({});
-  const runsRef = useRef(runs);
-  const updateRuns = useCallback((updater: (prev: Record<string, TabRun>) => Record<string, TabRun>) => {
-    runsRef.current = updater(runsRef.current);
-    setRuns(runsRef.current);
-  }, []);
-  const [statuses, setStatuses] = useState<Record<string, QueryStatus | undefined>>({});
-  const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
-  const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
-
-  const [mobileView, setMobileView] = useState<MobileQueryView>({kind: 'home'});
-  const [mobileHomeTab, setMobileHomeTab] = useState<MobileHomeTab>('saved');
-  // What the mobile results view submitted, and where. The view adopts a tab's
-  // status/results ONLY while this token is the installed run's — SQL text is not
-  // a run identity (the same text can name an older execution), and a submit is
-  // not installed synchronously, so an ungated view shows a previous query's
-  // outcome under the current query's title. `phase` is reported by the submit
-  // itself rather than inferred.
-  const mobileRunTokenRef = useRef(0);
-  const [mobileRun, setMobileRun] = useState<{
-    token: number;
-    tabId: string;
-    phase: 'submitting' | 'started' | 'failed';
-    /** Failure text for a submit that never started — owned here, not by the tab. */
-    error?: string;
-  } | null>(null);
-
   // Drawers are mutually exclusive (FR-010): opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
@@ -309,7 +128,6 @@ export function QueryWorkspace() {
   const [closing, setClosing] = useState<QueryTab | null>(null);
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
-  const [dropInFlight, setDropInFlight] = useState(false);
   const toast = useToast();
   // SPEC-093: "Share table" dialog + enqueue state (toasts route through the host).
   const share = useTableShare(toast.push);
@@ -367,28 +185,7 @@ export function QueryWorkspace() {
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
-  const [createViewInFlight, setCreateViewInFlight] = useState(false);
-  // SPEC-049: Save results.
-  const [saveResultsOpen, setSaveResultsOpen] = useState(false);
-  const [saveInFlight, setSaveInFlight] = useState(false);
-  // A pending overwrite confirm when the chosen destination key already exists.
-  // SPEC-055: carries source + dest buckets so the retry repeats the same
-  // (possibly cross-bucket) copy.
-  const [overwritePrompt, setOverwritePrompt] = useState<{
-    sourceBucket: string;
-    sourceKey: string;
-    destBucket: string;
-    destPrefix: string;
-    filename: string;
-  } | null>(null);
-
-  const navigate = useNavigate();
   const editorRef = useRef<SqlEditorHandle>(null);
-  // Tabs whose run has been submitted but not yet recorded in `runs` (SPEC-083 FR-009).
-  // The de-dupe guard reads this ref so a rapid double-trigger de-dupes before the
-  // async setRuns commits, which the runs/statuses render snapshot alone can miss.
-  const submittingTabsRef = useRef<Set<string>>(new Set());
-
   // The list fields feed the mobile browse-first home (SPEC-100 FR-004); the
   // desktop drawer subscribes to the same cache key, so this adds no fetch.
   const {
@@ -420,6 +217,32 @@ export function QueryWorkspace() {
     () => (activeTab.savedQueryId ? savedById.get(activeTab.savedQueryId) : undefined),
     [activeTab.savedQueryId, savedById]
   );
+
+  // SPEC-155 FR-009: the whole SPEC-041/078 batch state machine — per-tab runs,
+  // the headless pollers, submission, sequential advancement, Stop and the
+  // per-tab error bookkeeping — lives in `useTabRuns`.
+  const {
+    runs,
+    statuses,
+    runErrors,
+    dismissed,
+    pollers,
+    submitBatch,
+    handleStop,
+    dropRunState,
+    dismissError,
+    selectResultTab
+  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, savedById, appendEntry, updateEntry});
+
+  // SPEC-155 FR-009: Create view and Drop table were the same forty lines twice.
+  // One background-DDL path now runs, records and reports both.
+  const ddl = useRunDdl({username, appendEntry, toast});
+
+  // SPEC-100: the below-`tablet` browse-first surface — its view state, the
+  // token that identifies a run it submitted, and the reset on crossing up.
+  const mobile = useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch});
+  // A local const so the `kind` discriminant narrows inside the render callbacks.
+  const mobileView = mobile.view;
 
   const openHistory = () => {
     setSavedOpen(false);
@@ -459,6 +282,18 @@ export function QueryWorkspace() {
     activeBatchDone && activeRun.statements.length === 1 && activeStatus?.state === 'SUCCEEDED';
   const displayExecutionId = displayedResultTab?.executionId ?? (soleStatementSucceeded ? activeRun.executionId : null);
   const displayOutputLocation = displayedResultTab?.outputLocation ?? activeStatus?.outputLocation;
+
+  // SPEC-049/055: the Save-results dialog, its destination list, the overwrite
+  // warn-and-confirm and the default file name.
+  const saveResults = useSaveResults({
+    username,
+    userSpaceBucket,
+    sharedSpaceBucket,
+    connections,
+    outputLocation: displayOutputLocation,
+    linkedSavedName: activeLinkedSaved?.name,
+    toast
+  });
   // What the EDITOR shell may show: never a run the mobile surface submitted
   // (those carry a token and leave the editor buffer untouched by design).
   const editorExecutionId = editorOwnsRun ? activeExecutionId : null;
@@ -484,241 +319,6 @@ export function QueryWorkspace() {
   // (new execution id) starts from defaults.
   const colWidths = useColumnWidths(displayExecutionId, results.columns.length);
 
-  // Stable callbacks for the per-tab pollers.
-  const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
-    setStatuses((s) => (s[tabId] === status ? s : {...s, [tabId]: status}));
-  }, []);
-  const handleFinalize = useCallback(
-    (tabId: string, executionId: string, status: QueryStatus, sql: string) => {
-      updateEntry({
-        queryExecutionId: executionId,
-        patch: {
-          status: status.state,
-          dataScannedBytes: status.dataScannedBytes,
-          durationMs: status.engineExecutionTimeMillis
-        }
-      }).catch((e) => logBackgroundFailure('query-history', e));
-
-      // SPEC-077: a user-typed DDL fully-qualifies its own target; refresh that
-      // database's schema (there's no active database to assume).
-      const ddlDb = status.state === 'SUCCEEDED' ? schemaChangingDatabase(sql) : null;
-      if (ddlDb) void invalidateSchema(queryClient, ddlDb);
-
-      // ── SPEC-078: batch bookkeeping + advancement ─────────────────────────
-      const run = runsRef.current[tabId];
-      // Stale finalize (tab closed, or a new run replaced this one) — history
-      // above is still recorded; there is no batch to advance.
-      if (!run || run.done || run.executionId !== executionId) return;
-
-      // FR-007: a result-producing statement that succeeded earns a result tab
-      // (accumulated in every scope; display differs by scope).
-      const resultTab: ResultTab | null =
-        status.state === 'SUCCEEDED' && isResultProducingSql(sql)
-          ? {
-              statementIndex: run.currentIndex,
-              executionId,
-              label: `${run.currentIndex + 1} · ${statementHint(sql)}`,
-              outputLocation: status.outputLocation
-            }
-          : null;
-      const withResult = (cur: TabRun): TabRun => {
-        // Idempotent: at most one result tab per execution, so a re-applied
-        // updater can never duplicate a tab.
-        const resultTabs =
-          resultTab && !cur.resultTabs.some((t) => t.executionId === resultTab.executionId)
-            ? [...cur.resultTabs, resultTab]
-            : cur.resultTabs;
-        return {...cur, resultTabs, activeResultTabIndex: Math.max(0, resultTabs.length - 1)};
-      };
-      // Guarded batch update: only applies while this execution is still the
-      // tab's current one (the tab may close or start a new run meanwhile).
-      const patchRun = (patch: (cur: TabRun) => TabRun) => {
-        updateRuns((r) => {
-          const cur = r[tabId];
-          if (!cur || cur.executionId !== executionId) return r;
-          return {...r, [tabId]: patch(withResult(cur))};
-        });
-      };
-
-      // FR-002: stop at the first non-SUCCEEDED terminal state, and never
-      // advance past a Stop even when the statement outran the cancel.
-      const hasNext = run.currentIndex < run.statements.length - 1;
-      if (status.state !== 'SUCCEEDED' || !hasNext || run.halted) {
-        patchRun((cur) => ({
-          ...cur,
-          done: true,
-          ...(status.state === 'FAILED' && {
-            // Store friendly text for display; the raw stateChangeReason stays in
-            // the QueryStatus/history record for developers (SPEC-106 FR-004).
-            failure: {
-              statementIndex: cur.currentIndex,
-              reason: toUserText({code: status.state, message: status.stateChangeReason})
-            }
-          })
-        }));
-        return;
-      }
-
-      // Start the next statement through the same machinery: the tab's poller
-      // picks up the new execution id and finalizes it in turn.
-      const next = run.statements[run.currentIndex + 1];
-      void (async () => {
-        const started = await runQuery({sql: next.sql, username});
-        if (!started.success) {
-          patchRun((cur) => ({
-            ...cur,
-            done: true,
-            failure: {statementIndex: next.index, reason: toUserText(started.error)}
-          }));
-          return;
-        }
-        const nextId = started.data.queryExecutionId;
-        // Stop, tab close, or a replacing run landed while the next statement
-        // was starting — cancel it and settle the batch instead of installing
-        // it (otherwise it would run with no poller attached and its history
-        // entry would never finalize).
-        const latest = runsRef.current[tabId];
-        if (!latest || latest.halted || latest.executionId !== executionId) {
-          void stopQuery(nextId);
-          patchRun((cur) => ({...cur, done: true}));
-          return;
-        }
-        // Reset the prior statement's terminal status so the UI shows the new
-        // one as running immediately.
-        setStatuses((s) => ({...s, [tabId]: undefined}));
-        // Same history race guard as the first statement: the entry must land
-        // before the poller's finalizer can read-modify-write it (FR-003).
-        await appendEntry({
-          queryExecutionId: nextId,
-          sql: next.sql,
-          database: username,
-          submittedAt: new Date().toISOString(),
-          ...(run.savedQuery && {
-            savedQueryId: run.savedQuery.id,
-            savedQueryName: run.savedQuery.name
-          })
-        }).catch((e) => logBackgroundFailure('query-history', e));
-        patchRun((cur) => ({
-          ...cur,
-          executionId: nextId,
-          currentIndex: cur.currentIndex + 1,
-          submittedSql: next.sql
-        }));
-      })();
-    },
-    [updateEntry, queryClient, username, appendEntry, updateRuns]
-  );
-
-  // Submit a batch of statements into a tab (defaults to the active tab),
-  // starting the FIRST statement; the finalizer advances through the rest
-  // sequentially (SPEC-078 FR-002). An explicit tabId lets a just-opened tab
-  // (View data, SPEC-044) auto-run into itself before the activeTabId state
-  // change has committed. A new run replaces the tab's prior run wholesale, so
-  // the previous batch's result tabs are cleared (FR-007). Returns whether the
-  // submit began, so a caller that tracks its own run (the mobile results view)
-  // doesn't start waiting on a run the guards below refused (SPEC-100).
-  const submitBatch = (
-    statements: ParsedStatement[],
-    scope: RunScope,
-    tabId: string = activeTabId,
-    /**
-     * Run identity for a caller that must recognise ITS run later (the mobile
-     * results view). One object so a token can't be passed without the outcome
-     * callback that settles it, or vice versa.
-     */
-    owner?: {token: number; onOutcome: (started: boolean, error?: string) => void}
-  ): boolean => {
-    if (statements.length === 0) return false;
-    // De-dupe guard. The ref reflects a submit already in flight for this tab even
-    // before its `runs` entry commits, so a rapid double-trigger (e.g. View data
-    // opens a tab and calls submit in the same tick) starts at most one execution.
-    if (submittingTabsRef.current.has(tabId)) return false;
-    // Read the ref, not the render snapshot — it reflects a run installed in
-    // this same tick (the submittingTabsRef guard is released before re-render).
-    const existing = runsRef.current[tabId];
-    if (existing && !existing.done) return false;
-    submittingTabsRef.current.add(tabId);
-
-    // SPEC-043 FR-009: a run from a tab linked to a saved query records that
-    // query's id/name in history. Captured from the active tab at submit time.
-    const linkedId = tabs.tabs.find((t) => t.id === tabId)?.savedQueryId;
-    const linkedSaved = linkedId ? savedById.get(linkedId) : undefined;
-
-    setRunErrors((e) => ({...e, [tabId]: null}));
-    // An owned submit never writes the tab's error, so it must not un-dismiss one
-    // the editor already showed and the user already closed.
-    if (!owner) setDismissed((d) => ({...d, [tabId]: false}));
-    void (async () => {
-      try {
-        const first = statements[0];
-        // SPEC-077: no execution database context — the query fully-qualifies its
-        // own tables. Results land in the personal prefix (runQuery's default); a
-        // shared destination is chosen explicitly at Save time (SPEC-049/055).
-        const result = await runQuery({
-          sql: first.sql,
-          username
-        });
-        if (!result.success) {
-          const message = toUserText(result.error);
-          // An owned submit installs no run when it fails, so nothing would mark
-          // the error as that surface's — hand it to the owner instead of the
-          // tab, which the editor shell also reads.
-          if (owner) owner.onOutcome(false, message);
-          else setRunErrors((e) => ({...e, [tabId]: message}));
-          return;
-        }
-        const id = result.data.queryExecutionId;
-        // Reset any prior terminal status so the UI shows "running" immediately.
-        setStatuses((s) => ({...s, [tabId]: undefined}));
-        // Persist the history entry BEFORE recording the run (which mounts the
-        // poller). The finalizer's updateEntry is a read-modify-write, so if the
-        // append hasn't landed yet it would read a history without this entry and
-        // no-op — losing the terminal status and leaving history looking empty/
-        // stale. Awaiting the append closes that race for fast queries.
-        await appendEntry({
-          queryExecutionId: id,
-          sql: first.sql,
-          // SPEC-077 FR-006: informational only (there's no active database). The
-          // personal database is the fixed default context recorded for display.
-          database: username,
-          submittedAt: new Date().toISOString(),
-          ...(linkedSaved && {
-            savedQueryId: linkedSaved.id,
-            savedQueryName: linkedSaved.name
-          })
-        }).catch((e) => logBackgroundFailure('query-history', e));
-        updateRuns((r) => ({
-          ...r,
-          [tabId]: {
-            scope,
-            statements,
-            currentIndex: 0,
-            executionId: id,
-            startedAt: Date.now(),
-            submittedSql: first.sql,
-            resultTabs: [],
-            activeResultTabIndex: 0,
-            done: false,
-            ...(linkedSaved && {savedQuery: {id: linkedSaved.id, name: linkedSaved.name}}),
-            ...(owner && {token: owner.token})
-          }
-        }));
-        owner?.onOutcome(true);
-      } catch (e) {
-        // Services don't throw by contract, but an unreported submit would leave
-        // a caller waiting on an outcome that never comes.
-        const message = toUserText(e);
-        if (owner) owner.onOutcome(false, message);
-        else setRunErrors((err) => ({...err, [tabId]: message}));
-      } finally {
-        // Hand off to the state-based guard: once `runs[tabId]` commits (success) or
-        // the run errored (retryable), the ref no longer needs to block.
-        submittingTabsRef.current.delete(tabId);
-      }
-    })();
-    return true;
-  };
-
   // FR-005/006: Run Statement — the selection, else the statement under the
   // cursor, else the sole statement. When the editor handle isn't available
   // (still lazy-loading), the cursor defaults to the buffer end (last statement).
@@ -734,20 +334,6 @@ export function QueryWorkspace() {
   const handleRunScript = (scope: 'script-single' | 'script-tabs') =>
     submitBatch(splitSqlStatements(activeTab.sql), scope);
 
-  // FR-002: Stop cancels the in-flight statement AND halts the remainder. The
-  // halted flag is set first so the finalizer never starts the next statement,
-  // even when the current one outruns the cancel and SUCCEEDs.
-  const handleStop = () => {
-    const run = runsRef.current[activeTabId];
-    if (!run || run.done) return;
-    updateRuns((r) => {
-      const cur = r[activeTabId];
-      if (!cur || cur.done) return r;
-      return {...r, [activeTabId]: {...cur, halted: true}};
-    });
-    void stopQuery(run.executionId); // poller observes CANCELLED
-  };
-
   // SPEC-036 / SPEC-041 FR-003: re-open loads the entry's SQL into the active
   // tab's editor (no auto-run); re-run loads it and submits.
   const handleReopen = (entry: QueryHistoryEntry) => {
@@ -762,107 +348,11 @@ export function QueryWorkspace() {
     submitBatch(splitSqlStatements(entry.sql), 'script-single');
   };
 
-  // SPEC-049: copy the query's complete Athena result object into the user's space.
-  // A server-side CopyObject of `{username}/athenaresults/{id}.csv` captures ALL
-  // rows, independent of how many pages the results table loaded. The destination
-  // listing is invalidated so the new file appears if the user browses there, and a
-  // success toast offers a "View in Files" deep-link (SPEC-044).
-  const doSaveCopy = (args: {
-    sourceBucket: string;
-    sourceKey: string;
-    destBucket: string;
-    destPrefix: string;
-    filename: string;
-    overwrite: boolean;
-  }) => {
-    const destKey = `${args.destPrefix}${args.filename}`;
-    setSaveInFlight(true);
-    void (async () => {
-      const result = await copyObject({
-        bucket: args.sourceBucket,
-        destBucket: args.destBucket,
-        sourceKey: args.sourceKey,
-        destKey,
-        username,
-        overwrite: args.overwrite
-      });
-      setSaveInFlight(false);
-      if (!result.success) {
-        // A destination collision returns to a warn-and-confirm (SPEC-039).
-        if (result.error.code === 'Collision') {
-          setSaveResultsOpen(false);
-          setOverwritePrompt({
-            sourceBucket: args.sourceBucket,
-            sourceKey: args.sourceKey,
-            destBucket: args.destBucket,
-            destPrefix: args.destPrefix,
-            filename: args.filename
-          });
-          return;
-        }
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t save results. ${toUserText(result.error)}`
-        });
-        return;
-      }
-      setSaveResultsOpen(false);
-      setOverwritePrompt(null);
-      void invalidateListing(queryClient, args.destBucket, args.destPrefix);
-      // SPEC-055: the Files browser only renders the personal space until SPEC-057,
-      // so the "View in Files" deep-link is offered only for a personal-space save.
-      const isPersonalDest = args.destBucket === userSpaceBucket;
-      toast.push({
-        variant: 'success',
-        message: `Saved to ${args.destPrefix}${args.filename}`,
-        ...(isPersonalDest && {
-          action: {
-            label: 'View in Files',
-            onClick: () => {
-              toast.dismiss();
-              navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
-            }
-          }
-        })
-      });
-    })();
-  };
-
-  const handleSaveResults = (args: {destBucket: string; destPrefix: string; filename: string}) => {
-    // SPEC-078: save the DISPLAYED result (the active result tab's execution),
-    // not necessarily the batch's last statement.
-    const outputLocation = displayOutputLocation;
-    if (!outputLocation) return;
-    const parsed = parseS3Url(outputLocation);
-    if (!parsed) {
-      toast.push({
-        variant: 'danger',
-        message: 'Couldn’t read the query result location.'
-      });
-      return;
-    }
-    doSaveCopy({...args, sourceBucket: parsed.bucket, sourceKey: parsed.key, overwrite: false});
-  };
-
   // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
   const handleNewTab = () => {
     const id = tabs.openTab();
     if (id === null) setLimitOpen(true);
     else editorRef.current?.focus();
-  };
-
-  // FR-005: drop the closed tab's in-memory run state (its execution keeps running
-  // server-side; history is the durable record).
-  const dropRunState = (id: string) => {
-    const without = <T,>(m: Record<string, T>) => {
-      const next = {...m};
-      delete next[id];
-      return next;
-    };
-    updateRuns(without);
-    setStatuses(without);
-    setRunErrors(without);
-    setDismissed(without);
   };
 
   const requestClose = (id: string) => {
@@ -881,6 +371,19 @@ export function QueryWorkspace() {
     tabs.closeTab(id);
     dropRunState(id);
     setClosing(null);
+  };
+
+  // FR-008: derive the target database from the view body before opening the
+  // dialog; a non-derivable body raises a clear error and never silently picks
+  // a database.
+  const handleOpenCreateView = () => {
+    const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
+    if ('error' in target) {
+      toast.push({variant: 'danger', message: target.error});
+      return;
+    }
+    setCreateViewDb(target.database);
+    setCreateViewOpen(true);
   };
 
   const handleClearConfirm = () => {
@@ -930,178 +433,22 @@ export function QueryWorkspace() {
     tabs.unlinkSavedQuery(id);
   };
 
-  // ── SPEC-044 table actions ──────────────────────────────────────────────
-  // Derive the in-space S3 key (folder) backing a table from its Glue LOCATION;
-  // null when missing or outside the user's own prefix (FR-002 guard).
-  const tablePrefix = (table: GlueTableSummary): string | null => {
-    const parsed = parseS3Url(table.location);
-    if (!parsed) return null;
-    const key = parsed.key.endsWith('/') ? parsed.key : `${parsed.key}/`;
-    return username && key.startsWith(`${username}/`) ? key : null;
-  };
-
-  // SPEC-077 FR-007: each per-table action takes the database from the rail node
-  // the table was invoked from (a table under `db_a` acts on `db_a.<table>`) —
-  // there is no active-database selection to source it from.
-  const tableActions = {
-    canViewSourceFiles: (table: GlueTableSummary) => tablePrefix(table) !== null,
-    // Deep-link the file browser to the table's data folder (location-based; no db).
-    onViewSourceFiles: (_database: string, table: GlueTableSummary) => {
-      const key = tablePrefix(table);
-      if (!key) return;
-      navigate(`/files?prefix=${encodeURIComponent(key)}`);
-    },
-    // SHOW CREATE TABLE against the node's database → a new, non-run "DDL: {table}" tab.
-    onViewDdl: (database: string, table: GlueTableSummary) => {
-      toast.push({variant: 'info', message: `Loading DDL for ${table.name}…`});
-      void (async () => {
-        const result = await getTableDdl({
-          database,
-          table: table.name,
-          username,
-          isView: table.tableType === 'VIRTUAL_VIEW'
-        });
-        if (!result.success) {
-          toast.push({
-            variant: 'danger',
-            message: `Couldn’t load DDL for ${table.name}. ${toUserText(result.error)}`
-          });
-          return;
-        }
-        toast.dismiss();
-        // SPEC-100: the drawer puts these actions on a phone too, where there is
-        // no editor to open a tab into — show the DDL in the read-only view.
-        if (isMobile) {
-          handleMobileView(result.data, `DDL: ${table.name}`);
-          return;
-        }
-        const id = tabs.openTab({
-          label: `DDL: ${table.name}`,
-          sql: result.data
-        });
-        if (id === null) setLimitOpen(true);
-        else editorRef.current?.focus();
-      })();
-    },
-    // Open a "{table}" tab pre-filled with an unbounded, fully-qualified SELECT *
-    // + auto-run — the results pager (at the user's page size) walks the whole
-    // table; the workgroup bytes-scanned cutoff is the cost guard (SPEC-105).
-    onViewData: (database: string, table: GlueTableSummary) => {
-      const sql = `SELECT * FROM ${database}.${table.name}`;
-      // SPEC-100: on a phone the run goes to the mobile results view; opening a
-      // tab there would run a query with nothing able to display it.
-      if (isMobile) {
-        handleMobileRun(sql, table.name);
-        return;
-      }
-      const id = tabs.openTab({label: table.name, sql});
-      if (id === null) {
-        setLimitOpen(true);
-        return;
-      }
-      editorRef.current?.focus();
-      submitBatch(splitSqlStatements(sql), 'script-single', id); // auto-run into the just-opened tab
-    },
-    // SPEC-145: open the Refresh dialog for this rail table. Unlike Share, `open`
-    // takes the whole summary — the request's space is derived from the table's own
-    // `location`, the only thing in the workspace that knows where its files live.
-    onRefreshTable: (database: string, table: GlueTableSummary) => refresh.open(database, table),
-    // SPEC-093: open the Share dialog for this rail table (base tables only — the
-    // menu omits the item for views); submission + toasts live in useTableShare.
-    onShareTable: (database: string, table: GlueTableSummary) => share.open(database, table.name),
-    // Confirm, then drop in the background (handled on confirm) — carries the node's db.
-    onDropTable: (database: string, table: GlueTableSummary) => setDropping({database, table})
-  };
-
-  // SPEC-100 FR-005: below `tablet` the inline rail is gone, so the same tree is
-  // fed into the mobile AppNavDrawer's contextual slot. The registered node must
-  // keep a stable identity (useProvideNavRail registers it in an effect), so the
-  // drawer's copy delegates through a ref to the current handlers rather than
-  // closing over the per-render `tableActions` object.
-  const tableActionsRef = useRef(tableActions);
-  useEffect(() => {
-    tableActionsRef.current = tableActions;
+  // SPEC-044/077/100: the per-table rail actions, and the mobile nav-rail copy
+  // that has to be fed the same handlers.
+  const tableActions = useTableActions({
+    username,
+    isMobile,
+    connections,
+    toast,
+    mobile,
+    submitBatch,
+    openTab: tabs.openTab,
+    onTabLimit: () => setLimitOpen(true),
+    focusEditor: () => editorRef.current?.focus(),
+    onRefreshTable: refresh.open,
+    onShareTable: share.open,
+    onDropTable: setDropping
   });
-  const railActions = useMemo<TableActions>(
-    () => ({
-      canViewSourceFiles: (table) => tableActionsRef.current.canViewSourceFiles(table),
-      onViewSourceFiles: (database, table) => tableActionsRef.current.onViewSourceFiles(database, table),
-      onViewDdl: (database, table) => tableActionsRef.current.onViewDdl(database, table),
-      onViewData: (database, table) => tableActionsRef.current.onViewData(database, table),
-      onRefreshTable: (database, table) => tableActionsRef.current.onRefreshTable(database, table),
-      onShareTable: (database, table) => tableActionsRef.current.onShareTable(database, table),
-      onDropTable: (database, table) => tableActionsRef.current.onDropTable(database, table)
-    }),
-    []
-  );
-  const navRail = useMemo(
-    () =>
-      isMobile ? (
-        <div className="p-3">
-          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Databases</p>
-          <SchemaTree
-            connections={connections}
-            actions={railActions}
-          />
-        </div>
-      ) : null,
-    [isMobile, connections, railActions]
-  );
-  useProvideNavRail(navRail);
-
-  // SPEC-100 FR-004/006: run a saved/history entry from the mobile home through
-  // the SAME run path the editor uses, then show the results view; View opens it
-  // read-only without running.
-  // The tab's SQL is deliberately NOT set here: submitBatch takes the statements
-  // explicitly, and writing the editor buffer would overwrite (and persist over)
-  // a draft the user left on a wider screen.
-  const handleMobileRun = (sql: string, title: string) => {
-    const token = mobileRunTokenRef.current + 1;
-    const tabId = activeTabId;
-    // Navigate only if the submit is actually accepted, so a refused tap never
-    // strands the user on a page for a query that isn't running.
-    const started = submitBatch(splitSqlStatements(sql), 'script-single', tabId, {
-      token,
-      onOutcome: (ok, error) =>
-        setMobileRun((cur) => (cur?.token === token ? {...cur, phase: ok ? 'started' : 'failed', error} : cur))
-    });
-    if (!started) return;
-    mobileRunTokenRef.current = token;
-    setMobileRun({token, tabId, phase: 'submitting'});
-    setMobileView({kind: 'results', sql, title});
-  };
-  const handleMobileView = (sql: string, title: string) => {
-    setMobileRun(null);
-    setMobileView({kind: 'results', sql, title});
-  };
-  const handleMobileBack = () => {
-    setMobileRun(null);
-    setMobileView({kind: 'home'});
-  };
-
-  // Crossing up out of mobile hands the tab back to the editor, so the mobile
-  // surface's run bookkeeping must not survive to be matched against a later,
-  // unrelated desktop run. Render-phase state adjustment (the React "derive state
-  // on change" pattern), as elsewhere in this feature — not an Effect.
-  const [prevIsMobile, setPrevIsMobile] = useState(isMobile);
-  if (isMobile !== prevIsMobile) {
-    setPrevIsMobile(isMobile);
-    if (!isMobile) {
-      setMobileRun(null);
-      setMobileView({kind: 'home'});
-    }
-  }
-
-  // The view owns a run only while ITS submit is the one installed in the tab it
-  // submitted into — the tab can change under the view, and a later run replaces
-  // the entry. Pending and failed are recorded at submit time, never inferred
-  // from "no run and no error": that residual turns into a permanent phantom
-  // when the error is dismissed.
-  const mobileRunTab = mobileRun ? runs[mobileRun.tabId] : undefined;
-  const mobileOwnsRun =
-    mobileRun !== null && mobileRun.tabId === activeTabId && mobileRunTab?.token === mobileRun.token;
-  const mobileRunPending = mobileRun?.phase === 'submitting' && !mobileOwnsRun;
-  const mobileRunFailedToStart = mobileRun?.phase === 'failed';
 
   // SPEC-048/077: turn the active tab's SQL into a named view, in the background
   // (the editor keeps showing the user's SELECT). The target database is derived
@@ -1111,92 +458,26 @@ export function QueryWorkspace() {
     const database = createViewDb;
     if (!database) return;
     const body = stripTrailingSemicolons(activeTab.sql);
-    const sql = `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`;
-    setCreateViewInFlight(true);
-    void (async () => {
-      const result = await runStatementToCompletion({sql, database, username, signal: backgroundRuns.current?.signal});
-      // We stopped waiting because the user left. The view is still being created, and
-      // `ToastProvider` sits above the router — so a toast here would surface on
-      // whatever page they went to, about something that did not fail.
-      if (isAbandoned(result)) return;
-      setCreateViewInFlight(false);
-      setCreateViewOpen(false);
-      if (!result.success) {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t create view ${name}. ${toUserText(result.error)}`
-        });
-        return;
-      }
-      const status = result.data;
-      // Record the run in history (a CREATE VIEW is a real statement).
-      appendEntry({
-        queryExecutionId: status.queryExecutionId,
-        sql,
-        database,
-        submittedAt: new Date().toISOString(),
-        status: status.state,
-        dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis
-      }).catch((e) => logBackgroundFailure('query-history', e));
-
-      if (status.state === 'SUCCEEDED') {
-        void invalidateSchema(queryClient, database);
-        toast.push({variant: 'success', message: `Created view ${name}`});
-      } else {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t create view ${name}. ${toUserText({code: status.state, message: status.stateChangeReason})}`
-        });
-      }
-    })();
+    ddl.run({
+      sql: `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`,
+      database,
+      describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
+      onSettled: () => setCreateViewOpen(false)
+    });
   };
 
+  // SPEC-044 FR-005: drop the rail's table or view, recorded in history like any
+  // other statement.
   const handleDropConfirm = () => {
     if (!dropping) return;
     const {database, table} = dropping;
     const isView = table.tableType === 'VIRTUAL_VIEW';
-    const sql = `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`;
-    setDropInFlight(true);
-    void (async () => {
-      const result = await runStatementToCompletion({
-        sql,
-        database,
-        username,
-        signal: backgroundRuns.current?.signal
-      });
-      if (isAbandoned(result)) return; // see handleCreateView — nobody to tell
-      setDropInFlight(false);
-      setDropping(null);
-      if (!result.success) {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t drop ${table.name}. ${toUserText(result.error)}`
-        });
-        return;
-      }
-      const status = result.data;
-      // Record the drop in history (FR-005).
-      appendEntry({
-        queryExecutionId: status.queryExecutionId,
-        sql,
-        database,
-        submittedAt: new Date().toISOString(),
-        status: status.state,
-        dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis
-      }).catch((e) => logBackgroundFailure('query-history', e));
-
-      if (status.state === 'SUCCEEDED') {
-        void invalidateSchema(queryClient, database);
-        toast.push({variant: 'success', message: `Dropped ${table.name}`});
-      } else {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t drop ${table.name}. ${toUserText({code: status.state, message: status.stateChangeReason})}`
-        });
-      }
-    })();
+    ddl.run({
+      sql: `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`,
+      database,
+      describe: {success: `Dropped ${table.name}`, failure: `Couldn\u2019t drop ${table.name}.`},
+      onSettled: () => setDropping(null)
+    });
   };
 
   // SPEC-078 FR-004: a batch failure names the failing statement's position and
@@ -1232,19 +513,6 @@ export function QueryWorkspace() {
   // it saves the displayed result tab's execution.
   const canSaveResults = displayExecutionId !== null && !!displayOutputLocation && results.columns.length > 0;
 
-  // SPEC-049: default file name — the saved query's name when the tab is linked,
-  // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
-  const savedResultsDefaultName = (() => {
-    const d = new Date();
-    const p = (n: number) => String(n).padStart(2, '0');
-    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
-    const base = activeLinkedSaved?.name
-      ? // eslint-disable-next-line no-control-regex
-        activeLinkedSaved.name.replace(/[/\x00-\x1f]/g, '-').trim()
-      : 'query-results';
-    return `${base}-${stamp}`;
-  })();
-
   return (
     // Cap the workspace to the viewport (minus the h-14 header) so the results
     // pane scrolls internally instead of growing the page (feedback 2026-06-30).
@@ -1260,18 +528,7 @@ export function QueryWorkspace() {
         />
       )}
 
-      {/* Background pollers — one per tab with an execution, so backgrounded
-          queries finalize concurrently (FR-004). They render nothing. */}
-      {Object.entries(runs).map(([tabId, run]) => (
-        <TabExecutionPoller
-          key={tabId}
-          tabId={tabId}
-          executionId={run.executionId}
-          submittedSql={run.submittedSql}
-          onStatus={handleStatus}
-          onFinalize={handleFinalize}
-        />
-      ))}
+      {pollers}
 
       <main
         id="main"
@@ -1279,45 +536,42 @@ export function QueryWorkspace() {
         {isMobile ? (
           mobileView.kind === 'home' ? (
             <QueryMobileView
-              tab={mobileHomeTab}
-              onTabChange={setMobileHomeTab}
+              tab={mobile.homeTab}
+              onTabChange={mobile.setHomeTab}
               savedQueries={saved.queries}
               savedLoading={saved.isLoading}
               savedError={saved.error}
               history={history}
               historyLoading={historyLoading}
               historyError={historyError}
-              onRun={handleMobileRun}
-              onView={handleMobileView}
-              runDisabled={activeIsInFlight || mobileRunPending}
+              onRun={mobile.runSql}
+              onView={mobile.viewSql}
+              runDisabled={activeIsInFlight || mobile.pending}
             />
           ) : (
             <QueryResultsMobile
               title={mobileView.title}
               sql={mobileView.sql}
-              onBack={handleMobileBack}
-              onRun={() => handleMobileRun(mobileView.sql, mobileView.title)}
-              runDisabled={activeIsInFlight || mobileRunPending}
-              status={mobileOwnsRun ? activeStatus : undefined}
-              isInFlight={mobileRunPending || (mobileOwnsRun && activeIsInFlight)}
-              startedAt={mobileOwnsRun ? (activeRun?.startedAt ?? null) : null}
-              hasResultSet={mobileOwnsRun && hasResultSet}
-              totalRowCount={mobileOwnsRun ? rowCount.total : null}
-              hasRun={mobileOwnsRun || mobileRunPending}
+              onBack={mobile.back}
+              onRun={() => mobile.runSql(mobileView.sql, mobileView.title)}
+              runDisabled={activeIsInFlight || mobile.pending}
+              status={mobile.ownsRun ? activeStatus : undefined}
+              isInFlight={mobile.pending || (mobile.ownsRun && activeIsInFlight)}
+              startedAt={mobile.ownsRun ? (activeRun?.startedAt ?? null) : null}
+              hasResultSet={mobile.ownsRun && hasResultSet}
+              totalRowCount={mobile.ownsRun ? rowCount.total : null}
+              hasRun={mobile.ownsRun || mobile.pending}
               errorMessage={
-                mobileRunFailedToStart ? (mobileRun?.error ?? null) : mobileOwnsRun && showError ? errorMessage : null
+                mobile.failedToStart ? (mobile.run?.error ?? null) : mobile.ownsRun && showError ? errorMessage : null
               }
               onDismissError={() => {
                 // A submit that never started owns its error outright; anything
                 // else is the tab's run reporting a failure.
-                if (mobileRunFailedToStart) setMobileRun(null);
-                else {
-                  setRunErrors((e) => ({...e, [activeTabId]: null}));
-                  setDismissed((d) => ({...d, [activeTabId]: true}));
-                }
+                if (mobile.failedToStart) mobile.clearRun();
+                else dismissError(activeTabId);
               }}
               results={results}
-              displayExecutionId={mobileOwnsRun ? displayExecutionId : null}
+              displayExecutionId={mobile.ownsRun ? displayExecutionId : null}
             />
           )
         ) : (
@@ -1341,165 +595,20 @@ export function QueryWorkspace() {
               id="query-tabpanel"
               aria-labelledby={`query-tab-${activeTabId}`}
               className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
-                <EditorLayoutControl
-                  preset={layout.preset}
-                  onChange={handleLayoutChange}
-                />
-                <div className="flex-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => setClearOpen(true)}
-                  disabled={!canClear}
-                  aria-label="Clear query">
-                  <TrashLidIcon />
-                  <span className={TOOLBAR_LABEL}>Clear</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setSaveOpen(true)}
-                  disabled={!canSave}
-                  aria-label="Save query">
-                  <SaveIcon />
-                  <span className={TOOLBAR_LABEL}>Save</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    // FR-008: derive the target database from the view body before
-                    // opening the dialog; a non-derivable body raises a clear error
-                    // and never silently picks a database.
-                    const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
-                    if ('error' in target) {
-                      toast.push({variant: 'danger', message: target.error});
-                      return;
-                    }
-                    setCreateViewDb(target.database);
-                    setCreateViewOpen(true);
-                  }}
-                  disabled={!canSave}
-                  aria-label="Create view">
-                  <EyeIcon />
-                  <span className={TOOLBAR_LABEL}>Create view</span>
-                </Button>
-                {activeIsInFlight ? (
-                  <Button
-                    variant="ghost"
-                    onClick={handleStop}
-                    aria-label="Stop the running query"
-                    className="text-danger hover:bg-danger-soft hover:text-danger">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="h-4 w-4"
-                      aria-hidden="true">
-                      <rect
-                        x="6"
-                        y="6"
-                        width="12"
-                        height="12"
-                        rx="2"
-                      />
-                    </svg>
-                    <span className={TOOLBAR_LABEL}>Stop</span>
-                  </Button>
-                ) : (
-                  // SPEC-078 FR-005: three distinct run scopes as a split button.
-                  // Run Statement stays the primary action (⌘⏎); the two whole-script
-                  // scopes — which differ only in how results are shown — live in an
-                  // attached dropdown so the toolbar stays compact.
-                  <div className="inline-flex items-stretch">
-                    <Button
-                      variant="primary"
-                      onClick={handleRunStatement}
-                      disabled={!canRun}
-                      title="Run the selection or the statement under the cursor (⌘⏎)"
-                      aria-label="Run statement"
-                      className="rounded-r-none">
-                      <PlayIcon />
-                      <span className={TOOLBAR_LABEL}>Run Statement</span>
-                    </Button>
-                    <Menu
-                      ariaLabel="More run options"
-                      align="right"
-                      trigger={({open, toggle, ref, menuId}) => (
-                        <Button
-                          ref={ref}
-                          variant="primary"
-                          onClick={toggle}
-                          disabled={!canRun}
-                          aria-haspopup="menu"
-                          aria-expanded={open}
-                          aria-controls={open ? menuId : undefined}
-                          aria-label="More run options"
-                          title="More run options"
-                          className="rounded-l-none border-l border-white/25 px-2">
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            className={cx('h-4 w-4 transition-transform', open && 'rotate-180')}
-                            aria-hidden="true">
-                            <path d="M6 9l6 6 6-6" />
-                          </svg>
-                        </Button>
-                      )}
-                      items={[
-                        {
-                          kind: 'action',
-                          label: 'Run Query Tab',
-                          icon: (
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              className="h-4 w-4"
-                              aria-hidden="true">
-                              <path d="M5 4l8 8-8 8" />
-                              <path d="M14 20h6" />
-                            </svg>
-                          ),
-                          onSelect: () => handleRunScript('script-single')
-                        },
-                        {
-                          kind: 'action',
-                          label: 'Run Multiple Queries',
-                          icon: (
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              className="h-4 w-4"
-                              aria-hidden="true">
-                              <path d="M4 4l6 8-6 8" />
-                              <rect
-                                x="13"
-                                y="5"
-                                width="7"
-                                height="5"
-                                rx="1"
-                              />
-                              <rect
-                                x="13"
-                                y="14"
-                                width="7"
-                                height="5"
-                                rx="1"
-                              />
-                            </svg>
-                          ),
-                          onSelect: () => handleRunScript('script-tabs')
-                        }
-                      ]}
-                    />
-                  </div>
-                )}
-              </div>
+              <QueryToolbar
+                preset={layout.preset}
+                onPresetChange={handleLayoutChange}
+                isInFlight={activeIsInFlight}
+                canRun={canRun}
+                canClear={canClear}
+                canSave={canSave}
+                onClear={() => setClearOpen(true)}
+                onSave={() => setSaveOpen(true)}
+                onCreateView={handleOpenCreateView}
+                onStop={handleStop}
+                onRunStatement={handleRunStatement}
+                onRunScript={handleRunScript}
+              />
 
               {/* SPEC-079: the measured editor+results column. The editor pane takes
               the preset's clamped height; everything below it (status bar +
@@ -1534,110 +643,28 @@ export function QueryWorkspace() {
                   </Suspense>
                 </div>
 
-                {editorExecutionId !== null && (
-                  <QueryStatusBar
-                    status={activeStatus}
-                    isInFlight={activeIsInFlight}
-                    startedAt={activeRun?.startedAt ?? null}
-                    batch={
-                      activeRun && activeRun.statements.length > 1
-                        ? {current: activeRun.currentIndex + 1, total: activeRun.statements.length}
-                        : undefined
-                    }
-                    rowCount={displayExecutionId !== null ? results.loadedRowCount : undefined}
-                    hasMoreRows={results.hasMoreServer}
-                    hasResultSet={hasResultSet}
-                    totalRowCount={rowCount.total}
-                    canSaveResults={canSaveResults}
-                    onSaveResults={() => setSaveResultsOpen(true)}
-                  />
-                )}
-
-                {showError && editorOwnsRun && (
-                  <div className="px-5 pt-4">
-                    <Banner
-                      variant="danger"
-                      title="Query failed."
-                      onDismiss={() => {
-                        setRunErrors((e) => ({...e, [activeTabId]: null}));
-                        setDismissed((d) => ({...d, [activeTabId]: true}));
-                      }}>
-                      {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
-                      engine text (the raw reason is dev-logged + kept in history). */}
-                      <p className="text-sm">{errorMessage}</p>
-                    </Banner>
-                  </div>
-                )}
-
-                <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-                  {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
-                  strip; the other scopes render a single result view. Tabs are
-                  ephemeral — a new run replaces the tab's run state wholesale. */}
-                  {showResultTabs && activeRun && (
-                    <ResultTabs
-                      tabs={activeRun.resultTabs}
-                      activeIndex={activeRun.activeResultTabIndex}
-                      onSelect={(index) =>
-                        updateRuns((r) =>
-                          r[activeTabId] ? {...r, [activeTabId]: {...r[activeTabId], activeResultTabIndex: index}} : r
-                        )
-                      }
-                    />
-                  )}
-                  {/* SPEC-087 FR-002: the Results header row carries the "Rows per
-                  page" control — above the grid, right under the status bar's
-                  row-count stat, and always rendered (disabled, never hidden,
-                  when there's no result set to page). */}
-                  <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3">
-                    <h2 className="text-base font-semibold">Results</h2>
-                    <ResultsPageSizeControl
-                      pageSize={resultsPageSize.pageSize}
-                      onCommit={resultsPageSize.setPageSize}
-                      disabled={!hasResultSet || !editorOwnsRun}
-                    />
-                  </div>
-                  {editorDisplayExecutionId !== null ? (
-                    <div
-                      className="flex min-h-0 flex-1 flex-col"
-                      {...(showResultTabs &&
-                        activeRun && {
-                          role: 'tabpanel',
-                          id: 'result-tabpanel',
-                          'aria-labelledby': `result-tab-${activeRun.activeResultTabIndex}`
-                        })}>
-                      <QueryResultsTable
-                        columns={results.columns}
-                        rows={results.rows}
-                        pageIndex={results.pageIndex}
-                        rangeStart={results.rangeStart}
-                        rangeEnd={results.rangeEnd}
-                        totalRowCount={results.totalRowCount}
-                        hasPrev={results.hasPrev}
-                        hasNext={results.hasNext}
-                        isFetchingNext={results.isFetchingNext}
-                        isLoading={results.isPending}
-                        widths={colWidths.widths}
-                        onResize={colWidths.setWidth}
-                        onResetColumn={colWidths.resetColumn}
-                        onPrev={results.goPrev}
-                        onNext={results.goNext}
-                      />
-                    </div>
-                  ) : (
-                    <p className="flex h-full items-center justify-center text-sm text-text-3">
-                      {/* A disowned run isn't this buffer's to narrate — but while
-                          it holds the tab it locks the toolbar, so silence would
-                          leave that unexplained. */}
-                      {activeIsInFlight
-                        ? editorOwnsRun
-                          ? 'Running your query…'
-                          : 'A query you started on a smaller screen is still running.'
-                        : editorOwnsRun && activeBatchDone && activeStatus?.state === 'SUCCEEDED'
-                          ? 'The run finished without returning rows.'
-                          : 'Run a query to see results.'}
-                    </p>
-                  )}
-                </div>
+                <QueryResultsRegion
+                  run={activeRun}
+                  status={activeStatus}
+                  isInFlight={activeIsInFlight}
+                  batchDone={activeBatchDone}
+                  editorOwnsRun={editorOwnsRun}
+                  editorExecutionId={editorExecutionId}
+                  editorDisplayExecutionId={editorDisplayExecutionId}
+                  displayExecutionId={displayExecutionId}
+                  hasResultSet={hasResultSet}
+                  totalRowCount={rowCount.total}
+                  results={results}
+                  pageSize={resultsPageSize}
+                  colWidths={colWidths}
+                  showResultTabs={showResultTabs}
+                  showError={showError}
+                  errorMessage={errorMessage}
+                  onDismissError={() => dismissError(activeTabId)}
+                  onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
+                  canSaveResults={canSaveResults}
+                  onSaveResults={saveResults.openDialog}
+                />
               </div>
             </div>
           </>
@@ -1671,100 +698,30 @@ export function QueryWorkspace() {
         </>
       )}
 
-      {clearOpen && (
-        <ClearQueryDialog
-          onConfirm={handleClearConfirm}
-          onCancel={() => setClearOpen(false)}
-        />
-      )}
-      {saveOpen && (
-        <SaveQueryDialog
-          initialName={activeLinkedSaved?.name ?? ''}
-          savedQueries={saved.queries}
-          linkedId={activeTab.savedQueryId}
-          onSave={handleSaveConfirm}
-          onCancel={() => setSaveOpen(false)}
-        />
-      )}
-      {closing && (
-        <CloseTabDialog
-          label={closing.label}
-          onConfirm={confirmClose}
-          onCancel={() => setClosing(null)}
-        />
-      )}
-      {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
-      {createViewOpen && (
-        <CreateViewDialog
-          busy={createViewInFlight}
-          targetDatabase={createViewDb}
-          onCreate={handleCreateView}
-          onCancel={() => setCreateViewOpen(false)}
-        />
-      )}
-      {share.target && (
-        <TableShareDialog
-          source={share.target}
-          busy={share.busy}
-          submitError={share.error}
-          onSubmit={(args) => void share.submit(args)}
-          onCancel={share.close}
-        />
-      )}
-      {refresh.target && (
-        <RefreshTableDialog
-          target={refresh.target}
-          busy={refresh.busy}
-          submitError={refresh.error}
-          onConfirm={(allowRemovals) => void refresh.submit(allowRemovals)}
-          onCancel={refresh.close}
-        />
-      )}
-      {dropping && (
-        <DropTableDialog
-          table={dropping.table.name}
-          isDropping={dropInFlight}
-          isView={dropping.table.tableType === 'VIRTUAL_VIEW'}
-          onConfirm={handleDropConfirm}
-          onCancel={() => setDropping(null)}
-        />
-      )}
-      {saveResultsOpen && saveSpaces.length > 0 && (
-        <SaveResultsDialog
-          spaces={saveSpaces}
-          defaultName={savedResultsDefaultName}
-          isBusy={saveInFlight}
-          onSave={handleSaveResults}
-          onCancel={() => setSaveResultsOpen(false)}
-        />
-      )}
-      {overwritePrompt && (
-        <ConfirmDialog
-          title={`Overwrite “${overwritePrompt.filename}”?`}
-          ariaLabel="Confirm overwrite"
-          confirmLabel="Overwrite"
-          confirmVariant="danger"
-          busy={saveInFlight}
-          busyLabel="Saving…"
-          onConfirm={() =>
-            doSaveCopy({
-              sourceBucket: overwritePrompt.sourceBucket,
-              sourceKey: overwritePrompt.sourceKey,
-              destBucket: overwritePrompt.destBucket,
-              destPrefix: overwritePrompt.destPrefix,
-              filename: overwritePrompt.filename,
-              overwrite: true
-            })
-          }
-          onCancel={() => {
-            setOverwritePrompt(null);
-            setSaveResultsOpen(true); // return to the dialog with the name editable
-          }}>
-          <p className="mt-3 text-sm text-text-2">
-            A file named “{overwritePrompt.filename}” already exists in that folder. Saving will replace it.
-          </p>
-        </ConfirmDialog>
-      )}
+      <QueryDialogs
+        clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
+        save={{
+          open: saveOpen,
+          initialName: activeLinkedSaved?.name ?? '',
+          savedQueries: saved.queries,
+          linkedId: activeTab.savedQueryId,
+          onSave: handleSaveConfirm,
+          onCancel: () => setSaveOpen(false)
+        }}
+        closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
+        tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}
+        createView={{
+          open: createViewOpen,
+          busy: ddl.busy,
+          targetDatabase: createViewDb,
+          onCreate: handleCreateView,
+          onCancel: () => setCreateViewOpen(false)
+        }}
+        drop={{target: dropping, busy: ddl.busy, onConfirm: handleDropConfirm, onCancel: () => setDropping(null)}}
+        share={share}
+        refresh={refresh}
+        saveResults={saveResults}
+      />
     </div>
   );
 }
