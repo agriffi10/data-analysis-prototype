@@ -15,6 +15,12 @@ carry a second copy of the fleet's JWKS verification path.
 Laziness is not silence. A required variable that is unset raises exactly where it is read,
 naming itself, rather than being papered over with a default.
 
+The eight attributes are declared under ``TYPE_CHECKING`` and resolved by ``__getattr__``
+under ``else``, and the branch is what makes the declarations worth writing: a module-level
+``__getattr__`` typed ``-> str`` makes a checker accept ANY attribute name here, so a
+misspelled ``config.ADMIN_BUKCET`` would typecheck and fail at runtime. Hiding the hook from
+the checker and naming the eight keeps that a type error, as it was before SPEC-156.
+
 Attributes:
   USER_POOL_ID: Cognito user pool, set by Terraform.
   APP_CLIENT_ID: Cognito app client, set by Terraform.
@@ -83,11 +89,6 @@ def _require(name: str) -> str:
 
 
 if TYPE_CHECKING:
-    # DECLARED for the type checker, RESOLVED by the hook below — and the branch is what makes
-    # the declarations worth writing. A module-level `__getattr__` typed `-> str` makes mypy
-    # accept ANY attribute name on this module, so a misspelled `config.ADMIN_BUKCET` would
-    # typecheck and fail at runtime; hiding the hook from the checker and naming the eight
-    # attributes instead keeps the typo an error, which is what it was before SPEC-156.
     USER_POOL_ID: str
     APP_CLIENT_ID: str
     ADMIN_BUCKET: str

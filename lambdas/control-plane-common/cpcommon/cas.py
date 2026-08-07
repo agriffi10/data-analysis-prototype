@@ -38,7 +38,7 @@ logger = logging.getLogger()
 
 MAX_ATTEMPTS = 6
 
-__all__ = ["MAX_ATTEMPTS", "CasExhausted", "cas_mutate", "error_code", "is_precondition"]
+__all__ = ["MAX_ATTEMPTS", "CasExhausted", "cas_mutate", "is_precondition"]
 
 
 class CasExhausted(RuntimeError):

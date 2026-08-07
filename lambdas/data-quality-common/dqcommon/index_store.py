@@ -170,6 +170,17 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
     must behave the same way. Newest goes last on disk so the cap drops the oldest; the dashboard
     sorts by timestamp itself and never relies on that order.
 
+    ``skip_no_op=False`` keeps the loop this replaced: a redelivery whose entry reproduces the
+    current document byte for byte still writes, where the shared default would return early.
+    Invisible in the index, but a different set of S3 calls than this ever made.
+
+    SPEC-156 FR-001 widened what is swallowed, in the direction of the contract below rather
+    than against it. The entry-replacement transform used to run outside the guard, so a
+    malformed index — ``{"entries": ["x"]}`` survives the read's ``isinstance(…, list)`` check
+    and then meets ``e.get(…)`` — raised out of here and failed a check that had already
+    succeeded and already notified the user. It runs inside the loop now and is logged like any
+    other index fault.
+
     Args:
       bucket: The reports bucket.
       report_prefix: The request's report prefix, which determines the index key.
@@ -188,6 +199,17 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
     entry = entry_from(summary)
 
     def _apply(entries: list) -> list:
+        """Replaces this run's row if present, appends it, and trims to the newest cap.
+
+        Args:
+          entries: The freshly-read entry list.
+
+        Returns:
+          The list to write.
+
+        Raises:
+          AttributeError: If a stored entry is not a mapping. Caught by the caller.
+        """
         updated = [e for e in entries if e.get("requestId") != entry["requestId"]]
         updated.append(entry)
         return updated[-config.DQ_INDEX_MAX_ENTRIES :]
@@ -198,10 +220,6 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
             _apply,
             lambda entries, etag: _write(bucket, key, entries, etag),
             label=f"{bucket}/{key}",
-            # skip_no_op=False keeps the pre-consolidation behaviour: a redelivery whose entry
-            # reproduces the current document byte for byte still writes. The shared loop's
-            # default would return early instead, which is invisible in the index but is a
-            # different set of S3 calls than this ever made.
             skip_no_op=False,
             on_conflict=lambda attempt: logger.info(
                 "runs index %s/%s changed under us (attempt %d)", bucket, key, attempt

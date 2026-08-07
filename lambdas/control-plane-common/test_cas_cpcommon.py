@@ -143,39 +143,61 @@ def test_one_cap_for_every_caller():
     """FR-001's explicit resolution: 6, 5 and 5 became one value. Preserving three caps through
     a consolidation would have been a failed consolidation, so the number is asserted rather
     than left to whichever copy a reader happens to open."""
-    import importlib
+    import ast
     import pathlib
 
-    # shared-space-common and log-sweep are not on the suite's path (conftest.py adds the three
-    # package layers only), so the two callers are imported by location rather than trusted to
-    # a copy of their numbers written here — a hand-copied cap is the thing this FR deleted.
     lambdas = pathlib.Path(__file__).resolve().parent.parent
-    for directory in ("shared-space-common", "log-sweep"):
-        sys.path.insert(0, str(lambdas / directory))
-    try:
-        casio = importlib.import_module("casio")
-        log_sweep = importlib.import_module("log_sweep")
-    finally:
-        for directory in ("shared-space-common", "log-sweep"):
-            sys.path.remove(str(lambdas / directory))
+
+    def _bound_to_cas(path, name):
+        """True iff ``name`` is assigned an attribute of the shared module, not a literal.
+
+        Read from SOURCE rather than imported. Importing ``log_sweep`` to read one integer runs
+        its module scope, which calls ``observability.init`` and installs a root-logger filter
+        for the rest of the session — a side effect this file has no business causing, and one
+        the conftest's shared-layer snapshot does not cover. Reading the binding also asserts
+        the stronger property: not "these numbers agree today" but "there is one number".
+        """
+        for node in ast.walk(ast.parse((lambdas / path).read_text())):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == name for target in node.targets
+            ):
+                value = node.value
+                if isinstance(value, ast.Attribute):
+                    return value.attr == "MAX_ATTEMPTS"
+                return isinstance(value, ast.Name) and value.id == "MAX_ATTEMPTS"
+        return False
 
     assert cas.MAX_ATTEMPTS == 6
-    assert casio.MAX_CAS_ATTEMPTS == cas.MAX_ATTEMPTS
-    assert log_sweep.MAX_CAS_ATTEMPTS == cas.MAX_ATTEMPTS
+    assert _bound_to_cas("shared-space-common/casio.py", "MAX_CAS_ATTEMPTS")
+    assert _bound_to_cas("log-sweep/log_sweep.py", "MAX_CAS_ATTEMPTS")
 
 
-def test_no_second_copy_of_the_loop_survives():
-    """The twin comment named SPEC-125 as the convergence point and the twin outlived it. A
-    grep is the only thing that makes 'there is one loop' a property rather than a claim."""
+def test_the_precondition_predicate_has_not_reappeared():
+    """Named for what it checks, which is NARROWER than "there is one loop".
+
+    It greps for the S3 response codes, so it catches a re-grown ``_is_precondition`` — the
+    concrete drift FR-001 found, where two copies knew the racing 409 and one did not. It does
+    NOT catch a second read-modify-write loop written against ``casio.error_code`` or against
+    ``cas.is_precondition``: a hand-rolled loop calling the shared predicate passes, and one
+    such loop legitimately exists (``registry._resolve_reserve_collision``, which returns three
+    outcomes rather than a committed value and so is not a ``cas_mutate``). Detecting loop
+    SHAPE would flag that one too, so the guard is scoped to the part that can silently differ.
+    """
     import pathlib
 
     lambdas = pathlib.Path(__file__).resolve().parent.parent
-    offenders = [
-        path
+    owner = lambdas / "control-plane-common" / "cpcommon" / "cas.py"
+    offenders = sorted(
+        str(path.relative_to(lambdas))
         for path in lambdas.rglob("*.py")
         if "__pycache__" not in str(path)
-        and path != lambdas / "control-plane-common" / "cpcommon" / "cas.py"
-        and "ConditionalRequestConflict" in path.read_text()
+        and path != owner
         and not path.name.startswith("test_")
-    ]
-    assert not offenders, f"a precondition predicate reappeared in {[p.name for p in offenders]}"
+        # fakes.py RAISES these codes to drive the loop under test; it does not classify them.
+        and path.name != "fakes.py"
+        and any(
+            code in path.read_text()
+            for code in ("ConditionalRequestConflict", "PreconditionFailed")
+        )
+    )
+    assert not offenders, f"a precondition predicate reappeared in {offenders}"

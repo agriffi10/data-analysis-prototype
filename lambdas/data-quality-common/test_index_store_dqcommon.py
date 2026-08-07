@@ -23,7 +23,7 @@ KEY = "alice/_data-quality-reports/index.json"
 
 
 class _ClientError(Exception):
-    """Shaped like botocore's, which is all `_is_precondition` reads."""
+    """Shaped like botocore's, which is all `cpcommon.cas.is_precondition` reads."""
 
     def __init__(self, code):
         super().__init__(code)

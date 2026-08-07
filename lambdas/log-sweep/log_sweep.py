@@ -220,7 +220,13 @@ def _append_day(key, new_lines):
 
     One destination, one child span, and every event here is per destination, never per message.
     The failure reason is a stable token rather than a stringified exception: a reason you can
-    filter on is worth more than a message you can read once.
+    filter on is worth more than a message you can read once. Exhaustion and a write fault are
+    two reasons, which is why the shared loop raises a distinct type for the first rather than
+    leaving them to be told apart by message text.
+
+    ``skip_no_op=False`` because this loop never had a no-op check. ``payload`` is never empty
+    today, so the shared default would not fire — but resting on that inequality would make an
+    empty-batch caller silently stop writing instead of writing an empty append.
 
     Args:
       key: The day object's key.
@@ -236,6 +242,17 @@ def _append_day(key, new_lines):
     observability.info("appending", key=key, events=len(new_lines))
 
     def _read():
+        """Reads the day object, warning when it has grown expensive to rewrite in full.
+
+        Args:
+          None.
+
+        Returns:
+          The ``(existing bytes, etag)`` tuple.
+
+        Raises:
+          None.
+        """
         existing, etag = _read_day(key)
         if len(existing) > LARGE_OBJECT_WARN_BYTES:
             logger.warning(
@@ -247,11 +264,34 @@ def _append_day(key, new_lines):
         return existing, etag
 
     def _apply(existing):
+        """Builds the new day object: the existing bytes, newline-terminated, plus the payload.
+
+        Args:
+          existing: The day object's current bytes, empty when it does not exist yet.
+
+        Returns:
+          The full body to write.
+
+        Raises:
+          None.
+        """
         if existing and not existing.endswith(b"\n"):
             existing += b"\n"
         return existing + payload
 
     def _write(body, etag):
+        """Writes the day object conditionally on the tag it was read at.
+
+        Args:
+          body: The full object body.
+          etag: The tag to match, or None to write only if the object is absent.
+
+        Returns:
+          None.
+
+        Raises:
+          ClientError: On a precondition failure, so the loop can retry, or any other S3 fault.
+        """
         kwargs = {
             "Bucket": ADMIN_BUCKET,
             "Key": key,
@@ -265,6 +305,17 @@ def _append_day(key, new_lines):
         clients.s3().put_object(**kwargs)
 
     def _on_conflict(attempt):
+        """Records one lost race, in both accounts of the sweep.
+
+        Args:
+          attempt: The 1-based attempt that lost.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
         logger.info(
             "log-sweep: %s changed under us (attempt %d/%d); re-reading",
             key,
@@ -281,10 +332,8 @@ def _append_day(key, new_lines):
             _apply,
             _write,
             label=key,
+            max_attempts=MAX_CAS_ATTEMPTS,
             on_conflict=_on_conflict,
-            # skip_no_op=False: `payload` is never empty, so the shared loop's default would
-            # never fire — but this loop had no no-op check at all, and relying on that
-            # inequality would make an empty-batch caller silently stop writing.
             skip_no_op=False,
         )
     except cas.CasExhausted:

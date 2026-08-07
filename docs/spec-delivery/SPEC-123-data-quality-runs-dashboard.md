@@ -7,7 +7,7 @@ with a click through to the full report. It closes a real gap: a report used to 
 **only** from its notification, so clearing that notification effectively lost the report.
 
 - **`dqcommon/index_store.py`** — the per-space runs index, appended by `assemble-report`
-  under **optimistic ETag CAS** with bounded retry (`DQ_INDEX_CAS_RETRIES`), capped at
+  under **optimistic ETag CAS** with bounded retry (`DQ_INDEX_CAS_RETRIES`, replaced by the shared `cpcommon.cas.MAX_ATTEMPTS` in SPEC-156 FR-001), capped at
   `DQ_INDEX_MAX_ENTRIES` (200, oldest dropped first), rebuilding a missing or corrupt index
   rather than failing. A replayed `requestId` **replaces** its row, matching the report key's
   own replay-safety.
@@ -30,7 +30,7 @@ browser already reads that prefix for the report view. Confirmed against
   than block, the FR-006 footer line is worded **"usually"** instead of as a guarantee, and a
   test pins that wording. **Tighten both when SPEC-126 lands.**
 - **The notification is emitted before the index append**, not after. FR-001 only required
-  the index to follow the report; putting up to `DQ_INDEX_CAS_RETRIES` round trips ahead of
+  the index to follow the report; putting up to `DQ_INDEX_CAS_RETRIES` (now `cpcommon.cas.MAX_ATTEMPTS`) round trips ahead of
   the user's only completion signal would mean a verb timing out mid-CAS leaves a written
   report nobody is ever told about.
 

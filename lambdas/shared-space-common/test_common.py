@@ -776,7 +776,8 @@ def test_a_database_of_more_than_a_hundred_tables_is_dropped_in_batches():
 # A failed If-Match yields 412 PreconditionFailed; a failed If-None-Match: * raced
 # against another create yields 409 ConditionalRequestConflict. casio matched only the
 # 412, so a genuinely SIMULTANEOUS write failed hard where the sequential duplicate
-# worked. Both twins (dqcommon.index_store, log-sweep) already handle 409 and explain why.
+# worked. The two twins that already handled 409 (dqcommon.index_store, log-sweep) are gone:
+# SPEC-156 FR-001 merged all three into cpcommon.cas, which is where the predicate now lives.
 
 
 def test_is_precondition_recognises_both_the_412_and_the_racing_409():
@@ -876,7 +877,7 @@ def test_cache_cas_retries_on_a_409_rather_than_re_raising():
 # before the request began — and assign it over the freshly-read record. So the CAS
 # re-read the record and then overwrote the one field it exists to protect. Nothing
 # serializes these requests: the Pipe is FIRE_AND_FORGET and the group id is one global
-# constant, which casio's own module docstring says outright.
+# constant, which cpcommon.cas's module docstring says outright (casio's until SPEC-156).
 
 
 class _EtagRotatingS3(FakeS3):
