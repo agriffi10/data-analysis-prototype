@@ -800,9 +800,11 @@ describe('QueryTabStrip', () => {
       expect(onNew).toHaveBeenCalled();
     });
 
-    it('hides the close control when only one tab remains', () => {
+    it('hides the close control when only one tab remains, reclaiming its space', () => {
       setup({tabs: [tabs[0]]});
       expect(screen.queryByTitle(/Close/)).not.toBeInTheDocument();
+      // No inert placeholder holding the ✕ slot open: the solo tab pads symmetrically.
+      expect(screen.getByRole('tab', {name: /Query 1/})).toHaveClass('pr-3');
     });
 
     it('renders the global Saved queries + History buttons', () => {

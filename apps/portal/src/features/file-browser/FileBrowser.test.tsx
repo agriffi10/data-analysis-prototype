@@ -504,6 +504,35 @@ describe('FileBrowser — data quality (SPEC-113)', () => {
     });
   });
 
+  it('drops the selection once the check is on its way, but not when cancelled', async () => {
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+    const row = () => screen.getByRole('checkbox', {name: 'Select report.csv'});
+
+    // Cancel leaves the selection alone — nothing happened, so nothing changes.
+    await user.click(row());
+    await user.click(checkButton());
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Cancel'}));
+    expect(row()).toBeChecked();
+
+    await user.click(checkButton());
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Start check'}));
+    await waitFor(() => expect(row()).not.toBeChecked());
+    expect(checkButton()).toBeDisabled();
+  });
+
+  it('keeps the selection when the enqueue fails, so the user can retry', async () => {
+    mockQualityCheck.mockResolvedValue(fail('AWS.SimpleQueueService.NonExistentQueue'));
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(checkButton());
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Start check'}));
+
+    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
+  });
+
   it('is absent entirely in read-only browse, where there is no space to check', async () => {
     renderBrowser({writable: false, username: undefined});
     await screen.findByText('report.csv');

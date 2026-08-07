@@ -62,14 +62,33 @@ export function parentPrefix(currentPrefix: string, rootPrefix: string): string 
 }
 
 /**
- * Uppercased file extension for a type chip, e.g. `report.pdf` → `PDF`. Returns
- * `fallback` when there's no extension; `maxLen` caps the chip width.
+ * Chip labels for extensions whose raw uppercase form reads as noise — the
+ * compression suffixes, where `foo.tar.gz` would otherwise chip as a bare `GZ`.
+ * Keyed on the lowercased extension. Keep every value to **4 characters or
+ * fewer**: the upload list chips at `maxLen: 4`, and a label that truncates is
+ * worse than the raw extension this map exists to replace.
+ */
+const EXTENSION_LABELS: Record<string, string> = {
+  gz: 'GZIP',
+  gzip: 'GZIP',
+  tgz: 'GZIP',
+  bz2: 'BZIP',
+  tbz2: 'BZIP',
+  zst: 'ZSTD',
+  '7z': '7ZIP'
+};
+
+/**
+ * Uppercased file extension for a type chip, e.g. `report.pdf` → `PDF`, with a
+ * friendlier label for the compression suffixes (`backup.tar.gz` → `GZIP`).
+ * Returns `fallback` when there's no extension; `maxLen` caps the chip width.
  */
 export function fileExtension(name: string, opts?: {fallback?: string; maxLen?: number}): string {
   const fallback = opts?.fallback ?? 'File';
   const dot = name.lastIndexOf('.');
   if (dot <= 0 || dot === name.length - 1) return fallback;
-  const ext = name.slice(dot + 1).toUpperCase();
+  const raw = name.slice(dot + 1);
+  const ext = EXTENSION_LABELS[raw.toLowerCase()] ?? raw.toUpperCase();
   return opts?.maxLen ? ext.slice(0, opts.maxLen) : ext;
 }
 

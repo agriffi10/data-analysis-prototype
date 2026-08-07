@@ -95,6 +95,18 @@ describe('fileBrowser.paths', () => {
       expect(fileExtension('noext', {fallback: 'FILE'})).toBe('FILE');
       expect(fileExtension('archive.tarball', {maxLen: 4})).toBe('TARB');
       expect(fileExtension('.gitignore')).toBe('File'); // leading dot → no ext
+      expect(fileExtension('report.pdf.')).toBe('File'); // trailing dot → no ext
+    });
+
+    it('fileExtension labels the compression suffixes rather than chipping a bare GZ', () => {
+      expect(fileExtension('backup.tar.gz')).toBe('GZIP');
+      expect(fileExtension('backup.TGZ')).toBe('GZIP');
+      expect(fileExtension('logs.bz2')).toBe('BZIP');
+      expect(fileExtension('logs.zst')).toBe('ZSTD');
+      expect(fileExtension('logs.xz')).toBe('XZ'); // unmapped: already readable
+      expect(fileExtension('bundle.7z')).toBe('7ZIP');
+      expect(fileExtension('backup.tar.gz', {maxLen: 4})).toBe('GZIP'); // survives the upload-list cap
+      expect(fileExtension('archive.zip')).toBe('ZIP'); // unmapped extensions are untouched
     });
 
     it('isAtRoot recognizes the space root (clamped and unclamped)', () => {

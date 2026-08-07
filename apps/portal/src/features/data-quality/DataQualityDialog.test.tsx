@@ -28,16 +28,18 @@ describe('DataQualityDialog', () => {
 
   function renderDialog(over: Partial<Parameters<typeof DataQualityDialog>[0]> = {}) {
     const onClose = vi.fn();
+    const onStarted = vi.fn();
     const result = renderWithProviders(
       <DataQualityDialog
         target={{space, location: 'alice/sales/'}}
         kind="folder"
         displayPath="sales/"
         onClose={onClose}
+        onStarted={onStarted}
         {...over}
       />
     );
-    return {...result, onClose};
+    return {...result, onClose, onStarted};
   }
 
   beforeEach(() => {
@@ -65,10 +67,11 @@ describe('DataQualityDialog', () => {
     });
 
     it('enqueues the check on confirm, closes, and toasts that it has started', async () => {
-      const {user, onClose} = renderDialog();
+      const {user, onClose, onStarted} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Start check'}));
 
       await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(onStarted).toHaveBeenCalled();
       expect(mock.enqueueQualityCheck).toHaveBeenCalledTimes(1);
       const sent = mock.enqueueQualityCheck.mock.calls[0][0];
       expect(sent).toMatchObject({space, location: 'alice/sales/'});
@@ -79,10 +82,20 @@ describe('DataQualityDialog', () => {
     });
 
     it('does not enqueue anything when cancelled', async () => {
-      const {user, onClose} = renderDialog();
+      const {user, onClose, onStarted} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Cancel'}));
       expect(onClose).toHaveBeenCalled();
       expect(mock.enqueueQualityCheck).not.toHaveBeenCalled();
+      // The Files browser hangs its deselect off this — a cancel must not fire it.
+      expect(onStarted).not.toHaveBeenCalled();
+    });
+
+    it('signals onStarted only when the request was actually enqueued', async () => {
+      mock.enqueueQualityCheck.mockResolvedValue({success: false, error: {message: 'nope'}});
+      const {user, onStarted, onClose} = renderDialog();
+      await user.click(screen.getByRole('button', {name: 'Start check'}));
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(onStarted).not.toHaveBeenCalled();
     });
 
     it('closes on failure too, reporting it as a user-safe toast (never the raw AWS text)', async () => {
@@ -147,6 +160,7 @@ describe('DataQualityDialog.a11y', () => {
         kind={kind}
         displayPath={displayPath}
         onClose={() => {}}
+        onStarted={() => {}}
       />
     </ToastProvider>
   );

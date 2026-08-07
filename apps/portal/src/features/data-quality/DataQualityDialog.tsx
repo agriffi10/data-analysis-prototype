@@ -10,6 +10,12 @@ type DataQualityDialogProps = {
   displayPath: string;
   /** Called once the request has been enqueued — or has failed. See below. */
   onClose: () => void;
+  /**
+   * Called only when the request was actually enqueued, before `onClose`. The Files
+   * browser clears the selection here: a cancelled or failed dialog must leave it
+   * intact. Required, not optional — a new mount point should have to decide.
+   */
+  onStarted: () => void;
 };
 
 /**
@@ -24,11 +30,11 @@ type DataQualityDialogProps = {
  * whether to point a background job at their data, and the honest answer is that it only
  * reads.
  */
-export function DataQualityDialog({target, kind, displayPath, onClose}: DataQualityDialogProps) {
+export function DataQualityDialog({target, kind, displayPath, onClose, onStarted}: DataQualityDialogProps) {
   const {start, isPending} = useDataQualityCheck();
 
   const handleConfirm = async () => {
-    await start(target);
+    if (await start(target)) onStarted();
     onClose();
   };
 
