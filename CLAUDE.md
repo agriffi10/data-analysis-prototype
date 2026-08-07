@@ -117,10 +117,12 @@ What remains below is the live checks that are owed.
   2026-08-05** (`aws s3 rm` + a targeted invalidation); the class remains, so the next one needs the
   same treatment. **Do not verify such a removal by status code** — this distribution maps
   `403/404 → /index.html` with a **200** for client-side routing, so a deleted asset still answers
-  200. Check `content-type` and `x-cache: Error from cloudfront` instead. (2) **Every** deploy since the split has been byte-identical to
-  its predecessor, so **the delete pass has still never deleted anything** (verified through run
-  30902923653: 108 assets + 2 root uploaded, 0 deleted). The next deploy that changes a bundle hash
-  is its first real test.
+  200. Check `content-type` and `x-cache: Error from cloudfront` instead. (2) **DISCHARGED
+  (2026-08-07): the delete pass deleted for the first time.** SPEC-155's merge (run 31142729286) was
+  the first deploy to change bundle hashes, and `Reconcile deletions` removed exactly **5** superseded
+  chunks — `index`, `QueryPage`, `ConnectionsPage`, `shared-spaces`, `CollapsibleRail` — **every one
+  under `assets/`, none at the root**, which is the prefix scoping working rather than a lucky diff.
+  The pass is now exercised, not merely configured.
 - **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
   `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
   per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
