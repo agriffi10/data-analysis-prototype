@@ -70,6 +70,42 @@ None of this is broken today. All of it is a maintenance surface where a fix rea
 
 `tbcommon/messages.py:112-142`, `tscommon/messages.py:69-93` and `dqcommon/messages.py:127-143` each do: access-denied short-circuit → body table lookup → marker substitution → prefix sentence. Only `dqcommon` uses `cpcommon.messages.Resolver`. The cost is explicit: `tscommon/messages.py:31-33` documents that it has **no tokens mechanism**, so `too_many_recipients` bakes the cap into its literal and `tscommon.notify.emit_failure` discards `err.tokens` even though `TerminalError` carries them. The dedup-id builder is copied verbatim between `tbcommon/notify.py:41-43` and `dqcommon/notify.py:63-65`.
 
+#### Build note (2026-08-07) — the blocker, measured, before any code was written
+
+The other three FRs shipped first (#390, #391, #392). FR-002 was scoped out of #392 and is
+the last piece. Two findings from reading the three modules, recorded so the next session does
+not re-derive them:
+
+1. **`Resolver.__init__` currently *rejects* two of the three tables.** It raises `ValueError`
+   when a domain re-defines a base reason code — and `tbcommon` defines `malformed_event` and
+   `unexpected_error`, `tscommon` defines `unexpected_error`. **All three redefinitions are
+   byte-identical to `BASE_MESSAGES`** (verified by comparison, not by eye), so deleting those
+   keys from the domain tables is a provable no-op and unblocks adoption. That overlap check is
+   the mechanical reason these two planes never used the shared resolver.
+2. **The one genuine wording difference is the unknown-reason fallback.** `tbcommon` and
+   `tscommon` fall back to `"something went wrong."`; `Resolver.body` falls back to
+   `BASE_MESSAGES[UNEXPECTED_ERROR]` = `"something went wrong. Please try again."` Only
+   reachable for a reason that is registered but absent from the table, which `TerminalError`'s
+   raise-time validation makes unreachable today — but byte-identity is this FR's criterion, so
+   it needs a `fallback=` parameter rather than a shrug.
+
+So the resolver gains **three** knobs, not two: `prefix`, `access_denied`, `fallback`. The
+first two are marker-substituted templates like the bodies, because table-builder's verb
+(`create`/`refresh`) varies per request **and reaches its access-denied clause too** — a
+create-only line would tell a user they cannot create a table they were trying to refresh.
+
+Per-plane templates to reproduce exactly:
+
+| plane | access-denied | prefix |
+|---|---|---|
+| table-builder | `You don't have access to {verb} a table here.` | `Couldn't {verb} table "{name}": ` |
+| table-share | `You don't have access to share that table.` | `Couldn't share "{source}"{toRecipient}: ` |
+| data-quality | `You don't have access to check data quality there.` | `Couldn't check data quality{where}: ` |
+
+`tbcommon` blanks **every declared marker** (`_MARKERS`, discovered from the bodies), not only
+supplied ones; the shared `body()` substitutes only supplied tokens, so an absent one would
+ship a literal brace group. That behaviour must move into the shared path, not be dropped.
+
 #### Acceptance Criteria
 
 - [ ] `cpcommon.messages.Resolver` gains an optional prefix template and access-denied clause, so all three planes can express their wording through it.
