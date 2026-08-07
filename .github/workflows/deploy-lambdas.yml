@@ -500,12 +500,15 @@ jobs:
         # functions (SPEC-066) attach the table-builder-polars layer after deploy.
         lambda:
           # The first three SINGLETON functions — no control plane, no domain layer. They
-          # attach cpcommon for ONE import, `observability` (SPEC-137 FR-001), and that is the
-          # whole reason `cpcommon` is safe here: `cpcommon/__init__.py` imports no submodules
-          # and `observability` never reaches `config`, so the layer's import-time `_require`
-          # of six variables (PR #196) does not run for them and none of the six is set for
-          # them in Terraform. (SPEC-146's user-directory-build is a singleton on different
-          # terms — see its own note below.)
+          # attach cpcommon for `observability` (SPEC-137 FR-001), and notifications-writer
+          # also for `auth`/`clients` since SPEC-156 FR-004. They are safe here because
+          # `cpcommon/__init__.py` imports no submodules and `cpcommon.config` resolves each
+          # variable on FIRST ACCESS rather than at import — so a function that sets three of
+          # the six (notifications-writer) or none of them (the two Cognito triggers) imports
+          # fine, and what it must set is only what it reads. Until SPEC-156 the `_require` ran
+          # at import (PR #196), which is exactly why notifications-writer could not use the
+          # layer's verifier and grew a second copy of it.
+          # (SPEC-146's user-directory-build is a singleton on different terms — see below.)
           #
           # SPEC-137 shipped the instrumented CODE without these three flags, so all three
           # deployed `from cpcommon import observability` with no cpcommon layer attached —
@@ -517,10 +520,12 @@ jobs:
           - { name: pre-signup, layer: false, polars: false, tbcommon: false, cpcommon: true }
           - { name: post-confirmation, layer: false, polars: false, tbcommon: false, cpcommon: true }
           - { name: notifications-writer, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          # user-directory-build is a singleton too, but NOT of the kind above, and the
-          # difference is the cold-start trap itself: it imports `config` and `clients`
-          # alongside `observability`, so the layer's import-time `_require` of six variables
-          # DOES run for it. All six are therefore set in modules/user-directory/lambda.tf,
+          # user-directory-build is a singleton too, but NOT of the kind above: it imports
+          # `config` and `clients` alongside `observability` and READS the bucket names, so it
+          # needs the variables the two Cognito triggers do not. (Before SPEC-156 the layer's
+          # `_require` ran at import and the distinction was cold-start crash vs. no crash; now
+          # it is a failure at the read, on whichever branch reads first — narrower, and still
+          # a failure.) All six are therefore set in modules/user-directory/lambda.tf,
           # and lambdas/user-directory-build/test_build_directory.py asserts that file against
           # config.py's own `_require` list rather than against a hand-kept copy — so a seventh
           # required variable fails a test instead of a cold start (SPEC-146 FR-008).

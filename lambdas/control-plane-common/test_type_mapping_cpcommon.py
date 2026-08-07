@@ -87,13 +87,24 @@ def test_importing_cpcommon_does_not_pull_in_polars():
     if cpcommon/__init__.py ever gained `from . import type_mapping`, every polars-free
     verb would ImportError at cold start. Asserting on the __init__ SOURCE rather than
     sys.modules keeps this honest: polars is already imported in this test process.
+
+    Over the PARSED source, not a substring of it. `"type_mapping" not in source` also matched
+    the docstring, so the file could not explain the rule it enforces without failing — the
+    same comment-matching trap `test_build_directory.py` documents, one file over.
     """
+    import ast
     import pathlib
 
     import cpcommon
 
-    source = pathlib.Path(cpcommon.__file__).read_text()
-    assert "type_mapping" not in source, "cpcommon/__init__.py must not import type_mapping"
+    tree = ast.parse(pathlib.Path(cpcommon.__file__).read_text())
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    assert "type_mapping" not in imported, "cpcommon/__init__.py must not import type_mapping"
 
 
 if __name__ == "__main__":

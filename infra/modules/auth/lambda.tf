@@ -84,9 +84,11 @@ resource "aws_lambda_function" "pre_signup" {
   # it logs to stdout instead of failing at cold start. Set here so it is set in practice,
   # and the trigger's narrative lands in logs/service=auth/ with post-confirmation's.
   #
-  # NONE of the six variables cpcommon/config.py _require()s is set here, deliberately:
-  # this function imports only `observability`, which never reaches `config`, so the
-  # import-time fail-fast (PR #196) does not run for it.
+  # NONE of the six variables cpcommon/config.py requires is set here, deliberately: this
+  # function imports only `observability`, which never reaches `config`. Since SPEC-156 that
+  # config resolves on first ACCESS rather than at import, so the guard is no longer "does the
+  # import crash" (PR #196) but "does any branch read one" — test_layer_import_safety.py scans
+  # this function's whole source for a cpcommon import as well as running it.
   environment {
     variables = {
       LOGS_QUEUE_URL = var.logs_queue_url

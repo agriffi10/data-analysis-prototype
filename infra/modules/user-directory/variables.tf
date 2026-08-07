@@ -45,26 +45,26 @@ variable "logs_queue_url" {
 }
 
 variable "user_pool_id" {
-  description = "Required by the cpcommon layer's import-time config._require, NOT used by the builder — the directory's source is S3 common prefixes, never Cognito (SPEC-146 FR-001). Every function attaching cpcommon needs the UNION of its required env or it crashes at COLD START (PR #196)."
+  description = "NOT used by the builder — the directory's source is S3 common prefixes, never Cognito (SPEC-146 FR-001). Required by the cpcommon layer's config, which resolves on first READ rather than at import (SPEC-156 FR-004) — so a missing value is no longer a cold-start crash (PR #196) but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
   type        = string
 }
 
 variable "app_client_id" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_pool_id). The builder makes no Cognito call."
+  description = "The builder makes no Cognito call. See user_pool_id for why it is set anyway."
   type        = string
 }
 
 variable "shared_space_bucket_name" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_pool_id). The builder never touches Bucket 2 — shared-space prefixes are spaces, not users."
+  description = "The builder never touches Bucket 2 — shared-space prefixes are spaces, not users. See user_pool_id for why it is set anyway."
   type        = string
 }
 
 variable "admin_bucket_name" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_pool_id)."
+  description = "Not read by the builder. See user_pool_id for why it is set anyway."
   type        = string
 }
 
 variable "athena_workgroup" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_pool_id). The builder runs no queries."
+  description = "The builder runs no queries. See user_pool_id for why it is set anyway."
   type        = string
 }

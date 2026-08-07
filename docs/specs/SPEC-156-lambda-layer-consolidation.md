@@ -1,7 +1,7 @@
 # Spec: Lambda Layer Consolidation — Folding the Deliberate Twins onto `cpcommon`
 
 **ID:** SPEC-156
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-107 (`cpcommon`, the shared layer this spec consolidates onto), SPEC-125 (which `dqcommon/index_store.py:20` names as the point where the CAS twins converge — it has shipped), SPEC-151 (fixes `casio.is_precondition` **in place**; this spec then moves it — land 151 first), SPEC-153 (the `conftest` snapshot and paginating fakes that make cross-layer refactoring safe)
 
@@ -131,12 +131,22 @@ None of this is broken today. All of it is a maintenance surface where a fix rea
 
 ## Implementation Phases
 
-Each FR is independently landable and should be its own PR. Consolidation PRs must be reviewable as "nothing changed", so keep them narrow.
+Consolidation PRs must be reviewable as "nothing changed", so keep them narrow.
+
+> **Amended at build time (2026-08-07), by explicit decision.** The phases below were authored
+> as five code PRs plus a completion PR, with Phase 1 landing **alone**. They ship as **three**:
+> Phases 1+2 together (PR A), Phase 3 alone (PR B), Phases 4+5+6 together (PR C). The cost is
+> stated rather than hidden — Phase 1 was fenced off because lazy `config` touches every
+> function's cold-start import path, and combining it with Phase 2 means a cold-start regression
+> would arrive in a deploy that also changed `notifications-writer`. Accepted because the
+> scrubbed-environment probe catches that failure mode locally and a revert is one PR either
+> way. Phase 3 keeps its own PR: three call sites with three different failure contracts, plus a
+> retry-cap change, is where "nothing changed" needs real scrutiny.
 
 ### Phase 1: The blocker
 
-- FR-004's lazy `cpcommon.config`, landed **alone**, with the loud-at-first-use assertion and the scrubbed-import probe green.
-- Nothing else moves until this is proven, because it is the reason the JWKS duplication exists and it touches every function's import path.
+- FR-004's lazy `cpcommon.config`, with the loud-at-first-use assertion and the scrubbed-import probe green.
+- It is the reason the JWKS duplication exists and it touches every function's import path.
 
 ### Phase 2: The authentication boundary
 

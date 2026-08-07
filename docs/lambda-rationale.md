@@ -16,17 +16,31 @@ the evidence behind it, not the decision itself.
 `cpcommon/__init__.py` must not import anything, and this is load-bearing rather than
 tidiness (SPEC-137 FR-001).
 
-`cpcommon.config` calls `_require()` on six environment variables **at import time**, so
-anything imported from the package root runs for every function that attaches the layer.
-Three functions — `pre-signup`, `post-confirmation` and `notifications-writer` — attach the
-layer for exactly one module, `observability`, and set none of the six. A single import
-added to the root breaks all three at cold start, and on `pre-signup` that is a Cognito
-trigger, so it breaks sign-up itself. That is not hypothetical: it shipped, and it broke
-sign-up for nine days.
+Anything imported from the package root runs for every function that attaches the layer,
+whether or not that function uses it. Three functions — `pre-signup`, `post-confirmation`
+and `notifications-writer` — attach the layer for one or two modules and set almost none of
+`cpcommon.config`'s environment.
 
-Pinned by `test_layer_import_safety.py`, which imports `observability` in a **subprocess**
-with a scrubbed environment. An in-process test cannot see the failure, because
-`conftest.py` stamps the six variables before collection.
+**The original reason was a fail-fast, and it expired.** `cpcommon.config` used to call
+`_require()` on six variables **at import time**, so a single import added to the root broke
+all three at cold start — on `pre-signup` a Cognito trigger, so it broke sign-up itself. That
+is not hypothetical: it shipped, and it broke sign-up for nine days. SPEC-156 FR-004 moved
+that resolution to **first access**, because the eager version was also the reason
+`notifications-writer` could not import `cpcommon.auth` and carried a second copy of the
+fleet's JWKS verifier.
+
+**The rule survives its original reason, on cold-start cost.** The root is imported by every
+control-plane verb, so a submodule imported there is paid for fifteen times over —
+`type_mapping` alone would pull polars, ~100 MB, onto functions that never read a Parquet
+footer.
+
+Pinned by `test_layer_import_safety.py`, which holds the property with **two** mechanisms
+because neither covers the other: an AST scan of each singleton's whole file against a
+per-function allowlist (it sees a `cpcommon` import in a **function body**, which runs on a
+later branch rather than at cold start), and a **subprocess** import of each singleton with
+the six variables withheld (it sees what a module actually *touches*, including through a
+module it never names). An in-process test can do neither, because `conftest.py` stamps the
+six variables before collection.
 
 The package is a package (`python/cpcommon/`) rather than flat modules so its module names
 (`config`, `auth`, …) cannot collide with the domain layers' or `shared-space-common`'s

@@ -1,11 +1,16 @@
 """Every table-builder verb's environment must satisfy the layers' import-time fail-fast.
 
-THE TRAP THIS EXISTS FOR HAS FIRED TWICE. ``cpcommon/config.py`` calls ``_require`` on six
-variables AT IMPORT, and every verb reaches it (each imports ``tbcommon.notify`` →
-``tbcommon.config`` → ``cpcommon.config``). So a verb missing ONE variable does not
+THE TRAP THIS EXISTS FOR HAS FIRED TWICE. ``tbcommon/config.py`` calls ``_require`` AT
+IMPORT and every verb reaches it, so a verb missing ONE of its variables does not
 misbehave — it raises ``RuntimeError`` at COLD START, before the handler exists. PR #196
 broke the whole plane that way (check-table-absent, ``COGNITO_USER_POOL_ID`` unset); PR
 #317 broke sign-up the same way through a missing layer.
+
+``cpcommon/config.py``'s six moved to first access in SPEC-156, so they are no longer a cold
+start away — but they are still one code path away, and this test's obligation is unchanged:
+the common environment must satisfy the UNION of what both modules can demand. Narrowing the
+guard to match the narrower failure window would be assuming the branch that reads the
+missing variable never runs.
 
 Nothing else catches it: ``update-function-code`` succeeds against a function that cannot
 import, and ``lambdas/conftest.py`` stamps the variables before collection so every test
@@ -15,6 +20,7 @@ layers actually demand.
 Runnable under pytest or directly: python3 test_table_builder_env.py.
 """
 
+import ast
 import os
 import re
 import sys
@@ -35,9 +41,21 @@ def _read(path):
 
 
 def _required_variables():
-    """Every variable the two config modules ``_require`` at import."""
-    sources = _read(_CPCONFIG) + _read(_TBCONFIG)
-    return set(re.findall(r'_require\(\s*"([A-Z0-9_]+)"\s*\)', sources))
+    """Every variable the two config modules require.
+
+    Two forms, because the two modules resolve differently. ``tbcommon.config`` still calls
+    ``_require`` at import; ``cpcommon.config`` declares its set in ``_REQUIRED_VARS`` and
+    resolves on first access (SPEC-156 FR-004), so a regex over call sites would find none of
+    its six and every assertion below would pass by measuring nothing.
+    """
+    names = set(re.findall(r'_require\(\s*"([A-Z0-9_]+)"\s*\)', _read(_TBCONFIG)))
+    for node in ast.walk(ast.parse(_read(_CPCONFIG))):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "_REQUIRED_VARS"
+            for target in node.targets
+        ):
+            names |= set(ast.literal_eval(node.value).values())
+    return names
 
 
 def _common_environment():

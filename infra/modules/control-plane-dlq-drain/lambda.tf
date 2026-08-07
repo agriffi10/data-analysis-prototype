@@ -44,9 +44,11 @@ resource "aws_lambda_function" "drain" {
     variables = {
       # The drain needs the Cognito pair, the notifications queue URL to send to, and DLQ_ARNS —
       # the queues it now sweeps itself (the four request DLQs, as a JSON list). The buckets and
-      # the workgroup are here because the cpcommon layer's config._require runs AT IMPORT for
-      # every function that attaches it — a function missing one crashes at COLD START, never at
-      # the line that would have used it (the table-builder break, PR #196).
+      # the workgroup are here because the cpcommon layer's config requires them of every
+      # function that attaches it. SPEC-156 FR-004 moved that from import to FIRST READ, so a
+      # missing one no longer crashes at COLD START (the table-builder break, PR #196) — it
+      # fails on whichever branch reads it. Still set them; "the drain does not use it" is not
+      # a reason to prune one.
       COGNITO_USER_POOL_ID    = var.user_pool_id
       COGNITO_APP_CLIENT_ID   = var.app_client_id
       NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url

@@ -32,12 +32,13 @@ which is the file that reads a Lambda's PACKAGING rather than its behaviour; kee
 copies of one set-equality is the drift this repo's guards exist to prevent.
 
 THE ENVIRONMENT IS INHERITED, DELIBERATELY, and that is the difference from
-``test_layer_import_safety.py``. That test scrubs the environment because its three
-singletons must import ``cpcommon.observability`` with NO variables set. These verbs are
-the opposite case: they reach ``cpcommon.config`` through their domain notifier, so the
-layer's import-time ``_require`` is *supposed* to run and Terraform's common env is
-*supposed* to satisfy it. Scrubbing here would assert the opposite of the contract. What is
-under test is PACKAGING, and ``sys.path`` is the only thing scrubbed.
+``test_layer_import_safety.py``. That test withholds ``cpcommon.config``'s six variables
+because its three singletons must import without them. These verbs are the opposite case:
+they reach their DOMAIN config through their notifier, whose import-time ``_require`` is
+*supposed* to run and which Terraform's common env is *supposed* to satisfy. (``cpcommon``'s
+own six resolve on first access since SPEC-156 FR-004, so they are no longer part of what an
+import demands from anyone.) Scrubbing here would assert the opposite of the contract. What
+is under test is PACKAGING, and ``sys.path`` is the only thing scrubbed.
 """
 
 import os

@@ -51,11 +51,12 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # EVERY variable cpcommon/config.py _require()s at import must be COMMON to all nine
-  # verbs: every verb attaches the cpcommon layer, and that layer's config runs its
-  # fail-fast (SPEC-083 FR-001) on ANY `from cpcommon import …` chain — so a verb missing
-  # ANY required var crashes at COLD START (the table-builder production break, PR #196:
-  # check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset). The per-verb map
+  # EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs: every verb
+  # attaches the cpcommon layer, and any of them may reach any of those values. SPEC-156
+  # FR-004 moved the fail-fast (SPEC-083 FR-001) from import to FIRST READ, so a verb missing
+  # one no longer crashes at COLD START (the table-builder production break, PR #196:
+  # check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
+  # branch reads it, which is narrower and no less broken. The per-verb map
   # (local.data_quality_verb_env) is reserved for OPTIONAL action env only.
   # NOTIFICATIONS_QUEUE_URL stays optional by design (emit is a no-op when unset).
   #

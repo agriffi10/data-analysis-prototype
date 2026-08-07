@@ -42,9 +42,15 @@ resource "aws_lambda_function" "writer" {
       NOTIFICATIONS_MAX     = tostring(var.notifications_max)
       # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
       # reads it with os.environ.get and never config._require — so a writer deployed without
-      # it logs to stdout instead of failing at cold start. The writer imports ONLY
-      # `observability` from cpcommon, which never reaches `config`, so the layer's
-      # import-time _require of six variables (PR #196) does not run for it.
+      # it logs to stdout instead of failing at cold start.
+      #
+      # SPEC-156 FR-004: the writer now also imports cpcommon.auth and cpcommon.clients, which
+      # it could not before — cpcommon.config _require'd six variables AT IMPORT and only three
+      # of them are set here, so the layer's auth was unimportable and the function carried a
+      # second copy of the fleet's JWKS verifier. config resolves on first ACCESS now, so the
+      # import is safe and only the variables actually read are needed. The three still absent
+      # (ADMIN_BUCKET, SHARED_SPACE_BUCKET, ATHENA_WORKGROUP) are absent on purpose; a probe
+      # imports this module without them (test_layer_import_safety.py).
       LOGS_QUEUE_URL = var.logs_queue_url
     }
   }

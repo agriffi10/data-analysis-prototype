@@ -38,11 +38,12 @@ resource "aws_lambda_function" "build" {
   environment {
     variables = {
       # USER_SPACE_BUCKET is the one variable this function actually uses. The rest are here
-      # because the cpcommon layer's config._require runs AT IMPORT for every function that
-      # attaches it — a function missing one crashes at COLD START, never at the line that
-      # would have used it (the table-builder break PR #196, and the nine-day signup outage
-      # PR #317). lambdas/user-directory-build/test_build_directory.py asserts this block
-      # against config.py's _require list rather than against a hand-kept copy.
+      # because the cpcommon layer's config requires them of every function that attaches it.
+      # SPEC-156 FR-004 moved that from import to FIRST READ, so a missing one no longer
+      # crashes at COLD START (the table-builder break PR #196, and the nine-day signup outage
+      # PR #317) — it fails on whichever branch reads it, which is narrower and no less broken.
+      # lambdas/user-directory-build/test_build_directory.py asserts this block against
+      # config.py's own declaration rather than against a hand-kept copy.
       USER_SPACE_BUCKET     = var.user_space_bucket_name
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
