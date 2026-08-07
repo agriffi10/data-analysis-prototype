@@ -1,13 +1,16 @@
 """Unit tests for the notifications writer.
 
 Runs under pytest or as a plain script (`python3 test_notifications_writer.py`); the
-JS CI does not run Python. The S3 client and token verification are faked.
+JS CI does not run Python. The S3 client and token verification are faked — the client on
+`cpcommon.clients` since SPEC-156 FR-004, which is also where `lambdas/conftest.py`'s
+shared-layer snapshot restores it from.
 """
 
 import json
 import types
 
 import notifications_writer as w
+from cpcommon import clients
 
 
 def _raises(fn, exc_type, match=None):
@@ -52,7 +55,7 @@ def _setup(monkey_store=None):
     if monkey_store:
         for (bucket, key), value in monkey_store.items():
             s3.store[(bucket, key)] = json.dumps(value).encode()
-    w._s3 = s3
+    clients._s3 = s3
     w.USER_SPACE_BUCKET = "user-bucket"
     w.NOTIFICATIONS_MAX = 200
     # Fake token verification: idToken == username.

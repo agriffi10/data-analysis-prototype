@@ -380,10 +380,11 @@ def _terraform_environment_variables():
 
 
 def test_the_function_environment_carries_everything_cpcommon_requires():
-    """Every variable `cpcommon.config._require`s must be ASSIGNED in this function's Terraform
-    environment. The layer's fail-fast runs AT IMPORT for every attaching function, so one
-    missing variable is a COLD-START crash — never an error at the line that would have used
-    it. That is what broke signup for nine days (PR #317).
+    """Every variable `cpcommon.config` requires must be ASSIGNED in this function's Terraform
+    environment. SPEC-156 moved the fail-fast from import to first access, which narrows the
+    blast radius but not this obligation: any of the six can be read on any code path, and a
+    function that sets five is one branch away from the failure that broke signup for nine days
+    (PR #317). Terraform still sets all six for every attaching function.
     """
     assigned = _terraform_environment_variables()
     required = {
@@ -406,13 +407,29 @@ def test_the_environment_parser_actually_found_the_block():
     assert "LOGS_QUEUE_URL" in assigned, f"parsed only {assigned} from lambda.tf"
 
 
-def test_config_still_requires_exactly_what_this_test_pins():
-    """Guards the guard above: a variable added to `cpcommon.config._require` must be added to
-    this function's environment too, and the test that would catch that must not be a stale
-    hard-coded list.
+def _cpcommon_required_variables():
+    """The env vars `cpcommon.config` requires, read from its `_REQUIRED_VARS` declaration.
+
+    Parsed from source rather than imported, and from the DECLARATION rather than a regex over
+    `_require("…")` calls: SPEC-156 moved the resolution to first access, so the calls no longer
+    name the variables and a call-site regex would silently find none.
     """
     source = (LAMBDAS / "control-plane-common" / "cpcommon" / "config.py").read_text()
-    required = set(__import__("re").findall(r'_require\("([A-Z_]+)"\)', source))
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "_REQUIRED_VARS"
+            for target in node.targets
+        ):
+            return set(ast.literal_eval(node.value).values())
+    return set()
+
+
+def test_config_still_requires_exactly_what_this_test_pins():
+    """Guards the guard above: a variable added to `cpcommon.config`'s required set must be
+    added to this function's environment too, and the test that would catch that must not be a
+    stale hard-coded list.
+    """
+    required = _cpcommon_required_variables()
     assert required == {
         "COGNITO_USER_POOL_ID",
         "COGNITO_APP_CLIENT_ID",

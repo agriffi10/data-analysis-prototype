@@ -37,6 +37,36 @@ def _requires(module, name):
     return raised is not None and name in str(raised)
 
 
+def _cpcommon_requires(name):
+    """True iff reading the attribute ``name`` backs raises a RuntimeError naming it.
+
+    ``cpcommon.config`` resolves on first access rather than at import (SPEC-156 FR-004), so
+    the reload probe above cannot see its fail-fast — a reload with the variable removed now
+    succeeds by design. The requirement is asserted where it now lives: at the read.
+
+    Reloading first is not enough on its own, because ``importlib.reload`` re-executes a module
+    in its EXISTING namespace — a value another test already resolved would still be cached and
+    the lazy hook would never run. The cached names are dropped explicitly.
+    """
+    saved = dict(os.environ)
+    raised = None
+    try:
+        os.environ.pop(name, None)
+        module = importlib.reload(cpconfig)
+        for attribute, variable in module._REQUIRED_VARS.items():
+            if variable == name:
+                vars(module).pop(attribute, None)
+                try:
+                    getattr(module, attribute)
+                except RuntimeError as exc:
+                    raised = exc
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+        importlib.reload(cpconfig)
+    return raised is not None and name in str(raised)
+
+
 def test_portal_role_arn_fails_fast_naming_the_var():
     # The one required var this module still owns: Lake Formation grants target it, and a
     # missing value would surface as an opaque LF failure mid-request instead.
@@ -58,9 +88,11 @@ def test_max_memberships_defaults_when_unset():
 def test_every_var_a_shared_space_verb_needs_is_required_by_one_of_its_two_layers():
     """The union across `cpcommon` + `shared-space-common`, which is what a cold start sees.
 
-    Each var is checked against the module that now owns it. If a future refactor moves one
-    and forgets its ``_require``, the var silently becomes optional in code while Terraform
-    keeps setting it — and the break shows up only when an environment stops setting it.
+    Each var is checked against the module that now owns it, and by the mechanism that module
+    uses: ``PORTAL_ROLE_ARN`` fails at import, the six fail at first read (SPEC-156 FR-004). If
+    a future refactor moves one and forgets to require it, the var silently becomes optional in
+    code while Terraform keeps setting it — and the break shows up only when an environment
+    stops setting it.
     """
     owned_by_cpcommon = (
         "COGNITO_USER_POOL_ID",
@@ -73,7 +105,7 @@ def test_every_var_a_shared_space_verb_needs_is_required_by_one_of_its_two_layer
         "ATHENA_WORKGROUP",
     )
     for name in owned_by_cpcommon:
-        assert _requires(cpconfig, name), f"{name} should be required by cpcommon.config"
+        assert _cpcommon_requires(name), f"{name} should be required by cpcommon.config"
     assert _requires(config, "PORTAL_ROLE_ARN")
 
 

@@ -17,18 +17,18 @@ queue is deliberately left undrained: draining it would ask the queue that just 
 deliver to deliver the news about itself. A message that dies here dies silently by design, so
 these events are the only account of it that exists.
 
+Verification is ``cpcommon.auth``'s, not this module's. It used to be a second copy of the
+issuer and JWKS URLs, the cached client and the claim checks, because the layer's config
+required six environment variables at import and this function sets three — SPEC-156 FR-004
+made that config resolve lazily, which removed the reason for the copy. The exception type is
+the one thing that does not come from the layer: this handler's SQS retry-into-DLQ contract is
+expressed in ``AuthorizationError``, so the seam maps ``AuthError`` onto it.
+
 Attributes:
   VALID_ACTIONS: The three actions an envelope may carry.
   USER_ACTIONS: The subset that requires a verified token.
   USER_SPACE_BUCKET: Set by Terraform.
-  USER_POOL_ID: Set by Terraform.
-  APP_CLIENT_ID: Set by Terraform.
   NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
-  REGION: Provided by the Lambda runtime.
-  _ISSUER: The user pool's token issuer, derived from the region and pool id.
-  _JWKS_URL: The pool's JWKS endpoint, derived from the issuer.
-  _s3: Lazily initialised, cached across warm invocations, module-level so tests patch it.
-  _jwk_client: The same, for the JWKS client.
 """
 
 import json
@@ -40,7 +40,8 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from cpcommon import observability
+from cpcommon import auth, clients, observability
+from cpcommon.errors import AuthError
 
 observability.init(service="notifications")
 
@@ -48,16 +49,7 @@ VALID_ACTIONS = frozenset({"create", "markRead", "markAllRead"})
 USER_ACTIONS = frozenset({"markRead", "markAllRead"})
 
 USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
-USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
-APP_CLIENT_ID = os.environ.get("COGNITO_APP_CLIENT_ID", "")
 NOTIFICATIONS_MAX = int(os.environ.get("NOTIFICATIONS_MAX", "200"))
-REGION = os.environ.get("AWS_REGION", "")
-
-_ISSUER = f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}"
-_JWKS_URL = f"{_ISSUER}/.well-known/jwks.json"
-
-_s3 = None
-_jwk_client = None
 
 
 class ValidationError(Exception):
@@ -68,51 +60,12 @@ class AuthorizationError(Exception):
     """A missing or invalid token on a user-originated action. Raising retries into the DLQ."""
 
 
-def _s3c():
-    """Returns the per-container S3 client, creating it on first use.
-
-    Args:
-      None.
-
-    Returns:
-      The cached boto3 S3 client.
-
-    Raises:
-      None.
-    """
-    global _s3
-    if _s3 is None:
-        import boto3
-
-        _s3 = boto3.client("s3")
-    return _s3
-
-
-def _get_jwk_client():
-    """Returns the per-container JWKS client, creating it on first use.
-
-    Args:
-      None.
-
-    Returns:
-      The cached PyJWKClient for the user pool.
-
-    Raises:
-      None.
-    """
-    global _jwk_client
-    if _jwk_client is None:
-        from jwt import PyJWKClient
-
-        _jwk_client = PyJWKClient(_JWKS_URL)
-    return _jwk_client
-
-
 def verified_username(id_token):
     """Verifies a Cognito ID token and returns the trusted username claim.
 
-    Offline JWKS verification of issuer, audience, expiry and signature — the server-side,
-    unspoofable username decision.
+    The fleet's one offline JWKS verification of issuer, audience, expiry and signature — the
+    server-side, unspoofable username decision — wrapped only to carry this handler's
+    exception type. Every rejection message is the layer's, unchanged.
 
     Args:
       id_token: The raw JWT.
@@ -124,29 +77,10 @@ def verified_username(id_token):
       AuthorizationError: When the token is absent, fails any verification step, is not an ID
         token, or carries no username claim.
     """
-    import jwt
-
-    if not id_token:
-        raise AuthorizationError("missing idToken")
     try:
-        signing_key = _get_jwk_client().get_signing_key_from_jwt(id_token)
-        claims = jwt.decode(
-            id_token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=APP_CLIENT_ID,
-            issuer=_ISSUER,
-            options={"require": ["exp", "iss", "aud"]},
-        )
-    except Exception as exc:
-        raise AuthorizationError(f"token verification failed: {exc}") from exc
-
-    if claims.get("token_use") != "id":
-        raise AuthorizationError("not an ID token")
-    username = claims.get("cognito:username")
-    if not username:
-        raise AuthorizationError("token missing cognito:username")
-    return username
+        return auth.verify_id_token(id_token)["cognito:username"]
+    except AuthError as exc:
+        raise AuthorizationError(str(exc)) from exc
 
 
 def _now_iso():
@@ -198,7 +132,7 @@ def load_inbox(username):
     Raises:
       ClientError: On any S3 fault other than a missing key.
     """
-    s3 = _s3c()
+    s3 = clients.s3()
     try:
         obj = s3.get_object(Bucket=USER_SPACE_BUCKET, Key=_inbox_key(username))
     except s3.exceptions.NoSuchKey:
@@ -229,7 +163,7 @@ def save_inbox(username, notifications):
     capped = sorted(notifications, key=lambda n: n.get("timestamp", ""), reverse=True)[
         :NOTIFICATIONS_MAX
     ]
-    _s3c().put_object(
+    clients.s3().put_object(
         Bucket=USER_SPACE_BUCKET,
         Key=_inbox_key(username),
         Body=json.dumps(capped).encode(),

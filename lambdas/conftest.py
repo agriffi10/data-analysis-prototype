@@ -1,11 +1,12 @@
 """Pytest baseline for the Lambda suites.
 
-The control-plane ``config.py`` modules now fail fast at import when a required env
-var is unset (SPEC-083 FR-001). The tests patch ``config.X`` attributes after import
-(via ``fakes.install()`` etc.), but the import itself needs the required vars present,
-so this conftest stamps dummy values before any test module (and its transitive
-``import config``) is collected. The config fail-fast is still exercised directly by
-``test_config.py``, which reloads the module with a var removed.
+The DOMAIN ``config.py`` modules fail fast at import when a required env var is unset
+(SPEC-083 FR-001); ``cpcommon.config``'s six moved to first access in SPEC-156 FR-004,
+so they fail at the read instead. Either way the suites need the values present — the
+tests patch ``config.X`` attributes (via ``fakes.install()`` etc.) but the code under
+test still reads the unpatched ones — so this conftest stamps dummy values before any
+test module is collected. Both fail-fast paths are exercised directly by
+``test_config_cpcommon.py`` and the domain env tests.
 
 It also puts the shared Lambda-LAYER package roots on ``sys.path`` so ``from cpcommon
 import …`` (and the domain layers) resolve everywhere under ``pytest lambdas/`` without

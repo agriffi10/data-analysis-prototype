@@ -1,22 +1,26 @@
-"""``from cpcommon import observability`` must work with NO environment set (SPEC-137 FR-001).
+"""The singleton Lambdas must import with NO environment set (SPEC-137 FR-001, SPEC-156 FR-004).
 
-This is the premise the three singleton Lambdas rest on. ``pre-signup``, ``post-confirmation``
-and ``notifications-writer`` attach the ``cpcommon`` layer for one import, and that layer's
-``config.py`` calls ``_require`` on six variables **at import** — the shape of PR #196, where one
-missing variable crashed a whole control plane at cold start. None of the six is set on those
-three functions, deliberately, because ``observability`` never reaches ``config``:
-``cpcommon/__init__.py`` imports no submodules, and ``clients`` lazy-imports boto3 inside each
-accessor.
+This is the premise ``pre-signup``, ``post-confirmation`` and ``notifications-writer`` rest on.
+They attach the ``cpcommon`` layer without setting the six variables its ``config.py`` governs —
+the shape of PR #196, where one missing variable crashed a whole control plane at cold start.
 
-That makes the invariant **load-bearing rather than incidental**. A single
-``from cpcommon import config`` added to ``__init__.py`` — or to ``observability`` — would break
-sign-up for every user, at cold start, with nothing in the normal suite failing. So it is pinned
-here.
+**SPEC-156 changed how the property is held, and this file changed with it.** It used to be held
+by what the three functions were allowed to IMPORT: ``config`` called ``_require`` at import, so
+``observability`` was the only safe name and a test asserted no singleton imported anything else.
+That allowlist was the reason ``notifications-writer`` carried its own copy of the fleet's JWKS
+verifier — the shared one was unimportable. ``config`` now resolves on first access, so the
+property is held by what a module TOUCHES rather than by what it names, and the allowlist would
+now forbid the very adoption that removed the duplication.
 
-**In a subprocess with a scrubbed environment, and it has to be.** ``lambdas/conftest.py`` stamps
-all six variables before collection so the verb suites can import at all, which means an
-in-process assertion would pass no matter what ``observability`` imported. The only honest test
-is a fresh interpreter that was never given them.
+So the assertion is the honest one instead of the proxy: each singleton is imported whole, in a
+fresh interpreter with a scrubbed environment. That covers strictly more than the allowlist did —
+it would catch an import chain that reaches a required variable at module scope, which a name
+check never could — and it is what the acceptance criterion asks for.
+
+**In a subprocess, and it has to be.** ``lambdas/conftest.py`` stamps all six variables before
+collection so the verb suites can import at all, which means an in-process assertion would pass
+no matter what the module reached. The only honest test is a fresh interpreter that was never
+given them.
 """
 
 import ast
@@ -82,42 +86,80 @@ def test_observability_imports_and_emits_with_no_environment_at_all():
     )
 
 
-def _cpcommon_imports(path):
-    """Every ``cpcommon`` submodule name imported by one module, found by AST."""
-    names = set()
-    for node in ast.walk(ast.parse(path.read_text())):
-        if isinstance(node, ast.ImportFrom) and node.module == "cpcommon":
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.Import):
-            names.update(
-                alias.name.split(".", 1)[1]
-                for alias in node.names
-                if alias.name.startswith("cpcommon.")
-            )
-    return names
+#: The variables each singleton's OWN Terraform sets that it reads at import — and nothing else.
+#: Deliberately minimal: what is under test is that none of ``cpcommon``'s six is needed to
+#: import, so anything beyond a function's own eager reads would weaken the probe.
+SINGLETON_OWN_ENV = {
+    "pre-signup": {},
+    "post-confirmation": {"PORTAL_ROLE_ARN": "arn:aws:iam::000000000000:role/probe"},
+    "notifications-writer": {},
+}
+
+#: boto3 IS STUBBED. ``post_confirmation`` builds its Glue and Lake Formation clients at module
+#: scope, and CI's `lambdas` job installs only ruff/pytest — so a real import would pass locally
+#: and fail in CI, testing the machine rather than the property. The Lambda runtime always
+#: provides boto3; what is under test here is the ENVIRONMENT, not the dependency.
+_MODULE_PROBE = """
+import importlib, sys, types
+
+boto3 = types.ModuleType("boto3")
+boto3.client = lambda *a, **k: types.SimpleNamespace()
+boto3.resource = lambda *a, **k: types.SimpleNamespace()
+sys.modules["boto3"] = boto3
+
+importlib.import_module(sys.argv[1])
+print("IMPORT_OK", file=sys.stderr)
+"""
 
 
 def _singleton_modules():
     for name in SINGLETONS:
         for path in sorted((LAMBDAS / name).glob("*.py")):
-            if not path.name.startswith("test_"):
+            if not path.name.startswith(("test_", "conftest.")):
                 yield path
 
 
 @pytest.mark.parametrize(
     "path", list(_singleton_modules()), ids=lambda p: f"{p.parent.name}/{p.stem}"
 )
-def test_a_singleton_imports_only_observability_from_cpcommon(path):
-    """Adopting ``cpcommon.auth`` or ``cpcommon.config`` here is a separate decision with a
-    separate cost — six environment variables on three functions — not something to arrive at by
-    autocomplete (SPEC-137's explicit non-goal).
+def test_a_singleton_imports_with_none_of_cpcommon_s_required_variables_set(path):
+    """The property SPEC-137 protects, asserted against the real import.
+
+    Not "which names does it import from cpcommon" — that proxy forbade the adoption that
+    removed the JWKS duplication, and could never have seen an import chain that reached a
+    required variable through a module it did not name. This runs the import.
     """
-    extra = _cpcommon_imports(path) - {"observability"}
-    assert not extra, (
-        f"{path.parent.name}/{path.name} imports {sorted(extra)} from cpcommon. Only "
-        "`observability` is import-safe without the layer's six required variables — see this "
-        "module's docstring before adding the variables instead."
+    function = path.parent.name
+    env = {k: v for k, v in os.environ.items() if k in _SCRUBBED_KEEP}
+    env["PYTHONPATH"] = os.pathsep.join([str(LAYER_ROOT), str(LAMBDAS / function)])
+    env.update(SINGLETON_OWN_ENV[function])
+
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-c", _MODULE_PROBE, path.stem],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
+    assert result.returncode == 0, (
+        f"{function}/{path.name} cannot import without cpcommon's six variables, none of which "
+        f"its Terraform sets. This is PR #196 / PR #317's failure mode, and on `pre-signup` it "
+        f"is every user's sign-up:\n{result.stderr}"
+    )
+    assert "IMPORT_OK" in result.stderr
+
+
+def test_the_probe_environment_really_withholds_the_six():
+    """Guards the guard: a probe env that happened to carry them would assert nothing."""
+    from cpcommon import config
+
+    granted = set().union(*(set(env) for env in SINGLETON_OWN_ENV.values()))
+    assert not granted & set(config._REQUIRED_VARS.values()), (
+        f"the probe grants {sorted(granted & set(config._REQUIRED_VARS.values()))}, which is "
+        "exactly what it exists to withhold"
+    )
+    assert set(SINGLETON_OWN_ENV) == set(SINGLETONS)
 
 
 def test_the_package_init_stays_import_free():
