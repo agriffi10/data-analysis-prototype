@@ -24,7 +24,7 @@ Attributes:
 
 import logging
 
-from cpcommon import athena, events, observability
+from cpcommon import athena, events, observability, results
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 from dqcommon import manifest as manifest_store
@@ -62,7 +62,7 @@ def _results_prefix(event: dict) -> str:
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     space_root = events.require(event, "space", "prefix", reason=messages.INVALID_REQUEST).strip("/")
     request_id = events.require(event, "requestId", reason=messages.INVALID_REQUEST)
-    return f"s3://{bucket}/{space_root}/athenaresults/data-quality/{request_id}"
+    return results.results_location(bucket, space_root, "data-quality", sub=request_id)
 
 
 def _start(name: str, query: str, event: dict, database: str, results: str) -> str:

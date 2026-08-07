@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import json
 
-import athena_run
 import execute_ddl as e
 import pytest
 from cpcommon import clients, config
@@ -78,9 +77,11 @@ def _install(athena, *, max_polls=5):
     """Point execute-ddl at the fake Athena + a fake, fast poll clock."""
     clients._athena = athena
     clock = {"t": 0.0}
-    athena_run._now = lambda: clock["t"]
-    athena_run._sleep = lambda s: clock.__setitem__("t", clock["t"] + s)
-    athena_run.MAX_POLL_DURATION_SECONDS = max_polls * athena_run.POLL_INTERVAL_SECONDS
+    # The seams moved from a module (`athena_run.py`, deleted) onto the runner instance the
+    # verb holds (SPEC-156 FR-005). Still read at call time, so patching still takes effect.
+    e.athena_run._now = lambda: clock["t"]
+    e.athena_run._sleep = lambda s: clock.__setitem__("t", clock["t"] + s)
+    e.athena_run.MAX_POLL_DURATION_SECONDS = max_polls * e.athena_run.POLL_INTERVAL_SECONDS
     config.ATHENA_WORKGROUP = "dat-prod-portal-wg"
     return athena
 

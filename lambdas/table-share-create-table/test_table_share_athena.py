@@ -1,9 +1,13 @@
-"""Unit tests for tscommon.athena (SPEC-092) — the start+poll DDL runner.
+"""Unit tests for table-share's bound DDL runner (SPEC-092) — the start+poll loop.
 
-Fake Athena client + fake clock (the module's _now/_sleep seams): asserts the
+Fake Athena client + fake clock (the runner's _now/_sleep seams): asserts the
 submit parameters, success/failed/cancelled/timeout outcome mapping, and the
 transient-vs-terminal error classification. Runnable under pytest or directly:
 python3 test_table_share_athena.py.
+
+The runner was `tscommon.athena`, a per-plane wrapper byte-identical to the table-builder's
+bar two reason codes; SPEC-156 FR-005 replaced both with `cpcommon.athena.bound_runner`. What
+is under test is unchanged — this plane's reason codes and this plane's poll bounds.
 """
 
 import os
@@ -20,7 +24,7 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
-from tscommon import athena as athena_mod
+from table_share_create_table import athena_mod
 
 
 class _BotoError(Exception):

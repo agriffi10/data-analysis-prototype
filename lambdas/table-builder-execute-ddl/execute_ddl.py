@@ -15,10 +15,13 @@ one queryable set. The per-verb identity rides as the ``verb`` field.
 
 import logging
 
-import athena_run
-from cpcommon import config, observability
+from cpcommon import athena, config, observability
 from tbcommon import notify
 from tbcommon.results import results_location
+
+#: The table-builder's DDL runner. Module-level so a timing test can replace its `_now` and
+#: `_sleep` seams, which is what the deleted `athena_run` wrapper existed to expose.
+athena_run = athena.bound_runner("ddl_execution_failed", "ddl_timeout")
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

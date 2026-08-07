@@ -241,3 +241,88 @@ def run_ddl(
             observability.info("query state changed", query_id=qid, state=state, polls=polls)
             previous_state = state
         sleep(poll_interval_seconds)
+
+
+class BoundRunner:
+    """One plane's DDL runner: ``run_ddl`` with that plane's reason codes already bound.
+
+    Two per-plane wrappers existed, byte-identical apart from two strings, each re-declaring
+    the poll bounds and the clock seams (SPEC-156 FR-005). The seams are INSTANCE attributes
+    read at call time, not constructor arguments, because that is what the timing tests need:
+    a test replaces ``runner._now`` and ``runner._sleep`` and drives a fake clock with no real
+    sleeping, exactly as it replaced the module globals before.
+
+    Attributes:
+      fail_reason: Terminal reason raised when the query reaches a failed state.
+      timeout_reason: Terminal reason raised when the poll cap is exceeded.
+      POLL_INTERVAL_SECONDS: Delay between polls.
+      MAX_POLL_DURATION_SECONDS: Wall-clock poll cap.
+      _now: Monotonic-clock seam; tests replace it.
+      _sleep: Sleep seam; tests replace it.
+    """
+
+    def __init__(self, fail_reason: str, timeout_reason: str):
+        """Binds one plane's reason codes and gives it its own seams and bounds.
+
+        Args:
+          fail_reason: Terminal reason for a failed query.
+          timeout_reason: Terminal reason for exceeding the poll cap.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self.fail_reason = fail_reason
+        self.timeout_reason = timeout_reason
+        self.POLL_INTERVAL_SECONDS = 1.0
+        self.MAX_POLL_DURATION_SECONDS = 240
+        self._now = time.monotonic
+        self._sleep = time.sleep
+
+    def run_ddl(self, *, query, database, workgroup, output_location):
+        """Runs a DDL statement to a terminal state under this plane's reason codes.
+
+        Args:
+          query: The DDL statement.
+          database: The Athena/Glue database to resolve names in.
+          workgroup: The Athena workgroup to run in.
+          output_location: The ``s3://`` results prefix.
+
+        Returns:
+          The ``QueryExecutionId`` on success.
+
+        Raises:
+          TerminalError: ``fail_reason`` on a failed query, ``timeout_reason`` when the poll
+            cap is exceeded.
+          TransientError: On a throttling or 5xx Athena error.
+        """
+        return run_ddl(
+            query=query,
+            database=database,
+            workgroup=workgroup,
+            output_location=output_location,
+            fail_reason=self.fail_reason,
+            timeout_reason=self.timeout_reason,
+            now=self._now,
+            sleep=self._sleep,
+            poll_interval_seconds=self.POLL_INTERVAL_SECONDS,
+            max_poll_duration_seconds=self.MAX_POLL_DURATION_SECONDS,
+        )
+
+
+def bound_runner(fail_reason: str, timeout_reason: str) -> BoundRunner:
+    """Builds a plane's DDL runner.
+
+    Args:
+      fail_reason: Terminal reason for a failed query.
+      timeout_reason: Terminal reason for exceeding the poll cap.
+
+    Returns:
+      The runner.
+
+    Raises:
+      None.
+    """
+    return BoundRunner(fail_reason, timeout_reason)

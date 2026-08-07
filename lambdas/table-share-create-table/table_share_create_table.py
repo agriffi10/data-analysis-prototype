@@ -14,9 +14,12 @@ Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` 
 
 import logging
 
-from cpcommon import config, observability
-from tscommon import athena as athena_mod
+from cpcommon import athena, config, observability, results
 from tscommon import ddl, notify
+
+#: Table-share's DDL runner. Module-level so a timing test can replace its `_now` and `_sleep`
+#: seams, which is what the deleted `tscommon.athena` wrapper existed to expose.
+athena_mod = athena.bound_runner("create_failed", "create_timeout")
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -40,7 +43,7 @@ def _results_location(recipient: dict, actor: str) -> str:
     Raises:
       KeyError: If the recipient is missing its destination bucket or database.
     """
-    return f"s3://{recipient['destBucket']}/{recipient['database']}/athenaresults/{actor}/"
+    return results.results_location(recipient["destBucket"], recipient["database"], actor)
 
 
 @observability.traced("create-table")
