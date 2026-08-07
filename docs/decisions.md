@@ -688,3 +688,82 @@ Two pin accepted behaviour:
 
 A tripwire is **not** a licence to leave a defect. It is the difference between a project that knows
 what it has not verified and one that has forgotten.
+
+### `components/` may not import from `features/` (SPEC-155)
+
+`features/query/` had become a shared layer nobody declared: `components/ToastProvider` and
+`components/Sidebar` imported from it, and five sibling features pulled `CATALOG_IDENTIFIER_RE`,
+`Connection`, `isConnectionUsable` and `useConnections` out of it. That direction is backwards —
+`components/` is the shared presentation layer that features compose, so it cannot depend on one.
+
+The fix moved each shared thing to where its direction is correct: `Toast` to `components/`, the
+identifier rule to `lib/catalogIdentifier.ts`, and the connections domain — `Connection`,
+`ConnectionKind`, `isConnectionUsable`, `useConnections`, `connectionStatusLabel`, plus the two nav
+surfaces `Sidebar` and `SpacesList` — into a new `features/connections/`.
+
+**The rule is enforced, not documented.** `eslint.config.js` bans `features/**` imports under
+`src/components/**`. Two things are exempt, both deliberately:
+
+- **Tests.** Integration-style tests mount real features by design (`react.md` §21), so the rule can
+  only produce noise on that glob.
+- **`Header.tsx` and `ProtectedLayout.tsx`.** These are app *chrome*: they exist to wire features
+  into the shell, so composing features is what they are for. Bringing them under the rule needs a
+  separate app-shell layer, which is a re-layering rather than an import fix. They are **named in
+  the config** rather than left as a silent violation, so a third such file requires an explicit
+  edit to that list. Everything else that was on the list has been moved out of `components/`.
+
+Two residuals, both recorded rather than hidden:
+
+- `features/connections/useConnections.ts` still reads `queryKeys.connections` from
+  `features/query/queryKeys.ts`. Feature-to-feature is allowed, and splitting the key factory would
+  change key *values* that two tests assert.
+- **`lib/queryClient.ts` imports `features/file-browser/fileBrowserKeys`** — a lower layer importing
+  a feature, and a strictly worse inversion than the one this decision targets. It is **not** covered
+  by the rule, because six test files mock `lib/queryClient` by module path and moving it would
+  change tests SPEC-155 requires to pass unchanged. Widening the rule to `src/lib/**` is the natural
+  next notch, and needs that move first.
+
+### Dialog Enter-to-submit fires from ONE field, never from the form (SPEC-155)
+
+`FormDialog` (SPEC-155 FR-002) turned eleven hand-written dialog chromes into one. Its body is a real
+`<form>` with a `type="submit"` primary button — but **the browser's implicit submission is
+suppressed on purpose**, and Enter submits only from the field named by `submitOnEnterRef`
+(defaulting to `autoFocusRef`).
+
+Adopting the form naively is the trap: implicit submission fires from *every* text input in a form.
+The dialogs being consolidated each had exactly one field that submitted on Enter; handing it to all
+of them filed a table build from a partition-key row the user was still editing — **measured before
+the fix, not hypothesised**. A radio group is the same shape: arrow keys move a choice, Enter would
+commit one the user never made.
+
+A child that already handled the key wins over both, so a combobox's Enter-to-commit still works
+inside a dialog.
+
+### Escape dispatches by tree depth, not per-component opt-out (SPEC-155, supersedes `closeOnEscape`)
+
+`useEscapeKey` now maintains a module-level registry of enabled handlers, each tagged with its
+`EscapeLayer` depth, and dispatches Escape to **the innermost one only**. Nested dialogs are correct
+by construction.
+
+What this replaces: `Drawer`'s `closeOnEscape` prop, a per-component opt-out that every new nesting
+had to remember. It is **gone**, not deprecated — it had no consumer left, and a prop nobody sets is
+a rule nobody applies. `Modal`'s `dismissible={false}` now **swallows** Escape (`useEscapeBlock`)
+instead of letting it fall through and dismiss the layer beneath — the case `dismissible` could not
+express before without also disabling backdrop dismiss.
+
+This sits beside, and does not contradict, the settled finding that `stopPropagation` from a React
+handler DOES stop `useEscapeKey`'s `document` listener (SPEC-147, measured). That is still true: a
+child that stops the event never reaches the registry at all. Depth-based dispatch decides between
+layers that *do* reach it.
+
+### The byte formatters share a unit ceiling, and it goes to TB (SPEC-155 FR-007)
+
+`fileBrowser.format.formatSize` and `query.format.formatBytes` are documented as "deliberately not
+merged", and on `undefined` handling that is defensible. On the **unit ceiling** it was not: a 3 TB
+object read `3072.0 GB` in the file browser and `3.0 TB` in the query status bar, from the same
+number, on two screens of one app.
+
+**Decided: unify the ceiling at TB.** This is a **user-visible change**, which is why it is a
+decision and not a refactor — SPEC-155's scope otherwise forbids one. The two functions stay
+separate for their `undefined` handling; only the unit table is now shared. Silently keeping both was
+explicitly not an outcome the spec allowed.

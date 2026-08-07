@@ -32,6 +32,7 @@ whole new area appears.
 |---|---|
 | File browser | `component-inventory/file-browser-feature.md` |
 | Query | `component-inventory/query-feature.md` |
+| Connections | `component-inventory/connections-feature.md` |
 | Notifications | `component-inventory/notifications-feature.md` |
 | Shared spaces | `component-inventory/shared-spaces-feature.md` |
 | Data quality | `component-inventory/data-quality-feature.md` |

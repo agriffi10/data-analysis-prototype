@@ -77,10 +77,7 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→154 are COMPLETE. 155 is MID-BUILD — phases 1–3 merged
-(#383/#384/#385), phases 4–6 remain; its running state, the visible changes it has already
-shipped and everything Phase 6 owes are in `docs/specs/SPEC-155-PROGRESS.md`, which is where
-a new session should start. 156 is written, not built.**
+**The 2026-08-05 audit arc: 150→155 are COMPLETE. Only 156 is left — written, not built.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
@@ -89,7 +86,7 @@ every plane a `NotifyFailure`**, so "it just never came back" is no longer reach
 guards that passed by coincidence** and left **mypy report-only at a 21-finding baseline** as the next
 ratchet notch. **154 closed the frontend journey gaps** — table share, sign-in/out, collision
 resolution, upload-to-completion, pagination and the dev-unauth guard all now have a test that
-performs them. The remaining audit specs are **155** (in flight) and **156**.
+performs them. **155 was the reuse-and-structure pass**: seven JSON readers behind one `s3Json`, eleven dialog chromes behind `FormDialog`, a `features/connections/` that ends `features/query/`'s career as an undeclared shared layer (with an **ESLint rule** holding the line), and `QueryWorkspace` 1770→727 / `FileBrowser` 1101→516. Five deliberate user-visible changes and the two residual layering inversions are in its delivery doc.
 
 **The username-directory arc (146 → 147 → 148) is COMPLETE and deployed.** The daily builder
 publishes `_directory/usernames.json`; both `AddMembersDialog` and `TableShareDialog` suggest
@@ -274,6 +271,10 @@ before working in that area; the line here is a reminder, not the spec.
 - **`ACCEPTED_` tripwires record what the project has NOT verified (153):** a test that pins today's behaviour, names the reasoning, and says **revisit the decision, don't delete the test** if it starts failing. Four exist — the Athena case-fold, the projection round-trip's self-reference, the duplicate inbox row on redelivery, and the runs-index cap's position-based eviction.
 - **A partial teardown never frees the space name (151):** `delete_objects`/`batch_delete_table` return **HTTP 200 with a per-item `Errors` array**, so a partial failure looked complete; both now raise `TeardownIncompleteError` and **leave the registry record intact** — the record IS the name lock (meets SPEC-054's criterion). Counts, never keys; every page attempted first; the Glue raise lands **before** `delete_database`.
 - **Every DDL literal goes through `literal()` (151):** `TBLPROPERTIES` keys/values and `LOCATION` included — a raw `f"'{v}'"` let an enum value inject `'projection.enabled'='false'`, and an S3 segment like `year=2024'` killed a whole data-quality check. **Two escapers, never confused:** `ddl.literal` backslash-escapes (Hive/DDL), `dqcommon.sql._literal_dml` doubles the quote (Trino/DML). Ordinary values render byte-identically.
+- **`components/` may not import from `features/` (155):** `features/query/` had become an undeclared shared layer; `Toast` → `components/`, the identifier rule → `lib/catalogIdentifier.ts`, and the connections domain (incl. `Sidebar`/`SpacesList`) → a new `features/connections/`. An **ESLint rule enforces it**, exempting tests and the two app-chrome files (`Header`, `ProtectedLayout`) **by name**. `lib/queryClient.ts` → `fileBrowserKeys` is the same inversion one layer lower and is **not** covered — six tests mock that module by path.
+- **Dialog Enter-to-submit fires from ONE field (155):** `FormDialog`'s body is a real `<form>`, but implicit submission is **suppressed** and only `submitOnEnterRef` (default `autoFocusRef`) submits — adopting the form naively filed a table build from a partition-key row mid-edit, **measured**. A child that handled the key wins.
+- **Escape dispatches by tree DEPTH, not per-component opt-out (155, supersedes `closeOnEscape`):** one registry, innermost enabled handler only; `Drawer.closeOnEscape` is **gone**, and a busy `Modal` **swallows** Escape. Sits beside — does not contradict — the settled `stopPropagation` finding below: a child that stops the event never reaches the registry.
+- **The byte formatters share a TB ceiling (155 FR-007):** `formatSize` and `formatBytes` stay separate for `undefined` handling, but 3 TB no longer reads `3072.0 GB` on one screen and `3.0 TB` on another. **User-visible on purpose**; silently keeping both was not an allowed outcome.
 - **Compiler and coverage defaults are declared, never inherited (150):** both tsconfigs state `"strict": true` (already TS 6's default — declaring it changed **zero** errors) and both suites carry **literal** coverage floors — portal 91/86/89/93, lambdas 95 — as **ratchets at the measured level, not targets**. Never lower one for a regression. `pyproject.toml`'s ruff block is the precedent; the `npm run build` PR gate is separate and already shipped (#363).
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.
 

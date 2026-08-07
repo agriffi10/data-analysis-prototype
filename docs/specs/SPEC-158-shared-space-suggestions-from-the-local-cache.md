@@ -160,7 +160,7 @@ export function useSpaceSuggestions(): {
   search: (query: string, limit?: number) => UsernameSearchResult[];
 };
 
-// components/UsernameCombobox.tsx — the two additions; everything else unchanged
+// features/user-directory/UsernameCombobox.tsx — the two additions; everything else unchanged
 export type UsernameComboboxProps = {
   status: UserDirectoryStatus;
   search: (query: string, limit?: number) => UsernameSearchResult[];
