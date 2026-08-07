@@ -1,6 +1,6 @@
 import {useId, useMemo, useState} from 'react';
 import {FormDialog} from '../../components/FormDialog';
-import {UsernameChipsField} from '../../components/UsernameChipsField';
+import {UsernameChipsField} from '../user-directory/UsernameChipsField';
 
 type Props = {
   /** In-flight while the add request is being enqueued — locks Add + dismiss. */

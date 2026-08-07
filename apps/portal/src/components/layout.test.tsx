@@ -8,7 +8,7 @@ import {RAIL_COLLAPSED_STORAGE_KEY, useRailCollapsed} from './useRailCollapsed';
 import {memoryStorage} from '../test/storage';
 import {PageLayout} from './PageLayout';
 import {PrimaryNav} from './PrimaryNav';
-import {Sidebar} from './Sidebar';
+import {Sidebar} from '../features/connections/Sidebar';
 import {ErrorBoundary} from './ErrorBoundary';
 import type {Connection} from '../features/connections/connection.types';
 import userEvent from '@testing-library/user-event';

@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {UsernameCombobox} from './UsernameCombobox';
 import type {UsernameComboboxHandle} from './UsernameCombobox';
-import {cx} from '../lib/cx';
+import {cx} from '../../lib/cx';
 
 export type UsernameChipsFieldProps = {
   label: string;

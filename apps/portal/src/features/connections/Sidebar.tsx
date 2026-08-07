@@ -1,6 +1,6 @@
-import {CollapsibleRail} from './CollapsibleRail';
+import {CollapsibleRail} from '../../components/CollapsibleRail';
 import {SpacesList} from './SpacesList';
-import type {Connection} from '../features/connections/connection.types';
+import type {Connection} from './connection.types';
 
 type Props = {
   /**

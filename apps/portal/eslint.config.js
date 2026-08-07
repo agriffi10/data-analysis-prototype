@@ -73,21 +73,15 @@ export default defineConfig([
   {
     // The two exemptions to the rule above, both deliberate.
     //
-    // App chrome (Header, ProtectedLayout, Sidebar, SpacesList, UsernameCombobox) lives
-    // in components/ but is composition, not a primitive: it exists to wire features into
-    // the shell. Moving it would be a re-layering of its own, so it is named here rather
-    // than left as a silent violation — a sixth file needs an explicit edit to this list.
+    // Header and ProtectedLayout are app chrome: they exist to wire features into the
+    // shell, so they compose features by definition. Getting them under the rule would
+    // mean a separate app-shell layer — a re-layering of its own, not an import fix.
+    // They are named here rather than left as a silent violation; a third file needs an
+    // explicit edit to this list.
     //
     // Tests mount real features by design (react.md §21: integration-style, mock only the
     // AWS boundary), so the rule can only produce noise on that glob.
-    files: [
-      'src/components/**/*.test.{ts,tsx}',
-      'src/components/Header.tsx',
-      'src/components/ProtectedLayout.tsx',
-      'src/components/Sidebar.tsx',
-      'src/components/SpacesList.tsx',
-      'src/components/UsernameCombobox.tsx'
-    ],
+    files: ['src/components/**/*.test.{ts,tsx}', 'src/components/Header.tsx', 'src/components/ProtectedLayout.tsx'],
     rules: {
       'no-restricted-imports': 'off'
     }

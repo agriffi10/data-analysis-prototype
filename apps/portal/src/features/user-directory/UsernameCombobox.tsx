@@ -9,11 +9,11 @@ import {
   useRef,
   useState
 } from 'react';
-import {Input} from './Input';
-import {cx} from '../lib/cx';
-import {useUserDirectory} from '../features/user-directory';
-import {parseMemberInputDetailed} from '../features/shared-spaces/memberInput';
-import {CATALOG_IDENTIFIER_RULE} from '../lib/catalogIdentifier';
+import {Input} from '../../components/Input';
+import {cx} from '../../lib/cx';
+import {useUserDirectory} from './useUserDirectory';
+import {parseMemberInputDetailed} from '../shared-spaces/memberInput';
+import {CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 
 export type UsernameComboboxProps = {
   label: string;

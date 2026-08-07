@@ -2,19 +2,19 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useState} from 'react';
 import type {ReactElement} from 'react';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';
+import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {UsernameCombobox} from './UsernameCombobox';
-import {Modal} from './Modal';
-import {Drawer} from './Drawer';
-import {getUserDirectory} from '../features/user-directory';
+import {Modal} from '../../components/Modal';
+import {Drawer} from '../../components/Drawer';
+import {getUserDirectory} from './userDirectory.service';
 import {QueryClientProvider} from '@tanstack/react-query';
-import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
-import {AuthContext} from '../features/auth/authContext';
-import {authValue} from '../test/authFixtures';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
+import {AuthContext} from '../auth/authContext';
+import {authValue} from '../../test/authFixtures';
 import userEvent from '@testing-library/user-event';
 
 // ─── from UsernameCombobox.test.tsx ───
-vi.mock('../features/user-directory/userDirectory.service', () => ({
+vi.mock('./userDirectory.service', () => ({
   getUserDirectory: vi.fn(),
   DIRECTORY_KEY: '_directory/usernames.json'
 }));

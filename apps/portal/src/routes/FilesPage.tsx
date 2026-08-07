@@ -8,8 +8,8 @@ import {
   usableSpaceTargets,
   type FileSpaceTarget
 } from '../features/file-browser';
-import {Sidebar} from '../components/Sidebar';
-import {SpacesList} from '../components/SpacesList';
+import {Sidebar} from '../features/connections/Sidebar';
+import {SpacesList} from '../features/connections/SpacesList';
 import {useProvideNavRail} from '../components/navRailContext';
 import {Banner} from '../components/Banner';
 import {useAuth} from '../features/auth';

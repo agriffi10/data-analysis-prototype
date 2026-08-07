@@ -10,3 +10,7 @@ export type {
   UsernameIndex,
   UsernameSearchResult
 } from './userDirectory.types';
+export {UsernameCombobox} from './UsernameCombobox';
+export type {UsernameComboboxHandle, UsernameComboboxProps} from './UsernameCombobox';
+export {UsernameChipsField} from './UsernameChipsField';
+export type {UsernameChipsFieldProps} from './UsernameChipsField';
