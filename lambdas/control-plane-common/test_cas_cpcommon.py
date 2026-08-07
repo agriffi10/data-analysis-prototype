@@ -157,15 +157,19 @@ def test_one_cap_for_every_caller():
         the conftest's shared-layer snapshot does not cover. Reading the binding also asserts
         the stronger property: not "these numbers agree today" but "there is one number".
         """
-        for node in ast.walk(ast.parse((lambdas / path).read_text())):
-            if isinstance(node, ast.Assign) and any(
-                isinstance(target, ast.Name) and target.id == name for target in node.targets
-            ):
-                value = node.value
-                if isinstance(value, ast.Attribute):
-                    return value.attr == "MAX_ATTEMPTS"
-                return isinstance(value, ast.Name) and value.id == "MAX_ATTEMPTS"
-        return False
+        bindings = [
+            node.value
+            for node in ast.walk(ast.parse((lambdas / path).read_text()))
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+        ]
+        # EVERY binding, not the first: a second module-level assignment shadows the first at
+        # runtime, so stopping at the first match would read a value the module does not use.
+        return bool(bindings) and all(
+            (isinstance(value, ast.Attribute) and value.attr == "MAX_ATTEMPTS")
+            or (isinstance(value, ast.Name) and value.id == "MAX_ATTEMPTS")
+            for value in bindings
+        )
 
     assert cas.MAX_ATTEMPTS == 6
     assert _bound_to_cas("shared-space-common/casio.py", "MAX_CAS_ATTEMPTS")
@@ -193,8 +197,11 @@ def test_the_precondition_predicate_has_not_reappeared():
         if "__pycache__" not in str(path)
         and path != owner
         and not path.name.startswith("test_")
-        # fakes.py RAISES these codes to drive the loop under test; it does not classify them.
-        and path.name != "fakes.py"
+        # shared-space-common/fakes.py RAISES these codes to drive the loop under test rather
+        # than classifying them, and never ships (the layer's copy list excludes it). Exempted
+        # by full path: a function directory's own fakes.py WOULD ship, so the bare name is too
+        # wide a hole to leave.
+        and path != lambdas / "shared-space-common" / "fakes.py"
         and any(
             code in path.read_text()
             for code in ("ConditionalRequestConflict", "PreconditionFailed")
