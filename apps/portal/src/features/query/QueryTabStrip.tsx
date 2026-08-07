@@ -110,7 +110,10 @@ export function QueryTabStrip({
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
+                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
+                // The tight right padding assumes the ✕ box sits at the end; with no ✕ the
+                // tab pads symmetrically instead of reserving a dead 24px slot.
+                solo ? 'pr-3' : 'pr-1',
                 active
                   ? 'border-border bg-surface font-semibold text-text shadow-sm'
                   : 'border-transparent font-medium text-text-2 hover:bg-surface hover:text-text'
@@ -130,15 +133,9 @@ export function QueryTabStrip({
                 inside the role="tab". Keyboard/AT users close via the Delete key
                 on the focused tab (onTabKeyDown), so the same action stays fully
                 operable without this control (WCAG 2.1.1).
-                The last remaining tab hides its ✕ but keeps an equally-sized
-                inert placeholder, so a solo tab keeps the same internal spacing
-                (label never sits lopsided against the pr-1 edge). */}
-              {solo ? (
-                <span
-                  aria-hidden="true"
-                  className="h-6 w-6 flex-none"
-                />
-              ) : (
+                The last remaining tab renders no ✕ and no placeholder — the tab
+                shrinks to its label rather than holding an empty 24px slot. */}
+              {!solo && (
                 <span
                   role="presentation"
                   title={`Close ${tab.label}`}

@@ -146,7 +146,10 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
                   item.onSelect();
                 }}
                 className={cx(
-                  'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45',
+                  // `ring-inset` (as every edge-to-edge row surface in the app does): items
+                  // touch with no gap, so an outset ring bleeds into its neighbours, whose
+                  // hover background paints later and clips the shared edge.
+                  'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45',
                   item.tone === 'danger' ? 'text-danger hover:bg-danger-soft' : 'text-text hover:bg-surface-2'
                 )}>
                 {item.icon}

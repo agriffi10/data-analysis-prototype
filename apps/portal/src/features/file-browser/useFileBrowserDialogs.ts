@@ -54,6 +54,8 @@ export type UseFileBrowserDialogsResult = {
   checkingQuality: SelectableItem | null;
   openQualityCheck: () => void;
   closeQualityCheck: () => void;
+  /** The check was enqueued: close and drop the selection (it has served its purpose). */
+  finishQualityCheck: () => void;
 };
 
 type Params = {
@@ -70,9 +72,10 @@ type Params = {
  * resolve one into an operation (SPEC-155 FR-009).
  *
  * The selection-clearing rules live here because they belong to the dialog's
- * outcome, not to the row: delete, move, rename and a different-folder copy all
- * clear it, while a same-folder copy keeps the dialog (and the selection) until
- * its auto-number prompt settles.
+ * outcome, not to the row: delete, move, rename, a different-folder copy and a
+ * started data-quality check all clear it, while a same-folder copy keeps the
+ * dialog (and the selection) until its auto-number prompt settles. A dialog that
+ * was cancelled — or whose request failed — never clears.
  */
 export function useFileBrowserDialogs({bucket, currentPrefix, del, move, copy}: Params): UseFileBrowserDialogsResult {
   const selection = useSelection();
@@ -172,6 +175,10 @@ export function useFileBrowserDialogs({bucket, currentPrefix, del, move, copy}: 
 
     checkingQuality,
     openQualityCheck: () => setCheckingQuality([...selection.selected.values()][0] ?? null),
-    closeQualityCheck: () => setCheckingQuality(null)
+    closeQualityCheck: () => setCheckingQuality(null),
+    finishQualityCheck: () => {
+      selection.clear();
+      setCheckingQuality(null);
+    }
   };
 }

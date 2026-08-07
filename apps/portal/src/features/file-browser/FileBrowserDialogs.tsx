@@ -168,6 +168,7 @@ export function FileBrowserDialogs({
             rootPrefix
           }
           onClose={dialogs.closeQualityCheck}
+          onStarted={dialogs.finishQualityCheck}
         />
       )}
     </>
