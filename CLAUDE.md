@@ -77,7 +77,16 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→155 are COMPLETE. Only 156 is left — written, not built.**
+**The 2026-08-05 audit arc: 150→155 are COMPLETE. 156 is IN FLIGHT — four of five FRs shipped.**
+**FR-004** (#390, lazy `cpcommon.config` → one JWKS path), **FR-001** (#391, one `cpcommon.cas`
+loop, cap resolved to 6), **FR-003/005/006** (#392, `cpcommon.results`, the SQS parser's `exc=`,
+`cpcommon.athena.bound_runner`, dead code) are merged and deployed. **Only FR-002 and the
+completion ritual remain**, on branch `spec-156-fr002-messages` — the spec's FR-002 section
+carries a *Build note* with the measured blocker (`Resolver.__init__` **rejects** two of the
+three tables today, and the three overlapping redefinitions are byte-identical, so dropping
+them is a provable no-op) plus the per-plane prefix/access-denied templates. Read that note
+before touching `tbcommon/tscommon/dqcommon` messages; it is the part that is not re-derivable
+by reading the code.
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
