@@ -28,19 +28,24 @@ REQUIRED = (
 )
 
 
-def _reload_without(var):
-    """Reloads config with one variable removed, returning the freshly-loaded module.
+def _reload_with_caches_dropped():
+    """Reloads config and drops every lazily-cached value, returning the module.
 
-    The cached values are dropped explicitly because ``importlib.reload`` re-executes a module
-    in its EXISTING namespace: a value an earlier test resolved survives the reload, the lazy
-    hook never runs, and the assertion below passes or fails on test ORDER rather than on
-    behaviour. It did — two of the six, in the full suite only.
+    Dropping them is the load-bearing part. ``importlib.reload`` re-executes a module in its
+    EXISTING namespace, so a value an earlier test resolved survives the reload, the lazy hook
+    never runs, and an assertion below passes or fails on test ORDER rather than on behaviour.
+    It did — two of the six, in the full suite only.
     """
-    os.environ.pop(var, None)
     module = importlib.reload(config)
     for attribute in (*module._REQUIRED_VARS, *module._OPTIONAL_VARS):
         vars(module).pop(attribute, None)
     return module
+
+
+def _reload_without(var):
+    """Reloads config with one variable removed and nothing cached from before."""
+    os.environ.pop(var, None)
+    return _reload_with_caches_dropped()
 
 
 @pytest.mark.parametrize(("attribute", "var"), REQUIRED, ids=lambda v: v)
@@ -80,7 +85,8 @@ def test_a_resolved_value_is_cached_and_stays_patchable():
     ``config.X`` is read at call time precisely so a test can patch it; the lazy hook only
     runs while the name is absent, so it must not shadow a patched value.
     """
-    module = importlib.reload(config)
+    module = _reload_with_caches_dropped()
+    assert "ADMIN_BUCKET" not in vars(module), "the reload left a stale value to pass on"
     assert os.environ["ADMIN_BUCKET"] == module.ADMIN_BUCKET
     assert "ADMIN_BUCKET" in vars(module), "the resolved value was not cached in the module"
     module.ADMIN_BUCKET = "patched-bkt"

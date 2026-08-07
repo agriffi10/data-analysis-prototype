@@ -45,12 +45,12 @@ resource "aws_lambda_function" "writer" {
       # it logs to stdout instead of failing at cold start.
       #
       # SPEC-156 FR-004: the writer now also imports cpcommon.auth and cpcommon.clients, which
-      # it could not before — cpcommon.config _require'd six variables AT IMPORT and only the
-      # two Cognito ones above are set here, so the layer's auth was unimportable and the
-      # function carried a second copy of the fleet's JWKS verifier. config resolves on first
-      # ACCESS now, so the import is safe and only the variables actually read are needed. The
-      # four cpcommon variables still absent here are absent on purpose; a probe imports this
-      # module without them (test_layer_import_safety.py).
+      # it could not before — cpcommon.config _require'd six variables AT IMPORT and only three
+      # of them are set here, so the layer's auth was unimportable and the function carried a
+      # second copy of the fleet's JWKS verifier. config resolves on first ACCESS now, so the
+      # import is safe and only the variables actually read are needed. The three still absent
+      # (ADMIN_BUCKET, SHARED_SPACE_BUCKET, ATHENA_WORKGROUP) are absent on purpose; a probe
+      # imports this module without them (test_layer_import_safety.py).
       LOGS_QUEUE_URL = var.logs_queue_url
     }
   }

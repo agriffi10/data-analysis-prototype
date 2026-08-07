@@ -4,18 +4,24 @@ This is the premise ``pre-signup``, ``post-confirmation`` and ``notifications-wr
 They attach the ``cpcommon`` layer without setting the six variables its ``config.py`` governs —
 the shape of PR #196, where one missing variable crashed a whole control plane at cold start.
 
-**SPEC-156 changed how the property is held, and this file changed with it.** It used to be held
-by what the three functions were allowed to IMPORT: ``config`` called ``_require`` at import, so
-``observability`` was the only safe name and a test asserted no singleton imported anything else.
-That allowlist was the reason ``notifications-writer`` carried its own copy of the fleet's JWKS
-verifier — the shared one was unimportable. ``config`` now resolves on first access, so the
-property is held by what a module TOUCHES rather than by what it names, and the allowlist would
-now forbid the very adoption that removed the duplication.
+**SPEC-156 added a second mechanism; it did not replace the first, and the reason is that
+neither covers the other.**
 
-So the assertion is the honest one instead of the proxy: each singleton is imported whole, in a
-fresh interpreter with a scrubbed environment. That covers strictly more than the allowlist did —
-it would catch an import chain that reaches a required variable at module scope, which a name
-check never could — and it is what the acceptance criterion asks for.
+The original guard is an AST scan: no singleton may name anything but ``observability`` from
+``cpcommon``. It reads the WHOLE FILE, so it sees a ``from cpcommon import config`` inside a
+function body — a read that runs on some later branch, long after the import succeeded.
+
+The second is a subprocess that imports each singleton whole with ``cpcommon``'s six variables
+withheld. It sees what the module actually TOUCHES, including a chain that reaches a required
+variable through a module it never names — which a name check cannot do.
+
+Each catches what the other misses, and the miss is not hypothetical: a runtime
+``config.ADMIN_BUCKET`` added inside a ``pre-signup`` helper imports fine and fails on the branch
+that runs it, which on a Cognito trigger is every user's sign-up. So both are here. The AST scan
+keeps a per-function allowlist rather than one global list, because SPEC-156 FR-004 made
+``notifications-writer`` legitimately import ``auth``, ``clients`` and ``errors`` — its own copy
+of the JWKS path existed BECAUSE the shared one was unimportable, and an allowlist that still
+forbade it would be preserving the duplication it caused.
 
 **In a subprocess, and it has to be.** ``lambdas/conftest.py`` stamps all six variables before
 collection so the verb suites can import at all, which means an in-process assertion would pass
@@ -112,6 +118,48 @@ print("IMPORT_OK", file=sys.stderr)
 """
 
 
+#: What each singleton may name from ``cpcommon``, ANYWHERE in the file — module scope or a
+#: function body. ``observability`` for all three; ``notifications-writer`` also carries the
+#: fleet's one JWKS verification path since SPEC-156 FR-004, which is a widening that had to be
+#: decided rather than arrived at, so it is written here per function rather than globally.
+SINGLETON_CPCOMMON_ALLOWLIST = {
+    "pre-signup": {"observability"},
+    "post-confirmation": {"observability"},
+    "notifications-writer": {"observability", "auth", "clients", "errors"},
+}
+
+
+def _cpcommon_imports(path):
+    """Every ``cpcommon`` submodule name imported by one module, found by AST.
+
+    By AST over the whole file rather than by importing it: a deferred import inside a function
+    body is invisible to the subprocess probe below, and that is precisely the shape that fails
+    on a later branch instead of at cold start.
+
+    Args:
+      path: The module file to scan.
+
+    Returns:
+      The set of ``cpcommon`` submodule names it imports.
+
+    Raises:
+      None.
+    """
+    names = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module == "cpcommon":
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("cpcommon."):
+            names.add(node.module.split(".", 1)[1])
+        elif isinstance(node, ast.Import):
+            names.update(
+                alias.name.split(".", 1)[1]
+                for alias in node.names
+                if alias.name.startswith("cpcommon.")
+            )
+    return names
+
+
 def _singleton_modules():
     for name in SINGLETONS:
         for path in sorted((LAMBDAS / name).glob("*.py")):
@@ -122,12 +170,32 @@ def _singleton_modules():
 @pytest.mark.parametrize(
     "path", list(_singleton_modules()), ids=lambda p: f"{p.parent.name}/{p.stem}"
 )
+def test_a_singleton_names_only_what_its_allowlist_grants(path):
+    """The half the subprocess probe cannot see: a cpcommon import in a function body.
+
+    Such an import succeeds at cold start and fails when its branch runs — on ``pre-signup``
+    that is every user's sign-up, with a green deploy and a green suite. Widening a function's
+    entry here is a decision with a cost; make it deliberately, and check what the variables it
+    reaches are set to in that function's Terraform before you do.
+    """
+    function = path.parent.name
+    extra = _cpcommon_imports(path) - SINGLETON_CPCOMMON_ALLOWLIST[function]
+    assert not extra, (
+        f"{function}/{path.name} imports {sorted(extra)} from cpcommon, which its allowlist does "
+        f"not grant. These functions set none of cpcommon.config's six variables, so a module "
+        f"that reads one — at import OR on any later branch — fails there."
+    )
+
+
+@pytest.mark.parametrize(
+    "path", list(_singleton_modules()), ids=lambda p: f"{p.parent.name}/{p.stem}"
+)
 def test_a_singleton_imports_with_none_of_cpcommon_s_required_variables_set(path):
     """The property SPEC-137 protects, asserted against the real import.
 
-    Not "which names does it import from cpcommon" — that proxy forbade the adoption that
-    removed the JWKS duplication, and could never have seen an import chain that reached a
-    required variable through a module it did not name. This runs the import.
+    The other half of the pair above. A name check cannot see an import chain that reaches a
+    required variable through a module it never names; running the import can. It cannot see a
+    deferred import, which is why the name check stays.
     """
     function = path.parent.name
     env = {k: v for k, v in os.environ.items() if k in _SCRUBBED_KEEP}
@@ -160,13 +228,30 @@ def test_the_probe_environment_really_withholds_the_six():
         "exactly what it exists to withhold"
     )
     assert set(SINGLETON_OWN_ENV) == set(SINGLETONS)
+    assert set(SINGLETON_CPCOMMON_ALLOWLIST) == set(SINGLETONS)
+
+
+def test_the_ast_scan_sees_a_deferred_import():
+    """Guards the guard the OTHER way: the name check exists for the function-body case.
+
+    Asserted on a synthetic module rather than on a real one, because the property under test is
+    the scanner's reach, and the real files must not carry the thing being detected.
+    """
+    source = "def later():\n    from cpcommon import config\n\n    return config.ADMIN_BUCKET\n"
+    module = LAYER_ROOT / "_deferred_import_probe.py"
+    module.write_text(source)
+    try:
+        assert _cpcommon_imports(module) == {"config"}
+    finally:
+        module.unlink()
 
 
 def test_the_package_init_stays_import_free():
     """``cpcommon/__init__.py`` is what makes the import chain shallow enough to be safe.
 
     Asserted structurally rather than trusted to the docstring: an ``import`` added here reaches
-    every function attaching the layer, including the three with no environment.
+    every function attaching the layer, including the three that set almost none of its
+    environment.
     """
     tree = ast.parse((LAYER_ROOT / "cpcommon" / "__init__.py").read_text())
     imports = [
@@ -176,5 +261,5 @@ def test_the_package_init_stays_import_free():
     ]
     assert not imports, (
         f"cpcommon/__init__.py imports {imports} — every function attaching the layer now pays "
-        "for it at cold start, including the three that set none of config's six variables"
+        "for it at cold start, whether or not it uses the module"
     )

@@ -40,6 +40,7 @@ Attributes:
 
 import os
 import re
+from typing import TYPE_CHECKING
 
 _REQUIRED_VARS = {
     "USER_POOL_ID": "COGNITO_USER_POOL_ID",
@@ -81,31 +82,47 @@ def _require(name: str) -> str:
     return value
 
 
-def __getattr__(name: str) -> str:
-    """Resolves an env-derived attribute on first access and caches it in the module.
+if TYPE_CHECKING:
+    # DECLARED for the type checker, RESOLVED by the hook below — and the branch is what makes
+    # the declarations worth writing. A module-level `__getattr__` typed `-> str` makes mypy
+    # accept ANY attribute name on this module, so a misspelled `config.ADMIN_BUKCET` would
+    # typecheck and fail at runtime; hiding the hook from the checker and naming the eight
+    # attributes instead keeps the typo an error, which is what it was before SPEC-156.
+    USER_POOL_ID: str
+    APP_CLIENT_ID: str
+    ADMIN_BUCKET: str
+    USER_SPACE_BUCKET: str
+    SHARED_SPACE_BUCKET: str
+    ATHENA_WORKGROUP: str
+    REGION: str
+    NOTIFICATIONS_QUEUE_URL: str
+else:
 
-    Caching into ``globals()`` rather than re-reading keeps the read-once semantics the
-    callers were written against, and leaves the attribute an ordinary module global that a
-    test can patch — this hook only runs while the name is absent.
+    def __getattr__(name: str) -> str:
+        """Resolves an env-derived attribute on first access and caches it in the module.
 
-    Args:
-      name: The attribute being read.
+        Caching into ``globals()`` rather than re-reading keeps the read-once semantics the
+        callers were written against, and leaves the attribute an ordinary module global that a
+        test can patch — this hook only runs while the name is absent.
 
-    Returns:
-      The resolved value.
+        Args:
+          name: The attribute being read.
 
-    Raises:
-      RuntimeError: If the name maps to a required variable that is unset or empty.
-      AttributeError: If the name is not an env-derived attribute of this module.
-    """
-    if name in _REQUIRED_VARS:
-        value = _require(_REQUIRED_VARS[name])
-    elif name in _OPTIONAL_VARS:
-        value = os.environ.get(_OPTIONAL_VARS[name], "")
-    else:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    globals()[name] = value
-    return value
+        Returns:
+          The resolved value.
+
+        Raises:
+          RuntimeError: If the name maps to a required variable that is unset or empty.
+          AttributeError: If the name is not an env-derived attribute of this module.
+        """
+        if name in _REQUIRED_VARS:
+            value = _require(_REQUIRED_VARS[name])
+        elif name in _OPTIONAL_VARS:
+            value = os.environ.get(_OPTIONAL_VARS[name], "")
+        else:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        globals()[name] = value
+        return value
 
 
 def __dir__() -> list[str]:

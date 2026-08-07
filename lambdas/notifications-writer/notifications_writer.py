@@ -24,6 +24,11 @@ made that config resolve lazily, which removed the reason for the copy. The exce
 the one thing that does not come from the layer: this handler's SQS retry-into-DLQ contract is
 expressed in ``AuthorizationError``, so the seam maps ``AuthError`` onto it.
 
+That import costs about 46 ms of cold start (PyJWT pulls cryptography), and it is paid on the
+``create`` path too — the trusted-producer path that carries every failure notification in the
+system and verifies no token. Accepted: delivery is asynchronous, nothing user-facing waits on
+it, and a deferred import would trade the duplication back for the saving.
+
 Attributes:
   VALID_ACTIONS: The three actions an envelope may carry.
   USER_ACTIONS: The subset that requires a verified token.
@@ -76,6 +81,10 @@ def verified_username(id_token):
     Raises:
       AuthorizationError: When the token is absent, fails any verification step, is not an ID
         token, or carries no username claim.
+      RuntimeError: When ``COGNITO_USER_POOL_ID`` or ``COGNITO_APP_CLIENT_ID`` is unset. The
+        local verifier read these with a default and degraded into a verification failure;
+        the layer requires them and says which is missing, which is the better signal for a
+        misconfigured function. Either way the invocation fails and the record dead-letters.
     """
     try:
         return auth.verify_id_token(id_token)["cognito:username"]

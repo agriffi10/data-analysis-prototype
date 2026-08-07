@@ -600,9 +600,10 @@ imports each new verb in a fresh interpreter whose `sys.path` is **exactly** wha
 grants. `conftest.py` puts every layer root on `sys.path` for the whole suite by design, `update-function-code`
 succeeds against a function that cannot import, and `test_deploy_matrix.py` reasons about **names** — it
 cannot tell you the named layer actually publishes what the code imports. The environment is
-**inherited**, unlike `test_layer_import_safety.py` which scrubs it: these verbs reach `cpcommon.config`
-through their domain notifier, so the import-time `_require` is *supposed* to run. Only `sys.path` is
-scrubbed, because packaging is what is under test.
+**inherited**, unlike `test_layer_import_safety.py` which withholds `cpcommon.config`'s six: these verbs
+reach their DOMAIN config through their notifier, whose import-time `_require` is *supposed* to run.
+(`cpcommon`'s own six resolve on first access since SPEC-156 FR-004, so they are no longer part of what
+an import demands from anyone.) Only `sys.path` is scrubbed, because packaging is what is under test.
 
 **One layer needs a second guard, and only one.** The probe puts layer SOURCE TREES on `sys.path`, so a
 module present on disk but absent from a layer's *build* is invisible to it. Every layer copies a
