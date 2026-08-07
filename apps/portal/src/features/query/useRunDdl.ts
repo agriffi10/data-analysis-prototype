@@ -1,0 +1,111 @@
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {isAbandoned, runStatementToCompletion} from './query.service';
+import {invalidateSchema} from './useSchema';
+import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
+import type {ToastApi} from '../../components/toastContext';
+import type {UseQueryHistoryResult} from './useQueryHistory';
+
+export type RunDdlArgs = {
+  sql: string;
+  /** The schema invalidated on success, and the history entry's recorded context. */
+  database: string;
+  /** The two toast wordings, in the user's terms. */
+  describe: {
+    /** Shown verbatim on success — e.g. `Created view sales_2024`. */
+    success: string;
+    /** The lead sentence a failure prefixes to the mapped reason — e.g. `Couldn’t drop sales.` */
+    failure: string;
+  };
+  /** Closes the dialog that raised this statement. Not called on abandonment. */
+  onSettled: () => void;
+};
+
+export type UseRunDdlResult = {
+  /** True while a statement is in flight; drives the raising dialog's busy state. */
+  busy: boolean;
+  run: (args: RunDdlArgs) => void;
+};
+
+type Params = {
+  username: string;
+  appendEntry: UseQueryHistoryResult['appendEntry'];
+  toast: ToastApi;
+};
+
+/**
+ * Runs one background DDL statement to completion and reports it — the single
+ * path behind Create view (SPEC-048) and Drop table (SPEC-044), which were the
+ * same forty lines written twice (SPEC-155 FR-009).
+ *
+ * "Background" means the editor keeps showing the user's own SQL while the
+ * statement runs; the outcome arrives as a toast. Every run is recorded in
+ * history, and a success invalidates the target database's schema so the rail
+ * catches up.
+ *
+ * The two dialogs are mutually exclusive in the UI, so they share one `busy`
+ * flag rather than the two they carried separately.
+ */
+export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResult {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+
+  // SPEC-155 FR-006: these statements poll Athena for up to ~36 s. Leaving the
+  // workspace abandons that poller — the statement itself carries on server-side;
+  // what stops is us waiting for it.
+  //
+  // The controller is CREATED IN THE EFFECT, not in a ref initializer. StrictMode runs
+  // mount → cleanup → mount in dev, so a controller made once and aborted in the
+  // cleanup would leave the ref holding an already-aborted signal for the component's
+  // whole life — every Create view and Drop table would submit, then immediately report
+  // failure. Measured; not hypothetical.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return () => controller.abort();
+  }, []);
+
+  const run = useCallback(
+    ({sql, database, describe, onSettled}: RunDdlArgs) => {
+      setBusy(true);
+      void (async () => {
+        const result = await runStatementToCompletion({sql, database, username, signal: abortRef.current?.signal});
+        // We stopped waiting because the user left. The statement is still running, and
+        // `ToastProvider` sits above the router — so a toast here would surface on
+        // whatever page they went to, about something that did not fail.
+        if (isAbandoned(result)) return;
+        setBusy(false);
+        onSettled();
+        if (!result.success) {
+          toast.push({variant: 'danger', message: `${describe.failure} ${toUserText(result.error)}`});
+          return;
+        }
+        const status = result.data;
+        // Record the run in history — a CREATE VIEW / DROP is a real statement.
+        appendEntry({
+          queryExecutionId: status.queryExecutionId,
+          sql,
+          database,
+          submittedAt: new Date().toISOString(),
+          status: status.state,
+          dataScannedBytes: status.dataScannedBytes,
+          durationMs: status.engineExecutionTimeMillis
+        }).catch((e) => logBackgroundFailure('query-history', e));
+
+        if (status.state === 'SUCCEEDED') {
+          void invalidateSchema(queryClient, database);
+          toast.push({variant: 'success', message: describe.success});
+        } else {
+          toast.push({
+            variant: 'danger',
+            message: `${describe.failure} ${toUserText({code: status.state, message: status.stateChangeReason})}`
+          });
+        }
+      })();
+    },
+    [username, appendEntry, toast, queryClient]
+  );
+
+  return {busy, run};
+}

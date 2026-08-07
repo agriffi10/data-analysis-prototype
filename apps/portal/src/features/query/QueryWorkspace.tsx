@@ -7,7 +7,7 @@ import {Menu} from '../../components/Menu';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
 import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
-import {getTableDdl, runStatementToCompletion, isAbandoned} from './query.service';
+import {getTableDdl} from './query.service';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../../lib/queryClient';
 import {parseS3Url} from '../../lib/s3Url';
@@ -20,11 +20,12 @@ import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
+import {useRunDdl} from './useRunDdl';
 import {useEditorLayout} from './useEditorLayout';
 import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from '../connections/useConnections';
-import {invalidateSchema, useAllSchemas, useSchema} from './useSchema';
+import {useAllSchemas, useSchema} from './useSchema';
 import {
   deriveViewTargetDatabase,
   resolveRunStatements,
@@ -81,21 +82,6 @@ const TOOLBAR_LABEL = 'hidden desktop:inline';
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
-  // SPEC-155 FR-006: background statements (Create view, Drop) poll Athena for up to
-  // ~36 s. Leaving the workspace abandons that poller — the statement itself carries on
-  // server-side; what stops is us waiting for it.
-  //
-  // The controller is CREATED IN THE EFFECT, not in a ref initializer. StrictMode runs
-  // mount → cleanup → mount in dev, so a controller made once and aborted in the
-  // cleanup would leave the ref holding an already-aborted signal for the component's
-  // whole life — every Create view and Drop table would submit, then immediately report
-  // failure. Measured; not hypothetical.
-  const backgroundRuns = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    backgroundRuns.current = controller;
-    return () => controller.abort();
-  }, []);
   const queryClient = useQueryClient();
   // SPEC-049: the user-space bucket (also where Athena writes results) — the
   // Save-results copy stays within it. SPEC-055: the shared-space bucket (where
@@ -214,7 +200,6 @@ export function QueryWorkspace() {
   const [closing, setClosing] = useState<QueryTab | null>(null);
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
-  const [dropInFlight, setDropInFlight] = useState(false);
   const toast = useToast();
   // SPEC-093: "Share table" dialog + enqueue state (toasts route through the host).
   const share = useTableShare(toast.push);
@@ -272,7 +257,6 @@ export function QueryWorkspace() {
   // SPEC-048: Create view. SPEC-077: the target database derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
-  const [createViewInFlight, setCreateViewInFlight] = useState(false);
   // SPEC-049: Save results.
   const [saveResultsOpen, setSaveResultsOpen] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
@@ -336,6 +320,10 @@ export function QueryWorkspace() {
     dismissError,
     selectResultTab
   } = useTabRuns({username, activeTabId, tabs: tabs.tabs, savedById, appendEntry, updateEntry});
+
+  // SPEC-155 FR-009: Create view and Drop table were the same forty lines twice.
+  // One background-DDL path now runs, records and reports both.
+  const ddl = useRunDdl({username, appendEntry, toast});
 
   const openHistory = () => {
     setSavedOpen(false);
@@ -764,92 +752,26 @@ export function QueryWorkspace() {
     const database = createViewDb;
     if (!database) return;
     const body = stripTrailingSemicolons(activeTab.sql);
-    const sql = `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`;
-    setCreateViewInFlight(true);
-    void (async () => {
-      const result = await runStatementToCompletion({sql, database, username, signal: backgroundRuns.current?.signal});
-      // We stopped waiting because the user left. The view is still being created, and
-      // `ToastProvider` sits above the router — so a toast here would surface on
-      // whatever page they went to, about something that did not fail.
-      if (isAbandoned(result)) return;
-      setCreateViewInFlight(false);
-      setCreateViewOpen(false);
-      if (!result.success) {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t create view ${name}. ${toUserText(result.error)}`
-        });
-        return;
-      }
-      const status = result.data;
-      // Record the run in history (a CREATE VIEW is a real statement).
-      appendEntry({
-        queryExecutionId: status.queryExecutionId,
-        sql,
-        database,
-        submittedAt: new Date().toISOString(),
-        status: status.state,
-        dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis
-      }).catch((e) => logBackgroundFailure('query-history', e));
-
-      if (status.state === 'SUCCEEDED') {
-        void invalidateSchema(queryClient, database);
-        toast.push({variant: 'success', message: `Created view ${name}`});
-      } else {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t create view ${name}. ${toUserText({code: status.state, message: status.stateChangeReason})}`
-        });
-      }
-    })();
+    ddl.run({
+      sql: `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`,
+      database,
+      describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
+      onSettled: () => setCreateViewOpen(false)
+    });
   };
 
+  // SPEC-044 FR-005: drop the rail's table or view, recorded in history like any
+  // other statement.
   const handleDropConfirm = () => {
     if (!dropping) return;
     const {database, table} = dropping;
     const isView = table.tableType === 'VIRTUAL_VIEW';
-    const sql = `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`;
-    setDropInFlight(true);
-    void (async () => {
-      const result = await runStatementToCompletion({
-        sql,
-        database,
-        username,
-        signal: backgroundRuns.current?.signal
-      });
-      if (isAbandoned(result)) return; // see handleCreateView — nobody to tell
-      setDropInFlight(false);
-      setDropping(null);
-      if (!result.success) {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t drop ${table.name}. ${toUserText(result.error)}`
-        });
-        return;
-      }
-      const status = result.data;
-      // Record the drop in history (FR-005).
-      appendEntry({
-        queryExecutionId: status.queryExecutionId,
-        sql,
-        database,
-        submittedAt: new Date().toISOString(),
-        status: status.state,
-        dataScannedBytes: status.dataScannedBytes,
-        durationMs: status.engineExecutionTimeMillis
-      }).catch((e) => logBackgroundFailure('query-history', e));
-
-      if (status.state === 'SUCCEEDED') {
-        void invalidateSchema(queryClient, database);
-        toast.push({variant: 'success', message: `Dropped ${table.name}`});
-      } else {
-        toast.push({
-          variant: 'danger',
-          message: `Couldn’t drop ${table.name}. ${toUserText({code: status.state, message: status.stateChangeReason})}`
-        });
-      }
-    })();
+    ddl.run({
+      sql: `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`,
+      database,
+      describe: {success: `Dropped ${table.name}`, failure: `Couldn\u2019t drop ${table.name}.`},
+      onSettled: () => setDropping(null)
+    });
   };
 
   // SPEC-078 FR-004: a batch failure names the failing statement's position and
@@ -1328,7 +1250,7 @@ export function QueryWorkspace() {
       {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
       {createViewOpen && (
         <CreateViewDialog
-          busy={createViewInFlight}
+          busy={ddl.busy}
           targetDatabase={createViewDb}
           onCreate={handleCreateView}
           onCancel={() => setCreateViewOpen(false)}
@@ -1355,7 +1277,7 @@ export function QueryWorkspace() {
       {dropping && (
         <DropTableDialog
           table={dropping.table.name}
-          isDropping={dropInFlight}
+          isDropping={ddl.busy}
           isView={dropping.table.tableType === 'VIRTUAL_VIEW'}
           onConfirm={handleDropConfirm}
           onCancel={() => setDropping(null)}
