@@ -60,21 +60,21 @@ variable "app_client_id" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Required by the cpcommon layer's import-time config._require, not used by the drain. Every function attaching cpcommon needs the UNION of its required env or it crashes at COLD START (PR #196)."
+  description = "Not used by the drain. Required by the cpcommon layer's config, which resolves on first READ rather than at import (SPEC-156 FR-004) — so a missing value is no longer a cold-start crash (PR #196) but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
   type        = string
 }
 
 variable "shared_space_bucket_name" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_space_bucket_name)."
+  description = "Not used by the drain. See user_space_bucket_name for why it is set anyway."
   type        = string
 }
 
 variable "admin_bucket_name" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_space_bucket_name)."
+  description = "Not used by the drain. See user_space_bucket_name for why it is set anyway."
   type        = string
 }
 
 variable "athena_workgroup" {
-  description = "Required by the cpcommon layer's import-time config._require (see user_space_bucket_name). The drain runs no queries."
+  description = "The drain runs no queries. See user_space_bucket_name for why it is set anyway."
   type        = string
 }

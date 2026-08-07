@@ -406,9 +406,11 @@ module "shared_spaces" {
   athena_admin_bucket_name = local.athena_admin_bucket_name
   app_url                  = var.app_url
 
-  # SPEC-125: not used by any shared-space verb — required by the cpcommon layer's
-  # import-time config._require, which runs at cold start for every attaching function
-  # (PR #196). Wired and applied here, one PR ahead of the code that imports cpcommon.
+  # SPEC-125: not used by any shared-space verb — required by the cpcommon layer's config.
+  # SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is no
+  # longer a cold-start crash (PR #196) but a failure on whichever branch reads it first. The
+  # union is still what must be set; do not prune one as "unused". Wired and applied here, one
+  # PR ahead of the code that imports cpcommon.
   athena_workgroup = local.athena_workgroup_name
 
   # SPEC-051: the orchestrator writes each member's per-user cache into the
@@ -652,8 +654,10 @@ module "data_quality" {
   # Constructed names (not module outputs) so this module plans standalone.
   #
   # These are wired now — before any verb uses them — because every verb attaches the
-  # cpcommon layer, whose config _require()s them at import: a verb missing one crashes at
-  # COLD START (PR #196). Same reason the Cognito pair is passed here.
+  # cpcommon layer and its config requires them. SPEC-156 FR-004 moved that requirement from
+  # import to FIRST READ, so a verb missing one no longer crashes at cold start (PR #196) — it
+  # fails on whichever branch reads it. The union is still what must be set; do not prune one
+  # as "unused". Same reason the Cognito pair is passed here.
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
@@ -715,8 +719,10 @@ module "control_plane_dlq_drain" {
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
-  # Required by the cpcommon layer's import-time config._require, not used by the drain
-  # (PR #196 — a shared layer's fail-fast runs at COLD START for every attaching function).
+  # Required by the cpcommon layer's config, not used by the drain.
+  # (SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is
+  # no longer a cold-start crash — PR #196 — but a failure on whichever branch reads it
+  # first. The union is still what must be set; do not prune one as "unused".)
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
@@ -741,8 +747,10 @@ module "observability" {
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
-  # Required by the cpcommon layer's import-time config._require, not used by the sweep
-  # (PR #196 — a shared layer's fail-fast runs at COLD START for every attaching function).
+  # Required by the cpcommon layer's config, not used by the sweep.
+  # (SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is
+  # no longer a cold-start crash — PR #196 — but a failure on whichever branch reads it
+  # first. The union is still what must be set; do not prune one as "unused".)
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
   athena_workgroup         = local.athena_workgroup_name
@@ -774,8 +782,10 @@ module "user_directory" {
   logs_queue_arn = local.logs_queue_arn
   logs_queue_url = local.logs_queue_url
 
-  # Required by the cpcommon layer's import-time config._require, not used by the builder
-  # (PR #196 — a shared layer's fail-fast runs at COLD START for every attaching function).
+  # Required by the cpcommon layer's config, not used by the builder.
+  # (SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is
+  # no longer a cold-start crash — PR #196 — but a failure on whichever branch reads it
+  # first. The union is still what must be set; do not prune one as "unused".)
   # user_pool_id and app_client_id in particular: the builder makes NO Cognito call, and a
   # test asserts it never will (SPEC-146 FR-001).
   user_pool_id             = module.auth.user_pool_id

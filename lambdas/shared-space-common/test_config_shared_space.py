@@ -1,16 +1,17 @@
-"""SPEC-083 FR-001 / SPEC-125: the shared-space verbs' env contract fails fast at import.
+"""SPEC-083 FR-001 / SPEC-125: the shared-space verbs' env contract fails fast.
 
 SPEC-125 split this module's constants in two: the buckets / User Pool / notifications
 queue moved to ``cpcommon.config`` (whose own fail-fast is pinned by
 ``test_config_cpcommon.py``), and ``PORTAL_ROLE_ARN`` + ``MAX_SHARED_MEMBERSHIPS`` stayed
 here. So this file no longer re-tests the shared five — it tests what this module still
 owns, plus the one thing neither file would otherwise cover: that the UNION a shared-space
-verb needs at cold start is still required by SOMETHING.
+verb needs is still required by SOMETHING.
 
-That union test is the PR #196 lesson made executable. A shared layer's import-time
-``_require`` runs for every function that attaches it, so the set of vars a verb must have
-is the union across ALL its layers — and the failure it produces is a cold-start crash,
-never an error at the line that would have used the value.
+That union test is the PR #196 lesson made executable. A verb must satisfy the requirements
+of ALL its layers, so the set is the union across them. **The two layers now fail at
+different moments** — this module's ``_require`` at import, ``cpcommon``'s six at first read
+(SPEC-156 FR-004) — and the union is unchanged by that. A variable that fails on a branch
+instead of at cold start is narrower, not optional.
 """
 
 import importlib
@@ -101,7 +102,7 @@ def test_every_var_a_shared_space_verb_needs_is_required_by_one_of_its_two_layer
         "USER_SPACE_BUCKET",
         "SHARED_SPACE_BUCKET",
         # SPEC-125 added this one to the shared-space Lambdas' env for exactly this reason:
-        # cpcommon requires it at import even though no shared-space verb calls Athena.
+        # cpcommon requires it even though no shared-space verb calls Athena.
         "ATHENA_WORKGROUP",
     )
     for name in owned_by_cpcommon:

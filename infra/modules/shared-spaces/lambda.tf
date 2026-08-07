@@ -64,9 +64,11 @@ resource "aws_lambda_function" "functions" {
       # log to stdout and keep working, never crash the plane at cold start (PR #196).
       LOGS_QUEUE_URL = var.logs_queue_url
       # SPEC-125: NOT used by any shared-space verb — set because the cpcommon layer's
-      # config._require runs AT IMPORT for every attaching function. Landed and applied
-      # BEFORE the code that imports cpcommon deploys, so the layer attach can never
-      # arrive at a function whose env can't satisfy it (the PR #196 cold-start break).
+      # config requires it, and any code path may read it. (SPEC-156 FR-004 moved that from
+      # import to first read, so this is no longer a cold-start crash — PR #196 — but it is
+      # still a failure, and this variable must still be set.) Landed and applied BEFORE the
+      # code that imports cpcommon deploys, so the layer attach can never arrive at a
+      # function whose env can't satisfy it.
       ATHENA_WORKGROUP = var.athena_workgroup
     }
   }

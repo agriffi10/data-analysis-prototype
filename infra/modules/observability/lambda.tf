@@ -40,9 +40,10 @@ resource "aws_lambda_function" "sweep" {
       ENV_NAME       = var.environment
 
       # ADMIN_BUCKET is genuinely used (the sweep writes under logs/); the rest are the
-      # cpcommon layer's config._require union — the layer runs it AT IMPORT for every
-      # attaching function, so omitting one crashes this function at COLD START rather than at
-      # the line that would have used it (PR #196).
+      # cpcommon layer's required union. SPEC-156 FR-004 moved that requirement from import to
+      # FIRST READ, so omitting one no longer crashes this function at COLD START (PR #196) —
+      # it fails on whichever branch reads it. Still set them; the union is what any code path
+      # in the layer may demand.
       ADMIN_BUCKET          = var.admin_bucket_name
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id

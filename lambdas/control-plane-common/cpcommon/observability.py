@@ -31,10 +31,12 @@ would be trusted. Shape notes, the stack-trace exemption and the one-run-is-nine
 caveat are in ``docs/lambda-rationale.md``.
 
 Import-safety is the point of this module's shape. The cpcommon layer attaches to every
-control-plane verb, and ``config._require`` runs at import — one missing variable is a
-cold-start crash across a whole control plane, which is this fleet's own recorded outage
-(PR #196). So ``LOGS_QUEUE_URL`` is read with ``os.environ.get`` and never ``_require``: a
-function that misses it logs to stdout instead of failing to start. It joins
+control-plane verb, including three that set almost none of ``config``'s environment — and
+when ``config._require`` ran at import, one missing variable was a cold-start crash across a
+whole control plane, this fleet's own recorded outage (PR #196). SPEC-156 FR-004 moved that
+to first read, which narrows the window but does not change this module's obligation: it must
+reach ``config`` for nothing. So ``LOGS_QUEUE_URL`` is read with ``os.environ.get`` and never
+``_require``: a function that misses it logs to stdout instead of failing to start. It joins
 ``NOTIFICATIONS_QUEUE_URL`` as an explicitly optional variable.
 
 Attributes:

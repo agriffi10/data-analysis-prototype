@@ -33,9 +33,10 @@ variable "account_id" {
 # ── Buckets (env for every verb; grants land in SPEC-109/111) ─────────────────
 # NOTE: these are wired into the COMMON Lambda env now, not because the SPEC-108 stubs
 # use them, but because every verb attaches the cpcommon layer and cpcommon/config.py
-# _require()s them at import (SPEC-107 FR-001). A verb missing ANY of them crashes at
-# COLD START the moment it first imports cpcommon (the table-builder production break,
-# PR #196). No bucket is created here.
+# requires them (SPEC-107 FR-001). SPEC-156 FR-004 moved that requirement from import to
+# FIRST READ, so a verb missing one no longer crashes at cold start (the table-builder
+# production break, PR #196) — it fails on whichever branch reads it. The union is still
+# what must be set; do not prune one as "unused". No bucket is created here.
 
 variable "user_space_bucket_name" {
   description = "Name of the user-space bucket (Bucket 1, SPEC-013). Personal-space sources + the report destination; env USER_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."

@@ -41,7 +41,7 @@ variable "athena_admin_bucket_name" {
 }
 
 variable "athena_workgroup" {
-  description = "SPEC-125: the shared portal Athena workgroup name. The shared-space verbs never call Athena — this is here because the cpcommon layer they now attach _require()s ATHENA_WORKGROUP AT IMPORT, so a verb missing it crashes at COLD START rather than at the line that would have used it (the table-builder break, PR #196)."
+  description = "SPEC-125: the shared portal Athena workgroup name. The shared-space verbs never call Athena — this is here because the cpcommon layer they attach requires ATHENA_WORKGROUP. SPEC-156 FR-004 moved that from import to FIRST READ, so a verb missing it no longer crashes at COLD START (the table-builder break, PR #196) but fails on whichever branch reads it. \"No verb calls Athena\" is not a reason to remove it — the union is what any code path in the layer may demand."
   type        = string
 }
 
