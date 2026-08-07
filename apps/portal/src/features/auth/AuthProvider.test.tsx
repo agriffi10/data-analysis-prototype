@@ -57,9 +57,11 @@ const status = () => screen.getByTestId('status').textContent;
 const username = () => screen.getByTestId('username').textContent;
 const errorText = () => screen.getByTestId('error').textContent;
 
-// Fire the captured Hub auth handler as Amplify would.
+// Fire the captured Hub auth handler as Amplify would. `act` is ASYNC because the
+// handler re-derives the session — the state update lands a microtask later, and a
+// synchronous act would exit before it.
 const fireHub = (event: string) =>
-  act(() => {
+  act(async () => {
     mockHubListen.mock.calls[0][1]({payload: {event}});
   });
 

@@ -1,8 +1,8 @@
 # Spec: Browser Shared Primitives & Component Decomposition
 
 **ID:** SPEC-155
-**Status:** Draft
-**Last Updated:** 2026-08-05
+**Status:** In Progress — phases 1–3 merged (#383, #384, #385); 4–6 remain. Running state: `SPEC-155-PROGRESS.md`
+**Last Updated:** 2026-08-06
 **Depends On:** SPEC-150 (its FR-004/FR-005/FR-009 change the same `lib/` files this spec refactors — land 150 first), SPEC-154 (the journey tests that make the decomposition in Phase 5 safe), SPEC-106 (`toUserMessage`, whose call-site ergonomics FR-008 addresses), SPEC-095 (the responsive rules any extracted component must keep)
 
 > **Reference:** from the 2026-08-05 codebase audit. This is the reuse and structure work, deliberately separated from behaviour change so a reviewer can read a diff and know nothing user-visible moved.

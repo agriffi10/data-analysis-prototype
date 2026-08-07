@@ -1,6 +1,6 @@
 import type {ReactElement} from 'react';
 import type {RunOptions} from 'axe-core';
-import {render} from '@testing-library/react';
+import {act, render} from '@testing-library/react';
 import {configureAxe} from 'vitest-axe';
 import {expect} from 'vitest';
 
@@ -56,11 +56,38 @@ export const COMPONENT_AXE_OPTIONS: RunOptions = {
 export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunOptions): Promise<void> {
   const {container, unmount} = render(ui);
   try {
-    const results = await runAxe(container, axeOptions);
-    expect(results).toHaveNoViolations();
+    expect(await runAxeSettled(container, axeOptions)).toHaveNoViolations();
   } finally {
     unmount();
   }
+}
+
+/**
+ * Run axe with the whole traversal inside `act`.
+ *
+ * An axe pass takes real time, and a tree with an async boundary — a resolving query, a
+ * focus trap claiming focus — commits its update DURING it. Outside `act` React logs
+ * "An update to X inside a test was not wrapped in act(...)" for every one.
+ *
+ * This wrapper silences that, and NOTHING MORE — be precise about what it does not do,
+ * because the obvious reading is wrong. `act` DEFERS the pending updates to the end of
+ * its scope; it does not flush them before the run. And what axe inspects is unchanged
+ * either way: axe-core snapshots the flattened tree when `run()` starts, so an update
+ * landing mid-walk was never observable. Measured, not assumed — a component that swaps
+ * in an `<img>` with no `alt` on a resolved microtask reports ZERO violations with and
+ * without this wrapper, while the DOM afterwards holds the violating node.
+ *
+ * The standing consequence: these helpers check the tree as of the first paint. A state
+ * a component reaches asynchronously has to be waited for by the CALLER — render, await
+ * what you expect to appear, then hand the container to
+ * {@link expectContainerHasNoA11yViolations}.
+ */
+async function runAxeSettled(container: Element, axeOptions?: RunOptions) {
+  let results!: Awaited<ReturnType<typeof runAxe>>;
+  await act(async () => {
+    results = await runAxe(container, axeOptions);
+  });
+  return results;
 }
 
 /**
@@ -73,6 +100,5 @@ export async function expectNoA11yViolations(ui: ReactElement, axeOptions?: RunO
  * here; the axe configuration is still the one defined above and nowhere else.
  */
 export async function expectContainerHasNoA11yViolations(container: Element, axeOptions?: RunOptions): Promise<void> {
-  const results = await runAxe(container, axeOptions);
-  expect(results).toHaveNoViolations();
+  expect(await runAxeSettled(container, axeOptions)).toHaveNoViolations();
 }
