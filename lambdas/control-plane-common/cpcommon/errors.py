@@ -1,41 +1,53 @@
 """Error types that drive every control-plane Step Function's fail/retry routing.
 
-Extracted to cpcommon by SPEC-107 so the table-builder, table-share (and the future
-data-quality / file-converter) verbs all raise ONE ``TerminalError`` / ``TransientError``
-type instead of per-layer copies.
+Shared so the table-builder, table-share and data-quality verbs all raise one
+``TerminalError``/``TransientError`` type instead of per-layer copies. Shared-space is not among
+them — it raises its own ``AuthorizationError``, which is what ``AuthError`` below exists to
+bridge.
+
+Attributes:
+  MAX_DETAIL_CHARS: Longest raw-service text allowed into a ``TerminalError`` detail.
+  _SFN_ERROR: The key a Step Functions Catch parks the error NAME under. The only part
+    guaranteed to be present — see ``failure_reason``.
+  _SFN_CAUSE: The key it parks an optional Cause under.
+  _TRANSIENT_CODES: The retryable AWS fault codes, fleet-wide. A code not in here is
+    deterministic — AccessDenied, NoSuchKey, a 403 or 404 — and retrying it just burns the
+    state machine's attempts on something that cannot resolve.
 """
 
 import json
 
 from . import messages
 
-#: What a Step Functions Catch parks under ``$.error``: the error NAME and, optionally, a
-#: Cause. Only the name is guaranteed — see ``failure_reason``.
 _SFN_ERROR = "Error"
 _SFN_CAUSE = "Cause"
 
 
-#: Longest raw-service text allowed into a TerminalError detail (see ``bounded_detail``).
 MAX_DETAIL_CHARS = 500
 
 
 def bounded_detail(text) -> str:
-    """Truncate raw service text before it becomes a ``TerminalError`` detail.
+    """Truncates raw service text before it becomes a TerminalError detail.
 
-    WHY A DETAIL'S LENGTH IS A PAYLOAD PROBLEM: the detail becomes the exception's message,
-    which Lambda returns as the ``Cause`` of the Step Functions error, which the terminal
-    states now carry as a raw object (PR #252). In table-share that object is repeated PER
-    RECIPIENT into the Map's result array. Step Functions caps a state payload at 256 KB
-    and a ``Cause`` at 32 KB — so ONE verbose reason repeated across recipients can breach
-    the payload limit at as few as SEVEN of them, raising States.DataLimitExceeded on the
-    Map and destroying every per-recipient outcome it exists to preserve.
+    A detail's length is a payload problem. It becomes the exception's message, which Lambda
+    returns as the Step Functions error Cause, which table-share repeats per recipient into
+    its Map result array. Step Functions caps a state payload at 256 KB and a Cause at
+    32 KB, so one verbose reason repeated across as few as seven recipients raises
+    States.DataLimitExceeded on the Map and destroys every per-recipient outcome it exists
+    to preserve. Athena's ``StateChangeReason`` is the realistic source — it can echo a
+    large fragment of a statement, and this arc generates wide DDL.
 
-    Athena's ``StateChangeReason`` is the realistic source: a syntax or Lake Formation error
-    can echo a large fragment of the statement, and this arc generates wide DDL.
+    Nothing is lost: callers log the full text before truncating, and engine messages lead
+    with the useful part.
 
-    NOTHING IS LOST — callers log the full text before truncating (``cpcommon.athena``
-    does). The truncated head keeps what a reader actually uses: engine messages lead with
-    the useful part.
+    Args:
+      text: The raw text to bound; coerced with ``str``.
+
+    Returns:
+      The text unchanged if within the cap, otherwise its head plus a truncation note.
+
+    Raises:
+      None.
     """
     text = str(text)
     if len(text) <= MAX_DETAIL_CHARS:
@@ -44,69 +56,48 @@ def bounded_detail(text) -> str:
 
 
 def failure_reason(error) -> str:
-    """Extract a stable reason code from a Step Functions error object, tolerating any shape.
+    """Extracts a stable reason code from a Step Functions error object, tolerating any shape.
 
-    THIS EXISTS BECAUSE ASL CANNOT DO IT SAFELY, and trying anyway killed executions
-    outright. The three control planes used to decode the Cause in a ``Pass`` state:
+    This is the only decoder, and it exists because ASL cannot do the job safely: decoding
+    the Cause in a Pass state with ``States.StringToJson`` raises an uncatchable
+    States.Runtime on three of the four realistic error shapes, killing the execution before
+    the notify state. The machines now pass ``$.error`` through untouched. Evidence and the
+    TestState results are in ``docs/lambda-rationale.md``.
 
-        "cause.$": "States.StringToJson($.error.Cause)"
+    Returns the verb's own reason code when there is one, otherwise the raw SFN error name,
+    which is already a stable code like ``States.Timeout``. The reason split is gated on the
+    error type rather than applied to any message containing a colon, because
+    ``TerminalError`` composes its message from a registered, colon-free code while every
+    other exception's message is prose — and raw engine prose must never travel as if it
+    were a code.
 
-    A Pass state cannot ``Catch``, and ``States.StringToJson`` raises ``States.Runtime`` on
-    anything that is not a JSON string. Verified against the live service with TestState:
+    Args:
+      error: Whatever the Step Function parked under ``$.error``; any shape is tolerated.
 
-        Lambda TerminalError (JSON Cause)   -> SUCCEEDED
-        States.Timeout (no Cause key)       -> States.Runtime  "JsonPath ... could not be found"
-        States.DataLimitExceeded (prose)    -> States.Runtime  "Cannot convert String to Json"
-        Lambda.Unknown (prose)              -> States.Runtime  "Cannot convert String to Json"
+    Returns:
+      A non-empty reason code. An unmapped code falls through to the domain resolver's
+      generic text.
 
-    Three of four realistic shapes killed the execution BEFORE the recorded-failure and
-    notify states — so on precisely the failures a user most needs to hear about (a timeout,
-    an oversized payload, a Lambda that died without a handled error) they were told nothing
-    at all. Python can do this safely in a way ASL cannot, so the decode moved here and the
-    machines now pass ``$.error`` through untouched.
-
-    Returns the verb's own reason code when there is one (a ``TerminalError``'s
-    ``"reason: detail"`` message decodes to its reason), otherwise the raw SFN error name —
-    which is already a stable code like ``States.Timeout``. Never raises, and never returns
-    empty: a caller mapping this to user-facing text always gets something to map, and an
-    unmapped code falls through to the domain resolver's generic (SPEC-106).
+    Raises:
+      None. Never raises and never returns empty, so a caller mapping this to user-facing
+      text always has something to map.
     """
     if not isinstance(error, dict):
         return messages.UNEXPECTED_ERROR
 
-    # str(), because a malformed error object must still yield something a resolver can map.
     name = str(error.get(_SFN_ERROR) or messages.UNEXPECTED_ERROR)
     cause = error.get(_SFN_CAUSE)
     if not isinstance(cause, str) or not cause:
-        # No Cause at all — States.Timeout's shape. The error NAME is the reason.
         return name
 
     try:
         decoded = json.loads(cause)
     except ValueError:
-        # A plain-sentence Cause (States.DataLimitExceeded, Lambda.Unknown). Its prose is
-        # raw engine text and must never reach a user (SPEC-106 FR-008); it stays in the
-        # execution history, and the caller gets the stable name to map instead.
         return name
 
     if not isinstance(decoded, dict):
         return name
 
-    # THE SPLIT IS ONLY VALID FOR A TerminalError, so it is gated on the type rather than
-    # applied to any errorMessage that happens to contain a colon. TerminalError composes
-    # its message as f"{reason}: {detail}" from a REGISTERED, colon-free reason code, so
-    # taking everything before the first colon reverses exactly what the raise site did.
-    #
-    # Every other exception's message is prose, and splitting it yields prose dressed up as
-    # a reason code. Both of these are routine, not exotic:
-    #
-    #   ClientError  -> "An error occurred (AccessDeniedException) when calling the
-    #                    CreateTable operation"      <- from the FIRST colon of an AWS message
-    #   TransientError -> "listing objects"          <- what raise_if_transient composes
-    #
-    # Neither is a registered code, so a resolver would fall back to the generic anyway —
-    # but the value is logged, recorded, and handed to SPEC-114/121 code not yet written,
-    # and raw engine prose must never travel as if it were a code (SPEC-106 FR-008).
     if decoded.get("errorType") != TerminalError.__name__:
         return name
 
@@ -117,95 +108,87 @@ def failure_reason(error) -> str:
 
 
 class TerminalError(Exception):
-    """A deterministic, non-retryable failure (bad auth, bad input, a name conflict).
+    """A deterministic, non-retryable failure — bad auth, bad input, a name conflict.
 
     The Step Function's Catch routes it to the recorded-failure/Fail state with no side
-    effects. ``reason`` is a stable machine code (e.g. ``unauthorized``) mapped to
-    friendly notification text by the domain's messages resolver; ``detail`` is
-    human/log context only (never surfaced to the user — SPEC-106 FR-008).
+    effects. The reason must be a code registered with ``cpcommon.messages``; constructing
+    one with an unknown reason raises ``ValueError`` at the raise site, so a mistyped reason
+    can never reach the user as a silent generic fallback.
 
-    ``reason`` MUST be a code registered with ``cpcommon.messages`` (the shared base
-    codes plus every domain's registered codes). Constructing one with an unknown reason
-    raises ``ValueError`` at the raise site (SPEC-107 FR-005) — a mistyped reason can
-    never reach the user as a silent generic fallback, and the data-quality /
-    file-converter arcs rely on this guarantee.
+    ``detail`` and ``tokens`` are opposites, which is why they are separate fields: detail
+    is for operators and may carry raw service text but never reaches a user, while tokens
+    fill the ``{object}``/``{count}`` markers in the domain's message body and must never
+    carry raw service text. Tokens exist because the notification is emitted by
+    ``notifies_on_failure``, far from the raise site and holding only the exception —
+    without them the markers render literally.
 
-    ``tokens`` (SPEC-114 FR-002) is the OPPOSITE OF ``detail`` and the distinction is the
-    whole reason it exists as a second field rather than being folded into the first:
-
-        detail  -> operators. Raw service text is ALLOWED. Never reaches a user.
-        tokens  -> the user. Fills the {object}/{count} markers in the domain's message
-                   body. Raw service text is FORBIDDEN (SPEC-106 FR-008).
-
-    It exists because the notification is emitted by ``notifies_on_failure``, which runs in
-    the decorator — far from the raise site, holding only the exception. Without a
-    structured channel the markers already sitting in a domain's message table render
-    LITERALLY ("{count} found"), so a message that promises to name the offending file
-    cannot. Optional and defaulting to ``None``, so table-builder and table-share — whose
-    message tables carry no per-request markers — are untouched.
+    Attributes:
+      reason: The stable machine code, mapped to friendly text by the domain resolver.
+      detail: Operator context, bounded by ``bounded_detail``. Bounded here rather than at
+        the call sites so the invariant cannot be forgotten — a review of the per-call-site
+        version found it applied at one of at least three sites interpolating raw text, and
+        both misses were in the Map path where a correlated failure produces N identical
+        oversized Causes.
+      tokens: User-facing substitution values, copied and stringified. Copied rather than
+        aliased so a caller mutating its dict cannot retroactively change the message a
+        decorator renders; stringified so a message body's ``str.replace`` cannot fail on an
+        integer count. Deliberately not part of the exception message: that message becomes the
+        SFN Cause, which ``failure_reason`` splits on its first colon, and an S3 key or column
+        name could carry a colon and corrupt the split. Nothing is lost by that, because tokens
+        are never needed on the notify-failure path — the decorator emits first and wins the
+        FIFO dedup.
     """
 
     def __init__(self, reason, detail="", tokens=None):
+        """Validates the reason, bounds the detail and composes the exception message.
+
+        Args:
+          reason: A code registered with ``cpcommon.messages``.
+          detail: Optional operator context; truncated to ``MAX_DETAIL_CHARS``.
+          tokens: Optional mapping of message-body markers to their values.
+
+        Returns:
+          None.
+
+        Raises:
+          ValueError: If the reason is not registered.
+        """
         if not messages.is_known_reason(reason):
             raise ValueError(
                 f"unknown TerminalError reason {reason!r}: register it via the domain "
                 "messages table (or cpcommon.messages base codes) before raising it"
             )
         self.reason = reason
-        # BOUNDED HERE, not at the call sites, so the invariant cannot be forgotten. The
-        # detail becomes this exception's message, which Lambda returns as the Step
-        # Functions error Cause, which table-share repeats PER RECIPIENT into its Map
-        # result — so one verbose raw-service string can push a state payload over 256 KB.
-        # A review of the per-call-site version found it applied at ONE of at least three
-        # sites that interpolate raw text (Athena's start-query branch, and copy.py's
-        # "copy {src} -> {dest}" with two 1024-byte S3 keys), and both of the misses were
-        # in the Map path, where a CORRELATED failure produces N identical oversized
-        # Causes — the worst case. Callers that need the full text log it first.
         self.detail = bounded_detail(detail) if detail else detail
-        # Copied, not aliased: a caller that mutates the dict it passed must not retroactively
-        # change the message a decorator will render from this exception further up the stack.
-        # Values are str()'d here so a message body's str.replace cannot fail on an int count.
         self.tokens = {str(k): str(v) for k, v in tokens.items()} if tokens else {}
-        # NOT part of the exception message, deliberately: the message becomes the Step
-        # Functions Cause, which failure_reason() splits on its FIRST COLON to recover the
-        # reason code. An S3 key or column name in there could carry a colon and would
-        # corrupt that split — and tokens are never needed on the NotifyFailure path anyway
-        # (see dqcommon.notify: the decorator emits first and wins the FIFO dedup).
         super().__init__(f"{reason}: {self.detail}" if self.detail else reason)
 
 
 class TransientError(Exception):
-    """A retryable, non-deterministic failure (throttling, a 5xx).
+    """A retryable, non-deterministic failure such as throttling or a 5xx.
 
-    Raising it surfaces the type name to the Step Function, whose Retry on that name
-    re-runs the whole verb — the opposite of ``TerminalError``, which the Catch records
-    as a final outcome.
+    Raising it surfaces the type name to the Step Function, whose Retry on that name re-runs
+    the whole verb — the opposite of ``TerminalError``, which the Catch records as a final
+    outcome.
     """
 
 
 class AuthError(Exception):
-    """An ID token that could not be verified. INTERNAL — callers translate it (SPEC-125).
+    """An ID token that could not be verified. Internal — callers translate it.
 
-    This exists because two control planes verify the same token with the same JWKS logic
-    and then raise DIFFERENT exception types on failure: table-builder / table-share /
-    data-quality raise ``TerminalError("unauthorized", …)``, while shared-space raises its
-    own ``AuthorizationError`` (a Standard Step Function that Catches domain exceptions and
-    has no transient-retry concept at all). Sharing the verification meant giving it an
-    exception SEAM rather than picking a winner.
+    Two control planes verify the same token with the same JWKS logic and then raise
+    different exception types on failure: table-builder, table-share and data-quality raise
+    ``TerminalError("unauthorized", …)``, while shared-space raises its own
+    ``AuthorizationError``. Sharing the verification meant giving it an exception seam rather
+    than picking a winner, so ``cpcommon.auth.verify_id_token`` raises this and each caller
+    maps it to its own model.
 
-    So ``cpcommon.auth.verify_id_token`` raises this, and each caller maps it to its own
-    model. It should never reach a Step Function: a verb that lets one escape has skipped
-    its translation, which would surface a name no Catch or Retry list mentions.
-
-    ``detail`` carries the same wording the two models raised before they shared this path,
-    so neither's message text changes.
+    It should never reach a Step Function: a verb that lets one escape has skipped its
+    translation and would surface a name no Catch or Retry list mentions. Its detail carries
+    the same wording the two models raised before they shared this path.
     """
 
 
-# Retryable AWS fault codes — the canonical superset the per-verb copies converged on
-# (S3 SlowDown/RequestTimeout/500/503, Glue/generic throttles, Athena 5xx). A code NOT in
-# here is deterministic (AccessDenied, NoSuchKey, 403/404): retrying it just burns the
-# SFN's attempts on something that cannot resolve.
 _TRANSIENT_CODES = frozenset({
     "Throttling",
     "ThrottlingException",
@@ -220,26 +203,27 @@ _TRANSIENT_CODES = frozenset({
     "ServiceUnavailableException",
     "500",
     "503",
-    # Glue's two most routine transients (SPEC-151 FR-008). The set above is spelled for
-    # S3/Athena/generic throttles and misses these BY A WORD — Glue raises
-    # `InternalServiceException` where the list has `InternalServerException`. Every Glue
-    # READ path routes through `raise_if_transient`, so naming them here is what lets the
-    # state machines' existing Retry absorb a routine hiccup instead of failing the
-    # request permanently. Safe to widen: no other AWS service raises either code.
     "InternalServiceException",
     "OperationTimeoutException",
 })
 
 
 def error_code(exc) -> str:
-    """The botocore error code on ``exc``, or "" if it has none.
+    """Extracts the botocore error code from an exception, or "" if it has none.
 
-    Public because callers need it beyond transient classification too — e.g. matching a
-    ``NoSuchKey``/404 to distinguish a folder from a file. The single canonical extractor
-    (mirrors ``shared-space-common/casio.error_code``).
+    The single canonical extractor. Public because callers need it beyond transient
+    classification — matching a NoSuchKey or 404 to distinguish a folder from a file, for
+    instance. Defensive at every level: a non-dict response or a None Error yields "" rather
+    than raising, because a classifier must never itself throw while classifying a fault.
 
-    Defensive at every level: a non-dict ``response`` or a ``None`` ``Error`` yields ""
-    rather than raising — a classifier must never itself throw while classifying a fault.
+    Args:
+      exc: Any exception, botocore or not.
+
+    Returns:
+      The error code, or "" when there is none.
+
+    Raises:
+      None.
     """
     response = getattr(exc, "response", None)
     if not isinstance(response, dict):
@@ -251,18 +235,31 @@ def error_code(exc) -> str:
 
 
 def raise_if_transient(exc, detail: str = "") -> None:
-    """Re-raise a retryable AWS fault as ``TransientError``; return ``None`` otherwise.
+    """Re-raises a retryable AWS fault as TransientError, and returns otherwise.
 
-    WHY VERBS NEED THIS, because the naive read is wrong: an exception raised inside a
-    Lambda reaches Step Functions as its PYTHON CLASS NAME, so a bare botocore fault
-    arrives as ``errorType: "ClientError"`` — a name no verb's Retry list names, so a
-    one-off throttle would fail the whole request PERMANENTLY. Mapping it to
-    ``TransientError`` (which the Retry lists DO name) is what actually gets it retried.
-    A non-transient code falls through and the caller re-raises it unchanged, so a
-    deterministic fault (AccessDenied) stays terminal instead of wasting retries.
+    Verbs need this because the naive read is wrong: an exception raised inside a Lambda
+    reaches Step Functions as its Python class name, so a bare botocore fault arrives as
+    ``ClientError`` — a name no verb's Retry list names, and a one-off throttle would fail
+    the whole request permanently. Mapping it to ``TransientError``, which the Retry lists do
+    name, is what actually gets it retried. A non-transient code falls through so a
+    deterministic fault such as AccessDenied stays terminal instead of wasting retries.
 
-    This helps ONLY under a state whose Retry ``ErrorEquals`` names ``TransientError`` —
-    the code half and the state-machine half must move together.
+    This helps only under a state whose Retry ``ErrorEquals`` names ``TransientError`` — the
+    code half and the state-machine half must move together. The transient set is the
+    canonical superset the per-verb copies converged on; a code not in it is deterministic.
+    Glue's ``InternalServiceException`` and ``OperationTimeoutException`` are included and miss
+    the generic spellings by a word — safe to widen the shared set with them because no other
+    AWS service raises either code.
+
+    Args:
+      exc: The exception to classify.
+      detail: Optional context prefixed to the transient error's message.
+
+    Returns:
+      None, when the fault is not transient.
+
+    Raises:
+      TransientError: When the fault's code is retryable.
     """
     code = error_code(exc)
     if code in _TRANSIENT_CODES:

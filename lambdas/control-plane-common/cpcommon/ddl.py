@@ -1,37 +1,38 @@
-"""Pure CREATE EXTERNAL TABLE DDL generation for the control-plane arcs (SPEC-111).
+"""Pure CREATE EXTERNAL TABLE DDL generation shared by the control-plane arcs.
 
-Consolidated from ``table-builder-infer-schema/ddl.py`` (SPEC-069), which was the only
-copy until the data-quality arc needed the same assembly with different storage clauses.
-Same move as ``cpcommon.type_mapping`` (PR #229): the projection-props logic is fiddly,
-easy to get subtly wrong, and must not exist twice.
+Identifier quoting, the column body, ``PARTITIONED BY``, the Athena partition-projection
+``TBLPROPERTIES`` and the statement assembly are shared. The storage clause is not: the
+table-builder and data-quality arcs deliberately choose different SerDes, so ``storage`` is
+injectable and a domain's SerDe choice stays in that domain's layer. See
+``docs/lambda-rationale.md``.
 
-What is SHARED and lives here: identifier quoting, the column body, ``PARTITIONED BY``,
-the Athena partition-projection ``TBLPROPERTIES``, and the statement assembly.
-
-What is NOT shared is the STORAGE CLAUSE, and that is deliberate — the two arcs disagree
-on purpose:
-
-- table-builder writes JSON with the **OpenX** SerDe (its shipped behaviour, unchanged
-  here); data-quality writes it with the **Hive** SerDe, because AWS documents OpenX as
-  potentially non-deterministic around nulls and the whole data-quality JSON story is
-  "a null means the key was missing" (SPEC-111 FR-001).
-- data-quality also builds a single-column raw-line table with ``LazySimpleSerDe`` that
-  has no analogue here at all.
-
-So ``storage`` is injectable. Pass nothing and you get the table-builder defaults that
-were here before this module moved; pass a ``Storage`` and you get exactly your clause
-plus your properties. A domain's SerDe choice belongs in that domain's layer, next to the
-comment explaining why — not in a shared ``if fmt ==`` ladder that reads as if one of the
-two arcs is wrong.
+Attributes:
+  CSV_OPEN_SERDE: OpenCSVSerde storage clause. Its ``escapeChar`` is a single backslash,
+    which is four characters in this source and two in the emitted DDL.
+  JSON_OPENX_SERDE: OpenX JSON SerDe storage clause, the table-builder's shipped choice.
+  PARQUET_STORED: Parquet storage clause.
+  CSV_SKIP_HEADER: Header-skip property. A TBLPROPERTY rather than part of the SerDe
+    clause, because the data-quality raw-line table uses a CSV-ish SerDe and must not skip
+    the header — it counts every physical line.
+  PORTAL_MANAGED: The "this portal created this table" marker. Not the refresh eligibility
+    test and it must never become one: pre-SPEC-143 tables lack it and TBLPROPERTIES are
+    user-writable through ALTER TABLE. Note ``portal.managed`` (this, a table property,
+    dotted) is not ``portal-managed`` (the Lake Formation tag on databases, hyphenated).
+  SERDE_FORMATS: SerDe library to the format key this repo's inference reports. Both JSON
+    SerDes are listed because the two arcs disagree on which to write and a refresh may
+    meet either.
+  _PARTITION_HIVE: Declared partition type to the Hive column type ``PARTITIONED BY`` renders.
+    A type absent from here reaches this map before any validation raises, so an unknown
+    declared type surfaces as a ``KeyError`` — see ``build_create_table_ddl``.
+  _DEFAULT_STORAGE: The table-builder defaults, unchanged since the consolidation.
+    ``build_create_table_ddl`` falls back to these when no storage is passed, which is what
+    keeps that arc's golden-string tests meaningful across the move.
 """
 
 from typing import NamedTuple
 
-# Hive type for each declared partition-key projection type.
 _PARTITION_HIVE = {"integer": "int", "date": "date", "string": "string"}
 
-# ── Storage clauses (the shared ones; domains add their own) ─────────────────
-# OpenCSVSerde escapeChar is a single backslash; written as '\\' in DDL (two chars).
 CSV_OPEN_SERDE = (
     "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde' "
     "WITH SERDEPROPERTIES ('separatorChar'=',', 'quoteChar'='\"', 'escapeChar'='\\\\') "
@@ -40,21 +41,8 @@ CSV_OPEN_SERDE = (
 JSON_OPENX_SERDE = "ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE"
 PARQUET_STORED = "STORED AS PARQUET"
 
-#: Skip the CSV header row. A TBLPROPERTY, not part of the SerDe clause, because the
-#: data-quality raw-line table uses a CSV-ish serde and must NOT skip the header (it
-#: counts every physical line, SPEC-111 FR-002).
 CSV_SKIP_HEADER = ("skip.header.line.count", "1")
 
-#: "This portal created this table" — a durable, queryable answer available from the first
-#: table created after SPEC-143 (greenfield with no production users is exactly when to
-#: start writing it). NOT the refresh eligibility test, and it must never become one: every
-#: table predating this spec lacks it, and TBLPROPERTIES are user-writable through ALTER
-#: TABLE, so it can be trusted neither as a permission nor as a fact. Eligibility turns on
-#: SHAPE (cpcommon.glue.clone_definition), and a test enforces that no verb reads this.
-#:
-#: NOTE 'portal.managed' (this, a table TBLPROPERTY, dotted) is NOT 'portal-managed' (the
-#: Lake Formation tag on DATABASES, hyphenated — infra/modules/analytics/lakeformation.tf).
-#: Unrelated jobs, one character apart.
 PORTAL_MANAGED = ("portal.managed", "true")
 
 
@@ -62,19 +50,16 @@ class Storage(NamedTuple):
     """A format's storage clause plus the TBLPROPERTIES that clause requires.
 
     Attributes:
-        clause: The ``ROW FORMAT …``/``STORED AS …`` fragment, inserted verbatim.
-        tblproperties: Ordered (key, value) pairs emitted BEFORE the projection
-            properties, so a caller's format props and Athena's projection props keep a
-            stable, testable order.
+      clause: The ``ROW FORMAT …``/``STORED AS …`` fragment, inserted verbatim.
+      tblproperties: Ordered (key, value) pairs emitted BEFORE the projection
+          properties, so a caller's format props and Athena's projection props keep a
+          stable, testable order.
     """
 
     clause: str
     tblproperties: tuple[tuple[str, str], ...] = ()
 
 
-#: The table-builder defaults (SPEC-069), unchanged. ``build_create_table_ddl`` falls back
-#: to these when no ``storage`` is passed, which is what keeps that arc's golden-string
-#: tests meaningful across this move.
 _DEFAULT_STORAGE = {
     "parquet": Storage(PARQUET_STORED),
     "csv": Storage(CSV_OPEN_SERDE, (CSV_SKIP_HEADER,)),
@@ -83,64 +68,102 @@ _DEFAULT_STORAGE = {
 
 
 def mark_managed(parameters: dict) -> dict:
-    """Return ``parameters`` with the portal's creation marker asserted.
+    """Asserts the portal's creation marker on a copy of a table's Glue parameters.
 
-    EXISTS SO THE MARKER KEEPS EXACTLY TWO HOMES. Until SPEC-149 the only writer was
-    ``build_create_table_ddl``, so no verb ever had to name it — and a test scans the whole
-    Lambda tree for exactly that, because the moment a verb can name the property it can
-    branch on it, and TBLPROPERTIES are user-writable through ALTER TABLE (SPEC-143 FR-007).
-    ``apply-refresh`` writes Glue ``Parameters`` directly rather than DDL, so it needs the
-    marker without needing the constant; this is that door.
+    Exists so the marker keeps exactly two homes. A test scans the whole Lambda tree to
+    confirm no verb names the property, because the moment a verb can name it, it can
+    branch on it — and TBLPROPERTIES are user-writable. ``apply-refresh`` writes Glue
+    parameters directly rather than DDL, so it needs the marker without the constant.
 
-    A copy, not a mutation: the caller's dict is often the LIVE table's parameters.
+    Args:
+      parameters: A table's existing Glue ``Parameters``, often the live table's.
+
+    Returns:
+      A new dict with the marker asserted; the argument is never mutated.
+
+    Raises:
+      None.
     """
     return {**parameters, PORTAL_MANAGED[0]: PORTAL_MANAGED[1]}
 
 
 def quote(identifier: str) -> str:
-    """Backtick-quote a catalog identifier for a DDL statement (db / table / column).
+    """Backtick-quotes a catalog identifier for a DDL statement, never for a query.
 
-    DDL ONLY. Athena parses ``CREATE``/``DROP`` with Hive syntax, where backticks are the
-    identifier quote — but it parses ``SELECT`` with Trino syntax, where they are not.
-    Use ``quote_dml`` inside a query (SPEC-111).
+    Athena parses CREATE/DROP with Hive syntax, where backticks are the identifier quote,
+    but parses SELECT with Trino syntax, where they are not. Use ``quote_dml`` inside a
+    query.
+
+    Args:
+      identifier: A database, table or column name.
+
+    Returns:
+      The identifier wrapped in backticks.
+
+    Raises:
+      None.
     """
     return f"`{identifier}`"
 
 
 def literal(value: str) -> str:
-    """Single-quoted DDL string literal with backslash/quote escapes.
+    """Renders a value as a single-quoted DDL string literal with backslash escapes.
 
-    The same rule ``tscommon.ddl._lit`` applies to a cloned column comment — a comment is
-    free text a user wrote, so an apostrophe in it must not end the literal and turn the
-    rest of the statement into syntax.
+    Applies to every literal in a statement — column comments, TBLPROPERTIES keys and
+    values, and LOCATION. Free text a user wrote may contain an apostrophe, which would
+    otherwise end the literal and turn the rest of the statement into syntax.
+
+    This is the Hive/DDL escaper. Two others exist and must never be confused with it:
+    ``dqcommon.sql._literal_dml`` doubles the quote for Trino, and ``tscommon.ddl._lit`` is a
+    byte-identical twin of this one serving table-share's own renderer.
+
+    Args:
+      value: The value to render; coerced with ``str``.
+
+    Returns:
+      The escaped value wrapped in single quotes.
+
+    Raises:
+      None.
     """
     escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
     return f"'{escaped}'"
 
 
 def quote_dml(identifier: str) -> str:
-    """Double-quote a catalog identifier for a DML statement (SELECT and friends).
+    """Double-quotes a catalog identifier for a DML statement, never for DDL.
 
-    ATHENA'S TWO DIALECTS ARE A REAL TRAP, and it fails at query time rather than at build
-    time: DDL is Hive (backticks), DML is Trino (double quotes), and AWS documents that
-    backticks in a DML query are an error. A query built with the DDL quoter looks
-    perfectly reasonable in a diff and in a golden-string test, then fails against the
-    engine — after the temp tables exist and the scan has been paid for.
+    Athena's two dialects fail at query time rather than build time: DDL is Hive
+    (backticks), DML is Trino (double quotes), and backticks in a DML query are an error. A
+    query built with the DDL quoter looks correct in a diff and in a golden-string test,
+    then fails against the engine after the scan has been paid for. An embedded double
+    quote is escaped by doubling.
 
-    An embedded double quote is escaped by doubling, so a column named ``he said "hi"``
-    still produces a parseable identifier rather than a syntax error (or, worse, a
-    statement that parses into something else).
+    Args:
+      identifier: A database, table or column name.
+
+    Returns:
+      The identifier wrapped in double quotes, inner quotes doubled.
+
+    Raises:
+      None.
     """
     escaped = identifier.replace('"', '""')
     return f'"{escaped}"'
 
 
 def default_storage(fmt: str) -> Storage:
-    """Return the table-builder storage for ``fmt``.
+    """Returns the table-builder's default storage clause for a format key.
+
+    Args:
+      fmt: One of ``parquet``, ``csv`` or ``json``.
+
+    Returns:
+      The ``Storage`` for that format.
 
     Raises:
-        ValueError: on an unknown format — a typo must not silently produce a table with
-            no storage clause.
+      ValueError: On an unknown format — a typo must not silently produce a table with no
+        storage clause.
     """
     try:
         return _DEFAULT_STORAGE[fmt]
@@ -149,12 +172,20 @@ def default_storage(fmt: str) -> Storage:
 
 
 def _column(column: dict) -> str:
-    """One column body entry, carrying its COMMENT when it has one.
+    """Renders one column body entry, carrying its COMMENT when it has one.
 
-    A comment is the one piece of column metadata a USER writes, and a DROP + CREATE
-    rebuild is where it would silently disappear (SPEC-144). The create path never sets
-    one — inference has nothing to say about a column's meaning — so this renders
-    identically for every table this repo has created so far.
+    A comment is the one piece of column metadata a user writes, and a rebuild is where it
+    would silently disappear. The create path never sets one, so this renders identically
+    for every table this repo has created so far.
+
+    Args:
+      column: A column dict with ``name`` and ``type``, optionally ``comment``.
+
+    Returns:
+      The quoted name, type, and COMMENT clause if present.
+
+    Raises:
+      KeyError: If ``name`` or ``type`` is absent.
     """
     rendered = f"{quote(column['name'])} {column['type']}"
     if column.get("comment"):
@@ -163,7 +194,28 @@ def _column(column: dict) -> str:
 
 
 def _projection_props(key):
-    """Athena projection.* TBLPROPERTIES for one declared partition key."""
+    """Renders the Athena projection.* TBLPROPERTIES for one declared partition key.
+
+    Both the browser's ``intervalUnit`` and the catalog's ``interval.unit`` spellings are
+    accepted, because the renderer only ever read the latter while the browser's type
+    declares the former. Read with ``or`` rather than a ``get`` default: an explicit
+    ``None`` alongside a real value would otherwise be returned and silently drop the
+    property.
+
+    Args:
+      key: A declared partition key — ``name`` and ``type``, plus ``range`` and optional
+        ``digits`` for integer, ``range``/``format``/optional interval for date, or
+        ``values`` for string.
+
+    Returns:
+      An ordered list of (property name, value) pairs.
+
+    Raises:
+      ValueError: On an unknown partition type, or a string key whose enum values are not
+        all strings. Asserted rather than left to ``",".join``, whose bare TypeError
+        surfaces to the user as "something went wrong" instead of a validation message.
+      KeyError: If a type-specific field the projection requires is absent.
+    """
     name = key["name"]
     ptype = key["type"]
     props = []
@@ -180,23 +232,11 @@ def _projection_props(key):
         props.append((f"projection.{name}.format", key["format"]))
         if key.get("interval") is not None:
             props.append((f"projection.{name}.interval", str(key["interval"])))
-        # BOTH spellings accepted (SPEC-151 FR-007). The browser's type declares
-        # `intervalUnit` (tableBuild.types.ts) while this renderer has always read
-        # `interval.unit`, so the field the browser says it sends was silently dropped.
-        # Latent today — no UI path populates it — but a trap for the next change, and
-        # already flagged at load_table_definition.py. Accepting both here means neither
-        # the browser's spelling nor the catalog's can go missing.
-        # `or`, not a `get` DEFAULT: an explicit `"interval.unit": None` alongside a real
-        # `intervalUnit` would make `dict.get(k, fallback)` return the present None and
-        # silently drop the property — the same class of silent drop this line fixes.
         unit = key.get("interval.unit") or key.get("intervalUnit")
         if unit is not None:
             props.append((f"projection.{name}.interval.unit", str(unit)))
     elif ptype == "string":
         values = key["values"]
-        # Asserted rather than left to `",".join`, which raises a bare TypeError from
-        # inside the renderer — surfacing to the user as "something went wrong" instead of
-        # a partition-key validation message (SPEC-151 FR-006).
         if not all(isinstance(v, str) for v in values):
             raise ValueError(f"partition key {name!r}: every enum value must be a string")
         props.append((f"projection.{name}.type", "enum"))
@@ -207,36 +247,49 @@ def _projection_props(key):
 
 
 def partition_hive_type(declared_type: str) -> str | None:
-    """The Hive column type ``PARTITIONED BY`` renders for a declared partition type.
+    """Returns the Hive column type PARTITIONED BY renders for a declared partition type.
 
-    The refresh path needs this to check the OTHER direction (SPEC-143 FR-005): Athena
-    lets a projection sit on a wider set of column types than this builder writes — an
-    `integer` projection is legal on a `string` column, and zero-padded partitions are
-    exactly why someone would declare one that way. Such a table reconstructs cleanly from
-    its projection properties alone and would then be REBUILT with a different column
-    type, silently, so the refresh path compares the live column type against this.
+    The refresh path needs the other direction: Athena allows a projection on a wider set
+    of column types than this builder writes — an integer projection is legal on a string
+    column, which is exactly how zero-padded partitions are declared. Such a table
+    reconstructs cleanly from its projection properties alone and would then be rebuilt
+    with a different column type, silently, so the refresh path compares against this.
+
+    Args:
+      declared_type: One of ``integer``, ``date`` or ``string``.
+
+    Returns:
+      The Hive type, or None if the declared type is not one this builder writes.
+
+    Raises:
+      None.
     """
     return _PARTITION_HIVE.get(declared_type)
 
 
 def projection_properties(key) -> dict:
-    """The ``projection.*`` properties one declared partition key renders to, as a dict.
+    """Returns the projection.* properties one declared partition key renders to, as a dict.
 
-    The public door onto ``_projection_props`` for the refresh path, which has to go the
-    OTHER way — reading a live table's projection properties back into a declared key
-    (SPEC-143 FR-005). That reconstruction is only trustworthy if it re-renders to exactly
-    the properties it read, and it can only check that against the renderer the create path
-    actually uses. A second copy of this mapping in the refresh verb is the one thing that
-    would make the check meaningless.
+    The public door onto the renderer for the refresh path, which goes the other way —
+    reading a live table's projection properties back into a declared key. That
+    reconstruction is only trustworthy if it re-renders to exactly the properties it read,
+    and it can only be checked against the renderer the create path actually uses. A second
+    copy of this mapping in the refresh verb is the one thing that would make the check
+    meaningless.
+
+    Args:
+      key: A declared partition key, as for ``_projection_props``.
+
+    Returns:
+      The rendered properties keyed by property name.
+
+    Raises:
+      ValueError: On an unknown partition type or a non-string enum value.
+      KeyError: If a type-specific field the projection requires is absent.
     """
     return dict(_projection_props(key))
 
 
-#: SerDe library -> the format key this repo's inference reports. The refresh path compares
-#: the two: a folder that now holds JSON under a table declared with OpenCSVSerde has
-#: changed in a way re-deriving columns cannot fix (SPEC-143 FR-006). Both JSON SerDes are
-#: listed because the two arcs deliberately disagree on which to write (see the module
-#: docstring) and a refresh may meet either.
 SERDE_FORMATS = {
     "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe": "parquet",
     "org.apache.hadoop.hive.serde2.OpenCSVSerde": "csv",
@@ -246,21 +299,42 @@ SERDE_FORMATS = {
 
 
 def format_of_serde(library) -> str | None:
-    """The format ``library`` corresponds to, or None if it is not one this repo writes."""
+    """Maps a SerDe library name to the format key this repo's inference reports.
+
+    The refresh path compares the two: a folder that now holds JSON under a table declared
+    with OpenCSVSerde has changed in a way re-deriving columns cannot fix.
+
+    Args:
+      library: The SerDe library name from a live table's storage descriptor.
+
+    Returns:
+      The format key, or None if it is not a SerDe this repo writes.
+
+    Raises:
+      None.
+    """
     return SERDE_FORMATS.get(library)
 
 
 def _tblproperties(storage, partition_keys, *, mark):
-    """Ordered (k, v) TBLPROPERTIES: the marker, the storage's own props, then projection.
+    """Assembles the ordered TBLPROPERTIES: marker, the storage's own props, projection.
 
-    The marker leads; the storage-then-projection order the golden strings pin is
-    unchanged either way, so this is a reading choice — identity before behaviour.
+    The marker leads; the storage-then-projection order the golden strings pin is unchanged
+    either way, so leading with identity is a reading choice. Duplicate keys are dropped,
+    first occurrence winning — defensive rather than load-bearing now that nothing merges
+    captured properties in, but a key emitted twice inside one ``TBLPROPERTIES (…)`` is at
+    best redundant and at worst rejected.
 
-    DE-DUPLICATED BY KEY, first occurrence winning. Defensive rather than load-bearing now
-    that nothing merges captured properties in (SPEC-149 removed the rebuild that did): a
-    format contributing a key twice is cheap to tolerate and expensive to debug, because
-    emitting one twice inside a single ``TBLPROPERTIES (…)`` is at best redundant and at
-    worst rejected.
+    Args:
+      storage: The resolved ``Storage`` whose own properties are included.
+      partition_keys: Declared partition keys; empty means no projection properties.
+      mark: Whether to lead with the ``portal.managed`` marker.
+
+    Returns:
+      An ordered, de-duplicated list of (key, value) pairs.
+
+    Raises:
+      ValueError: On an unknown partition type or a non-string enum value.
     """
     props = [PORTAL_MANAGED] if mark else []
     props += list(storage.tblproperties)
@@ -288,36 +362,41 @@ def build_create_table_ddl(
     storage: Storage | None = None,
     mark: bool = True,
 ) -> str:
-    """Build a valid CREATE EXTERNAL TABLE IF NOT EXISTS statement (string).
+    """Builds a complete CREATE EXTERNAL TABLE IF NOT EXISTS statement as one line.
 
-    ``columns`` is the ordered [{name, type}] (Hive types) data body;
-    ``partition_keys`` are the declared keys ([] = flat). A data column that collides
-    with a partition-key name is dropped from the body (the partition key wins) so the
-    DDL stays valid.
+    A data column colliding with a partition-key name is dropped from the body — the
+    partition key wins — so the DDL stays valid. The LOCATION and every TBLPROPERTY go
+    through ``literal``: an S3 key may contain an apostrophe, and a partition enum value
+    could otherwise inject a property that switched partition projection off.
 
     Args:
-        database: Target Glue/Athena database.
-        table_name: Target table name (already validated by the caller).
-        columns: Ordered [{name, type}] data columns, Hive types.
-        partition_keys: Declared partition keys ([] = flat), each
-            {name, type, …} per ``_projection_props``.
-        fmt: Format key used only to pick the DEFAULT storage; ignored when ``storage``
-            is supplied.
-        location: ``s3://…/`` folder the external table reads.
-        storage: Explicit storage clause + its properties. Omit for the table-builder
-            defaults; supply one when the domain's SerDe choice differs (data-quality's
-            Hive JSON SerDe, its raw-line LazySimpleSerDe — SPEC-111 FR-001/FR-002).
-        mark: Whether to emit the ``portal.managed`` marker (SPEC-143 FR-007). Default on,
-            and A SEPARATE ARGUMENT FROM ``storage`` DELIBERATELY. Inferring it from
-            ``storage is None`` would read correctly against today's two callers and be
-            wrong for the next one: SPEC-144's ``apply-refresh`` supplies a Storage rebuilt
-            from the live table, so an inferred rule would strip the marker from every
-            table a refresh touches — erasing exactly what FR-007 exists to record, on the
-            tables most likely to be asked about. Pass ``False`` for a table that is not a
-            durable user table (data-quality's ``dq_tmp_*``, dropped in the same run).
+      database: Target Glue/Athena database.
+      table_name: Target table name (already validated by the caller).
+      columns: Ordered [{name, type}] data columns, Hive types.
+      partition_keys: Declared partition keys ([] = flat), each
+          {name, type, …} per ``_projection_props``.
+      fmt: Format key used only to pick the DEFAULT storage; ignored when ``storage``
+          is supplied.
+      location: ``s3://…/`` folder the external table reads.
+      storage: Explicit storage clause + its properties. Omit for the table-builder
+          defaults; supply one when the domain's SerDe choice differs.
+      mark: Whether to emit the ``portal.managed`` marker. Default on, and a separate
+          argument from ``storage`` deliberately — inferring it from ``storage is None``
+          would strip the marker from every table a refresh touches, since the refresh
+          path supplies a Storage rebuilt from the live table. Pass ``False`` for a table
+          that is not a durable user table, such as data-quality's temporary tables.
 
     Returns:
-        The full statement as one line.
+      The full statement as one line.
+
+    Raises:
+      ValueError: On an unknown format when ``storage`` is omitted, or a non-string partition
+          enum value.
+      KeyError: If a column or partition key is missing a required field, or a partition key
+          declares a type this builder does not render. That last case reaches the Hive-type
+          lookup before it ever reaches ``_projection_props``' ``ValueError``, so an unknown
+          partition type surfaces here as a ``KeyError`` — callers validate the declared type
+          up front rather than relying on either.
     """
     resolved = storage if storage is not None else default_storage(fmt)
 
@@ -332,22 +411,10 @@ def build_create_table_ddl(
         )
         stmt += f" PARTITIONED BY ({part_cols})"
 
-    # Through literal(), not an f-string quote (SPEC-151 FR-006). An S3 key may contain an
-    # apostrophe — a folder named `o'brien` is an ordinary thing for a user to create — and
-    # a raw '{location}' ends the literal there and turns the rest of the statement into
-    # syntax. The sharpest path is data-quality, where the LOCATION and the partition
-    # values both come from S3 KEY SEGMENTS, so a folder named `year=2024'` broke the
-    # temp-table DDL and the whole check died as `query_failed`.
     stmt += f" {resolved.clause} LOCATION {literal(location)}"
 
     props = _tblproperties(resolved, partition_keys, mark=mark)
     if props:
-        # Both sides escaped: a partition enum value of `eu','projection.enabled'='false`
-        # rendered as `'projection.region.values'='eu','projection.enabled'='false'`,
-        # INJECTING a property that switched partition projection off. Self-scoped (a user
-        # can only reach a table in their own database, and Athena rejects multi-statement
-        # DDL), so this is robustness rather than cross-tenant escalation — but the
-        # escaper has sat in this module all along and is already used for column comments.
         rendered = ", ".join(f"{literal(k)}={literal(v)}" for k, v in props)
         stmt += f" TBLPROPERTIES ({rendered})"
 

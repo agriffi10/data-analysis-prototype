@@ -1,16 +1,15 @@
-"""inspect-source — resolve the source table into a copy plan (SPEC-090).
+"""inspect-source — resolves the source table into a copy plan.
 
-Given the validated request, GetTable the source, confirm it is a shareable shape
-(base EXTERNAL_TABLE, flat or partition-projection — views, managed tables, and
-catalog-registered partitions are rejected), clone its definition verbatim
-(LOCATION stripped), list the source data objects (relative keys + sizes), and
-enforce the copy caps. Read-only — no copy/create side effects. Every rejection is
-a whole-request TerminalError (Catch → recorded failure; no recipient runs).
+Given the validated request: reads the source table, confirms it is a shareable shape, clones
+its definition verbatim, lists the source data objects, and enforces the copy caps. Read-only,
+with no copy or create side effects. Every rejection is a whole-request terminal failure, so no
+recipient runs.
 
-Emits the copy plan merged over the threaded request:
-{…request, tableDefinition, location: {bucket, prefix}, copyPlanKey, objectCount, partitioned}.
-The object LIST goes to S3 and travels by POINTER — see tscommon.copy_plan for the
-measured reason (inline, the Map's state reached 95% of the 256 KB payload limit).
+The object list goes to S3 and travels by pointer rather than on the state — inline, the Map's
+state reached 95% of the payload limit at the shipped caps.
+
+The service name is the control plane, not the function, so one share's invocations and its
+Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import json
@@ -24,39 +23,54 @@ from tscommon import glue as glue_mod
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
-# recipient Map fan-out), and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
 observability.init(service="table-share")
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("inspect-source")
 @notify.notifies_on_failure("inspect")
 def handler(event, context) -> dict:
-    """SFN entry point: clone the source table definition and cap object count/size.
+    """Step Functions entry point: clones the source definition and caps the copy.
 
-    Delegates to ``_inspect_source``; a terminal rejection is a whole-request failure (no
-    recipient runs), so the sender is notified before the ``Catch`` records it (SPEC-094
-    FR-003, best-effort).
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    Args:
+      event: The validated request, carrying the source database and table.
+      context: The Lambda context, unused.
+
+    Returns:
+      The request merged with the cloned definition, source location, copy plan key, object
+      count and partitioned flag.
+
+    Raises:
+      TerminalError: Any source shape or cap rejection. It is a whole-request failure, so no
+        recipient runs, and the sender is notified before the Catch records it.
+      TransientError: On a retryable Glue or S3 fault.
     """
     return _inspect_source(event)
 
 
 def _enforce_definition_cap(definition, database, table) -> None:
-    """Reject a definition too large to ride on the Step Functions state.
+    """Rejects a cloned definition too large to ride on the Step Functions state.
 
-    The object list travels by pointer now, but the CLONED DEFINITION does not — and it is
-    user-controlled: columns (name/type/comment) and the source's Glue table properties are
-    copied verbatim, and a user can set both from the query workspace. Measured with the
-    plan already by pointer and 50 recipients failing, 1,000 columns carrying 255-char
-    comments reached 150% of Step Functions' 256 KB state payload — States.DataLimitExceeded
-    on the Map, which destroys every per-recipient outcome.
+    The object list travels by pointer now, but the cloned definition does not — and it is
+    user-controlled, since the columns and the source's table properties are copied verbatim
+    and a user can set both from the query workspace. Rejected here as a whole-request terminal
+    before any recipient runs, matching the object and byte caps rather than failing 50
+    recipients one at a time.
 
-    Rejected HERE, as a whole-request terminal before any recipient runs, matching the
-    object/byte caps rather than failing 50 recipients one at a time.
+    Args:
+      definition: The cloned definition.
+      database: The source database, for the failure detail.
+      table: The source table, for the failure detail.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``source_definition_too_large`` when the serialised definition exceeds the
+        cap.
     """
     size = len(json.dumps(definition, separators=(",", ":")).encode())
     if size > config.SHARE_MAX_DEFINITION_BYTES:
@@ -68,6 +82,26 @@ def _enforce_definition_cap(definition, database, table) -> None:
 
 
 def _inspect_source(event) -> dict:
+    """Clones the source, lists its objects, enforces the caps and writes the plan.
+
+    The record carries the plan, not the objects: counts and totals are what an operator needs
+    to tell a share that was too large from one that was mis-scoped, and the object keys live
+    in the plan the state machine carries. The object count stays on the state so a reader of
+    the execution can see the size of the share without fetching the plan.
+
+    Args:
+      event: The validated request.
+
+    Returns:
+      The request merged with the cloned definition, location, plan key, object count and
+      partitioned flag.
+
+    Raises:
+      TerminalError: ``source_not_found`` or ``source_not_readable`` from the catalog read, a
+        shape refusal from the clone, ``source_definition_too_large``, ``source_empty``, or
+        ``source_too_large`` when either copy cap is exceeded.
+      TransientError: On a retryable Glue or S3 fault.
+    """
     source = event.get("source") or {}
     database, table = source.get("database"), source.get("table")
 
@@ -103,9 +137,6 @@ def _inspect_source(event) -> dict:
         total_bytes,
         partitioned,
     )
-    # The plan, not the objects. Counts and totals are what an operator needs to tell a share
-    # that was too large from one that was mis-scoped; the object KEYS live in the plan the
-    # state machine carries.
     observability.info(
         "copy plan built",
         database=database,
@@ -118,11 +149,6 @@ def _inspect_source(event) -> dict:
         **event,
         "tableDefinition": definition,
         "location": location,
-        # The KEY, not the list: inline this reached 95% of Step Functions' 256 KB state
-        # payload at the shipped caps, because the Map's ItemSelector copies the whole
-        # state into every item. objectCount is the summary the state keeps so a reader of
-        # the execution can see the size of the share without fetching the plan; nothing
-        # consumes it yet (SPEC-094's messages carry no count).
         "copyPlanKey": copy_plan.write(event, objects),
         "objectCount": len(objects),
         "partitioned": partitioned,

@@ -1,47 +1,47 @@
-"""Pure polars dtype → Glue/Athena (Hive) type mapping — the ONE copy (SPEC-110 follow-up).
+"""Pure polars dtype to Glue/Athena (Hive) type mapping — the one copy.
 
 Turns an inferred polars dtype into the Hive type string that goes into a
-CREATE EXTERNAL TABLE column list. Nested types recurse (List→array, Struct→struct). An
-unmappable dtype raises UnmappableTypeError carrying the dtype; each caller adds the
-column name and turns it into its own domain's terminal reason.
+CREATE EXTERNAL TABLE column list. Nested types recurse. An unmappable dtype raises
+``UnmappableTypeError`` carrying the dtype; each caller adds the column name and turns it
+into its own domain's terminal reason.
 
-Callers: table-builder's infer-schema (SPEC-069) and data-quality's inspect-source
-(SPEC-110). It lived in table-builder's verb dir, was copied into data-quality's, and was
-consolidated here before the file-converter arc (SPEC-117) made a third copy.
+This module imports polars, and cpcommon is attached to every control-plane verb — but only
+two of them attach a polars layer. Importing this from any other verb is an ImportError at
+cold start. Living here is safe only because ``cpcommon/__init__.py`` imports no submodules,
+so this file loads if and only if something explicitly imports it. Never add it to that
+``__init__``. Read ``docs/lambda-rationale.md`` before adding a polars-carrying verb.
 
-╔══════════════════════════════════════════════════════════════════════════════════════╗
-║ THIS MODULE IMPORTS polars, AND cpcommon IS ATTACHED TO EVERY CONTROL-PLANE VERB.    ║
-║                                                                                      ║
-║ Importing it from a verb that does NOT attach a polars layer is an ImportError at    ║
-║ COLD START. Only two functions carry polars today:                                   ║
-║   • table-builder-infer-schema  (the table-builder-polars layer)                     ║
-║   • data-quality-inspect-source (the data-quality-polars layer)                      ║
-║ Every other verb attaches cpcommon WITHOUT polars — 15+ of them.                     ║
-║                                                                                      ║
-║ Living here is safe ONLY because cpcommon/__init__.py imports no submodules, so this ║
-║ file is loaded if and only if something explicitly imports it. Do not add            ║
-║ `from . import type_mapping` to that __init__ — it would break every polars-free     ║
-║ verb the instant it was deployed, which is the shape of the PR #196 outage (a        ║
-║ shared layer's import-time requirement that only some functions can satisfy).        ║
-║                                                                                      ║
-║ Adding a polars-carrying verb? Give it `cpcommon: true` AND a polars layer in        ║
-║ deploy-lambdas.yml's matrix, and check the combined per-function size guard.         ║
-╚══════════════════════════════════════════════════════════════════════════════════════╝
+Attributes:
+  _SIMPLE: Non-parametric dtypes to Hive. Parametric ones carry parameters and are handled
+    by isinstance checks in ``map_dtype``.
 """
 
 import polars as pl
 
 
 class UnmappableTypeError(Exception):
-    """A polars dtype with no Hive equivalent (e.g. Object/Binary/Time)."""
+    """A polars dtype with no Hive equivalent, such as Object, Binary or Time.
+
+    Attributes:
+      dtype: The dtype that could not be mapped.
+    """
 
     def __init__(self, dtype):
+        """Records the offending dtype as both an attribute and the message.
+
+        Args:
+          dtype: The polars dtype with no Hive equivalent.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
         self.dtype = dtype
         super().__init__(str(dtype))
 
 
-# Non-parametric dtypes → Hive. Parametric ones (Datetime/Decimal/List/Struct) are
-# handled by isinstance below because they carry parameters.
 _SIMPLE = [
     (pl.Int8, "tinyint"),
     (pl.Int16, "smallint"),
@@ -54,14 +54,26 @@ _SIMPLE = [
     (pl.Float32, "float"),
     (pl.Float64, "double"),
     (pl.Boolean, "boolean"),
-    (pl.String, "string"),  # pl.Utf8 is an alias of pl.String
+    (pl.String, "string"),
     (pl.Date, "date"),
 ]
 
 
 def map_dtype(dtype) -> str:
-    """Map a polars dtype to its Hive type string; raises UnmappableTypeError."""
-    # Parametric types first (they carry precision/scale/inner/fields).
+    """Maps a polars dtype to its Hive type string, recursing through nested types.
+
+    Parametric types are matched first, because they carry precision, scale, inner type or
+    fields that the simple equality table cannot express.
+
+    Args:
+      dtype: The polars dtype to map.
+
+    Returns:
+      The Hive type string.
+
+    Raises:
+      UnmappableTypeError: If the dtype, or any nested dtype, has no Hive equivalent.
+    """
     if isinstance(dtype, pl.Datetime):
         return "timestamp"
     if isinstance(dtype, pl.Decimal):

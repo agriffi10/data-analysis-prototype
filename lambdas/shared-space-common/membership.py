@@ -1,10 +1,9 @@
 """Per-user membership slots stored in Cognito custom attributes.
 
-Each user holds up to ``MAX_SHARED_MEMBERSHIPS`` ``custom:shared_space_k`` attribute
-slots; the slot's value is the space name it grants (the IAM membership tag the
-portal role is scoped to). This module owns assigning and clearing those slots —
-``admin_get_user`` doubles as the User-Pool existence check (unknown user ->
-UserNotFoundException). All operations are idempotent / replay-safe.
+Each user holds a bounded number of membership attribute slots, and a slot's value is the space
+name it grants — the IAM membership tag the portal role is scoped to. This module owns
+assigning and clearing those slots. Reading the user doubles as the user pool existence check.
+All operations are idempotent and replay-safe.
 """
 
 import config
@@ -14,10 +13,20 @@ from registry import ProvisioningError
 
 
 def normalize_members(raw: list | None, owner: str) -> list[str]:
-    """Trim/lowercase/de-dupe the requested usernames and drop the owner.
+    """Trims, lowercases and de-duplicates requested usernames, dropping the owner.
 
-    The owner is implicitly a member and is never added or removed. Defensive — the
-    browser already cleans the list, but the pipeline is the real authority.
+    The owner is implicitly a member and is never added or removed. Defensive — the browser
+    already cleans the list, but the pipeline is the real authority.
+
+    Args:
+      raw: The requested member names, or None.
+      owner: The space's owner, excluded from the result.
+
+    Returns:
+      The cleaned member names, in request order.
+
+    Raises:
+      None.
     """
     seen = set()
     out = []
@@ -33,17 +42,37 @@ def normalize_members(raw: list | None, owner: str) -> list[str]:
 
 
 def _slot_attr(k: int) -> str:
+    """Names the Cognito custom attribute for one membership slot.
+
+    Args:
+      k: The one-based slot index.
+
+    Returns:
+      The attribute name.
+
+    Raises:
+      None.
+    """
     return f"custom:shared_space_{k}"
 
 
 def assign_or_find_slot(username: str, name: str) -> int:
-    """Return the slot index holding ``name`` for ``username``, assigning one if needed.
+    """Returns the slot index holding a space for a user, assigning a free one if needed.
 
-    Idempotent on re-run (an existing assignment is returned as-is).
+    Idempotent on re-run: an existing assignment is returned as-is. A stable reason token is
+    recorded alongside the user-facing failure when the cap is reached, because how often people
+    hit the cap is a product question and a notification cannot be counted.
+
+    Args:
+      username: The member to assign.
+      name: The space name the slot grants.
+
+    Returns:
+      The one-based slot index.
 
     Raises:
-        ProvisioningError: the user already holds MAX_SHARED_MEMBERSHIPS spaces.
-        cognito.exceptions.UserNotFoundException: the user does not exist.
+      ProvisioningError: When the user already holds the maximum number of spaces.
+      UserNotFoundException: When the user does not exist in the pool.
     """
     cognito = clients.cognito()
     user = cognito.admin_get_user(UserPoolId=cpconfig.USER_POOL_ID, Username=username)
@@ -52,13 +81,11 @@ def assign_or_find_slot(username: str, name: str) -> int:
     for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1):
         value = attrs.get(_slot_attr(k), "")
         if value == name:
-            return k  # already assigned (replay-safe)
+            return k
         if not value and free is None:
             free = k
     occupied = sum(1 for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1) if attrs.get(_slot_attr(k), ""))
     if free is None:
-        # A stable reason token as well as the user-facing notification: "how often are people
-        # hitting the cap" is a product question, and a notification cannot be counted.
         observability.error(
             "membership slots exhausted",
             space=name,
@@ -86,10 +113,20 @@ def assign_or_find_slot(username: str, name: str) -> int:
 
 
 def clear_slot(username: str, name: str) -> None:
-    """Clear the membership slot holding ``name`` for ``username``.
+    """Clears the membership slot holding a space for a user.
 
-    Sets the slot empty, which assign_or_find_slot treats as free. Idempotent — a
-    missing slot or a pool-absent user is a no-op.
+    Sets the slot empty, which the assigner treats as free. Idempotent: a missing slot or a
+    user absent from the pool is a no-op.
+
+    Args:
+      username: The member to clear.
+      name: The space name whose slot should be cleared.
+
+    Returns:
+      None.
+
+    Raises:
+      ClientError: On any Cognito fault other than the user not existing.
     """
     cognito = clients.cognito()
     try:

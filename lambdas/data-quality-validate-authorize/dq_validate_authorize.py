@@ -1,28 +1,27 @@
-"""data-quality validate-authorize — the control plane's security boundary (SPEC-109).
+"""data-quality validate-authorize — the control plane's security boundary.
 
-The first verb. It is the ONLY place the actor is established: the request's ID token is
-verified offline against the User Pool JWKS and the actor comes from the verified
-``cognito:username`` claim — NEVER from a body field (the envelope carries no username at
-all, SPEC-109 FR-001).
+The first verb, and the only place the actor is established: the request's ID token is verified
+offline against the user pool JWKS and the actor comes from the verified username claim, never
+from a body field, since the envelope carries no username at all.
 
-It then authorizes read access to the requested location and validates the report
-destination:
+It then authorizes read access to the requested location and validates the report destination. A
+personal space must be the user-space bucket with the location under the actor's own prefix. A
+shared space must have an active registry record listing the actor, be the shared-space bucket,
+and have the location under the space's prefix. Active is the space's provisioning status, not a
+member's pending or active join chip: access is granted at add time, so a pending member passes,
+and a test pins that so nobody "fixes" it later.
 
-- **personal** — the bucket must be the user-space bucket and the normalized location must
-  sit under ``{actor}/``;
-- **shared** — the registry record must be an ACTIVE space with the actor in ``members``
-  (``cpcommon.registry.is_active_member``), the bucket must be the shared-space bucket, and
-  the location must sit under ``{spaceName}/``.
+The identity contract: from this state onward the threaded object carries the request id and
+actor keys. The terminal states read them, and a Pass state's JSONPath hard-fails on an absent
+key with an uncatchable runtime error, which would skip the notify state and leave the user with
+no notification at all. A null value is fine; a missing key is fatal.
 
-"Active" is the SPACE's provisioning status, NOT SPEC-073's per-member Pending/Active join
-chip: SPEC-073 grants access at add time, so a **Pending member passes** (a test pins this
-so nobody "fixes" it later).
+The service name is the control plane, not the function: one data-quality run is nine
+invocations, and they are only one queryable set if they share it. The per-verb identity rides as
+the ``verb`` field.
 
-The identity contract: from this state onward the threaded object carries ``requestId`` and
-``actor`` KEYS. The terminal ``RecordSuccess``/``RecordFailure`` Pass states read
-``$.requestId``/``$.actor``, and a Pass state's JSONPath hard-fails on an ABSENT key
-(``States.Runtime``) — uncatchable, so it would skip ``NotifyFailure`` and leave the user
-with no notification at all. A null value is fine; a missing key is fatal.
+Attributes:
+  REPORTS_PREFIX: Where this arc writes its reports, relative to the space root.
 """
 
 import logging
@@ -37,31 +36,53 @@ from dqcommon.config import MARKER_BASENAME, RESERVED_PREFIXES
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
-# invocations, and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
 observability.init(service="data-quality")
 
-#: Where this arc writes its reports, relative to the space root.
 REPORTS_PREFIX = "_data-quality-reports"
 
 
 def _normalize(location: str) -> str:
-    """Collapse a key to its canonical form, neutralizing traversal.
+    """Collapses a key to its canonical form, neutralising traversal.
 
-    ``posixpath.normpath`` resolves ``.``/``..`` segments, so a location that tries to
-    climb out of its space (``alice/../bob/secrets``) normalizes to a path that simply
-    fails the space-prefix check below — traversal can't sneak past a string comparison
-    on the raw input. A leading ``/`` is stripped (S3 keys never start with one).
+    Path normalisation resolves relative segments, so a location that tries to climb out of its
+    space collapses to a path that simply fails the space-prefix check below — traversal cannot
+    sneak past a string comparison on the raw input. A leading slash is stripped, since S3 keys
+    never start with one, and both the empty string and a bare dot are treated as empty, which is
+    an unusable location.
+
+    Args:
+      location: The raw location from the request body.
+
+    Returns:
+      The canonical key, or "" when it is unusable.
+
+    Raises:
+      None.
     """
     collapsed = posixpath.normpath(location.strip().lstrip("/"))
-    # normpath turns "" and "." into "."; treat both as empty (an unusable location).
     return "" if collapsed == "." else collapsed
 
 
 @observability.step("authorize")
 def _authorize(actor: str, space: dict, location: str) -> str:
-    """Return the normalized location, or raise a terminal ``forbidden``."""
+    """Authorizes the actor for the requested location and returns its canonical form.
+
+    The shared-space failure uses one reason for "no such space" and "not a member", deliberately:
+    telling the caller which is a membership oracle.
+
+    Args:
+      actor: The verified username.
+      space: The request's space, carrying its kind, bucket and prefix.
+      location: The raw location from the request body.
+
+    Returns:
+      The normalised location.
+
+    Raises:
+      TerminalError: ``forbidden`` on an empty location, the wrong bucket, a personal space that
+        is not the actor's own, a shared space the actor is not an active member of, a location
+        that escapes its space, or an unknown space kind.
+    """
     kind = space.get("kind")
     bucket = space.get("bucket")
     prefix = (space.get("prefix") or "").strip("/")
@@ -82,8 +103,6 @@ def _authorize(actor: str, space: dict, location: str) -> str:
         if bucket != config.SHARED_SPACE_BUCKET:
             raise TerminalError(messages.FORBIDDEN, "shared space must be the shared-space bucket")
         if not reg.is_active_member(reg.load(prefix), actor):
-            # Deliberately one reason for "no such space" and "not a member": telling the
-            # caller which is a membership oracle.
             raise TerminalError(messages.FORBIDDEN, f"{actor!r} is not an active member of {prefix!r}")
         if not _within(normalized, prefix):
             raise TerminalError(messages.FORBIDDEN, "location escapes the shared space")
@@ -93,32 +112,66 @@ def _authorize(actor: str, space: dict, location: str) -> str:
 
 
 def _within(normalized: str, space_root: str) -> bool:
-    """True iff ``normalized`` is the space root itself or sits under it."""
+    """Reports whether a normalised location is the space root itself or sits under it.
+
+    Args:
+      normalized: The canonical location.
+      space_root: The space's root prefix.
+
+    Returns:
+      True when the location is inside the space.
+
+    Raises:
+      None.
+    """
     return normalized == space_root or normalized.startswith(f"{space_root}/")
 
 
 @observability.step("validate-destination")
 def _validate_destination(space_root: str, request_id: str) -> str:
-    """Return the report destination prefix, or raise if it isn't safe to write.
+    """Derives the report destination prefix and confirms it is safe to write.
 
-    Defence in depth behind the execution role's explicit Deny (SPEC-109 FR-006): the
-    destination is derived here, not supplied, so this mostly guards against a future
-    caller-supplied destination and against the reserved prefixes drifting.
+    Defence in depth behind the execution role's explicit deny: the destination is derived here
+    rather than supplied, so this mostly guards against a future caller-supplied destination and
+    against the reserved prefixes drifting. The reports prefix is itself reserved, being ours, so
+    only a collision with a different reserved folder is a problem.
+
+    Args:
+      space_root: The space's root prefix.
+      request_id: The run's request id.
+
+    Returns:
+      The destination prefix.
+
+    Raises:
+      TerminalError: ``forbidden`` when the derived destination is not the reports prefix.
     """
     destination = f"{space_root}/{REPORTS_PREFIX}/{request_id}/"
     first_segment = destination.split("/")[1] if "/" in destination else ""
-    # The reports prefix is itself reserved (it is ours), so only a NON-reports collision
-    # is a problem — i.e. the derived destination must land in our own reserved folder.
     if first_segment != REPORTS_PREFIX:
         raise TerminalError(messages.FORBIDDEN, f"report destination {destination!r} is not the reports prefix")
     return destination
 
 
 def _check_source_not_reserved(normalized: str, space_root: str) -> None:
-    """A check may not target a reserved sub-tree or the space marker."""
+    """Refuses a check that targets a reserved sub-tree or the space marker.
+
+    The space root itself is a legitimate, if broad, folder target.
+
+    Args:
+      normalized: The canonical location.
+      space_root: The space's root prefix.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``forbidden`` when the target's first segment is reserved, or the target is
+        the space marker.
+    """
     rel = normalized[len(space_root) :].strip("/") if normalized.startswith(space_root) else normalized
     if not rel:
-        return  # the space root itself is a legitimate (if broad) folder target
+        return
     first = rel.split("/")[0]
     if first in RESERVED_PREFIXES:
         raise TerminalError(messages.FORBIDDEN, f"{first!r} is a reserved prefix and cannot be checked")
@@ -127,25 +180,51 @@ def _check_source_not_reserved(normalized: str, space_root: str) -> None:
 
 
 def _validate_and_authorize(event) -> dict:
+    """Verifies the token, authorizes the location, and emits the threaded request object.
+
+    The actor is bound first, before the shape checks, and the order is deliberate. It used to run
+    after them, which meant a malformed envelope raised with no actor bound — and this verb is the
+    one place a failure cannot fall back to the notify state, because the failure seed supplies a
+    null actor for exactly that case, so every shape terminal would have notified nobody.
+    Verifying the token first costs nothing, since it is offline against the cached JWKS, and
+    gives every failure below a recipient. An unauthorized failure from the verification itself
+    still has none — a caller who cannot prove who they are has no inbox we may write to — which
+    is why that line stays outside the guard.
+
+    Shape checks come before authorization so a malformed envelope is a typed terminal rather than
+    a bare error the state machine records as opaque.
+
+    The terminal is recorded and notified in one place rather than at each of the raise sites: a
+    narrative line added by hand next to a raise is one the next raise will be added without. The
+    reason is the constant's own value, never scraped out of the rendered prose, and the detail is
+    safe to record for every raise site in this verb — they interpolate locations, buckets,
+    prefixes and the actor, and nothing read out of a file. The notification echoes the body's own
+    location rather than the normalised one, because normalisation may not have run; it is the
+    user's own submitted value going back to that same verified user, so there is no cross-inbox
+    injection.
+
+    The report key is seeded null here and filled by the report verb. It exists from the first
+    verb purely so the terminal failure state can read it on every path: an absent key would kill
+    the execution before the notify state and leave the user with no notification at all. Every
+    verb threads the state by copying, so seeding it once is enough. What it buys is that the
+    notify verb can tell a post-report cleanup failure from a real one and stay quiet.
+
+    Args:
+      event: The EventBridge Pipe envelope carrying the SQS record.
+
+    Returns:
+      The validated request the downstream states consume.
+
+    Raises:
+      TerminalError: ``unauthorized`` before the actor is bound, then ``invalid_request`` or
+        ``forbidden``.
+      TransientError: On a retryable S3 fault loading the registry.
+    """
     req = events.parse_sqs_request(event, reason=messages.UNAUTHORIZED)
 
-    # THE ACTOR IS BOUND FIRST, BEFORE THE SHAPE CHECKS, and the order is deliberate
-    # (SPEC-114 FR-002). It used to run after them, which meant a malformed envelope raised
-    # `invalid_request` with no actor bound — and this verb is the ONE place a failure
-    # cannot fall back to the NotifyFailure state, because ValidateFailureSeed seeds
-    # `actor: null` for exactly this case. Every shape terminal would have notified nobody.
-    # Verifying the token first costs nothing (it is offline against the cached JWKS) and
-    # gives every failure below a recipient. An `unauthorized` from HERE still has none —
-    # a caller who cannot prove who they are has no inbox we may write to — which is why
-    # this line stays outside the try.
     actor = auth.verified_username(req.get("idToken"))
 
-    # From here the actor is known, so a terminal failure notifies them (best-effort)
-    # before the SFN Catch records it. The decorator cannot do this for us: its `event` is
-    # the raw SQS ARRAY, which carries no actor field to address.
     try:
-        # Shape first, so a malformed envelope is a typed terminal rather than a bare
-        # KeyError the SFN records as an opaque failure (SPEC-083 FR-002).
         request_id = events.require(req, "requestId", reason=messages.INVALID_REQUEST)
         space = req.get("space")
         if not isinstance(space, dict):
@@ -160,15 +239,6 @@ def _validate_and_authorize(event) -> dict:
         _check_source_not_reserved(normalized, space_root)
         destination = _validate_destination(space_root, request_id)
     except TerminalError as err:
-        # Emitted here rather than at each of the eleven raise sites: a narrative line added
-        # by hand next to a raise is one the twelfth raise will be added without, which is the
-        # same argument SPEC-128 FR-001 made for stamping request_id in the decorator. Every
-        # terminal from this verb passes through here.
-        #
-        # `reason` is `err.reason` — the messages constant's own value, never scraped out of
-        # the rendered prose (SPEC-132 FR-003). `detail` is safe to log for every raise site in
-        # this verb: they interpolate locations, buckets, prefixes and the actor, and nothing
-        # read out of a file.
         observability.error(
             "authorization failed",
             step="authorize",
@@ -181,9 +251,6 @@ def _validate_and_authorize(event) -> dict:
         notify.emit_failure(
             {
                 "actor": actor,
-                # The body's own location, not the normalized one — normalization may not
-                # have run. It is the user's own submitted value being echoed back to that
-                # same verified user, so there is no cross-inbox injection here.
                 "location": req.get("location"),
                 "requestId": req.get("requestId"),
             },
@@ -196,9 +263,6 @@ def _validate_and_authorize(event) -> dict:
         "authorized",
         actor=actor,
         space=space_root,
-        # The distinction an operator needs first: a personal check can only ever read the
-        # actor's own prefix, whereas a shared one turned on a registry membership lookup that
-        # could itself be the thing that went wrong.
         space_kind="own" if space.get("kind") == "personal" else "shared",
         bucket=space.get("bucket"),
         location=normalized,
@@ -210,32 +274,33 @@ def _validate_and_authorize(event) -> dict:
         "space": {"kind": space["kind"], "bucket": space["bucket"], "prefix": f"{space_root}/"},
         "location": normalized,
         "reportPrefix": destination,
-        # SEEDED NULL HERE, FILLED BY assemble-report. It exists from the FIRST verb purely
-        # so the terminal RecordFailure Pass state can read $.reportKey on every path: a
-        # Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable
-        # States.Runtime, which would kill the execution before NotifyFailure and leave the
-        # user with no notification at all — the same trap $.location fell into (see
-        # ValidateFailureSeed's comment in the ASL). A null VALUE is fine; a missing key is
-        # fatal. Every verb threads the state with dict(event), so seeding it once is
-        # enough. What it buys: notify-failure can tell a post-report cleanup failure from
-        # a real one and stay quiet, because the user already has their success
-        # notification and their report (SPEC-114).
         "reportKey": None,
     }
 
 
-# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
-# catches on its way out, so if it were outermost the span would close status="ok" on an
-# invocation that actually failed and notified. Outermost traced sees the exception the
-# handler really raised.
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """Verify the caller, authorize the location, and emit the threaded request object.
+    """Verifies the caller, authorizes the location, and emits the threaded request object.
 
-    ``notify_terminal=False``: a ``TerminalError`` is notified inside
-    ``_validate_and_authorize``, which knows the actor. The decorator's own event is the raw
-    SQS array and could not address one. It still covers UNEXPECTED exceptions, where it
-    correctly no-ops for want of a recipient — the SFN records those either way.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way out,
+    so if it were outermost the span would close as successful on an invocation that actually
+    failed and notified.
+
+    Terminal notification is turned off at the decorator because a terminal error is notified
+    inside the orchestration below, which knows the actor — the decorator's own event is the raw
+    SQS array and could not address one. It still covers unexpected exceptions, where it correctly
+    no-ops for want of a recipient; the state machine records those either way.
+
+    Args:
+      event: The EventBridge Pipe envelope carrying the SQS record.
+      context: The Lambda context, unused.
+
+    Returns:
+      The validated request.
+
+    Raises:
+      TerminalError: ``unauthorized``, ``invalid_request`` or ``forbidden``.
+      TransientError: On a retryable S3 fault loading the registry.
     """
     return _validate_and_authorize(event)

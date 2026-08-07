@@ -1,11 +1,15 @@
-"""Parallel, layout-preserving, server-side S3 copy (SPEC-091).
+"""Parallel, layout-preserving, server-side S3 copy for a share recipient.
 
-copy_prefix copies every planned object from the source prefix to the recipient
-destination with a bounded thread pool. No object data passes through the Lambda:
-small objects use a single server-side CopyObject; objects over S3's 5 GiB
-single-copy limit use multipart UploadPartCopy. A retried copy re-copies the same
-keys harmlessly (idempotent), so the Step Function can re-run the whole verb on a
-transient failure.
+No object data passes through the Lambda: small objects use a single server-side copy, and
+objects over S3's single-copy limit use a multipart part-copy. A retried copy re-copies the
+same keys harmlessly, so the Step Function can re-run the whole verb on a transient failure.
+
+Attributes:
+  MULTIPART_COPY_THRESHOLD: S3's single-request copy ceiling; larger objects must
+    multipart-copy.
+  MULTIPART_PART_SIZE: Byte range per part copy.
+  COPY_CONCURRENCY: Bounded worker pool for the per-recipient fan-out. The share caps bound
+    the total work; this bounds the parallelism.
 """
 
 import logging
@@ -16,26 +20,55 @@ from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger(__name__)
 
-# S3's single-request CopyObject ceiling; larger objects must multipart-copy.
-MULTIPART_COPY_THRESHOLD = 5 * 1024**3  # 5 GiB
-MULTIPART_PART_SIZE = 1024**3  # 1 GiB per UploadPartCopy range
+MULTIPART_COPY_THRESHOLD = 5 * 1024**3
+MULTIPART_PART_SIZE = 1024**3
 
-# Bounded worker pool for the per-recipient copy fan-out (lambdas.md: bound
-# parallelism; the SPEC-090 caps bound the total work).
 COPY_CONCURRENCY = 8
 
-def _raise_mapped(exc: Exception, detail: str):
-    """A transient throttle/5xx retries the whole (idempotent) verb; anything else is a
-    deterministic per-recipient ``copy_failed``.
 
-    Delegates the transient classification to ``cpcommon.errors.raise_if_transient`` (the
-    canonical classifier); if it returns, the fault is deterministic and becomes terminal.
+def _raise_mapped(exc: Exception, detail: str):
+    """Routes a copy fault to the Step Function's retry or fail path.
+
+    Delegates the transient classification to the canonical classifier; if that returns, the
+    fault is deterministic. A transient throttle or 5xx retries the whole idempotent verb,
+    while anything else is a per-recipient failure.
+
+    Args:
+      exc: The fault to classify.
+      detail: Context for the raised error's detail.
+
+    Returns:
+      Never returns.
+
+    Raises:
+      TransientError: On a retryable fault.
+      TerminalError: ``copy_failed`` on a deterministic one.
     """
     errors.raise_if_transient(exc, detail)
     raise TerminalError("copy_failed", f"{detail}: {exc}") from exc
 
 
 def _copy_one(s3, src_bucket: str, src_key: str, dest_bucket: str, dest_key: str, size: int) -> None:
+    """Copies one object server-side, choosing single or multipart by its size.
+
+    A failed multipart upload is aborted so it never leaves a half-open upload accruing
+    storage. The abort itself is best-effort, since an expired upload lifecycles away.
+
+    Args:
+      s3: The S3 client.
+      src_bucket: Source bucket.
+      src_key: Source key.
+      dest_bucket: Destination bucket.
+      dest_key: Destination key.
+      size: The object's byte size, deciding the copy strategy.
+
+    Returns:
+      None.
+
+    Raises:
+      TransientError: On a retryable fault.
+      TerminalError: ``copy_failed`` on a deterministic one.
+    """
     source = {"Bucket": src_bucket, "Key": src_key}
     try:
         if size <= MULTIPART_COPY_THRESHOLD:
@@ -67,8 +100,6 @@ def _copy_one(s3, src_bucket: str, src_key: str, dest_bucket: str, dest_key: str
                 MultipartUpload={"Parts": parts},
             )
         except Exception:
-            # Never leave a half-open upload accruing storage; the abort itself is
-            # best-effort (an expired upload lifecycles away).
             try:
                 s3.abort_multipart_upload(Bucket=dest_bucket, Key=dest_key, UploadId=upload_id)
             except Exception:  # noqa: BLE001
@@ -76,7 +107,7 @@ def _copy_one(s3, src_bucket: str, src_key: str, dest_bucket: str, dest_key: str
             raise
     except (TerminalError, TransientError):
         raise
-    except Exception as exc:  # noqa: BLE001 - mapped to the SFN's retry/fail routing
+    except Exception as exc:  # noqa: BLE001
         _raise_mapped(exc, f"copy {src_bucket}/{src_key} -> {dest_bucket}/{dest_key}")
 
 
@@ -88,10 +119,22 @@ def copy_prefix(
     dest_prefix: str,
     concurrency: int = COPY_CONCURRENCY,
 ) -> int:
-    """Copy every ``{relKey, size}`` object to ``dest_prefix``, layout preserved.
+    """Copies every planned object to the destination prefix, preserving the layout.
 
-    Returns the number of objects copied. The first failure propagates (mapped to
-    TransientError/TerminalError) after in-flight copies settle.
+    Args:
+      src_bucket: Source bucket.
+      src_prefix: Source prefix the relative keys hang off.
+      objects: The planned objects, each carrying a relative key and size.
+      dest_bucket: Destination bucket.
+      dest_prefix: Destination prefix the relative keys are re-rooted under.
+      concurrency: Worker pool size.
+
+    Returns:
+      The number of objects copied.
+
+    Raises:
+      TransientError: On a retryable fault, after in-flight copies settle.
+      TerminalError: ``copy_failed`` on a deterministic one, after in-flight copies settle.
     """
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [

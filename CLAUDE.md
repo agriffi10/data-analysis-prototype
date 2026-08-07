@@ -11,6 +11,7 @@ Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled 
 - `@docs/spec-delivery/SPEC-XXX-*.md` — what a past spec delivered (pull only when a dependency points to one)
 - `@docs/best-practices/INDEX.md` — domain coding rulebooks (React, accessibility, …); route here, then load only the section(s) you need
 - `@docs/transition_plan.md` — **single source of truth** for the client-environment transition (IdC federation, de-provisioning, Lake Formation re-keying); read before touching auth, provisioning or LF
+- `@docs/lambda-rationale.md` — the long-form *why* behind `lambdas/` (sizing evidence, rejected designs, the traps); read the one entry for the area you're changing, never in full
 
 **Context discipline:** these are pointers, not a reading list. Pull a doc when a task needs it.
 
@@ -52,6 +53,7 @@ Don't add dependencies without noting them here first.
 - Services never throw — return `ServiceResult<T>` (`{success:true,data} | {success:false,error:{message,code?}}`).
 - Vite env vars: prefix `VITE_`; document each in `apps/portal/.env.example`.
 - **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `best-practices/react/react.md` §19, `best-practices/python/python.md` §14.
+- **`lambdas/` carries NO inline comments at all** (only `# noqa` / `# type: ignore` directives). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes in `@docs/lambda-rationale.md`, not the file. Format: `best-practices/python/python.md` §14.
 - When writing/refactoring code in a domain with a rulebook (React, accessibility, …), consult `@docs/best-practices/INDEX.md` first and load only the relevant section(s) — don't reinvent or guess the rules.
 
 ## Common Commands

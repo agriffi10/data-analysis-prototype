@@ -1,18 +1,15 @@
-"""create-table — the recipient Map's final verb (SPEC-092).
+"""create-table — the recipient Map's final verb.
 
-For one (copied) recipient: render the cloned source definition as a
-``CREATE EXTERNAL TABLE IF NOT EXISTS`` with LOCATION repointed to the recipient's
-``shared_tables/{tableName}/`` prefix, run it via Athena against the RECIPIENT
-database in the shared workgroup, and poll to a terminal state — the same
-LF-enforced create path the table-builder uses (architecture §6). Projection props
-were carried verbatim, so a partitioned clone is queryable immediately (no MSCK);
-IF NOT EXISTS + the SPEC-091 conflict guard make a Step Function replay a no-op
+For one copied recipient: renders the cloned source definition as a
+``CREATE EXTERNAL TABLE IF NOT EXISTS`` with the location repointed to the recipient's own
+shared-tables prefix, runs it via Athena against the recipient database in the shared
+workgroup, and polls to a terminal state — the same Lake-Formation-enforced create path the
+table-builder uses. Projection properties were carried verbatim, so a partitioned clone is
+queryable immediately, and the idempotent form plus the conflict guard make a replay a no-op
 success.
 
-An Athena FAILED/CANCELLED raises TerminalError("create_failed", <reason>) — the
-per-recipient Catch records it; sibling recipients continue. Query results (a DDL
-create returns none) land under the recipient's athenaresults prefix for the actor,
-consistent with the SPEC-055/070 routing.
+The service name is the control plane, not the function, so one share's invocations and its
+Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
@@ -24,30 +21,53 @@ from tscommon import ddl, notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
-# recipient Map fan-out), and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
 observability.init(service="table-share")
 
 
 def _results_location(recipient: dict, actor: str) -> str:
-    """``s3://{destBucket}/{database}/athenaresults/{actor}/`` (SPEC-055/070 routing)."""
+    """Builds the Athena results prefix for this create, under the recipient's database.
+
+    A DDL create returns no rows, but the workgroup requires a location, and this routing
+    matches the rest of the portal's.
+
+    Args:
+      recipient: The recipient, carrying its destination bucket and database.
+      actor: The sender's verified username.
+
+    Returns:
+      An ``s3://`` prefix ending in a slash.
+
+    Raises:
+      KeyError: If the recipient is missing its destination bucket or database.
+    """
     return f"s3://{recipient['destBucket']}/{recipient['database']}/athenaresults/{actor}/"
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("create-table")
 @notify.notifies_on_failure("create")
 def handler(event, context) -> dict:
-    """Recipient-Map entry point: create the cloned table in the recipient database.
+    """Recipient-Map entry point: creates the cloned table in the recipient's database.
 
-    Renders the cloned source definition with LOCATION repointed to the recipient's
-    ``shared_tables/`` prefix and runs it via Athena. On success, notifies the sender and
-    the success target (SPEC-094). A failed/timed-out CREATE raises ``TerminalError`` (the
-    sender is notified before the per-recipient ``Catch`` records it); a throttling error
-    raises ``TransientError`` for the SFN ``Retry`` and is not notified.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    The recipient database is the field that matters in the record: this plane creates tables
+    in databases it does not own, via the same tag-based grant whose absence caused the
+    table-builder's silent-create incident. On success both the sender and the success target
+    are told — a user recipient directly, a space recipient via its owner.
+
+    Args:
+      event: The Map item, carrying the recipient and the request with its cloned definition.
+      context: The Lambda context, unused.
+
+    Returns:
+      The recipient and the request, threaded onward.
+
+    Raises:
+      TerminalError: ``create_failed`` or ``create_timeout``, notified to the sender before the
+        per-recipient Catch records it. Sibling recipients continue.
+      TransientError: On a throttling error, passed through un-notified for the SFN Retry.
     """
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}
@@ -68,16 +88,11 @@ def handler(event, context) -> dict:
     )
 
     logger.info("created table %s.%s for %s", database, table_name, request.get("actor"))
-    # The recipient DATABASE is the field that matters: this plane creates tables in databases
-    # it does not own, via the same TBAC grant whose absence caused table-builder's
-    # silent-create incident (SPEC-070/111).
     observability.info(
         "recipient table created",
         database=database,
         table=table_name,
         actor=request.get("actor"),
     )
-    # Terminal success — tell the sender AND the success target (user recipient
-    # directly; space recipient via its owner) (SPEC-094 FR-001/FR-002).
     notify.emit_recipient_success(event)
     return {"recipient": recipient, "request": request}

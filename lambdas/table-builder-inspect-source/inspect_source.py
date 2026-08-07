@@ -1,13 +1,16 @@
 """inspect-source — the table-builder Step Function's third task.
 
-Lists the request's prefix and confirms the folder is a table-able source before any
-schema inference. Layout: paths are checked against the user-declared partitionKeys
-(never derived here) — empty keys require flat data; non-empty keys must appear as
-Hive key=value/ segments, in declared order, with no extra segment. Format: the data
-objects must be a single supported format (Parquet / CSV / NDJSON-JSON), classified
-by extension. On success emits format, partitioned, sampleObjectKey, location, and
-fileCount, carrying the validated request through unchanged. Layout/format problems
-are terminal with a specific reason; transient S3 errors propagate for the SFN Retry.
+Lists the request's prefix and confirms the folder is a table-able source before any schema
+inference. Paths are checked against the user-declared partition keys, never derived here:
+empty keys require flat data, and non-empty keys must appear as Hive ``key=value/`` segments,
+in declared order, with no extra segment. The data objects must all be a single supported
+format, classified by extension.
+
+The service name is the control plane, not the function, so one build's five invocations stay
+one queryable set. The per-verb identity rides as the ``verb`` field.
+
+Attributes:
+  _EXT_FORMAT: File extension to canonical format. NDJSON and JSONL are both JSON.
 """
 
 import logging
@@ -19,12 +22,8 @@ from tbcommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
-# Extension → canonical format. NDJSON / JSONL are all "json".
 _EXT_FORMAT = {
     ".parquet": "parquet",
     ".csv": "csv",
@@ -35,7 +34,17 @@ _EXT_FORMAT = {
 
 
 def _format_of(key):
-    """Return the canonical format for a key, or None if the extension is unsupported."""
+    """Classifies one object key by its file extension.
+
+    Args:
+      key: The object key.
+
+    Returns:
+      The canonical format, or None when the extension is unsupported or absent.
+
+    Raises:
+      None.
+    """
     dot = key.rfind(".")
     if dot == -1:
         return None
@@ -43,22 +52,30 @@ def _format_of(key):
 
 
 def _validate_layout(rel_dirs, declared_names):
-    """Validate one object's relative directory segments against the declared keys.
+    """Checks one object's directory segments against the declared partition keys.
 
-    ``rel_dirs`` is the object's path under the prefix split on "/", excluding the
-    filename. ``declared_names`` is the ordered list of declared partition-key names
-    ([] = flat). Raises ``TerminalError`` on a mismatch.
+    A flat request allows no ``key=value/`` nesting on any data object. A partitioned request
+    requires the segments to be exactly the declared keys, in order, with none missing,
+    reordered or extra.
+
+    Args:
+      rel_dirs: The object's path under the prefix, split on slashes, excluding the filename.
+      declared_names: The ordered declared partition-key names; empty means flat.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``unexpected_partitioning`` when a flat request finds nesting, or
+        ``partition_layout_mismatch`` when the segments do not match the declared keys.
     """
     if not declared_names:
-        # Flat request: no key=value/ nesting is allowed on any data object.
         if any("=" in seg for seg in rel_dirs):
             raise TerminalError(
                 "unexpected_partitioning",
                 "flat request but data is nested under key=value/ folders",
             )
         return
-    # Partitioned request: the dir segments must be exactly the declared keys as Hive
-    # key=value/ segments, in order (no missing / reordered / extra segment).
     parsed = []
     for seg in rel_dirs:
         if "=" not in seg:
@@ -74,22 +91,55 @@ def _validate_layout(rel_dirs, declared_names):
         )
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("inspect-source")
 @notify.notifies_on_failure("inspect")
 def handler(event: dict, context) -> dict:
-    """SFN entry point: inspect the source folder and emit the bounded listing state.
+    """Step Functions entry point: inspects the source folder and emits the listing state.
 
-    Delegates to ``_inspect`` and notifies the actor on a terminal failure (best-effort)
-    before the SFN ``Catch`` records it. A retryable S3 throttle maps to
-    ``TransientError`` and passes through un-notified for the SFN ``Retry``.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    Args:
+      event: The task input, carrying the space and any declared partition keys.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the format, partitioned flag, sample key, file count and location added.
+
+    Raises:
+      TerminalError: On any layout or format problem, notified to the actor before the SFN
+        Catch records it.
+      TransientError: On a retryable S3 fault, passed through un-notified for the SFN Retry.
     """
     return _inspect(event)
 
 
 def _inspect(event: dict) -> dict:
+    """Lists the prefix, validates every object's layout and format, and shapes the state.
+
+    The listing is materialised inside a mapped try: a throttle during pagination would
+    otherwise surface mid-iteration as a bare ClientError this verb's Retry list does not name,
+    permanently failing the build. Materialising also isolates the throttle-prone S3 call from
+    the loop-body logic.
+
+    The recorded partition key names are declared, not detected — this plane takes them from
+    the user rather than inferring them, so they are a statement of intent that every object
+    was then validated against.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with the format, partitioned flag, sample key, file count and location added.
+      The location is the prefix, the partition root, recomputed defensively when absent.
+
+    Raises:
+      TerminalError: ``no_data_files`` for an empty folder, ``unsupported_format`` when an
+        unsupported file is present, ``mixed_formats`` when several formats are, or a layout
+        reason from ``_validate_layout``.
+      TransientError: On a retryable S3 fault.
+    """
     bucket = events.require(event, "space", "bucket")
     prefix = events.require(event, "space", "prefix")
     declared_names = [k["name"] for k in (event.get("partitionKeys") or [])]
@@ -99,15 +149,9 @@ def _inspect(event: dict) -> dict:
     sample_by_format = {}
     file_count = 0
 
-    # Materialize the listing inside a mapped try: a throttle during pagination would
-    # otherwise surface (mid-iteration) as a bare ClientError the InspectSource Retry list
-    # does not name, permanently failing the build. Mapping it to TransientError (paired
-    # with adding it to that Retry list) gets it retried. Materializing isolates the
-    # throttle-prone S3 call from the loop-body logic below and matches the data-quality
-    # inspect-source sibling.
     try:
         objects = list(s3_listing.list_data_objects(bucket, prefix))
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, f"list {bucket}/{prefix}")
         raise
 
@@ -139,8 +183,6 @@ def _inspect(event: dict) -> dict:
     out["partitioned"] = bool(declared_names)
     out["sampleObjectKey"] = sample_by_format[fmt]
     out["fileCount"] = file_count
-    # The table LOCATION is the prefix (the partition root); recomputed defensively
-    # when absent from the event.
     out["location"] = event.get("location") or f"s3://{bucket}/{prefix}"
     logger.info("inspected %s: %s, %d files, partitioned=%s", prefix, fmt, file_count, bool(declared_names))
     observability.info(
@@ -148,9 +190,6 @@ def _inspect(event: dict) -> dict:
         prefix=prefix,
         format=fmt,
         files=file_count,
-        # DECLARED, not detected — this plane takes partition keys from the user rather than
-        # inferring them (unlike data-quality), so the names here are a statement of intent
-        # that every object was then validated against.
         partition_key_names=list(declared_names or []),
         partitioned=bool(declared_names),
     )

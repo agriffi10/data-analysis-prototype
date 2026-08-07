@@ -1,24 +1,30 @@
-"""data-quality assemble-report — join everything into the report (SPEC-112 FR-002/003).
+"""data-quality assemble-report — joins everything into the report.
 
-Reads the three Athena result sets (SPEC-111) and the manifest (SPEC-110), computes the one
-finding SQL cannot express — cross-file column agreement — and writes the single durable
-artefact this whole arc exists to produce.
+Reads the three Athena result sets and the manifest, computes the one finding SQL cannot express
+— cross-file column agreement — and writes the single durable artefact this whole arc exists to
+produce.
 
-IT RECOMPUTES NOTHING ATHENA ALREADY COMPUTED. Row counts, null ratios, type consistency
-and duplicates arrive as numbers and are consumed as numbers; re-deriving any of them here
-would mean reading the data in a Lambda, which is the design this arc replaced.
+It recomputes nothing Athena already computed. Row counts, null ratios, type consistency and
+duplicates arrive as numbers and are consumed as numbers; re-deriving any of them here would mean
+reading the data in a Lambda, which is the design this arc replaced.
 
-THE REPORT KEY IS A PURE FUNCTION OF requestId, so a Step Functions Retry or an SQS
-redelivery OVERWRITES the same object rather than leaving a second copy. That is the whole
-of this pipeline's replay safety — no verb in this codebase does request-id idempotency
-checking — and it is why nothing in the report may depend on when it ran except
-``completedAt``.
+The report key is a pure function of the request id, so a retry or a redelivery overwrites the
+same object rather than leaving a second copy. That is the whole of this pipeline's replay
+safety — no verb in this codebase does request-id idempotency checking — and it is why nothing in
+the report may depend on when it ran except its completion timestamp.
 
-The results are read FROM S3 rather than through athena:GetQueryResults, which the
-execution role deliberately does not grant (infra/modules/data-quality/policies/
-execution.json.tftpl): the result objects already sit in the requesting space, the role can
-already read that prefix, and paginating a 1400-column result through the API would buy
-nothing.
+The results are read from S3 rather than through the query-results API, which the execution role
+deliberately does not grant: the result objects already sit in the requesting space, the role can
+already read that prefix, and paginating a wide result through the API would buy nothing.
+
+The service name is the control plane, not the function: one data-quality run is nine
+invocations, and they are only one queryable set if they share it. The per-verb identity rides as
+the ``verb`` field.
+
+Attributes:
+  REPORT_BASENAME: Basename of the artefact, under the request's report prefix.
+  _RESULT_SUFFIX: Athena names a result object after its execution id. The key is constructed
+    rather than listed — one read instead of a list plus a read, and deterministic under replay.
 """
 
 import json
@@ -33,47 +39,84 @@ from dqcommon import manifest as manifest_store
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one data-quality run is nine
-# invocations, and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field on each span.
 observability.init(service="data-quality")
 
-#: Basename of the artefact, under {space}/_data-quality-reports/{requestId}/.
 REPORT_BASENAME = "report.json"
 
-#: Athena names a result object after its execution id. Constructed rather than listed —
-#: one GET instead of a LIST plus a GET, and deterministic under replay.
 _RESULT_SUFFIX = ".csv"
 
 
 def report_key(report_prefix: str) -> str:
-    """``{space}/_data-quality-reports/{requestId}/report.json`` — pure in requestId."""
+    """Derives the report object's key, purely from the request's report prefix.
+
+    Args:
+      report_prefix: The request's report prefix.
+
+    Returns:
+      The report key.
+
+    Raises:
+      None.
+    """
     return f"{report_prefix.rstrip('/')}/{REPORT_BASENAME}"
 
 
 def _split_uri(uri: str) -> tuple[str, str]:
-    """``s3://bucket/a/b/`` -> ``("bucket", "a/b/")``."""
+    """Splits an ``s3://`` URI into its bucket and key.
+
+    Args:
+      uri: The full URI.
+
+    Returns:
+      A ``(bucket, key)`` tuple.
+
+    Raises:
+      None.
+    """
     bucket, _, key = uri[len("s3://") :].partition("/")
     return bucket, key
 
 
 def _read(bucket: str, key: str) -> bytes:
+    """Reads one object's bytes, mapping a retryable fault.
+
+    Args:
+      bucket: The object's bucket.
+      key: The object key.
+
+    Returns:
+      The object's bytes.
+
+    Raises:
+      TransientError: On a retryable S3 fault.
+      ClientError: Any deterministic fault propagates.
+    """
     try:
         return clients.s3().get_object(Bucket=bucket, Key=key)["Body"].read()
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, f"get {bucket}/{key}")
         raise
 
 
 @observability.step("read-results")
 def _result_rows(block) -> list[dict]:
-    """Return one query's result rows, or [] when it produced no readable result.
+    """Reads one query's result rows, or none when it produced no readable result.
 
-    Athena writes a SELECT's results to ``{OutputLocation}{QueryExecutionId}.csv``. That is
-    documented behaviour and it is deterministic, which is worth a GET over a LIST — but it
-    is also the ONE assumption in this verb that no unit test can prove, since nothing else
-    in this repo has ever read a result file. So a miss falls back to listing the prefix
-    rather than failing a check that has already run three queries and a byte scan.
+    Athena writes a select's results to a file named after its execution id under the output
+    location. That is documented and deterministic, which is worth a direct read over a listing —
+    but it is also the one assumption in this verb no unit test can prove, since nothing else in
+    this repo has ever read a result file. So a miss falls back to listing the prefix rather than
+    failing a check that has already run three queries and a byte scan.
+
+    Args:
+      block: The state's block for one query, or None when it was never submitted.
+
+    Returns:
+      The parsed rows, empty for a query that was not computed.
+
+    Raises:
+      TerminalError: ``query_failed`` when no result object can be found at all.
+      TransientError: On a retryable S3 fault.
     """
     if not block or block.get("status") == "not_computed":
         return []
@@ -82,7 +125,7 @@ def _result_rows(block) -> list[dict]:
     key = f"{prefix}{block['queryExecutionId']}{_RESULT_SUFFIX}"
     try:
         return report.parse_result(_read(bucket, key))
-    except Exception as err:  # transients already re-raised inside _read
+    except Exception as err:
         if errors.error_code(err) not in ("NoSuchKey", "404"):
             raise
         logger.warning("result %s not at the expected key — listing %s", key, prefix)
@@ -97,18 +140,27 @@ def _result_rows(block) -> list[dict]:
 
 @observability.step("find-result")
 def _find_result(bucket: str, prefix: str) -> str:
-    """First ``.csv`` under ``prefix`` — the fallback when the constructed key misses.
+    """Finds the first result object under a prefix, as a fallback when the key misses.
 
-    ``.csv.metadata`` (Athena's column-type sidecar) is excluded explicitly: it sorts
-    adjacent to the result and parsing it as the result would yield a report full of zeros
-    rather than an error.
+    Athena's column-type sidecar is excluded by the suffix check: it sorts adjacent to the result,
+    and parsing it as the result would yield a report full of zeros rather than an error.
+
+    Args:
+      bucket: The results bucket.
+      prefix: The query's output prefix.
+
+    Returns:
+      The first matching key, or "" when there is none.
+
+    Raises:
+      TransientError: On a retryable S3 fault. The fallback path needs the same mapping as every
+        other read here — a throttle arriving as a bare client error is not in the Retry list, so
+        a one-off would permanently fail a request that has already paid for three queries.
+      ClientError: Any deterministic fault propagates.
     """
     try:
         listed = clients.s3().list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents") or []
-    except Exception as err:  # retryable faults mapped; the rest propagate
-        # The fallback path needs the same mapping as every other S3 call here: a SlowDown
-        # arriving as a bare ClientError is not in the Retry list, so a one-off throttle
-        # would permanently fail a request that has already paid for three Athena queries.
+    except Exception as err:
         errors.raise_if_transient(err, f"list {bucket}/{prefix}")
         raise
     keys = [o["Key"] for o in listed if o["Key"].endswith(_RESULT_SUFFIX)]
@@ -117,19 +169,55 @@ def _find_result(bucket: str, prefix: str) -> str:
 
 @observability.step("write-report")
 def _write(bucket: str, key: str, document: dict) -> None:
+    """Writes the report object.
+
+    Args:
+      bucket: The reports bucket.
+      key: The report key.
+      document: The assembled report.
+
+    Returns:
+      None.
+
+    Raises:
+      TransientError: On a retryable S3 fault. Losing the report to a one-off throttle must not
+        fail the request after every query has run: the key is a pure function of the request id,
+        so a retry rewrites it.
+      ClientError: Any deterministic fault propagates.
+    """
     body = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
     try:
         clients.s3().put_object(
             Bucket=bucket, Key=key, Body=body, ContentType="application/json"
         )
-    except Exception as err:  # retryable faults mapped; the rest propagate
-        # Losing the report to a one-off SlowDown must not fail the request after every
-        # query has run: the key is a pure function of requestId, so a Retry rewrites it.
+    except Exception as err:
         errors.raise_if_transient(err, f"put {bucket}/{key}")
         raise
 
 
 def _assemble(event: dict) -> dict:
+    """Reads the results and manifest, builds the report, writes it, and summarises it.
+
+    The summary threaded onward is deliberately small: the findings stay in the report, and the
+    notification is built from these fields alone and must never carry the full document.
+
+    The record carries counts and the key, never a result row. This verb holds the parsed Athena
+    result set in memory, so every figure is derived from user data and none of it is user data —
+    a row count is a measurement, a row is the file.
+
+    Args:
+      event: The task input, carrying the space, manifest key, report prefix and query blocks.
+
+    Returns:
+      The event with the report key and summary fields attached.
+
+    Raises:
+      TerminalError: ``invalid_request`` for a missing field, or ``query_failed`` when no result
+        object exists or the profile result is unusable — a failed check, never a clean one, since
+        every exact figure comes from the profile query's total row and without it the report
+        would assemble into a green verdict over data nothing measured.
+      TransientError: On a retryable S3 fault.
+    """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
     report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
@@ -147,17 +235,12 @@ def _assemble(event: dict) -> dict:
             completed_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
     except report.MissingProfileError as err:
-        # A failed check, never a clean one. Every exact figure comes from the profile
-        # query's total row, so without it the report would assemble into a green verdict
-        # over data nothing measured — the one outcome worse than no report at all.
         raise TerminalError(messages.QUERY_FAILED, f"profile result unusable: {err}") from err
 
     key = report_key(report_prefix)
     _write(bucket, key, document)
 
     out = dict(event)
-    # A SMALL payload, deliberately. The findings stay in the report; SPEC-114's
-    # notification is built from these fields alone and must never carry the full document.
     out["reportKey"] = key
     out["verdict"] = document["verdict"]
     out["hasApproximateFigures"] = document["hasApproximateFigures"]
@@ -174,9 +257,6 @@ def _assemble(event: dict) -> dict:
         document["exact"]["rowCount"],
         len(document["topIssues"]),
     )
-    # COUNTS AND THE KEY, never a result row (SPEC-132 FR-004). This verb holds the parsed
-    # Athena result set in memory, so every figure below is derived from user data and none
-    # of it IS user data — a row count is a measurement, a row is the file.
     observability.info(
         "assembled report",
         report_key=key,
@@ -191,28 +271,48 @@ def _assemble(event: dict) -> dict:
     return out
 
 
-# @traced is OUTERMOST, above @notifies_on_failure, deliberately: notifies_on_failure
-# catches on its way out, so if it were outermost the span would close status="ok" on an
-# invocation that actually failed and notified. Outermost traced sees the exception the
-# handler really raised.
 @observability.traced("assemble-report")
 @notify.notifies_on_failure("assemble-report")
 def handler(event, context) -> dict:
-    """Write the report, notify the actor, and thread the summary onward.
+    """Writes the report, notifies the actor, and threads the summary onward.
 
-    THE SUCCESS NOTIFICATION IS EMITTED HERE, not from a terminal state, because this is the
-    last point that holds the summary AND runs Python. ``RecordSuccess`` is a ``Pass``, which
-    cannot call anything — adding a NotifySuccess Task would mean a new state, and the state
-    list is fixed (SPEC-108). It is emitted AFTER the report object is written, so a
-    notification can never link to a report that does not exist; if the write fails this
-    line is never reached and the failure path notifies instead.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way out,
+    so if it were outermost the span would close as successful on an invocation that actually
+    failed and notified.
+
+    The success notification is emitted here, not from a terminal state, because this is the last
+    point that holds the summary and runs Python — the success state is a Pass, which cannot call
+    anything, and adding a notify task would mean a new state in a fixed list. It is emitted after
+    the report object is written, so a notification can never link to a report that does not
+    exist; if the write fails this line is never reached and the failure path notifies instead.
+
+    Order is the contract, and it is three deep: report object, then notification, then index row
+    — most durable to least. The report is written first so the index can never reference a report
+    that does not exist, since the reverse would put a row on the dashboard that fails when
+    clicked. The notification goes before the index because it is the user's only completion
+    signal, and the index append can cost several round trips under contention — putting that
+    ahead of the notification means a verb that times out mid-append leaves a written report
+    nobody is ever told about, the silent-success twin of the silent failure this arc exists to
+    end. The append never raises: losing the row costs a dashboard entry, failing here would cost
+    the whole check.
+
+    The recorded failure detail is safe for every raise site in this verb: one message is a
+    literal and the other names a bucket and prefix, and neither quotes a result row.
+
+    Args:
+      event: The task input.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the report key, summary fields and index outcome attached.
+
+    Raises:
+      TerminalError: ``invalid_request`` or ``query_failed``.
+      TransientError: On a retryable S3 fault.
     """
     try:
         out = _assemble(event)
     except TerminalError as err:
-        # `detail` is safe for every raise site in this verb: MissingProfileError's message is
-        # a literal ("the profile result carried no total row") and the other names a bucket
-        # and prefix. Neither quotes a result row — audited for SPEC-132 FR-003.
         observability.error(
             "assemble-report failed",
             step="read-results",
@@ -224,19 +324,6 @@ def handler(event, context) -> dict:
         raise
     notify.emit_completed(out)
 
-    # ORDER IS THE CONTRACT, AND IT IS THREE-DEEP: report object, then notification, then
-    # index row — most durable to least.
-    #
-    # The report is written first (in `_assemble`) so the index can never reference a report
-    # that does not exist; the reverse would put a row on the dashboard that 404s when
-    # clicked. The NOTIFICATION goes before the index because it is the user's only
-    # completion signal (SPEC-114) and the index append can cost up to
-    # DQ_INDEX_CAS_RETRIES round trips under contention — putting that ahead of the notify
-    # means a verb that times out mid-CAS leaves a written report nobody is ever told about,
-    # which is the silent-success twin of the silent failure this arc exists to end.
-    #
-    # `append` never raises: an exhausted CAS or an unwritable index is logged and swallowed.
-    # Losing the row costs a dashboard entry; failing here would cost the whole check.
     space = out.get("space") or {}
     out["indexed"] = index_store.append(space.get("bucket", ""), out.get("reportPrefix", ""), out)
     return out

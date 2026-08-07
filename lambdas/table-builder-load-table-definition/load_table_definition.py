@@ -1,22 +1,32 @@
-"""load-table-definition — the refresh branch's entry task (SPEC-143).
+"""load-table-definition — the refresh branch's entry task.
 
 The mirror image of check-table-absent: where a create refuses to proceed if the table
-exists, a refresh refuses to proceed unless it does — and unless it is a table this
-pipeline can faithfully rebuild. It answers one question, *can this table be rebuilt from
-its own definition plus a fresh look at its files?*, from what Glue reports rather than
-from any marker. A marker would be the obvious design and is the wrong one: every table
-created before this spec lacks it, and TBLPROPERTIES are user-writable through ALTER
-TABLE, so it could be trusted neither as a permission nor as a fact.
+exists, a refresh refuses unless it does — and unless it is a table this pipeline can
+faithfully rebuild. It answers one question, can this table be rebuilt from its own definition
+plus a fresh look at its files, from what Glue reports rather than from any marker. A marker
+would be the obvious design and is the wrong one: every table created before this spec lacks
+one, and TBLPROPERTIES are user-writable, so it could be trusted neither as a permission nor
+as a fact.
 
-Its second job is why this verb exists at all rather than the branch running straight into
-inspect-source: THE SHARED SPINE EXPECTS A CREATE'S INPUTS. inspect-source lists
-space.bucket + space.prefix and treats location as an output; infer-schema hands
-partitionKeys straight to build_create_table_ddl, which requires the SPEC-069 DECLARED
-shape and raises a bare ValueError on a Glue-shaped key. So this verb normalises — it
-rewrites the prefix to the table's own location and reconstructs the declared keys from the
-projection properties — and both shared verbs stay free of any mode branch.
+Its second job is why the verb exists at all rather than the branch running straight into
+inspect-source: the shared spine expects a create's inputs. inspect-source lists the space's
+bucket and prefix and treats the location as an output, and infer-schema hands the partition
+keys straight to the DDL builder, which requires the declared shape and raises on a
+Glue-shaped key. So this verb normalises — rewriting the prefix to the table's own location
+and reconstructing the declared keys from the projection properties — and both shared verbs
+stay free of any mode branch.
 
-Read-only: one Glue GetTable, no S3, no DDL.
+Read-only: one Glue read, no S3, no DDL.
+
+Attributes:
+  _SHAPE_REASONS: The shared clone's shape refusals mapped into this path's vocabulary. An
+    explicit table rather than a prefix substitution, because the stems differ. Every key is
+    asserted against the shared list in the tests, because registration makes the source codes
+    globally valid — so an unmapped one would no longer fail loudly, it would reach the user
+    as a generic error.
+  _DECLARED_TYPES: Projection type as written, mapped back to the declared type it was written
+    from. The enum spelling is the one that catches people out: a declared string key is never
+    written as "string".
 """
 
 import json
@@ -29,16 +39,8 @@ from tbcommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
-#: clone_definition's shape refusals -> this path's vocabulary. An explicit table, not a
-#: prefix substitution: the stems differ, so no string surgery produces both sets. Every
-#: key is asserted against cpcommon.glue's own list in the tests, because registration
-#: makes the source codes globally VALID — so an unmapped one would no longer fail loudly,
-#: it would reach the user as the generic unexpected_error.
 _SHAPE_REASONS = {
     "source_is_view": "cannot_refresh_view",
     "source_not_external": "cannot_refresh_managed_table",
@@ -46,25 +48,47 @@ _SHAPE_REASONS = {
     "source_location_unsupported": "cannot_refresh_location_unsupported",
 }
 
-#: projection.{name}.type as WRITTEN -> the declared type it was written from. `enum` is
-#: the one that catches people out: a declared `string` key is never written as "string".
 _DECLARED_TYPES = {"integer": "integer", "date": "date", "enum": "string"}
 
 
 def _get_table(database: str, table: str) -> dict:
-    """Return the raw Glue Table; absent is terminal, a throttle is retryable."""
+    """Reads the live table from the Glue catalog.
+
+    Args:
+      database: The target database.
+      table: The target table name.
+
+    Returns:
+      The raw Glue table dict.
+
+    Raises:
+      TerminalError: ``table_not_found`` when the table does not exist.
+      TransientError: On a retryable Glue fault.
+      ClientError: Any deterministic Glue fault propagates.
+    """
     client = clients.glue()
     try:
         return client.get_table(DatabaseName=database, Name=table)["Table"]
     except client.exceptions.EntityNotFoundException as err:
         raise TerminalError("table_not_found", f"{database}.{table}") from err
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, f"glue get_table {database}.{table}")
         raise
 
 
 def _clone(table: dict) -> tuple[dict, dict, bool]:
-    """clone_definition, with its refusals re-spoken in the refresh path's vocabulary."""
+    """Projects the live table into a reproducible definition, re-speaking its refusals.
+
+    Args:
+      table: The raw Glue table dict.
+
+    Returns:
+      The ``(definition, location, partitioned)`` tuple from the shared clone.
+
+    Raises:
+      TerminalError: A refresh-path shape reason, or the shared reason unchanged when it is
+        not one this path maps.
+    """
     try:
         return glue.clone_definition(table)
     except TerminalError as err:
@@ -75,11 +99,22 @@ def _clone(table: dict) -> tuple[dict, dict, bool]:
 
 
 def _enforce_definition_cap(definition: dict, database: str, table: str) -> None:
-    """Refuse a definition too large to ride the Step Functions state.
+    """Refuses a definition too large to ride the Step Functions state.
 
-    Up front, as a whole-request terminal, because the limit it protects
-    (States.DataLimitExceeded) is raised OUTSIDE every Catch — discovered later there is no
-    recorded outcome and no notification at all.
+    Enforced up front as a whole-request terminal, because the limit it protects is raised
+    outside every Catch — discovered later there is no recorded outcome and no notification at
+    all.
+
+    Args:
+      definition: The projected table definition.
+      database: The target database, for the failure detail.
+      table: The target table name, for the failure detail.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``definition_too_large`` when the serialised definition exceeds the cap.
     """
     size = len(json.dumps(definition, separators=(",", ":")).encode())
     if size > config.REFRESH_MAX_DEFINITION_BYTES:
@@ -91,13 +126,17 @@ def _enforce_definition_cap(definition: dict, database: str, table: str) -> None
 
 
 def _authorized_root(space: dict, actor: str) -> tuple[str, str]:
-    """The (bucket, prefix root) the table's own location must sit inside.
+    """Resolves the bucket and prefix root the table's own location must sit inside.
 
-    Mirrors validate_authorize._authorize_space, which already ran against the prefix the
-    PRODUCER supplied. This runs against the prefix the CATALOG reports, and the two are
-    not the same check: the catalog is not the authorization boundary, and a table whose
-    LOCATION points into another user's prefix must be refused even though its bucket is
-    one of the portal's own.
+    Args:
+      space: The request's space, carrying its kind and database.
+      actor: The verified username.
+
+    Returns:
+      A ``(bucket, prefix root)`` tuple.
+
+    Raises:
+      TerminalError: ``forbidden`` on an unknown space kind.
     """
     kind = space.get("kind")
     if kind == "personal":
@@ -108,6 +147,26 @@ def _authorized_root(space: dict, actor: str) -> tuple[str, str]:
 
 
 def _authorize_location(location: dict, space: dict, actor: str) -> None:
+    """Checks the catalog's own location against the space the actor is authorized for.
+
+    This mirrors the validate verb's space check, which already ran against the prefix the
+    producer supplied. This runs against the prefix the catalog reports, and the two are not
+    the same check: the catalog is not the authorization boundary, and a table whose location
+    points into another user's prefix must be refused even though its bucket is one of the
+    portal's own.
+
+    Args:
+      location: The parsed bucket and prefix from the table's storage descriptor.
+      space: The request's space.
+      actor: The verified username.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``table_outside_space`` when the bucket differs or the prefix escapes the
+        authorized root; ``forbidden`` on an unknown space kind.
+    """
     bucket, root = _authorized_root(space, actor)
     if location["bucket"] != bucket:
         raise TerminalError(
@@ -121,16 +180,28 @@ def _authorize_location(location: dict, space: dict, actor: str) -> None:
 
 
 def _declared_key(name: str, properties: dict):
-    """Rebuild one SPEC-069 declared key from a table's projection.* properties.
+    """Rebuilds one declared partition key from a table's projection properties.
 
-    Reconstruction is mandatory rather than cosmetic: Glue records the partitioning twice,
-    as PartitionKeys (name + Hive type) and as these properties, and only the second
-    carries what build_create_table_ddl needs.
+    Reconstruction is mandatory rather than cosmetic: Glue records the partitioning twice, as
+    partition keys carrying a name and Hive type, and as these properties, and only the second
+    carries what the DDL builder needs. The reconstruction emits the interval-unit spelling the
+    renderer reads rather than the one the browser sends, so the round-trip holds.
 
-    NOTE the key name ``interval.unit``: build_create_table_ddl reads ``key["interval.unit"]``
-    while the browser sends ``intervalUnit`` (tableBuild.types.ts). The reconstruction emits
-    what the RENDERER reads, so the round-trip below holds; the mismatch is pre-existing and
-    named here so it is fixed deliberately rather than by accident from this side.
+    An enum key's values are split on commas because Athena itself splits that property on
+    commas, so the split is the table's real behaviour — a value containing a comma is already
+    two partitions to the engine, and nothing recorded anywhere could say otherwise.
+
+    Args:
+      name: The partition key name.
+      properties: The table's full properties map.
+
+    Returns:
+      The declared key dict.
+
+    Raises:
+      TerminalError: ``projection_not_reconstructable`` when the projection type is not one
+        this portal declares, a required property is absent, or a range or digit count is
+        unreadable.
     """
     written = properties.get(f"projection.{name}.type")
     declared = _DECLARED_TYPES.get(written)
@@ -141,6 +212,17 @@ def _declared_key(name: str, properties: dict):
         )
 
     def _required(suffix):
+        """Reads a projection property that must be present.
+
+        Args:
+          suffix: The property suffix below ``projection.{name}.``.
+
+        Returns:
+          The property value.
+
+        Raises:
+          TerminalError: ``projection_not_reconstructable`` when it is absent.
+        """
         value = properties.get(f"projection.{name}.{suffix}")
         if value is None:
             raise TerminalError(
@@ -149,6 +231,18 @@ def _declared_key(name: str, properties: dict):
         return value
 
     def _range(cast):
+        """Reads and parses the projection range as a min,max pair.
+
+        Args:
+          cast: The callable applied to each bound.
+
+        Returns:
+          The two parsed bounds as a list.
+
+        Raises:
+          TerminalError: ``projection_not_reconstructable`` when the range is absent, is not a
+            pair, or does not parse.
+        """
         parts = _required("range").split(",")
         if len(parts) != 2:
             raise TerminalError(
@@ -180,33 +274,37 @@ def _declared_key(name: str, properties: dict):
             if value is not None:
                 key[field] = value
     else:
-        # Athena itself splits this property on commas, so the split IS the table's real
-        # behaviour — a value containing a comma is already two partitions to the engine,
-        # and nothing recorded anywhere could tell us otherwise.
         key["values"] = _required("values").split(",")
     return key
 
 
 def _reconstruct_partition_keys(definition: dict) -> list[dict]:
-    """Every declared key, in the table's own PartitionKeys order (= granularity order).
+    """Rebuilds every declared key, in the table's own partition-key order.
 
-    Two checks, and NEITHER is sufficient alone.
+    Two checks, and neither is sufficient alone. The round-trip re-renders each key through the
+    create path's own renderer and compares it to the properties it came from, so a dropped
+    property, a rewritten one or an extra projection option all refuse rather than rebuild
+    something subtly different. The column-type check exists because the round-trip sees only
+    the projection properties, and Athena permits a projection on a wider set of column types
+    than this builder writes — an integer projection is legal on a string column, which is
+    exactly how a zero-padded partition is declared, and such a table round-trips perfectly and
+    would then be rebuilt with a different column type while reporting success.
 
-    The round-trip: each key is re-rendered through the create path's own renderer and
-    compared to the properties it came from, so a dropped property, a rewritten one (a
-    zero-padded bound, an interval this shape cannot express) or an extra ``projection.*``
-    option all refuse rather than rebuild something subtly different.
+    A location template is refused outright: it is table-level, outside the namespace the
+    per-key round-trip can see, it redirects where partitions read from entirely, and nothing
+    in the declared shape can express it, so a rebuild would silently drop it.
 
-    The column type: the round-trip sees only ``projection.*``, and Athena permits a
-    projection on a WIDER set of column types than this builder writes — an ``integer``
-    projection is legal on a ``string`` column, which is exactly how you would declare a
-    zero-padded partition. Such a table round-trips perfectly and would then be rebuilt
-    with ``int``, changing the column's type while reporting success.
+    Args:
+      definition: The projected table definition, carrying its partition keys and properties.
+
+    Returns:
+      The declared keys in granularity order.
+
+    Raises:
+      TerminalError: ``projection_not_reconstructable`` on a location template, a mismatched
+        column type, a failed round-trip, or any per-key reconstruction failure.
     """
     properties = definition["tableProperties"]
-    # Table-level, outside the projection.* namespace the per-key round-trip can see, and
-    # it redirects where partitions read from entirely. Nothing in the declared shape can
-    # express it, so a rebuild would silently drop it.
     if definition["partitionKeys"] and "storage.location.template" in properties:
         raise TerminalError(
             "projection_not_reconstructable",
@@ -241,37 +339,69 @@ def _reconstruct_partition_keys(definition: dict) -> list[dict]:
     return keys
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("load-table-definition")
 @notify.notifies_on_failure("load")
 def handler(event: dict, context) -> dict:
-    """SFN entry point: read the live table, decide refreshability, normalise the state.
+    """Step Functions entry point: reads the live table and normalises the refresh state.
 
-    Delegates to ``_load`` and notifies the actor on a terminal failure (best-effort)
-    before the SFN ``Catch`` records it. A Glue throttle maps to ``TransientError`` and
-    passes through un-notified for the SFN ``Retry``.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    Args:
+      event: The task input, carrying the space, table name and actor.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event normalised into the shape the shared create verbs expect.
+
+    Raises:
+      TerminalError: ``table_not_found``, a shape refusal, ``table_outside_space``,
+        ``definition_too_large`` or ``projection_not_reconstructable``. The actor is notified
+        before the SFN Catch records it.
+      TransientError: On a Glue throttle, passed through un-notified for the SFN Retry.
     """
     return _load(event)
 
 
 def _load(event: dict) -> dict:
+    """Reads the table, authorizes its location, and rewrites the state for the shared spine.
+
+    Authorization runs before any other verdict, so an out-of-space table is told it is out of
+    space rather than that it is too large. Column comments ride along because a comment is the
+    one piece of column metadata a user writes and inference cannot bring it back. The table's
+    properties are deliberately not threaded: the in-place update reads them from the live
+    table, so carrying them would be payload weight against the definition cap that nothing
+    downstream reads — the capture itself is unchanged and the projection reconstruction still
+    uses it.
+
+    Column names are schema and are permitted in the record; column values, sampled rows and
+    file contents are not and appear nowhere. A prefix rewrite is recorded because the request's
+    prefix and the catalog's disagreeing is normal — the producer only believes, the catalog
+    knows — but it is also the first thing to look at when a refresh inspects a folder the user
+    did not expect.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with the space rewritten to the table's own location, plus the existing columns,
+      reconstructed partition keys and storage descriptor.
+
+    Raises:
+      TerminalError: Any of the refresh refusals above.
+      TransientError: On a Glue throttle.
+    """
     database = events.require(event, "space", "database")
     table_name = events.require(event, "tableName")
     actor = events.require(event, "actor")
     space = event.get("space") or {}
 
     definition, location, partitioned = _clone(_get_table(database, table_name))
-    # Authorization before any other verdict, so an out-of-space table is told it is out of
-    # space rather than that it is too large.
     _authorize_location(location, space, actor)
     _enforce_definition_cap(definition, database, table_name)
     partition_keys = _reconstruct_partition_keys(definition)
 
-    # The COMMENT rides along: it is the one piece of column metadata a user writes, and a
-    # refresh rebuilds by DROP + CREATE, so anything not carried here is destroyed
-    # (SPEC-144). Types and names come back from inference; comments cannot.
     columns = [
         {"name": c["name"], "type": c["type"], **({"comment": c["comment"]} if c.get("comment") else {})}
         for c in definition["columns"]
@@ -279,8 +409,6 @@ def _load(event: dict) -> dict:
     serde = definition["serde"]
 
     out = dict(event)
-    # THE LOCATION COMES FROM THE TABLE, not from the request. Rewriting space here is what
-    # lets inspect-source — which lists space.bucket + space.prefix — run unchanged.
     out["space"] = {**space, "bucket": location["bucket"], "prefix": location["prefix"]}
     out["location"] = f"s3://{location['bucket']}/{location['prefix']}"
     out["existingColumns"] = columns
@@ -291,16 +419,8 @@ def _load(event: dict) -> dict:
         "inputFormat": definition["inputFormat"],
         "outputFormat": definition["outputFormat"],
     }
-    # `tableProperties` is NOT threaded (SPEC-149). It existed for SPEC-144's rebuild, which
-    # carried the captured properties into a regenerated CREATE; the in-place update reads
-    # them from the LIVE table instead, so threading them would be payload weight against the
-    # definition cap that nothing downstream reads. The capture itself is unchanged — the
-    # projection reconstruction above still uses it.
 
     logger.info("loaded %s.%s: %d columns, partitioned=%s", database, table_name, len(columns), partitioned)
-    # Column NAMES are schema and are permitted; column VALUES, sampled rows and file
-    # contents are not and appear nowhere (the field rule, decisions.md). `request_id` and
-    # `verb` ride as baggage from @traced rather than as fields here.
     observability.info(
         "loaded table definition",
         mode=event.get("mode"),
@@ -310,9 +430,6 @@ def _load(event: dict) -> dict:
         column_count=len(columns),
         partition_key_count=len(partition_keys),
         partition_key_names=[k["name"] for k in partition_keys],
-        # The request's prefix and the catalog's disagreeing is NORMAL (the producer only
-        # believes; the catalog knows) — but it is also the first thing to look at when a
-        # refresh inspects a folder the user did not expect.
         prefix_rewritten=space.get("prefix") != location["prefix"],
     )
     return out

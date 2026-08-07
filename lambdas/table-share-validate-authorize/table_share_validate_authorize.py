@@ -1,17 +1,16 @@
-"""validate-authorize — the table-share Step Function's first task (SPEC-089).
+"""validate-authorize — the table-share Step Function's first task.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted
-actor, authorizes the actor's read access to the SOURCE table (personal = own DB;
-shared = active member per the registry), validates the catalog-safe result name,
-and validates each recipient exists (users via Cognito, spaces via the registry).
-Read-only — no copy/create side effects. A whole-request failure raises
-TerminalError with a stable reason, so the state machine's Catch records it and no
-recipient is processed; a recipient that fails validation is NOT fatal — it is
-annotated {valid: false, reason} and carried into the Map for a per-recipient
-terminal failure (FR-003, per-recipient independence).
+Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor,
+authorizes the actor's read access to the source table, validates the catalog-safe result name,
+and validates each recipient exists. Read-only, with no copy or create side effects.
 
-Emits the validated, normalized request the next states consume:
-{actor, source: {database, table}, tableName, recipients: [{kind, name, valid, reason?}]}.
+A whole-request failure raises a terminal error with a stable reason, so the Catch records it
+and no recipient is processed. A recipient that fails validation is not fatal — it is annotated
+invalid with a reason and carried into the Map for a per-recipient terminal failure, which is
+what keeps recipients independent of each other.
+
+The service name is the control plane, not the function, so one share's invocations and its Map
+fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
@@ -26,18 +25,26 @@ from tscommon.config import RECIPIENT_KINDS, SHARE_MAX_RECIPIENTS
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one share is five invocations (plus a
-# recipient Map fan-out), and they are only one queryable set if they share a service name
-# (SPEC-127 FR-003). The per-verb identity rides as the `verb` field.
 observability.init(service="table-share")
 
 
 def _authorize_source(source, actor) -> dict:
-    """Authorize ``actor``'s read access to the source table; return it normalized.
+    """Authorizes the actor's read access to the source table and normalises it.
 
-    Personal source = the actor's own database. Anything else is treated as a
-    shared-space source and requires ACTIVE membership (SPEC-089 FR-002) — an
-    unknown database falls out here too (no registry record → forbidden).
+    A personal source is the actor's own database. Anything else is treated as a shared-space
+    source and requires active membership, so an unknown database falls out here too — no
+    registry record means no access.
+
+    Args:
+      source: The request's source, naming a database and table.
+      actor: The verified username.
+
+    Returns:
+      The normalised source.
+
+    Raises:
+      TerminalError: ``forbidden`` when the source is missing, incomplete, or the actor is not
+        an active member of the database it names.
     """
     if not isinstance(source, dict):
         raise TerminalError("forbidden", "missing source")
@@ -53,16 +60,43 @@ def _authorize_source(source, actor) -> dict:
 
 
 def _validate_table_name(name):
+    """Checks the requested result name against the catalog-safe identifier rule.
+
+    Args:
+      name: The requested result table name.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``invalid_table_name`` when it is not a catalog-safe identifier.
+    """
     if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.match(name):
         raise TerminalError("invalid_table_name", f"{name!r}")
 
 
 def _normalize_recipients(recipients) -> list:
-    """Shape-check + dedupe the recipient list; whole-request failure when unusable.
+    """Shape-checks and de-duplicates the recipient list.
 
-    A malformed entry (unknown kind, missing name) is a contract violation → terminal
-    invalid_recipients; an empty (or fully-collapsed) list is terminal no_recipients.
-    Existence is checked later, per recipient (annotation, not failure).
+    A malformed entry is a contract violation and fails the whole request; existence is checked
+    later, per recipient, as an annotation rather than a failure. Duplicates collapse to one.
+
+    The cap is checked before the de-duplication loop, on the raw list: the loop is work
+    proportional to caller-supplied input, and the reason a cap exists at all is to stop an
+    unbounded list reaching the Map, so rejecting after normalising would still have done the
+    work. De-duplication can only shrink the list, so a request that passes here can never
+    exceed the cap afterwards.
+
+    Args:
+      recipients: The raw recipient list from the request.
+
+    Returns:
+      The normalised, de-duplicated recipients.
+
+    Raises:
+      TerminalError: ``no_recipients`` when the list is missing or empty,
+        ``invalid_recipients`` for a non-list, a non-object entry, an unknown kind or a missing
+        name, or ``too_many_recipients`` when the cap is exceeded.
     """
     if recipients is None:
         raise TerminalError("no_recipients", "recipients missing")
@@ -70,11 +104,6 @@ def _normalize_recipients(recipients) -> list:
         raise TerminalError("invalid_recipients", "recipients must be a list")
     if not recipients:
         raise TerminalError("no_recipients", "recipients is empty")
-    # Checked BEFORE the dedupe loop, on the raw list: the loop is O(n) work on
-    # caller-supplied input, and the reason a cap exists at all is to stop an unbounded list
-    # reaching the Map. Rejecting 10,000 entries after normalising them would still have
-    # done the work. (Dedupe can only shrink the list, so a request that passes here can
-    # never exceed the cap after collapsing.)
     if len(recipients) > SHARE_MAX_RECIPIENTS:
         raise TerminalError(
             "too_many_recipients", f"{len(recipients)} recipients, over {SHARE_MAX_RECIPIENTS}"
@@ -94,19 +123,28 @@ def _normalize_recipients(recipients) -> list:
         name = name.strip().lower()
         key = (kind, name)
         if key in seen:
-            continue  # FR-003: duplicates collapse to one
+            continue
         seen.add(key)
         normalized.append({"kind": kind, "name": name})
     return normalized
 
 
 def _annotate_recipients(recipients) -> list:
-    """Mark each recipient valid/invalid without failing the request (FR-003).
+    """Marks each recipient valid or invalid without failing the request.
 
-    user → must be an existing Cognito account; space → must be an ACTIVE registry
-    space (a provisioning/deleting/failed space is not a usable target). Invalid
-    recipients carry a stable reason so the Map records a per-recipient terminal
-    failure (SPEC-091) and SPEC-094 can notify precisely.
+    A user must be an existing Cognito account; a space must be an active registry space, since
+    one still provisioning, deleting or failed is not a usable target. Invalid recipients carry
+    a stable reason so the Map records a per-recipient terminal failure and the notification can
+    be precise.
+
+    Args:
+      recipients: The normalised recipients.
+
+    Returns:
+      The recipients, each carrying a validity flag and a reason when invalid.
+
+    Raises:
+      TransientError: On a Cognito fault other than the user not existing.
     """
     annotated = []
     for entry in recipients:
@@ -120,33 +158,61 @@ def _annotate_recipients(recipients) -> list:
     return annotated
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """SFN entry point: parse → verify → authorize → validate → annotate the share request.
+    """Step Functions entry point: parses, verifies, authorizes and annotates the request.
 
-    A thin shim; the orchestration lives in ``_validate_and_authorize`` so it is testable
-    without a Lambda context. An unexpected failure here happens against the raw SQS array
-    (no trusted actor yet), so the wrapper's failure-emit is a safe no-op in that window.
+    A thin shim; the orchestration lives below so it is testable without a Lambda context. An
+    unexpected failure here happens against the raw SQS array with no trusted actor yet, so the
+    wrapper's failure emit is a safe no-op in that window. ``@traced`` is outermost, above
+    ``@notifies_on_failure``: the latter catches on its way out, so if it were outermost the
+    span would close as successful on an invocation that actually failed and notified.
+
+    Args:
+      event: The EventBridge Pipe envelope carrying the SQS record.
+      context: The Lambda context, unused.
+
+    Returns:
+      The validated, normalised request the downstream states consume.
+
+    Raises:
+      TerminalError: ``unauthorized`` before the sender is bound, or any validation reason
+        afterwards.
+      TransientError: On a retryable Cognito or S3 fault.
     """
     return _validate_and_authorize(event)
 
 
 def _validate_and_authorize(event) -> dict:
+    """Verifies the token, authorizes the source, validates the request and annotates recipients.
+
+    The actor comes from the verified token in the envelope, never from a body username. From
+    the point the sender is known, a whole-request rejection notifies them before the Catch
+    records it; pre-verification failures have no trusted recipient and stay notification-free.
+    The source table named in that message is display-only body input — shown back to the sender
+    who wrote it, never used for addressing.
+
+    Requested and valid recipient counts are both recorded, because they diverge silently: a
+    share to five recipients where two resolve to nothing is neither a failure nor a clean
+    success, and one count cannot say which. Recipient names are permitted metadata, and the
+    whole question when someone asks why they did not receive a table.
+
+    Args:
+      event: The EventBridge Pipe envelope.
+
+    Returns:
+      The validated request: actor, source, result table name and annotated recipients.
+
+    Raises:
+      TerminalError: ``unauthorized`` for a bad token, ``forbidden`` for an unreadable source,
+        ``invalid_table_name``, or any recipient-list reason.
+      TransientError: On a retryable Cognito or S3 fault.
+    """
     req = events.parse_sqs_request(event, reason="unauthorized")
 
-    # The actor comes from the verified token (the envelope's `actor` field), never
-    # from a body username.
     actor = auth.verified_username(req.get("actor"), missing_token_detail="missing actor token")
 
-    # From here the sender is KNOWN, so a whole-request rejection notifies them
-    # before the Catch records it (SPEC-094 FR-003, best-effort). Pre-verification
-    # failures (unauthorized) have no trusted recipient and stay notification-free.
-    # The source table named in the message is display-only body input — shown
-    # back to the sender who wrote it, never used for addressing.
     try:
         source = _authorize_source(req.get("source"), actor)
         table_name = req.get("tableName")
@@ -172,10 +238,6 @@ def _validate_and_authorize(event) -> dict:
         len(recipients),
         sum(1 for r in recipients if r["valid"]),
     )
-    # Requested vs VALID, because they diverge silently: a share to five recipients where two
-    # resolve to nothing is not a failure and not a clean success, and the count alone cannot
-    # say which. Recipient NAMES are space/user names — permitted metadata, and the whole
-    # question when someone asks why they did not receive a table.
     observability.info(
         "share validated",
         actor=actor,

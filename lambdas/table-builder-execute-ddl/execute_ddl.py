@@ -1,21 +1,16 @@
-"""execute-ddl — the table-builder Step Function's fifth and final task (SPEC-070).
+"""execute-ddl — the table-builder Step Function's fifth and final task.
 
-Run the ``infer-schema`` ``CREATE EXTERNAL TABLE IF NOT EXISTS`` DDL (which already
-carries the partition-**projection** ``TBLPROPERTIES`` for partitioned sources,
-SPEC-069) through **Athena** against the target database, poll to a terminal state,
-and return the structured success outcome the SFN ``RecordSuccess`` state shapes.
+Runs infer-schema's ``CREATE EXTERNAL TABLE IF NOT EXISTS`` DDL — which already carries the
+partition-projection properties for partitioned sources — through Athena against the target
+database, polls to a terminal state, and returns the structured success outcome the success
+state shapes.
 
-Because partitions are exposed via **projection**, a partitioned table is queryable
-the instant the ``CREATE`` succeeds — there is **NO ``MSCK REPAIR TABLE``** and no
-partition-load step (the arc has no ``partition_load_failed`` reason). ``IF NOT
-EXISTS`` + the SPEC-068 pre-check make a replay a **no-op success**.
+Because partitions are exposed via projection, a partitioned table is queryable the instant
+the CREATE succeeds: there is no repair step and no partition-load reason code. ``IF NOT
+EXISTS`` plus the pre-check make a replay a no-op success.
 
-Terminal reasons (recorded by the SFN ``Catch`` → recorded-failure state):
-  - ``ddl_execution_failed`` — Athena reached ``FAILED``/``CANCELLED`` or the statement
-    couldn't start (carries Athena's ``StateChangeReason``).
-  - ``ddl_timeout`` — the poll cap was exceeded (the query may still finish in Athena;
-    recorded, not silently lost).
-A throttling / 5xx Athena error is raised as ``TransientError`` for the SFN ``Retry``.
+The service name is the control plane, not the function, so one build's five invocations stay
+one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
@@ -28,31 +23,43 @@ from tbcommon.results import results_location
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("execute-ddl")
 @notify.notifies_on_failure("execute")
 def handler(event: dict, context) -> dict:
-    """SFN entry point: run the CREATE DDL via Athena and shape the success outcome.
+    """Step Functions entry point: runs the CREATE DDL and shapes the success outcome.
 
-    Returns the event with ``status="created"`` on success and notifies the actor the
-    table is ready (SPEC-072). A failed/timed-out query raises ``TerminalError`` (the
-    actor is notified before the SFN ``Catch`` records it); a throttling error raises
-    ``TransientError`` for the SFN ``Retry`` and is not notified.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    The mode is defaulted on the way out because the success state reads it and a Pass state's
+    JSONPath raises an uncatchable runtime error on an absent key. Only a create reaches this
+    verb, so defaulting here closes the one window where the key can be missing — an execution
+    that starts after the state machine deploys but before validate-authorize's code does,
+    since the two run as separate workflows, which would otherwise die after the table was
+    created and the actor was told so.
+
+    Args:
+      event: The task input, carrying the space, actor, table name and rendered DDL.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with a created status, after notifying the actor that the table is ready.
+
+    Raises:
+      TerminalError: ``ddl_execution_failed`` when Athena reached FAILED or CANCELLED or the
+        statement could not start, carrying Athena's own reason; ``ddl_timeout`` when the poll
+        cap was exceeded. Both notify the actor before the SFN Catch records them.
+      TransientError: On a throttling or 5xx Athena error, passed through un-notified for the
+        SFN Retry.
     """
     space = event["space"]
     actor = event["actor"]
     database = space["database"]
 
-    # One CREATE, idempotent via IF NOT EXISTS; projection ⇒ no MSCK REPAIR. A terminal
-    # DDL failure notifies the actor via @notifies_on_failure before the SFN Catch.
     observability.info(
         "running create ddl",
         database=database,
@@ -70,13 +77,6 @@ def handler(event: dict, context) -> dict:
     logger.info("created table %s.%s for %s", database, event["tableName"], actor)
     out = dict(event)
     out["status"] = "created"
-    # RecordSuccess reads $.mode, and a Pass state's JSONPath raises an UNCATCHABLE
-    # States.Runtime on an absent key. Only a create reaches this verb, so defaulting here
-    # closes the one window where the key can be missing: an execution that starts after
-    # the state machine deploys but before validate-authorize's code does (the two run as
-    # separate workflows), which would otherwise die AFTER the table was created and the
-    # actor was told so.
     out.setdefault("mode", "create")
-    # Terminal success — tell the actor the table is ready (SPEC-072 FR-004).
     notify.emit_created(event)
     return out

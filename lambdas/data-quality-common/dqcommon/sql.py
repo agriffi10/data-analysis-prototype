@@ -1,113 +1,132 @@
-"""Athena SQL generation for the data-quality checks (SPEC-111).
+"""Athena SQL generation for the data-quality checks.
 
-Two halves:
+Two halves. The temp-table DDL builds a typed external table over the source and, for CSV only,
+a single-column raw-line table that makes ragged-row detection possible at scale; both are built
+on the shared DDL assembly, and only the storage clauses differ, on purpose. The three queries —
+profile, ragged and duplicates — are separate statements rather than one, because they fail
+differently and only one of them deserves to kill the check.
 
-1. **The temp-table DDL** (FR-001/FR-002) — a typed external table over the source, and,
-   for CSV only, a single-column raw-line table that makes ragged-row detection possible
-   at 250 GB. Both are built on ``cpcommon.ddl``, which carries the shared assembly and
-   the partition-projection machinery (consolidated from table-builder's SPEC-069 copy);
-   only the storage clauses differ, and they differ on purpose — see ``HIVE_JSON_SERDE``
-   and ``RAW_LINE_SERDE`` below.
+Everything here is pure: it builds strings and touches no AWS. That is what lets the
+golden-string tests assert the exact SQL, which matters more than usual in this module — a subtly
+wrong query does not crash, it reports the wrong numbers about a user's data.
 
-2. **The three queries** (FR-003) — profile, ragged, duplicates. They are separate
-   statements rather than one, because they fail differently and only one of them
-   deserves to kill the check.
+The honest scan cost of the three-statement split: the typed table is read once for the profile
+and again for duplicates, and the raw-line table once for ragged. The second typed-table scan is
+the price of not letting a full-shuffle failure destroy the report.
 
-Everything here is PURE: it builds strings and touches no AWS. That is what lets the
-golden-string tests assert the exact SQL, which matters more than usual in this module —
-a subtly wrong query does not crash, it reports the wrong numbers about a user's data.
+Attributes:
+  _TABLE_PREFIX: The typed temp table's prefix. The obvious name does not work, and it fails
+    late — after the table exists, at query time — which is why the shape is pinned by a test: a
+    leading underscore forces Athena to require quoting everywhere the identifier appears, and a
+    raw UUID's hyphens parse as subtraction. This form needs no quoting, is unambiguously
+    temporary, sorts away from a user's real tables in the schema rail, and is still a pure
+    function of the request id, so a retry rebuilds the same name and the drop verb can find the
+    table even if the verb that created it never returned.
+  _RAW_TABLE_PREFIX: The raw-line table's prefix, same reasoning.
+  HIVE_JSON_SERDE: The JSON storage clause. Uses the Hive SerDe, not the OpenX one table-builder
+    writes, and not as a stylistic preference: AWS documents OpenX as potentially
+    non-deterministic and able to produce unexpected nulls. This arc's entire JSON story is that
+    a null means the key was missing, so a SerDe that invents nulls would poison every JSON
+    report silently — the report would look clean and be wrong, which is worse than no report,
+    because the user acts on it.
+  RAW_LINE_SERDE: The raw-line table's storage clause. Ragged rows are invisible to a normal read
+    because the SerDe has already parsed them away, so a second table over the same folder with
+    one column and a delimiter that never occurs in the data hands each physical line to SQL as a
+    raw string. The delimiter is the four characters backslash-zero-zero-one — an escape
+    sequence, never a literal control byte: an invisible 0x01 pasted into a source file survives
+    no diff review, no copy-paste and no editor round-trip, and the ragged check would then split
+    on a delimiter that does occur in the data. That is not hypothetical; this arc's own spec
+    carried a literal 0x01 until review caught it. There is deliberately no header-skip property
+    — every physical line must arrive, including the header, so the ragged query can exclude it
+    explicitly and the line count is the true physical count.
+  RAW_LINE_COLUMN: The raw-line table's single column.
+  _STORAGE: Format to storage clause for the typed table. CSV is all-string under OpenCSVSerde,
+    matching table-builder's shipped behaviour, and reading everything as string is what makes
+    the type-consistency checks possible at all — a column typed by the catalog can never hold a
+    value that fails to cast, so a typed CSV table would make the headline check vacuous.
+  RAGGED_QUERY_TOO_LARGE: Marker the caller puts on a degraded ragged block so the report can
+    pick the right user-facing sentence. A code rather than matched text, unlike the
+    line-too-long case: that one has to read Athena's own wording, this one is a string we write
+    ourselves.
+  _COLUMN_ALIAS: Result-column prefix per source column; the report maps each alias back to the
+    corresponding entry of the union. Positional rather than name-based on purpose — a user's
+    column name can contain characters needing quoting in a result alias, or collide after
+    normalisation, and neither failure would be visible until the report was assembled.
+  _CHECKED_TYPE: A column is type-checked only when the catalog says it is a string. Anywhere
+    else the check is vacuous, not merely redundant: a typed column cannot hold a value that
+    fails to cast, because the catalog or the SerDe already guaranteed it.
+  _CAST_TYPES: The casts the type-consistency check tries, in report order.
 """
 
 from cpcommon import ddl
 
 from . import config
 
-# ── Temp-table identifiers (FR-001) ──────────────────────────────────────────
-#
-# dq_tmp_{hex32} where {hex32} is the request UUID WITH ITS HYPHENS STRIPPED.
-#
-# The obvious name does not work, and it fails LATE — after the table exists, at query
-# time — which is why the shape is pinned by a test:
-#
-#   _dq_{requestId}  ->  a LEADING UNDERSCORE forces Athena to require backticks around
-#                        the identifier everywhere it appears, and
-#                    ->  a raw UUID's HYPHENS PARSE AS SUBTRACTION.
-#
-# dq_tmp_ + 32 hex characters needs no quoting, is unambiguously temporary, sorts away
-# from a user's real tables in the Query workspace's schema rail, and is still a pure
-# function of requestId — so a Step Functions Retry rebuilds the same name and
-# drop-temp-tables can find the table even if the verb that created it never returned.
 _TABLE_PREFIX = "dq_tmp_"
 _RAW_TABLE_PREFIX = "dq_tmp_raw_"
 
 
 def hex32(request_id: str) -> str:
-    """Return the request UUID with hyphens stripped (see the naming note above).
+    """Returns the request UUID with its hyphens stripped.
 
-    Public because it is also the stem of every Athena ``ClientRequestToken`` this arc
-    submits (SPEC-111 FR-003) — the tokens must be pure functions of the requestId for a
-    retry to re-attach to the original executions, and deriving them from the same helper
-    is what keeps that true.
+    Public because it is also the stem of every Athena idempotency token this arc submits: the
+    tokens must be pure functions of the request id for a retry to re-attach to the original
+    executions, and deriving them from the same helper is what keeps that true.
+
+    Args:
+      request_id: The run's request id.
+
+    Returns:
+      The hyphen-free hex string.
+
+    Raises:
+      None.
     """
     return request_id.replace("-", "")
 
 
 def temp_table_name(request_id: str) -> str:
-    """Name of the typed temp table over the source."""
+    """Names the typed temp table over the source.
+
+    Args:
+      request_id: The run's request id.
+
+    Returns:
+      The table name.
+
+    Raises:
+      None.
+    """
     return f"{_TABLE_PREFIX}{hex32(request_id)}"
 
 
 def raw_table_name(request_id: str) -> str:
-    """Name of the single-column raw-line temp table (CSV only)."""
+    """Names the single-column raw-line temp table, used for CSV only.
+
+    Args:
+      request_id: The run's request id.
+
+    Returns:
+      The table name.
+
+    Raises:
+      None.
+    """
     return f"{_RAW_TABLE_PREFIX}{hex32(request_id)}"
 
 
-# ── Storage clauses (the parts that diverge from table-builder) ──────────────
-
-# JSON uses the HIVE SerDe, NOT the OpenX one table-builder writes.
-#
-# This is not a stylistic preference. AWS documents the OpenX SerDe as one that "can be
-# non-deterministic" and can produce "unexpected null values when none are present". This
-# arc's ENTIRE JSON story is "a null means the key was missing" — the key-drift check
-# falls straight out of FR-003's null ratios — so a SerDe that invents nulls would poison
-# every JSON report SILENTLY: the report would look clean, and be wrong. A wrong quality
-# report is worse than no quality report, because the user acts on it.
 HIVE_JSON_SERDE = ddl.Storage(
     "ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe' STORED AS TEXTFILE"
 )
 
-# The raw-line table's serde (FR-002).
-#
-# WHAT IT IS FOR: ragged rows — rows whose field count doesn't match the header — are
-# INVISIBLE to a normal SQL read, because the serde has already parsed them away by the
-# time any query sees them. A second table over the same folder, with ONE column and a
-# delimiter that never occurs in the data, hands each physical line to SQL as a raw
-# string that can be split and counted. The alternative — reading the bytes in a Lambda —
-# is impossible here: the sources this arc targets run to 250 GB, against a 900-second
-# function.
-#
-# '\001' IS AN ESCAPE SEQUENCE, NEVER A LITERAL CONTROL BYTE. An invisible 0x01 pasted
-# into a .py file survives no diff review, no copy-paste and no editor round-trip — it
-# silently becomes something else, and the ragged check then splits on a delimiter that
-# DOES occur in the data. (This arc's own spec carried a literal 0x01 byte until review
-# caught it.) The characters below are backslash-zero-zero-one.
-#
-# There is deliberately NO skip.header.line.count here: every physical line must arrive,
-# INCLUDING the header, so the ragged query can exclude it explicitly and so the line
-# count is the true physical count.
 RAW_LINE_SERDE = ddl.Storage(
     "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' "
     "WITH SERDEPROPERTIES ('field.delim'='\\001') STORED AS TEXTFILE"
 )
 
-#: The raw-line table's single column.
 RAW_LINE_COLUMN = "line"
 
 _STORAGE = {
-    # All-string columns under OpenCSVSerde — matching table-builder's shipped CSV
-    # behaviour. Reading everything as string is what makes FR-003's TRY_CAST checks
-    # possible at all: a column typed by the catalog can never hold a value that fails
-    # to cast, so a typed CSV table would make the headline check vacuous.
     "csv": ddl.Storage(ddl.CSV_OPEN_SERDE, (ddl.CSV_SKIP_HEADER,)),
     "json": HIVE_JSON_SERDE,
     "parquet": ddl.Storage(ddl.PARQUET_STORED),
@@ -115,43 +134,46 @@ _STORAGE = {
 
 
 class TooManyColumnsError(ValueError):
-    """The source is wider than ``DQ_MAX_COLUMNS``; the caller raises the terminal."""
+    """The source is wider than the column cap; the caller raises the terminal."""
 
 
 class RaggedQueryTooLargeError(ValueError):
-    """The rendered ragged query is over ``DQ_MAX_QUERY_BYTES`` (SPEC-142 FR-003).
+    """The rendered ragged query exceeds Athena's query-string cap.
 
-    NOT a terminal, and deliberately its own type rather than a truncated query: the
-    per-path comparison is one branch per file, so a manifest of long keys can outgrow
-    Athena's query-string cap. Silently dropping the branches that don't fit would
-    re-introduce the exact bug this spec fixes — every line of a dropped file judged
-    against somebody else's column count — on a subset nobody could see. The caller
-    degrades the figure to ``not_computed`` instead; the rest of the report still lands.
+    Not a terminal, and deliberately its own type rather than a truncated query: the per-path
+    comparison is one branch per file, so a manifest of long keys can outgrow the cap. Silently
+    dropping the branches that do not fit would re-introduce the exact bug the per-file
+    comparison fixes — every line of a dropped file judged against somebody else's column count —
+    on a subset nobody could see. The caller degrades the figure instead, and the rest of the
+    report still lands.
     """
 
 
-#: Marker the caller puts on a degraded ragged block so :mod:`dqcommon.report` can pick
-#: the right user-facing sentence. A CODE rather than matched text, unlike the line-too-long
-#: case: that one has to read Athena's own wording, this one is a string we write ourselves.
 RAGGED_QUERY_TOO_LARGE = "ragged_query_too_large"
 
 
 def union_columns(files: list[dict]) -> list[dict]:
-    """Union every probed file's columns, first-seen order, first-seen type wins.
+    """Unions every probed file's columns, in first-seen order, first-seen type winning.
 
-    ``files`` is the manifest's ``files`` array (SPEC-110), each carrying the
-    ``[{name, type}]`` its header probe produced. The union — not one file's list — is
-    what the external table must declare, because a column present in only some files
-    still has to be readable.
+    The union rather than one file's list is what the external table must declare, because a
+    column present in only some files still has to be readable.
 
-    FIRST-SEEN TYPE WINS on a cross-file conflict, and the honest consequence is worth
-    stating: for Parquet, where the format enforces types, two files that disagree about
-    a column's type will make the profile query fail on the odd file out. That
-    disagreement is exactly what SPEC-112 FR-002's cross-file drift check exists to
-    report, and it is computed from this same manifest rather than in SQL — an external
-    table has ONE schema for the whole folder and would hide the disagreement. CSV cannot
-    hit this (every column is string under the OpenCSVSerde) and the Hive JSON SerDe is
-    tolerant; Parquet is the real case.
+    The honest consequence of first-seen-type-wins is worth stating: for Parquet, where the
+    format enforces types, two files disagreeing about a column's type will make the profile
+    query fail on the odd file out. That disagreement is exactly what the cross-file drift check
+    exists to report, and it is computed from this same manifest rather than in SQL — an external
+    table has one schema for the whole folder and would hide the disagreement. CSV cannot hit
+    this, since every column is a string, and the Hive JSON SerDe is tolerant; Parquet is the
+    real case.
+
+    Args:
+      files: The manifest's file entries, each carrying the columns its header probe produced.
+
+    Returns:
+      The unioned columns.
+
+    Raises:
+      KeyError: If a probed column is missing its name or type.
     """
     seen: dict[str, str] = {}
     for entry in files:
@@ -161,13 +183,21 @@ def union_columns(files: list[dict]) -> list[dict]:
 
 
 def check_column_count(columns: list[dict]) -> None:
-    """Raise ``TooManyColumnsError`` when the source is wider than the cap.
+    """Refuses a source wider than the column cap.
 
-    THE DISASTER THIS PREVENTS: Athena caps a query STRING at 262,144 bytes. FR-003's
-    profile query emits four TRY_CASTs plus a null-ratio and a bounded sample aggregate
-    PER COLUMN, so a pathological source would otherwise build a query Athena cannot
-    parse — and the user would get a raw engine error about query length instead of a
-    clear "this folder is too wide to check".
+    Athena caps a query string, and the profile query emits several casts plus aggregates per
+    column, so a pathological source would otherwise build a query Athena cannot parse — and the
+    user would get a raw engine error about query length instead of a clear message about the
+    folder being too wide to check.
+
+    Args:
+      columns: The unioned columns.
+
+    Returns:
+      None.
+
+    Raises:
+      TooManyColumnsError: When the source exceeds the cap.
     """
     if len(columns) > config.DQ_MAX_COLUMNS:
         raise TooManyColumnsError(
@@ -176,12 +206,21 @@ def check_column_count(columns: list[dict]) -> None:
 
 
 def _projection_keys(partition_keys: list[dict]) -> list[dict]:
-    """Manifest partition keys -> cpcommon.ddl's declared-key shape.
+    """Converts manifest partition keys into the shared declared-key shape.
 
-    SPEC-110 DETECTS keys and their observed values from the object paths (table-builder
-    has the user declare them in a modal instead), so every key here is an ENUM over the
-    values actually seen. Athena partition projection then resolves LOCATION/{key}={value}/
-    directly — no MSCK REPAIR anywhere in this arc.
+    This arc detects keys and their observed values from the object paths, rather than having the
+    user declare them, so every key is an enum over the values actually seen. Athena's partition
+    projection then resolves each partition path directly, and no repair step exists anywhere in
+    this arc.
+
+    Args:
+      partition_keys: The manifest's detected keys, each carrying its observed values.
+
+    Returns:
+      The declared keys the DDL builder expects.
+
+    Raises:
+      KeyError: If a key is missing its name or values.
     """
     return [
         {"name": key["name"], "type": "string", "values": key["values"]}
@@ -197,10 +236,25 @@ def build_temp_table_ddl(
     fmt: str,
     location: str,
 ) -> str:
-    """Build the typed temp table's CREATE EXTERNAL TABLE IF NOT EXISTS.
+    """Builds the typed temp table's create statement.
 
-    ``IF NOT EXISTS`` is what makes a Step Functions Retry a no-op rather than an error —
-    the same natural idempotence table-builder's execute-ddl relies on.
+    The idempotent form is what makes a Step Functions retry a no-op rather than an error. The
+    portal's managed marker is not written: a temp table dropped at the end of this run is not
+    something the portal manages, and the marker is a durable claim about a user's table.
+
+    Args:
+      database: The target database.
+      table_name: The temp table's name.
+      columns: The unioned columns.
+      partition_keys: The manifest's detected partition keys.
+      fmt: The source format.
+      location: The ``s3://`` folder the table reads.
+
+    Returns:
+      The full statement.
+
+    Raises:
+      ValueError: On an unknown format, or an unrenderable partition key.
     """
     try:
         storage = _STORAGE[fmt]
@@ -215,22 +269,31 @@ def build_temp_table_ddl(
         fmt,
         location,
         storage=storage,
-        # A temp table dropped at the end of this run is not something the portal
-        # MANAGES — the marker is a durable claim about a user's table (SPEC-143 FR-007).
         mark=False,
     )
 
 
 def build_raw_table_ddl(database: str, table_name: str, location: str) -> str:
-    """Build the CSV raw-line table's CREATE EXTERNAL TABLE IF NOT EXISTS.
+    """Builds the CSV raw-line table's create statement.
 
-    DELIBERATELY FLAT — no partition columns and no projection, even when the source IS
-    partitioned. A non-partitioned Athena external table reads every object under its
-    LOCATION recursively, which is precisely what the ragged-row count needs (every
-    physical line, wherever it sits). Mirroring the typed table's projection here would
-    add an enum list and a second way to be wrong for no gain. The two tables still see
-    the same object universe, because inspect-source refuses a source whose objects
-    disagree about their Hive layout (SPEC-110's partition_layout_mismatch).
+    Deliberately flat — no partition columns and no projection, even when the source is
+    partitioned. A non-partitioned external table reads every object under its location
+    recursively, which is precisely what the ragged-row count needs: every physical line,
+    wherever it sits. Mirroring the typed table's projection here would add an enum list and a
+    second way to be wrong for no gain. The two tables still see the same object universe,
+    because inspect-source refuses a source whose objects disagree about their layout. It must
+    emit no table properties at all, so the marker is off.
+
+    Args:
+      database: The target database.
+      table_name: The raw table's name.
+      location: The ``s3://`` folder the table reads.
+
+    Returns:
+      The full statement.
+
+    Raises:
+      None.
     """
     return ddl.build_create_table_ddl(
         database,
@@ -240,101 +303,99 @@ def build_raw_table_ddl(database: str, table_name: str, location: str) -> str:
         "csv",
         location,
         storage=RAW_LINE_SERDE,
-        # Same: temp, and it must emit NO TBLPROPERTIES at all (SPEC-111 FR-002).
         mark=False,
     )
 
 
 def build_drop_table_ddl(database: str, table_name: str) -> str:
-    """Build an idempotent DROP.
+    """Builds an idempotent drop statement.
 
-    ``IF EXISTS`` is the whole of drop-temp-tables' idempotence: the verb is reached on
-    the success path AND, via the state machine's Catch, on every failure path — including
-    failures that happened BEFORE create-temp-tables ran, where the table never existed.
+    The if-exists form is the whole of the drop verb's idempotence: it is reached on the success
+    path and, via the state machine's Catch, on every failure path — including failures that
+    happened before the create verb ran, where the table never existed.
+
+    Args:
+      database: The target database.
+      table_name: The table to drop.
+
+    Returns:
+      The full statement.
+
+    Raises:
+      None.
     """
     return f"DROP TABLE IF EXISTS {ddl.quote(database)}.{ddl.quote(table_name)}"
 
 
-# ── The three queries (FR-003) ───────────────────────────────────────────────
-#
-# THREE STATEMENTS, NOT ONE, and the split is the point. They fail differently, and only
-# one of them deserves to kill the check:
-#
-#   profile     — the backbone. Its failure is TERMINAL.
-#   ragged      — reads the raw-line table. A single pathological line (Athena caps one
-#                 line of text at 200 MB) kills it. Degrades to not_computed.
-#   duplicates  — GROUP BY over EVERY column is a full shuffle, the most expensive thing
-#                 Athena does and a realistic way to exhaust query resources. It also
-#                 simply cannot run over a JSON source with a MAP-typed column, which is
-#                 not groupable in Trino. Degrades to not_computed.
-#
-# Folded into one statement, either of the last two would take EVERY OTHER FINDING down
-# with it. Isolated, the user still gets their report.
-#
-# The honest scan cost: the typed table is read once for the profile and AGAIN for
-# duplicates, and the raw-line table once for ragged. The second typed-table scan is the
-# price of not letting a full-shuffle failure destroy the report.
-
-#: Result-column prefix per source column — the report maps c{i}_* back to the i-th entry
-#: of union_columns(). Positional rather than name-based on purpose: a user's column name
-#: can contain characters that would need quoting in a result alias, or collide after
-#: normalisation, and neither failure would be visible until the report was assembled.
 _COLUMN_ALIAS = "c{index}"
 
-#: A column is type-checked only when the catalog says it is a string. Anywhere else the
-#: check is VACUOUS, not merely redundant: a bigint column cannot hold a value that fails
-#: TRY_CAST to BIGINT, because the catalog (Parquet) or the SerDe already guaranteed it.
 _CHECKED_TYPE = "string"
 
-#: The casts the type-consistency check tries, in report order.
 _CAST_TYPES = ("bigint", "double", "timestamp", "date")
 
 
 def _sample_expr(column: str, predicate: str, size: int) -> str:
-    """A BOUNDED sample of values matching ``predicate``.
+    """Builds a bounded sample of the values matching a predicate.
 
-    Trino's n-ary ``max_by(value, key, n)`` keeps only ``n`` entries in its accumulator,
-    which is what makes this safe on a 250 GB column where every value offends. The naive
-    ``array_agg`` then slice accumulates O(rows) and fails the query instead of sampling
-    it.
+    Trino's n-ary max-by keeps only the requested number of entries in its accumulator, which is
+    what makes this safe on a huge column where every value offends. A naive collect-then-slice
+    accumulates every row and fails the query instead of sampling it.
 
-    The key is the value itself, so the sample is the N lexicographically largest
-    offenders — DETERMINISTIC, which matters because a Step Functions Retry re-runs the
-    query and a random sample would silently change the report between attempts.
-    ``max_by`` ignores rows whose KEY is null, so the CASE doubles as the filter.
+    The key is the value itself, so the sample is the lexicographically largest offenders —
+    deterministic, which matters because a retry re-runs the query and a random sample would
+    silently change the report between attempts. The aggregate ignores rows whose key is null, so
+    the conditional doubles as the filter.
 
-    THE RESULT IS RENDERED AS JSON, and that is a correctness fix rather than a formatting
-    preference (SPEC-112). Athena writes an ARRAY into its CSV result file as
-    ``[N/A, -, 1,024]`` — the ELEMENTS are unquoted, so an offending value containing a
-    comma is unrecoverable when assemble-report parses the cell back, and it splits into
-    two wrong examples. These samples are drawn from exactly the badly-formed values most
-    likely to contain one (``1,024`` in a numeric column is a canonical CSV defect, and the
-    reason the column was flagged at all). ``json_format`` emits ``["N/A","-","1,024"]``,
-    which round-trips through ``json.loads`` with commas, quotes and newlines intact.
+    The result is rendered as JSON, and that is a correctness fix rather than a formatting
+    preference: Athena writes an array into its CSV result file with unquoted elements, so an
+    offending value containing a comma is unrecoverable when the report parses the cell back and
+    splits into two wrong examples. These samples are drawn from exactly the badly-formed values
+    most likely to contain one — a thousands-separated number in a numeric column is a canonical
+    CSV defect, and the reason the column was flagged at all. JSON round-trips with commas,
+    quotes and newlines intact.
+
+    Args:
+      column: The already-aliased column expression.
+      predicate: The condition an offending value satisfies.
+      size: How many examples to keep.
+
+    Returns:
+      The SQL expression.
+
+    Raises:
+      None.
     """
     keyed = f"CASE WHEN {predicate} THEN {column} END"
     return f"json_format(CAST(max_by({keyed}, {keyed}, {size}) AS JSON))"
 
 
 def _projection(index: int, column: dict) -> str:
-    """The INNER SELECT item that normalises one source column to a short alias.
+    """Builds the inner select item that normalises one source column to a short alias.
 
-    Two jobs, and the second one is why this inner select exists at all:
+    Two jobs, and the second is why this inner select exists at all. It normalises missingness
+    once, folding null and blank into a single null so every aggregate outside can just test for
+    null — and for JSON that is the key-drift check, since the SerDe yields null for a missing key
+    and a key that stops being written shows up as a rising missing count with no extra
+    machinery. And it shortens the identifier, so every aggregate outside refers to a two- to
+    four-character alias rather than repeating a possibly-long quoted column name many times.
+    That is not
+    cosmetic: Athena rejects an over-length query string, and the naive form — aggregating
+    directly over the quoted name — measured 324 KB at the 200-column limit, well over the
+    262,144-byte cap, so every wide check would have failed with a raw engine error about query
+    length. A test pins the rendered size at the cap so this cannot regress.
 
-    1. **Normalise missingness once.** ``NULLIF(TRIM(col), '')`` folds "null" and "blank"
-       into a single NULL, so every aggregate outside can just test ``IS NULL``. For JSON
-       that IS the key-drift check — the Hive SerDe yields null for a missing key, so a
-       key that stops being written shows up as a rising missing count with no extra
-       machinery.
-    2. **Shorten the identifier.** Every aggregate outside refers to ``c0`` rather than
-       repeating a possibly-64-character quoted column name up to eight times. That is
-       not cosmetic: ATHENA REJECTS A QUERY STRING OVER 262,144 BYTES, and the naive form
-       (aggregating directly over the quoted name) measured 324 KB at DQ_MAX_COLUMNS=200 —
-       over the cap, i.e. every wide check would have failed with a raw engine error about
-       query length. A test pins the rendered size at the cap so this cannot regress.
+    A non-string column is passed through untouched: trimming is a string operation, and the
+    format already guarantees the value's type.
 
-    A non-string column is passed through untouched: ``TRIM`` is a string function, and
-    the format already guarantees the value's type.
+    Args:
+      index: The column's position, which names its alias.
+      column: The column's name and type.
+
+    Returns:
+      The select item.
+
+    Raises:
+      KeyError: If the column is missing its name or type.
     """
     name = ddl.quote_dml(column["name"])
     alias = _COLUMN_ALIAS.format(index=index)
@@ -344,7 +405,29 @@ def _projection(index: int, column: dict) -> str:
 
 
 def _column_aggregates(index: int, column: dict, type_checked: bool) -> list[str]:
-    """The OUTER SELECT items for one source column, over its ``c{index}`` alias."""
+    """Builds the outer select items for one source column, over its alias.
+
+    Two samples are emitted, not four and not one. The report picks the one matching the column's
+    dominant type family: a numeric-dominant column wants examples of values that are not
+    numbers, a temporal-dominant one wants values that are not dates. One combined "fails every
+    cast" sample would miss the common case of a stray decimal in an integer column, which parses
+    as a float, and four per-cast samples would cost query-string budget for detail nobody reads.
+
+    The sample predicates carry no null guard: the inner projection already turned null-or-blank
+    into null, and the aggregate ignores rows whose key is null, so a missing value can never
+    appear as an example of a badly-typed one.
+
+    Args:
+      index: The column's position, which names its alias.
+      column: The column's name and type.
+      type_checked: Whether this source's format warrants type-consistency checks at all.
+
+    Returns:
+      The select items for this column.
+
+    Raises:
+      KeyError: If the column is missing its type.
+    """
     alias = _COLUMN_ALIAS.format(index=index)
     items = [f"COUNT_IF({alias} IS NULL) AS {alias}_missing"]
 
@@ -357,16 +440,6 @@ def _column_aggregates(index: int, column: dict, type_checked: bool) -> list[str
             f"AS {alias}_not_{cast}"
         )
 
-    # TWO samples, not four and not one. The report picks the one matching the column's
-    # dominant type FAMILY (SPEC-112): a numeric-dominant column wants examples of values
-    # that are not numbers, a temporal-dominant one wants values that are not dates. One
-    # combined "fails all four casts" sample would miss the common case of a stray "3.7"
-    # in an integer column (it parses as DOUBLE), and four per-cast samples would cost
-    # query-string budget for detail nobody reads.
-    #
-    # No "is not null" guard in these predicates: the inner projection already turned
-    # null-or-blank into NULL, and max_by ignores rows whose KEY is null — so a missing
-    # value can never appear as an example of a badly-typed one.
     non_numeric = f"TRY_CAST({alias} AS BIGINT) IS NULL AND TRY_CAST({alias} AS DOUBLE) IS NULL"
     non_temporal = f"TRY_CAST({alias} AS TIMESTAMP) IS NULL AND TRY_CAST({alias} AS DATE) IS NULL"
     size = config.DQ_OFFENDING_VALUE_SAMPLE
@@ -382,42 +455,46 @@ def build_profile_query(
     fmt: str,
     path_filter: str | None = None,
 ) -> str:
-    """Build the profile query — the check's backbone (FR-003).
+    """Builds the profile query — the check's backbone.
 
-    Computes, exactly and at any scale: per-column missing counts, per-column
-    type-consistency counts with bounded offending-value samples, and row counts both in
-    total and PER FILE.
+    Computes, exactly and at any scale: per-column missing counts, per-column type-consistency
+    counts with bounded offending-value samples, and row counts both in total and per file.
 
-    TYPE CONSISTENCY IS SKIPPED ENTIRELY FOR PARQUET, and the report records that it was
-    (SPEC-112). The reasoning is that the check is VACUOUS there, not merely redundant:
-    Parquet enforces types in the format, so a numeric column CANNOT contain stray text
-    and every TRY_CAST would trivially succeed. Emitting four casts per column over
-    250 GB of Parquet would scan the whole dataset to prove something the file format
-    already guarantees. Parquet sources still get missing counts, duplicates, row counts,
-    and — the one that matters most for Parquet — cross-file schema drift (SPEC-112 FR-002).
+    Type consistency is skipped entirely for Parquet, and the report records that it was. The
+    check is vacuous there, not merely redundant: Parquet enforces types in the format, so a
+    numeric column cannot contain stray text and every cast would trivially succeed — emitting
+    them over a huge dataset would scan the whole thing to prove something the file format
+    already guarantees. Parquet sources still get missing counts, duplicates, row counts, and the
+    one that matters most for Parquet, cross-file schema drift.
 
-    GROUPING SETS, not a plain GROUP BY: ((), ("$path")) yields ONE total row plus one row
-    per source file in a single statement and a single scan. The grouping flag tells the
-    reader which is which. The cost this accepts, stated plainly: every per-column
-    aggregate is computed per file as well as globally, so the aggregate count scales with
-    the file count — bounded by DQ_MAX_OBJECTS, and the alternative (a second statement,
-    hence a second scan of up to 250 GB) is worse.
+    Grouping sets rather than a plain grouping: one total row plus one row per source file, in a
+    single statement and a single scan, with a flag telling the reader which is which. The path
+    pseudo-column must be carried through the inner select to stay groupable outside — drop it
+    and the grouping fails at query time, not build time. The cost this accepts, stated plainly,
+    is that every per-column aggregate is computed per file as well as globally, so the aggregate
+    count scales with the file count — bounded by the object cap, and the alternative of a second
+    statement means a second full scan.
 
-    ``path_filter`` restricts the scan to one file (SPEC-151 FR-001). It is what makes a
-    single-file check describe the file the user picked: the table's LOCATION is the parent
-    FOLDER, because Athena needs a prefix, and a LOCATION is read recursively — so without
-    it every figure here (rowCount, and every column's missing / not_<cast> count) described
-    the whole folder while ``rowCountsByFile`` described the one file, and the delivered
-    report satisfied neither the user's selection nor its own arithmetic.
+    Args:
+      database: The target database.
+      table_name: The typed temp table.
+      columns: The unioned columns.
+      fmt: The source format, which decides whether type consistency is checked.
+      path_filter: Restricts the scan to one file. It is what makes a single-file check describe
+        the file the user picked: the table's location is the parent folder, because Athena needs
+        a prefix and a location is read recursively — so without it every figure here described
+        the whole folder while the per-file counts described the one file, and the delivered
+        report satisfied neither the user's selection nor its own arithmetic.
 
-    The result set is O(files x columns) — never O(rows), which is what makes it safe for
-    assemble-report to read whole (SPEC-112).
+    Returns:
+      The full statement. Its result set is bounded by files times columns, never by rows, which
+      is what makes it safe for the report verb to read whole.
+
+    Raises:
+      KeyError: If a column is missing its name or type.
     """
     type_checked = fmt != "parquet"
 
-    # The inner select normalises each column to a short alias (see _projection); the
-    # outer one aggregates over those aliases. "$path" must be carried through the inner
-    # select to stay groupable outside.
     projected = ", ".join(
         ['"$path"'] + [_projection(i, column) for i, column in enumerate(columns)]
     )
@@ -434,25 +511,32 @@ def build_profile_query(
 
 
 def single_file_path(bucket: str, files: list[dict], location: str) -> str | None:
-    """``s3://bucket/key`` when the manifest is exactly the ONE file the user selected.
+    """Decides whether this check targets exactly one file, and names it if so.
 
-    THE SINGLE DEFINITION of "this check targets one file", used by both the verb that
-    picks the table LOCATION and the verb that builds the queries (SPEC-151 FR-001). They
-    have to agree: create-temp-tables promotes the LOCATION to the parent folder, because
-    an Athena external table's LOCATION is a prefix and pointing it at an object key gives
-    a table over nothing. But Athena reads a LOCATION RECURSIVELY, so that table also
-    covers every sibling in the folder. The queries are what re-narrow it, and if the two
-    verbs disagreed about which case this is, the report would describe the folder while
-    claiming to describe the file — the exact defect FR-001 exists to remove. A second
-    copy of this rule is the one thing that would let them drift.
+    The single definition of that question, used by both the verb that picks the table location
+    and the verb that builds the queries. They have to agree: the create verb promotes the
+    location to the parent folder, because an external table's location is a prefix and pointing
+    it at an object key gives a table over nothing — but Athena reads a location recursively, so
+    that table also covers every sibling in the folder. The queries are what re-narrow it, and if
+    the two verbs disagreed about which case this is, the report would describe the folder while
+    claiming to describe the file. A second copy of this rule is the one thing that would let them
+    drift.
 
-    The ``s3://bucket/key`` form is not a choice made here: it is what Athena's ``"$path"``
-    pseudo-column returns, which is why ``_expected_by_path`` keys the ragged mapping that
-    way and ``report._strip_scheme`` reverses it.
+    The returned form is not a choice made here: it is what Athena's path pseudo-column returns,
+    which is why the ragged mapping is keyed that way and the report reverses it.
 
-    Returns None for a folder target, for a multi-file manifest, and for a manifest whose
-    single file is not the location itself — in all of which the table's LOCATION already
-    matches the manifest and no predicate is wanted.
+    Args:
+      bucket: The source bucket.
+      files: The manifest's file entries.
+      location: The request's target location.
+
+    Returns:
+      The full object path, or None for a folder target, a multi-file manifest, or a manifest
+      whose single file is not the location itself — in all of which the table's location already
+      matches the manifest and no predicate is wanted.
+
+    Raises:
+      None.
     """
     keys = [entry["key"] for entry in files if entry.get("key")]
     prefix = location.rstrip("/")
@@ -462,23 +546,40 @@ def single_file_path(bucket: str, files: list[dict], location: str) -> str | Non
 
 
 def _where(path_filter: str | None) -> str:
-    """The ``"$path"`` restriction, or nothing at all.
+    """Renders the path restriction, or nothing at all.
 
-    Empty for a folder target, so rendered SQL is byte-identical to the pre-SPEC-151 form
-    and the golden-query tests keep their meaning.
+    Empty for a folder target, so the rendered SQL is byte-identical to the pre-filter form and
+    the golden-query tests keep their meaning.
+
+    Args:
+      path_filter: The single file's path, or None.
+
+    Returns:
+      The clause, or "".
+
+    Raises:
+      None.
     """
     return f' WHERE "$path" = {_literal_dml(path_filter)}' if path_filter else ""
 
 
 def _literal_dml(value: str) -> str:
-    """Single-quote a string LITERAL for a DML statement (Trino).
+    """Renders a string literal for a DML statement, in Trino's dialect.
 
-    DELIBERATELY NOT tscommon.ddl's ``_lit``, and the difference is not stylistic: that one
-    escapes with backslashes, which is Hive's DDL rule. Trino has no backslash escape in a
-    plain string literal — the only escape is DOUBLING the quote — so the Hive form would
-    render a backslash into the S3 path being matched and the branch would simply never
-    fire. A path that never matches produces no error, just a file's lines silently falling
-    to the ``ELSE`` and going uncounted.
+    Deliberately not the DDL escaper, and the difference is not stylistic: that one escapes with
+    backslashes, which is Hive's rule. Trino has no backslash escape in a plain string literal —
+    the only escape is doubling the quote — so the Hive form would render a backslash into the S3
+    path being matched and the branch would simply never fire. A path that never matches produces
+    no error, just a file's lines silently falling through and going uncounted.
+
+    Args:
+      value: The literal to render.
+
+    Returns:
+      The quoted, escaped literal.
+
+    Raises:
+      None.
     """
     escaped = value.replace("'", "''")
     return f"'{escaped}'"
@@ -490,60 +591,56 @@ def build_ragged_query(
     expected_by_path: dict[str, int],
     path_filter: str | None = None,
 ) -> str:
-    """Build the ragged-rows query over the raw-line table (CSV only, FR-003).
+    """Builds the ragged-rows query over the raw-line table. CSV only.
 
-    A row is ragged when its field count doesn't match the header's — THE HEADER OF THE
-    FILE THE ROW CAME FROM (SPEC-142). Splitting the raw line is the only way to see that:
-    by the time the normal SerDe is involved, the ragged row has already been parsed away.
+    A row is ragged when its field count does not match the header of the file the row came from.
+    Splitting the raw line is the only way to see that: by the time the normal SerDe is involved,
+    the ragged row has already been parsed away. Comparing against a single union column count
+    was the earlier bug — on a folder whose files disagree, every data row of a narrower file was
+    counted ragged, and so was every file's header, so the user saw one problem reported twice,
+    the second time as a large number describing nothing real. Cross-file disagreement has its own
+    finding and remains its only home.
 
-    ``expected_by_path`` maps the full ``s3://bucket/key`` form Athena's ``"$path"``
-    pseudo-column returns to that file's own header column count. Comparing against a
-    single number — the UNION column count across the folder — is what this spec fixes:
-    on a folder whose files disagree about their columns, every data row of a narrower
-    file was counted ragged, AND SO WAS EVERY FILE'S HEADER, since a header only carries
-    the union's field count when the files already agree. The user saw one problem reported
-    twice, the second time as a large number describing nothing real. Cross-file
-    disagreement has its own finding (``report.cross_file``) and remains its only home.
+    The count is approximate for two reasons the report must label: splitting on the delimiter
+    over-reports a quoted delimiter inside a field, and over-reports an embedded newline inside a
+    quoted field, which makes one logical row arrive as two physical lines each with the wrong
+    count. A third, inside the same caveat: the expected count comes from a quoting-aware parse
+    while this query splits raw text, so a header containing a quoted delimiter counts as ragged
+    on a folder where nothing is wrong.
 
-    THE COUNT IS APPROXIMATE, for TWO reasons, and SPEC-112 must label it with both:
+    Blank lines are excluded explicitly. A blank line splits to a single empty field, so on any
+    multi-column source every blank line would otherwise be counted ragged, and one stray blank
+    line would put a false finding in front of the user. The header itself needs no filter: it
+    has its own file's column count by definition, so it is never ragged. It is counted in the
+    total, which is why that figure is named for lines rather than rows.
 
-      1. ``split(line, ',')`` OVER-REPORTS on a QUOTED COMMA — `"Smith, John"` is one
-         field but splits into two.
-      2. It also over-reports on an EMBEDDED NEWLINE inside a quoted field, which makes
-         one logical row arrive as two physical lines, each with the wrong field count.
+    A path in the scan with no mapping entry is never counted ragged. The raw-line table reads the
+    folder while the mapping comes from the manifest, so the two can disagree — an object written
+    between the inspection and the query, or one whose header could not be probed. There is no
+    expected count for such a line and therefore no basis on which to judge it, and an unjudgeable
+    line is not a ragged one. It still counts toward the total.
 
-    Blank lines are excluded explicitly. A blank line splits to a single empty field, so
-    on any source with more than one column every blank line would otherwise be counted as
-    ragged — one stray blank line in the middle of a file would put a false "ragged rows"
-    finding in front of the user.
+    Branches are rendered in sorted path order so the query is a pure function of its inputs.
+    Every submission carries an idempotency token derived from the request id, and Athena rejects
+    a token replayed with different query text — so a retry that re-rendered the branches in
+    another order would fail the resubmission instead of re-attaching to the original execution.
 
-    The header itself is not excluded by a filter because it does not need to be: it has
-    exactly ITS OWN file's column count by definition, so it is never ragged. It IS counted
-    in ``total_lines``, which is why that figure is named for LINES and not rows.
+    Args:
+      database: The target database.
+      raw_table_name_: The raw-line temp table.
+      expected_by_path: Full object path to that file's own header column count.
+      path_filter: Restricts the scan to one file. It bounds both figures, and the total is the
+        reason it is needed here: the branch logic already limits which lines can be judged
+        ragged, but the denominator counted every line in the folder, so a single-file check
+        reported its ragged count against a total describing the file's neighbours.
 
-    ONE EXCEPTION, and it is caveat (1) above rather than a separate defect: the expected
-    count comes from inspect-source's polars parse, which honours quoting, while this query
-    splits raw text. A header like ``id,"last, first",amount`` is 3 columns to polars and 4
-    fields to ``split``, so that header counts as ragged on a folder where nothing is
-    wrong. Pre-existing — the union count was derived the same way — and inside the
-    ``approximate`` label the report already carries; noted so the "never ragged" claim
-    above is not read as stronger than it is.
+    Returns:
+      The full statement.
 
-    A PATH IN THE SCAN WITH NO MAPPING ENTRY falls to ``ELSE false`` and is never counted
-    ragged (FR-004). The raw-line table reads the folder while the mapping comes from the
-    manifest, so the two can disagree — an object written between the inspection and the
-    query, or one whose header could not be probed. There is no expected count for such a
-    line and therefore no basis on which to judge it; an unjudgeable line is not a ragged
-    one. It still counts toward ``total_lines``, which counts physical lines.
-
-    Branches are rendered in SORTED path order so the query is a PURE FUNCTION of its
-    inputs. Every submission carries a ``ClientRequestToken`` derived from the requestId,
-    and Athena rejects a token replayed with different query text — so a Step Functions
-    Retry that re-rendered the branches in another order would fail the resubmission
-    instead of re-attaching to the original execution.
-
-    Raises ``RaggedQueryTooLargeError`` when the rendered statement exceeds
-    ``DQ_MAX_QUERY_BYTES``.
+    Raises:
+      RaggedQueryTooLargeError: When the rendered statement exceeds the query-string cap. The
+        guard is on the rendered bytes, never on a file count: an S3 key can be a thousand
+        characters or forty, so a count is a poor proxy for the length that actually matters.
     """
     line = ddl.quote_dml(RAW_LINE_COLUMN)
     present = f"{line} IS NOT NULL AND {line} <> ''"
@@ -556,14 +653,8 @@ def build_ragged_query(
         )
         ragged = f'CASE "$path" {branches} ELSE false END'
     else:
-        # A CASE with no WHEN is a syntax error, and there is nothing to judge against
-        # anyway — every line falls to the FR-004 rule.
         ragged = "false"
 
-    # `path_filter` bounds BOTH figures, and total_lines is the reason it is needed here at
-    # all (SPEC-151 FR-001): the CASE above already limits which lines can be judged ragged,
-    # but the denominator counted every line in the folder — so a single-file check reported
-    # its ragged count against a total that described the file's neighbours.
     query = (
         f"SELECT COUNT_IF({present} AND {ragged}) AS ragged_rows, "
         f"COUNT_IF({present}) AS total_lines "
@@ -571,9 +662,6 @@ def build_ragged_query(
         f"{_where(path_filter)}"
     )
 
-    # THE GUARD IS ON THE RENDERED BYTES, never on a file count: DQ_MAX_OBJECTS is 1000 and
-    # an S3 key can be a thousand characters or forty, so a count is a poor proxy for the
-    # length that actually matters.
     rendered = len(query.encode())
     if rendered > config.DQ_MAX_QUERY_BYTES:
         raise RaggedQueryTooLargeError(
@@ -590,25 +678,34 @@ def build_duplicates_query(
     partition_keys: list[dict],
     path_filter: str | None = None,
 ) -> str:
-    """Build the duplicate-rows query (FR-003).
+    """Builds the duplicate-rows query.
 
-    ITS OWN STATEMENT, NEVER MERGED INTO THE PROFILE QUERY. A ``GROUP BY`` over every
-    column of a 250 GB table is a FULL SHUFFLE — the single most expensive operation
-    Athena offers, and a realistic way to exhaust query resources. Isolated, its failure
-    degrades the report to ``duplicates: not_computed``; merged, it would destroy every
-    other finding along with itself.
+    Its own statement, never merged into the profile query. Grouping over every column of a huge
+    table is a full shuffle — the single most expensive operation Athena offers, and a realistic
+    way to exhaust query resources. It also simply cannot run over a JSON source with a
+    MAP-typed column, which is not groupable in Trino, so that degradation is expected on any
+    JSON source carrying a nested object rather than a sign of a bug. Isolated, either failure
+    degrades one figure of the report; merged, it would destroy every other finding with it.
 
-    THE RESULT SHAPE IS PINNED TO EXACTLY ONE ROW, which is what lets assemble-report read
-    the result file whole without a bound.
+    The result shape is pinned to exactly one row, which is what lets the report verb read the
+    result file whole without a bound. Partition columns are included in the grouping because
+    they are part of the row: two otherwise-identical rows in different partitions are different
+    rows, not duplicates.
 
-    Partition columns are included in the grouping because they are part of the row: two
-    otherwise-identical rows in different partitions are different rows, not duplicates.
+    Args:
+      database: The target database.
+      table_name: The typed temp table.
+      columns: The unioned columns.
+      partition_keys: The detected partition keys.
+      path_filter: Restricts the scan to one file. Without it a single-file check reported
+        duplicates found between that file and its neighbours, which is not a duplicate the user
+        can act on.
 
-    ``path_filter`` restricts the scan to one file (SPEC-151 FR-001). FR-001's description
-    names only the profile and ragged builders, but ``duplicateRows`` is in its own list of
-    figures that must describe the selected file — and without the predicate a single-file
-    check reported duplicates found between that file and its NEIGHBOURS, which is not a
-    duplicate the user can act on.
+    Returns:
+      The full statement.
+
+    Raises:
+      KeyError: If a column or partition key is missing its name.
     """
     part_names = {key["name"] for key in partition_keys}
     grouped = [ddl.quote_dml(c["name"]) for c in columns if c["name"] not in part_names]

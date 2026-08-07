@@ -1,32 +1,23 @@
-"""Publish the username directory: every personal workspace on the user-space bucket (SPEC-146).
+"""Publishes the username directory: every personal workspace on the user-space bucket.
 
-Once a day an EventBridge schedule fires this function. It lists the user-space bucket's
-top-level common prefixes, keeps the ones that are catalog-safe usernames, and publishes a
-small sorted JSON document to ``s3://{USER_SPACE_BUCKET}/_directory/usernames.json``. The
-browser reads that document to suggest usernames as a user types (SPEC-147/148).
+Once a day a schedule fires this function. It lists the user-space bucket's top-level common
+prefixes, keeps the ones that are catalog-safe usernames, and publishes a small sorted JSON
+document the browser reads to suggest usernames as a user types.
 
-**The source is S3 common prefixes, NOT Cognito ``ListUsers``, and that is a decision rather
-than a convenience** (settled 2026-08-03, after reading ``docs/transition_plan.md``). Today
-Cognito is the complete record and S3 is not: the personal prefix is created BY THE BROWSER on
-the first visit to ``/files`` (``ensurePrefixMarker``, SPEC-014 — a deliberate no-backend
-decision), so a confirmed user who never opened the file browser has no prefix here. The
-transition reverses it. ``transition_plan.md`` §2 item 7 settles that sign-in provisions
-nothing — the sync pre-creates every space and ``ensurePrefixMarker`` is deleted outright
-(§6.3) — while federated login makes ``cognito:username`` a synthetic ``identitycenter_<subject>``
-value (§6.1) and users appear in the pool only after their first sign-in. So S3 becomes
-complete and Cognito becomes both incomplete and wrong-keyed.
+The source is S3 common prefixes, not Cognito, and that is a decision rather than a
+convenience — do not "fix" it back, and do not add Cognito as a union "to be safe". A test
+asserts this module never imports or clientises Cognito. The document is advisory: a name's
+presence in it grants nothing. Reasoning: ``docs/lambda-rationale.md``.
 
-**Do not "fix" this back to ``ListUsers``, and do not add it as a union "to be safe":** a
-second source with different completeness properties is a second thing to reason about every
-time the directory looks wrong. A test asserts this module never imports or clientises Cognito.
-
-**The document is ADVISORY. A name's presence in it grants nothing.** No control plane reads
-it, no membership check consults it, and no browser field refuses a name that is missing from
-it. Existence is still decided where it always was — ``admin_get_user`` against the User Pool,
-in ``shared-space-common/membership.py`` and ``tscommon/cognito.py`` — and an unknown name is
-still reported back to the user as a notification. The residual gap (a confirmed user who has
-never opened the file browser is absent until the transition lands) is therefore bounded: they
-can still be added, just without a suggestion.
+Attributes:
+  DIRECTORY_PREFIX: The reserved root prefix this document lives under. Safe as the bucket's
+    one exception to "every top-level prefix is a username" for a mechanical reason — the
+    catalog identifier rule requires a leading lowercase letter, so this can never be a
+    username. That is why the name was chosen, and why the builder needs no special case to
+    exclude its own output.
+  DIRECTORY_KEY: The published document's key.
+  DOCUMENT_VERSION: Bumped only when the document's shape changes. Present from day one so the
+    browser can refuse a document it does not understand rather than crash on it.
 """
 
 import json
@@ -40,33 +31,34 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="user-directory")
 
-#: The reserved root prefix this document lives under. Safe as the user-space bucket's ONE
-#: exception to "every top-level prefix is a username" for a mechanical reason:
-#: CATALOG_IDENTIFIER_RE requires a leading lowercase letter, so `_directory` can never BE a
-#: username. That is precisely why the name was chosen, and it is also why the builder needs
-#: no special case to exclude its own output — the regex filter already does (FR-001/FR-003).
 DIRECTORY_PREFIX = "_directory"
 
-#: The published document's key.
 DIRECTORY_KEY = f"{DIRECTORY_PREFIX}/usernames.json"
 
-#: Bumped only when the SHAPE changes. Present from day one so the browser can refuse a
-#: document it does not understand (SPEC-147 FR-001) rather than crash on it.
 DOCUMENT_VERSION = 1
 
 
 @observability.step("list-workspaces")
 def list_workspace_usernames(bucket: str) -> tuple[list[str], int, int]:
-    """Return ``(sorted usernames, dropped_count, pages_listed)``.
+    """Lists every personal workspace on the user-space bucket.
 
-    Every top-level common prefix on the user-space bucket is a personal workspace.
-    ``Delimiter="/"`` makes S3 return those prefixes rather than every object under them, so
-    the cost is one page per ~1000 users rather than one per ~1000 objects.
+    Every top-level common prefix is a personal workspace. Delimiting makes S3 return those
+    prefixes rather than every object under them, so the cost is one page per thousand users
+    rather than one per thousand objects.
 
-    Anything that is not a catalog-safe username is dropped and counted — including this
-    module's own ``_directory`` output. Dropping by REGEX rather than by a special case is
-    deliberate: ``CATALOG_IDENTIFIER_RE`` requires a leading lowercase letter, which is the
-    property that makes ``_directory`` a safe reserved name in the first place.
+    Anything that is not a catalog-safe username is dropped and counted, including this
+    module's own output. Dropping by regex rather than by a special case is deliberate: the
+    identifier rule requires a leading lowercase letter, which is the property that makes the
+    reserved prefix safe in the first place.
+
+    Args:
+      bucket: The user-space bucket.
+
+    Returns:
+      A ``(sorted usernames, dropped count, pages listed)`` tuple.
+
+    Raises:
+      ClientError: On any S3 listing fault.
     """
     paginator = clients.s3().get_paginator("list_objects_v2")
     seen: set[str] = set()
@@ -95,25 +87,36 @@ def list_workspace_usernames(bucket: str) -> tuple[list[str], int, int]:
 
 @observability.step("publish")
 def publish(bucket: str, usernames: list[str]) -> int:
-    """Write the document and return the bytes written.
+    """Writes the directory document and returns the bytes written.
 
-    **A plain ``PutObject``, with no ETag CAS, and that is correct here rather than an
-    oversight.** There is exactly one writer on a 24-hour schedule, the document is rebuilt
-    from scratch every run with no incremental state, and the right behaviour on a concurrent
-    write is last-wins. The CAS loops in ``log_sweep`` and ``dqcommon.index_store`` exist
-    because those objects are APPENDED to by many writers — a lost update there loses data
-    that exists nowhere else. Do not "harden" this into the same pattern.
+    A plain put with no compare-and-swap, and that is correct here rather than an oversight:
+    there is exactly one writer on a daily schedule, the document is rebuilt from scratch every
+    run with no incremental state, and the right behaviour on a concurrent write is last-wins.
+    The CAS loops elsewhere in this repo exist because those objects are appended to by many
+    writers, where a lost update loses data that exists nowhere else. Do not harden this into
+    the same pattern.
 
-    **No ``Cache-Control``.** The browser fetches this through the S3 SDK with SigV4, not
-    through CloudFront, and whether an HTTP cache directive affects an SDK-issued request is
-    not a property this repo should rely on. SPEC-147's TanStack ``staleTime`` is the caching
-    mechanism, and it is the only one.
+    No cache directive is set. The browser fetches this through the S3 SDK with signed requests
+    rather than through the CDN, and whether an HTTP cache directive affects an SDK-issued
+    request is not a property this repo should rely on — the client's own stale time is the
+    caching mechanism, and the only one.
 
-    **Refuses to write an empty list.** The handler already decides this — it needs to, because
-    it owns the error event and the return value — so this guard is unreachable today. It is
-    here anyway because the refusal is a property of PUBLISHING, not of one call site: a second
-    caller added later (a manual "publish now" path, a retry) would otherwise inherit no
-    protection at all, and the failure it prevents is silent, wholesale erasure.
+    Args:
+      bucket: The user-space bucket.
+      usernames: The sorted usernames to publish.
+
+    Returns:
+      The number of bytes written, or 0 when nothing was written.
+
+    Raises:
+      ClientError: On any S3 write fault.
+
+    Note:
+      An empty list is refused. The handler already decides this — it needs to, because it owns
+      the error event and the return value — so this guard is unreachable today. It is here
+      anyway because the refusal is a property of publishing rather than of one call site: a
+      second caller added later would otherwise inherit no protection at all, and the failure it
+      prevents is silent, wholesale erasure.
     """
     if not usernames:
         return 0
@@ -136,27 +139,31 @@ def publish(bucket: str, usernames: list[str]) -> int:
 
 @observability.traced("build-directory")
 def handler(event, context):
-    """Rebuild and publish the username directory.
+    """Rebuilds and publishes the username directory.
 
-    **The event payload is ignored entirely**, which is what makes a manual rebuild possible
-    without waiting for the schedule::
-
-        aws lambda invoke --function-name dat-prod-user-directory-build \\
-            --payload '{}' --cli-binary-format raw-in-base64-out /dev/stdout
-
-    **An empty result never overwrites a non-empty document.** A bucket-listing failure that
+    An empty result never overwrites a non-empty document. A bucket-listing failure that
     returned an empty page would otherwise erase the directory, and an erased directory is
     indistinguishable to a user from a broken feature — the suggestions simply stop appearing,
-    with nothing to indicate why. So a run that finds no usernames logs an error and exits
+    with nothing to indicate why. So a run that finds no usernames records an error and exits
     without writing, leaving yesterday's document in place.
 
-    The event count here is O(1) in the number of users: one root span, two child spans, and a
-    bounded handful of level events. Nothing iterates users to emit. A per-username emitter
-    would turn a growing organisation into a growing log bill, in a store retained forever —
-    the same bound SPEC-131 put on the sweep, for the same reason. **The username list itself
-    is not logged**: usernames are metadata and individually permitted under the field rule,
-    but the whole list IS the document, it is already durable in S3, and ``logs/`` never
-    expires.
+    The event count is constant in the number of users: one root span, two child spans and a
+    bounded handful of level events. A per-username emitter would turn a growing organisation
+    into a growing log bill, in a store retained forever. The username list itself is not
+    recorded: usernames are individually permitted metadata, but the whole list is the document,
+    it is already durable in S3, and the log store never expires.
+
+    Args:
+      event: Ignored entirely, which is what makes a manual rebuild possible without waiting
+        for the schedule — invoke the function with an empty payload.
+      context: The Lambda context, unused.
+
+    Returns:
+      A dict reporting whether it published, the username count, and the bytes written when it
+      did.
+
+    Raises:
+      ClientError: On an S3 write fault. A listing fault propagates too, before any decision.
     """
     bucket = config.USER_SPACE_BUCKET
     usernames, dropped, pages = list_workspace_usernames(bucket)

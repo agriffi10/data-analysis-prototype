@@ -1,9 +1,9 @@
 """Shared resource-teardown helpers for the shared-space control plane.
 
-The idempotent S3 + Glue teardown steps used by BOTH the delete-space cascade and the
-forget verb's cleanup of an owner's failed create. Every helper tolerates partial
-prior progress / already-absent resources, so a re-run completes a half-done teardown.
-Kept in the shared layer so the two verbs share one implementation.
+The idempotent S3 and Glue teardown steps used by both the delete cascade and the forget verb's
+cleanup of an owner's failed create. Every helper tolerates partial prior progress and
+already-absent resources, so a re-run completes a half-done teardown. Kept in the shared layer
+so the two verbs share one implementation.
 """
 
 import logging
@@ -16,31 +16,41 @@ logger = logging.getLogger()
 
 
 class TeardownIncompleteError(Exception):
-    """Some resources survived a teardown pass, so the space is NOT gone.
+    """Some resources survived a teardown pass, so the space is not gone.
 
-    Raised rather than logged because of what the caller does next: ``delete_space``
-    finishes with ``reg.delete(space)``, commented "LAST — the name is now free to
-    reuse". Freeing a name whose objects are still in the bucket means the next space
-    created with that name inherits another tenant's data, and SPEC-054 states as an
-    acceptance criterion that teardown leaves "never a dangling … half-deleted resource".
+    Raised rather than logged because of what the caller does next: the delete verb finishes by
+    deleting the registry record, which frees the name for reuse. Freeing a name whose objects
+    are still in the bucket means the next space created with that name inherits another
+    tenant's data, and teardown is specified to leave no half-deleted resource behind.
 
-    Carries COUNTS, never the failed keys or table names: the field rule (SPEC-132) binds
-    what a call site chooses to emit, and this message reaches logs and the registry's
-    `failed` record. A count is enough to tell a partial failure from a total one.
+    Carries counts, never the failed keys or table names: the field rule binds what a call site
+    chooses to emit, and this message reaches the logs and the registry's failure record. A
+    count is enough to tell a partial failure from a total one.
     """
 
 
 def delete_shared_prefix(name):
-    """Recursively delete every object under ``{name}/`` in the shared-space bucket.
+    """Recursively deletes every object under a space's prefix in the shared-space bucket.
 
-    Paginated list + batched delete, including the marker and every athenaresults/.
-    Idempotent — an empty/absent prefix is a no-op.
+    Paginated list plus batched delete, including the marker and every results folder.
+    Idempotent — an empty or absent prefix is a no-op.
 
-    ``delete_objects`` RETURNS HTTP 200 WITH A PER-KEY ``Errors`` ARRAY: a key denied or
-    failed individually does not raise, and discarding the response (as this did) made a
-    partial delete indistinguishable from a complete one. ``Quiet=False`` is set
-    explicitly so the array is populated — the same shape the browser's
-    ``deleteInBatches`` already relies on (fileBrowser.service.ts:315).
+    The batch delete returns success with a per-key error array: a key denied or failed
+    individually does not raise, and discarding the response made a partial delete
+    indistinguishable from a complete one. The non-quiet mode is set explicitly so that array is
+    populated.
+
+    Args:
+      name: The space name, which is also its prefix.
+
+    Returns:
+      None.
+
+    Raises:
+      TeardownIncompleteError: When any object could not be deleted. Every page is attempted
+        first: a denial on one key should not strand the rest of the space's objects, and the
+        count is only meaningful whole.
+      ClientError: On any listing fault.
     """
     s3 = clients.s3()
     prefix = f"{name}/"
@@ -63,17 +73,24 @@ def delete_shared_prefix(name):
         else:
             break
     if failed:
-        # Every page is attempted before raising: a denial on one key should not strand
-        # the rest of the space's objects, and the count is only meaningful whole.
         raise TeardownIncompleteError(f"{failed} object(s) under {name}/ could not be deleted")
 
 
 def revoke_portal_role(name):
-    """Best-effort revoke of the portal role's LF grants on ``name`` (DB + table wildcard).
+    """Best-effort revoke of the portal role's Lake Formation grants on a space.
 
-    Cleanup only — per-user isolation is the IAM membership tag, not this grant — so a
-    failure (e.g. the DB already dropped on a retry) is logged and tolerated, never
-    fatal to the cascade.
+    Cleanup only — per-user isolation is the IAM membership tag, not this grant — so a failure,
+    such as the database already having been dropped on a retry, is logged and tolerated rather
+    than fatal to the cascade.
+
+    Args:
+      name: The space name, which is also its database name.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     lf = clients.lf()
     for resource, permissions in (
@@ -86,20 +103,35 @@ def revoke_portal_role(name):
                 Resource=resource,
                 Permissions=permissions,
             )
-        except Exception:  # noqa: BLE001 - best-effort cleanup
+        except Exception:  # noqa: BLE001
             logger.warning("LF revoke on %s (%s) failed; continuing", name, next(iter(resource)))
 
 
 def drop_database(name):
-    """Drop every table in Glue database ``name`` (paginated, batched), then the DB itself.
+    """Drops every table in a space's Glue database, then the database itself.
 
-    Idempotent — a missing DB/table is a no-op (already dropped).
+    Idempotent — a missing database or table is a no-op, already dropped.
 
-    ``batch_delete_table`` has the same shape as ``delete_objects``: it succeeds while
-    reporting per-table failures in ``Errors``, so discarding the response let a database
-    that still holds tables read as dropped. The ``delete_database`` below would then fail
-    (or, worse, succeed and orphan the tables) — either way the caller must not go on to
-    free the name.
+    The batch table delete has the same shape as the object delete: it succeeds while reporting
+    per-table failures, so discarding the response let a database that still holds tables read
+    as dropped. The database delete would then fail, or worse succeed and orphan the tables —
+    either way the caller must not go on to free the name.
+
+    Args:
+      name: The space name, which is also its database name.
+
+    Returns:
+      None.
+
+    Raises:
+      TeardownIncompleteError: When any table could not be dropped. Raised before the database
+        delete, not after: dropping a database whose tables survived is how the catalog and the
+        bucket start disagreeing.
+      TransientError: On a retryable Glue fault while listing. Without that mapping a hiccup
+        would fail the whole cascade permanently, and a failed cascade does not free the name,
+        so the user would be left with a space stuck in a failed state over something the Retry
+        would have absorbed.
+      ClientError: On any deterministic Glue fault.
     """
     glue = clients.glue()
     try:
@@ -115,11 +147,8 @@ def drop_database(name):
             if not token:
                 break
     except glue.exceptions.EntityNotFoundException:
-        return  # database already gone
-    except Exception as err:  # retryable faults mapped; the rest propagate
-        # A Glue transient here would otherwise fail the whole cascade permanently, and a
-        # cascade that fails does NOT free the name (FR-003) — so the user is left with a
-        # space stuck in `failed` over a hiccup the Retry would have absorbed.
+        return
+    except Exception as err:
         errors.raise_if_transient(err, f"glue get_tables {name}")
         raise
     failed = 0
@@ -127,8 +156,6 @@ def drop_database(name):
         response = glue.batch_delete_table(DatabaseName=name, TablesToDelete=tables[i : i + 100])
         failed += len((response or {}).get("Errors") or [])
     if failed:
-        # Before delete_database, not after: dropping a database whose tables survived is
-        # how the catalog and the bucket start disagreeing.
         raise TeardownIncompleteError(f"{failed} table(s) in {name} could not be dropped")
     try:
         glue.delete_database(Name=name)

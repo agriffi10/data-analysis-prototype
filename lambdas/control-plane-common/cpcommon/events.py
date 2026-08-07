@@ -1,16 +1,13 @@
-"""Task-input shape validation for control-plane verb handlers (SPEC-107).
+"""Task-input shape validation for control-plane verb handlers.
 
-Moved from tbcommon (it was already generic and exists only there). The Step Function
-hands each verb a JSON task input; a malformed or replayed input (a missing/renamed/
-wrong-typed key) would otherwise raise a bare ``KeyError``/``TypeError`` that the SFN
-Catch records as an opaque failure with NO actor notification. ``require`` turns that
-into a typed ``TerminalError`` with a specific reason, so the failure is recorded
-meaningfully AND surfaced to the actor via the handler's ``emit_failure`` path
-(SPEC-083 FR-002).
+The Step Function hands each verb a JSON task input. A malformed or replayed input would
+otherwise raise a bare ``KeyError``/``TypeError`` that the SFN ``Catch`` records as an
+opaque failure with no actor notification. These helpers turn that into a typed
+``TerminalError`` with a specific reason, so the failure is both recorded meaningfully and
+surfaced to the actor.
 
-Table-share verbs do NOT adopt this in SPEC-107 (they validate inline today; switching
-them would be a behaviour change) — it is available for the data-quality / file-converter
-arcs.
+Attributes:
+  MALFORMED: Stable reason code for a bad task input, registered in ``cpcommon.messages``.
 """
 
 import json
@@ -18,22 +15,30 @@ from typing import Any
 
 from .errors import TerminalError
 
-# Stable reason code for a bad task input (a cpcommon.messages base code).
 MALFORMED = "malformed_event"
 
 
 def parse_sqs_request(event: Any, *, reason: str) -> dict:
-    """Extract and JSON-parse the single SQS record body an EventBridge Pipe forwards.
+    """Extracts and JSON-parses the single SQS record body an EventBridge Pipe forwards.
 
     The Pipe forwards the raw SQS batch as a JSON array; this takes the single record and
-    returns its parsed ``body`` dict. Consolidates the identical ``_extract_record`` +
-    ``_parse_request`` pair each control-plane ``validate-authorize`` verb carried.
+    returns its parsed body. A malformed or replayed queue message is a deterministic
+    failure the SFN ``Catch`` records and never retries. The caller supplies its own
+    registered reason so each domain keeps its wording while sharing the shape check.
 
-    Raises ``TerminalError(reason, …)`` on an empty batch, an unrecognised event shape, a
-    missing body, or a non-JSON body — a malformed/replayed queue message is a
-    deterministic failure the SFN Catch records (never retried). ``reason`` is the
-    caller's own registered terminal reason (the validate verbs pass ``unauthorized``),
-    so each domain keeps its wording while sharing the shape-check.
+    Args:
+      event: The Pipe payload — a single-element list of SQS records, or one record dict.
+      reason: The caller's registered terminal reason code to raise under.
+
+    Returns:
+      The parsed request body. Typed as a dict because every producer sends one, but the parse
+      is unguarded, so a body that is valid JSON of another type — a list, a number — is
+      returned as-is and the caller's first field read raises. Every caller either reads
+      through ``require``, which type-checks, or guards the shape itself.
+
+    Raises:
+      TerminalError: On an empty batch, an unrecognised event shape, a missing body, or a
+        body that is not valid JSON.
     """
     if isinstance(event, list):
         if not event:
@@ -53,17 +58,25 @@ def parse_sqs_request(event: Any, *, reason: str) -> dict:
 
 
 def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:
-    """Return ``event[path...]`` or raise ``TerminalError(reason)``.
+    """Reads a required value out of a task input by dotted path, or fails terminally.
 
-    Every segment must be a present key on a dict; the resolved value must be non-empty
-    when it's a string (buckets/prefixes/names/formats are all non-empty strings). The
-    dotted path is included in the detail for the log/SFN record.
+    Every segment must be a present key on a dict, and the resolved value must be non-empty
+    when it is a string — buckets, prefixes, names and formats are all non-empty strings.
+    The dotted path is included in the detail for the log and the SFN record. A domain may
+    pass its own terminal code; whatever is passed must be a registered reason, which
+    ``TerminalError`` validates at the raise site.
 
-    ``reason`` lets a domain surface its OWN terminal code for a bad task input while
-    still using this one shape-check (the data-quality arc raises ``invalid_request``,
-    SPEC-109 FR-001/FR-004). It defaults to the shared ``malformed_event`` base code, so
-    every existing caller is unaffected. Whatever is passed must be a registered reason —
-    ``TerminalError`` validates it at the raise site (SPEC-107 FR-005).
+    Args:
+      event: The task input to read from.
+      *path: Successive dict keys to descend, e.g. ``require(event, "space", "database")``.
+      reason: Registered terminal reason code to raise under. Defaults to ``MALFORMED``.
+
+    Returns:
+      The value at that path.
+
+    Raises:
+      TerminalError: If any segment is missing, or the resolved value is None or a
+        blank string.
     """
     node = event
     for key in path:

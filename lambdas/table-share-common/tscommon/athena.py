@@ -1,11 +1,15 @@
-"""Per-verb Athena runner for table-share's recipient CREATE (SPEC-092).
+"""Per-verb Athena runner for table-share's recipient CREATE.
 
-Thin wrapper over ``cpcommon.athena.run_ddl`` (SPEC-107, where the shared start+poll
-loop lives) that binds table-share's terminal reason codes (``create_failed`` /
-``create_timeout``) and exposes ``_now`` / ``_sleep`` and the poll bounds as
-module-level seams so tests drive a fake clock with no real sleeping. The seams are
-read at call time, so a test patching ``tscommon.athena._now`` still takes effect
-through the shared runner.
+A thin wrapper over ``cpcommon.athena.run_ddl`` that binds table-share's terminal reason codes
+and exposes the clock, sleep and poll bounds as module-level seams so tests drive a fake clock
+with no real sleeping. The seams are read at call time, so a test patching them still takes
+effect through the shared runner.
+
+Attributes:
+  POLL_INTERVAL_SECONDS: Delay between polls.
+  MAX_POLL_DURATION_SECONDS: Wall-clock poll cap.
+  _now: Monotonic-clock seam; tests replace it.
+  _sleep: Sleep seam; tests replace it.
 """
 
 import time
@@ -15,17 +19,26 @@ from cpcommon import athena
 POLL_INTERVAL_SECONDS = 1.0
 MAX_POLL_DURATION_SECONDS = 240
 
-# Patchable clock/sleep seams (tests replace them; prod uses real time).
 _now = time.monotonic
 _sleep = time.sleep
 
 
 def run_ddl(*, query, database, workgroup, output_location):
-    """Run the recipient CREATE DDL to a terminal state; see ``cpcommon.athena.run_ddl``.
+    """Runs the recipient CREATE DDL to a terminal state under table-share's reason codes.
 
-    Returns the ``QueryExecutionId`` on ``SUCCEEDED``. Raises ``TerminalError``
-    (``create_failed`` / ``create_timeout``) on a failed or timed-out query, or
-    ``TransientError`` on a throttling/5xx error.
+    Args:
+      query: The DDL statement.
+      database: The recipient's Athena/Glue database.
+      workgroup: The Athena workgroup to run in.
+      output_location: The ``s3://`` results prefix.
+
+    Returns:
+      The ``QueryExecutionId`` on success.
+
+    Raises:
+      TerminalError: ``create_failed`` on a failed query, ``create_timeout`` when the poll cap
+        is exceeded.
+      TransientError: On a throttling or 5xx Athena error.
     """
     return athena.run_ddl(
         query=query,

@@ -1,7 +1,6 @@
-"""Shared helpers for the table-builder verb Lambdas.
+"""Shared helpers for the table-builder verb Lambdas, published as a Lambda layer.
 
-Published as the table-builder-common Lambda layer and imported as a package
-(from tbcommon import auth). It is a package — not flat top-level modules — so its
-module names (config/auth/registry) don't collide with shared-space-common's when
-both are imported in one pytest process.
+Imported as a package (``from tbcommon import notify``) rather than flat top-level modules,
+so its module names cannot collide with the other layers' when several are imported in one
+pytest process.
 """

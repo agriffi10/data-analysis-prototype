@@ -1,13 +1,8 @@
-"""Lazy, cached AWS + JWKS client factories (SPEC-107 — the union of the twins).
+"""Lazy, cached AWS and JWKS client factories shared by every control-plane verb.
 
-Clients are created once per warm container and reused. Heavy deps (boto3, PyJWT) are
-imported lazily so a verb that doesn't need a client never pays for it. Tests patch the
-cached globals directly (e.g. ``clients._s3 = Fake()``). This is the UNION of what the
-table-builder and table-share layers used: s3, sqs, glue, athena, cognito, and the
-memoized User Pool JWKS client (per-container cache, matching the old tbcommon/clients).
-
-SPEC-125 completes the union with ``lf()``, the one factory ``shared-space-common`` had
-that this module lacked — so the shared-space verbs can drop their own copy of this file.
+Clients are created once per warm container and reused. Heavy dependencies (boto3, PyJWT)
+are imported inside each factory so a verb that never needs a client never pays for it.
+Tests patch the cached module globals directly (``clients._s3 = Fake()``).
 """
 
 _s3 = None
@@ -16,11 +11,21 @@ _glue = None
 _athena = None
 _cognito = None
 _lf = None
-#: Keyed BY URL (SPEC-151 FR-009): one client per JWKS endpoint, not one overall.
 _jwks = {}
 
 
 def s3():
+    """Returns the per-container S3 client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 S3 client.
+
+    Raises:
+      None.
+    """
     global _s3
     if _s3 is None:
         import boto3
@@ -30,6 +35,17 @@ def s3():
 
 
 def sqs():
+    """Returns the per-container SQS client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 SQS client.
+
+    Raises:
+      None.
+    """
     global _sqs
     if _sqs is None:
         import boto3
@@ -39,6 +55,17 @@ def sqs():
 
 
 def glue():
+    """Returns the per-container Glue client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 Glue client.
+
+    Raises:
+      None.
+    """
     global _glue
     if _glue is None:
         import boto3
@@ -48,6 +75,17 @@ def glue():
 
 
 def athena():
+    """Returns the per-container Athena client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 Athena client.
+
+    Raises:
+      None.
+    """
     global _athena
     if _athena is None:
         import boto3
@@ -57,6 +95,17 @@ def athena():
 
 
 def cognito():
+    """Returns the per-container Cognito Identity Provider client, created on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 cognito-idp client.
+
+    Raises:
+      None.
+    """
     global _cognito
     if _cognito is None:
         import boto3
@@ -66,7 +115,19 @@ def cognito():
 
 
 def lf():
-    """Lake Formation client. Used by the shared-space verbs (LF-Tag + permission grants)."""
+    """Returns the per-container Lake Formation client, created on first use.
+
+    Used by the shared-space verbs for LF-Tag and permission grants.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 lakeformation client.
+
+    Raises:
+      None.
+    """
     global _lf
     if _lf is None:
         import boto3
@@ -76,14 +137,21 @@ def lf():
 
 
 def jwks(url):
-    """Return the cached PyJWKClient for ``url`` (per-container, keyed BY URL).
+    """Returns the per-container PyJWKClient for a JWKS endpoint, keyed by URL.
 
-    Keyed on the argument rather than caching the first client and ignoring every later
-    one (SPEC-151 FR-009). The single-pool case is unaffected — the same URL still yields
-    the same client — but a second URL used to be silently served the FIRST pool's client,
-    which would verify tokens against the wrong JWKS. Latent while there is one pool, and
-    exactly the kind of thing the transition to Identity Center could surface as an
-    inexplicable signature failure.
+    Keyed on the argument rather than caching the first client and ignoring later ones: a
+    second URL would otherwise be served the first pool's client and verify tokens against
+    the wrong JWKS. Latent while there is one user pool, and a likely source of
+    inexplicable signature failures once Identity Center federation lands.
+
+    Args:
+      url: The JWKS endpoint to build or look up a client for.
+
+    Returns:
+      The cached PyJWKClient for that URL.
+
+    Raises:
+      None.
     """
     if url not in _jwks:
         from jwt import PyJWKClient

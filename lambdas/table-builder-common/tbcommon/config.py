@@ -1,9 +1,11 @@
-"""Domain configuration for the table-builder control plane (SPEC-107).
+"""Domain configuration for the table-builder control plane.
 
-The shared core (region, User Pool ids, buckets, workgroup, notifications queue,
-``CATALOG_IDENTIFIER_RE``, ``_require``) moved to ``cpcommon.config``; only the
-table-builder domain constants live here.
+The shared core — region, user pool identifiers, buckets, workgroup, notifications queue,
+the catalog identifier rule — lives in ``cpcommon.config``. Only table-builder's own
+constants live here.
+
+Attributes:
+  PARTITION_TYPES: The partition-key projection types the build modal can declare.
 """
 
-# Partition-key projection types the modal can declare (table-builder domain).
 PARTITION_TYPES = frozenset({"integer", "date", "string"})

@@ -29,6 +29,17 @@ from post_confirmation import provision_user
 
 
 def main(argv):
+    """Provisions each named user, reporting per-user outcomes and continuing past failures.
+
+    Args:
+      argv: The process argument vector; the program name followed by one or more usernames.
+
+    Returns:
+      0 when every user was provisioned, 1 when any failed, 2 when no username was given.
+
+    Raises:
+      None. A per-user failure is printed and the run continues to the next user.
+    """
     usernames = argv[1:]
     if not usernames:
         print(f"usage: {argv[0]} <username> [<username> ...]", file=sys.stderr)

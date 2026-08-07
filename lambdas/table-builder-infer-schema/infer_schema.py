@@ -1,21 +1,25 @@
 """infer-schema — the table-builder Step Function's fourth task.
 
-Probes the inspect-source sample object with polars (never downloaded to /tmp, never
-fully materialized), derives the data column schema (order + types), folds in the
-user-declared partition columns, and generates the CREATE EXTERNAL TABLE IF NOT EXISTS
-DDL that execute-ddl runs. Reads are bounded regardless of object size: Parquet fetches
-only the file footer, CSV only the header row, JSON at most JSON_SAMPLE_ROWS rows.
+Probes the sample object inspect-source chose with polars — never downloaded to disk, never
+fully materialised — derives the data column schema, folds in the user-declared partition
+columns, and generates the CREATE EXTERNAL TABLE DDL that execute-ddl runs. Reads are bounded
+regardless of object size: Parquet fetches only the file footer, CSV only the header row, JSON
+at most a bounded sample.
 
-Nothing here uses polars' own cloud reader: it does not work in Lambda (it tries to
-download the whole object), which is what broke every real CSV build. CSV/JSON reach
-polars as an in-memory boto3-fetched head, Parquet through a boto3 ranged file object
-that polars seeks to the footer of — see ``cpcommon.bounded_read``.
+Nothing here uses polars' own cloud reader — it does not work in Lambda, which is what broke
+every real CSV build. CSV and JSON reach polars as an in-memory boto3-fetched head, Parquet
+through a boto3 ranged file object polars seeks to the footer of.
 
-Type rules: Parquet keeps native types; JSON infers, typing date/datetime-looking
-strings as date/timestamp; CSV is not type-inferred — every column string, matching
-the OpenCSVSerde in the DDL. A cheap head_object runs first so transient S3 errors
-propagate for the SFN Retry; a polars scan error on an existing object (corrupt /
-wrong format) is terminal schema_inference_failed.
+Type rules: Parquet keeps native types; JSON infers, typing date- and datetime-looking strings
+accordingly; CSV is not type-inferred, so every column is a string, matching the OpenCSVSerde
+in the DDL.
+
+Attributes:
+  JSON_SAMPLE_ROWS: Bounded row count for JSON inference and date detection. Schema only,
+    never the dataset.
+  _DATE_RE: Date-looking string pattern. polars' NDJSON scan has no date-parsing option, so
+    string columns are classified here deterministically.
+  _DATETIME_RE: Datetime-looking string pattern, same reason.
 """
 
 import io
@@ -32,46 +36,70 @@ from tbcommon import notify
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# `service` is the CONTROL PLANE, not the function: one table-build is five invocations, and
-# they are only one queryable set if they share a service name (SPEC-127 FR-003). The per-verb
-# identity rides as the `verb` field.
 observability.init(service="table-builder")
 
-# Bounded row count for JSON inference / date detection (schema only, not the dataset).
 JSON_SAMPLE_ROWS = 1000
 
-# Date / datetime "looking" strings (JSON date-parsing rule). Deterministic detection —
-# polars' scan_ndjson has no date-parsing option, so we classify Utf8 columns here.
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
 def _parquet_source(bucket, key):
-    """Ranged file object over the Parquet object (its schema is a footer at the END).
+    """Opens a ranged file object over a Parquet object, whose schema is a footer at the end.
 
     The seam the tests point at a local file — polars reads either the same way.
+
+    Args:
+      bucket: The object's bucket.
+      key: The object key.
+
+    Returns:
+      A seekable reader polars can pass to its Parquet schema reader.
+
+    Raises:
+      None.
     """
     return bounded_read.S3RangeReader(bucket, key)
 
 
 def _check_access(bucket, key):
-    """Cheap access probe run before the polars scan.
+    """Probes S3 access before the polars scan, so a fault is distinct from a parse failure.
 
-    Runs before the scan so an S3 fault is distinct from the scan's own errors (which are
-    terminalized as ``schema_inference_failed``). A retryable throttle/5xx becomes a
-    ``TransientError`` for the SFN Retry (``cpcommon.errors.raise_if_transient``) — a bare
-    ``ClientError`` would NOT be retried and would permanently fail the build. A deterministic fault
-    (missing/denied) propagates to the handler wrapper, which notifies the actor
-    (@notifies_on_failure) so it isn't silent.
+    A retryable throttle or 5xx becomes a transient error for the SFN Retry — a bare
+    ``ClientError`` would not be retried and would permanently fail the build. A deterministic
+    fault propagates to the handler wrapper, which notifies the actor so it is not silent.
+
+    Args:
+      bucket: The object's bucket.
+      key: The object key.
+
+    Returns:
+      None.
+
+    Raises:
+      TransientError: On a retryable S3 fault.
+      ClientError: Any deterministic fault propagates.
     """
     try:
         clients.s3().head_object(Bucket=bucket, Key=key)
-    except Exception as err:  # retryable faults mapped; the rest propagate
+    except Exception as err:
         errors.raise_if_transient(err, "S3 head probe")
         raise
 
 
 def _hive(dtype, name):
+    """Maps one polars dtype to Hive, turning an unmappable one into a terminal failure.
+
+    Args:
+      dtype: The polars dtype.
+      name: The column name, for the failure detail.
+
+    Returns:
+      The Hive type string.
+
+    Raises:
+      TerminalError: ``unmappable_type`` when the dtype has no Hive equivalent.
+    """
     try:
         return map_dtype(dtype)
     except UnmappableTypeError as exc:
@@ -79,7 +107,17 @@ def _hive(dtype, name):
 
 
 def _detect_date_type(series):
-    """Return 'date'/'timestamp' if every non-null value looks like one, else None."""
+    """Classifies a string column as a date or timestamp when every value looks like one.
+
+    Args:
+      series: The sampled polars series.
+
+    Returns:
+      ``"date"``, ``"timestamp"``, or None when the values are not uniformly either.
+
+    Raises:
+      None.
+    """
     values = [v for v in series.to_list() if v is not None]
     if not values:
         return None
@@ -91,26 +129,36 @@ def _detect_date_type(series):
 
 
 def _infer_columns(source, fmt):
-    """Return ordered [{name, type}] data columns for the sample object at ``source``.
+    """Reads the ordered data columns for one sample object.
 
-    ``source`` is an in-memory buffer of head bytes (CSV / JSON) or a seekable file object
-    (Parquet); tests pass local files. polars reads all of them.
+    Parquet goes through the schema reader rather than a lazy scan: over a file object the
+    lazy scan reads the whole object in one call, while the schema reader seeks to the footer.
+    CSV reads the header only, with no type inference. JSON streams a bounded sample and
+    materialises nothing beyond it.
+
+    Args:
+      source: An in-memory buffer of head bytes for CSV and JSON, or a seekable file object
+        for Parquet. Tests pass local files; polars reads all of them.
+      fmt: ``parquet``, ``csv`` or ``json``.
+
+    Returns:
+      An ordered list of ``{name, type}`` dicts with Hive types.
+
+    Raises:
+      TerminalError: ``unmappable_type`` for a dtype with no Hive equivalent, or
+        ``schema_inference_failed`` for an unknown format.
     """
     import polars as pl
 
     if fmt == "parquet":
-        # read_parquet_schema, NOT scan_parquet: over a file object scan_parquet reads the
-        # WHOLE object in one call, while this seeks to the footer (cpcommon.bounded_read).
         schema = pl.read_parquet_schema(source)
         return [{"name": n, "type": _hive(d, n)} for n, d in schema.items()]
 
     if fmt == "csv":
-        # Header only; no type inference — every column is string.
         schema = pl.scan_csv(source, infer_schema_length=0).collect_schema()
         return [{"name": n, "type": "string"} for n in schema.names()]
 
     if fmt == "json":
-        # Stream at most N rows (n_rows bounds the read; nothing full-materialized).
         frame = pl.scan_ndjson(source, infer_schema_length=JSON_SAMPLE_ROWS, n_rows=JSON_SAMPLE_ROWS).collect()
         columns = []
         for name, dtype in frame.schema.items():
@@ -124,34 +172,52 @@ def _infer_columns(source, fmt):
     raise TerminalError("schema_inference_failed", f"unknown format {fmt!r}")
 
 
-# @traced is OUTERMOST, above @notifies_on_failure: the latter catches on its way out,
-# so if it were outermost the span would close status="ok" on an invocation that
-# actually failed and notified.
 @observability.traced("infer-schema")
 @notify.notifies_on_failure("infer")
 def handler(event: dict, context) -> dict:
-    """SFN entry point: infer the schema and build the ``CREATE EXTERNAL TABLE`` DDL.
+    """Step Functions entry point: infers the schema and builds the CREATE TABLE DDL.
 
-    Delegates to ``_infer`` and notifies the actor on a terminal schema failure
-    (best-effort). Any other error escaping ``_infer`` (e.g. an S3 access-probe failure)
-    is surfaced to the actor by ``@notifies_on_failure`` before the SFN ``Catch`` records
-    it.
+    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
+    out, so if it were outermost the span would close as successful on an invocation that
+    actually failed and notified.
+
+    Args:
+      event: The task input, carrying the space, sample key, format and table name.
+      context: The Lambda context, unused.
+
+    Returns:
+      The event with the inferred columns and rendered DDL attached.
+
+    Raises:
+      TerminalError: ``schema_inference_failed``, ``unmappable_type`` or ``format_changed``.
+        The actor is notified before the SFN Catch records it.
+      TransientError: On a retryable S3 fault, passed through for the SFN Retry.
     """
     return _infer(event)
 
 
 def _check_format_matches_storage(storage, fmt):
-    """Refuse a folder whose format no longer matches the table's declared SerDe.
+    """Refuses a folder whose format no longer matches the table's declared SerDe.
 
-    Runs on the presence of ``storage``, which ONLY load-table-definition puts on the state
-    — so this verb still knows nothing about `mode` and the create path is untouched
-    (SPEC-143 FR-006). It runs here rather than in inspect-source because this is the first
-    point where both facts exist: inspect-source reports the folder's format, and the
-    table's SerDe came from the catalog two states earlier.
+    Runs on the presence of the storage descriptor, which only the refresh path puts on the
+    state, so this verb still knows nothing about the request mode and the create path is
+    untouched. It runs here rather than in inspect-source because this is the first point
+    where both facts exist: inspect-source reports the folder's format, and the table's SerDe
+    came from the catalog two states earlier.
 
-    A SerDe this repo does not write is refused the same way. It means the same thing —
-    the table and the folder cannot be reconciled by re-deriving columns — and guessing a
-    format for it would produce a rebuilt table that reads the files wrongly.
+    A SerDe this repo does not write is refused the same way. It means the same thing — the
+    table and the folder cannot be reconciled by re-deriving columns — and guessing a format
+    for it would produce a rebuilt table that reads the files wrongly.
+
+    Args:
+      storage: The live table's storage descriptor, carrying its serialization library.
+      fmt: The format inspect-source found in the folder.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``format_changed`` when the two disagree or the SerDe is unrecognised.
     """
     library = (storage or {}).get("serializationLibrary")
     declared = ddl_mod.format_of_serde(library)
@@ -163,6 +229,29 @@ def _check_format_matches_storage(storage, fmt):
 
 
 def _infer(event: dict) -> dict:
+    """Probes the sample object, derives the columns and renders the DDL.
+
+    A transient error is re-raised rather than swallowed: the head read runs inside the same
+    try, so a throttled GetObject would otherwise be reported as an unreadable file — a
+    permanent verdict on a fault the SFN would happily have retried.
+
+    Column names and types are schema, and schema is what a schema bug is about; column values
+    are file contents and appear nowhere. The all-string flag records the CSV rule explicitly,
+    so a table full of strings reads as the documented decision rather than as inference having
+    failed.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The event with the columns and DDL attached.
+
+    Raises:
+      TerminalError: ``format_changed`` when the folder no longer matches the table's SerDe,
+        ``unmappable_type`` for an unmappable dtype, ``schema_inference_failed`` for any other
+        scan or parse failure, or ``malformed_event`` for a missing field.
+      TransientError: On a retryable S3 fault.
+    """
     fmt = events.require(event, "format")
     if event.get("storage"):
         _check_format_matches_storage(event["storage"], fmt)
@@ -175,21 +264,14 @@ def _infer(event: dict) -> dict:
     _check_access(bucket, sample_key)
     try:
         if fmt == "parquet":
-            # The Parquet schema lives in a footer at the END of the file, which a head
-            # read cannot reach — polars seeks to it through a boto3 ranged reader.
             columns = _infer_columns(_parquet_source(bucket, sample_key), fmt)
         else:
-            # CSV / JSON: schema is at the START, so a bounded boto3 head read keeps
-            # polars off object_store, which does not work here (cpcommon.bounded_read).
             columns = _infer_columns(io.BytesIO(bounded_read.read_head(bucket, sample_key)), fmt)
     except TerminalError:
-        raise  # unmappable_type / unknown format — already terminal
-    except TransientError:
-        # The head read runs INSIDE this try, so a throttled GetObject would otherwise be
-        # swallowed below and reported as an unreadable file — a permanent verdict on a
-        # fault the SFN would happily have retried.
         raise
-    except Exception as exc:  # any scan/parse failure = terminal
+    except TransientError:
+        raise
+    except Exception as exc:
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
 
     partition_keys = event.get("partitionKeys") or []
@@ -199,10 +281,6 @@ def _infer(event: dict) -> dict:
     out["columns"] = columns
     out["ddl"] = ddl
     logger.info("inferred %d columns for %s.%s", len(columns), database, table_name)
-    # Column NAMES and TYPES are schema, and schema is what a schema bug is about (SPEC-132
-    # FR-004). Column VALUES are file contents and appear nowhere. `all_string` records the
-    # CSV rule explicitly, so a table full of strings reads as the documented decision rather
-    # than as inference having failed.
     observability.info(
         "inferred schema",
         database=database,
