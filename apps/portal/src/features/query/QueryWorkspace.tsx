@@ -21,6 +21,7 @@ import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
 import {useRunDdl} from './useRunDdl';
+import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useEditorLayout} from './useEditorLayout';
 import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
@@ -58,14 +59,7 @@ import {TabLimitDialog} from './TabLimitDialog';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
-import type {
-  MobileHomeTab,
-  MobileQueryView,
-  QueryHistoryEntry,
-  QueryTab,
-  SavedQuery,
-  GlueTableSummary
-} from './query.types';
+import type {QueryHistoryEntry, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
@@ -173,23 +167,6 @@ export function QueryWorkspace() {
     },
     [layout]
   );
-
-  const [mobileView, setMobileView] = useState<MobileQueryView>({kind: 'home'});
-  const [mobileHomeTab, setMobileHomeTab] = useState<MobileHomeTab>('saved');
-  // What the mobile results view submitted, and where. The view adopts a tab's
-  // status/results ONLY while this token is the installed run's — SQL text is not
-  // a run identity (the same text can name an older execution), and a submit is
-  // not installed synchronously, so an ungated view shows a previous query's
-  // outcome under the current query's title. `phase` is reported by the submit
-  // itself rather than inferred.
-  const mobileRunTokenRef = useRef(0);
-  const [mobileRun, setMobileRun] = useState<{
-    token: number;
-    tabId: string;
-    phase: 'submitting' | 'started' | 'failed';
-    /** Failure text for a submit that never started — owned here, not by the tab. */
-    error?: string;
-  } | null>(null);
 
   // Drawers are mutually exclusive (FR-010): opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -324,6 +301,12 @@ export function QueryWorkspace() {
   // SPEC-155 FR-009: Create view and Drop table were the same forty lines twice.
   // One background-DDL path now runs, records and reports both.
   const ddl = useRunDdl({username, appendEntry, toast});
+
+  // SPEC-100: the below-`tablet` browse-first surface — its view state, the
+  // token that identifies a run it submitted, and the reset on crossing up.
+  const mobile = useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch});
+  // A local const so the `kind` discriminant narrows inside the render callbacks.
+  const mobileView = mobile.view;
 
   const openHistory = () => {
     setSavedOpen(false);
@@ -613,7 +596,7 @@ export function QueryWorkspace() {
         // SPEC-100: the drawer puts these actions on a phone too, where there is
         // no editor to open a tab into — show the DDL in the read-only view.
         if (isMobile) {
-          handleMobileView(result.data, `DDL: ${table.name}`);
+          mobile.viewSql(result.data, `DDL: ${table.name}`);
           return;
         }
         const id = tabs.openTab({
@@ -632,7 +615,7 @@ export function QueryWorkspace() {
       // SPEC-100: on a phone the run goes to the mobile results view; opening a
       // tab there would run a query with nothing able to display it.
       if (isMobile) {
-        handleMobileRun(sql, table.name);
+        mobile.runSql(sql, table.name);
         return;
       }
       const id = tabs.openTab({label: table.name, sql});
@@ -689,60 +672,6 @@ export function QueryWorkspace() {
     [isMobile, connections, railActions]
   );
   useProvideNavRail(navRail);
-
-  // SPEC-100 FR-004/006: run a saved/history entry from the mobile home through
-  // the SAME run path the editor uses, then show the results view; View opens it
-  // read-only without running.
-  // The tab's SQL is deliberately NOT set here: submitBatch takes the statements
-  // explicitly, and writing the editor buffer would overwrite (and persist over)
-  // a draft the user left on a wider screen.
-  const handleMobileRun = (sql: string, title: string) => {
-    const token = mobileRunTokenRef.current + 1;
-    const tabId = activeTabId;
-    // Navigate only if the submit is actually accepted, so a refused tap never
-    // strands the user on a page for a query that isn't running.
-    const started = submitBatch(splitSqlStatements(sql), 'script-single', tabId, {
-      token,
-      onOutcome: (ok, error) =>
-        setMobileRun((cur) => (cur?.token === token ? {...cur, phase: ok ? 'started' : 'failed', error} : cur))
-    });
-    if (!started) return;
-    mobileRunTokenRef.current = token;
-    setMobileRun({token, tabId, phase: 'submitting'});
-    setMobileView({kind: 'results', sql, title});
-  };
-  const handleMobileView = (sql: string, title: string) => {
-    setMobileRun(null);
-    setMobileView({kind: 'results', sql, title});
-  };
-  const handleMobileBack = () => {
-    setMobileRun(null);
-    setMobileView({kind: 'home'});
-  };
-
-  // Crossing up out of mobile hands the tab back to the editor, so the mobile
-  // surface's run bookkeeping must not survive to be matched against a later,
-  // unrelated desktop run. Render-phase state adjustment (the React "derive state
-  // on change" pattern), as elsewhere in this feature — not an Effect.
-  const [prevIsMobile, setPrevIsMobile] = useState(isMobile);
-  if (isMobile !== prevIsMobile) {
-    setPrevIsMobile(isMobile);
-    if (!isMobile) {
-      setMobileRun(null);
-      setMobileView({kind: 'home'});
-    }
-  }
-
-  // The view owns a run only while ITS submit is the one installed in the tab it
-  // submitted into — the tab can change under the view, and a later run replaces
-  // the entry. Pending and failed are recorded at submit time, never inferred
-  // from "no run and no error": that residual turns into a permanent phantom
-  // when the error is dismissed.
-  const mobileRunTab = mobileRun ? runs[mobileRun.tabId] : undefined;
-  const mobileOwnsRun =
-    mobileRun !== null && mobileRun.tabId === activeTabId && mobileRunTab?.token === mobileRun.token;
-  const mobileRunPending = mobileRun?.phase === 'submitting' && !mobileOwnsRun;
-  const mobileRunFailedToStart = mobileRun?.phase === 'failed';
 
   // SPEC-048/077: turn the active tab's SQL into a named view, in the background
   // (the editor keeps showing the user's SELECT). The target database is derived
@@ -843,42 +772,42 @@ export function QueryWorkspace() {
         {isMobile ? (
           mobileView.kind === 'home' ? (
             <QueryMobileView
-              tab={mobileHomeTab}
-              onTabChange={setMobileHomeTab}
+              tab={mobile.homeTab}
+              onTabChange={mobile.setHomeTab}
               savedQueries={saved.queries}
               savedLoading={saved.isLoading}
               savedError={saved.error}
               history={history}
               historyLoading={historyLoading}
               historyError={historyError}
-              onRun={handleMobileRun}
-              onView={handleMobileView}
-              runDisabled={activeIsInFlight || mobileRunPending}
+              onRun={mobile.runSql}
+              onView={mobile.viewSql}
+              runDisabled={activeIsInFlight || mobile.pending}
             />
           ) : (
             <QueryResultsMobile
               title={mobileView.title}
               sql={mobileView.sql}
-              onBack={handleMobileBack}
-              onRun={() => handleMobileRun(mobileView.sql, mobileView.title)}
-              runDisabled={activeIsInFlight || mobileRunPending}
-              status={mobileOwnsRun ? activeStatus : undefined}
-              isInFlight={mobileRunPending || (mobileOwnsRun && activeIsInFlight)}
-              startedAt={mobileOwnsRun ? (activeRun?.startedAt ?? null) : null}
-              hasResultSet={mobileOwnsRun && hasResultSet}
-              totalRowCount={mobileOwnsRun ? rowCount.total : null}
-              hasRun={mobileOwnsRun || mobileRunPending}
+              onBack={mobile.back}
+              onRun={() => mobile.runSql(mobileView.sql, mobileView.title)}
+              runDisabled={activeIsInFlight || mobile.pending}
+              status={mobile.ownsRun ? activeStatus : undefined}
+              isInFlight={mobile.pending || (mobile.ownsRun && activeIsInFlight)}
+              startedAt={mobile.ownsRun ? (activeRun?.startedAt ?? null) : null}
+              hasResultSet={mobile.ownsRun && hasResultSet}
+              totalRowCount={mobile.ownsRun ? rowCount.total : null}
+              hasRun={mobile.ownsRun || mobile.pending}
               errorMessage={
-                mobileRunFailedToStart ? (mobileRun?.error ?? null) : mobileOwnsRun && showError ? errorMessage : null
+                mobile.failedToStart ? (mobile.run?.error ?? null) : mobile.ownsRun && showError ? errorMessage : null
               }
               onDismissError={() => {
                 // A submit that never started owns its error outright; anything
                 // else is the tab's run reporting a failure.
-                if (mobileRunFailedToStart) setMobileRun(null);
+                if (mobile.failedToStart) mobile.clearRun();
                 else dismissError(activeTabId);
               }}
               results={results}
-              displayExecutionId={mobileOwnsRun ? displayExecutionId : null}
+              displayExecutionId={mobile.ownsRun ? displayExecutionId : null}
             />
           )
         ) : (
