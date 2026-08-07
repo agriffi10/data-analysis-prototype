@@ -46,7 +46,8 @@ Attributes:
     constant that enforces it. The remaining markers carry per-request context only a raise site
     knows. Substitution is a plain replace on named markers, never string formatting, so a
     literal brace in an S3 key cannot raise.
-  resolver: The domain-scoped resolver over the shared base table.
+  resolver: The domain-scoped resolver over the shared base table, carrying this plane's
+    prefix and access-denied clause as well as its bodies (SPEC-156 FR-002).
 """
 
 from cpcommon import messages as _cpmessages
@@ -108,7 +109,11 @@ _BODIES = {
     ),
 }
 
-resolver = _cpmessages.register(_BODIES)
+resolver = _cpmessages.register(
+    _BODIES,
+    prefix="Couldn't check data quality{where}: ",
+    access_denied="You don't have access to check data quality there.",
+)
 
 
 def failure_message(reason: str, location: str = "", **tokens: str) -> str:
@@ -138,10 +143,9 @@ def failure_message(reason: str, location: str = "", **tokens: str) -> str:
     Raises:
       None.
     """
-    if reason in (UNAUTHORIZED, FORBIDDEN):
-        return "You don't have access to check data quality there."
-    where = f' on "{location}"' if location else ""
-    return f"Couldn't check data quality{where}: {resolver.body(reason, **tokens)}"
+    return resolver.message(
+        reason, **{**tokens, "where": f' on "{location}"' if location else ""}
+    )
 
 
 def success_message(location: str) -> str:

@@ -77,7 +77,7 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→155 are COMPLETE. Only 156 is left — written, not built.**
+**The 2026-08-05 audit arc: 150→156 are COMPLETE. No spec is in flight.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
@@ -86,7 +86,7 @@ every plane a `NotifyFailure`**, so "it just never came back" is no longer reach
 guards that passed by coincidence** and left **mypy report-only at a 21-finding baseline** as the next
 ratchet notch. **154 closed the frontend journey gaps** — table share, sign-in/out, collision
 resolution, upload-to-completion, pagination and the dev-unauth guard all now have a test that
-performs them. **155 was the reuse-and-structure pass**: seven JSON readers behind one `s3Json`, eleven dialog chromes behind `FormDialog`, a `features/connections/` that ends `features/query/`'s career as an undeclared shared layer (with an **ESLint rule** holding the line), and `QueryWorkspace` 1770→727 / `FileBrowser` 1101→516. Five deliberate user-visible changes and the two residual layering inversions are in its delivery doc.
+performs them. **155 was the reuse-and-structure pass**: seven JSON readers behind one `s3Json`, eleven dialog chromes behind `FormDialog`, a `features/connections/` that ends `features/query/`'s career as an undeclared shared layer (with an **ESLint rule** holding the line), and `QueryWorkspace` 1770→727 / `FileBrowser` 1101→516. Five deliberate user-visible changes and the two residual layering inversions are in its delivery doc. **156 discharged the deliberate twins in `lambdas/`** — CAS, the message resolver, results location, the JWKS path, the SQS parser and the Athena runner each exist once on `cpcommon`; `mypy` is now at **17**, so the ratchet notch is 17, not 21.
 
 **The username-directory arc (146 → 147 → 148) is COMPLETE and deployed.** The daily builder
 publishes `_directory/usernames.json`; both `AddMembersDialog` and `TableShareDialog` suggest
@@ -278,6 +278,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Escape dispatches by tree DEPTH, not per-component opt-out (155, supersedes `closeOnEscape`):** one registry, innermost enabled handler only; `Drawer.closeOnEscape` is **gone**, and a busy `Modal` **swallows** Escape. Sits beside — does not contradict — the settled `stopPropagation` finding below: a child that stops the event never reaches the registry.
 - **The byte formatters share a TB ceiling (155 FR-007):** `formatSize` and `formatBytes` stay separate for `undefined` handling, but 3 TB no longer reads `3072.0 GB` on one screen and `3.0 TB` on another. **User-visible on purpose**; silently keeping both was not an allowed outcome.
 - **Compiler and coverage defaults are declared, never inherited (150):** both tsconfigs state `"strict": true` (already TS 6's default — declaring it changed **zero** errors) and both suites carry **literal** coverage floors — portal 91/86/89/93, lambdas 95 — as **ratchets at the measured level, not targets**. Never lower one for a regression. `pyproject.toml`'s ruff block is the precedent; the `npm run build` PR gate is separate and already shipped (#363).
+- **The deliberate twins are discharged (156):** `cpcommon` owns the algorithm, a domain layer owns its wording — one CAS loop (cap 6), one `Resolver` that renders the **whole sentence** (`prefix`/`access_denied`/`fallback` templates), one results-location builder, one JWKS path, one SQS parser, one Athena runner, one `dedup_id`. **An eager module-level `_require` forces a fork, not just an inconvenience** — that is why the JWKS duplication existed. **Byte-identity was measured by rendering both implementations and diffing (2214 messages/side), not argued**; the one row that differed is unreachable and pinned by a test. Do NOT merge the domain layers wholesale.
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.
 
 ## Out of Scope (don't build)
