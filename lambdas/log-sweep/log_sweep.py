@@ -35,7 +35,8 @@ Attributes:
   MAX_MESSAGES: Message cap per sweep. The next schedule tick picks up any remainder, so the cap
     costs latency on a backlog, never data.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
-    messages queued.
+    messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` since SPEC-156 FR-001 — this was one of three
+    copies of the loop, and the caps had drifted.
   LARGE_OBJECT_WARN_BYTES: Size at which the read-modify-write cost is worth knowing about. The
     function has finite memory and a finite timeout, and the alternative is discovering this as
     a timeout months later.
@@ -49,7 +50,7 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from cpcommon import clients, observability
+from cpcommon import cas, clients, observability
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -100,7 +101,7 @@ UNROUTED = "_unrouted"
 MAX_ROUNDS = 100
 MAX_MESSAGES = 1000
 
-MAX_CAS_ATTEMPTS = 5
+MAX_CAS_ATTEMPTS = cas.MAX_ATTEMPTS
 
 LARGE_OBJECT_WARN_BYTES = 64 * 1024 * 1024
 
@@ -208,25 +209,6 @@ def _read_day(key):
         return b"", None
 
 
-def _is_precondition(exc):
-    """Reports whether a conditional write lost to a concurrent writer.
-
-    One code is a failed match-on-tag; the other is what S3 returns when two create-only writes
-    race, which is exactly what two sweeps would do on the first event of a new day.
-
-    Args:
-      exc: The write fault.
-
-    Returns:
-      True when the fault is a precondition failure.
-
-    Raises:
-      None.
-    """
-    code = str(((getattr(exc, "response", {}) or {}).get("Error") or {}).get("Code", ""))
-    return code in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
-
-
 @observability.step("append-day")
 def _append_day(key, new_lines):
     """Appends lines to a day's object under a compare-and-swap loop.
@@ -252,7 +234,8 @@ def _append_day(key, new_lines):
     """
     payload = ("\n".join(new_lines) + "\n").encode("utf-8")
     observability.info("appending", key=key, events=len(new_lines))
-    for attempt in range(MAX_CAS_ATTEMPTS):
+
+    def _read():
         existing, etag = _read_day(key)
         if len(existing) > LARGE_OBJECT_WARN_BYTES:
             logger.warning(
@@ -261,57 +244,68 @@ def _append_day(key, new_lines):
                 len(existing) / 1024 / 1024,
             )
             observability.warning("day object is large", key=key, bytes=len(existing))
+        return existing, etag
+
+    def _apply(existing):
         if existing and not existing.endswith(b"\n"):
             existing += b"\n"
+        return existing + payload
+
+    def _write(body, etag):
         kwargs = {
             "Bucket": ADMIN_BUCKET,
             "Key": key,
-            "Body": existing + payload,
+            "Body": body,
             "ContentType": "application/x-ndjson",
         }
         if etag is None:
             kwargs["IfNoneMatch"] = "*"
         else:
             kwargs["IfMatch"] = etag
-        try:
-            clients.s3().put_object(**kwargs)
-            observability.info(
-                "appended",
-                key=key,
-                events=len(new_lines),
-                bytes=len(existing) + len(payload),
-            )
-            return True
-        except Exception as err:
-            if _is_precondition(err):
-                logger.info(
-                    "log-sweep: %s changed under us (attempt %d/%d); re-reading",
-                    key,
-                    attempt + 1,
-                    MAX_CAS_ATTEMPTS,
-                )
-                observability.warning(
-                    "day object changed under us",
-                    key=key,
-                    attempt=attempt + 1,
-                    attempts=MAX_CAS_ATTEMPTS,
-                )
-                continue
-            logger.exception("log-sweep: failed to write %s (%d events left queued)", key, len(new_lines))
-            observability.error(
-                "append failed", key=key, events=len(new_lines), reason="write-failed"
-            )
-            return False
-    logger.error(
-        "log-sweep: gave up on %s after %d CAS attempts; %d events left queued for the next sweep",
-        key,
-        MAX_CAS_ATTEMPTS,
-        len(new_lines),
-    )
-    observability.error(
-        "append failed", key=key, events=len(new_lines), reason="precondition-exhausted"
-    )
-    return False
+        clients.s3().put_object(**kwargs)
+
+    def _on_conflict(attempt):
+        logger.info(
+            "log-sweep: %s changed under us (attempt %d/%d); re-reading",
+            key,
+            attempt,
+            MAX_CAS_ATTEMPTS,
+        )
+        observability.warning(
+            "day object changed under us", key=key, attempt=attempt, attempts=MAX_CAS_ATTEMPTS
+        )
+
+    try:
+        written = cas.cas_mutate(
+            _read,
+            _apply,
+            _write,
+            label=key,
+            on_conflict=_on_conflict,
+            # skip_no_op=False: `payload` is never empty, so the shared loop's default would
+            # never fire — but this loop had no no-op check at all, and relying on that
+            # inequality would make an empty-batch caller silently stop writing.
+            skip_no_op=False,
+        )
+    except cas.CasExhausted:
+        logger.error(
+            "log-sweep: gave up on %s after %d CAS attempts; %d events left queued for the "
+            "next sweep",
+            key,
+            MAX_CAS_ATTEMPTS,
+            len(new_lines),
+        )
+        observability.error(
+            "append failed", key=key, events=len(new_lines), reason="precondition-exhausted"
+        )
+        return False
+    except Exception:
+        logger.exception("log-sweep: failed to write %s (%d events left queued)", key, len(new_lines))
+        observability.error("append failed", key=key, events=len(new_lines), reason="write-failed")
+        return False
+
+    observability.info("appended", key=key, events=len(new_lines), bytes=len(written))
+    return True
 
 
 @observability.step("receive")

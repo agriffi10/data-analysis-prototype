@@ -86,9 +86,6 @@ Attributes:
     an uncapped index makes the page slower the more the feature is used, which is the exact
     failure the index was introduced to avoid. 200 rows is 20 pages at 10 a page; past that a
     user wants a search, not a longer list.
-  DQ_INDEX_CAS_RETRIES: Compare-and-swap attempts before an index append gives up and is
-    swallowed. Contention is a few concurrent checks in one space, so a small cap is plenty;
-    this mirrors the shared-space primitive rather than inventing a number.
 """
 
 RESERVED_PREFIXES = frozenset(
@@ -184,7 +181,6 @@ def _validate_caps() -> None:
         ("DQ_OFFENDING_VALUE_SAMPLE", DQ_OFFENDING_VALUE_SAMPLE),
         ("DQ_QUERY_POLL_SECONDS", DQ_QUERY_POLL_SECONDS),
         ("DQ_INDEX_MAX_ENTRIES", DQ_INDEX_MAX_ENTRIES),
-        ("DQ_INDEX_CAS_RETRIES", DQ_INDEX_CAS_RETRIES),
     ):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise RuntimeError(f"dqcommon.config.{name} must be a positive int, got {value!r}")
@@ -224,7 +220,6 @@ DQ_SCAN_READ_CHUNK_BYTES = 256 * 1024
 
 DQ_INDEX_MAX_ENTRIES = 200
 
-DQ_INDEX_CAS_RETRIES = 5
 
 
 _validate_caps()

@@ -10,9 +10,13 @@ The write is a compare-and-swap because checks of different locations run in par
 request queue serialises only same-location checks — so two report assemblies can
 read-modify-write this object at once and one would silently lose the other's run.
 
-The loop is duplicated here rather than shared: the equivalent primitive lives in a different
-Lambda layer that the data-quality functions never attach, so importing it would fail at cold
-start. A deliberate twin, not drift; keep the semantics identical.
+The loop is ``cpcommon.cas``'s. It used to be duplicated here — the equivalent primitive lived
+in a Lambda layer these functions do not attach, so it was copied and labelled "a deliberate
+twin, not drift; keep the semantics identical", naming SPEC-125 as the convergence point.
+SPEC-125 shipped and the twin drifted anyway: this copy handled the racing 409 that the
+original had not yet grown, and the caps diverged. SPEC-156 FR-001 moved the loop into
+``cpcommon``, which every data-quality verb already attaches, so there is no twin to keep in
+sync and nothing here to re-derive.
 
 The index is a convenience, never a dependency. Every failure here is logged and swallowed. The
 report is the artefact: it is already written and the notification has already fired by the time
@@ -30,7 +34,7 @@ Attributes:
 import json
 import logging
 
-from cpcommon import clients
+from cpcommon import cas, clients
 
 from . import config
 
@@ -155,27 +159,6 @@ def _write(bucket: str, key: str, entries: list, etag: str | None) -> None:
     clients.s3().put_object(**kwargs)
 
 
-def _is_precondition(exc) -> bool:
-    """Reports whether a conditional write lost to a concurrent writer.
-
-    One code is a failed match-on-tag; the other is what S3 returns when two create-only writes
-    race. Both mean someone else committed first, so re-read and re-apply. Treating the conflict
-    as a hard error would drop the first run a space ever records — the one case where the index
-    does not exist yet and two parallel checks are most likely to create it simultaneously.
-
-    Args:
-      exc: The write fault.
-
-    Returns:
-      True when the fault is a precondition failure.
-
-    Raises:
-      None.
-    """
-    code = str(((getattr(exc, "response", {}) or {}).get("Error") or {}).get("Code", ""))
-    return code in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
-
-
 def append(bucket: str, report_prefix: str, summary: dict) -> bool:
     """Appends this run to its space's index under a compare-and-swap loop.
 
@@ -204,25 +187,37 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
     key = index_key(report_prefix)
     entry = entry_from(summary)
 
-    for attempt in range(config.DQ_INDEX_CAS_RETRIES):
-        entries, etag = _read(bucket, key)
+    def _apply(entries: list) -> list:
         updated = [e for e in entries if e.get("requestId") != entry["requestId"]]
         updated.append(entry)
-        updated = updated[-config.DQ_INDEX_MAX_ENTRIES :]
-        try:
-            _write(bucket, key, updated, etag)
-            logger.info("recorded run %s in %s/%s", entry["requestId"], bucket, key)
-            return True
-        except Exception as err:
-            if not _is_precondition(err):
-                logger.exception("could not write the runs index at %s/%s", bucket, key)
-                return False
-            logger.info("runs index %s/%s changed under us (attempt %d)", bucket, key, attempt + 1)
+        return updated[-config.DQ_INDEX_MAX_ENTRIES :]
 
-    logger.warning(
-        "runs index CAS exhausted after %d attempts for %s; the check succeeded and is "
-        "NOT on the dashboard",
-        config.DQ_INDEX_CAS_RETRIES,
-        entry["requestId"],
-    )
-    return False
+    try:
+        cas.cas_mutate(
+            lambda: _read(bucket, key),
+            _apply,
+            lambda entries, etag: _write(bucket, key, entries, etag),
+            label=f"{bucket}/{key}",
+            # skip_no_op=False keeps the pre-consolidation behaviour: a redelivery whose entry
+            # reproduces the current document byte for byte still writes. The shared loop's
+            # default would return early instead, which is invisible in the index but is a
+            # different set of S3 calls than this ever made.
+            skip_no_op=False,
+            on_conflict=lambda attempt: logger.info(
+                "runs index %s/%s changed under us (attempt %d)", bucket, key, attempt
+            ),
+        )
+    except cas.CasExhausted:
+        logger.warning(
+            "runs index CAS exhausted after %d attempts for %s; the check succeeded and is "
+            "NOT on the dashboard",
+            cas.MAX_ATTEMPTS,
+            entry["requestId"],
+        )
+        return False
+    except Exception:
+        logger.exception("could not write the runs index at %s/%s", bucket, key)
+        return False
+
+    logger.info("recorded run %s in %s/%s", entry["requestId"], bucket, key)
+    return True
