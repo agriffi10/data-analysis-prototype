@@ -1,8 +1,10 @@
 """Best-effort notification primitives shared by every control plane.
 
-Only two pieces are genuinely shared. The domain emitters — ``emit_failure``,
-``emit_unexpected``, the per-arc success emitters and event-context extraction — stay in
-each domain layer, because their signatures and dedup strategies differ.
+Three pieces are genuinely shared: the sender, the failure-notification skeleton and the
+FIFO deduplication token. The domain emitters — ``emit_failure``, ``emit_unexpected``, the
+per-arc success emitters and event-context extraction — stay in each domain layer, because
+their signatures differ. A plane that relies on the queue's content-based dedup simply does
+not call ``dedup_id``.
 """
 
 import functools
@@ -13,6 +15,36 @@ from . import clients, config
 from .errors import TerminalError, TransientError
 
 logger = logging.getLogger()
+
+
+def dedup_id(request_id, step: str) -> str | None:
+    """Composes the FIFO deduplication id for one outcome.
+
+    One token per *outcome*, not one per verb, and that is load-bearing rather than a
+    simplification. Two different code paths emit the failure notification for the same
+    failure: the verb decorator on its way out, and the notify state after the Catch. That
+    state runs once the execution has already left the failing verb and cannot know which
+    verb raised, so a per-verb token would give the two emits different ids and the user
+    would get two notifications for one failure.
+
+    The collapse depends on the queue's deduplication window. The two emits land seconds
+    apart, comfortably inside it. If a future change put minutes between them — a long wait
+    on the failure path, a retry storm in cleanup — the window would expire and the user
+    would get both. Only one verb can fail per execution, so one token per outcome still
+    distinguishes a failure notification from a success one, which is all the id has to do.
+
+    Args:
+      request_id: The run's request id.
+      step: The outcome token.
+
+    Returns:
+      ``{requestId}:{step}``, or None without a request id, which falls back to the queue's
+      content-based dedup.
+
+    Raises:
+      None.
+    """
+    return f"{request_id}:{step}" if request_id else None
 
 
 def emit_notification(

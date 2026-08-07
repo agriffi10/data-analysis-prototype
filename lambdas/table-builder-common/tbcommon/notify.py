@@ -14,7 +14,7 @@ import json
 from urllib.parse import quote
 
 from cpcommon.errors import TerminalError
-from cpcommon.notify import emit_notification
+from cpcommon.notify import dedup_id, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -33,22 +33,6 @@ __all__ = [
     "notifies_on_failure",
     "removed_tokens",
 ]
-
-
-def _dedup(request_id: str, step: str) -> str | None:
-    """Composes the FIFO deduplication id for one verb's notification.
-
-    Args:
-      request_id: The run's request id, if the event carries one.
-      step: The verb name.
-
-    Returns:
-      ``{requestId}:{step}``, or None to fall back to the queue's content-based dedup.
-
-    Raises:
-      None.
-    """
-    return f"{request_id}:{step}" if request_id else None
 
 
 def _columns_removed_link(database: str, table: str, tokens: dict) -> str | None:
@@ -119,7 +103,7 @@ def emit_failure(event: dict, err: TerminalError, step: str) -> None:
     emit_notification(
         event.get("actor", ""),
         failure_message(err.reason, table, database, event.get("mode", "create"), err.tokens),
-        dedup_id=_dedup(event.get("requestId"), step),
+        dedup_id=dedup_id(event.get("requestId"), step),
         link=link,
     )
 
@@ -150,7 +134,7 @@ def emit_unexpected(event, step: str) -> None:
             space.get("database", ""),
             data.get("mode", "create"),
         ),
-        dedup_id=_dedup(data.get("requestId"), step),
+        dedup_id=dedup_id(data.get("requestId"), step),
     )
 
 
@@ -189,7 +173,7 @@ def emit_created(event: dict) -> None:
     emit_notification(
         event.get("actor", ""),
         success_message(event.get("tableName", ""), space.get("database", "")),
-        dedup_id=_dedup(event.get("requestId"), "created"),
+        dedup_id=dedup_id(event.get("requestId"), "created"),
     )
 
 
@@ -223,5 +207,5 @@ def emit_refresh_outcome(event: dict, status: str, diff: dict | None = None) -> 
             retyped=len(counts.get("retyped") or []),
             removed=len(counts.get("removed") or []),
         ),
-        dedup_id=_dedup(event.get("requestId"), "refresh"),
+        dedup_id=dedup_id(event.get("requestId"), "refresh"),
     )

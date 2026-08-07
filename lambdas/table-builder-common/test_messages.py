@@ -164,9 +164,13 @@ def test_a_body_with_no_token_markers_is_unaffected_by_the_tokens_channel():
     The marker-carrying bodies are excluded BY DETECTION rather than by name, so a body that
     gains a marker later leaves this loop automatically instead of failing it — and a body
     that loses one rejoins. `columns_removed` is the only one today.
+
+    Detection reads the resolver rather than `_BODIES` because SPEC-156 moved two reasons
+    (`malformed_event`, `unexpected_error`) out of this layer's table and onto cpcommon's
+    base one — a lookup in `_BODIES` alone would now KeyError on a reason that still renders.
     """
     for reason, expected in _CREATE_MESSAGES.items():
-        if re.search(r"\{[^{}]*\}", messages._BODIES[reason]):
+        if re.search(r"\{[^{}]*\}", messages.resolver.template(reason)):
             continue
         with_tokens = messages.failure_message(
             reason, "sales", "alice", "create", {"removed": "a, b", "unused": "x"}

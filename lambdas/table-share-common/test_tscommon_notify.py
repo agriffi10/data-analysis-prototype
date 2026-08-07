@@ -109,6 +109,31 @@ def test_create_failed_omits_raw_athena_detail():
     assert message.endswith("creating the table failed. Please try again or contact the Administrator.")
 
 
+def test_the_errors_tokens_reach_the_message_rather_than_being_discarded():
+    """SPEC-156 FR-002. `emit_failure` used to drop `err.tokens` on the floor, so a body
+    needing a value had no way to get one — which is why the recipient cap was baked into a
+    literal. Detail and tokens are opposite channels: the detail must stay out of the inbox
+    and the tokens must reach it.
+    """
+    from cpcommon import messages as cpmessages
+
+    fake = _install()
+    messages._BODIES["_token_probe"] = "the widget {thing} broke."  # test-only
+    cpmessages.register_reasons(["_token_probe"])
+    try:
+        notify.emit_failure(
+            _request_event(),
+            TerminalError("_token_probe", "raw operator text", tokens={"thing": "gizmo"}),
+            "inspect",
+        )
+    finally:
+        messages._BODIES.pop("_token_probe", None)
+
+    [(_, message)] = _sent(fake)
+    assert message == 'Couldn\'t share "orders": the widget gizmo broke.'
+    assert "raw operator text" not in message
+
+
 def test_access_denied_reasons_surface_no_table_detail():
     assert messages.failure_message("forbidden", "orders") == "You don't have access to share that table."
 

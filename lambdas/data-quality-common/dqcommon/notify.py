@@ -20,7 +20,7 @@ Attributes:
 import logging
 
 from cpcommon.errors import TerminalError
-from cpcommon.notify import emit_notification
+from cpcommon.notify import dedup_id, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import UNEXPECTED_ERROR, failure_message, success_message
@@ -42,35 +42,6 @@ FAILURE_STEP = "failure"
 SUCCESS_STEP = "completed"
 
 _REPORT_ROUTE = "/data-quality"
-
-
-def _dedup(request_id, step: str) -> str | None:
-    """Composes the FIFO deduplication id for one outcome.
-
-    One token per outcome, not one per verb, and that is load-bearing rather than a
-    simplification. Two different code paths emit the failure notification for the same failure:
-    the verb decorator on its way out, and the notify state after the Catch. That state runs once
-    the execution has already left the failing verb and cannot know which verb raised, so a
-    per-verb token would give the two emits different ids and the user would get two
-    notifications for one failure.
-
-    The collapse depends on the queue's deduplication window. The two emits land seconds apart,
-    comfortably inside it. If a future change put minutes between them — a long wait on the
-    failure path, a retry storm in cleanup — the window would expire and the user would get both.
-    Only one verb can fail per execution, so one token per outcome still distinguishes a failure
-    notification from a success one, which is all the id has to do.
-
-    Args:
-      request_id: The run's request id.
-      step: The outcome token.
-
-    Returns:
-      The dedup id, or None without a request id, which falls back to content-based dedup.
-
-    Raises:
-      None.
-    """
-    return f"{request_id}:{step}" if request_id else None
 
 
 def report_link(actor: str, space: dict, request_id: str) -> str | None:
@@ -162,7 +133,7 @@ def emit_completed(event: dict) -> None:
     emit_notification(
         actor,
         success_message(event.get("location", "")),
-        dedup_id=_dedup(event.get("requestId"), SUCCESS_STEP),
+        dedup_id=dedup_id(event.get("requestId"), SUCCESS_STEP),
         link=report_link(actor, space, event.get("requestId", "")),
     )
 
@@ -191,7 +162,7 @@ def emit_failure(event: dict, err: TerminalError, step: str = FAILURE_STEP) -> N
     emit_notification(
         event.get("actor", "") if isinstance(event, dict) else "",
         failure_message(err.reason, _location(event), **getattr(err, "tokens", {})),
-        dedup_id=_dedup(_request_id(event), FAILURE_STEP),
+        dedup_id=dedup_id(_request_id(event), FAILURE_STEP),
     )
 
 
@@ -217,7 +188,7 @@ def emit_unexpected(event, step: str = FAILURE_STEP) -> None:
     emit_notification(
         data.get("actor", ""),
         failure_message(UNEXPECTED_ERROR, _location(data)),
-        dedup_id=_dedup(_request_id(data), FAILURE_STEP),
+        dedup_id=dedup_id(_request_id(data), FAILURE_STEP),
     )
 
 

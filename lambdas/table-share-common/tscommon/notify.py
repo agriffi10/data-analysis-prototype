@@ -69,7 +69,8 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     """Emits the sender-addressed failure notification for a verb's terminal error.
 
     The error's detail — raw Athena text — is deliberately not forwarded to the user message;
-    it stays on the exception for logs and the SFN record.
+    it stays on the exception for logs and the SFN record. Its tokens are the opposite channel
+    and are forwarded, because they exist to fill the markers in a body.
 
     Args:
       event: The verb's event. A Map-verb event names the failed recipient; a whole-request
@@ -94,6 +95,7 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
             kind=recipient.get("kind") or "",
             name=recipient.get("name") or "",
             table_name=table_name,
+            tokens=err.tokens,
         ),
     )
 

@@ -1,33 +1,32 @@
 """User-facing notification text for table-builder outcomes.
 
 One place maps each stable terminal reason code to friendly text addressed to the actor, so
-every verb and its tests agree on the wording. Kept ASCII — no smart quotes. This module
-keeps its own bespoke ``failure_message`` wording rather than using a ``cpcommon`` resolver,
-and registers its reason codes with cpcommon at import so they pass ``TerminalError``'s
-raise-time validation.
+every verb and its tests agree on the wording. Kept ASCII — no smart quotes. This module is
+the table and its wording; the resolution itself is ``cpcommon.messages`` (SPEC-156 FR-002),
+which also marks these codes valid so they pass ``TerminalError``'s raise-time validation.
+
+The shared base codes are deliberately absent from the table below. ``malformed_event`` and
+``unexpected_error`` were declared here byte-identically to ``cpcommon``'s own, which is the
+overlap the resolver refuses — they resolve through the base table now and render the same
+sentence.
 
 Attributes:
-  _ACCESS_DENIED: Reasons meaning "not allowed", where no table name is surfaced because the
-    request may not have got far enough to trust one.
   _BODIES: Reason code to the clause following ``Couldn't create table "{name}": ``. The
     DDL-failure reasons carry no raw Athena text — that stays in logs and the SFN record for
     operators, never in the actor's notification. The refresh reasons read correctly under
-    either verb because ``failure_message`` picks the prefix from the request's mode.
-  _MARKERS: Every marker any body declares, read off the bodies rather than listed, so a new
-    one is blanked-when-absent automatically instead of shipping literally the first time a
-    caller forgets it. The pattern matches any brace group rather than lowercase words,
-    because the surrounding code is camelCase and a camelCase marker would otherwise be
-    missed by the discovery and rendered raw — the exact failure this exists to prevent.
+    either verb because the prefix template takes the verb from the request's mode.
+  resolver: The domain-scoped resolver, carrying this plane's prefix, access-denied clause
+    and shorter unknown-reason fallback.
+  _MARKERS: Every marker any body declares, discovered by the resolver rather than listed,
+    so a new one is blanked-when-absent automatically instead of shipping literally the
+    first time a caller forgets it.
   MAX_NAMED_COLUMNS: Longest list of column names named in a body or carried in a link, so
     neither a notification nor a URL is unbounded by a user's schema.
 """
 
 import json
-import re
 
 from cpcommon import messages as _cpmessages
-
-_ACCESS_DENIED = frozenset({"unauthorized", "forbidden"})
 
 _BODIES = {
     "invalid_table_name": "the name isn't a valid table name.",
@@ -42,7 +41,6 @@ _BODIES = {
     "unmappable_type": "the data schema couldn't be read.",
     "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",
     "ddl_timeout": "creating the table failed. Please try again or contact the Administrator.",
-    "malformed_event": "the request was malformed. Please try again.",
     "invalid_mode": "the request was malformed. Please try again.",
     "partition_keys_not_refreshable": (
         "a refresh keeps the table's existing partition keys - to change them, drop the "
@@ -66,11 +64,18 @@ _BODIES = {
     ),
     "removals_flag_not_applicable": "the request was malformed. Please try again.",
     "update_failed": "the table couldn't be updated. Nothing was changed. Please try again or contact the Administrator.",
-    "unexpected_error": "something went wrong. Please try again.",
 }
 
 
-_MARKERS = frozenset(re.findall(r"\{([^{}]*)\}", " ".join(_BODIES.values())))
+resolver = _cpmessages.register(
+    _BODIES,
+    prefix='Couldn\'t {verb} table "{name}": ',
+    access_denied="You don't have access to {verb} a table here.",
+    fallback="something went wrong.",
+    blank_unfilled=True,
+)
+
+_MARKERS = resolver.markers
 
 MAX_NAMED_COLUMNS = 20
 
@@ -112,11 +117,10 @@ def failure_message(
 ) -> str:
     """Maps a terminal reason and its context to the message the actor sees.
 
-    Substitution is ``str.replace``, never ``str.format``, and every declared marker is
-    substituted rather than only the supplied ones — an absent token must leave a sentence
-    rather than a literal brace group on the user's screen. The trusted context wins over the
-    payload: tokens come from a raise site and must not shadow the database this layer was
-    told about. No raw AWS or Athena text is ever interpolated.
+    This layer's job is the trusted context; the resolver composes the sentence. That context
+    is passed last so it wins over the payload: tokens come from a raise site and must not
+    shadow the database, the verb or the table name this layer was told about. No raw AWS or
+    Athena text is ever interpolated.
 
     Args:
       reason: The terminal reason code. An unknown one falls back to a generic line rather
@@ -135,15 +139,15 @@ def failure_message(
     Raises:
       None.
     """
-    verb = "refresh" if mode == "refresh" else "create"
-    if reason in _ACCESS_DENIED:
-        return f"You don't have access to {verb} a table here."
-    name = table_name or "your table"
-    body = _BODIES.get(reason, "something went wrong.")
-    values = {**(tokens or {}), "database": database}
-    for marker in _MARKERS:
-        body = body.replace("{" + marker + "}", values.get(marker) or "")
-    return f'Couldn\'t {verb} table "{name}": {body}'
+    return resolver.message(
+        reason,
+        **{
+            **(tokens or {}),
+            "database": database,
+            "verb": "refresh" if mode == "refresh" else "create",
+            "name": table_name or "your table",
+        },
+    )
 
 
 def _plural(count: int, noun: str) -> str:
@@ -204,6 +208,3 @@ def success_message(
         changes = ", ".join(parts) if parts else "schema updated"
         return f'Table "{table_name}" was refreshed in "{database}": {changes}.'
     return f'Table "{table_name}" is ready to query in "{database}".'
-
-
-_cpmessages.register_reasons(_BODIES)
