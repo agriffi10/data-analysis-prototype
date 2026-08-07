@@ -1,11 +1,8 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useNavigate, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
-import {Button} from '../../components/Button';
-import {Menu} from '../../components/Menu';
 import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
-import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
 import {getTableDdl} from './query.service';
 import {parseS3Url} from '../../lib/s3Url';
 import {spaceBuckets} from '../../lib/userSpace';
@@ -21,7 +18,6 @@ import {useRunDdl} from './useRunDdl';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useSaveResults} from './useSaveResults';
 import {useEditorLayout} from './useEditorLayout';
-import {EditorLayoutControl} from './EditorLayoutControl';
 import {useSavedQueries} from './useSavedQueries';
 import {useConnections} from '../connections/useConnections';
 import {useAllSchemas, useSchema} from './useSchema';
@@ -38,12 +34,8 @@ import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useProvideNavRail} from '../../components/navRailContext';
-import {TableShareDialog, useTableShare} from '../table-share';
-import {RefreshTableDialog, parseRefreshLink, useTableRefresh} from '../table-builder';
-import {DropTableDialog} from './DropTableDialog';
-import {CreateViewDialog} from './CreateViewDialog';
-import {SaveResultsDialog} from './SaveResultsDialog';
-import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {useTableShare} from '../table-share';
+import {parseRefreshLink, useTableRefresh} from '../table-builder';
 import {useToast} from '../../components/toastContext';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import {QueryStatusBar} from './QueryStatusBar';
@@ -51,10 +43,8 @@ import {QueryResultsTable} from './QueryResultsTable';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
 import {SavedQueriesPanel} from './SavedQueriesPanel';
 import {QueryTabStrip} from './QueryTabStrip';
-import {ClearQueryDialog} from './ClearQueryDialog';
-import {CloseTabDialog} from './CloseTabDialog';
-import {TabLimitDialog} from './TabLimitDialog';
-import {SaveQueryDialog} from './SaveQueryDialog';
+import {QueryToolbar} from './QueryToolbar';
+import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
 import type {QueryHistoryEntry, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
@@ -62,10 +52,6 @@ import type {QueryHistoryEntry, QueryTab, SavedQuery, GlueTableSummary} from './
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
-
-// SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
-// actions fit the narrower main column; each button keeps its `aria-label`.
-const TOOLBAR_LABEL = 'hidden desktop:inline';
 
 // SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
 // (main), wired to the SPEC-034 data layer. SPEC-041 makes the editor multi-tab:
@@ -394,6 +380,19 @@ export function QueryWorkspace() {
     setClosing(null);
   };
 
+  // FR-008: derive the target database from the view body before opening the
+  // dialog; a non-derivable body raises a clear error and never silently picks
+  // a database.
+  const handleOpenCreateView = () => {
+    const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
+    if ('error' in target) {
+      toast.push({variant: 'danger', message: target.error});
+      return;
+    }
+    setCreateViewDb(target.database);
+    setCreateViewOpen(true);
+  };
+
   const handleClearConfirm = () => {
     tabs.clearActive();
     setClearOpen(false);
@@ -705,165 +704,20 @@ export function QueryWorkspace() {
               id="query-tabpanel"
               aria-labelledby={`query-tab-${activeTabId}`}
               className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
-                <EditorLayoutControl
-                  preset={layout.preset}
-                  onChange={handleLayoutChange}
-                />
-                <div className="flex-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => setClearOpen(true)}
-                  disabled={!canClear}
-                  aria-label="Clear query">
-                  <TrashLidIcon />
-                  <span className={TOOLBAR_LABEL}>Clear</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setSaveOpen(true)}
-                  disabled={!canSave}
-                  aria-label="Save query">
-                  <SaveIcon />
-                  <span className={TOOLBAR_LABEL}>Save</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    // FR-008: derive the target database from the view body before
-                    // opening the dialog; a non-derivable body raises a clear error
-                    // and never silently picks a database.
-                    const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
-                    if ('error' in target) {
-                      toast.push({variant: 'danger', message: target.error});
-                      return;
-                    }
-                    setCreateViewDb(target.database);
-                    setCreateViewOpen(true);
-                  }}
-                  disabled={!canSave}
-                  aria-label="Create view">
-                  <EyeIcon />
-                  <span className={TOOLBAR_LABEL}>Create view</span>
-                </Button>
-                {activeIsInFlight ? (
-                  <Button
-                    variant="ghost"
-                    onClick={handleStop}
-                    aria-label="Stop the running query"
-                    className="text-danger hover:bg-danger-soft hover:text-danger">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="h-4 w-4"
-                      aria-hidden="true">
-                      <rect
-                        x="6"
-                        y="6"
-                        width="12"
-                        height="12"
-                        rx="2"
-                      />
-                    </svg>
-                    <span className={TOOLBAR_LABEL}>Stop</span>
-                  </Button>
-                ) : (
-                  // SPEC-078 FR-005: three distinct run scopes as a split button.
-                  // Run Statement stays the primary action (⌘⏎); the two whole-script
-                  // scopes — which differ only in how results are shown — live in an
-                  // attached dropdown so the toolbar stays compact.
-                  <div className="inline-flex items-stretch">
-                    <Button
-                      variant="primary"
-                      onClick={handleRunStatement}
-                      disabled={!canRun}
-                      title="Run the selection or the statement under the cursor (⌘⏎)"
-                      aria-label="Run statement"
-                      className="rounded-r-none">
-                      <PlayIcon />
-                      <span className={TOOLBAR_LABEL}>Run Statement</span>
-                    </Button>
-                    <Menu
-                      ariaLabel="More run options"
-                      align="right"
-                      trigger={({open, toggle, ref, menuId}) => (
-                        <Button
-                          ref={ref}
-                          variant="primary"
-                          onClick={toggle}
-                          disabled={!canRun}
-                          aria-haspopup="menu"
-                          aria-expanded={open}
-                          aria-controls={open ? menuId : undefined}
-                          aria-label="More run options"
-                          title="More run options"
-                          className="rounded-l-none border-l border-white/25 px-2">
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            className={cx('h-4 w-4 transition-transform', open && 'rotate-180')}
-                            aria-hidden="true">
-                            <path d="M6 9l6 6 6-6" />
-                          </svg>
-                        </Button>
-                      )}
-                      items={[
-                        {
-                          kind: 'action',
-                          label: 'Run Query Tab',
-                          icon: (
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              className="h-4 w-4"
-                              aria-hidden="true">
-                              <path d="M5 4l8 8-8 8" />
-                              <path d="M14 20h6" />
-                            </svg>
-                          ),
-                          onSelect: () => handleRunScript('script-single')
-                        },
-                        {
-                          kind: 'action',
-                          label: 'Run Multiple Queries',
-                          icon: (
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              className="h-4 w-4"
-                              aria-hidden="true">
-                              <path d="M4 4l6 8-6 8" />
-                              <rect
-                                x="13"
-                                y="5"
-                                width="7"
-                                height="5"
-                                rx="1"
-                              />
-                              <rect
-                                x="13"
-                                y="14"
-                                width="7"
-                                height="5"
-                                rx="1"
-                              />
-                            </svg>
-                          ),
-                          onSelect: () => handleRunScript('script-tabs')
-                        }
-                      ]}
-                    />
-                  </div>
-                )}
-              </div>
+              <QueryToolbar
+                preset={layout.preset}
+                onPresetChange={handleLayoutChange}
+                isInFlight={activeIsInFlight}
+                canRun={canRun}
+                canClear={canClear}
+                canSave={canSave}
+                onClear={() => setClearOpen(true)}
+                onSave={() => setSaveOpen(true)}
+                onCreateView={handleOpenCreateView}
+                onStop={handleStop}
+                onRunStatement={handleRunStatement}
+                onRunScript={handleRunScript}
+              />
 
               {/* SPEC-079: the measured editor+results column. The editor pane takes
               the preset's clamped height; everything below it (status bar +
@@ -1028,88 +882,30 @@ export function QueryWorkspace() {
         </>
       )}
 
-      {clearOpen && (
-        <ClearQueryDialog
-          onConfirm={handleClearConfirm}
-          onCancel={() => setClearOpen(false)}
-        />
-      )}
-      {saveOpen && (
-        <SaveQueryDialog
-          initialName={activeLinkedSaved?.name ?? ''}
-          savedQueries={saved.queries}
-          linkedId={activeTab.savedQueryId}
-          onSave={handleSaveConfirm}
-          onCancel={() => setSaveOpen(false)}
-        />
-      )}
-      {closing && (
-        <CloseTabDialog
-          label={closing.label}
-          onConfirm={confirmClose}
-          onCancel={() => setClosing(null)}
-        />
-      )}
-      {limitOpen && <TabLimitDialog onDismiss={() => setLimitOpen(false)} />}
-      {createViewOpen && (
-        <CreateViewDialog
-          busy={ddl.busy}
-          targetDatabase={createViewDb}
-          onCreate={handleCreateView}
-          onCancel={() => setCreateViewOpen(false)}
-        />
-      )}
-      {share.target && (
-        <TableShareDialog
-          source={share.target}
-          busy={share.busy}
-          submitError={share.error}
-          onSubmit={(args) => void share.submit(args)}
-          onCancel={share.close}
-        />
-      )}
-      {refresh.target && (
-        <RefreshTableDialog
-          target={refresh.target}
-          busy={refresh.busy}
-          submitError={refresh.error}
-          onConfirm={(allowRemovals) => void refresh.submit(allowRemovals)}
-          onCancel={refresh.close}
-        />
-      )}
-      {dropping && (
-        <DropTableDialog
-          table={dropping.table.name}
-          isDropping={ddl.busy}
-          isView={dropping.table.tableType === 'VIRTUAL_VIEW'}
-          onConfirm={handleDropConfirm}
-          onCancel={() => setDropping(null)}
-        />
-      )}
-      {saveResults.open && saveResults.spaces.length > 0 && (
-        <SaveResultsDialog
-          spaces={saveResults.spaces}
-          defaultName={saveResults.defaultName}
-          isBusy={saveResults.busy}
-          onSave={saveResults.save}
-          onCancel={saveResults.closeDialog}
-        />
-      )}
-      {saveResults.overwritePrompt && (
-        <ConfirmDialog
-          title={`Overwrite “${saveResults.overwritePrompt.filename}”?`}
-          ariaLabel="Confirm overwrite"
-          confirmLabel="Overwrite"
-          confirmVariant="danger"
-          busy={saveResults.busy}
-          busyLabel="Saving…"
-          onConfirm={saveResults.confirmOverwrite}
-          onCancel={saveResults.cancelOverwrite}>
-          <p className="mt-3 text-sm text-text-2">
-            A file named “{saveResults.overwritePrompt.filename}” already exists in that folder. Saving will replace it.
-          </p>
-        </ConfirmDialog>
-      )}
+      <QueryDialogs
+        clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
+        save={{
+          open: saveOpen,
+          initialName: activeLinkedSaved?.name ?? '',
+          savedQueries: saved.queries,
+          linkedId: activeTab.savedQueryId,
+          onSave: handleSaveConfirm,
+          onCancel: () => setSaveOpen(false)
+        }}
+        closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
+        tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}
+        createView={{
+          open: createViewOpen,
+          busy: ddl.busy,
+          targetDatabase: createViewDb,
+          onCreate: handleCreateView,
+          onCancel: () => setCreateViewOpen(false)
+        }}
+        drop={{target: dropping, busy: ddl.busy, onConfirm: handleDropConfirm, onCancel: () => setDropping(null)}}
+        share={share}
+        refresh={refresh}
+        saveResults={saveResults}
+      />
     </div>
   );
 }
