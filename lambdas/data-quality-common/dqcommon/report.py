@@ -44,7 +44,8 @@ Attributes:
     Matched on text because Athena reports it as a generic failure with a message rather than a
     distinct state. A miss is mild and one-way — the user gets the generic sentence instead of
     the specific one, never a wrong outcome.
-  _CAST_TYPES: The casts the profile query tried, in report order. Must match the query builder.
+  _CAST_TYPES: The casts the profile query tried, in report order. Must match the query builder's
+    own list, which is where they are generated.
   _NUMERIC_CASTS: Which of those belong to the numeric family.
   _SAMPLE_FOR: Which bounded sample matches a dominant type's family. A numeric-dominant column
     wants examples of values that are not numbers; a temporal one wants values that are not dates.
@@ -315,6 +316,10 @@ def cross_file(files: list[dict]) -> dict:
     A single file flows through the general path rather than short-circuiting: it produces the
     identical answer, since its own signature is the modal one and it never disagrees with itself,
     and a special case that changes no behaviour is a branch nothing can test.
+
+    The pairing is deliberately non-strict, which keeps today's behaviour explicit. Strict would
+    be the stronger claim, but it turns a length mismatch into a raise in the report path — a
+    change worth making deliberately, with the callers characterised, not as a lint fix.
 
     Args:
       files: The manifest's file entries, each carrying its probed columns.

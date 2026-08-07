@@ -8,6 +8,8 @@ are all injectable; the per-verb wrappers bind them and keep their patchable sea
 Attributes:
   DEFAULT_POLL_INTERVAL_SECONDS: Delay between polls when a caller supplies none.
   DEFAULT_MAX_POLL_DURATION_SECONDS: Wall-clock poll cap when a caller supplies none.
+  _TERMINAL_OK: The Athena state meaning the query finished successfully.
+  _TERMINAL_FAIL: The Athena states meaning it will not finish.
 """
 
 import logging
@@ -43,26 +45,26 @@ def start_query(
     which a Standard execution can do for up to a year.
 
     Args:
-        query: The statement to submit.
-        database: The Athena/Glue database the statement resolves names in.
-        workgroup: The Athena workgroup to run in.
-        output_location: ``s3://…`` prefix for THIS query's results. Passed per query
-            because a workgroup has exactly one static result location, so per-space
-            routing is impossible any other way.
-        fail_reason: Terminal reason code for an unstartable query.
-        client_request_token: Athena's idempotency key (32-128 chars). SUPPLY IT.
-            Without one, a Step Functions ``Retry`` after a transient error that arrived
-            AFTER submission starts a SECOND query: the pipeline then polls one execution
-            while another runs unwatched, and on an ``UNLOAD`` path the same bug silently
-            DOUBLES every row of the output. Athena returns the original execution id for a
-            repeated token, so a retry re-attaches instead.
+      query: The statement to submit.
+      database: The Athena/Glue database the statement resolves names in.
+      workgroup: The Athena workgroup to run in.
+      output_location: ``s3://…`` prefix for THIS query's results. Passed per query
+          because a workgroup has exactly one static result location, so per-space
+          routing is impossible any other way.
+      fail_reason: Terminal reason code for an unstartable query.
+      client_request_token: Athena's idempotency key (32-128 chars). SUPPLY IT.
+          Without one, a Step Functions ``Retry`` after a transient error that arrived
+          AFTER submission starts a SECOND query: the pipeline then polls one execution
+          while another runs unwatched, and on an ``UNLOAD`` path the same bug silently
+          DOUBLES every row of the output. Athena returns the original execution id for a
+          repeated token, so a retry re-attaches instead.
 
     Returns:
-        The ``QueryExecutionId``.
+      The ``QueryExecutionId``.
 
     Raises:
-        TerminalError: ``fail_reason`` when the query cannot be started.
-        TransientError: on a throttling/5xx Athena error (for the caller's SFN ``Retry``).
+      TerminalError: ``fail_reason`` when the query cannot be started.
+      TransientError: on a throttling/5xx Athena error (for the caller's SFN ``Retry``).
     """
     params = {
         "QueryString": query,
@@ -90,17 +92,17 @@ def describe_query(query_execution_id, *, fail_reason):
     The read half of the state-machine-driven poll loop; the ``Wait`` state does the waiting.
 
     Args:
-        query_execution_id: The execution to describe.
-        fail_reason: Terminal reason code when the execution cannot be described at all.
+      query_execution_id: The execution to describe.
+      fail_reason: Terminal reason code when the execution cannot be described at all.
 
     Returns:
-        ``{"state": <Athena state>, "reason": <StateChangeReason or None>}``. The reason is
-        RAW ATHENA TEXT — it belongs in logs and the SFN execution history, never in a
-        user-facing message.
+      ``{"state": <Athena state>, "reason": <StateChangeReason or None>}``. The reason is
+      RAW ATHENA TEXT — it belongs in logs and the SFN execution history, never in a
+      user-facing message.
 
     Raises:
-        TerminalError: ``fail_reason`` when the describe fails non-transiently.
-        TransientError: on a throttling/5xx Athena error.
+      TerminalError: ``fail_reason`` when the describe fails non-transiently.
+      TransientError: on a throttling/5xx Athena error.
     """
     try:
         resp = clients.athena().get_query_execution(QueryExecutionId=query_execution_id)
@@ -138,34 +140,34 @@ def run_ddl(
     It is service text about a statement: schema, never a row of anyone's data.
 
     Args:
-        query: The DDL statement, e.g. ``CREATE EXTERNAL TABLE IF NOT EXISTS …``.
-        database: The target Athena/Glue database.
-        workgroup: The Athena workgroup to run in.
-        output_location: ``s3://…`` result prefix (a DDL create returns no rows).
-        fail_reason: Terminal reason code for a FAILED, CANCELLED, unstartable or unpollable
-            query.
-        timeout_reason: Terminal reason code when the wall-clock poll cap is exceeded. A
-            CREATE that runs long enough to hit the cap is a real signal, and would
-            otherwise be indistinguishable from a plain Lambda timeout.
-        now: Monotonic-clock seam; tests inject a fake clock.
-        sleep: Sleep seam; tests inject a no-op that advances the fake clock.
-        poll_interval_seconds: Delay between ``GetQueryExecution`` polls.
-        max_poll_duration_seconds: Wall-clock cap before raising ``timeout_reason``.
-        client_request_token: Athena's idempotency key (32-128 chars). SUPPLY IT for any
-            statement whose re-execution is not free. Without one, a Step Functions ``Retry``
-            after a transient error that arrived AFTER submission runs the statement a
-            SECOND time; with one, Athena returns the original execution id and the retry
-            re-attaches. On a DROP + CREATE pair that is the difference between a retry
-            re-reading its own work and a retry dropping the table it just rebuilt.
+      query: The DDL statement, e.g. ``CREATE EXTERNAL TABLE IF NOT EXISTS …``.
+      database: The target Athena/Glue database.
+      workgroup: The Athena workgroup to run in.
+      output_location: ``s3://…`` result prefix (a DDL create returns no rows).
+      fail_reason: Terminal reason code for a FAILED, CANCELLED, unstartable or unpollable
+          query.
+      timeout_reason: Terminal reason code when the wall-clock poll cap is exceeded. A
+          CREATE that runs long enough to hit the cap is a real signal, and would
+          otherwise be indistinguishable from a plain Lambda timeout.
+      now: Monotonic-clock seam; tests inject a fake clock.
+      sleep: Sleep seam; tests inject a no-op that advances the fake clock.
+      poll_interval_seconds: Delay between ``GetQueryExecution`` polls.
+      max_poll_duration_seconds: Wall-clock cap before raising ``timeout_reason``.
+      client_request_token: Athena's idempotency key (32-128 chars). SUPPLY IT for any
+          statement whose re-execution is not free. Without one, a Step Functions ``Retry``
+          after a transient error that arrived AFTER submission runs the statement a
+          SECOND time; with one, Athena returns the original execution id and the retry
+          re-attaches. On a DROP + CREATE pair that is the difference between a retry
+          re-reading its own work and a retry dropping the table it just rebuilt.
 
     Returns:
-        The ``QueryExecutionId`` on ``SUCCEEDED``.
+      The ``QueryExecutionId`` on ``SUCCEEDED``.
 
     Raises:
-        TerminalError: ``fail_reason`` on a failed or unstartable query; ``timeout_reason``
-            when the poll cap is exceeded. The query may still finish in Athena, so the
-            timeout is recorded rather than silently lost.
-        TransientError: on a throttling/5xx Athena error (for the SFN ``Retry``).
+      TerminalError: ``fail_reason`` on a failed or unstartable query; ``timeout_reason``
+          when the poll cap is exceeded. The query may still finish in Athena, so the
+          timeout is recorded rather than silently lost.
+      TransientError: on a throttling/5xx Athena error (for the SFN ``Retry``).
     """
     athena = clients.athena()
     try:

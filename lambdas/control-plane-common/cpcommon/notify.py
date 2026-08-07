@@ -93,8 +93,32 @@ def notifies_on_failure(step: str, emit_unexpected, emit_terminal=None):
     """
 
     def decorate(handler):
+        """Wraps one verb handler.
+
+        Args:
+          handler: The verb handler to wrap.
+
+        Returns:
+          The wrapped handler.
+
+        Raises:
+          None.
+        """
+
         @functools.wraps(handler)
         def wrapper(event, context):
+            """Runs the handler, notifying on the failures this decorator owns.
+
+            Args:
+              event: The verb's event.
+              context: The Lambda context.
+
+            Returns:
+              Whatever the handler returned.
+
+            Raises:
+              Exception: Whatever the handler raised, always re-raised for the SFN Catch.
+            """
             try:
                 return handler(event, context)
             except TransientError:

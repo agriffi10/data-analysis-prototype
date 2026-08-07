@@ -52,6 +52,9 @@ Attributes:
   _RECEIVE_WAIT_SECONDS: Long-poll each receive rather than short-poll. A short poll samples a
     subset of SQS hosts and can return empty while a message waits, deferring it a whole
     interval, and a couple of seconds on an empty queue is nothing on this cadence.
+  _MESSAGES: This drain's own resolver, registered through the shared hook so its one code is a
+    valid terminal reason and its wording lives in a registry rather than inline at the emit
+    site.
 """
 
 import json

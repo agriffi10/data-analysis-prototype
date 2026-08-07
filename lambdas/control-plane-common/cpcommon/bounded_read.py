@@ -18,6 +18,8 @@ Attributes:
     is abandoned.
   DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES: Decompressed bytes held in memory — the bound that
     actually protects the function.
+  _CHUNK_BYTES: Bytes pulled from a stream at a time, and the granularity every bound above is
+    actually enforced at — a read stops at the first chunk boundary past its limit.
   _GZIP_WBITS: zlib window bits for a gzip rather than raw-deflate stream.
 """
 

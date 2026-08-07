@@ -32,12 +32,13 @@ Attributes:
   RAW_LINE_SERDE: The raw-line table's storage clause. Ragged rows are invisible to a normal read
     because the SerDe has already parsed them away, so a second table over the same folder with
     one column and a delimiter that never occurs in the data hands each physical line to SQL as a
-    raw string. The delimiter is written as an escape sequence, never a literal control byte: an
-    invisible byte pasted into a source file survives no diff review, no copy-paste and no editor
-    round-trip, and the ragged check would then split on a delimiter that does occur in the data.
-    There is deliberately no header-skip property — every physical line must arrive, including
-    the header, so the ragged query can exclude it explicitly and the line count is the true
-    physical count.
+    raw string. The delimiter is the four characters backslash-zero-zero-one — an escape
+    sequence, never a literal control byte: an invisible 0x01 pasted into a source file survives
+    no diff review, no copy-paste and no editor round-trip, and the ragged check would then split
+    on a delimiter that does occur in the data. That is not hypothetical; this arc's own spec
+    carried a literal 0x01 until review caught it. There is deliberately no header-skip property
+    — every physical line must arrive, including the header, so the ragged query can exclude it
+    explicitly and the line count is the true physical count.
   RAW_LINE_COLUMN: The raw-line table's single column.
   _STORAGE: Format to storage clause for the typed table. CSV is all-string under OpenCSVSerde,
     matching table-builder's shipped behaviour, and reading everything as string is what makes
@@ -375,11 +376,13 @@ def _projection(index: int, column: dict) -> str:
     once, folding null and blank into a single null so every aggregate outside can just test for
     null — and for JSON that is the key-drift check, since the SerDe yields null for a missing key
     and a key that stops being written shows up as a rising missing count with no extra
-    machinery. And it shortens the identifier, so every aggregate outside refers to a two-character
-    alias rather than repeating a possibly-long quoted column name many times. That is not
-    cosmetic: Athena rejects an over-length query string, and the naive form measured well over
-    the cap at the column limit, so every wide check would have failed with a raw engine error
-    about query length. A test pins the rendered size at the cap so this cannot regress.
+    machinery. And it shortens the identifier, so every aggregate outside refers to a two- to
+    four-character alias rather than repeating a possibly-long quoted column name many times.
+    That is not
+    cosmetic: Athena rejects an over-length query string, and the naive form — aggregating
+    directly over the quoted name — measured 324 KB at the 200-column limit, well over the
+    262,144-byte cap, so every wide check would have failed with a raw engine error about query
+    length. A test pins the rendered size at the cap so this cannot regress.
 
     A non-string column is passed through untouched: trimming is a string operation, and the
     format already guarantees the value's type.
@@ -465,10 +468,12 @@ def build_profile_query(
     one that matters most for Parquet, cross-file schema drift.
 
     Grouping sets rather than a plain grouping: one total row plus one row per source file, in a
-    single statement and a single scan, with a flag telling the reader which is which. The cost
-    this accepts, stated plainly, is that every per-column aggregate is computed per file as well
-    as globally, so the aggregate count scales with the file count — bounded by the object cap,
-    and the alternative of a second statement means a second full scan.
+    single statement and a single scan, with a flag telling the reader which is which. The path
+    pseudo-column must be carried through the inner select to stay groupable outside — drop it
+    and the grouping fails at query time, not build time. The cost this accepts, stated plainly,
+    is that every per-column aggregate is computed per file as well as globally, so the aggregate
+    count scales with the file count — bounded by the object cap, and the alternative of a second
+    statement means a second full scan.
 
     Args:
       database: The target database.
@@ -677,8 +682,10 @@ def build_duplicates_query(
 
     Its own statement, never merged into the profile query. Grouping over every column of a huge
     table is a full shuffle — the single most expensive operation Athena offers, and a realistic
-    way to exhaust query resources. Isolated, its failure degrades one figure of the report;
-    merged, it would destroy every other finding along with itself.
+    way to exhaust query resources. It also simply cannot run over a JSON source with a
+    MAP-typed column, which is not groupable in Trino, so that degradation is expected on any
+    JSON source carrying a nested object rather than a sign of a bug. Isolated, either failure
+    degrades one figure of the report; merged, it would destroy every other finding with it.
 
     The result shape is pinned to exactly one row, which is what lets the report verb read the
     result file whole without a bound. Partition columns are included in the grouping because

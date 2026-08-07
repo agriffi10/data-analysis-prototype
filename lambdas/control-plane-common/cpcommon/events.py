@@ -31,7 +31,10 @@ def parse_sqs_request(event: Any, *, reason: str) -> dict:
       reason: The caller's registered terminal reason code to raise under.
 
     Returns:
-      The parsed request body as a dict.
+      The parsed request body. Typed as a dict because every producer sends one, but the parse
+      is unguarded, so a body that is valid JSON of another type — a list, a number — is
+      returned as-is and the caller's first field read raises. Every caller either reads
+      through ``require``, which type-checks, or guards the shape itself.
 
     Raises:
       TerminalError: On an empty batch, an unrecognised event shape, a missing body, or a

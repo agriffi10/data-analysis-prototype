@@ -11,10 +11,13 @@ Sizing evidence for the scan budget and the sample floor is in ``docs/lambda-rat
 
 Attributes:
   RESERVED_PREFIXES: First-path-segment prefixes a report may not be written under and a check
-    may not target. Keep in sync with the file-converter arc's own blocklist: the two lists
-    exist separately because the arcs are independent, and they must not drift apart. The
-    file-converter's scratch prefix is included defensively — this arc never writes it, but a
-    check must not treat a sibling pipeline's scratch space as a valid destination either.
+    may not target — Athena query output, the notification inbox and saved queries,
+    table-share's copy destinations, this arc's own reports, the file-converter's scratch
+    prefix, and the published username directory. Keep in sync with the file-converter arc's
+    own blocklist: the two lists exist separately because the arcs are independent, and they
+    must not drift apart. That scratch prefix is included defensively — this arc never writes
+    it, but a check must not treat a sibling pipeline's scratch space as a valid destination
+    either.
   MARKER_BASENAME: The space prefix marker that must never be overwritten.
   DQ_MAX_OBJECTS: Max objects under the target location. There is deliberately no maximum total
     size: that ceiling was a Lambda artefact, and Athena reads the data now.
@@ -81,7 +84,8 @@ Attributes:
   DQ_INDEX_MAX_ENTRIES: Entries kept in a space's runs index, oldest dropped first. The cap is
     what keeps the index worth having — the dashboard fetches the whole file on every load, so
     an uncapped index makes the page slower the more the feature is used, which is the exact
-    failure the index was introduced to avoid.
+    failure the index was introduced to avoid. 200 rows is 20 pages at 10 a page; past that a
+    user wants a search, not a longer list.
   DQ_INDEX_CAS_RETRIES: Compare-and-swap attempts before an index append gives up and is
     swallowed. Contention is a few concurrent checks in one space, so a small cap is plenty;
     this mirrors the shared-space primitive rather than inventing a number.
@@ -150,6 +154,10 @@ def _validate_caps() -> None:
     either always-flagged or never-flagged, which looks like a broken checker rather than a
     broken config, and the other would either spend nothing on the head window or spend the
     whole share there — both silently changing what "sampled" means in a user's report.
+
+    The call sits at the very BOTTOM of this module, and must stay there: it reads every cap,
+    including the ones declared after its own ``def``. Moving the call up — the obvious tidy —
+    is a NameError at cold start on every verb that attaches the layer.
 
     Args:
       None.

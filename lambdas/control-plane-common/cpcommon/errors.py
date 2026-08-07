@@ -1,10 +1,18 @@
 """Error types that drive every control-plane Step Function's fail/retry routing.
 
-Shared so the table-builder, table-share, data-quality and shared-space verbs all raise one
-``TerminalError``/``TransientError`` type instead of per-layer copies.
+Shared so the table-builder, table-share and data-quality verbs all raise one
+``TerminalError``/``TransientError`` type instead of per-layer copies. Shared-space is not among
+them — it raises its own ``AuthorizationError``, which is what ``AuthError`` below exists to
+bridge.
 
 Attributes:
   MAX_DETAIL_CHARS: Longest raw-service text allowed into a ``TerminalError`` detail.
+  _SFN_ERROR: The key a Step Functions Catch parks the error NAME under. The only part
+    guaranteed to be present — see ``failure_reason``.
+  _SFN_CAUSE: The key it parks an optional Cause under.
+  _TRANSIENT_CODES: The retryable AWS fault codes, fleet-wide. A code not in here is
+    deterministic — AccessDenied, NoSuchKey, a 403 or 404 — and retrying it just burns the
+    state machine's attempts on something that cannot resolve.
 """
 
 import json
@@ -123,9 +131,12 @@ class TerminalError(Exception):
         oversized Causes.
       tokens: User-facing substitution values, copied and stringified. Copied rather than
         aliased so a caller mutating its dict cannot retroactively change the message a
-        decorator renders. Deliberately not part of the exception message: that message
-        becomes the SFN Cause, which ``failure_reason`` splits on its first colon, and an S3
-        key or column name could carry a colon and corrupt the split.
+        decorator renders; stringified so a message body's ``str.replace`` cannot fail on an
+        integer count. Deliberately not part of the exception message: that message becomes the
+        SFN Cause, which ``failure_reason`` splits on its first colon, and an S3 key or column
+        name could carry a colon and corrupt the split. Nothing is lost by that, because tokens
+        are never needed on the notify-failure path — the decorator emits first and wins the
+        FIFO dedup.
     """
 
     def __init__(self, reason, detail="", tokens=None):
@@ -236,8 +247,9 @@ def raise_if_transient(exc, detail: str = "") -> None:
     This helps only under a state whose Retry ``ErrorEquals`` names ``TransientError`` — the
     code half and the state-machine half must move together. The transient set is the
     canonical superset the per-verb copies converged on; a code not in it is deterministic.
-    Glue's ``InternalServiceException`` and ``OperationTimeoutException`` are included and
-    miss the generic spellings by a word.
+    Glue's ``InternalServiceException`` and ``OperationTimeoutException`` are included and miss
+    the generic spellings by a word — safe to widen the shared set with them because no other
+    AWS service raises either code.
 
     Args:
       exc: The exception to classify.

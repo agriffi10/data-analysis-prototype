@@ -1,11 +1,15 @@
 """The copy plan, passed between states by pointer rather than inline.
 
 inspect-source writes the source object list here and threads its key onward; copy-objects
-loads it once per recipient. The list runs to the object cap, and the Map copies the whole
-state into every item, so inline it reached 95% of the state-payload limit at the shipped
-caps — and breaching that destroys every per-recipient outcome the Map exists to preserve. By
-pointer the same state is about a third. The same indirection, for the same reason, as the
-data-quality manifest. Measurements: ``docs/lambda-rationale.md``.
+loads it once per recipient.
+
+It is not on the state, and the reason is measured rather than assumed: the list runs to the
+1000-object cap, the Map's item selector copies the whole state into every item, and the result
+path merges the per-recipient results back in. At the shipped caps with ordinary Hive keys of
+around 140 characters that reached **249 KB — 95%** of the 256 KB state-payload limit, and 71%
+with zero failures. Breaching it destroys every per-recipient outcome the Map exists to preserve.
+By pointer the same state is about 34%. The same indirection, for the same reason, as the
+data-quality manifest.
 
 It lives in the admin bucket rather than a user's space: the SPA never browses it, so the plan
 needs no hidden-folder convention, and a user cannot delete it out from under a running

@@ -194,9 +194,32 @@ the range (share = 2 GiB / fileCount, head = half of it):
 | 1000 | 0 | 1000 | ~65 s — 21,000 GETs / ~630 s without the floor |
 
 Both costs are now bounded: never more than `DQ_SCAN_TOTAL_BYTES`, and never more than ~1000
-requests. At 1000 files each file's whole 2 MiB share goes to its head window, which is the
-right trade — one contiguous 2 MiB read beats 21 scattered 100 KiB ones for finding a corrupt
-export, and the report says the coverage is sampled either way.
+requests. At 1000 files no sample clears the floor, so a file's 2 MiB share buys only its head
+window — `head = int(share * DQ_SCAN_HEAD_FRACTION)` = **1 MiB**, and the 1 MiB remainder is
+under `DQ_SCAN_MIN_SAMPLE_BYTES`, so it buys no ranged read at all. That is the right trade: one
+contiguous 1 MiB read beats 21 scattered 100 KiB ones for finding a corrupt export, and the
+report says the coverage is sampled either way.
+
+## `shared-space-common/registry.py` — why a membership write is a delta
+
+`save_members` takes **deltas** (`add=`, `remove=`, `acknowledge=`) and derives the new roster
+inside its own compare-and-swap. It used to take the roster the caller had computed from
+`event["registry"]` — a snapshot read before the request began — and assign it over the
+freshly-read record. So the CAS re-read the record and then overwrote the one field it exists to
+protect with a stale value: two overlapping requests on one space were **last-write-wins on the
+roster**, and a concurrent remove reinstated a just-added member (SPEC-151 FR-004).
+
+Nothing serializes those requests. `shared-spaces/pipe.tf` is `FIRE_AND_FORGET` and the FIFO
+group id is one global constant, which `casio`'s own module docstring says outright.
+
+**Four callers, not three.** `acknowledge-membership` is one too, and it is the only one that
+*adds* to `acknowledged`. Left out of the conversion, it would have kept passing a whole computed
+list and kept the defect.
+
+**`status` is no longer written by this path.** It used to be forced to `"active"`
+unconditionally, which let a membership write racing a delete return a `deleting` space to
+`active` — the cascade would then run against a record claiming to be healthy. Only a
+`setdefault` remains, to heal a record written before the field existed.
 
 ## `tscommon/config.py` — sizing the three share caps
 
@@ -213,8 +236,9 @@ Map exists to preserve, turning a partial success into a total failure.
 Measured, not guessed: at the bounded worst case (a maximum-length detail plus a deep stack)
 100 recipients reach ~154 KB — under the limit, but the request object rides in the *same*
 payload, so that margin is thinner than it looks. 50 lands at ~68 KB, 26% of the limit.
-`test_map_result_stays_under_the_state_payload_limit` computes this from the constants, so
-changing either without re-checking the other fails the build. The other half of the bound is
+`test_the_whole_map_state_stays_under_the_payload_limit`
+(`lambdas/control-plane-common/test_state_machines_cpcommon.py`) computes this from the
+constants, so changing either without re-checking the other fails the build. The other half of the bound is
 `cpcommon.athena` truncating the raw Athena reason: a cap on **count** alone cannot bound a
 32 KB Cause, which breaches at **seven** recipients. It is also a sane product limit in its own
 right — 1000 objects × 50 recipients is 50,000 `CopyObject` calls, and there was previously no

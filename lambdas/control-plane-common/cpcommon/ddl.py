@@ -21,6 +21,12 @@ Attributes:
   SERDE_FORMATS: SerDe library to the format key this repo's inference reports. Both JSON
     SerDes are listed because the two arcs disagree on which to write and a refresh may
     meet either.
+  _PARTITION_HIVE: Declared partition type to the Hive column type ``PARTITIONED BY`` renders.
+    A type absent from here reaches this map before any validation raises, so an unknown
+    declared type surfaces as a ``KeyError`` — see ``build_create_table_ddl``.
+  _DEFAULT_STORAGE: The table-builder defaults, unchanged since the consolidation.
+    ``build_create_table_ddl`` falls back to these when no storage is passed, which is what
+    keeps that arc's golden-string tests meaningful across the move.
 """
 
 from typing import NamedTuple
@@ -44,10 +50,10 @@ class Storage(NamedTuple):
     """A format's storage clause plus the TBLPROPERTIES that clause requires.
 
     Attributes:
-        clause: The ``ROW FORMAT …``/``STORED AS …`` fragment, inserted verbatim.
-        tblproperties: Ordered (key, value) pairs emitted BEFORE the projection
-            properties, so a caller's format props and Athena's projection props keep a
-            stable, testable order.
+      clause: The ``ROW FORMAT …``/``STORED AS …`` fragment, inserted verbatim.
+      tblproperties: Ordered (key, value) pairs emitted BEFORE the projection
+          properties, so a caller's format props and Athena's projection props keep a
+          stable, testable order.
     """
 
     clause: str
@@ -106,6 +112,10 @@ def literal(value: str) -> str:
     Applies to every literal in a statement — column comments, TBLPROPERTIES keys and
     values, and LOCATION. Free text a user wrote may contain an apostrophe, which would
     otherwise end the literal and turn the rest of the statement into syntax.
+
+    This is the Hive/DDL escaper. Two others exist and must never be confused with it:
+    ``dqcommon.sql._literal_dml`` doubles the quote for Trino, and ``tscommon.ddl._lit`` is a
+    byte-identical twin of this one serving table-share's own renderer.
 
     Args:
       value: The value to render; coerced with ``str``.
@@ -360,29 +370,33 @@ def build_create_table_ddl(
     could otherwise inject a property that switched partition projection off.
 
     Args:
-        database: Target Glue/Athena database.
-        table_name: Target table name (already validated by the caller).
-        columns: Ordered [{name, type}] data columns, Hive types.
-        partition_keys: Declared partition keys ([] = flat), each
-            {name, type, …} per ``_projection_props``.
-        fmt: Format key used only to pick the DEFAULT storage; ignored when ``storage``
-            is supplied.
-        location: ``s3://…/`` folder the external table reads.
-        storage: Explicit storage clause + its properties. Omit for the table-builder
-            defaults; supply one when the domain's SerDe choice differs.
-        mark: Whether to emit the ``portal.managed`` marker. Default on, and a separate
-            argument from ``storage`` deliberately — inferring it from ``storage is None``
-            would strip the marker from every table a refresh touches, since the refresh
-            path supplies a Storage rebuilt from the live table. Pass ``False`` for a table
-            that is not a durable user table, such as data-quality's temporary tables.
+      database: Target Glue/Athena database.
+      table_name: Target table name (already validated by the caller).
+      columns: Ordered [{name, type}] data columns, Hive types.
+      partition_keys: Declared partition keys ([] = flat), each
+          {name, type, …} per ``_projection_props``.
+      fmt: Format key used only to pick the DEFAULT storage; ignored when ``storage``
+          is supplied.
+      location: ``s3://…/`` folder the external table reads.
+      storage: Explicit storage clause + its properties. Omit for the table-builder
+          defaults; supply one when the domain's SerDe choice differs.
+      mark: Whether to emit the ``portal.managed`` marker. Default on, and a separate
+          argument from ``storage`` deliberately — inferring it from ``storage is None``
+          would strip the marker from every table a refresh touches, since the refresh
+          path supplies a Storage rebuilt from the live table. Pass ``False`` for a table
+          that is not a durable user table, such as data-quality's temporary tables.
 
     Returns:
-        The full statement as one line.
+      The full statement as one line.
 
     Raises:
-        ValueError: On an unknown format when ``storage`` is omitted, an unknown partition
-            type, or a non-string partition enum value.
-        KeyError: If a column or partition key is missing a required field.
+      ValueError: On an unknown format when ``storage`` is omitted, or a non-string partition
+          enum value.
+      KeyError: If a column or partition key is missing a required field, or a partition key
+          declares a type this builder does not render. That last case reaches the Hive-type
+          lookup before it ever reaches ``_projection_props``' ``ValueError``, so an unknown
+          partition type surfaces here as a ``KeyError`` — callers validate the declared type
+          up front rather than relying on either.
     """
     resolved = storage if storage is not None else default_storage(fmt)
 

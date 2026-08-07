@@ -282,7 +282,8 @@ def effective_acknowledged(registry: dict) -> list[str]:
 
     Membership stays a plain list of names; join status is tracked out of band as its own list
     of members who have signed in and picked up the space. A record written before that concept
-    existed has no such field — its members predate it, so they are all treated as acknowledged.
+    existed has no such field — its members predate it, so every one of them except the owner is
+    treated as acknowledged (the owner is always active and is never listed here).
 
     Callers do not persist through this. They used to, by setting the field before saving the
     roster, and that contract was deleted because it carried the same stale-snapshot defect as
@@ -355,6 +356,14 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
         a record predating the pending concept has no such field, so every member reads as
         acknowledged, and reading after the add would sweep the member being added right now
         into that set and show them active instead of pending.
+
+        An acknowledgement is applied only if the member is still on the freshly-read roster.
+        That membership test is the race the delta exists for, not belt-and-braces: without it,
+        acknowledging a membership a concurrent remove just revoked would re-create it.
+
+        The creation timestamp is defaulted to heal a record written before the field existed, so
+        an older space's connections card does not show a permanently blank created date. That is
+        a different default from the status one below, which heals a different missing field.
 
         Args:
           existing: The freshly-read record, or None.

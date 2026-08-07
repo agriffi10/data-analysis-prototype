@@ -181,6 +181,7 @@ def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dic
 
     Raises:
       TerminalError: ``update_failed`` when two columns collapse to one name.
+      ValueError: If a reconstructed partition key cannot be rendered.
     """
     table_input = {key: value for key, value in live_table.items() if key in _TABLE_INPUT_FIELDS}
 
@@ -329,6 +330,9 @@ def handler(event: dict, context) -> dict:
         leaves the table exactly as it was, and the actor is notified before the SFN Catch
         records it.
       TransientError: On a retryable Glue fault.
+      ValueError: If a reconstructed partition key cannot be rendered. Unlike the two above it
+        is not a classified outcome — the decorator notifies it generically and the state
+        machine records it by its Python name.
     """
     return _apply(event)
 
@@ -349,6 +353,8 @@ def _apply(event: dict) -> dict:
     Raises:
       TerminalError: ``table_not_found`` or ``update_failed``.
       TransientError: On a retryable Glue fault.
+      ValueError: If a reconstructed partition key cannot be rendered — it escapes the terminal
+        classification and reaches the state machine as its own name.
     """
     events.require(event, "actor")
     database = events.require(event, "space", "database")

@@ -30,6 +30,13 @@ shape can see, and a filter that looked like enforcement would be worse than non
 would be trusted. Shape notes, the stack-trace exemption and the one-run-is-nine-traces
 caveat are in ``docs/lambda-rationale.md``.
 
+Import-safety is the point of this module's shape. The cpcommon layer attaches to every
+control-plane verb, and ``config._require`` runs at import — one missing variable is a
+cold-start crash across a whole control plane, which is this fleet's own recorded outage
+(PR #196). So ``LOGS_QUEUE_URL`` is read with ``os.environ.get`` and never ``_require``: a
+function that misses it logs to stdout instead of failing to start. It joins
+``NOTIFICATIONS_QUEUE_URL`` as an explicitly optional variable.
+
 Attributes:
   LOGS_QUEUE_URL: Optional and never required, for the cold-start reason above. Unset means
     stdout, not a crash.
@@ -74,23 +81,23 @@ def init(service: str, **defaults: object) -> None:
     around. It exposes nothing CloudWatch does not already hold.
 
     Args:
-        service: The control-plane name — ``data-quality``, never
-            ``data-quality-inspect-source``. It becomes an S3 key prefix under ``logs/`` when
-            the sweep partitions the events, so one plane's runs stay one queryable set; the
-            per-verb identity rides as the ``verb`` field that ``traced`` stamps.
-        **defaults: Extra fields stamped on every event from this process.
+      service: The control-plane name — ``data-quality``, never
+          ``data-quality-inspect-source``. It becomes an S3 key prefix under ``logs/`` when
+          the sweep partitions the events, so one plane's runs stay one queryable set; the
+          per-verb identity rides as the ``verb`` field that ``traced`` stamps.
+      **defaults: Extra fields stamped on every event from this process.
 
     Returns:
-        None.
+      None.
 
     Raises:
-        None.
+      None.
 
     Note:
-        ``lf.trace`` is used with no argument- or return-capture option here or anywhere in
-        this repo, and that is deliberate: it is the single setting that would turn every
-        traced verb into a data-exfiltration path, writing user data into an operator store
-        retained forever. The library captures nothing by default; keep it that way.
+      ``lf.trace`` is used with no argument- or return-capture option here or anywhere in
+      this repo, and that is deliberate: it is the single setting that would turn every
+      traced verb into a data-exfiltration path, writing user data into an operator store
+      retained forever. The library captures nothing by default; keep it that way.
     """
     global _initialized
     if _initialized:
@@ -166,21 +173,44 @@ def traced(verb: str):
     ``module.handler`` by name, and an unwrapped wrapper would be invisible to the runtime.
 
     Args:
-        verb: The control-plane verb name. Names the span and rides as baggage on every event
-            in it, children included.
+      verb: The control-plane verb name. Names the span and rides as baggage on every event
+          in it, children included.
 
     Returns:
-        A decorator for a Lambda handler.
+      A decorator for a Lambda handler.
 
     Raises:
-        None.
+      None.
     """
 
     def decorate(fn):
+        """Wraps one Lambda handler in the verb's span.
+
+        Args:
+          fn: The handler to wrap.
+
+        Returns:
+          The wrapped handler.
+
+        Raises:
+          None.
+        """
         span = lf.trace(name=verb)(fn)
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            """Stamps this invocation's baggage, runs the span, and flushes on the way out.
+
+            Args:
+              *args: The handler's positional arguments; the first is the event.
+              **kwargs: The handler's keyword arguments.
+
+            Returns:
+              Whatever the handler returned.
+
+            Raises:
+              Exception: Whatever the handler raised; the flush still runs.
+            """
             _reset_baggage()
             _stamp_verb(verb)
             _stamp_request_id(args[0] if args else None)
@@ -213,13 +243,13 @@ def step(name: str):
     volume decision.
 
     Args:
-        name: The step name, emitted as the child span's function.
+      name: The step name, emitted as the child span's function.
 
     Returns:
-        A decorator for the step function.
+      A decorator for the step function.
 
     Raises:
-        None.
+      None.
     """
     return lf.trace(name=name)
 
@@ -403,7 +433,8 @@ def _extract_request_id(event: object) -> str | None:
     onward. The EventBridge Pipe envelope is the raw SQS batch, a list whose single record's
     body is a JSON string — every validate-authorize verb. Missing the second shape is what
     made the verb that establishes the request the one verb that could not be joined to its own
-    run.
+    run, found in live traffic on 2026-07-23: the synthetic empty-event probe could not
+    distinguish "absent" from "not extracted", so no test would have caught it.
 
     Deliberately does not call ``events.parse_sqs_request``, which raises ``TerminalError`` on
     a malformed envelope: a logging helper that can raise a domain terminal is a logging helper

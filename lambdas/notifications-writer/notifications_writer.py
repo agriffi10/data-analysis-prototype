@@ -25,6 +25,8 @@ Attributes:
   APP_CLIENT_ID: Set by Terraform.
   NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
   REGION: Provided by the Lambda runtime.
+  _ISSUER: The user pool's token issuer, derived from the region and pool id.
+  _JWKS_URL: The pool's JWKS endpoint, derived from the issuer.
   _s3: Lazily initialised, cached across warm invocations, module-level so tests patch it.
   _jwk_client: The same, for the JWKS client.
 """

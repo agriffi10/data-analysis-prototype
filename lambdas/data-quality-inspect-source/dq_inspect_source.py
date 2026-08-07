@@ -582,9 +582,10 @@ def _detect_partition_keys(objects: list[tuple[str, int]], listing_prefix: str) 
     is silently omitted from the report — the user would get a clean verdict over a folder we did
     not fully read. That is the same harm the unreadable-header refusal exists for.
 
-    An empty key or value is the same harm as a layout mismatch: an absent value has its own Hive
-    spelling, so the projection enum would contain an empty string — a partition that resolves to
-    nothing, whose files are then silently missing from the report.
+    An empty key or value is the same harm as a layout mismatch: Hive spells an absent value
+    ``__HIVE_DEFAULT_PARTITION__``, so the projection enum would instead contain an empty string
+    — a partition that resolves to nothing, whose files are then silently missing from the
+    report.
 
     The result is sorted for determinism: the manifest and the projection enum are compared across
     retries, and listing order is not guaranteed stable.

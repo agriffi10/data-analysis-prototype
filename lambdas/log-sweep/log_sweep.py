@@ -424,7 +424,9 @@ def handler(event, context):
       context: The Lambda context, unused.
 
     Returns:
-      A dict of the messages swept, events written and day-groups touched.
+      A dict of the messages swept and events written, plus the day-groups touched when there
+      was anything to sweep. The two early returns — not configured, and nothing on the queue —
+      report zeroes and omit the group count.
 
     Raises:
       None. Total by design: no message can make this raise.
