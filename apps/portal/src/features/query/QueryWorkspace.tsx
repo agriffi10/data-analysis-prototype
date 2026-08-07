@@ -1,12 +1,10 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
-import {Banner} from '../../components/Banner';
 import {cx} from '../../lib/cx';
 import {spaceBuckets} from '../../lib/userSpace';
 import {useQueryResults} from './useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
-import {ResultsPageSizeControl} from './ResultsPageSizeControl';
 import {useResultRowCount} from './useResultRowCount';
 import {useColumnWidths} from './useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
@@ -27,7 +25,6 @@ import {
   splitSqlStatements,
   stripTrailingSemicolons
 } from './query.sql';
-import {ResultTabs} from './ResultTabs';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
@@ -36,11 +33,10 @@ import {useTableShare} from '../table-share';
 import {parseRefreshLink, useTableRefresh} from '../table-builder';
 import {useToast} from '../../components/toastContext';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
-import {QueryStatusBar} from './QueryStatusBar';
-import {QueryResultsTable} from './QueryResultsTable';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
 import {SavedQueriesPanel} from './SavedQueriesPanel';
 import {QueryTabStrip} from './QueryTabStrip';
+import {QueryResultsRegion} from './QueryResultsRegion';
 import {QueryToolbar} from './QueryToolbar';
 import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
@@ -647,103 +643,28 @@ export function QueryWorkspace() {
                   </Suspense>
                 </div>
 
-                {editorExecutionId !== null && (
-                  <QueryStatusBar
-                    status={activeStatus}
-                    isInFlight={activeIsInFlight}
-                    startedAt={activeRun?.startedAt ?? null}
-                    batch={
-                      activeRun && activeRun.statements.length > 1
-                        ? {current: activeRun.currentIndex + 1, total: activeRun.statements.length}
-                        : undefined
-                    }
-                    rowCount={displayExecutionId !== null ? results.loadedRowCount : undefined}
-                    hasMoreRows={results.hasMoreServer}
-                    hasResultSet={hasResultSet}
-                    totalRowCount={rowCount.total}
-                    canSaveResults={canSaveResults}
-                    onSaveResults={saveResults.openDialog}
-                  />
-                )}
-
-                {showError && editorOwnsRun && (
-                  <div className="px-5 pt-4">
-                    <Banner
-                      variant="danger"
-                      title="Query failed."
-                      onDismiss={() => dismissError(activeTabId)}>
-                      {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
-                      engine text (the raw reason is dev-logged + kept in history). */}
-                      <p className="text-sm">{errorMessage}</p>
-                    </Banner>
-                  </div>
-                )}
-
-                <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-                  {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
-                  strip; the other scopes render a single result view. Tabs are
-                  ephemeral — a new run replaces the tab's run state wholesale. */}
-                  {showResultTabs && activeRun && (
-                    <ResultTabs
-                      tabs={activeRun.resultTabs}
-                      activeIndex={activeRun.activeResultTabIndex}
-                      onSelect={(index) => selectResultTab(activeTabId, index)}
-                    />
-                  )}
-                  {/* SPEC-087 FR-002: the Results header row carries the "Rows per
-                  page" control — above the grid, right under the status bar's
-                  row-count stat, and always rendered (disabled, never hidden,
-                  when there's no result set to page). */}
-                  <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3">
-                    <h2 className="text-base font-semibold">Results</h2>
-                    <ResultsPageSizeControl
-                      pageSize={resultsPageSize.pageSize}
-                      onCommit={resultsPageSize.setPageSize}
-                      disabled={!hasResultSet || !editorOwnsRun}
-                    />
-                  </div>
-                  {editorDisplayExecutionId !== null ? (
-                    <div
-                      className="flex min-h-0 flex-1 flex-col"
-                      {...(showResultTabs &&
-                        activeRun && {
-                          role: 'tabpanel',
-                          id: 'result-tabpanel',
-                          'aria-labelledby': `result-tab-${activeRun.activeResultTabIndex}`
-                        })}>
-                      <QueryResultsTable
-                        columns={results.columns}
-                        rows={results.rows}
-                        pageIndex={results.pageIndex}
-                        rangeStart={results.rangeStart}
-                        rangeEnd={results.rangeEnd}
-                        totalRowCount={results.totalRowCount}
-                        hasPrev={results.hasPrev}
-                        hasNext={results.hasNext}
-                        isFetchingNext={results.isFetchingNext}
-                        isLoading={results.isPending}
-                        widths={colWidths.widths}
-                        onResize={colWidths.setWidth}
-                        onResetColumn={colWidths.resetColumn}
-                        onPrev={results.goPrev}
-                        onNext={results.goNext}
-                      />
-                    </div>
-                  ) : (
-                    <p className="flex h-full items-center justify-center text-sm text-text-3">
-                      {/* A disowned run isn't this buffer's to narrate — but while
-                          it holds the tab it locks the toolbar, so silence would
-                          leave that unexplained. */}
-                      {activeIsInFlight
-                        ? editorOwnsRun
-                          ? 'Running your query…'
-                          : 'A query you started on a smaller screen is still running.'
-                        : editorOwnsRun && activeBatchDone && activeStatus?.state === 'SUCCEEDED'
-                          ? 'The run finished without returning rows.'
-                          : 'Run a query to see results.'}
-                    </p>
-                  )}
-                </div>
+                <QueryResultsRegion
+                  run={activeRun}
+                  status={activeStatus}
+                  isInFlight={activeIsInFlight}
+                  batchDone={activeBatchDone}
+                  editorOwnsRun={editorOwnsRun}
+                  editorExecutionId={editorExecutionId}
+                  editorDisplayExecutionId={editorDisplayExecutionId}
+                  displayExecutionId={displayExecutionId}
+                  hasResultSet={hasResultSet}
+                  totalRowCount={rowCount.total}
+                  results={results}
+                  pageSize={resultsPageSize}
+                  colWidths={colWidths}
+                  showResultTabs={showResultTabs}
+                  showError={showError}
+                  errorMessage={errorMessage}
+                  onDismissError={() => dismissError(activeTabId)}
+                  onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
+                  canSaveResults={canSaveResults}
+                  onSaveResults={saveResults.openDialog}
+                />
               </div>
             </div>
           </>
