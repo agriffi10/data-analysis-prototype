@@ -205,27 +205,6 @@ class S3RangeReader(io.RawIOBase):
         self._pos += len(data)
         return len(data)
 
-    def readall(self) -> bytes:
-        """Reads to EOF. Present for file-object completeness; the footer probe never calls it.
-
-        Args:
-          None.
-
-        Returns:
-          Every remaining byte.
-
-        Raises:
-          TransientError: On a retryable S3 fault.
-          ClientError: Any other S3 fault propagates.
-        """
-        out = bytearray()
-        while True:
-            chunk = bytearray(_CHUNK_BYTES)
-            count = self.readinto(chunk)
-            if not count:
-                return bytes(out)
-            out += chunk[:count]
-
 
 def read_head(
     bucket: str,

@@ -19,14 +19,13 @@ Attributes:
     cache state directly, so they have no separate intent row.
 """
 
-import json
 import logging
 
 import auth
 import cache
 import config
 import registry as reg
-from cpcommon import observability
+from cpcommon import events, observability
 from notify import emit_notification
 
 logger = logging.getLogger()
@@ -67,47 +66,27 @@ def _record_intent(action, actor, space, request_id):
     emit_notification(actor, template.format(space=space), dedup_id=f"{request_id}:{tag}:{actor}")
 
 
-def _extract_record(event):
-    """Takes the single SQS record out of whichever envelope shape arrived.
+def _parse_request(event):
+    """Parses the queued request out of the Pipe envelope and checks its schema version.
+
+    The envelope handling is ``cpcommon.events.parse_sqs_request``, which this plane had its
+    own copy of — identical bar the exception type, which the shared one now takes as a factory
+    (SPEC-156 FR-005). ``AuthorizationError`` is what this plane's Standard Step Function's
+    Catch is written against, so it stays the type that leaves here.
 
     Args:
       event: The Pipe payload — a single-element list of records, or one record dict.
 
     Returns:
-      The record.
-
-    Raises:
-      AuthorizationError: On an empty batch or an unrecognised event shape.
-    """
-    if isinstance(event, list):
-        if not event:
-            raise auth.AuthorizationError("empty event")
-        return event[0]
-    if isinstance(event, dict):
-        return event
-    raise auth.AuthorizationError("unrecognised event shape")
-
-
-def _parse_request(record):
-    """Parses one record's body and checks its schema version.
-
-    Args:
-      record: The SQS record.
-
-    Returns:
       The parsed request.
 
     Raises:
-      AuthorizationError: On a missing body, a body that is not valid JSON, or an unsupported
-        schema version.
+      AuthorizationError: On an empty batch, an unrecognised event shape, a missing body, a
+        body that is not valid JSON, or an unsupported schema version.
     """
-    body = record.get("body") if isinstance(record, dict) else None
-    if not body:
-        raise auth.AuthorizationError("missing message body")
-    try:
-        req = json.loads(body)
-    except (TypeError, ValueError) as exc:
-        raise auth.AuthorizationError(f"body is not valid JSON: {exc}") from exc
+    req = events.parse_sqs_request(
+        event, reason=events.MALFORMED, exc=auth.AuthorizationError
+    )
     if req.get("schemaVersion") != config.SCHEMA_VERSION:
         raise auth.AuthorizationError(f"unsupported schemaVersion: {req.get('schemaVersion')!r}")
     return req
@@ -143,8 +122,7 @@ def handler(event, context):
         may not perform.
       ClientError: On any S3 fault loading the registry.
     """
-    record = _extract_record(event)
-    req = _parse_request(record)
+    req = _parse_request(event)
     action = req.get("action")
     space = req.get("space")
 

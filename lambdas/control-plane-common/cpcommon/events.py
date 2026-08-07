@@ -18,7 +18,7 @@ from .errors import TerminalError
 MALFORMED = "malformed_event"
 
 
-def parse_sqs_request(event: Any, *, reason: str) -> dict:
+def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> dict:
     """Extracts and JSON-parses the single SQS record body an EventBridge Pipe forwards.
 
     The Pipe forwards the raw SQS batch as a JSON array; this takes the single record and
@@ -28,7 +28,12 @@ def parse_sqs_request(event: Any, *, reason: str) -> dict:
 
     Args:
       event: The Pipe payload — a single-element list of SQS records, or one record dict.
-      reason: The caller's registered terminal reason code to raise under.
+      reason: The caller's registered terminal reason code to raise under. Unused when ``exc``
+        is supplied.
+      exc: A one-argument exception factory called with the detail string, for a plane whose
+        Catch behaviour is expressed in its own exception type rather than ``TerminalError``.
+        Defaults to ``TerminalError`` bound to ``reason``. shared-space passes its
+        ``AuthorizationError``, which is what its own copy of this function existed for.
 
     Returns:
       The parsed request body. Typed as a dict because every producer sends one, but the parse
@@ -38,23 +43,25 @@ def parse_sqs_request(event: Any, *, reason: str) -> dict:
 
     Raises:
       TerminalError: On an empty batch, an unrecognised event shape, a missing body, or a
-        body that is not valid JSON.
+        body that is not valid JSON — or whatever ``exc`` builds, in the same four cases with
+        the same four detail strings.
     """
+    fail = exc if exc is not None else (lambda detail: TerminalError(reason, detail))
     if isinstance(event, list):
         if not event:
-            raise TerminalError(reason, "empty event")
+            raise fail("empty event")
         record = event[0]
     elif isinstance(event, dict):
         record = event
     else:
-        raise TerminalError(reason, "unrecognised event shape")
+        raise fail("unrecognised event shape")
     body = record.get("body") if isinstance(record, dict) else None
     if not body:
-        raise TerminalError(reason, "missing message body")
+        raise fail("missing message body")
     try:
         return json.loads(body)
-    except (TypeError, ValueError) as exc:
-        raise TerminalError(reason, f"body is not valid JSON: {exc}") from exc
+    except (TypeError, ValueError) as err:
+        raise fail(f"body is not valid JSON: {err}") from err
 
 
 def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:

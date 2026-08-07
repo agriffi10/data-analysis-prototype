@@ -11,14 +11,20 @@ EXISTS`` plus the pre-check make a replay a no-op success.
 
 The service name is the control plane, not the function, so one build's five invocations stay
 one queryable set. The per-verb identity rides as the ``verb`` field.
+
+Attributes:
+  athena_run: The table-builder's DDL runner, with this plane's reason codes bound. Held at
+    module level so a timing test can replace its ``_now`` and ``_sleep`` seams, which is the
+    whole reason the per-plane wrapper it replaced existed (SPEC-156 FR-005).
 """
 
 import logging
 
-import athena_run
-from cpcommon import config, observability
+from cpcommon import athena, config, observability
 from tbcommon import notify
 from tbcommon.results import results_location
+
+athena_run = athena.bound_runner("ddl_execution_failed", "ddl_timeout")
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

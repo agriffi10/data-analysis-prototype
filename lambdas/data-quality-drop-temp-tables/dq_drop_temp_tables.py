@@ -19,7 +19,7 @@ the ``verb`` field.
 
 import logging
 
-from cpcommon import athena, observability
+from cpcommon import athena, observability, results
 from cpcommon import config as cpconfig
 from dqcommon import messages, notify, sql
 
@@ -116,8 +116,7 @@ def _cleanup(event: dict) -> dict:
         return out
 
     bucket = (event.get("space") or {}).get("bucket") or cpconfig.USER_SPACE_BUCKET
-    report_prefix = (event.get("reportPrefix") or "").rstrip("/")
-    ddl_output = f"s3://{bucket}/{report_prefix}/ddl/" if report_prefix else f"s3://{bucket}/"
+    ddl_output = results.ddl_output(bucket, event.get("reportPrefix") or "")
 
     dropped, failed = [], []
     for table in tables:

@@ -1,9 +1,13 @@
-"""Unit tests for tscommon.athena (SPEC-092) — the start+poll DDL runner.
+"""Unit tests for table-share's bound DDL runner (SPEC-092) — the start+poll loop.
 
-Fake Athena client + fake clock (the module's _now/_sleep seams): asserts the
+Fake Athena client + fake clock (the runner's _now/_sleep seams): asserts the
 submit parameters, success/failed/cancelled/timeout outcome mapping, and the
 transient-vs-terminal error classification. Runnable under pytest or directly:
 python3 test_table_share_athena.py.
+
+The runner was `tscommon.athena`, a per-plane wrapper byte-identical to the table-builder's
+bar two reason codes; SPEC-156 FR-005 replaced both with `cpcommon.athena.bound_runner`. What
+is under test is unchanged — this plane's reason codes and this plane's poll bounds.
 """
 
 import os
@@ -18,9 +22,10 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import pytest
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
-from tscommon import athena as athena_mod
+from table_share_create_table import athena_mod
 
 
 class _BotoError(Exception):
@@ -66,6 +71,21 @@ class _FakeClock:
 
     def sleep(self, seconds):
         self.t += seconds
+
+
+@pytest.fixture(autouse=True)
+def _restore_the_runner_seams():
+    """Puts the runner's clock seams back after every test.
+
+    `_setup` mutates them on the BoundRunner instance the verb module holds, and conftest's
+    shared-layer snapshot restores module namespaces — it cannot reach an instance attribute.
+    Without this a later-sorting file inherits a spent `_FakeClock` whose `now()` returns a
+    frozen scripted value, so a real poll-loop test would pass or hang for a reason unrelated
+    to what it asserts. The sibling suites in this directory carry the same fixture.
+    """
+    saved = (athena_mod._now, athena_mod._sleep)
+    yield
+    athena_mod._now, athena_mod._sleep = saved
 
 
 def _setup(fake):

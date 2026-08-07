@@ -17,7 +17,7 @@ the ``verb`` field.
 
 import logging
 
-from cpcommon import athena, events, observability
+from cpcommon import athena, events, observability, results
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 from dqcommon import manifest as manifest_store
@@ -180,7 +180,7 @@ def _create(event: dict) -> dict:
     out["tempRawTable"] = raw_table
     out["columnCount"] = len(columns)
 
-    ddl_output = f"s3://{bucket}/{report_prefix.rstrip('/')}/ddl/"
+    ddl_output = results.ddl_output(bucket, report_prefix)
 
     _run_ddl(
         sql.build_temp_table_ddl(

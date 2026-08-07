@@ -19,6 +19,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import pytest
 import table_share_create_table as m
 from cpcommon.errors import TerminalError
 
@@ -70,13 +71,24 @@ def _event(definition=_DEFINITION):
     }
 
 
-def _setup(error=None):
-    """Stub the SHARED ``tscommon.athena.run_ddl``, with no local restore.
+@pytest.fixture(autouse=True)
+def _restore_the_runner():
+    """Puts the real ``run_ddl`` back on the verb's runner after every test.
 
-    None is needed since SPEC-153 FR-004: conftest's snapshot covers every shared-layer
-    module, tscommon included. Before that this patch simply never came back, and the only
-    reason it did no damage was file ordering.
+    A local restore is REQUIRED, and the note that said otherwise was true only while
+    ``athena_mod`` was the module ``tscommon.athena``: conftest's SPEC-153 FR-004 snapshot
+    matches shared-layer modules by name and restores a module NAMESPACE. Since SPEC-156
+    FR-005 this is a ``BoundRunner`` instance held by a verb module, so it is neither matched
+    nor reachable — restoring the namespace rebinds the same instance, attribute intact. The
+    leak was invisible only because the file that would have caught it sorts first.
     """
+    original = m.athena_mod.run_ddl
+    yield
+    m.athena_mod.run_ddl = original
+
+
+def _setup(error=None):
+    """Stubs the verb's bound DDL runner. Restored by the autouse fixture above."""
     fake = _FakeRunDdl(error=error)
     m.athena_mod.run_ddl = fake
     return fake

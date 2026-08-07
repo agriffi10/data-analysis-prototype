@@ -1,10 +1,12 @@
 """Where the table-builder's Athena statements write their results.
 
-Extracted so the create and refresh paths use the same construction rather than a second one
-derived from prose. The two verbs run DDL against the same databases under the same role, and
-a results prefix that differed between them is the kind of divergence that only shows up as a
-Lake Formation denial on whichever path is exercised less.
+The construction is ``cpcommon.results``'s since SPEC-156 FR-003. This module's own docstring
+warned that a divergent results prefix "only shows up as a Lake Formation denial on whichever
+path is exercised less", and two more copies were written anyway — so what is left here is the
+table-builder's shape of the call, not a second construction.
 """
+
+from cpcommon import results
 
 
 def results_location(space: dict, actor: str) -> str:
@@ -23,4 +25,4 @@ def results_location(space: dict, actor: str) -> str:
     Raises:
       KeyError: If the space is missing ``bucket`` or ``database``.
     """
-    return f"s3://{space['bucket']}/{space['database']}/athenaresults/{actor}/"
+    return results.results_location(space["bucket"], space["database"], actor)

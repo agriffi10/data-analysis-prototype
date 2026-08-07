@@ -10,13 +10,19 @@ success.
 
 The service name is the control plane, not the function, so one share's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
+
+Attributes:
+  athena_mod: Table-share's DDL runner, with this plane's reason codes bound. Held at module
+    level so a timing test can replace its ``_now`` and ``_sleep`` seams, which is the whole
+    reason the per-plane wrapper it replaced existed (SPEC-156 FR-005).
 """
 
 import logging
 
-from cpcommon import config, observability
-from tscommon import athena as athena_mod
+from cpcommon import athena, config, observability, results
 from tscommon import ddl, notify
+
+athena_mod = athena.bound_runner("create_failed", "create_timeout")
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -40,7 +46,7 @@ def _results_location(recipient: dict, actor: str) -> str:
     Raises:
       KeyError: If the recipient is missing its destination bucket or database.
     """
-    return f"s3://{recipient['destBucket']}/{recipient['database']}/athenaresults/{actor}/"
+    return results.results_location(recipient["destBucket"], recipient["database"], actor)
 
 
 @observability.traced("create-table")

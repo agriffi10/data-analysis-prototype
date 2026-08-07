@@ -44,6 +44,11 @@ def _basename(key: str) -> str:
 def is_ignored(key: str, size: int, prefix: str) -> bool:
     """Reports whether an object is something other than source data.
 
+    Public for its own test's benefit, and NOT dead — ``list_data_objects`` calls it below.
+    SPEC-156 FR-006 looked at making it private and kept it public: the ignore rule is the one
+    part of listing worth asserting case by case, and a test reaching through a leading
+    underscore to do that is worse than a name that says it may be read.
+
     Args:
       key: The absolute object key.
       size: The object's byte size; zero means a folder placeholder.
