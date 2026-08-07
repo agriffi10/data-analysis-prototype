@@ -140,6 +140,14 @@ def test_every_per_recipient_message_is_byte_for_byte_unchanged(reason):
     assert rendered == _PER_RECIPIENT_MESSAGES[reason]
 
 
+def test_the_only_marker_bearing_body_renders_with_no_result_table_name():
+    """The gate table always supplies a table name, so the `{tableName}` → "" path it leaves
+    uncovered is asserted here. A whole-request failure has no result name yet."""
+    assert messages.failure_message("conflict", "db.orders") == (
+        'Couldn\'t share "db.orders": a table named "" already exists there.'
+    )
+
+
 def test_a_base_code_this_plane_never_declared_now_reads_what_it_means():
     """SPEC-156 FR-002's ONE enumerated difference, and it was found by rendering every
     reason under every argument combination against both implementations — not by eye.

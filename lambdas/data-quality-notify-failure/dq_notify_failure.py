@@ -24,6 +24,7 @@ import logging
 
 from cpcommon import observability
 from cpcommon.errors import failure_reason
+from cpcommon.notify import dedup_id
 from dqcommon import messages, notify
 
 logger = logging.getLogger()
@@ -118,7 +119,7 @@ def handler(event, context) -> dict:
     notify.emit_notification(
         actor,
         messages.failure_message(reason, str(request.get("location") or "")),
-        dedup_id=f"{request_id}:{notify.FAILURE_STEP}" if request_id else None,
+        dedup_id=dedup_id(request_id, notify.FAILURE_STEP),
     )
     observability.info(
         "notified the actor of a failure",

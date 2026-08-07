@@ -1,10 +1,12 @@
 """Best-effort notification primitives shared by every control plane.
 
 Three pieces are genuinely shared: the sender, the failure-notification skeleton and the
-FIFO deduplication token. The domain emitters — ``emit_failure``, ``emit_unexpected``, the
-per-arc success emitters and event-context extraction — stay in each domain layer, because
-their signatures differ. A plane that relies on the queue's content-based dedup simply does
-not call ``dedup_id``.
+*shape* of the FIFO deduplication token. The domain emitters — ``emit_failure``,
+``emit_unexpected``, the per-arc success emitters and event-context extraction — stay in each
+domain layer, because their signatures differ. So do the dedup **strategies**: ``dedup_id``
+composes an id, it does not decide what goes in one, and the four planes make four different
+choices (see its docstring). A plane relying on the queue's content-based dedup simply does
+not call it.
 """
 
 import functools
@@ -18,28 +20,35 @@ logger = logging.getLogger()
 
 
 def dedup_id(request_id, step: str) -> str | None:
-    """Composes the FIFO deduplication id for one outcome.
+    """Composes the FIFO deduplication id from a request id and a step token.
 
-    One token per *outcome*, not one per verb, and that is load-bearing rather than a
-    simplification. Two different code paths emit the failure notification for the same
-    failure: the verb decorator on its way out, and the notify state after the Catch. That
-    state runs once the execution has already left the failing verb and cannot know which
-    verb raised, so a per-verb token would give the two emits different ids and the user
-    would get two notifications for one failure.
+    The shape only. **What a caller passes as ``step`` is the plane's own decision, and the
+    planes deliberately disagree** — this function must not be read as endorsing one.
 
-    The collapse depends on the queue's deduplication window. The two emits land seconds
-    apart, comfortably inside it. If a future change put minutes between them — a long wait
-    on the failure path, a retry storm in cleanup — the window would expire and the user
-    would get both. Only one verb can fail per execution, so one token per outcome still
-    distinguishes a failure notification from a success one, which is all the id has to do.
+    data-quality passes one token per *outcome* (``failure``/``completed``), which is
+    load-bearing there: two code paths emit the same failure — the verb decorator on its way
+    out, and the notify state after the Catch — and that state cannot know which verb raised,
+    so a per-verb token would give the two emits different ids and the user would get two
+    notifications for one failure. shared-spaces reproduces its verbs' own tokens for the same
+    reason. table-builder passes the **verb name** from its decorator and ``failure`` from its
+    notify-failure verb, on purpose: that plane suppresses the duplicate by identifying the
+    verb's error instead, and unifying the tokens would change notification behaviour on paths
+    that already work (see ``tb_notify_failure``'s module docstring). table-share passes
+    nothing at all and relies on the queue's content-based dedup.
+
+    Where a plane does collapse a pair this way, the collapse depends on the queue's
+    deduplication window: the two emits land seconds apart, comfortably inside it. A future
+    change that put minutes between them — a long wait on the failure path, a retry storm in
+    cleanup — would let the window expire and the user would get both.
 
     Args:
       request_id: The run's request id.
-      step: The outcome token.
+      step: The caller's step or outcome token.
 
     Returns:
       ``{requestId}:{step}``, or None without a request id, which falls back to the queue's
-      content-based dedup.
+      content-based dedup. None rather than an invented id, which would defeat that fallback
+      rather than replace it.
 
     Raises:
       None.
@@ -58,9 +67,10 @@ def emit_notification(
     Args:
       username: Recipient, also the FIFO message group. No recipient is a logged no-op.
       message: The rendered notification body.
-      dedup_id: Optional FIFO deduplication token. Table-builder passes
-        ``{requestId}:{step}``; table-share relies on the queue's content-based dedup and
-        passes nothing.
+      dedup_id: Optional FIFO deduplication token, built by this module's ``dedup_id`` —
+        which is a different thing with the same name, and does not read this parameter.
+        Every plane but table-share passes one; table-share relies on the queue's
+        content-based dedup and passes nothing.
       link: Optional in-app path the notification deep-links to. Omitted from the body
         rather than sent as null, because the writer treats any non-empty string as a link
         to persist and an absent key is unambiguous in a way a null is not. Not validated

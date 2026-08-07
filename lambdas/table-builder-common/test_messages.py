@@ -133,7 +133,16 @@ _CREATE_MESSAGES = {
     # sentence rather than a literal "{removed}" on the user's screen.
     "columns_removed": 'Couldn\'t create table "sales": these columns are no longer in the data and would be removed: . Nothing was changed - refresh again and confirm the removal to apply it.',
     "removals_flag_not_applicable": 'Couldn\'t create table "sales": the request was malformed. Please try again.',
+    # Shipped by SPEC-149, exempt while that spec was current. SPEC-156 is the next one, so
+    # it moves in — and it matters more than most: this is the spec whose SOLE acceptance
+    # criterion is byte-identity, and this was the one body it could not have checked.
+    "update_failed": 'Couldn\'t create table "sales": the table couldn\'t be updated. Nothing was changed. Please try again or contact the Administrator.',
 }
+
+#: Bodies whose reason moved to cpcommon's base table (SPEC-156 FR-002). They still render —
+#: through `BASE_MESSAGES` — so the expectations above stay, but `_BODIES` no longer holds
+#: them and the coverage guard below must not demand that it does.
+_MOVED_TO_THE_BASE_TABLE = {"malformed_event", "unexpected_error"}
 
 
 def test_the_gate_covers_every_body_that_shipped_before_this_spec():
@@ -145,11 +154,24 @@ def test_the_gate_covers_every_body_that_shipped_before_this_spec():
     where the drift hides: SPEC-144's three bodies were exempted while 144 was current and
     two of them were still exempt a spec later, pinned by nothing at all. A body is new for
     exactly one spec — when the next one lands, move it into the table above.
+
+    SPEC-156 emptied the exemption: `update_failed` was SPEC-149's and had stayed exempt
+    through the one spec whose sole acceptance criterion is byte-identity.
     """
-    new_in_this_spec = {"update_failed"}
+    new_in_this_spec: set[str] = set()
     uncovered = set(messages._BODIES) - set(_CREATE_MESSAGES) - new_in_this_spec
 
     assert not uncovered, f"bodies with no byte-for-byte expectation: {sorted(uncovered)}"
+    assert not new_in_this_spec, "the exemption is empty — a new body goes straight into the table"
+
+
+def test_the_gate_still_covers_the_reasons_that_moved_to_the_base_table():
+    """The other direction: SPEC-156 removed two reasons from `_BODIES`, and a coverage guard
+    that only walks `_BODIES` would silently stop caring about them. They still render, so
+    they are still pinned."""
+    for reason in _MOVED_TO_THE_BASE_TABLE:
+        assert reason not in messages._BODIES, f"{reason} came back into the domain table"
+        assert reason in _CREATE_MESSAGES, f"{reason} lost its byte-for-byte expectation"
 
 
 def test_every_pre_existing_failure_message_is_byte_for_byte_unchanged():
@@ -287,14 +309,19 @@ def test_every_marker_any_body_declares_is_discovered():
     """The discovery regex decides what gets blanked when a token is absent, and a marker
     it misses is rendered LITERALLY to a user. An earlier version matched `[a-z_]+` only —
     so a `{removedCount}` would have shipped raw, and the surrounding code is camelCase
-    throughout. Asserted against the bodies rather than against the pattern.
+    throughout. Asserted against the wording rather than against the pattern.
+
+    SPEC-156 widened discovery from the bodies to the bodies PLUS the prefix and
+    access-denied templates, so the containment is one-way now: every body marker must be
+    discovered, and the prefix's own two must be as well.
     """
     import re
 
     declared = set(re.findall(r"\{([^{}]*)\}", " ".join(messages._BODIES.values())))
 
-    assert declared == set(messages._MARKERS)
     assert declared, "the discovery found no markers at all — the pattern has gone stale"
+    assert declared <= set(messages._MARKERS), sorted(declared - set(messages._MARKERS))
+    assert {"verb", "name"} <= set(messages._MARKERS), "the prefix's markers went undiscovered"
 
 
 def test_a_token_cannot_shadow_the_database():

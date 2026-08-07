@@ -107,9 +107,17 @@ class Resolver:
     own wording without rebuilding the resolver.
 
     Attributes:
-      markers: Every marker any domain body declares, discovered from the bodies rather than
-        listed, so a new one is blanked-when-absent automatically instead of shipping
-        literally the first time a caller forgets it. Empty unless ``blank_unfilled``.
+      markers: Every marker this resolver's wording declares — bodies, prefix and
+        access-denied clause alike — discovered from that wording rather than listed, so a new
+        one is blanked-when-absent automatically instead of shipping literally the first time
+        a caller forgets it. The prefix is included precisely because it is the template most
+        likely to grow one. Empty unless ``blank_unfilled``.
+
+        Discovered once, at construction, while the domain table is held by reference: a body
+        added later resolves and substitutes but is **not** blanked. That asymmetry is
+        deliberate — it is what lets a domain's tests inject a probe body carrying a literal
+        brace and assert it survives, which is the behaviour ``str.replace``-not-``str.format``
+        exists to guarantee. Production tables are static, so nothing else depends on it.
     """
 
     def __init__(
@@ -153,7 +161,11 @@ class Resolver:
         self._fallback = BASE_MESSAGES[UNEXPECTED_ERROR] if fallback is None else fallback
         self._blank_unfilled = blank_unfilled
         self.markers: frozenset[str] = (
-            frozenset(_MARKER_PATTERN.findall(" ".join(domain_messages.values())))
+            frozenset(
+                _MARKER_PATTERN.findall(
+                    " ".join([*domain_messages.values(), prefix, access_denied])
+                )
+            )
             if blank_unfilled
             else frozenset()
         )
@@ -180,6 +192,25 @@ class Resolver:
             return BASE_MESSAGES[reason]
         return self._fallback
 
+    def _blank(self, text: str) -> str:
+        """Empties the declared markers no token filled, when the domain asked for it.
+
+        Args:
+          text: Already-substituted wording.
+
+        Returns:
+          The wording with any surviving declared marker removed, or unchanged when the
+          domain wants an unfilled marker to remain visible.
+
+        Raises:
+          None.
+        """
+        if not self._blank_unfilled:
+            return text
+        for marker in self.markers:
+            text = text.replace("{" + marker + "}", "")
+        return text
+
     def body(self, reason: str, **tokens: str) -> str:
         """Returns the friendly clause for a reason with its markers substituted.
 
@@ -196,11 +227,7 @@ class Resolver:
         Raises:
           None.
         """
-        text = _fill(self.template(reason), tokens)
-        if self._blank_unfilled:
-            for marker in self.markers:
-                text = text.replace("{" + marker + "}", "")
-        return text
+        return self._blank(_fill(self.template(reason), tokens))
 
     def message(self, reason: str, **tokens: str) -> str:
         """Returns the whole actor-facing sentence for a reason and its context.
@@ -219,8 +246,8 @@ class Resolver:
           None.
         """
         if self._access_denied and reason in ACCESS_DENIED_REASONS:
-            return _fill(self._access_denied, tokens)
-        return _fill(self._prefix, tokens) + self.body(reason, **tokens)
+            return self._blank(_fill(self._access_denied, tokens))
+        return self._blank(_fill(self._prefix, tokens)) + self.body(reason, **tokens)
 
 
 def register(

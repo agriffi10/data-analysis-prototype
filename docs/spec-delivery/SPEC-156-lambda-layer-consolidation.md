@@ -47,6 +47,16 @@ Shipped as four PRs: [#390](https://github.com/agriffi10/data-analysis-prototype
 - **`tbcommon`'s marker-blanking is a resolver knob, not the default.** `dqcommon` documents that an
   unfilled marker must survive verbatim so its emitters are forced to pass the right tokens; making
   blanking universal would have silently changed that. Both behaviours are pinned by a test.
+- **`dedup_id` composes a token; it does not choose one.** The four planes deliberately disagree on
+  what goes in `step` — data-quality and shared-spaces use one per *outcome* (SPEC-114), table-builder
+  uses the **verb name** from its decorator and suppresses the duplicate by identifying the verb's
+  error instead, table-share passes nothing. The first draft of this move hoisted data-quality's
+  reasoning into the shared docstring, which then contradicted `tb_notify_failure`'s own. Corrected
+  in review: only the *shape* is shared.
+- **`markers` is discovered once, at construction, while the domain table is held by reference.** A
+  body added after registration substitutes but is not blanked. That asymmetry is load-bearing — it
+  is what lets `test_literal_brace_in_body_does_not_raise` inject a probe body and assert the brace
+  survives — and is now documented rather than incidental.
 
 ## What changed from earlier specs?
 
@@ -68,13 +78,29 @@ Shipped as four PRs: [#390](https://github.com/agriffi10/data-analysis-prototype
 
 ## Verification
 
-Local: `pytest lambdas` 2063 passed / 3 skipped, coverage 96.81% (floor 95); `ruff check lambdas/`
+Local: `pytest lambdas` 2066 passed / 3 skipped, coverage 96.81% (floor 95); `ruff check lambdas/`
 clean; mypy report-only **17** findings, below the 21 baseline SPEC-153 left. CI green on every PR.
 
 **Byte-identity was measured rather than argued.** Every reason in all three planes was rendered
 under every argument combination against both the pre-move and post-move implementations — 2214
-messages per side — and diffed. Exactly one row differed (above). Reading the three implementations
-side by side would not have found it; that method is the reusable part.
+messages per side — and diffed, then diffed again after the review's changes. Exactly one row
+differed (above). Reading the three implementations side by side would not have found it; that
+method is the reusable part. A fresh-context review reproduced the sweep independently, with a
+wider token space, and found no second difference.
+
+**One residual, cosmetic and pathological.** Substitution order changed direction: `tbcommon` used
+to substitute only its declared markers, in frozenset (arbitrary) order; the shared `_fill`
+substitutes every supplied token in dict order and blanks afterwards. A token *value* that itself
+contains a brace group now resolves deterministically instead of arbitrarily — a removed column
+literally named `{database}` renders empty rather than as itself. Reachable in principle (column
+names are explicitly not catalog-safe) and arguably an improvement; recorded because the sweep's
+brace-free argument space could not surface it.
+
+**Review-driven changes after the first green CI:** the `dedup_id` docstring corrected (above), the
+third inline copy of the builder in `dq_notify_failure` adopted, marker discovery widened to the
+prefix and access-denied templates, and `update_failed` moved into `tbcommon`'s byte-identity gate —
+it was SPEC-149's exemption and had survived into the one spec whose sole criterion is byte-identity.
+The gate's exemption set is now empty and asserted empty.
 
 Nothing was deferred to a live check. No user-facing surface changed, so no Help & guides update was
 owed (SPEC-074 sweep: checked, nothing to change).
