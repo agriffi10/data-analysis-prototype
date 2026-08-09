@@ -104,6 +104,50 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
   the spec's acceptance criteria **and the relevant `best-practices/` rules** (route via its INDEX),
   not just "does it look fine."
 
+**Rotating the frame — why round count is the wrong exit criterion**
+
+Review rounds converge on the frame they are given, not on correctness. Measured on a sibling repo
+(`log-forge`, 2026-08-07): **eight** rounds of independent review — two on the spec, three on its
+revisions, three on the code — after which the merged result still carried two defects, one of which
+was a regression of a guarantee an earlier spec had shipped. Rounds 1–3 found design defects; rounds
+4–8 increasingly found wording. The *first* differently-framed pass afterwards found ~25 defects,
+several of them years old.
+
+So the loop rotates the frame instead of adding rounds:
+
+- **Cap same-frame review at two rounds.** After the second, switch frame rather than iterate:
+  adversarial *execution*, whole-feature fresh eyes (not the diff), a11y, security, or concurrency.
+- **Exit on a new frame finding nothing**, not on the current frame converging. "The reviewer found
+  nothing" means "nothing within the frame I gave it."
+- **At least one pass must start from the feature, not the diff.** Every diff-scoped review is
+  structurally blind to a defect that predates the diff — and to the states the diff is never
+  exercised in: SPEC-140's CSP was reviewed and verified *signed in*, and the `connect-src` host it
+  omitted broke **fresh sign-in** for a day.
+- **Reasoning finds wording; execution finds defects.** Require a reproduction, not an argument —
+  a run in the browser or against real AWS. SPEC-137's instrumented code passed review, unit tests
+  and `update-function-code`, then raised `ModuleNotFoundError` at every cold start and broke sign-up
+  for nine days; every gate was blind because none of them ran the deployed artifact.
+- **A spec touching lifecycle, IAM or concurrency gets an execution harness, not a review.** An
+  import-time `_require` in a shared layer fails at **cold start** only (PR #196), and the
+  concurrent-refresh race is a property of two overlapping executions — neither is findable by
+  reading.
+
+**When a review changes a rule, re-audit the rule — not the line**
+
+A review finding is usually reported as an instance ("this call site uses the wrong predicate").
+Fixing the cited line and moving on is how the same defect survives repeated review: on `log-forge`'s
+SPEC-033, three separate reviewers reported the same rule against three *different* call sites, each
+was fixed, and a fourth site shipped broken.
+
+- When a finding is an instance of a **rule**, the fix is a test or lint rule that enumerates
+  **every** site of that rule and asserts each one — the discipline SPEC-152's fleet test (every
+  state machine carries `NotifyFailure`), SPEC-155's `components/`-may-not-import-`features/` ESLint
+  rule and `lambdas/test_deploy_matrix.py` already use, and for the same reason: a hand-maintained
+  list rots and a derived one does not.
+- **Scope added mid-review restarts the clock.** Widening a spec in response to a finding is often
+  right, but the widening arrives late, gets the least scrutiny, and inherits confidence it has not
+  earned.
+
 **Landing the spec — watch PRs and watch `main`**
 - **Every PR is watched to completion and merged as soon as CI is green** — don't open a PR and walk
   away. A spec's PR merges only on green.
