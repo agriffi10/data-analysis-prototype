@@ -174,6 +174,23 @@ describe('UsernameChipsField', () => {
     });
   });
 
+  describe('UsernameChipsField — the suggestion source passes through (SPEC-158)', () => {
+    it('forwards the caller’s unlisted-name wording to the combobox', async () => {
+      // The source is a prop, so the SENTENCE about that source has to travel with it — a chips
+      // field over spaces would otherwise tell the user their name "is not in the directory", a
+      // directory it never read.
+      const {user} = renderWithProviders(
+        <Harness unlistedNote={(names) => `${names.join(', ')} may exist and simply not be one of yours.`} />
+      );
+      await user.click(field());
+      await user.keyboard('newthing{Enter}');
+
+      expect(chipNames()).toEqual(['newthing']);
+      expect(await screen.findByText(/may exist and simply not be one of yours/)).toBeInTheDocument();
+      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('UsernameChipsField — paste', () => {
     it('commits the valid tokens and keeps the invalid ones in the input', async () => {
       const {user} = renderWithProviders(<Harness />);

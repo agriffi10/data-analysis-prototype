@@ -200,8 +200,8 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
             suppress={listed}
             {...(kind === 'space' ? {unlistedNote: unlistedSpaceNote} : {})}
             onChange={setEntry}
-            onCommit={(name) => addNames([name], kind)}
-            onCommitMany={(names) => addNames(names, kind)}
+            onCommit={(committed) => addNames([committed], kind)}
+            onCommitMany={(committed) => addNames(committed, kind)}
           />
         </div>
         {/* KEPT for both kinds. Enter-to-commit is ADDED, not substituted: the button is the

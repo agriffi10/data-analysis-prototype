@@ -378,6 +378,20 @@ describe('TableShareDialog', () => {
       expect(within(chipList()).getAllByRole('listitem')).toHaveLength(1);
     });
 
+    it('does not carry a space note over to the user kind', async () => {
+      // What `key={kind}` buys. The two kinds used to be different components, which unmounted the
+      // note for free; one element keyed on the kind has to be TOLD, and deleting the key leaves
+      // "…is not one of your shared spaces…" sitting under the Usernames field, describing a name
+      // that is not in it.
+      const {user} = renderDialog();
+      await spaceKind(user, 'someone_elses{Enter}');
+      expect(await screen.findByText(/not one of your shared spaces/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('radio', {name: 'Users'}));
+
+      expect(screen.queryByText(/not one of your shared spaces/i)).not.toBeInTheDocument();
+    });
+
     it('keeps the Escape order: the space list first, the dialog second', async () => {
       const {onCancel, user} = renderDialog();
       await spaceKind(user, 'sales');
@@ -490,6 +504,17 @@ describe('TableShareDialog.a11y', () => {
       await user.click(screen.getByRole('radio', {name: 'Shared spaces'}));
       await user.type(screen.getByRole('combobox'), 'salesteam{enter}');
       await waitFor(() => expect(screen.getAllByRole('listitem').length).toBeGreaterThan(1));
+
+      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+      cleanup();
+    });
+
+    it('has no axe violations under the Shared spaces kind with the list closed', async () => {
+      // The default-state case above is the USER kind; this is the space kind's own closed state.
+      const {container} = render(dialog());
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('radio', {name: 'Shared spaces'}));
+      expect(screen.queryAllByRole('option')).toHaveLength(0);
 
       await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
       cleanup();

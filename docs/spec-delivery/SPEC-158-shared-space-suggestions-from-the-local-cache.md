@@ -25,6 +25,12 @@ AWS call.
   `features/`, and the combobox imports `parseMemberInputDetailed` from `features/shared-spaces`.
   FR-001's "imports nothing from `features/user-directory`" is met in substance: no hook call, and
   the only remaining import is its co-located type.
+- **The two features now import each other**, and it is worth knowing rather than discovering:
+  `user-directory` → `shared-spaces` for `parseMemberInputDetailed` (pre-dates this spec) and now
+  `shared-spaces` → `user-directory` for `SuggestionSource` and the trie. No runtime cycle — the
+  specific modules do not close a loop — and SPEC-155's rule polices `components/ → features/` only.
+  Accepted rather than solved: extracting either would be a layering spec of its own, and the
+  alternative here was duplicating the ranking, which FR-003 forbids.
 - **A third prop, `unlistedNote`.** The API contract says "the two additions", but FR-003 AC5
   requires different wording for spaces. It is optional and defaults to the exact directory
   sentence, so no existing consumer or test sees it.
@@ -33,6 +39,13 @@ AWS call.
   entry was a plain `Input` with its own pre-parse; once it is the same combobox, that pre-parse is
   a second, quieter parser beside the one that actually commits. Confirmed with the user before
   building; one assertion in `TableShareDialog.test.tsx` was updated with the reason.
+- **Three assertions in the existing dialog suite moved, not one.** FR-001 AC2's "unmodified apart
+  from supplying the two new props" is about declaring exactly this, so all three: the Add gate
+  above; `entryInput()` now queries by ROLE, because the open listbox is labelled
+  `<kind> suggestions` and a label query matches it too; and `expect(queryByRole('combobox')).not
+  .toBeInTheDocument()` was deleted from *offers NO suggestions under the Shared spaces kind*,
+  which became *never offers USERNAMES under the Shared spaces kind* — the space entry IS a
+  combobox now, and what still matters is that the two sources do not bleed.
 
 ## What changed from earlier specs?
 
@@ -60,7 +73,10 @@ AWS call.
 
 ## Verification
 
-`format:check`, `lint`, `build` and `test` (1678 passed) clean; coverage 92.54 / 87.82 / 91.55 /
-94.40 against the 91/86/89/93 floors. Nothing here reaches AWS, so there is no live check owed — the
+`format:check`, `lint`, `build` and `test` (1681 passed) clean; coverage comfortably over the
+91/86/89/93 floors. A fresh-context review mutation-tested the load-bearing claims: feeding the
+username source to both kinds fails 9 tests, dropping the `spaces` memo fails the single-build test,
+and deleting `key={kind}` fails the note-does-not-outlive-the-toggle test (which that review's first
+pass found missing, and which was added because of it). Nothing here reaches AWS, so there is no live check owed — the
 one browser pass already outstanding for SPEC-146/147 now covers this field too (**Share table**
 signed in, at 400px and desktop, in Safari).

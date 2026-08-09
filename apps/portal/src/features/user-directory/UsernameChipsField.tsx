@@ -25,6 +25,12 @@ export type UsernameChipsFieldProps = SuggestionSource & {
   /** Extra ids for the input's `aria-describedby` (a caller's help line). */
   describedBy?: string;
   /**
+   * Forwarded to {@link UsernameCombobox}. Passed through for the same reason the source is: a
+   * caller supplying spaces (or anything else) must be able to say so, or the field would tell
+   * them their name "is not in the directory" — a directory it never read.
+   */
+  unlistedNote?: (names: string[]) => string;
+  /**
    * Focus the field on mount. Dialogs hosting this MUST set it: `Modal` passes
    * `initialFocus: false` on purpose, deferring to each consumer's own focus effect, so a
    * field that does not ask for focus leaves it on the trigger OUTSIDE the modal — a screen
@@ -68,6 +74,7 @@ export function UsernameChipsField({
   placeholder,
   disabled = false,
   describedBy,
+  unlistedNote,
   autoFocus = false
 }: UsernameChipsFieldProps) {
   const [entry, setEntry] = useState('');
@@ -123,6 +130,7 @@ export function UsernameChipsField({
         placeholder={placeholder}
         disabled={disabled}
         describedBy={describedBy}
+        unlistedNote={unlistedNote}
       />
 
       {/* Closes a dead-end the chips model creates. A consumer's submit button is gated on
