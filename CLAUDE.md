@@ -77,7 +77,8 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→156 are COMPLETE, and SPEC-157 has landed. No spec is in flight.**
+**The 2026-08-05 audit arc: 150→156 are COMPLETE, and SPEC-157 and 158 have landed. No spec is in
+flight — every spec in `INDEX.md` is Completed.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
@@ -88,15 +89,18 @@ ratchet notch. **154 closed the frontend journey gaps** — table share, sign-in
 resolution, upload-to-completion, pagination and the dev-unauth guard all now have a test that
 performs them. **155 was the reuse-and-structure pass**: seven JSON readers behind one `s3Json`, eleven dialog chromes behind `FormDialog`, a `features/connections/` that ends `features/query/`'s career as an undeclared shared layer (with an **ESLint rule** holding the line), and `QueryWorkspace` 1770→727 / `FileBrowser` 1101→516. Five deliberate user-visible changes and the two residual layering inversions are in its delivery doc. **156 discharged the deliberate twins in `lambdas/`** — CAS, the message resolver, results location, the JWKS path, the SQS parser and the Athena runner each exist once on `cpcommon`; `mypy` is now at **17**, so the ratchet notch is 17, not 21.
 
-**The username-directory arc (146 → 147 → 148) is COMPLETE and deployed.** The daily builder
-publishes `_directory/usernames.json`; both `AddMembersDialog` and `TableShareDialog` suggest
-existing usernames as you type, and neither blocks a name the directory does not know.
+**The username-directory arc (146 → 147 → 148) is COMPLETE and deployed, and SPEC-158 has landed on
+top of it.** The daily builder publishes `_directory/usernames.json`; both `AddMembersDialog` and
+`TableShareDialog` suggest existing usernames as you type, and neither blocks a name the directory
+does not know. **158 made the suggestion source a prop** and gave the share dialog's *space* entry
+its own source — the user's own shared spaces, from the connections cache the app already fetches.
 
 **One live check is owed, and it is a single browser pass** (Safari): open **Add members** and
-**Share table** signed in, at 400px and desktop. Confirm suggestions appear, the list positions
-inside the panel, and several chips still leave the confirm control reachable. **That one pass also
-discharges SPEC-146's last owed check** — suggestions only appear if the portal role's SigV4
-`GetObject` on the directory actually succeeds, so seeing one IS the end-to-end read confirmation.
+**Share table** signed in, at 400px and desktop. Confirm suggestions appear **under both share
+kinds**, the list positions inside the panel, and several chips still leave the confirm control
+reachable. **That one pass also discharges SPEC-146's last owed check** — suggestions only appear if
+the portal role's SigV4 `GetObject` on the directory actually succeeds, so seeing one IS the
+end-to-end read confirmation. (158 itself owes nothing live: it makes no AWS call.)
 
 Three things the arc left worth carrying:
 - **A `rate()` EventBridge rule fires on creation**, so a new singleton's first scheduled invocation
@@ -265,6 +269,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **A per-table lock serializes refresh (157, supersedes 149's "reduced, NOT closed"):** an admin-bucket object under `locks/table-builder/`, claimed under **ETag CAS**; the loser is **refused with a notification**, never queued. Releases by **overwriting** — the role's `Deny s3:DeleteObject` makes "free" a *state*, not an absence. The holder is the **execution ARN** (a request id identifies the *message*, and Pipes delivery is at-least-once), stamped by a **Pass** state because reading `$$` in the task's own `Parameters` wraps the payload and every notify path reads the request at the **top level**. A stale lock is stealable only because the machine now has a **`TimeoutSeconds`** — a **top-level ASL field**, not a resource argument. `REQUEST_RESPONSE` on the Pipe is **impossible** for a STANDARD machine and EXPRESS is rejected twice over. `apply-refresh`'s freshness guard **narrows, does not close** the window — and it judges on the **columns as well as the stamp**, or a retry after its own committed write blames a phantom writer.
 - **Refresh eligibility = shape, not marker (143):** a refresh is judged by what Glue reports (`cpcommon.glue.clone_definition`, moved from `tscommon`), **never** by the `portal.managed` TBLPROPERTY it also starts writing — pre-143 tables lack it and users can set it; a test forbids any verb reading it. Reconstructed partition keys must **round-trip through the create path's renderer AND match the live column type**; a reconstruction that can't be performed is a **refusal, not a guess**. A `Choice` on an **absent** path raises uncatchable `States.Runtime` — `Default` does not cover it, so guard with `IsPresent`. `portal.managed` (table property, dotted) ≠ `portal-managed` (LF tag on databases, hyphenated).
 - **Username directory source = S3, not Cognito (146):** the daily builder enumerates the user-space bucket's top-level common prefixes and makes **no Cognito call** (a test enforces it) — today Cognito is complete and S3 is not, but the transition reverses that (`ensurePrefixMarker` is deleted, `cognito:username` becomes synthetic `identitycenter_<subject>`). **No Cognito union "to be safe."** The document is **advisory**: never an authorization input, every existence check stays `admin_get_user`, and a tripwire test enforces that too.
+- **No shared-space directory is published (158):** the share dialog suggests only the spaces the user already belongs to, from `useConnections` — a full list would be strictly more useful (membership is not required to share) and is **declined** as a disclosure with no equivalent; an unlisted space stays typeable, and the suggestion source is now a **prop** (`SuggestionSource`), not a hook the combobox reaches for.
 - **The directory is readable by EVERY authenticated user (146), and that is accepted:** one `s3:GetObject` on `_directory/*`, no `ListBucket` widening (so it stays invisible to the file browser), no write. The username is already the prefix, the principal tag and the DB name; usernames only — **no emails**. The builder's own `ListBucket` is unconditioned and holds **no `GetObject` anywhere**; the `s3:prefix`-on-empty-string tightening is rejected as unverifiable.
 - **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header). Accepted orphan class: **stale root files**.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.

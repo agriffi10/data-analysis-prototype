@@ -32,9 +32,10 @@ export function parseMemberInput(raw: string): string[] {
  * good names become chips and keeps the bad ones to fix — rather than watching half their
  * paste disappear without comment.
  *
- * Added beside `parseMemberInput` rather than replacing it: the original's silent drop is
- * relied on by shipped callers and by their tests, and `TableShareDialog`'s space-name path
- * still uses it.
+ * Added beside `parseMemberInput` rather than replacing it. Since SPEC-158 moved
+ * `TableShareDialog`'s space entry onto the same combobox, this is the parser every FIELD uses;
+ * `parseMemberInput` remains the domain's plain parse of a bulk string, pinned by its own tests
+ * and still the baseline these two are checked to agree on.
  *
  * @param raw - Comma / whitespace / newline separated input.
  * @returns `valid` in input order, de-duplicated; `invalid` in input order, as typed.

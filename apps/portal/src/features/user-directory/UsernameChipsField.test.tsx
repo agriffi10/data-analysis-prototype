@@ -4,6 +4,7 @@ import type {ReactElement} from 'react';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {UsernameChipsField} from './UsernameChipsField';
+import {useUsernameSuggestions} from './useUsernameSuggestions';
 import {getUserDirectory} from './userDirectory.service';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
@@ -35,8 +36,10 @@ describe('UsernameChipsField', () => {
     React.ComponentProps<typeof UsernameChipsField>
   >) {
     const [value, setValue] = useState<string[]>(initial);
+    const suggestions = useUsernameSuggestions();
     return (
       <UsernameChipsField
+        {...suggestions}
         label="Usernames"
         listLabel="Members to add"
         value={value}
@@ -171,6 +174,23 @@ describe('UsernameChipsField', () => {
     });
   });
 
+  describe('UsernameChipsField — the suggestion source passes through (SPEC-158)', () => {
+    it('forwards the caller’s unlisted-name wording to the combobox', async () => {
+      // The source is a prop, so the SENTENCE about that source has to travel with it — a chips
+      // field over spaces would otherwise tell the user their name "is not in the directory", a
+      // directory it never read.
+      const {user} = renderWithProviders(
+        <Harness unlistedNote={(names) => `${names.join(', ')} may exist and simply not be one of yours.`} />
+      );
+      await user.click(field());
+      await user.keyboard('newthing{Enter}');
+
+      expect(chipNames()).toEqual(['newthing']);
+      expect(await screen.findByText(/may exist and simply not be one of yours/)).toBeInTheDocument();
+      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('UsernameChipsField — paste', () => {
     it('commits the valid tokens and keeps the invalid ones in the input', async () => {
       const {user} = renderWithProviders(<Harness />);
@@ -248,16 +268,26 @@ describe('UsernameChipsField.a11y', () => {
   // `gcTime: 0` would defeat — axe would then inspect a loading state and pass vacuously.
   const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
-  function Harness({initial, renderChips = true}: {initial: string[]; renderChips?: boolean}): ReactElement {
+  function Field({initial, renderChips}: {initial: string[]; renderChips: boolean}): ReactElement {
     const [value, setValue] = useState(initial);
+    return (
+      <UsernameChipsField
+        {...useUsernameSuggestions()}
+        label="Usernames"
+        listLabel="Members to add"
+        value={value}
+        onChange={setValue}
+        renderChips={renderChips}
+      />
+    );
+  }
+
+  function Harness({initial, renderChips = true}: {initial: string[]; renderChips?: boolean}): ReactElement {
     return (
       <AuthContext.Provider value={authValue()}>
         <QueryClientProvider client={client}>
-          <UsernameChipsField
-            label="Usernames"
-            listLabel="Members to add"
-            value={value}
-            onChange={setValue}
+          <Field
+            initial={initial}
             renderChips={renderChips}
           />
         </QueryClientProvider>

@@ -2,8 +2,9 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {UsernameCombobox} from './UsernameCombobox';
 import type {UsernameComboboxHandle} from './UsernameCombobox';
 import {cx} from '../../lib/cx';
+import type {SuggestionSource} from './userDirectory.types';
 
-export type UsernameChipsFieldProps = {
+export type UsernameChipsFieldProps = SuggestionSource & {
   label: string;
   /** `aria-label` for the chip list — the caller names the noun ("Members to add"). */
   listLabel: string;
@@ -23,6 +24,12 @@ export type UsernameChipsFieldProps = {
   disabled?: boolean;
   /** Extra ids for the input's `aria-describedby` (a caller's help line). */
   describedBy?: string;
+  /**
+   * Forwarded to {@link UsernameCombobox}. Passed through for the same reason the source is: a
+   * caller supplying spaces (or anything else) must be able to say so, or the field would tell
+   * them their name "is not in the directory" — a directory it never read.
+   */
+  unlistedNote?: (names: string[]) => string;
   /**
    * Focus the field on mount. Dialogs hosting this MUST set it: `Modal` passes
    * `initialFocus: false` on purpose, deferring to each consumer's own focus effect, so a
@@ -45,11 +52,17 @@ export type UsernameChipsFieldProps = {
  * The component owns NO submission logic: it reports `string[]` and the caller decides what to
  * do with it.
  *
+ * The suggestion source is passed STRAIGHT THROUGH to the combobox (SPEC-158): this component
+ * adds chips, not a data source, and a hook call here would make it the second place that decides
+ * what a field suggests.
+ *
  * @example
- * <UsernameChipsField label="Usernames" listLabel="Members to add"
- *   value={members} onChange={setMembers} exclude={existingMembers} />
+ * <UsernameChipsField {...useUsernameSuggestions()} label="Usernames"
+ *   listLabel="Members to add" value={members} onChange={setMembers} exclude={existingMembers} />
  */
 export function UsernameChipsField({
+  status,
+  search,
   label,
   listLabel,
   value,
@@ -61,6 +74,7 @@ export function UsernameChipsField({
   placeholder,
   disabled = false,
   describedBy,
+  unlistedNote,
   autoFocus = false
 }: UsernameChipsFieldProps) {
   const [entry, setEntry] = useState('');
@@ -103,6 +117,8 @@ export function UsernameChipsField({
       }}>
       <UsernameCombobox
         ref={fieldRef}
+        status={status}
+        search={search}
         label={label}
         value={entry}
         onChange={setEntry}
@@ -114,6 +130,7 @@ export function UsernameChipsField({
         placeholder={placeholder}
         disabled={disabled}
         describedBy={describedBy}
+        unlistedNote={unlistedNote}
       />
 
       {/* Closes a dead-end the chips model creates. A consumer's submit button is gated on

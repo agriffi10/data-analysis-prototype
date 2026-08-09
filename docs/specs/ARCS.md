@@ -820,6 +820,10 @@ lands in **147** (its paste handling depends on it) and leaves `parseMemberInput
 **space** kind keeps its free-text path with suggestions off — space names are a different list from a different bucket
 with different membership semantics, and one field pretending to serve both nouns would be worse than serving one well.
 
+> **Superseded by SPEC-158 (shipped).** The space kind is now the same combobox, suggesting the user's OWN spaces from the
+> connections cache — one field serving both nouns, because the source became a prop rather than something the component
+> reached for. What survives is the reason there is no space *directory*: see `decisions.md`.
+
 **Explicitly not built:** a shared-space directory, display names or emails (an email is not metadata under the field rule
 and has no place in a document every authenticated user can read), server-side search, fuzzy matching, and any
 authorization use. The all-users disclosure is **accepted and recorded** rather than left implicit: a username already *is*
