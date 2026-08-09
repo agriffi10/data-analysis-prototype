@@ -45,7 +45,15 @@ class _Body:
 
 
 class FakeS3:
-    """Implements real If-Match / If-None-Match semantics over a changing ETag."""
+    """Implements real If-Match / If-None-Match semantics over a changing ETag.
+
+    The codes match what AWS documents rather than what is convenient: a failed ``If-None-Match: *``
+    is a 412, and an ``If-Match`` against an ABSENT key is a 404 — which is NOT a precondition
+    failure and so propagates out of ``acquire`` instead of reading as a refusal. That path is
+    unreachable today (the execution role is denied ``s3:DeleteObject`` on this bucket and no
+    lifecycle rule matches ``locks/``), and the fake models it accurately so it stays a real
+    outcome rather than a silently-absorbed one.
+    """
 
     def __init__(self, read_error=None):
         self.objects = {}
@@ -65,8 +73,10 @@ class FakeS3:
     def put_object(self, Bucket, Key, Body, ContentType=None, IfMatch=None, IfNoneMatch=None):
         current = self.objects.get(Key)
         if IfNoneMatch == "*" and current is not None:
-            raise _ClientError("ConditionalRequestConflict")
-        if IfMatch is not None and (current is None or current[1] != IfMatch):
+            raise _ClientError("PreconditionFailed")
+        if IfMatch is not None and current is None:
+            raise _ClientError("NotFound")
+        if IfMatch is not None and current[1] != IfMatch:
             raise _ClientError("PreconditionFailed")
         self._n += 1
         etag = f'"etag-{self._n}"'
@@ -128,6 +138,32 @@ def test_a_name_that_is_not_catalog_safe_is_refused_not_sanitised(database, tabl
         table_lock.lock_key(database, table)
 
 
+# ── FR-001: the holder is an identity, and "no identity" means FREE ──────────
+
+
+@pytest.mark.parametrize("holder", [None, "", 0, b"arn:aws:states:x", ["arn"]])
+def test_a_lock_cannot_be_claimed_without_a_usable_holder(s3, holder):
+    """A null holder is what FREE means, so claiming with one would grant nothing.
+
+    Without this guard the write succeeds and every later reader — including this module's own
+    next call — correctly reads the lock as unheld, so a second execution claims it too and both
+    believe they own the table. The caller passes an ASL-supplied execution ARN, and an absent
+    ASL path resolves to exactly this.
+    """
+    with pytest.raises(ValueError, match="holder is not a usable identity"):
+        table_lock.acquire("alice", "sales", holder)
+
+    assert s3.puts == []
+
+
+def test_a_claim_never_writes_a_body_that_reads_as_free(s3):
+    """The property behind the guard, asserted on the outcome rather than the argument."""
+    table_lock.acquire("alice", "sales", HOLDER)
+
+    assert s3.state_of(KEY)["holder"] is not None
+    assert table_lock.acquire("alice", "sales", OTHER) == (False, None)
+
+
 # ── FR-001: the acquire protocol ─────────────────────────────────────────────
 
 
@@ -161,7 +197,7 @@ def test_a_free_lock_is_claimed_under_if_match(s3):
     assert etag == '"etag-1"'
 
 
-def test_a_live_holder_refuses_without_writing(s3):
+def test_a_live_holder_refuses_without_writing(s3, captured_events):
     _seed(s3, holder=OTHER, acquired_at=_iso(30))
 
     acquired, etag = table_lock.acquire("alice", "sales", HOLDER)
@@ -170,6 +206,18 @@ def test_a_live_holder_refuses_without_writing(s3):
     assert etag is None
     assert s3.puts == []
     assert s3.state_of(KEY)["holder"] == OTHER
+
+    refused = captured_events.messages("refresh lock refused")
+    assert refused[0]["fields"]["held_since"] is not None
+    assert refused[0]["fields"]["database"] == "alice"
+
+
+def test_an_ordinary_claim_is_narrated_as_not_stolen(s3, captured_events):
+    """The counterweight to the steal assertions: `stolen` must discriminate, not always read True."""
+    table_lock.acquire("alice", "sales", HOLDER)
+
+    assert captured_events.messages("refresh lock acquired")[0]["fields"]["stolen"] is False
+    assert captured_events.messages("stealing stale refresh lock") == []
 
 
 @pytest.mark.parametrize("code", ["PreconditionFailed", "412", "ConditionalRequestConflict", "409"])
@@ -208,13 +256,14 @@ def test_an_unreadable_lock_refuses_rather_than_overwriting_a_live_holder(s3):
 # ── FR-001: release ──────────────────────────────────────────────────────────
 
 
-def test_release_frees_the_lock_under_if_match(s3):
+def test_release_frees_the_lock_under_if_match(s3, captured_events):
     _, etag = table_lock.acquire("alice", "sales", HOLDER)
 
     table_lock.release("alice", "sales", etag)
 
     assert s3.puts[-1]["IfMatch"] == etag
     assert s3.state_of(KEY) == {"version": 1, "holder": None, "acquiredAt": None}
+    assert captured_events.messages("refresh lock released")
 
 
 def test_a_release_that_lost_its_cas_is_not_retried_and_never_raises(s3):
@@ -229,12 +278,21 @@ def test_a_release_that_lost_its_cas_is_not_retried_and_never_raises(s3):
     assert s3.state_of(KEY)["holder"] == OTHER
 
 
-def test_release_without_an_etag_writes_nothing(s3):
+def test_release_without_an_etag_calls_s3_at_all(s3, monkeypatch):
+    """Asserting the GUARD, not the fake: an unguarded release would attempt an unconditional
+    write, which the fake would refuse and the broad except would swallow, leaving ``puts``
+    empty either way.
+    """
     _seed(s3, holder=OTHER, acquired_at=_iso(1))
+
+    def _never(**kwargs):
+        raise AssertionError("release must not reach S3 without a tag to condition on")
+
+    monkeypatch.setattr(s3, "put_object", _never)
 
     table_lock.release("alice", "sales", None)
 
-    assert s3.puts == []
+    assert s3.state_of(KEY)["holder"] == OTHER
 
 
 def test_a_release_fault_is_swallowed(s3, monkeypatch):
@@ -257,8 +315,7 @@ def test_the_lock_is_never_deleted(s3):
     assert s3.deletes == []
 
     source = (pathlib.Path(__file__).parent / "tbcommon" / "table_lock.py").read_text()
-    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("*"))
-    assert "delete_object" not in code
+    assert "delete_object" not in source
 
 
 # ── FR-004: stealing, and the bound that makes it legitimate ─────────────────
@@ -276,7 +333,7 @@ def test_a_fresh_lock_is_not_stolen(s3):
     assert s3.state_of(KEY)["holder"] == OTHER
 
 
-def test_an_expired_lock_is_stolen(s3):
+def test_an_expired_lock_is_stolen(s3, captured_events):
     _seed(s3, holder=OTHER, acquired_at=_iso(table_lock.STALE_LOCK_SECONDS + 60))
 
     acquired, etag = table_lock.acquire("alice", "sales", HOLDER)
@@ -286,19 +343,47 @@ def test_an_expired_lock_is_stolen(s3):
     assert s3.puts[0]["IfMatch"] == '"etag-0"'
     assert s3.state_of(KEY)["holder"] == HOLDER
 
+    stolen = captured_events.messages("stealing stale refresh lock")
+    assert stolen, "FR-004 AC3: stealing is never silent"
+    assert stolen[0]["fields"]["age_seconds"] > table_lock.STALE_LOCK_SECONDS
+    assert stolen[0]["fields"]["table"] == "sales"
+
+
+def test_a_future_dated_lock_is_stolen_rather_than_held_forever(s3):
+    """A negative age is younger than every threshold, so the table could never refresh again.
+
+    Reachable through clock skew or a corrupt write, and there is no operator recovery path —
+    the execution role cannot delete the object. A timestamp that cannot be true is no more
+    evidence of a running refresh than an unparseable one.
+    """
+    _seed(s3, holder=OTHER, acquired_at=_iso(-315_360_000))
+
+    acquired, _ = table_lock.acquire("alice", "sales", HOLDER)
+
+    assert acquired is True
+    assert s3.state_of(KEY)["holder"] == HOLDER
+
 
 @pytest.mark.parametrize(
     "raw",
     [b"not json at all", b"[]", b'{"version": 1', b"", b'"a string"'],
 )
-def test_a_malformed_body_is_stolen_not_treated_as_held(s3, raw):
-    """A body nobody can read is not evidence that a refresh is running."""
+def test_a_malformed_body_is_stolen_not_treated_as_held(s3, raw, captured_events):
+    """A body nobody can read is not evidence that a refresh is running.
+
+    Asserting the STEAL, not merely the claim: acquiring a body that reads as free would satisfy
+    ``acquired is True`` identically, so without the warning and the conditional tag this test
+    could not tell the two branches apart.
+    """
     s3.objects[KEY] = (raw, '"etag-0"')
 
     acquired, _ = table_lock.acquire("alice", "sales", HOLDER)
 
     assert acquired is True
     assert s3.state_of(KEY)["holder"] == HOLDER
+    assert s3.puts[0]["IfMatch"] == '"etag-0"'
+    assert captured_events.messages("stealing unreadable refresh lock")
+    assert captured_events.messages("refresh lock acquired")[0]["fields"]["stolen"] is True
 
 
 def test_a_lock_with_an_unparseable_claim_time_is_stolen(s3):

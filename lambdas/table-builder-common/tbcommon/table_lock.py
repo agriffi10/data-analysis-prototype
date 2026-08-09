@@ -24,13 +24,21 @@ racing create are the same answer.
 Attributes:
   LOCK_PREFIX: Key prefix for every lock object, under the admin bucket.
   MACHINE_TIMEOUT_SECONDS: The table-builder state machine's ``TimeoutSeconds``, mirrored here
-    because a steal threshold is only meaningful against a bounded execution. A test asserts this
-    matches what Terraform actually sets rather than trusting the copy.
+    because a steal threshold is only meaningful against a bounded execution — a Standard machine
+    with no timeout may run for a year, and no age threshold could be justified against it.
+    Derived (SPEC-157 FR-004 AC1) from the refresh path's worst case: every Task retries 3 times
+    over 2/4/8-second intervals, so a state costs ``4 * timeout + 14`` seconds, and the path sums
+    to ≈2400 s (validate 74, acquire 74, load-definition 74, inspect-source 254, infer-schema 494,
+    diff-schema 74, apply-refresh 1214, release 74, notify 74). The create path is ≈2260 s, so
+    3600 clears both and adding it cannot fail an ordinary create. **Phase 2 lands the test that
+    holds this equal to what Terraform sets**; until then this is a mirror, not a verified copy.
   STALE_LOCK_SECONDS: Age past which a held lock is stolen — the machine timeout plus a margin
     for the delay between an execution's last state and its timeout being observed. Strictly
     greater than the timeout, asserted by a test: a threshold below it would let a *running*
     execution's lock be stolen, which is the race this module exists to prevent.
-  LOCK_VERSION: Body schema version, so a future shape change is detectable rather than silent.
+  LOCK_VERSION: Body schema version, recorded so a later reader can tell which shape wrote an
+    object. Nothing reads it back today — a version-aware branch would need a second shape to
+    branch on, and inventing one now would be a guess about a migration nobody has designed.
 """
 
 import json
@@ -94,6 +102,13 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
     ``log-sweep`` uses for the same reason — because the alternative is overwriting a live holder's
     lock on a transient S3 error.
 
+    **The holder is validated, because a null holder is what "free" MEANS.** An empty or missing
+    identity would write a lock that every later reader — including the next line of this module —
+    correctly interprets as unheld, so the claim would succeed and grant nothing: two executions
+    would hold ``acquired=True`` on one table, which is the exact state this module exists to
+    prevent. The caller passes an ASL-supplied execution ARN, and an absent path in ASL resolves to
+    exactly this (the SPEC-143 trap), so the guard is on the reachable case, not a theoretical one.
+
     Args:
       database: The target Glue database name.
       table: The target table name.
@@ -104,9 +119,13 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
       the lock was not acquired, and may be None on success if S3 returned no tag.
 
     Raises:
-      ValueError: If either name is not a catalog-safe identifier.
+      ValueError: If either name is not a catalog-safe identifier, or the holder is not a
+        non-empty string.
       ClientError: Any write fault that is not a precondition failure.
     """
+    if not isinstance(holder, str) or not holder:
+        raise ValueError(f"refresh lock holder is not a usable identity: {holder!r}")
+
     key = lock_key(database, table)
     raw, etag = _read(key)
 
@@ -124,7 +143,7 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
         return _claim(key, database, table, holder, etag=etag, stolen=False)
 
     age = _age_seconds(state.get("acquiredAt"))
-    if age is None or age > STALE_LOCK_SECONDS:
+    if age is None or not 0 <= age <= STALE_LOCK_SECONDS:
         observability.warning(
             "stealing stale refresh lock", database=database, table=table, age_seconds=age
         )
@@ -220,12 +239,18 @@ def _parse(raw: bytes) -> dict | None:
 def _age_seconds(acquired_at: object) -> float | None:
     """Reports how long ago a lock was claimed.
 
+    A NEGATIVE age is possible and is not filtered here — a future-dated claim time, from clock
+    skew or a corrupt write, would otherwise be younger than every threshold forever and cost the
+    table its refresh permanently, with no operator recovery path (the role cannot delete the
+    object). The caller treats it as stealable for the same reason it treats an unreadable body
+    that way: a timestamp that cannot be true is no evidence that a refresh is running.
+
     Args:
       acquired_at: The recorded ISO-8601 claim time, or anything else.
 
     Returns:
-      The age in seconds, or None if the value is missing or unparseable — which the caller treats
-      as stale, for the same reason an unreadable body is.
+      The age in seconds, negative when the claim time is in the future, or None if the value is
+      missing or unparseable.
 
     Raises:
       None.
