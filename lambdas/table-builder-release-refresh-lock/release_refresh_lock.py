@@ -69,6 +69,7 @@ def _release_refresh_lock(event: dict) -> dict:
     table = event.get("tableName")
     if not isinstance(database, str) or not isinstance(table, str):
         logger.warning("refresh lock held but the request carries no usable table identity")
+        observability.warning("refresh lock stranded", held=True, database=database, table=table)
         return {"released": False}
 
     table_lock.release(database, table, etag)

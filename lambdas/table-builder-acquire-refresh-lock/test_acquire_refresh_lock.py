@@ -27,6 +27,7 @@ REQUEST = {
     "mode": "refresh",
     "tableName": "sales",
     "space": {"database": "alice", "bucket": "dat-prod-user-space"},
+    "execution": {"arn": "arn:aws:states:us-east-1:1:execution:orchestrator:run-a"},
 }
 
 
@@ -62,12 +63,19 @@ def lock(monkeypatch):
     return calls
 
 
-def test_the_holder_is_the_request_id(lock, sqs):
-    """Not the execution ARN: reaching that would mean wrapping the task Payload, and every
-    notification path in this plane reads the request at the TOP level of the event."""
+def test_the_holder_is_the_execution_arn_and_not_the_request_id(lock, sqs):
+    """The request id identifies the MESSAGE, and Pipes delivery is at-least-once.
+
+    Two executions of one redelivered message carry the same request id, and table_lock's
+    re-entrancy branch would then hand the lock to BOTH — silently, with no refusal event. The
+    ARN is what distinguishes them, which is why StampExecution exists.
+    """
     verb.handler(dict(REQUEST), None)
 
-    assert lock["acquire"] == [("alice", "sales", "req-1")]
+    assert lock["acquire"] == [
+        ("alice", "sales", "arn:aws:states:us-east-1:1:execution:orchestrator:run-a")
+    ]
+    assert "req-1" not in {holder for _, _, holder in lock["acquire"]}
 
 
 def test_a_successful_claim_threads_the_etag_without_disturbing_the_request(lock, sqs):
@@ -110,7 +118,7 @@ def test_a_refused_request_returns_no_lock_for_anything_downstream_to_release(lo
     assert "lock" not in REQUEST
 
 
-@pytest.mark.parametrize("missing", ["requestId", "tableName", "space"])
+@pytest.mark.parametrize("missing", ["execution", "tableName", "space"])
 def test_a_malformed_request_is_terminal_before_any_lock_is_touched(lock, sqs, missing):
     event = {k: v for k, v in REQUEST.items() if k != missing}
 

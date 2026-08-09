@@ -11,11 +11,17 @@ after the validator so an unauthorized request cannot touch another user's lock 
 the definition read so the lock spans the whole read-modify-write rather than only the write — the
 point being that run A's ``GetTable`` and run A's ``UpdateTable`` are not separated by run B's.
 
-The holder is the REQUEST ID, not the execution ARN. The ARN is reachable only through the ASL
-context object, which would mean wrapping the task payload — and every notification path in this
-plane reads the request at the top level of the event, so wrapping would silence the very
-notification FR-003 requires. The request id is already on the state, unique per request, and makes
-a retried acquire re-entrant rather than self-refusing.
+The holder is the EXECUTION ARN, and it must not be the request id. A request id identifies the
+MESSAGE, and Pipes delivery is at-least-once — so a redelivered message starts a second execution
+carrying the same id while the first is still running, and ``table_lock``'s re-entrancy branch
+(which exists for an SFN Task retry, where the ARN genuinely IS the same) would let both hold the
+lock. Silently: no refusal, no notification, and an acquire event reading ``stolen: False``. That
+is the duplicate-execution hazard FR-006 names when it rejects EXPRESS, arrived at by another road.
+
+The ARN reaches this verb on ``$.execution.arn``, stamped by the ``StampExecution`` Pass state
+rather than read from ``$$`` in this task's own ``Parameters`` — reading it there means building an
+object, which WRAPS the payload, and every notification path in this plane reads the request at the
+top level of the event.
 """
 
 import logging
@@ -40,7 +46,7 @@ def handler(event: dict, context) -> dict:
     notified.
 
     Args:
-      event: The validated task input, carrying the space, table name and request id.
+      event: The validated task input, carrying the space, table name and execution ARN.
       context: The Lambda context, unused.
 
     Returns:
@@ -76,9 +82,9 @@ def _acquire_refresh_lock(event: dict) -> dict:
     """
     database = events.require(event, "space", "database")
     table = events.require(event, "tableName")
-    request_id = events.require(event, "requestId")
+    holder = events.require(event, "execution", "arn")
 
-    acquired, etag = table_lock.acquire(database, table, request_id)
+    acquired, etag = table_lock.acquire(database, table, holder)
     if not acquired:
         raise TerminalError(
             "refresh_already_running",

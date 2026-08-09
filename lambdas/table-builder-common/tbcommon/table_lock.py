@@ -113,9 +113,13 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
     acquire task on a Lambda service fault, and a put whose response was lost has already written
     the lock — so a re-invocation that refused would fail a request whose own earlier attempt
     succeeded, and would do it under the one reason code that tells the user another refresh is
-    running. This is why the holder is the request id rather than the execution ARN: the ARN is
-    reachable only through the ASL context object, which would mean wrapping the task payload,
-    and every notification path in this plane reads the request at the TOP level of the event.
+    running.
+
+    That branch is why the holder MUST identify the execution and not the request. A request id
+    identifies the message, and Pipes delivery is at-least-once, so a redelivered message runs a
+    second execution carrying the same id while the first is still going — and this branch would
+    then hand both of them the lock, with no refusal event and an acquire event reading
+    ``stolen: False``. The caller passes the execution ARN for exactly that reason.
 
     Args:
       database: The target Glue database name.

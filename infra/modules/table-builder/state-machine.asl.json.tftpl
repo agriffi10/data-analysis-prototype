@@ -43,14 +43,23 @@
             { "Variable": "$.mode", "IsPresent": true },
             { "Variable": "$.mode", "StringEquals": "refresh" }
           ],
-          "Next": "AcquireRefreshLock"
+          "Next": "StampExecution"
         }
       ],
       "Default": "CheckTableAbsent"
     },
+    "StampExecution": {
+      "Type": "Pass",
+      "Comment": "SPEC-157. Puts the EXECUTION ARN on the state so the lock's holder identifies the execution rather than the request. The distinction is the whole point: requestId is a property of the MESSAGE, and Pipes delivery is at-least-once, so two executions of one redelivered message would carry the same request id — and the re-entrancy branch in table_lock (which exists for an SFN Task retry, where the ARN is genuinely the same) would then let both hold the lock, silently and with no refusal event. A Pass is used rather than the Task's own Parameters because reading $$ there means building an object, which WRAPS the payload — and every notification path in this plane reads the request at the TOP level of the event. ResultPath adds a key and disturbs nothing.",
+      "Parameters": {
+        "arn.$": "$$.Execution.Id"
+      },
+      "ResultPath": "$.execution",
+      "Next": "AcquireRefreshLock"
+    },
     "AcquireRefreshLock": {
       "Type": "Task",
-      "Comment": "SPEC-157 FR-002. Takes the per-table lock BEFORE load-table-definition, so it spans the whole read-modify-write rather than only the write — the point being that run A's GetTable and run A's UpdateTable are not separated by run B's UpdateTable. It sits AFTER ValidateAuthorize for the other half of the reason: an unauthorized request must not be able to touch another user's lock at all. A refusal is TerminalError refresh_already_running, which the decorator notifies and this Catch records; refresh_already_running appears in NO Retry list, because a held lock is an answer and not a transient fault. The holder written into the lock is the REQUEST ID, not the execution ARN: the ARN is reachable only through the ASL context object, which would mean wrapping this task's Payload, and every notification path in this plane reads the request at the TOP level of the event.",
+      "Comment": "SPEC-157 FR-002. Takes the per-table lock BEFORE load-table-definition, so it spans the whole read-modify-write rather than only the write — the point being that run A's GetTable and run A's UpdateTable are not separated by run B's UpdateTable. It sits AFTER ValidateAuthorize for the other half of the reason: an unauthorized request must not be able to touch another user's lock at all. A refusal is TerminalError refresh_already_running, which the decorator notifies and this Catch records; refresh_already_running appears in NO Retry list, because a held lock is an answer and not a transient fault. The holder written into the lock is the EXECUTION ARN, stamped onto the state by StampExecution — see that state's comment for why a Pass rather than this task's own Parameters.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${acquire_refresh_lock_function_arn}",

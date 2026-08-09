@@ -132,10 +132,29 @@ def test_the_head_choice_routes_a_refresh_to_the_lock_and_all_else_to_create():
     """
     states = _states()
 
-    assert _route(states, "RouteByMode", _mode("refresh")) == "AcquireRefreshLock"
+    assert _route(states, "RouteByMode", _mode("refresh")) == "StampExecution"
+    assert states["StampExecution"]["Next"] == "AcquireRefreshLock"
     assert states["AcquireRefreshLock"]["Next"] == "LoadTableDefinition"
     assert _route(states, "RouteByMode", _mode("create")) == "CheckTableAbsent"
     assert "AcquireRefreshLock" not in _walk(states, "CheckTableAbsent")
+
+
+def test_the_lock_holder_identifies_the_execution_not_the_request():
+    """SPEC-157. requestId is a property of the MESSAGE and Pipes delivery is at-least-once, so
+    two executions of one redelivered message share it — and table_lock's re-entrancy branch
+    would hand the lock to both. The ARN is what tells them apart.
+
+    A Pass rather than the acquire task's own Parameters: reading $$ there means building an
+    object, which wraps the payload, and every notification path here reads the request at the
+    top level of the event.
+    """
+    states = _states()
+    stamp = states["StampExecution"]
+
+    assert stamp["Type"] == "Pass"
+    assert stamp["Parameters"] == {"arn.$": "$$.Execution.Id"}
+    assert stamp["ResultPath"] == "$.execution"
+    assert "$$" not in json.dumps(states["AcquireRefreshLock"]["Parameters"])
 
 
 def test_the_tail_choice_routes_a_refresh_away_from_execute_ddl():
@@ -379,41 +398,89 @@ if __name__ == "__main__":
 # ── SPEC-157 FR-002: the lock is released on EVERY terminal path ─────────────
 
 
-def _terminal_shaping_states():
-    """The two Pass states every outcome funnels through before Succeed/Fail."""
-    return ("RecordSuccess", "RecordFailure")
+def _asl_named():
+    """The ASL with each ``${name}`` replaced by NAME itself, not by a uniform stand-in.
+
+    The shared ``_asl()`` collapses every interpolation to "ARN", which makes any assertion about
+    WHICH function a state invokes vacuous — a review found both release states could be pointed
+    at the acquire function with the suite still green.
+    """
+    with open(_TFTPL) as handle:
+        return json.loads(re.sub(r"\$\{([^}]+)\}", r"\1", handle.read()))
 
 
-def test_every_path_that_reaches_a_terminal_outcome_releases_the_lock_first():
-    """FR-002 AC2, stated as the invariant rather than as a list of insertion points.
+def test_no_path_reaches_a_terminal_state_still_holding_the_lock():
+    """FR-002 AC2, asserted at the REAL cut.
 
-    A refusal in diff-schema, a TerminalError in any verb and a caught Lambda fault must all
-    release. Asserting it per-state would need the list maintained by hand — and the failure
-    this closes is precisely a path nobody remembered. So it is derived: every edge INTO a
-    terminal shaping state must come from a lock state.
+    An earlier version of this test derived the feeders of RecordSuccess/RecordFailure and
+    required them to be lock states. That measures one hop too early: a Catch pointed PAST the
+    shaping states — straight at Failed, or at NotifyFailure — bypasses the release entirely and
+    the assertion still holds because nothing new points at RecordFailure. Three such mutations
+    were confirmed to leave the whole suite green, each one stranding a refresh's lock for the
+    full steal threshold.
+
+    So this walks every path from StartAt to a terminal state, carrying whether the lock has been
+    taken, and fails if any path ends while still holding it. That is the property FR-002 AC2
+    actually names, and it cannot be satisfied by a state nobody remembered to list.
     """
     states = _states()
+    terminals = {n for n, s in states.items() if s.get("Type") in ("Succeed", "Fail")}
+    assert terminals, "no terminal states found — the walk measured nothing"
 
-    for terminal in _terminal_shaping_states():
-        feeders = {
-            name for name, state in states.items() if terminal in set(_targets(state))
-        }
-        assert feeders, f"nothing reaches {terminal} — the walk found no edges"
-        assert feeders <= _LOCK_STATES, (
-            f"{sorted(feeders - _LOCK_STATES)} reach {terminal} without releasing the lock "
-            "first — a refresh that failed there would hold its table until the steal expires"
-        )
+    violations = []
+
+    def _walk_from(name, held, seen):
+        if name in terminals:
+            if held:
+                violations.append([*seen, name])
+            return
+        if (name, held) in seen_pairs:
+            return
+        seen_pairs.add((name, held))
+        state = states[name]
+        if name == "AcquireRefreshLock":
+            held = True
+        elif name in _LOCK_STATES:
+            held = False
+        for nxt in _targets(state):
+            if nxt:
+                _walk_from(nxt, held, [*seen, name])
+
+    seen_pairs = set()
+    _walk_from(_asl()["StartAt"], False, [])
+
+    assert not violations, (
+        "these paths reach a terminal state still holding the refresh lock, stranding the table "
+        f"until the steal expires: {violations[:3]}"
+    )
+
+
+def test_the_lock_is_actually_taken_on_the_refresh_path():
+    """Guards the guard above: if nothing ever sets `held`, it passes by measuring nothing."""
+    states = _states()
+
+    assert "AcquireRefreshLock" in states
+    assert set(states) >= _LOCK_STATES
 
 
 def test_the_release_states_invoke_one_verb_and_differ_only_in_where_they_continue():
     """Two states rather than one because ASL gives a state exactly one Next, not because
     there are two behaviours."""
     states = _states()
+    named = _asl_named()["States"]
     success, failure = states["ReleaseRefreshLock"], states["ReleaseRefreshLockOnFailure"]
 
     assert success["Parameters"]["FunctionName"] == failure["Parameters"]["FunctionName"]
     assert success["Next"] == "RecordSuccess"
     assert failure["Next"] == "RecordFailure"
+
+    # Asserted against the NAME, not against each other: equal-to-each-other passes when both
+    # point at the wrong function, which a review confirmed by pointing both at acquire.
+    for name in _LOCK_STATES:
+        assert named[name]["Parameters"]["FunctionName"] == "release_refresh_lock_function_arn"
+    assert named["AcquireRefreshLock"]["Parameters"]["FunctionName"] == (
+        "acquire_refresh_lock_function_arn"
+    )
 
 
 def test_the_release_states_preserve_the_running_request_rather_than_replacing_it():
