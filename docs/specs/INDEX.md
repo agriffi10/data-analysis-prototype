@@ -163,7 +163,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 155 — Browser Shared Primitives & Component Decomposition | Completed |
 | 156 — Lambda Layer Consolidation: Folding the Deliberate Twins onto `cpcommon` | Completed |
 | 157 — Serialize Concurrent Table Refresh | Completed |
-| 158 — Shared-Space Suggestions from the Local Cache | Draft |
+| 158 — Shared-Space Suggestions from the Local Cache | Completed |
 
 ## Arcs
 

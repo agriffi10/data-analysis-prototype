@@ -863,3 +863,36 @@ consolidation.
 **Do NOT** read this as licence to merge the domain layers into `cpcommon`. The layers stay; only
 genuinely cross-plane helpers moved, and a move that would change which layer a function attaches to
 is a `deploy-lambdas.yml` matrix change with SPEC-137's failure mode attached.
+
+
+### No shared-space directory is published; suggestions come from your own cache (SPEC-158)
+
+`TableShareDialog`'s space entry suggests only the shared spaces the signed-in user belongs to,
+read from the connections cache `useConnections` already fetches. **A complete list of every space
+in the organisation would be strictly more useful, and it was declined.**
+
+Strictly more useful because sharing a table to a space does **not** require membership —
+`test_recipient_space_membership_not_required` pins that any active space is a valid target — so the
+suggestions cover less than the field accepts, on purpose. The cost of closing that gap is a
+disclosure with **no existing equivalent**: today a non-member learns a space exists only by
+colliding with its name at create time, and space names are user-chosen and often descriptive
+(`acme_merger`, `q4_layoffs`). The username directory is not a precedent — a username is already the
+S3 prefix, the principal tag and the Glue database name (see the entry above); a space name a user
+does not belong to is disclosed nowhere. The trade was put to the user on 2026-08-05 and **declined
+in favour of suggesting only what the user can already see.**
+
+**Do NOT add a space directory "for symmetry with SPEC-146."** The absence is the decision. What
+holds the line in the UI is that a space the user does not belong to **stays typeable and still
+commits**, with a note that says it may exist and simply not be one of yours — worded that way
+because this note is the one place a user could be misled into thinking the target was invalid.
+
+Two consequences worth carrying:
+
+- **The suggestion source is a prop, not a hook call** (`SuggestionSource = {status, search}`).
+  `UsernameCombobox` reaching for `useUserDirectory` itself was the right reading with one source
+  and the wrong one with two; a near-duplicate component would have been the alternative. A second
+  source is the trigger to revisit that kind of deviation, not to fork.
+- **A second source costs no request.** The space list is a query the app already makes for the
+  Connections page and the Query rail, and the ranking is SPEC-147's `buildIndex`/`search`, which
+  were never username-specific. No Lambda, no published document, no IAM, no env var, no new AWS
+  call — a test asserts the space path issues none.

@@ -3,6 +3,7 @@ export type {EnqueueInput} from './sharedSpaces.service';
 export {useCreateSharedConnection} from './useCreateSharedConnection';
 export {useManageMembers} from './useManageMembers';
 export {useAcknowledgeMembership} from './useAcknowledgeMembership';
+export {useSpaceSuggestions} from './useSpaceSuggestions';
 export {useLeaveOrDeleteSharedSpace} from './useLeaveOrDeleteSharedSpace';
 export {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 export {ManageMembersDrawer} from './ManageMembersDrawer';

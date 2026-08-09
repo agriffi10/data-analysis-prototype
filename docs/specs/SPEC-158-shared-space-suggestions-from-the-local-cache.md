@@ -1,8 +1,8 @@
 # Spec: Shared-Space Suggestions from the Local Cache
 
 **ID:** SPEC-158
-**Status:** Draft
-**Last Updated:** 2026-08-05
+**Status:** Completed
+**Last Updated:** 2026-08-09
 **Depends On:** SPEC-147 (`UsernameCombobox`, whose data source this generalises), SPEC-148 (`TableShareDialog`'s current wiring), SPEC-051/052 (the per-user shared-connections cache this reads), SPEC-093 (the dialog's combined recipient list)
 
 > **Browser-only. No Lambda, no published document, no IAM, no env var, no new AWS call** — the

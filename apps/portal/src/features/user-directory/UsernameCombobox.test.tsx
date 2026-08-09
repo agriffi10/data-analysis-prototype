@@ -4,6 +4,8 @@ import type {ReactElement} from 'react';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {UsernameCombobox} from './UsernameCombobox';
+import {useUsernameSuggestions} from './useUsernameSuggestions';
+import type {UsernameSearchResult} from './userDirectory.types';
 import {Modal} from '../../components/Modal';
 import {Drawer} from '../../components/Drawer';
 import {getUserDirectory} from './userDirectory.service';
@@ -32,15 +34,23 @@ describe('UsernameCombobox', () => {
     vi.mocked(getUserDirectory).mockResolvedValue(resolved());
   });
 
-  /** The component is controlled; every test needs the value wired to state. */
+  /**
+   * The component is controlled; every test needs the value wired to state.
+   *
+   * The suggestion source is a PROP since SPEC-158, so the harness supplies it — from
+   * `useUsernameSuggestions`, which is what the shipping consumers pass, so the mocked service
+   * boundary below still drives every case this suite pinned.
+   */
   function Harness({
     onCommit = vi.fn(),
     onCommitMany,
     ...rest
   }: Partial<React.ComponentProps<typeof UsernameCombobox>> = {}) {
     const [value, setValue] = useState('');
+    const suggestions = useUsernameSuggestions();
     return (
       <UsernameCombobox
+        {...suggestions}
         label="Usernames"
         value={value}
         onChange={setValue}
@@ -163,6 +173,56 @@ describe('UsernameCombobox', () => {
       await typeReady(user, 'ali');
 
       await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('2 matches'));
+    });
+  });
+
+  describe('UsernameCombobox — the source is a prop (SPEC-158 FR-001)', () => {
+    /**
+     * Rendered with a PLAIN STUB and NO providers — no QueryClient, no AuthProvider, no mocked
+     * service. That is the whole claim of the prop lift: the component is source-agnostic, and it
+     * would fail here the moment it reached for a hook of its own.
+     */
+    function StubHarness({search}: {search: (query: string, limit?: number) => UsernameSearchResult[]}) {
+      const [value, setValue] = useState('');
+      return (
+        <UsernameCombobox
+          status="ready"
+          search={search}
+          label="Names"
+          value={value}
+          onChange={setValue}
+          onCommit={() => {}}
+        />
+      );
+    }
+
+    it('suggests from a plain stub, with no provider beyond its own chrome', async () => {
+      const search = vi.fn((query: string): UsernameSearchResult[] => [{username: `${query}team`, match: 'prefix'}]);
+      render(<StubHarness search={search} />);
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole('combobox', {name: 'Names'}));
+      await user.keyboard('sales');
+
+      await waitFor(() => expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['salesteam']));
+      expect(search).toHaveBeenCalled();
+      cleanup();
+    });
+
+    it('renders the caller’s unlisted-name wording instead of the directory sentence', async () => {
+      const onCommit = vi.fn();
+      const {user} = renderWithProviders(
+        <Harness
+          onCommit={onCommit}
+          unlistedNote={(names) => `${names.join(', ')} may exist and simply not be one of yours.`}
+        />
+      );
+      await user.click(field());
+      await user.keyboard('newthing{Enter}');
+
+      expect(onCommit).toHaveBeenCalledWith('newthing');
+      expect(await screen.findByText(/may exist and simply not be one of yours/)).toBeInTheDocument();
+      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
     });
   });
 
@@ -433,17 +493,24 @@ describe('UsernameCombobox.a11y', () => {
   // hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
   const client = createTestQueryClient();
 
-  function Harness({initial = ''}: {initial?: string}): ReactElement {
+  function Field({initial}: {initial: string}): ReactElement {
     const [value, setValue] = useState(initial);
+    return (
+      <UsernameCombobox
+        {...useUsernameSuggestions()}
+        label="Usernames"
+        value={value}
+        onChange={setValue}
+        onCommit={() => {}}
+      />
+    );
+  }
+
+  function Harness({initial = ''}: {initial?: string}): ReactElement {
     return (
       <AuthContext.Provider value={authValue()}>
         <QueryClientProvider client={client}>
-          <UsernameCombobox
-            label="Usernames"
-            value={value}
-            onChange={setValue}
-            onCommit={() => {}}
-          />
+          <Field initial={initial} />
         </QueryClientProvider>
       </AuthContext.Provider>
     );

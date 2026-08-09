@@ -321,7 +321,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Any table you can browse in the <b>Query</b> schema rail can be shared. Sharing copies the table’s data files into each recipient’s space and creates the table in their database, so they can query it as their own — it’s a one-time snapshot, not a live link.',
         steps: [
           'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on a table and choose <b>Share table</b> (views can’t be shared).',
-          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b> (or press <b>Enter</b>). Under <b>Users</b>, existing usernames are suggested as you type; the list is refreshed once a day, so a very new colleague might not appear yet and can still be typed in full. Shared-space names have no suggestions. You can mix both kinds in one share.',
+          'Pick who to share with — <b>Users</b> or <b>Shared spaces</b> — type one or more names, and click <b>Add</b> (or press <b>Enter</b>). Both kinds suggest as you type: under <b>Users</b>, existing usernames, from a list refreshed once a day, so a very new colleague might not appear yet and can still be typed in full; under <b>Shared spaces</b>, the spaces you belong to. You can share to a space you’re not a member of — just type its name in full. You can mix both kinds in one share.',
           'Adjust the <b>Table name for recipients</b> if you like (it defaults to the source table’s name).',
           'Click <b>Share</b>. The copy runs in the background — each recipient is notified on success, and every outcome lands in your notifications.'
         ],

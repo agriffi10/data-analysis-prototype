@@ -2,8 +2,9 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {UsernameCombobox} from './UsernameCombobox';
 import type {UsernameComboboxHandle} from './UsernameCombobox';
 import {cx} from '../../lib/cx';
+import type {SuggestionSource} from './userDirectory.types';
 
-export type UsernameChipsFieldProps = {
+export type UsernameChipsFieldProps = SuggestionSource & {
   label: string;
   /** `aria-label` for the chip list — the caller names the noun ("Members to add"). */
   listLabel: string;
@@ -45,11 +46,17 @@ export type UsernameChipsFieldProps = {
  * The component owns NO submission logic: it reports `string[]` and the caller decides what to
  * do with it.
  *
+ * The suggestion source is passed STRAIGHT THROUGH to the combobox (SPEC-158): this component
+ * adds chips, not a data source, and a hook call here would make it the second place that decides
+ * what a field suggests.
+ *
  * @example
- * <UsernameChipsField label="Usernames" listLabel="Members to add"
- *   value={members} onChange={setMembers} exclude={existingMembers} />
+ * <UsernameChipsField {...useUsernameSuggestions()} label="Usernames"
+ *   listLabel="Members to add" value={members} onChange={setMembers} exclude={existingMembers} />
  */
 export function UsernameChipsField({
+  status,
+  search,
   label,
   listLabel,
   value,
@@ -103,6 +110,8 @@ export function UsernameChipsField({
       }}>
       <UsernameCombobox
         ref={fieldRef}
+        status={status}
+        search={search}
         label={label}
         value={entry}
         onChange={setEntry}

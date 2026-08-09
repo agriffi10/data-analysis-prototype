@@ -28,6 +28,22 @@ export type UsernameSearchResult = {
   match: 'exact' | 'prefix' | 'substring';
 };
 
+/**
+ * What a suggestion field needs from whatever is suggesting: a status to branch on and a search
+ * callback. Named for the ROLE rather than for the username directory, because SPEC-158 gave the
+ * combobox a second source — the signed-in user's own shared spaces — and the two are
+ * interchangeable from the field's point of view.
+ *
+ * `status` uses the same three-state vocabulary either way, deliberately: a consumer branching on
+ * it has one rule to learn, and the reason `'unavailable'` collapses errored-and-empty holds for
+ * both sources.
+ */
+export type SuggestionSource = {
+  status: UserDirectoryStatus;
+  /** Stable across renders; returns `[]` unless `status === 'ready'`. */
+  search: (query: string, limit?: number) => UsernameSearchResult[];
+};
+
 type TrieNode = {children: Record<string, TrieNode>; terminal: boolean};
 
 /**

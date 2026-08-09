@@ -1,6 +1,7 @@
 import {useId, useMemo, useState} from 'react';
 import {FormDialog} from '../../components/FormDialog';
 import {UsernameChipsField} from '../user-directory/UsernameChipsField';
+import {useUsernameSuggestions} from '../user-directory/useUsernameSuggestions';
 
 type Props = {
   /** In-flight while the add request is being enqueued — locks Add + dismiss. */
@@ -26,6 +27,7 @@ type Props = {
 export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Props) {
   const [members, setMembers] = useState<string[]>([]);
   const helpId = useId();
+  const suggestions = useUsernameSuggestions();
 
   // The drawer populates `existing` with every member INCLUDING the owner, and this dialog is
   // owner-only, so passing it straight through as `exclude` is a like-for-like translation of
@@ -57,6 +59,7 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
         files and tables.
       </p>
       <UsernameChipsField
+        {...suggestions}
         label="Usernames"
         listLabel="Members to add"
         value={members}

@@ -11,11 +11,11 @@ import {
 } from 'react';
 import {Input} from '../../components/Input';
 import {cx} from '../../lib/cx';
-import {useUserDirectory} from './useUserDirectory';
 import {parseMemberInputDetailed} from '../shared-spaces/memberInput';
 import {CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
+import type {SuggestionSource} from './userDirectory.types';
 
-export type UsernameComboboxProps = {
+export type UsernameComboboxProps = SuggestionSource & {
   label: string;
   value: string;
   onChange: (next: string) => void;
@@ -40,7 +40,22 @@ export type UsernameComboboxProps = {
   id?: string;
   /** Extra ids to attach to the input's `aria-describedby` (a caller's help line). */
   describedBy?: string;
+  /**
+   * The neutral note shown after committing names the source does not list. Called only with a
+   * non-empty list, and only while `status === 'ready'`.
+   *
+   * A prop because the sentence has to name what was searched: SPEC-158's space entry must say
+   * the space may exist and simply not be one of yours, since targeting a space you are not a
+   * member of is PERMITTED — the username wording would imply the name is wrong. The default is
+   * the username sentence this component has shown since SPEC-147.
+   */
+  unlistedNote?: (names: string[]) => string;
 };
+
+/** The default {@link UsernameComboboxProps.unlistedNote} — the directory wording. */
+function directoryNote(names: string[]): string {
+  return `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} not in the directory — the name will be checked when the request is sent.`;
+}
 
 /**
  * What a caller can drive from outside.
@@ -66,14 +81,17 @@ const ANNOUNCE_DEBOUNCE_MS = 400;
 const ESTIMATED_LIST_HEIGHT = 260;
 
 /**
- * An accessible single-value username typeahead over the published directory (SPEC-146).
+ * An accessible single-value typeahead over catalog-safe identifiers, suggested by whatever
+ * {@link SuggestionSource} the caller supplies — the published username directory (SPEC-146) or
+ * the signed-in user's own shared spaces (SPEC-158).
  *
- * **The directory is ADVISORY and this component never blocks a name it does not know.** It is
- * up to a day stale, it misses users not yet provisioned, and it is not the authority on who
- * exists — the control plane is, and it *already reports an unknown name*: `add_members.py`
- * notifies the space owner by name, and table-share reports unresolved recipients. So a name
- * absent from the directory is a SLOWER path, not a lost one, and refusing it here would turn a
- * stale cache into a hard failure in a flow whose current behaviour is at least permissive.
+ * **Every source here is ADVISORY and this component never blocks a name it does not know.** The
+ * directory is up to a day stale and misses users not yet provisioned; the space list covers only
+ * the spaces the user belongs to, while any active space is a valid share target. Neither is the
+ * authority on what exists — the control plane is, and it *already reports an unknown name*:
+ * `add_members.py` notifies the space owner by name, and table-share reports unresolved
+ * recipients. So an absent name is a SLOWER path, not a lost one, and refusing it here would turn
+ * a stale cache into a hard failure in a flow whose current behaviour is at least permissive.
  * Suggestions are suggestions; valid free text always commits.
  *
  * Built on the ARIA combobox pattern rather than on this repo's `Menu` primitive, which is
@@ -82,11 +100,13 @@ const ESTIMATED_LIST_HEIGHT = 260;
  * (WCAG 4.1.2). Reusing `Menu` would look fine and be unusable with a screen reader.
  *
  * @example
- * <UsernameCombobox label="Usernames" value={entry} onChange={setEntry}
- *   onCommit={(name) => add([name])} onCommitMany={add} />
+ * <UsernameCombobox {...useUsernameSuggestions()} label="Usernames" value={entry}
+ *   onChange={setEntry} onCommit={(name) => add([name])} onCommitMany={add} />
  */
 export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameComboboxProps>(function UsernameCombobox(
   {
+    status,
+    search,
     label,
     value,
     onChange,
@@ -98,7 +118,8 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
     placeholder,
     disabled = false,
     id,
-    describedBy
+    describedBy,
+    unlistedNote = directoryNote
   },
   ref
 ) {
@@ -107,7 +128,6 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
   const listboxId = `${reactId}-listbox`;
   const noteId = `${reactId}-note`;
 
-  const {status, search} = useUserDirectory();
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
   const [error, setError] = useState<string | null>(null);
@@ -207,17 +227,13 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
         return refusal;
       }
 
-      // The unlisted-name note is shown only when the directory is READY. While it is loading
-      // or unavailable a note would either arrive a second after the name was accepted (reading
-      // as a delayed rejection) or tell the user their colleague "was not found" because a
+      // The unlisted-name note is shown only when the source is READY. While it is loading or
+      // unavailable a note would either arrive a second after the name was accepted (reading as
+      // a delayed rejection) or tell the user their colleague "was not found" because a
       // background fetch failed — worse than saying nothing.
       if (status === 'ready') {
         const unlisted = allowed.filter((name) => search(name, 1)[0]?.username !== name);
-        setNote(
-          unlisted.length === 0
-            ? null
-            : `${unlisted.join(', ')} ${unlisted.length === 1 ? 'is' : 'are'} not in the directory — the name will be checked when the request is sent.`
-        );
+        setNote(unlisted.length === 0 ? null : unlistedNote(unlisted));
       } else {
         setNote(null);
       }
@@ -228,7 +244,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       setHighlighted(-1);
       return refusal;
     },
-    [exclude, excludeReason, onCommit, onCommitMany, search, status]
+    [exclude, excludeReason, onCommit, onCommitMany, search, status, unlistedNote]
   );
 
   /**
