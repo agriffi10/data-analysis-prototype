@@ -724,3 +724,79 @@ def test_traced_is_outermost_above_notifies_on_failure():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-157 FR-005: the residual window, narrowed ───────────────────────────
+
+
+def test_a_table_changed_since_the_run_started_is_abandoned_without_writing():
+    """Another writer committed between load-table-definition's read and this write, so the
+    definition this run computed came from a table that no longer exists in that form. Applying
+    it would silently overwrite whatever the other writer did — the failure mode is that
+    diff-schema reported 'unchanged' and nothing in logs/ says a definition was replaced."""
+    glue, _ = _install()
+    event = _event(observedUpdateTime="2026-01-01T00:00:00Z")
+
+    try:
+        m.handler(event, None)
+    except TerminalError as exc:
+        assert exc.reason == "table_changed_during_refresh"
+    else:
+        raise AssertionError("expected the refresh to be abandoned")
+
+    assert glue.update_calls == [], "the table was written despite having changed underneath"
+
+
+def test_a_table_that_did_not_change_is_applied():
+    """The counterweight: the guard must not refuse the ordinary case."""
+    glue, _ = _install()
+
+    m.handler(_event(observedUpdateTime="2026-02-01T00:00:00Z"), None)
+
+    assert len(glue.update_calls) == 1
+
+
+@pytest.mark.parametrize("observed", [None, ""])
+def test_no_captured_stamp_is_not_evidence_of_a_concurrent_writer(observed):
+    """Refusing on a missing stamp would fail refreshes for a reason the user can neither see
+    nor act on — and every request written before this spec has no stamp at all."""
+    glue, _ = _install()
+    event = _event()
+    if observed is not None:
+        event["observedUpdateTime"] = observed
+
+    m.handler(event, None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_a_table_reporting_no_update_time_is_applied():
+    """The other side of the same rule: Glue not reporting one is not evidence either."""
+    table = _live_table()
+    table.pop("UpdateTime")
+    glue, _ = _install(table=table)
+
+    m.handler(_event(observedUpdateTime="2026-01-01T00:00:00Z"), None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_version_id_is_never_passed_as_a_precondition():
+    """FR-005 AC4. UpdateTable's VersionId is documented as the version to update, with NO
+    precondition-failure error — it is not a compare-and-set, and passing it would read like one
+    to the next person. Verified against botocore's service model (2026-08-05)."""
+    glue, _ = _install()
+
+    m.handler(_event(observedUpdateTime="2026-02-01T00:00:00Z"), None)
+
+    assert "VersionId" not in glue.update_calls[0]
+
+
+def test_the_guard_does_not_claim_to_close_the_window():
+    """The comparison narrows the race; GetTable and UpdateTable are still two calls and Glue
+    offers no CAS. A later reader must not mistake this for a guarantee, so the source says so."""
+    import inspect
+
+    source = inspect.getsource(m._abandon_if_changed)
+
+    assert "DOES NOT CLOSE" in source.upper()

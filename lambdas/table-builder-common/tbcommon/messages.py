@@ -63,6 +63,10 @@ _BODIES = {
         "was changed - refresh again and confirm the removal to apply it."
     ),
     "removals_flag_not_applicable": "the request was malformed. Please try again.",
+    "table_changed_during_refresh": (
+        "the table was changed by something else while this refresh was running. Nothing was "
+        "changed - refresh again to pick up both sets of changes."
+    ),
     "refresh_already_running": (
         "a refresh of that table is already running. Nothing was changed - wait for it to "
         "finish, then check whether you still need to refresh again."

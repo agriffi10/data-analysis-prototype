@@ -141,6 +141,7 @@ _CREATE_MESSAGES = {
     # left a live body checked by nothing for a whole spec, and the wording matters here — this
     # is the sentence a user sees when their refresh did NOTHING, so "nothing was changed" is
     # load-bearing and must not drift into sounding like a failure they need to act on.
+    "table_changed_during_refresh": 'Couldn\'t create table "sales": the table was changed by something else while this refresh was running. Nothing was changed - refresh again to pick up both sets of changes.',
     "refresh_already_running": 'Couldn\'t create table "sales": a refresh of that table is already running. Nothing was changed - wait for it to finish, then check whether you still need to refresh again.',
 }
 

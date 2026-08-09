@@ -643,3 +643,40 @@ def test_traced_is_outermost_above_notifies_on_failure():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-157 FR-005: capture the stamp apply-refresh compares against ────────
+
+
+def test_the_live_tables_update_time_is_captured_onto_the_state():
+    """apply-refresh compares this against its own pre-write read. Captured HERE rather than
+    re-read there because the point is to span the whole run: a stamp read next to the write
+    would only ever equal itself."""
+    _install(_table(UpdateTime="2026-02-01T00:00:00Z"))
+
+    out = m.handler(_event(), None)
+
+    assert out["observedUpdateTime"] == "2026-02-01T00:00:00Z"
+
+
+def test_a_datetime_stamp_is_rendered_as_a_string():
+    """It is threaded through Step Functions state, which is JSON — a datetime would not survive
+    the round trip, and boto3 returns one for real."""
+    import datetime
+
+    _install(_table(UpdateTime=datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)))
+
+    out = m.handler(_event(), None)
+
+    assert out["observedUpdateTime"] == "2026-02-01T00:00:00+00:00"
+    assert isinstance(out["observedUpdateTime"], str)
+
+
+def test_a_table_reporting_no_update_time_captures_none_rather_than_failing():
+    """Absent is a legitimate answer — apply-refresh treats it as no evidence of a concurrent
+    writer rather than inventing a refusal."""
+    _install(_table())
+
+    out = m.handler(_event(), None)
+
+    assert out["observedUpdateTime"] is None
