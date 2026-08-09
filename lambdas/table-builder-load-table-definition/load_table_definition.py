@@ -397,7 +397,8 @@ def _load(event: dict) -> dict:
     actor = events.require(event, "actor")
     space = event.get("space") or {}
 
-    definition, location, partitioned = _clone(_get_table(database, table_name))
+    live_table = _get_table(database, table_name)
+    definition, location, partitioned = _clone(live_table)
     _authorize_location(location, space, actor)
     _enforce_definition_cap(definition, database, table_name)
     partition_keys = _reconstruct_partition_keys(definition)
@@ -409,6 +410,7 @@ def _load(event: dict) -> dict:
     serde = definition["serde"]
 
     out = dict(event)
+    out["observedUpdateTime"] = glue.update_time(live_table)
     out["space"] = {**space, "bucket": location["bucket"], "prefix": location["prefix"]}
     out["location"] = f"s3://{location['bucket']}/{location['prefix']}"
     out["existingColumns"] = columns

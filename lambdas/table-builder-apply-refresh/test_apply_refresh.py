@@ -24,6 +24,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "dat-prod-user-space")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "dat-prod-shared-space")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import datetime
 import json
 import pathlib
 
@@ -724,3 +725,156 @@ def test_traced_is_outermost_above_notifies_on_failure():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-157 FR-005: the residual window, narrowed ───────────────────────────
+
+
+def test_a_table_changed_since_the_run_started_is_abandoned_without_writing():
+    """Another writer committed between load-table-definition's read and this write, so the
+    definition this run computed came from a table that no longer exists in that form. Applying
+    it would silently overwrite whatever the other writer did — the failure mode is that
+    diff-schema reported 'unchanged' and nothing in logs/ says a definition was replaced."""
+    glue, _ = _install()
+    event = _event(observedUpdateTime="2026-01-01T00:00:00Z")
+
+    try:
+        m.handler(event, None)
+    except TerminalError as exc:
+        assert exc.reason == "table_changed_during_refresh"
+    else:
+        raise AssertionError("expected the refresh to be abandoned")
+
+    assert glue.update_calls == [], "the table was written despite having changed underneath"
+
+
+def test_a_table_that_did_not_change_is_applied():
+    """The counterweight: the guard must not refuse the ordinary case."""
+    glue, _ = _install()
+
+    m.handler(_event(observedUpdateTime="2026-02-01T00:00:00Z"), None)
+
+    assert len(glue.update_calls) == 1
+
+
+@pytest.mark.parametrize("observed", [None, ""])
+def test_no_captured_stamp_is_not_evidence_of_a_concurrent_writer(observed):
+    """Refusing on a missing stamp would fail refreshes for a reason the user can neither see
+    nor act on — and every request written before this spec has no stamp at all."""
+    glue, _ = _install()
+    event = _event()
+    if observed is not None:
+        event["observedUpdateTime"] = observed
+
+    m.handler(event, None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_a_table_reporting_no_update_time_is_applied():
+    """The other side of the same rule: Glue not reporting one is not evidence either."""
+    table = _live_table()
+    table.pop("UpdateTime")
+    glue, _ = _install(table=table)
+
+    m.handler(_event(observedUpdateTime="2026-01-01T00:00:00Z"), None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_version_id_is_never_passed_as_a_precondition():
+    """FR-005 AC4. UpdateTable's VersionId is documented as the version to update, with NO
+    precondition-failure error — it is not a compare-and-set, and passing it would read like one
+    to the next person. Verified against botocore's service model (2026-08-05)."""
+    glue, _ = _install()
+
+    m.handler(_event(observedUpdateTime="2026-02-01T00:00:00Z"), None)
+
+    assert "VersionId" not in glue.update_calls[0]
+
+
+def test_the_guard_does_not_claim_to_close_the_window():
+    """The comparison narrows the race; GetTable and UpdateTable are still two calls and Glue
+    offers no CAS. A later reader must not mistake this for a guarantee, so the source says so."""
+    import inspect
+
+    source = inspect.getsource(m._abandon_if_changed)
+
+    assert "DOES NOT CLOSE" in source.upper()
+
+
+# ── SPEC-157: the shapes boto3 ACTUALLY returns ──────────────────────────────
+
+_AWARE = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
+
+
+def test_a_datetime_stamp_matching_the_captured_one_is_applied():
+    """The branch that runs in PRODUCTION, which the string fixtures above never reach.
+
+    boto3 returns a timezone-aware datetime, not a string, so the compare side's normalisation
+    is the live path — and deleting it left the whole suite green while breaking every refresh
+    with a changed schema. Line coverage hid it: the ternary is one line.
+    """
+    glue, _ = _install(table=_live_table(UpdateTime=_AWARE))
+
+    m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_a_datetime_stamp_that_moved_under_another_writer_abandons():
+    """Its twin: the same shapes, a genuinely different moment, and different columns."""
+    moved = _live_table(UpdateTime=datetime.datetime(2026, 3, 1, tzinfo=datetime.UTC))
+    moved["StorageDescriptor"] = {
+        **moved["StorageDescriptor"],
+        "Columns": [{"Name": "something_else", "Type": "string"}],
+    }
+    glue, _ = _install(table=moved)
+
+    try:
+        m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
+    except TerminalError as exc:
+        assert exc.reason == "table_changed_during_refresh"
+    else:
+        raise AssertionError("expected the refresh to be abandoned")
+
+    assert glue.update_calls == []
+
+
+def test_the_same_instant_in_another_zone_is_not_a_change():
+    """Botocore's default parser localises to the runtime's zone, so the same instant renders
+    with a different offset under a different TZ. Normalising to UTC on both sides makes the
+    comparison independent of a setting neither Lambda declares."""
+    eastern = datetime.timezone(datetime.timedelta(hours=-5))
+    glue, _ = _install(table=_live_table(UpdateTime=_AWARE.astimezone(eastern)))
+
+    m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_a_retry_after_this_runs_own_write_landed_is_not_blamed_on_another_writer():
+    """SPEC-149's retry-safety property, which the freshness guard nearly took away.
+
+    ApplyRefresh retries on Lambda faults and on Glue's own retryable ones, and both can fire
+    AFTER the update committed. The retry then re-reads a table whose stamp THIS RUN moved. On
+    the stamp alone that reads as another writer — so the run would be recorded failed, and the
+    user would get a "something else changed your table" notification contradicting the success
+    notification the first attempt already sent.
+    """
+    glue, sqs = _install()
+    event = _event(observedUpdateTime="2026-02-01T00:00:00Z")
+
+    m.handler(event, None)
+    assert len(glue.update_calls) == 1
+
+    # Real Glue advances UpdateTime on a write; the fake does not, so model it.
+    glue.table = {**glue.table, "UpdateTime": "2026-02-02T00:00:00Z"}
+
+    out = m.handler(event, None)
+
+    assert out["status"] == "refreshed"
+    assert len(glue.update_calls) == 2
+    assert not any(
+        "changed by something else" in str(call) for call in sqs.calls
+    ), "the retry blamed a phantom writer for this run's own write"

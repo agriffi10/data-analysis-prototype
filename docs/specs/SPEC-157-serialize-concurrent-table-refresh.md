@@ -1,7 +1,7 @@
 # Spec: Serialize Concurrent Table Refresh
 
 **ID:** SPEC-157
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-149 (the in-place `glue:UpdateTable` apply, and the exposure this closes), SPEC-143 (refresh eligibility + `load-table-definition`), SPEC-066 (the table-builder control plane, its FIFO queue and Pipe), SPEC-123 (the ETag-CAS precedent this reuses)
 
@@ -76,7 +76,15 @@ than racing.
 
 The lock is a small JSON object under `locks/table-builder/` in the **admin bucket**, one per
 `{database}/{table}`. It is claimed and released with conditional `PutObject` — the same ETag-CAS
-mechanism `dqcommon.index_store` and `log_sweep` already use.
+mechanism the fleet already uses.
+
+> **Corrected during build (2026-08-09).** This spec was authored 2026-08-05 and named
+> `dqcommon.index_store` and `log_sweep` as the precedent; **SPEC-156 FR-001 folded both onto
+> `cpcommon.cas` two days later.** The lock reuses `cas.is_precondition` — the one place that
+> knows a failed match and a racing create are the same answer — but deliberately **not**
+> `cas.cas_mutate`: that loop *retries* on a precondition failure, which is right for an append
+> and wrong for a lock, where a lost precondition means another execution holds it and the
+> correct response is to refuse.
 
 **It is released by OVERWRITING, never by deleting, and that is forced rather than chosen.** The
 table-builder execution role carries an explicit `Deny` on `s3:DeleteObject` for the admin bucket
@@ -315,9 +323,12 @@ able to drift independently.
 
 ```
 lambdas/
-├── table-builder-common/tbcommon/
-│   ├── table_lock.py                       # NEW — acquire / release / steal
-│   └── test_table_lock.py                  # NEW
+├── table-builder-common/
+│   ├── tbcommon/table_lock.py              # NEW — acquire / release / steal
+│   └── test_table_lock.py                  # NEW — at the LAYER ROOT, not inside the package:
+│                                           #   deploy-lambdas.yml does `cp -r …/tbcommon` into
+│                                           #   the layer, so a test file inside it would SHIP.
+│                                           #   Matches every other layer's suite.
 ├── table-builder-acquire-refresh-lock/     # NEW verb
 ├── table-builder-release-refresh-lock/     # NEW verb
 ├── table-builder-load-table-definition/    # + capture UpdateTime (FR-005)

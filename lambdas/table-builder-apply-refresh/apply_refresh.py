@@ -34,7 +34,7 @@ Attributes:
 
 import logging
 
-from cpcommon import clients, ddl, errors, events, observability
+from cpcommon import clients, ddl, errors, events, glue, observability
 from cpcommon.errors import TerminalError, TransientError
 from tbcommon import notify
 
@@ -194,6 +194,81 @@ def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dic
     return table_input
 
 
+def _abandon_if_changed(
+    event: dict, live_table: dict, database: str, table: str, intended: set[str]
+) -> None:
+    """Refuses to write when ANOTHER writer committed between this run's read and this write.
+
+    SPEC-157 FR-005. ``load-table-definition`` captured the table's ``UpdateTime`` at the start of
+    the run; this compares it against the one on the read that immediately precedes the write. A
+    difference means the definition this run computed came from a table that no longer exists in
+    that form, so applying it would silently overwrite whatever the other writer did.
+
+    **A moved stamp is not by itself another writer, and treating it as one broke a property
+    SPEC-149 shipped.** This state is retried on a Lambda fault and on Glue's own retryable
+    faults, and both can fire AFTER the update committed — a client-side timeout on a call the
+    service completed, or a lost response. The retry then re-reads a table whose stamp THIS RUN
+    moved. Judging on the stamp alone, it would fail a run that had already succeeded, notify the
+    user that something else changed their table, and contradict the success notification the
+    first attempt already sent. So the stamp only opens the question, and the columns answer it:
+    if the live table already carries exactly what this run intends to write, the writer was this
+    run, and the update ahead is an idempotent rewrite. That keeps ``ApplyRefresh``'s "a
+    re-invocation simply re-reads and writes again" true.
+
+    THIS NARROWS THE WINDOW; IT DOES NOT CLOSE IT. ``GetTable`` and ``UpdateTable`` are still two
+    separate calls, and Glue offers no compare-and-set to make them one — ``UpdateTable``'s
+    ``VersionId`` is documented as the version to update, with no precondition-failure error, so
+    it is NOT passed here and must not be added in the belief that it is a CAS. Another writer
+    committing between this comparison and the update below is still possible; the refresh lock
+    is what makes it improbable, and this is the backstop for the interval the lock cannot cover
+    (a steal, or a future path that writes without taking it). A writer that commits twice inside
+    one stamp tick is also invisible to it.
+
+    A missing stamp on either side is not treated as a change. Glue not reporting an UpdateTime is
+    no evidence of a concurrent writer, and refusing on it would fail refreshes for a reason the
+    user could neither see nor act on.
+
+    Args:
+      event: The running request, carrying ``observedUpdateTime`` when one was captured.
+      live_table: The pre-write ``GetTable`` response's table dict.
+      database: The target database, for the message.
+      table: The target table, for the message.
+      intended: The case-folded column names this run is about to write.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``table_changed_during_refresh`` when the table moved under another writer.
+    """
+    observed = event.get("observedUpdateTime")
+    current = glue.update_time(live_table)
+    if not observed or not current or observed == current:
+        return
+
+    live = {
+        column["Name"].casefold()
+        for column in live_table.get("StorageDescriptor", {}).get("Columns", [])
+    }
+    if live == intended:
+        logger.info("refresh for %s.%s already landed — re-applying idempotently", database, table)
+        observability.info(
+            "re-applying a refresh that already landed", database=database, table=table
+        )
+        return
+
+    observability.warning(
+        "abandoning refresh — the table changed underneath it",
+        database=database,
+        table=table,
+    )
+    raise TerminalError(
+        "table_changed_during_refresh",
+        f"table {table!r} in database {database!r} was modified by another writer during this "
+        "refresh; nothing was changed",
+    )
+
+
 def _get_table(database: str, table: str) -> dict:
     """Reads the live definition immediately before it is written.
 
@@ -287,9 +362,9 @@ def _post_condition(database: str, table: str, expected: set) -> int:
         re-read a table that has already changed and write it again, and a verification failing
         is not evidence that repeating the work it was verifying will help.
     """
-    glue = clients.glue()
+    client = clients.glue()
     try:
-        table_def = glue.get_table(DatabaseName=database, Name=table)["Table"]
+        table_def = client.get_table(DatabaseName=database, Name=table)["Table"]
     except Exception as err:
         raise TerminalError(
             "update_failed", f"{database}.{table} is not readable after the update: {err}"
@@ -365,6 +440,7 @@ def _apply(event: dict) -> dict:
     live_table = _get_table(database, table)
     table_input = _table_input(live_table, columns, partition_keys)
     written = [column["Name"] for column in table_input["StorageDescriptor"]["Columns"]]
+    _abandon_if_changed(event, live_table, database, table, {n.casefold() for n in written})
 
     observability.info(
         "applying refresh",

@@ -14,6 +14,15 @@
       "Resource": "${admin_bucket_arn}/shared-spaces/*"
     },
     {
+      "Sid": "RefreshLockReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "${admin_bucket_arn}/locks/table-builder/*"
+    },
+    {
       "Sid": "SourceDataRead",
       "Effect": "Allow",
       "Action": "s3:GetObject",
