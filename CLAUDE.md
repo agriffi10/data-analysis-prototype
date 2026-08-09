@@ -202,14 +202,15 @@ What remains below is the live checks that are owed.
   and 149 raised the stakes: the fold is now OURS. If the premise is wrong, the first refresh of an
   existing table silently re-cases its columns while `diff-schema` calls them unchanged — a mutation
   no test and no notification would report. Settle it with the `GetTable` read-back in check (2).
-- **SPEC-157 closed the concurrent-refresh race, and owes TWO live checks.** (1) Submit two
-  refreshes of one table in quick succession from the UI: one succeeds, the other produces the
+- **SPEC-157 closed the concurrent-refresh race and owes ONE live check.** Submit two refreshes of
+  one table in quick succession from the UI: one succeeds, the other produces the
   `refresh_already_running` notification, and both runs appear in `logs/service=table-builder/`.
   **Nothing that runs today proves two real executions serialize** — the unit tests simulate
-  contention with a pinned read. (2) `aws iam simulate-custom-policy` against the **deployed**
-  execution role: `PutObject` allowed under `locks/table-builder/`, `DeleteObject` **explicitDeny**
-  there, `PutObject` denied elsewhere in the admin bucket, each with an `allowed` control so an
-  `implicitDeny` on a wrong ARN cannot read as a pass.
+  contention with a pinned read. Its **IAM simulation is DISCHARGED against the DEPLOYED role**
+  (2026-08-09): `PutObject`/`GetObject` allowed under `locks/table-builder/`, `DeleteObject`
+  **explicitDeny** there, `PutObject` **implicitDeny** elsewhere in the admin bucket — each with an
+  `allowed` control beside it, because an `implicitDeny` alone cannot tell an ungranted action from
+  a wrong ARN.
 - **SPEC-142's `"$path"` premise is CONFIRMED; its disagreeing-files check is still owed.**
   SPEC-151's Phase 5 (2026-08-05) settled the assumption underneath the fix — a single-file check's
   `"$path"` predicate demonstrably matched, so Athena's pseudo-column does return the

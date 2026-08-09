@@ -64,17 +64,27 @@ bite. They found nine defects between them, including two the author's own reaso
 were impossible: the holder identifying the message rather than the execution, and the freshness
 guard failing a run that had already succeeded.
 
-**Owed at deploy — neither is optional:**
+**FR-008 AC4 is DISCHARGED (2026-08-09, post-apply)** against the deployed
+`dat-prod-table-builder-execution-role`, each assertion with a control beside it:
+
+| Action | Resource | Result |
+|---|---|---|
+| `s3:PutObject` | `…-athena-admin/locks/table-builder/alice/sales.json` | **allowed** |
+| `s3:GetObject` | same | **allowed** |
+| `s3:DeleteObject` | same | **explicitDeny** |
+| `s3:PutObject` | `…-athena-admin/shared-spaces/x.json` | **implicitDeny** |
+| `s3:GetObject` | same (the control) | **allowed** |
+
+The last row is why the control matters: an `implicitDeny` alone reads the same whether the action
+is ungranted or the ARN matched no statement at all. `GetObject` succeeding on the identical ARN
+shows the resource is in the policy's space, so the write denial is real.
+
+**Still owed — one check, and it is not optional:**
 
 1. **FR-009 AC4, the live check.** Submit two refreshes of one table in quick succession from the
    UI. One succeeds; the other produces the `refresh_already_running` notification, and both runs
    are visible in `logs/service=table-builder/`. **Nothing that runs today proves two real
    executions serialize** — the unit tests simulate contention with a pinned read.
-2. **FR-008 AC4**, `aws iam simulate-custom-policy` against the **deployed** execution role:
-   `PutObject` allowed under `locks/table-builder/`, `DeleteObject` **explicitDeny** there, and
-   `PutObject` denied elsewhere in the admin bucket — each with an `allowed` control alongside, so
-   an `implicitDeny` on a wrong ARN cannot be mistaken for a pass.
-
 Expect a red first refresh in the window between `Deploy Infrastructure` and `Deploy Lambdas`: the
 two new functions exist with placeholder zips until the code lands. The request is refused with a
 notification, not lost, and it self-heals.
