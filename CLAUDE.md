@@ -77,7 +77,7 @@ browser surface**: a **Refresh table** item in the Query rail, the always-unchec
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→156 are COMPLETE. No spec is in flight.**
+**The 2026-08-05 audit arc: 150→156 are COMPLETE, and SPEC-157 has landed. No spec is in flight.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
@@ -202,15 +202,14 @@ What remains below is the live checks that are owed.
   and 149 raised the stakes: the fold is now OURS. If the premise is wrong, the first refresh of an
   existing table silently re-cases its columns while `diff-schema` calls them unchanged — a mutation
   no test and no notification would report. Settle it with the `GetTable` read-back in check (2).
-- **The concurrent-refresh race is still open, and SPEC-157 owns it.** The Pipe invokes
-  `StartExecution` as `FIRE_AND_FORGET`, so `MessageGroupId` serializes *delivery*, not *execution*,
-  and two refreshes on one database overlap. 149 **reduced** it — neither run can see a missing table
-  any more — but could not close it: **Glue offers no compare-and-set on `UpdateTable`** (`VersionId`
-  carries no precondition semantics), so the worst case is last-write-wins between two definitions.
-  **150 shut the browser's contribution** — a double-click can no longer start the pair (the ref
-  guard; `deduplicationId` is a fresh UUID per call, so SQS FIFO never could have collapsed it) — but
-  that is the *trigger*, not the race. SPEC-144's second exposure (a committed drop then silence) is
-  **retired**: a failed update changes nothing.
+- **SPEC-157 closed the concurrent-refresh race, and owes TWO live checks.** (1) Submit two
+  refreshes of one table in quick succession from the UI: one succeeds, the other produces the
+  `refresh_already_running` notification, and both runs appear in `logs/service=table-builder/`.
+  **Nothing that runs today proves two real executions serialize** — the unit tests simulate
+  contention with a pinned read. (2) `aws iam simulate-custom-policy` against the **deployed**
+  execution role: `PutObject` allowed under `locks/table-builder/`, `DeleteObject` **explicitDeny**
+  there, `PutObject` denied elsewhere in the admin bucket, each with an `allowed` control so an
+  `implicitDeny` on a wrong ARN cannot read as a pass.
 - **SPEC-142's `"$path"` premise is CONFIRMED; its disagreeing-files check is still owed.**
   SPEC-151's Phase 5 (2026-08-05) settled the assumption underneath the fix — a single-file check's
   `"$path"` predicate demonstrably matched, so Athena's pseudo-column does return the
@@ -262,6 +261,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + the full header set, `Server` stripped; CSP built from **variables** (root locals, never module outputs); `connect-src` **is** the app's network surface — enumerate it from the **hosts the app fetches**, not the AWS services it uses (the omitted Hosted UI domain broke fresh sign-in for a day; the code exchange is a `fetch`, not a navigation). **A report-only pass proves nothing about enforcement, and a signed-in pass never tests sign-in.** **Report-only first, always**; verify with a **same-origin page script + a negative control** (CDP eval bypasses page CSP). COEP and Monaco's `style-src 'unsafe-inline'` accepted; `preload` is on but inert — **never submit this `*.cloudfront.net` domain** to hstspreload.org. **Diff findings per check ID, never by total.**
 - **Removing a column needs an opt-in, and the refusal IS the warning (144):** a refresh that would drop a column changes **nothing** and fails `columns_removed`, naming them; the user re-submits with `allowRemovals` (validated not coerced, persisted **nowhere**). The notification **link** is the only channel that names them to the browser — its column names are **percent-encoded and must NOT be re-validated as identifiers**, because column names are *not* catalog-safe. Column matching **folds case** — AWS documents that Athena lowercases every column name it creates through DDL.
 - **The refresh apply replaces the definition IN PLACE (149, supersedes 144's apply):** one `glue:UpdateTable`, a **read-modify-write on the live table** — `UpdateTable` replaces the WHOLE definition, so building the input from SPEC-143's capture would CLEAR `Description`/`Owner`. The `TableInput` is an **allowlist projection** pinned against botocore; column names are **lowercased on write** (this path bypasses Athena's fold); `portal.managed` goes through `ddl.mark_managed`, never named in a verb. **`glue:DeleteTable` was REMOVED** — no verb here deletes a table. No window, no metadata loss, and the "committed drop then silence" exposure is retired; the **concurrent-refresh race is reduced, NOT closed** — Glue offers no compare-and-set on `UpdateTable`.
+- **A per-table lock serializes refresh (157, supersedes 149's "reduced, NOT closed"):** an admin-bucket object under `locks/table-builder/`, claimed under **ETag CAS**; the loser is **refused with a notification**, never queued. Releases by **overwriting** — the role's `Deny s3:DeleteObject` makes "free" a *state*, not an absence. The holder is the **execution ARN** (a request id identifies the *message*, and Pipes delivery is at-least-once), stamped by a **Pass** state because reading `$$` in the task's own `Parameters` wraps the payload and every notify path reads the request at the **top level**. A stale lock is stealable only because the machine now has a **`TimeoutSeconds`** — a **top-level ASL field**, not a resource argument. `REQUEST_RESPONSE` on the Pipe is **impossible** for a STANDARD machine and EXPRESS is rejected twice over. `apply-refresh`'s freshness guard **narrows, does not close** the window — and it judges on the **columns as well as the stamp**, or a retry after its own committed write blames a phantom writer.
 - **Refresh eligibility = shape, not marker (143):** a refresh is judged by what Glue reports (`cpcommon.glue.clone_definition`, moved from `tscommon`), **never** by the `portal.managed` TBLPROPERTY it also starts writing — pre-143 tables lack it and users can set it; a test forbids any verb reading it. Reconstructed partition keys must **round-trip through the create path's renderer AND match the live column type**; a reconstruction that can't be performed is a **refusal, not a guess**. A `Choice` on an **absent** path raises uncatchable `States.Runtime` — `Default` does not cover it, so guard with `IsPresent`. `portal.managed` (table property, dotted) ≠ `portal-managed` (LF tag on databases, hyphenated).
 - **Username directory source = S3, not Cognito (146):** the daily builder enumerates the user-space bucket's top-level common prefixes and makes **no Cognito call** (a test enforces it) — today Cognito is complete and S3 is not, but the transition reverses that (`ensurePrefixMarker` is deleted, `cognito:username` becomes synthetic `identitycenter_<subject>`). **No Cognito union "to be safe."** The document is **advisory**: never an authorization input, every existence check stays `admin_get_user`, and a tripwire test enforces that too.
 - **The directory is readable by EVERY authenticated user (146), and that is accepted:** one `s3:GetObject` on `_directory/*`, no `ListBucket` widening (so it stays invisible to the file browser), no write. The username is already the prefix, the principal tag and the DB name; usernames only — **no emails**. The builder's own `ListBucket` is unconditioned and holds **no `GetObject` anywhere**; the `s3:prefix`-on-empty-string tightening is rejected as unverifiable.

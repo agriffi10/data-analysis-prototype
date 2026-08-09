@@ -309,7 +309,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           '<b>Partition keys can’t be changed.</b> A refresh keeps the keys the table already has. To change them, drop the table and create it again.',
           '<b>Views can’t be refreshed.</b> A view has no data files to re-read, so the menu doesn’t offer it. Re-create the view instead.',
           '<b>Tables with catalog-registered partitions can’t be refreshed</b>, nor can tables built outside the portal or pointing at files outside your space.',
-          '<b>The file format can’t change.</b> If the folder’s files are no longer the format the table expects, build a new table over them.'
+          '<b>The file format can’t change.</b> If the folder’s files are no longer the format the table expects, build a new table over them.',
+          '<b>One refresh at a time per table.</b> If a refresh of that table is already running, a second one is refused and changes nothing — wait for the notification from the first, then check whether you still need to refresh again.'
         ]
       },
       {

@@ -354,7 +354,61 @@ closed**. The Pipe still starts executions `FIRE_AND_FORGET`, and **Glue offers 
 contents", with no precondition-failure error. The worst case degrades from "one run sees no table" to
 last-write-wins between two definitions. A real fix is a serialization change to the Pipe.
 
+> **Superseded in part by SPEC-157 (2026-08-09).** The race is now serialized by a per-table lock
+> outside Glue, so the second refresh is refused rather than raced — the paragraph above stands as
+> the state SPEC-149 left, not as the state today. What it says about Glue is still true and is
+> exactly why the lock exists: `UpdateTable` has no compare-and-set, and `VersionId` is still not a
+> precondition. The fix was NOT a Pipe change — see *A per-table lock serializes refresh* below.
+
 Full account: `docs/spec-delivery/SPEC-149-refresh-table-in-place-rebuild.md`.
+
+### A per-table lock serializes refresh, because the catalog cannot (SPEC-157)
+
+Two refreshes of one table could overlap. `MessageGroupId` is the target database, so SQS serializes
+*delivery* per database — but the Pipe starts the machine `FIRE_AND_FORGET`, so **delivery ordering is
+not execution ordering**. SPEC-149 reduced the damage to last-write-wins between two definitions and
+could not close it, because **Glue offers no compare-and-set on `UpdateTable`**.
+
+**The serialization is a lock object in the admin bucket, claimed under ETag CAS**, one per
+`{database}/{table}` under `locks/table-builder/`. The loser is **refused, not queued**: a held lock
+means a refresh of that table is already running *against the same files*, so a queued run would pay a
+full `inspect-source` to compute an identical definition. The refusal is a `TerminalError` through the
+plane's existing notify path — the refusal **is** the notification.
+
+**Two rejected alternatives, recorded so they are not re-proposed.** `REQUEST_RESPONSE` on the Pipe is
+**impossible, not merely undesirable**: botocore's `pipes` model states that it "is not supported for
+STANDARD state machine workflows", so making the Pipe synchronous means converting the machine to
+EXPRESS — rejected on two independent grounds, its 5-minute ceiling against `inspect-source`, and its
+**at-least-once** semantics, which would introduce the duplicate executions this spec exists to
+prevent. A finer `MessageGroupId` would change nothing, because delivery is already ordered.
+
+**The lock releases by OVERWRITING, and that is forced rather than chosen.** The execution role
+carries an explicit `Deny` on `s3:DeleteObject` for the whole admin bucket, which SPEC-149 kept when it
+removed `glue:DeleteTable`. Releasing by deletion would mean amending a standing safety property for an
+implementation convenience, so **"free" is a state of the object, not its absence**.
+
+**The holder is the EXECUTION ARN and must never be the request id.** A request id identifies the
+*message*; Pipes delivery is at-least-once, so a redelivered message runs a second execution carrying
+the same id — and the re-entrancy branch (which exists so an SFN Task retry does not self-refuse) would
+hand the lock to both, silently. The ARN reaches the verb through a `Pass` state, **not** the task's own
+`Parameters`: reading `$$` there means building an object, which wraps the payload, and every
+notification path in this plane reads the request at the **top level** of the event.
+
+**A lock is stealable only because executions are bounded, so the bound came first.** The machine had
+no `TimeoutSeconds` — a Standard execution may run for a year, against which no age threshold is
+defensible. It is a **top-level field of the ASL**, not a resource argument (`aws_sfn_state_machine`
+has none; `tofu validate` rejects it). A malformed body, an unparseable stamp and a **future-dated**
+one are all stolen: a timestamp that cannot be true is no evidence a refresh is running, and the
+alternative is a table that can never be refreshed again.
+
+**The freshness guard narrows the residual window and does not close it.** `apply-refresh` compares the
+`UpdateTime` captured at the start of the run against its own pre-write read. **A moved stamp is not by
+itself another writer** — the state retries on faults that can fire *after* the update committed, so
+the retry re-reads a table whose stamp this run moved; judging on the stamp alone failed a run that had
+already succeeded and sent the user a notification contradicting the success one. The columns settle
+it: a live table already carrying what this run intends to write was written by this run.
+
+Full account: `docs/spec-delivery/SPEC-157-serialize-concurrent-table-refresh.md`.
 
 ### The username directory is built from S3, not Cognito (SPEC-146)
 

@@ -1,7 +1,7 @@
 # Spec: Serialize Concurrent Table Refresh
 
 **ID:** SPEC-157
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-08-05
 **Depends On:** SPEC-149 (the in-place `glue:UpdateTable` apply, and the exposure this closes), SPEC-143 (refresh eligibility + `load-table-definition`), SPEC-066 (the table-builder control plane, its FIFO queue and Pipe), SPEC-123 (the ETag-CAS precedent this reuses)
 

@@ -694,6 +694,11 @@ assume nothing happened.
 > survives**, reduced rather than closed: Glue offers no compare-and-set on `UpdateTable`, so the worst case is
 > last-write-wins between two definitions instead of one run seeing no table. See `decisions.md` → *The refresh apply
 > replaces the definition in place*.
+>
+> **Superseded by SPEC-157 (2026-08-09):** the overlap no longer survives. A per-table lock in the admin bucket,
+> claimed under ETag CAS, serializes refresh outside Glue — the second run is refused with a notification rather
+> than racing. Glue still offers no compare-and-set, which is *why* the lock exists. See `decisions.md` →
+> *A per-table lock serializes refresh, because the catalog cannot*.
 
 **The message layer needs more work than the feature looks like it should need**, and it is in 144's scope for a reason:
 `tbcommon/messages.py` is a *failure* table whose renderer hard-codes `Couldn't create table "{name}": …`,
