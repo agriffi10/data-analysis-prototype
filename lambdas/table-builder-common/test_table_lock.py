@@ -349,6 +349,31 @@ def test_an_expired_lock_is_stolen(s3, captured_events):
     assert stolen[0]["fields"]["table"] == "sales"
 
 
+def test_a_lock_this_holder_already_owns_is_reclaimed_not_refused(s3, captured_events):
+    """A retried acquire whose first put landed must not fail its own request.
+
+    The state machine retries the task on a Lambda service fault, so a put whose response was
+    lost has already written the lock. Refusing here would fail the request under the one reason
+    code that tells the user a DIFFERENT refresh is running.
+    """
+    _seed(s3, holder="req-1", acquired_at=_iso(5))
+
+    acquired, etag = table_lock.acquire("alice", "sales", "req-1")
+
+    assert acquired is True
+    assert etag is not None
+    assert s3.puts[0]["IfMatch"] == '"etag-0"'
+    assert captured_events.messages("refresh lock acquired")[0]["fields"]["stolen"] is False
+    assert captured_events.messages("refresh lock refused") == []
+
+
+def test_a_different_holder_is_still_refused(s3):
+    """The counterweight: re-entrancy must key on identity, not weaken the refusal."""
+    _seed(s3, holder="req-1", acquired_at=_iso(5))
+
+    assert table_lock.acquire("alice", "sales", "req-2") == (False, None)
+
+
 def test_a_future_dated_lock_is_stolen_rather_than_held_forever(s3):
     """A negative age is younger than every threshold, so the table could never refresh again.
 

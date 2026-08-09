@@ -137,6 +137,11 @@ _CREATE_MESSAGES = {
     # it moves in — and it matters more than most: this is the spec whose SOLE acceptance
     # criterion is byte-identity, and this was the one body it could not have checked.
     "update_failed": 'Couldn\'t create table "sales": the table couldn\'t be updated. Nothing was changed. Please try again or contact the Administrator.',
+    # Shipped by SPEC-157. Pinned on arrival rather than exempted: the two exemptions above each
+    # left a live body checked by nothing for a whole spec, and the wording matters here — this
+    # is the sentence a user sees when their refresh did NOTHING, so "nothing was changed" is
+    # load-bearing and must not drift into sounding like a failure they need to act on.
+    "refresh_already_running": 'Couldn\'t create table "sales": a refresh of that table is already running. Nothing was changed - wait for it to finish, then check whether you still need to refresh again.',
 }
 
 #: Bodies whose reason moved to cpcommon's base table (SPEC-156 FR-002). They still render —

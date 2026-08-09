@@ -106,8 +106,16 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
     identity would write a lock that every later reader — including the next line of this module —
     correctly interprets as unheld, so the claim would succeed and grant nothing: two executions
     would hold ``acquired=True`` on one table, which is the exact state this module exists to
-    prevent. The caller passes an ASL-supplied execution ARN, and an absent path in ASL resolves to
+    prevent. The caller passes a per-request identity, and an absent path in ASL resolves to
     exactly this (the SPEC-143 trap), so the guard is on the reachable case, not a theoretical one.
+
+    **A lock this holder already owns is re-claimed, not refused.** The state machine retries the
+    acquire task on a Lambda service fault, and a put whose response was lost has already written
+    the lock — so a re-invocation that refused would fail a request whose own earlier attempt
+    succeeded, and would do it under the one reason code that tells the user another refresh is
+    running. This is why the holder is the request id rather than the execution ARN: the ARN is
+    reachable only through the ASL context object, which would mean wrapping the task payload,
+    and every notification path in this plane reads the request at the TOP level of the event.
 
     Args:
       database: The target Glue database name.
@@ -140,6 +148,10 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
         return _claim(key, database, table, holder, etag=etag, stolen=True)
 
     if state.get("holder") is None:
+        return _claim(key, database, table, holder, etag=etag, stolen=False)
+
+    if state.get("holder") == holder:
+        logger.info("refresh lock for %s.%s is already ours — reclaiming", database, table)
         return _claim(key, database, table, holder, etag=etag, stolen=False)
 
     age = _age_seconds(state.get("acquiredAt"))

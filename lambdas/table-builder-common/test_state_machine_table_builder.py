@@ -68,6 +68,53 @@ def _mode(mode):
     return {} if mode is None else {"mode": mode}
 
 
+def _targets(state):
+    """Every state this one can transition to, by ANY edge type.
+
+    Catch is included deliberately: it is the edge written by hand on every Task, so it is the
+    one most likely to gain a target nobody thought of as a predecessor.
+    """
+    yield state.get("Next")
+    yield state.get("Default")
+    for choice in state.get("Choices", []) or []:
+        yield choice.get("Next")
+    for catch in state.get("Catch", []) or []:
+        yield catch.get("Next")
+
+
+def _walk(states, start, *, through=None):
+    """Every state reachable from ``start``, optionally only THROUGH a named set.
+
+    SPEC-157 put the two lock states on paths the create branch shares, so several assertions
+    that used to name a single hop now have one in between. They are written as reachability
+    rather than as a renamed literal on purpose: a test that pins the exact next state re-breaks
+    every time a state is inserted, which teaches the next reader to update the expected string
+    instead of checking the property still holds.
+    """
+    seen, stack = set(), [start]
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in states:
+            continue
+        seen.add(name)
+        if through is not None and name != start and name not in through:
+            continue
+        stack.extend(t for t in _targets(states[name]) if t)
+    return seen
+
+
+#: The two SPEC-157 states, which pass a request through without interpreting it. Assertions
+#: about where a verb "goes" step over them.
+_LOCK_STATES = frozenset({"ReleaseRefreshLock", "ReleaseRefreshLockOnFailure"})
+
+
+def _skipping_locks(states, name):
+    """The state ``name`` leads to, stepping over any pass-through lock state."""
+    while name in _LOCK_STATES:
+        name = states[name]["Next"]
+    return name
+
+
 def test_validate_authorize_hands_off_to_the_mode_router():
     states = _states()
 
@@ -75,11 +122,20 @@ def test_validate_authorize_hands_off_to_the_mode_router():
     assert states["RouteByMode"]["Type"] == "Choice"
 
 
-def test_the_head_choice_routes_a_refresh_to_load_table_definition_and_all_else_to_create():
+def test_the_head_choice_routes_a_refresh_to_the_lock_and_all_else_to_create():
+    """SPEC-157 FR-002. The lock is taken BEFORE the definition read, not merely before the
+    write: the property is that run A's GetTable and run A's UpdateTable are not separated by
+    run B's UpdateTable, and a lock acquired after LoadTableDefinition would not give it.
+
+    It is also taken AFTER ValidateAuthorize (FR-002 AC5) — an unauthorized request must not be
+    able to touch another user's lock at all — which the create branch's untouched route pins.
+    """
     states = _states()
 
-    assert _route(states, "RouteByMode", _mode("refresh")) == "LoadTableDefinition"
+    assert _route(states, "RouteByMode", _mode("refresh")) == "AcquireRefreshLock"
+    assert states["AcquireRefreshLock"]["Next"] == "LoadTableDefinition"
     assert _route(states, "RouteByMode", _mode("create")) == "CheckTableAbsent"
+    assert "AcquireRefreshLock" not in _walk(states, "CheckTableAbsent")
 
 
 def test_the_tail_choice_routes_a_refresh_away_from_execute_ddl():
@@ -118,8 +174,8 @@ def test_an_unchanged_schema_reaches_success_without_passing_through_any_ddl_sta
     states = _states()
 
     assert states["DiffSchema"]["Next"] == "RouteByChange"
-    assert _route_by_change(states, _changed(False)) == "RecordSuccess"
-    assert _route_by_change(states, _changed(True)) != "RecordSuccess"
+    assert _skipping_locks(states, _route_by_change(states, _changed(False))) == "RecordSuccess"
+    assert _skipping_locks(states, _route_by_change(states, _changed(True))) != "RecordSuccess"
     # Both outcomes are EXPLICIT rules, so the Default is free to be a failure.
     assert len(states["RouteByChange"]["Choices"]) == 2
 
@@ -138,7 +194,7 @@ def test_an_absent_diff_records_a_failure_instead_of_stranding():
 
     assert states["RouteByChange"]["Default"] == "DiffMissingSeed"
     assert _route_by_change(states, _changed(None)) == "DiffMissingSeed"
-    assert states["DiffMissingSeed"]["Next"] == "RecordFailure"
+    assert _skipping_locks(states, states["DiffMissingSeed"]["Next"]) == "RecordFailure"
     assert states["DiffMissingSeed"]["ResultPath"] == "$.error"
 
 
@@ -151,22 +207,15 @@ def test_record_success_threads_status_and_every_path_that_reaches_it_sets_one()
 
     assert states["RecordSuccess"]["Parameters"]["status.$"] == "$.status"
 
-    def _targets(state):
-        """Every state this one can transition to, by ANY edge type.
+    def _predecessors_of(target):
+        return {name for name, state in states.items() if target in set(_targets(state))}
 
-        Catch is included deliberately: it is the edge written by hand on every Task, so
-        it is the one most likely to gain a target nobody thought of as a predecessor.
-        """
-        yield state.get("Next")
-        yield state.get("Default")
-        for choice in state.get("Choices", []) or []:
-            yield choice.get("Next")
-        for catch in state.get("Catch", []) or []:
-            yield catch.get("Next")
-
-    predecessors = {
-        name for name, state in states.items() if "RecordSuccess" in set(_targets(state))
-    }
+    # SPEC-157 put a pass-through lock state in front, so one hop back now finds only that.
+    # Expanding THROUGH it keeps the guard pointed at the states that actually set `status`,
+    # rather than quietly reducing to a single name that sets nothing.
+    predecessors = set()
+    for name in _predecessors_of("RecordSuccess"):
+        predecessors |= _predecessors_of(name) if name in _LOCK_STATES else {name}
     # ExecuteDdl sets "created", ApplyRefresh sets "refreshed", and RouteByChange is fed by
     # DiffSchema, which sets "unchanged" on exactly the branch that reaches here. A new
     # predecessor must set one too.
@@ -229,9 +278,9 @@ def test_load_table_definition_carries_the_same_retry_and_catch_contract_as_its_
 
     assert new["Retry"] == sibling["Retry"]
     assert new["Retry"][0]["ErrorEquals"] == _RETRY_ERRORS
-    assert new["Catch"] == [
-        {"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "RecordFailure"}
-    ]
+    assert new["Catch"] == sibling["Catch"]
+    assert new["Catch"][0]["ResultPath"] == "$.error"
+    assert _skipping_locks(states, new["Catch"][0]["Next"]) == "RecordFailure"
     assert new["OutputPath"] == "$.Payload"
 
 
@@ -243,7 +292,7 @@ def test_the_stub_is_gone_and_apply_refresh_took_its_place():
 
     assert "RefreshNotImplemented" not in states
     assert _route_by_change(states, _changed(True)) == "ApplyRefresh"
-    assert states["ApplyRefresh"]["Next"] == "RecordSuccess"
+    assert _skipping_locks(states, states["ApplyRefresh"]["Next"]) == "RecordSuccess"
 
 
 def test_apply_refresh_carries_the_same_retry_and_catch_contract_as_its_siblings():
@@ -254,9 +303,9 @@ def test_apply_refresh_carries_the_same_retry_and_catch_contract_as_its_siblings
 
     assert new_state["Retry"] == sibling["Retry"]
     assert new_state["Retry"][0]["ErrorEquals"] == _RETRY_ERRORS
-    assert new_state["Catch"] == [
-        {"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "RecordFailure"}
-    ]
+    assert new_state["Catch"] == sibling["Catch"]
+    assert new_state["Catch"][0]["ResultPath"] == "$.error"
+    assert _skipping_locks(states, new_state["Catch"][0]["Next"]) == "RecordFailure"
 
 
 def test_record_success_still_carries_the_mode():
@@ -325,3 +374,95 @@ def test_no_state_uses_states_stringtojson_anywhere_in_its_definition():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-157 FR-002: the lock is released on EVERY terminal path ─────────────
+
+
+def _terminal_shaping_states():
+    """The two Pass states every outcome funnels through before Succeed/Fail."""
+    return ("RecordSuccess", "RecordFailure")
+
+
+def test_every_path_that_reaches_a_terminal_outcome_releases_the_lock_first():
+    """FR-002 AC2, stated as the invariant rather than as a list of insertion points.
+
+    A refusal in diff-schema, a TerminalError in any verb and a caught Lambda fault must all
+    release. Asserting it per-state would need the list maintained by hand — and the failure
+    this closes is precisely a path nobody remembered. So it is derived: every edge INTO a
+    terminal shaping state must come from a lock state.
+    """
+    states = _states()
+
+    for terminal in _terminal_shaping_states():
+        feeders = {
+            name for name, state in states.items() if terminal in set(_targets(state))
+        }
+        assert feeders, f"nothing reaches {terminal} — the walk found no edges"
+        assert feeders <= _LOCK_STATES, (
+            f"{sorted(feeders - _LOCK_STATES)} reach {terminal} without releasing the lock "
+            "first — a refresh that failed there would hold its table until the steal expires"
+        )
+
+
+def test_the_release_states_invoke_one_verb_and_differ_only_in_where_they_continue():
+    """Two states rather than one because ASL gives a state exactly one Next, not because
+    there are two behaviours."""
+    states = _states()
+    success, failure = states["ReleaseRefreshLock"], states["ReleaseRefreshLockOnFailure"]
+
+    assert success["Parameters"]["FunctionName"] == failure["Parameters"]["FunctionName"]
+    assert success["Next"] == "RecordSuccess"
+    assert failure["Next"] == "RecordFailure"
+
+
+def test_the_release_states_preserve_the_running_request_rather_than_replacing_it():
+    """ResultPath is load-bearing on the failure twin: without it the Task result REPLACES the
+    state and discards $.error, which RecordFailure reads and NotifyFailure decodes — the exact
+    mistake SPEC-152 had to fix on the shared-space catches."""
+    states = _states()
+
+    for name in _LOCK_STATES:
+        assert states[name]["ResultPath"] == "$.released", name
+        assert "OutputPath" not in states[name], name
+
+
+def test_a_failed_release_never_changes_the_recorded_outcome():
+    """FR-002 AC3. The lock is recoverable by the staleness steal; a request that did its work
+    and then reported failure because of its own bookkeeping would be strictly worse."""
+    states = _states()
+
+    for name, expected in (
+        ("ReleaseRefreshLock", "RecordSuccess"),
+        ("ReleaseRefreshLockOnFailure", "RecordFailure"),
+    ):
+        catches = states[name]["Catch"]
+        assert len(catches) == 1, name
+        assert catches[0]["ErrorEquals"] == ["States.ALL"], name
+        assert catches[0]["Next"] == expected, name
+        assert catches[0]["ResultPath"] == "$.releaseError", name
+
+
+def test_the_refusal_is_never_retried():
+    """FR-003 AC3. A held lock is an ANSWER, not a transient fault — retrying it would burn the
+    retry budget re-asking a question whose answer cannot change within the attempt window."""
+    asl = _asl()
+    names = set()
+    for state in asl["States"].values():
+        for retry in state.get("Retry", []) or []:
+            names.update(retry.get("ErrorEquals", []))
+
+    assert names, "no Retry lists found — the sweep measured nothing"
+    assert "refresh_already_running" not in names
+    assert "TerminalError" not in names
+
+
+def test_the_acquire_state_carries_the_same_retry_contract_as_its_siblings():
+    """Compared against a sibling, so a fleet-wide change cannot leave the new state behind."""
+    states = _states()
+    new, sibling = states["AcquireRefreshLock"], states["CheckTableAbsent"]
+
+    assert new["Retry"] == sibling["Retry"]
+    assert new["Retry"][0]["ErrorEquals"] == _RETRY_ERRORS
+    assert new["OutputPath"] == "$.Payload"
+    assert new["Catch"][0]["ResultPath"] == "$.error"

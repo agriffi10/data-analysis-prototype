@@ -1,5 +1,6 @@
 {
   "Comment": "Table-builder control plane (SPEC-070, extended by SPEC-143). TWO branches over ONE spine: validate-authorize → {check-table-absent | load-table-definition} → inspect-source → infer-schema → {execute-ddl | diff-schema → apply-refresh} → RecordSuccess → Succeeded. inspect-source and infer-schema are SHARED by both and know nothing about mode — load-table-definition normalises the state into exactly what a create would have handed them (rewritten prefix, reconstructed declared partition keys), which is why a refresh needed a second entry verb rather than a flag. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload. Transient errors are retried on every verb: Lambda service faults, plus each verb's own throttleable AWS call mapped in-Lambda to the TransientError these Retry lists name — validate-authorize's registry read, check-table-absent's Glue GetTable, inspect-source's S3 listing, infer-schema's S3 head probe, execute-ddl's Athena polls. Any terminal verb failure is caught and routed to the shared recorded-failure state, which shapes the structured outcome { requestId, actor, database, tableName, status:'failed', reason } SPEC-072 notifies from; RecordSuccess shapes the success twin, whose `status` is THREADED from the verb that produced it ('created' | 'unchanged' | 'refreshed'). A partitioned table needs NO MSCK REPAIR (projection, SPEC-069) — the single execute-ddl CREATE is terminal for both flat and partitioned sources.",
+  "TimeoutSeconds": 3600,
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -42,10 +43,42 @@
             { "Variable": "$.mode", "IsPresent": true },
             { "Variable": "$.mode", "StringEquals": "refresh" }
           ],
-          "Next": "LoadTableDefinition"
+          "Next": "AcquireRefreshLock"
         }
       ],
       "Default": "CheckTableAbsent"
+    },
+    "AcquireRefreshLock": {
+      "Type": "Task",
+      "Comment": "SPEC-157 FR-002. Takes the per-table lock BEFORE load-table-definition, so it spans the whole read-modify-write rather than only the write — the point being that run A's GetTable and run A's UpdateTable are not separated by run B's UpdateTable. It sits AFTER ValidateAuthorize for the other half of the reason: an unauthorized request must not be able to touch another user's lock at all. A refusal is TerminalError refresh_already_running, which the decorator notifies and this Catch records; refresh_already_running appears in NO Retry list, because a held lock is an answer and not a transient fault. The holder written into the lock is the REQUEST ID, not the execution ARN: the ARN is reachable only through the ASL context object, which would mean wrapping this task's Payload, and every notification path in this plane reads the request at the TOP level of the event.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${acquire_refresh_lock_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseRefreshLockOnFailure"
+        }
+      ],
+      "Next": "LoadTableDefinition"
     },
     "LoadTableDefinition": {
       "Type": "Task",
@@ -73,7 +106,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
         }
       ],
       "Next": "InspectSource"
@@ -104,7 +137,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
         }
       ],
       "Next": "InspectSource"
@@ -135,7 +168,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
         }
       ],
       "Next": "InferSchema"
@@ -166,7 +199,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
         }
       ],
       "Next": "RouteTailByMode"
@@ -212,7 +245,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
         }
       ],
       "Next": "RouteByChange"
@@ -233,7 +266,7 @@
             { "Variable": "$.diff.changed", "IsPresent": true },
             { "Variable": "$.diff.changed", "BooleanEquals": false }
           ],
-          "Next": "RecordSuccess"
+          "Next": "ReleaseRefreshLock"
         }
       ],
       "Default": "DiffMissingSeed"
@@ -246,7 +279,7 @@
         "Cause": "diff-schema returned no diff"
       },
       "ResultPath": "$.error",
-      "Next": "RecordFailure"
+      "Next": "ReleaseRefreshLockOnFailure"
     },
     "ApplyRefresh": {
       "Type": "Task",
@@ -275,10 +308,10 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
         }
       ],
-      "Next": "RecordSuccess"
+      "Next": "ReleaseRefreshLock"
     },
     "ExecuteDdl": {
       "Type": "Task",
@@ -307,10 +340,72 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RecordFailure"
+          "Next": "ReleaseRefreshLockOnFailure"
+        }
+      ],
+      "Next": "ReleaseRefreshLock"
+    },
+    "ReleaseRefreshLock": {
+      "Type": "Task",
+      "Comment": "SPEC-157 FR-002. Frees the lock on the SUCCESS paths. It sits on a path the create branch shares and is invoked for creates too, which is deliberate: the alternative is a Choice guarding the insertion point, and a Choice whose Variable path is ABSENT raises the uncatchable States.Runtime (the SPEC-143 trap). Passing the whole state and deciding in Python means no JSONPath is ever evaluated against a key that may not be there. A request with no $.lock is a no-op. ResultPath keeps the running request object intact so RecordSuccess reads the same fields it always did, and the Catch goes STRAIGHT ON rather than to a failure: a release that cannot be written must never turn a successful refresh into a failed one — the lock is recoverable by the staleness steal.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${release_refresh_lock_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.released",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.releaseError",
+          "Next": "RecordSuccess"
         }
       ],
       "Next": "RecordSuccess"
+    },
+    "ReleaseRefreshLockOnFailure": {
+      "Type": "Task",
+      "Comment": "SPEC-157 FR-002. The same verb on the FAILURE paths, so a refusal in diff-schema, a TerminalError in any verb and a caught Lambda fault all release. A separate state rather than a shared one because ASL gives a state exactly one Next, and these two continue to different terminal shaping states. ResultPath is load-bearing here: without it the Task result would REPLACE the state and discard $.error, which RecordFailure reads and which SPEC-152's NotifyFailure decodes — the same mistake the shared-space catches made. Its own Catch continues to RecordFailure for the same reason the success twin's does: the execution has already failed, and a missed release must not change the recorded outcome.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${release_refresh_lock_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.released",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.releaseError",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "RecordFailure"
     },
     "RecordSuccess": {
       "Type": "Pass",
@@ -336,7 +431,7 @@
         "mode": "create",
         "error.$": "$"
       },
-      "Next": "RecordFailure"
+      "Next": "ReleaseRefreshLockOnFailure"
     },
     "RecordFailure": {
       "Type": "Pass",

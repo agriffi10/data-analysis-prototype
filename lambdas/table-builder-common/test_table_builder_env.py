@@ -67,10 +67,17 @@ def _common_environment():
 
 
 def _function_suffixes():
-    """The keys of locals.tf's `table_builder_functions` map."""
+    """The keys of locals.tf's `table_builder_functions` map.
+
+    Read to the map's own closing brace, not to the first one after a NAMED entry. The earlier
+    parse ended at ``execute-ddl``, so every entry declared after it was invisible — SPEC-152's
+    ``notify-failure`` had been outside the guard since the day it landed, and the assertion
+    below looked exhaustive while measuring eight of nine. A parse anchored to one entry's
+    position is a hand-maintained list wearing a regex.
+    """
     source = _read(_LOCALS_TF)
     start = source.index("table_builder_functions = {")
-    end = source.index("}\n", source.index("execute-ddl", start))
+    end = source.index("\n  }\n", start)
     return set(re.findall(r'^\s+"([a-z-]+)"\s+=', source[start:end], re.MULTILINE))
 
 
@@ -90,9 +97,12 @@ def test_the_new_refresh_verb_is_in_the_map_that_grants_that_environment():
     suffixes = _function_suffixes()
 
     assert "load-table-definition" in suffixes
+    assert "notify-failure" in suffixes, "the parse stopped early again — see _function_suffixes"
     assert suffixes == {
         "validate-authorize", "check-table-absent", "load-table-definition",
+        "acquire-refresh-lock", "release-refresh-lock",
         "inspect-source", "infer-schema", "diff-schema", "apply-refresh", "execute-ddl",
+        "notify-failure",
     }
 
 
