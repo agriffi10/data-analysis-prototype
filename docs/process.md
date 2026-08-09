@@ -80,8 +80,10 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
   waiting to be asked. Never commit to `main` directly.
-- Before opening a PR, run the project's **formatter, linter, and unit tests** locally and get them
-  green. These quality gates are a pre-PR step — don't push red and leave CI to discover it.
+- Before opening a PR, run the project's **formatter, linter, unit tests and `npm run build`** locally
+  and get them green. These quality gates are a pre-PR step — don't push red and leave CI to discover
+  it. **`build` (`tsc -b`) is the only one that typechecks** — the test run does not, and
+  `tsc -p tsconfig.json` silently checks nothing (see §6).
 - Work the validated plan's phases in order. After each phase, **stop and summarize** what was built
   and how it maps back to the plan before continuing.
 - Before writing code in a domain that has a rulebook (React, accessibility, …), route through
@@ -232,6 +234,10 @@ When a spec is done, in the same pass:
 
 These pass locally and fail later — check them as part of the work, not as an afterthought.
 
+- **Two gates have no local counterpart in Common Commands, so they only fail in CI unless you run
+  them by hand.** `tsc -b` (via `npm run build`) is the only typecheck — `npm run test` never
+  typechecks and `tsc -p tsconfig.json` silently checks nothing. `ruff check lambdas/` is the Python
+  linter — `pytest` never sees it. Run both before pushing.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.
