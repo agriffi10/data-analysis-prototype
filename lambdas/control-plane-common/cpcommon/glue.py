@@ -24,6 +24,8 @@ Attributes:
   _SHAPE_REASONS: The refusals raised below, registered at import.
 """
 
+from datetime import UTC
+
 from . import config, messages
 from .errors import TerminalError
 
@@ -70,6 +72,39 @@ def _parse_location(location: str) -> dict:
     if not prefix.endswith("/"):
         prefix += "/"
     return {"bucket": bucket, "prefix": prefix}
+
+
+def update_time(table: dict) -> str | None:
+    """Renders a Glue table's last-modified stamp as a comparable string.
+
+    SPEC-157 FR-005 compares a stamp captured at the start of a refresh against one read
+    immediately before the write, and the two reads happen in DIFFERENT Lambdas — so the
+    rendering lives here rather than in each of them. Two copies that disagreed by a
+    representation would abandon every refresh while blaming a writer that does not exist, and
+    line coverage would not show it: boto3 returns a datetime, the suites mostly use strings, and
+    only one of the two branches ever runs in production.
+
+    Normalised to UTC before rendering because botocore's default parser localises to the
+    runtime's zone, so the same instant renders with different offsets under different ``TZ``.
+    Both Lambdas run under the same default today; relying on that is a dependency on
+    configuration nobody declared.
+
+    Args:
+      table: A Glue ``GetTable`` response's table dict.
+
+    Returns:
+      The stamp as an ISO-8601 UTC string, or None when the table carries none. Absent is a
+      legitimate answer, and callers must treat it as "no evidence" rather than as a change.
+
+    Raises:
+      None.
+    """
+    stamp = table.get("UpdateTime")
+    if stamp is None:
+        return None
+    if hasattr(stamp, "astimezone"):
+        return stamp.astimezone(UTC).isoformat()
+    return str(stamp) or None
 
 
 def clone_definition(table: dict) -> tuple[dict, dict, bool]:

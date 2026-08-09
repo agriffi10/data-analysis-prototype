@@ -24,6 +24,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "dat-prod-user-space")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "dat-prod-shared-space")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import datetime
 import json
 import pathlib
 
@@ -800,3 +801,80 @@ def test_the_guard_does_not_claim_to_close_the_window():
     source = inspect.getsource(m._abandon_if_changed)
 
     assert "DOES NOT CLOSE" in source.upper()
+
+
+# ── SPEC-157: the shapes boto3 ACTUALLY returns ──────────────────────────────
+
+_AWARE = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
+
+
+def test_a_datetime_stamp_matching_the_captured_one_is_applied():
+    """The branch that runs in PRODUCTION, which the string fixtures above never reach.
+
+    boto3 returns a timezone-aware datetime, not a string, so the compare side's normalisation
+    is the live path — and deleting it left the whole suite green while breaking every refresh
+    with a changed schema. Line coverage hid it: the ternary is one line.
+    """
+    glue, _ = _install(table=_live_table(UpdateTime=_AWARE))
+
+    m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_a_datetime_stamp_that_moved_under_another_writer_abandons():
+    """Its twin: the same shapes, a genuinely different moment, and different columns."""
+    moved = _live_table(UpdateTime=datetime.datetime(2026, 3, 1, tzinfo=datetime.UTC))
+    moved["StorageDescriptor"] = {
+        **moved["StorageDescriptor"],
+        "Columns": [{"Name": "something_else", "Type": "string"}],
+    }
+    glue, _ = _install(table=moved)
+
+    try:
+        m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
+    except TerminalError as exc:
+        assert exc.reason == "table_changed_during_refresh"
+    else:
+        raise AssertionError("expected the refresh to be abandoned")
+
+    assert glue.update_calls == []
+
+
+def test_the_same_instant_in_another_zone_is_not_a_change():
+    """Botocore's default parser localises to the runtime's zone, so the same instant renders
+    with a different offset under a different TZ. Normalising to UTC on both sides makes the
+    comparison independent of a setting neither Lambda declares."""
+    eastern = datetime.timezone(datetime.timedelta(hours=-5))
+    glue, _ = _install(table=_live_table(UpdateTime=_AWARE.astimezone(eastern)))
+
+    m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
+
+    assert len(glue.update_calls) == 1
+
+
+def test_a_retry_after_this_runs_own_write_landed_is_not_blamed_on_another_writer():
+    """SPEC-149's retry-safety property, which the freshness guard nearly took away.
+
+    ApplyRefresh retries on Lambda faults and on Glue's own retryable ones, and both can fire
+    AFTER the update committed. The retry then re-reads a table whose stamp THIS RUN moved. On
+    the stamp alone that reads as another writer — so the run would be recorded failed, and the
+    user would get a "something else changed your table" notification contradicting the success
+    notification the first attempt already sent.
+    """
+    glue, sqs = _install()
+    event = _event(observedUpdateTime="2026-02-01T00:00:00Z")
+
+    m.handler(event, None)
+    assert len(glue.update_calls) == 1
+
+    # Real Glue advances UpdateTime on a write; the fake does not, so model it.
+    glue.table = {**glue.table, "UpdateTime": "2026-02-02T00:00:00Z"}
+
+    out = m.handler(event, None)
+
+    assert out["status"] == "refreshed"
+    assert len(glue.update_calls) == 2
+    assert not any(
+        "changed by something else" in str(call) for call in sqs.calls
+    ), "the retry blamed a phantom writer for this run's own write"

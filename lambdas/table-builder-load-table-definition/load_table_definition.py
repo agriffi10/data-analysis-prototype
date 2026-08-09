@@ -51,27 +51,6 @@ _SHAPE_REASONS = {
 _DECLARED_TYPES = {"integer": "integer", "date": "date", "enum": "string"}
 
 
-def _update_time(table: dict) -> str | None:
-    """Reads the live table's last-modified stamp, for SPEC-157's freshness comparison.
-
-    Rendered as a string rather than kept as a datetime because it is threaded through Step
-    Functions state, which is JSON. Absent is a legitimate answer — a table Glue reports without
-    one simply cannot be freshness-checked, and apply-refresh treats that as "no evidence of a
-    concurrent writer" rather than inventing a refusal.
-
-    Args:
-      table: A Glue ``GetTable`` response's table dict.
-
-    Returns:
-      The ISO-8601 stamp, or None when Glue reported none.
-
-    Raises:
-      None.
-    """
-    stamp = table.get("UpdateTime")
-    return stamp.isoformat() if hasattr(stamp, "isoformat") else (stamp or None)
-
-
 def _get_table(database: str, table: str) -> dict:
     """Reads the live table from the Glue catalog.
 
@@ -431,7 +410,7 @@ def _load(event: dict) -> dict:
     serde = definition["serde"]
 
     out = dict(event)
-    out["observedUpdateTime"] = _update_time(live_table)
+    out["observedUpdateTime"] = glue.update_time(live_table)
     out["space"] = {**space, "bucket": location["bucket"], "prefix": location["prefix"]}
     out["location"] = f"s3://{location['bucket']}/{location['prefix']}"
     out["existingColumns"] = columns
