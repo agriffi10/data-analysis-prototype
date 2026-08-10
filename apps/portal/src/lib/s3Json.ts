@@ -100,17 +100,30 @@ export function classifyDocument<T>(opts: {
  * forever. Quarantine keeps the evidence AND unblocks them, which neither destroying the
  * document nor refusing it does.
  *
- * The key is the source key with `.unreadable-{ISO-8601 basic UTC}.json` appended — same
- * prefix, so the user's existing `GetObject`/`PutObject` grants already cover it and no
- * IAM changes. Both segments are app-generated (a catalog-safe username, a fixed basename,
- * a generated timestamp), so `CopySource` needs no percent-encoding.
+ * The key is the source key with `.unreadable-{ISO-8601 basic UTC}-{token}.json` appended —
+ * same prefix, so the user's existing `GetObject`/`PutObject` grants already cover it and no
+ * IAM changes. Every segment is app-generated (a catalog-safe username, a fixed basename, a
+ * generated timestamp and token), so `CopySource` needs no percent-encoding.
+ *
+ * THE RANDOM TOKEN IS LOAD-BEARING, not decoration. `CopyObject` copies whatever is live at
+ * copy time, and nothing ties this copy to the body the caller classified. Two tabs that
+ * both find the same corrupt document race: the first copies the corrupt bytes aside and
+ * repairs the document, and the second — reading a key derived only from a clock it shares —
+ * would copy the now-REPAIRED document over the first one's quarantine object, destroying
+ * the only surviving copy of what the user actually had. A per-call token means the loser
+ * writes a redundant object instead of overwriting evidence. (It leaves the ordinary
+ * last-writer-wins race on the document itself alone; that one is accepted and is not this
+ * function's business.)
  *
  * A `CopyObject`, never a read-then-write: the unreadable bytes never enter the browser,
  * so an arbitrarily large or hostile document costs no memory and no second `GetObject`.
  *
- * The quarantine object inherits the folder's delete deny, so nothing in the app can ever
- * remove one — accepted, because one object per genuine corruption event is a smaller
- * problem than the evidence being destroyed. Never throws.
+ * The quarantine object inherits the folder's delete deny, so neither the app nor the user
+ * can ever remove one — only an administrator working directly in the AWS console can.
+ * Accepted: one object per genuine corruption event is a smaller problem than the evidence
+ * being destroyed, and accumulation is not a loop — the document written after a quarantine
+ * is one the app serialized itself, so a second quarantine needs a second, independent
+ * corruption. Never throws.
  *
  * @param opts.bucket - The bucket holding the document (source and destination).
  * @param opts.key - The unreadable document's key.
@@ -123,7 +136,7 @@ export async function quarantineDocument(opts: {
   now?: Date;
 }): Promise<ServiceResult<{quarantineKey: string}>> {
   const {bucket, key, now = new Date()} = opts;
-  const quarantineKey = `${key}.unreadable-${basicUtcTimestamp(now)}.json`;
+  const quarantineKey = `${key}.unreadable-${basicUtcTimestamp(now)}-${crypto.randomUUID().slice(0, 8)}.json`;
 
   return withCredentialRetry(getS3Client, async (client) => {
     try {

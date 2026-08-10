@@ -97,15 +97,19 @@ const CODE_RULES: readonly ErrorRule[] = [
   // ways, and each way owes the user a different sentence — what happened to their
   // data is not the same fact in the three cases. ──
   //
-  // Recovered: the save WENT THROUGH. The old document couldn't be read, so it was
+  // Recovered: the write WENT THROUGH. The old document couldn't be read, so it was
   // copied aside and a fresh one written — which means the list the user is now
   // looking at is missing everything that was in it before, and saying so is the
   // whole point. Not user-fixable in the sense of an action to take, but not an
-  // administrator's problem either: nothing is broken any more. ──
+  // administrator's problem either: nothing is broken any more.
+  //
+  // Worded for the WRITE, not for the save: both saving and deleting a query reach
+  // this, and "this query was saved" is a lie on the delete path. What the user needs
+  // either way is that the list they are looking at is not the list they had. ──
   {
     code: 'SavedQueriesRecovered',
     message:
-      'Your saved queries couldn’t be read, so a copy was kept and a new list started. This query was saved; earlier ones aren’t in the list.',
+      'Your saved queries couldn’t be read, so a copy was kept and a new list started. Your earlier saved queries aren’t in the list.',
     userFixable: true
   },
   {

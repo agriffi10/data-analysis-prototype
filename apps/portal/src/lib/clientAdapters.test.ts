@@ -345,48 +345,56 @@ describe('s3Json', () => {
         now: at
       });
 
-      expect(result).toEqual({
-        success: true,
-        data: {quarantineKey: 'alice/user_settings/saved-queries.json.unreadable-20260810T131500Z.json'}
-      });
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.quarantineKey).toMatch(
+        /^alice\/user_settings\/saved-queries\.json\.unreadable-20260810T131500Z-[0-9a-f]{8}\.json$/
+      );
       // A CopyObject, never a read-then-write: the unreadable bytes never enter the
       // browser, so an arbitrarily large document costs no memory.
       expect(send).toHaveBeenCalledTimes(1);
       expect(send.mock.calls[0][0].constructor.name).toBe('CopyObjectCommand');
       expect(send.mock.calls[0][0].input).toEqual({
         Bucket: 'user-bucket',
-        Key: 'alice/user_settings/saved-queries.json.unreadable-20260810T131500Z.json',
-        // Both segments are app-generated, so the rendered value carries no
+        Key: result.data.quarantineKey,
+        // Every segment is app-generated, so the rendered value carries no
         // percent-encoding — pinned, because a hand-rolled escape here would be a
         // silently wrong CopySource rather than a failure.
         CopySource: 'user-bucket/alice/user_settings/saved-queries.json'
       });
     });
 
-    it('keeps the quarantine key inside the user`s own prefix — the boundary the grants are scoped to', async () => {
+    it('keeps the quarantine object in the SOURCE`s own folder — the boundary the grants are scoped to', async () => {
       // The reason this needs no IAM change: GetObject + PutObject inside the user's
-      // own prefix, both already granted.
+      // own prefix, both already granted. Derived from the source key rather than
+      // asserted against a literal, so moving quarantines to a sibling folder — the
+      // change that would need IAM — fails here instead of passing by construction.
       send.mockResolvedValue({});
+      const key = 'alice/user_settings/query-history.json';
 
-      const result = await quarantineDocument({
-        bucket: 'user-bucket',
-        key: 'alice/user_settings/query-history.json',
-        now: at
-      });
+      const result = await quarantineDocument({bucket: 'user-bucket', key, now: at});
 
-      expect(result.success && result.data.quarantineKey.startsWith('alice/user_settings/')).toBe(true);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      const folder = (k: string) => k.slice(0, k.lastIndexOf('/'));
+      expect(folder(result.data.quarantineKey)).toBe(folder(key));
+      expect(result.data.quarantineKey).not.toContain('..');
     });
 
-    it('is unique per event, so a later quarantine cannot overwrite an earlier one', async () => {
+    it('is unique per event even WITHIN a second, so a racing quarantine cannot overwrite evidence', async () => {
+      // The scenario the clock alone does not cover: two tabs find the same corrupt
+      // document in the same second. `CopyObject` copies whatever is live, so the
+      // loser would copy the already-REPAIRED document over the winner's quarantine
+      // object — destroying the only surviving copy of what the user had.
       send.mockResolvedValue({});
       const key = 'alice/user_settings/saved-queries.json';
 
       const first = await quarantineDocument({bucket: 'b', key, now: at});
-      const second = await quarantineDocument({bucket: 'b', key, now: new Date('2026-08-10T13:15:01.000Z')});
+      const second = await quarantineDocument({bucket: 'b', key, now: at});
 
-      expect(first.success && second.success && first.data.quarantineKey).not.toBe(
-        second.success && second.data.quarantineKey
-      );
+      expect(first.success && second.success).toBe(true);
+      if (!first.success || !second.success) return;
+      expect(first.data.quarantineKey).not.toBe(second.data.quarantineKey);
     });
 
     it('returns a failure the caller must treat as fatal, and never throws', async () => {

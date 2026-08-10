@@ -662,6 +662,41 @@ describe('QueryWorkspace', () => {
       expect(mockRemove).toHaveBeenCalledWith('alice', 'sq1');
     });
 
+    it('does not claim a query was SAVED when a delete recovered an unreadable store', async () => {
+      // Delete reaches the same recovery toast as Save. The store can turn corrupt
+      // after the panel loaded, which is the only way the button is on screen at all
+      // — and wording that says "this query was saved" would be a plain lie here.
+      mockGetSaved.mockResolvedValue(
+        ok({
+          version: 1,
+          queries: [
+            {
+              id: 'sq1',
+              name: 'Revenue',
+              sql: 'SELECT r;',
+              database: 'alice',
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z'
+            }
+          ]
+        })
+      );
+      mockRemove.mockResolvedValue({...ok({version: 1, queries: []}), recovered: true});
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: /delete saved query/i}));
+      await user.click(
+        within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
+          name: 'Delete'
+        })
+      );
+
+      expect(await screen.findByText(/a copy was kept and a new list started/i)).toBeInTheDocument();
+      expect(screen.queryByText(/this query was saved/i)).not.toBeInTheDocument();
+    });
+
     it('re-runs a history entry into the active tab (no database context)', async () => {
       mockGetHistory.mockResolvedValue(
         ok({

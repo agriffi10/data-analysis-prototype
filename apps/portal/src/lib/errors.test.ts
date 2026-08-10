@@ -99,8 +99,11 @@ describe('errorMessages', () => {
       // had. Silence here reads as an ordinary save (SPEC-159 FR-004).
       const saved = toUserMessage({code: 'SavedQueriesRecovered'}).message;
       expect(saved).toMatch(/copy was kept/i);
-      expect(saved).toMatch(/earlier ones aren’t in the list/i);
+      expect(saved).toMatch(/earlier saved queries aren’t in the list/i);
       expect(saved).not.toBe('Something went wrong. Contact the Administrator.');
+      // Both saving and DELETING a query reach this message, so it may not claim a
+      // save happened — on the delete path that would be a plain lie.
+      expect(saved).not.toMatch(/this query was saved/i);
 
       const history = toUserMessage({code: 'QueryHistoryRecovered'}).message;
       expect(history).toMatch(/copy was kept/i);

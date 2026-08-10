@@ -164,7 +164,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 156 — Lambda Layer Consolidation: Folding the Deliberate Twins onto `cpcommon` | Completed |
 | 157 — Serialize Concurrent Table Refresh | Completed |
 | 158 — Shared-Space Suggestions from the Local Cache | Completed |
-| 159 — `user_settings/` Recovery from an Unreadable Document | Draft |
+| 159 — `user_settings/` Recovery from an Unreadable Document | Completed |
 | 160 — Table Share at Scale: Transfer Manifest & Distributed-Map Copy | Draft |
 | 161 — Table Share at Scale: Raised Caps, Wide Definitions & Long Runs | Draft |
 | 162 — Feature Flags: Document, Publish Pipeline & Browser Data Layer | Draft |

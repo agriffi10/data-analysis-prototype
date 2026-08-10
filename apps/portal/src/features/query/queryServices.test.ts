@@ -615,7 +615,7 @@ describe('queryHistory.service', () => {
   // answering for the document under test while `copies` shows what was set aside.
   // `copyFails` denies the copy, which is the only way to reach the refusal that must
   // never become a silent overwrite.
-  function fakeBucket(initial: string | null, opts: {copyFails?: boolean} = {}) {
+  function fakeBucket(initial: string | null, opts: {copyFails?: boolean; putFails?: boolean} = {}) {
     let stored = initial;
     const commands: string[] = [];
     const copies: {key: string; source: string}[] = [];
@@ -628,6 +628,7 @@ describe('queryHistory.service', () => {
           return {};
         }
         if (cmd.input.Body !== undefined) {
+          if (opts.putFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
           stored = cmd.input.Body;
           return {};
         }
@@ -784,7 +785,9 @@ describe('queryHistory.service', () => {
       expect(result.recovered).toBe(true);
       expect(result.data.entries.map((e) => e.queryExecutionId)).toEqual(['new']);
       expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
-      expect(fake.copies[0].key).toMatch(/^alice\/user_settings\/query-history\.json\.unreadable-\d{8}T\d{6}Z\.json$/);
+      expect(fake.copies[0].key).toMatch(
+        /^alice\/user_settings\/query-history\.json\.unreadable-\d{8}T\d{6}Z-[0-9a-f]{8}\.json$/
+      );
       expect(fake.copies[0].source).toBe('user-bucket/alice/user_settings/query-history.json');
     });
 
@@ -855,7 +858,7 @@ describe('savedQueries.service', () => {
   // A DeleteObjectCommand would carry no Body and no read intent — tracked so we
   // can assert it's NEVER issued (delete is IAM-denied in athenaresults/).
   // As in `queryHistory.service` above: Get reads, Put overwrites, Copy is recorded.
-  function fakeBucket(initial: string | null, opts: {copyFails?: boolean} = {}) {
+  function fakeBucket(initial: string | null, opts: {copyFails?: boolean; putFails?: boolean} = {}) {
     let stored = initial;
     const commands: string[] = [];
     const copies: {key: string; source: string}[] = [];
@@ -868,6 +871,7 @@ describe('savedQueries.service', () => {
           return {};
         }
         if (cmd.input.Body !== undefined) {
+          if (opts.putFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
           stored = cmd.input.Body;
           return {};
         }
@@ -1011,7 +1015,9 @@ describe('savedQueries.service', () => {
       // The copy is a precondition, not a courtesy: it lands BEFORE the overwrite.
       expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
       expect(fake.copies).toHaveLength(1);
-      expect(fake.copies[0].key).toMatch(/^alice\/user_settings\/saved-queries\.json\.unreadable-\d{8}T\d{6}Z\.json$/);
+      expect(fake.copies[0].key).toMatch(
+        /^alice\/user_settings\/saved-queries\.json\.unreadable-\d{8}T\d{6}Z-[0-9a-f]{8}\.json$/
+      );
       expect(fake.copies[0].source).toBe('user-bucket/alice/user_settings/saved-queries.json');
     });
 
@@ -1066,6 +1072,22 @@ describe('savedQueries.service', () => {
       expect(result.error.code).toBe('SavedQueriesNewerVersion');
       expect(fake.commands).toEqual(['GetObjectCommand']);
       expect(fake.stored()).toBe(body);
+    });
+
+    it('reports a failed write after a SUCCESSFUL copy as a failure, leaving the document unrepaired', async () => {
+      // The gap between the two halves of quarantine-then-proceed. The copy landed,
+      // so the evidence is safe, but the document is still unreadable and the user
+      // is told the save failed rather than being told a fiction about recovery.
+      const fake = fakeBucket('not json{', {putFails: true});
+
+      const result = await upsertSavedQuery('alice', sq('new'));
+
+      expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('AccessDenied');
+      expect(result.recovered).toBeUndefined();
     });
 
     it('reports an ordinary write as NOT recovered', async () => {

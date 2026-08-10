@@ -420,9 +420,11 @@ export function QueryWorkspace() {
   // SPEC-159 FR-004: the recovery is a SUCCESS, so nothing throws and nothing else on
   // this screen would ever mention it — but the panel the user is looking at has just
   // lost every query it used to hold, and the copy that was kept is in a folder they
-  // cannot browse. `info` rather than `danger`: the save worked, and unlike the two
-  // refusals this toast stays put until dismissed rather than flashing for four
-  // seconds, because it is the only time the news is delivered.
+  // cannot browse. `info` rather than `danger`: the write worked, and unlike the two
+  // refusals this toast waits to be dismissed rather than flashing for four seconds.
+  // (A later push still replaces it — the host is single-toast — so this buys
+  // attention, not a guarantee.) Reached from the delete path too, which is why the
+  // wording never claims a save happened.
   const reportSavedQueriesRecovery = ({recovered}: SavedQueriesWrite) => {
     if (!recovered) return;
     toast.push({variant: 'info', message: toUserText({code: 'SavedQueriesRecovered'})});
