@@ -333,6 +333,67 @@ def _read_outcome(objects):
     )
 
 
+#: A REAL ``manifest.json``, transcribed byte-for-byte from the first live SPEC-160 share
+#: (2026-08-10) and not reconstructed from the docs.
+#:
+#: It is here because this file's fixtures were written from AWS's documentation, which describes
+#: the record fields and the ``SUCCEEDED_n``/``FAILED_n``/``PENDING_n`` grouping but **never shows
+#: the ``ResultFiles`` object itself** — so the reader's top-level parse was corroborated rather
+#: than demonstrated, and the delivery doc said so. This discharges it. Three things it settles
+#: that a hand-written fixture could not:
+#:
+#: * ``ResultFiles`` really is a mapping of group name to a list of ``{Key, Size}``, and the
+#:   empty groups are present as empty arrays rather than absent.
+#: * ``Key`` is a **full key from the bucket root**, not relative to the prefix — which is what
+#:   the reader assumes when it passes it straight back to ``get_object``.
+#: * Step Functions appends ``{mapRunUuid}/`` UNDER the configured prefix. Nothing here depends
+#:   on that (the manifest's own key comes from ``ResultWriterDetails``), and that independence
+#:   is the point: the layout is AWS's to change.
+_LIVE_MANIFEST = {
+    "DestinationBucket": "dat-prod-athena-admin",
+    "MapRunArn": "arn:aws:states:us-east-1:696000197480:mapRun:dat-prod-table-share-orchestrator/239693d7-7a1a-3ccf-8705-7d2523b25e6f:abd95259-b545-4817-977d-16541875576d",
+    "ResultFiles": {
+        "FAILED": [],
+        "PENDING": [],
+        "SUCCEEDED": [{
+            "Key": "table-share/0312374ae1cca589ab95b27ea3e19031cfe859815334916fd5b4005d024931eb/a3ced512-87b1-5237-9f7a-b7e684027e95/results/abd95259-b545-4817-977d-16541875576d/SUCCEEDED_0.json",
+            "Size": 1011,
+        }],
+    },
+}
+
+
+def test_the_reader_parses_a_real_map_run_manifest():
+    """The premise this module was built on, DEMONSTRATED rather than read from the docs."""
+    key = _LIVE_MANIFEST["ResultFiles"]["SUCCEEDED"][0]["Key"]
+    _setup(objects={
+        "results/manifest.json": _LIVE_MANIFEST,
+        key: [_succeeded_record([_item("bob"), _item("bob")], [])],
+    })
+
+    outcome = results_mod.read_failed_items(
+        "dat-prod-athena-admin",
+        "results/manifest.json",
+        batch_failure_reason=_FAILED,
+        unreadable_reason=_UNREADABLE,
+    )
+
+    assert outcome == {"failures": [], "items": 2}
+
+
+def test_the_live_manifests_key_is_read_as_an_absolute_key():
+    """The one way this could have been wrong without anything else noticing.
+
+    Had ``Key`` been relative to the ResultWriter prefix, the reader would have asked for the
+    wrong object, got NoSuchKey, and — correctly, but for the wrong reason — failed every share
+    with ``transfer_results_unreadable``. The live artifact shows it is absolute.
+    """
+    key = _LIVE_MANIFEST["ResultFiles"]["SUCCEEDED"][0]["Key"]
+
+    assert key.startswith("table-share/")
+    assert "/results/" in key and key.endswith("/SUCCEEDED_0.json")
+
+
 def test_a_clean_run_reports_no_failures():
     assert _read({
         "table-share/h/exec/results/manifest.json": _run_manifest(SUCCEEDED=["r/SUCCEEDED_0.json"]),
