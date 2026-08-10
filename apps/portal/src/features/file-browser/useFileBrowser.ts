@@ -3,7 +3,7 @@ import {useInfiniteQuery, useQueryClient} from '@tanstack/react-query';
 import {listFiles} from './fileBrowser.service';
 import {unwrap} from '../../lib/serviceResult';
 import {fileBrowserKeys} from './fileBrowserKeys';
-import {invalidateListing} from '../../lib/queryClient';
+import {invalidateListing} from './invalidateListing';
 import type {S3FileItem, S3FolderItem, FileListPage} from '../../types/s3.types';
 
 export type UseFileBrowserResult = {

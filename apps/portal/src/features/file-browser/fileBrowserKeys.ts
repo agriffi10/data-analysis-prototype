@@ -1,7 +1,7 @@
 /**
  * Single source of truth for file-browser TanStack Query keys. Mutations
- * invalidate listings through these keys via invalidateListing() in
- * src/lib/queryClient.ts — never hand-build a key array.
+ * invalidate listings through these keys via invalidateListing() in the sibling
+ * invalidateListing.ts — never hand-build a key array.
  */
 export const fileBrowserKeys = {
   all: ['file-browser'] as const,

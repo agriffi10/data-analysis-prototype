@@ -2,6 +2,7 @@ export {FileBrowser} from './FileBrowser';
 export {useFileSpace, usableSpaceTargets} from './useFileSpace';
 export type {FileSpaceTarget, FileSpaceKind, UseFileSpaceResult} from './useFileSpace';
 export {MetadataPanel} from './MetadataPanel';
+export {invalidateListing} from './invalidateListing';
 export {useFileBrowser} from './useFileBrowser';
 export type {UseFileBrowserResult} from './useFileBrowser';
 export {useFileUpload} from './useFileUpload';

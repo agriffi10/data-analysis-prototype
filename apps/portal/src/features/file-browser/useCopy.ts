@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-import {invalidateListing} from '../../lib/queryClient';
+import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
 import {copyObject, copyFolder, objectExists, uploadPercent, validateFolderName} from './fileBrowser.service';
 import {leafName, folderParts} from './fileBrowser.paths';

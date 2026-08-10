@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-import {invalidateListing} from '../../lib/queryClient';
+import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
 import {uploadFile} from './fileBrowser.service';
 import {MAX_UPLOAD_BYTES} from './fileBrowser.types';

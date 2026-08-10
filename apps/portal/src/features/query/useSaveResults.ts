@@ -2,7 +2,7 @@ import {useMemo, useState} from 'react';
 import {useNavigate} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {copyObject} from '../file-browser/fileBrowser.service';
-import {invalidateListing} from '../../lib/queryClient';
+import {invalidateListing} from '../file-browser';
 import {parseS3Url} from '../../lib/s3Url';
 import {toUserText} from '../../lib/errorMessages';
 import {isConnectionUsable} from '../connections/connection.types';

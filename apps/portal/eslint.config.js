@@ -54,7 +54,15 @@ export default defineConfig([
     // features compose it, not the other way round. Before this rule, ToastProvider and
     // Sidebar imported from `features/query/`, which made the query feature a de-facto
     // shared layer nobody had declared.
-    files: ['src/components/**/*.{ts,tsx}'],
+    //
+    // `src/lib/` and `src/hooks/` are under it too, as of 2026-08-09. SPEC-155 left
+    // `lib/queryClient.ts` importing `features/file-browser/fileBrowserKeys` — the same
+    // inversion one layer lower, and the rule as written did not reach it. The import is
+    // gone (`invalidateListing` moved into the feature, beside the keys it builds), so the
+    // glob can widen. Widening it is the point: fixing the one file without extending the
+    // rule leaves the next one to be found by hand. The test exemption below is what makes
+    // the widening survive — `lib/support.test.ts` imports seven feature services by design.
+    files: ['src/components/**/*.{ts,tsx}', 'src/lib/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -63,7 +71,7 @@ export default defineConfig([
             {
               group: ['**/features/*', '**/features/**'],
               message:
-                'components/ is the shared presentation layer and must not import from features/. Move the shared piece into lib/, components/ or hooks/ instead.'
+                'components/, lib/ and hooks/ are the shared layers and must not import from features/. Move the shared piece into lib/, components/ or hooks/ — or move the caller into the feature that owns the concept.'
             }
           ]
         }
@@ -81,7 +89,13 @@ export default defineConfig([
     //
     // Tests mount real features by design (react.md §21: integration-style, mock only the
     // AWS boundary), so the rule can only produce noise on that glob.
-    files: ['src/components/**/*.test.{ts,tsx}', 'src/components/Header.tsx', 'src/components/ProtectedLayout.tsx'],
+    files: [
+      'src/components/**/*.test.{ts,tsx}',
+      'src/lib/**/*.test.{ts,tsx}',
+      'src/hooks/**/*.test.{ts,tsx}',
+      'src/components/Header.tsx',
+      'src/components/ProtectedLayout.tsx'
+    ],
     rules: {
       'no-restricted-imports': 'off'
     }

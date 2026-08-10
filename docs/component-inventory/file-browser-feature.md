@@ -76,6 +76,7 @@ Public barrel: `features/file-browser/index.ts`.
 | Symbol | File | Purpose |
 |---|---|---|
 | `fileBrowserKeys.list(bucket, prefix)` / `.metadata(bucket, key)` | `fileBrowserKeys.ts` | Single source of truth for query keys — never hand-build key arrays. |
+| `invalidateListing(client, bucket, prefix)` | `invalidateListing.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). Plain async function, not a hook. Was `lib/queryClient.ts` until 2026-08-09; it sits beside the key factory so the shared layer imports no feature. |
 | `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult`, `MoveResult`, `CopyResult` | `fileBrowser.types.ts` | Feature result/data types. |
 | `SelectableItem`, `SelectionContextValue`, `itemId` | `selectionContext.ts` | Multi-select item shape (file key \| folder prefix), context value, id helper. |
 | `BulkOperationState` / `BulkOperationError` | `fileBrowser.types.ts` | The ONE shape delete, move and copy report: `{count, errors[{item, message}], isBusy, progress?, error?, …}`. Replaces `DeleteSummary`/`MoveSummary`/`CopySummary` and their `deletedCount`/`movedCount`/`copiedCount` + `key`-vs-`item` divergence (SPEC-155 FR-003). |
