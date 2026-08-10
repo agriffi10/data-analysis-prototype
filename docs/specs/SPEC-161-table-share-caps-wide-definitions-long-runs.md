@@ -1,0 +1,183 @@
+# Spec: Table Share at Scale — Raised Caps, Wide Definitions & the Long-Running Share
+
+**ID:** SPEC-161
+**Status:** Draft
+**Last Updated:** 2026-08-10
+**Depends On:** SPEC-160 (the Distributed-Map transfer engine), SPEC-090 (caps + the copy-plan pointer), SPEC-152 (`NotifyFailure`), SPEC-157 (`TimeoutSeconds` is a top-level ASL field)
+
+## Overview
+
+SPEC-160 moves the copy off a single Lambda, but every ceiling written for that Lambda is still in
+force: a share still refuses above 1000 objects or 20 GiB, and a wide table's cloned definition still
+rides inline on the Step Functions state under a 32 KiB cap. This spec lifts the ceilings to match
+the new engine, moves the table definition onto the same S3-pointer discipline the copy plan already
+uses, and closes the two things a genuinely long run makes real — a machine that can now run for
+hours needs an explicit timeout, and a request that now writes a multi-megabyte manifest needs those
+artifacts to expire.
+
+The result is the shape the user asked for: a table of several hundred Parquet or CSV part files
+with a hundred columns shares without hitting a refusal that exists only because of how v1 copied.
+
+## Scope
+
+### In Scope
+
+- **Re-sizing the caps** to the new binding constraints, with a new `SHARE_MAX_TRANSFER_ITEMS` cap
+  on `recipients × objects` (the manifest's real bound) alongside the re-sized object and byte caps.
+- **`tableDefinition` moves to an S3 pointer** — `{admin_bucket}/table-share/{hash}/definition.json`,
+  read by `create-table` — retiring `SHARE_MAX_DEFINITION_BYTES` as a *state-size* bound.
+- An explicit **`TimeoutSeconds`** on the table-share state machine, so a wedged run terminates and
+  reaches `NotifyFailure` instead of hanging.
+- An **admin-bucket lifecycle rule** expiring `table-share/` request artifacts (copy plan, manifest,
+  definition, Map Run results).
+- Updated refusal wording — the "too large for v1 — S3 Batch Ops deferred" reason no longer
+  describes anything true.
+
+### Out of Scope
+
+- The transfer mechanism itself — SPEC-160.
+- Progress reporting to the browser (a percentage, a live run view). The share stays fire-and-forget
+  with a completion notification; nothing in the request contract changes.
+- Resuming or redriving a partially-transferred share.
+- Making the caps user-configurable or per-user. They stay named constants.
+- Removing caps entirely. An unbounded share is a denial-of-service on the plane and on the
+  recipient's prefix; every limit below is re-sized, not deleted.
+
+---
+
+## Functional Requirements
+
+### FR-001: Re-sized caps
+
+#### Description:
+
+`SHARE_MAX_OBJECTS` and `SHARE_MAX_TOTAL_BYTES` are raised to values sized for the Distributed Map,
+and a new `SHARE_MAX_TRANSFER_ITEMS` bounds the manifest itself.
+
+#### Acceptance Criteria:
+
+- [ ] `SHARE_MAX_OBJECTS`, `SHARE_MAX_TOTAL_BYTES` and `SHARE_MAX_TRANSFER_ITEMS` are named
+      constants in `tscommon.config`, each with a docstring naming **which** limit sized it
+      (`inspect-source`'s listing time, the manifest write, the reader's file-size limit).
+- [ ] A share of several hundred objects totalling more than 20 GiB **succeeds** — the case that
+      motivated this arc.
+- [ ] `recipients × objects` above `SHARE_MAX_TRANSFER_ITEMS` is a whole-request terminal failure
+      before any manifest is written, and the reason names the item count and the cap.
+- [ ] `SHARE_MAX_RECIPIENTS` (50) is **unchanged** — it bounds the inline Map's state and the
+      per-item error detail, neither of which this arc touched.
+- [ ] Every cap refusal reason is rendered through the `cpcommon` message `Resolver` (SPEC-156), not
+      composed at the call site.
+
+### FR-002: The definition rides as a pointer
+
+#### Description:
+
+`inspect-source` writes the cloned definition to S3 and emits a key; `create-table` reads it. The
+Step Functions state stops carrying it.
+
+#### Acceptance Criteria:
+
+- [ ] `inspect-source` writes `{admin_bucket}/table-share/{hash}/definition.json` and emits
+      `definitionKey`; the state no longer contains `tableDefinition`.
+- [ ] `create-table` loads the definition from that key and produces a table **byte-identical** to
+      what it produces today for the same source — a test compares the rendered DDL both ways.
+- [ ] A 100-column table with column comments and projection `TBLPROPERTIES` shares successfully.
+- [ ] `SHARE_MAX_DEFINITION_BYTES` no longer bounds the state; if a size bound is kept at all it is
+      re-expressed as an object-size sanity check with a docstring saying so.
+- [ ] A missing or unreadable `definition.json` fails **that recipient** with a clear reason, not
+      silently creating a table from a partial definition.
+
+### FR-003: The machine cannot hang
+
+#### Description:
+
+The state machine declares a `TimeoutSeconds` sized for the new caps.
+
+#### Acceptance Criteria:
+
+- [ ] `TimeoutSeconds` is a **top-level** field of the state-machine definition (not a resource
+      argument, not a task field), set to a named value.
+- [ ] A run that exceeds it fails with `States.Timeout`, reaches `NotifyFailure`, and the sender is
+      told — "it just never came back" stays unreachable (SPEC-152's guarantee).
+- [ ] The timeout is larger than the worst-case run implied by the FR-001 caps, and the spec's
+      delivery doc records the arithmetic.
+- [ ] The SPEC-152 fleet test still passes.
+
+### FR-004: Request artifacts expire
+
+#### Description:
+
+The copy plan, transfer manifest, definition and Map Run results accumulate forever today — the
+execution role holds an explicit `s3:DeleteObject` **Deny** on the admin bucket, so nothing in code
+can clean them up. A bucket lifecycle rule is the only mechanism available.
+
+#### Acceptance Criteria:
+
+- [ ] An S3 lifecycle rule on the admin bucket expires objects under the `table-share/` prefix after
+      a named retention period.
+- [ ] The rule is scoped **by prefix** — `logs/` (retained forever, SPEC-127) and
+      `locks/table-builder/` (SPEC-157) are demonstrably unaffected; a test or plan assertion pins
+      the prefix scoping.
+- [ ] The retention period is longer than `TimeoutSeconds` by a stated margin, so no live run can
+      have its own manifest expire underneath it.
+- [ ] The execution role's `s3:DeleteObject` Deny on the admin bucket is **unchanged** — expiry is
+      the bucket's job, not the plane's.
+
+### FR-005: Honest refusal wording
+
+#### Acceptance Criteria:
+
+- [ ] No user-facing message or code comment claims S3 Batch Operations is the deferred scale path;
+      the caps message states the limit and that the share is too large, nothing more.
+- [ ] `architecture.md` → *Table Share* and *Deferred / Future Scope* no longer describe S3 Batch
+      Operations as the escape hatch (SPEC-160 records why it was rejected).
+- [ ] A grep-style test or docs check fails if the retired phrase reappears in `lambdas/`.
+
+---
+
+## Data Model
+
+```python
+# tscommon.config — after this spec
+SHARE_MAX_OBJECTS          # re-sized; bound = inspect-source listing time
+SHARE_MAX_TOTAL_BYTES      # re-sized; bound = acceptable wall-clock for the Map Run
+SHARE_MAX_TRANSFER_ITEMS   # NEW; bound = manifest write + ItemReader file-size limit
+SHARE_MAX_RECIPIENTS = 50  # unchanged
+
+# inspect-source output — tableDefinition replaced by a pointer
+{ "definitionKey": "table-share/{hash}/definition.json",
+  "copyPlanKey":   "table-share/{hash}/copy-plan.json",
+  "location": { "bucket": "...", "prefix": "..." },
+  "partitioned": true }
+```
+
+## Implementation Phases
+
+### Phase 1: The definition pointer
+
+- `inspect-source` writes `definition.json`; `create-table` reads it; assert DDL equivalence against
+  the current inline path before deleting it.
+
+### Phase 2: Caps
+
+- Re-size the constants, add `SHARE_MAX_TRANSFER_ITEMS` and its pre-manifest check, move every
+  refusal string onto the `Resolver`, and retire the S3-Batch-Ops phrasing.
+
+### Phase 3: Timeout + lifecycle
+
+- Top-level `TimeoutSeconds`; the admin-bucket lifecycle rule scoped to `table-share/` with the
+  `logs/` and `locks/` non-interference assertion.
+
+### Phase 4: Verification
+
+- **Live check (owed):** share a table of several hundred objects well over 20 GiB to a real
+  recipient — it completes, the recipient's table queries, and `logs/service=table-share/` shows the
+  item count. Then share one deliberately over `SHARE_MAX_TRANSFER_ITEMS` and confirm the refusal
+  names the count and cap. Fold in a `GetTable` on the recipient's clone to confirm the 100-column
+  definition survived the pointer.
+
+### Phase 5: Completion ritual
+
+- Delivery doc (including the `TimeoutSeconds` arithmetic), INDEX status, `decisions.md` entry for
+  the pointer-not-state rule extended to the definition, one Key Decisions line, and the
+  `architecture.md` corrections FR-005 requires.

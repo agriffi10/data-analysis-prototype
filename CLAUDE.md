@@ -79,6 +79,18 @@ distinguishing a **newer schema** from a corrupt body, because quarantining a `v
 document written by a newer tab would be the downgrade the spec exists to prevent. **No IAM
 change**: it is `GetObject` + `PutObject` inside the user's own prefix.
 
+**Three new arcs are filed as Draft (2026-08-10) — authored, not started.** **160→161** table share
+at scale (a top-level Step Functions **Distributed Map** over a `(recipient × object)` manifest
+replaces the single-Lambda copy; **S3 Batch Operations is rejected** — its Copy cannot rewrite a key,
+`TargetKeyPrefix` prepends the full source key — and the engine lands on `cpcommon.transfer` because
+the send-files arc is its second caller). **162→163** feature flags (a git-controlled per-environment
+JSON in the admin bucket; **presentation-only, never authorization**; unreadable ⇒ compiled-in
+defaults, all on; gating driven by a **registry with a walking test**, because the cross-feature entry
+points are what a per-component pass misses). **164→167** send files/folders to another person's
+personal or shared space (its own control plane; destination `shared_files/{sender}/`; push, never
+overwrite; the recipient field is SPEC-147's combobox with SPEC-158's prop source). Narrative:
+`@docs/specs/ARCS.md`.
+
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
 and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
 un-opted-into removal, replaces the definition **in place** via `glue:UpdateTable`, and **145 gave it a
