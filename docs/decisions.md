@@ -139,7 +139,7 @@ So the field ships **with an EventBridge rule** (`stepfunction.tf`) on `Step Fun
 
 **The timeout door recovers the sender from the token, and expiry is deliberately not enforced.** The execution input is what the Pipe forwarded — the raw SQS batch — so the actor is the verified `cognito:username` claim inside the body's ID token, never the body's own assertion. By construction that token is expired: the timeout fires hours after it was minted. The relaxation is the DLQ drain's, taken through the same separately-named entry point (`verified_username_ignoring_expiry`) and safe for the same reason — this path **grants nothing**, it only addresses a message. An input EventBridge omitted (it caps an event at 256 KB) or a token that will not verify is a **logged no-op**, never a guessed inbox. Its wording is its own reason code, `share_timed_out`, rather than the generic failure sentence: a timeout is the one whole-request failure that can leave a recipient holding **part** of a dataset — the copy may have run and the create may not — so "try again" alone would be wrong advice.
 
-**Sized from `SHARE_MAX_TRANSFER_BYTES`, NOT from the source cap — and the difference is a factor of `SHARE_MAX_RECIPIENTS`.** The manifest carries one item per (recipient, object) pair and every item is a full copy, so the Map moves the source **once per recipient**. Sized against the 1 TiB source cap alone, this number was short by 50×: 50 recipients × 1 TiB is 50 TiB, which needs 3.8 hours even at the conservative rate. That is the omission `SHARE_MAX_TRANSFER_BYTES` (16 TiB) closes, and at 160 concurrent streams it is ~4,400 s — inside two thirds of **10,800 s (3 h)**, the same budget convention the batch bound uses. The margin is bought against the sender's silence, so a longer timeout is a slower failure signal rather than free safety; the cap moves before the timeout does. **A test computes it**, because the hard-coded floor that stood here first is exactly what let the mismatch survive two review rounds.
+**Sized from `SHARE_MAX_TRANSFER_BYTES`, NOT from the source cap — and the difference is a factor of `SHARE_MAX_RECIPIENTS`.** The manifest carries one item per (recipient, object) pair and every item is a full copy, so the Map moves the source **once per recipient**. Sized against the 1 TiB source cap alone, this number was short by 50×: 50 recipients × 1 TiB is 50 TiB, which needs 3.8 hours even at the conservative rate. That is the omission `SHARE_MAX_TRANSFER_BYTES` (3 TiB) closes. **And the rate it is divided by is a makespan, not an aggregate bandwidth** — a fourth review round's correction, and the same class of error a fourth time: `copy_batch` gives one whole object to one worker and `copy_one` part-copies serially, so a batch dominated by one large object runs at ONE stream while seven idle. The pessimistic denominator is `MAP_MAX_CONCURRENCY × rate` (500 MB/s), not `× COPY_CONCURRENCY ×` it (4 GB/s) — under which 16 TiB read as 4,400 s when the truth was 35,000. At 500 MB/s, 3 TiB is ~6,600 s, and with the finish Map (3,000 s) and the serial verbs (~720 s) the worst run is ~10,300 s inside **10,800 s (3 h)**. The margin is bought against the sender's silence, so a longer timeout is a slower failure signal rather than free safety; the cap moves before the timeout does. **A test computes it**, because the hard-coded floor that stood here first is exactly what let the mismatch survive two review rounds.
 
 **The retention obligation inverts once a run can last hours.** Nothing new needed expiring: manifest, definition and Map Run export all sit under `table-share/`, which `expire-table-share-copy-plans` already covers. The risk was the opposite — the rule expiring a *live* run's manifest underneath it. `admin_results_retention_days` (30) clears the run ceiling by **240×**, computed by a test from both files, and **no rule and no rule id were added**.
 
@@ -1169,12 +1169,18 @@ against S3's *worst case* — two 1024-byte keys and two 63-byte bucket names pu
 so even 50 items sat under half the 256 KB child-execution input limit — and that bound is
 **computed in a test**, not asserted as a number.
 
-> **Superseded (SPEC-161, 2026-08-10) — `MAX_ITEMS_PER_BATCH` is 10, and the PAYLOAD bound is no
+> **Superseded (SPEC-161, 2026-08-10) — `MAX_ITEMS_PER_BATCH` is 8, and the PAYLOAD bound is no
 > longer the binding one.** `ItemBatcher` batches by **count, never by bytes**, so the unit that
 > must copy inside `copy-objects`' 900 seconds is a whole batch. That was implicit while
 > table-share's total cap was 20 GiB — a batch could not exceed the whole table — and SPEC-161's
-> 1 TiB removed it. At 50 items against that spec's per-object cap the worst batch reached
-> **1000 GiB**, past the timeout even at an optimistic 100 MB/s per stream. 10 items ×
-> `SHARE_MAX_OBJECT_BYTES` (10 GiB) holds it at 100 GiB, computed by
-> `test_a_worst_case_batch_copies_inside_the_verb_timeout`. **The batch size can no longer be
-> changed without table-share's per-object cap, or vice versa.**
+> 1 TiB removed it.
+>
+> **And a batch's cost is a MAKESPAN.** `copy_batch` hands one whole object to each of
+> `COPY_CONCURRENCY` workers and `copy_one` part-copies serially, so the cost is
+> `ceil(items / COPY_CONCURRENCY)` rounds of the slowest object — never total bytes over an
+> aggregate rate. **8 = `COPY_CONCURRENCY` makes that ceiling one**, so a batch costs one object's
+> time (429 s at `SHARE_MAX_OBJECT_BYTES` 10 GiB). At 10 items it was two rounds and 859 s against
+> a 900 s timeout; the bytes-over-bandwidth reading called the same configuration 537 s and stayed
+> green. `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes the makespan and
+> `test_a_batch_is_exactly_one_round_of_the_worker_pool` pins the equality. **The batch size,
+> `COPY_CONCURRENCY` and table-share's per-object cap can no longer be changed independently.**

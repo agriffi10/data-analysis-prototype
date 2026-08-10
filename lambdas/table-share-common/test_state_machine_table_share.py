@@ -12,6 +12,7 @@ under pytest or directly: python3 test_state_machine_table_share.py.
 """
 
 import json
+import math
 import os
 import re
 import sys
@@ -364,31 +365,47 @@ def test_the_timeout_is_fed_from_a_named_value_and_clears_the_caps():
     notice that; a computation can, and the two sibling bounds on this branch were already
     written that way.
 
-    So this multiplies the caps out the way the run does, and it is the guard that fails if
-    ``SHARE_MAX_TRANSFER_BYTES``, ``MAP_MAX_CONCURRENCY``, ``COPY_CONCURRENCY`` or the timeout
-    itself moves without the others.
+    **And the denominator is a makespan, not an aggregate bandwidth** — the correction a fourth
+    round made. ``MAP_MAX_CONCURRENCY x COPY_CONCURRENCY`` is 160 concurrent copies only when
+    every batch holds eight comparable objects. ``copy_batch`` gives one whole object to one
+    worker and ``copy_one`` part-copies serially, so a batch whose bytes sit in one large
+    object runs at ONE stream while seven idle — an ordinary mixed-size Parquet table. The
+    pessimistic denominator is therefore ``MAP_MAX_CONCURRENCY x rate`` (500 MB/s), not
+    ``x COPY_CONCURRENCY x rate`` (4 GB/s). Under the aggregate reading 16 TiB looked like
+    4,400 s; the real figure was 35,000, and the test was green.
+
+    The copy is also not the only thing in the window: the finish Map's Athena creates and the
+    serial verbs either side of the Map come out of the same ceiling, so they are subtracted
+    here rather than waved at.
     """
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
     from cpcommon.transfer import config as transfer_config
-    from cpcommon.transfer import copy as copy_mod
     from tscommon import config as ts_config
 
     with open(_TFTPL) as handle:
         assert '"TimeoutSeconds": ${state_machine_timeout_seconds}' in handle.read()
 
+    # One stream per in-flight child, because a batch's slowest object is what it costs.
     throughput = (
-        transfer_config.MAP_MAX_CONCURRENCY
-        * copy_mod.COPY_CONCURRENCY
-        * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+        transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
     )
-    seconds = ts_config.SHARE_MAX_TRANSFER_BYTES / throughput
-    budget = _timeout_seconds() * 2 / 3
+    copy_seconds = ts_config.SHARE_MAX_TRANSFER_BYTES / throughput
 
-    assert seconds < budget, (
-        f"the worst share the caps allow moves "
-        f"{ts_config.SHARE_MAX_TRANSFER_BYTES / 1024**4:,.0f} TiB, which needs {seconds:,.0f}s "
-        f"at {throughput / 1e9:.1f} GB/s against a {_timeout_seconds()}s ceiling — lower "
-        f"SHARE_MAX_TRANSFER_BYTES or raise the timeout"
+    asl = _asl()
+    finish_concurrency = asl["States"]["FinishRecipients"]["MaxConcurrency"]
+    create_timeout, _ = _verb_sizing("create-table")
+    finish_seconds = math.ceil(ts_config.SHARE_MAX_RECIPIENTS / finish_concurrency) * create_timeout
+    serial_seconds = sum(
+        _verb_sizing(v)[0]
+        for v in ("inspect-source", "build-transfer-manifest", "collect-transfer-results")
+    )
+    total = copy_seconds + finish_seconds + serial_seconds
+
+    assert total < _timeout_seconds(), (
+        f"the worst share the caps allow needs {total:,.0f}s — copy {copy_seconds:,.0f}s for "
+        f"{ts_config.SHARE_MAX_TRANSFER_BYTES / 1024**4:,.0f} TiB at {throughput / 1e6:.0f} MB/s, "
+        f"finish Map {finish_seconds:,.0f}s, serial verbs {serial_seconds:,.0f}s — against a "
+        f"{_timeout_seconds()}s ceiling. Lower SHARE_MAX_TRANSFER_BYTES or raise the timeout."
     )
 
 

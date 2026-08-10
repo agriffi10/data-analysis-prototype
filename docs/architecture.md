@@ -299,9 +299,10 @@ table over them in the recipient's DB.
   > **Superseded (SPEC-161, shipped 2026-08-10):** the ceiling moved. `SHARE_MAX_OBJECTS` is
   > **20,000**, `SHARE_MAX_TOTAL_BYTES` **1 TiB**, a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)**
   > bounds `recipients × objects` — the manifest's real limit, which neither other cap expresses —
-  > and a new **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** bounds one object — because `ItemBatcher` batches
-  > by COUNT, the unit that must copy inside `copy-objects`' 900 s is a whole batch, so
-  > `MAX_ITEMS_PER_BATCH` also drops **50 → 10** to hold `batch × per-object` at 100 GiB.
+  > a new **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** bounds one object — with `MAX_ITEMS_PER_BATCH`
+  > **50 → 8 (= `COPY_CONCURRENCY`)**, because a batch costs `ceil(items/workers)` rounds of its
+  > slowest object — and **`SHARE_MAX_TRANSFER_BYTES` (3 TiB)** bounds `recipients × bytes`, since
+  > the Map copies the source once per recipient.
   > `SHARE_MAX_RECIPIENTS` (50) is unchanged. `SHARE_MAX_DEFINITION_BYTES` still exists but bounds
   > something else now: the definition **travels by pointer** (`definitionKey` →
   > `table-share/{hash}/definition.json`), so its 64 KiB is a sanity check against **Athena's

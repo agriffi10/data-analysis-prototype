@@ -10,7 +10,7 @@ true. Nothing about the request contract, the push semantics or the notification
 - **The caps.** `SHARE_MAX_OBJECTS` 1,000 → **20,000**, `SHARE_MAX_TOTAL_BYTES` 20 GiB → **1 TiB**,
   a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)** on `recipients × objects`, and a new
   **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** on a single object — which also moved SPEC-160's
-  `MAX_ITEMS_PER_BATCH` 50 → 10 — plus **`SHARE_MAX_TRANSFER_BYTES` (16 TiB)** on
+  `MAX_ITEMS_PER_BATCH` 50 → **8** — plus **`SHARE_MAX_TRANSFER_BYTES` (3 TiB)** on
   `recipients × bytes`, the byte-axis twin of the item cap. `SHARE_MAX_RECIPIENTS` stays 50,
   pinned by a test rather than by absence. Each docstring names the limit that sized it.
 - **The definition travels by pointer.** `inspect-source` writes
@@ -33,14 +33,19 @@ true. Nothing about the request contract, the push semantics or the notification
 finding 3 below.** The manifest carries one item per (recipient, object) pair and every item is a
 full copy, so the Map moves the source once *per recipient*.
 
+**And the rate is a makespan, not an aggregate bandwidth** — finding 4. `copy_batch` gives one
+whole object to one worker and `copy_one` part-copies serially, so a batch dominated by one large
+object runs at *one* stream while seven idle.
+
 | term | value | where from |
 |---|---|---|
-| in-flight server-side copies | **160** | `MAP_MAX_CONCURRENCY` (20) × `COPY_CONCURRENCY` (8) |
-| conservative aggregate | **4.0 GB/s** | 160 × `CONSERVATIVE_STREAM_BYTES_PER_SECOND` (25 MB/s) |
-| **`SHARE_MAX_TRANSFER_BYTES`** | **16 TiB** | ~4,400 s — inside ⅔ of the ceiling |
+| pessimistic rate | **500 MB/s** | `MAP_MAX_CONCURRENCY` (20) × `CONSERVATIVE_STREAM_BYTES_PER_SECOND` (25 MB/s) — **not** × `COPY_CONCURRENCY` |
+| copy | **6,597 s** | `SHARE_MAX_TRANSFER_BYTES` **3 TiB** ÷ 500 MB/s |
 | the finish Map's Athena creates | **3,000 s** | ⌈50 / `MaxConcurrency` 5⌉ × `create-table` 300 s |
-| **`TimeoutSeconds`** | **10,800 s (3 h)** | ~2.5× the conservative worst case |
-| *what it would have been sized on* | *50 TiB* | *50 recipients × the 1 TiB source cap — **3.8 h**, over the ceiling* |
+| the serial verbs | **720 s** | inspect 120 + manifest 300 + collect 300 |
+| **total worst run** | **10,317 s** | vs **`TimeoutSeconds` 10,800 s (3 h)** |
+| *what two earlier models said* | *4,398 s* | *16 TiB ÷ an aggregate 4.0 GB/s — the real figure is 35,184 s* |
+| *and before that* | *50 TiB* | *50 recipients × the 1 TiB source cap — 3.8 h, over the ceiling* |
 
 It is deliberately not longer. The timeout is how quickly a wedged share becomes a notification, so
 the margin is bought against the sender's silence rather than being free — the cap moves before the
@@ -179,8 +184,37 @@ every doc restating it agreed with every other. Round 2's batch fix did not help
 50 → 10 changes per-batch duration, not total wall clock, because `MAP_MAX_CONCURRENCY` is the
 throughput limiter.
 
-`SHARE_MAX_TRANSFER_BYTES` (16 TiB) now closes it, enforced in the same pass as the item cap, and
-the FR-003 test computes the timeout against it instead of asserting a floor.
+`SHARE_MAX_TRANSFER_BYTES` now closes it, enforced in the same pass as the item cap, and the
+FR-003 test computes the timeout against it instead of asserting a floor.
+
+## Finding 4: the rate was an aggregate bandwidth the copy path cannot deliver
+
+A fourth round, and the same class one level down. Every time bound divided bytes by
+`MAP_MAX_CONCURRENCY × COPY_CONCURRENCY × rate`, as though bytes flowed through 160 pipes.
+`copy_batch` submits **one whole object per worker** and `copy_one`'s multipart loop is serial, so
+an object holds a worker for `size / rate` however idle the others are. The schedulable unit is an
+object on a worker; the cost is a **makespan**, not a bandwidth. And `ItemBatcher` has only
+`MaxItemsPerBatch` — nothing balances a batch by size.
+
+Two bounds were wrong as a result, and both tests encoded the same wrong model, so both were green:
+
+- **Batch.** 10 items × 10 GiB on 8 workers is ⌈10/8⌉ = **two** rounds of 429 s = **859 s** against a
+  900 s Lambda timeout — 41 seconds of margin, where the test claimed 537 s against a 600 s budget.
+  Fixed by setting `MAX_ITEMS_PER_BATCH` = `COPY_CONCURRENCY` = **8**, so a batch is exactly one
+  round and costs one object's time. `test_a_batch_is_exactly_one_round_of_the_worker_pool` makes
+  that structural rather than arithmetic — above the pool size the cost doubles at the first item
+  over, a step change no bytes-based bound can express.
+- **Run.** A mixed-size Parquet table (one large part per ten — ordinary, not adversarial) degrades
+  effective concurrency from 160 streams to 20. 16 TiB at the real 500 MB/s is **35,184 s**, not
+  4,398. `SHARE_MAX_TRANSFER_BYTES` drops to **3 TiB**, and the FR-003 test now subtracts the finish
+  Map and the serial verbs from the ceiling instead of pretending the copy owns all of it.
+
+**What this round should be remembered for** is that four bugs in a row were one bug: a bound
+compared against a quantity the system does not actually produce. State payload vs. Athena's query
+string; object vs. batch; source vs. source × recipients; bandwidth vs. makespan. The countermeasure
+that worked was never a bigger margin — it was making each test *compute* its bound from the
+constants and derive the model from the code, so a wrong model fails loudly instead of reading as a
+comfortable number.
 
 ## A multi-recipient ceiling worth stating
 

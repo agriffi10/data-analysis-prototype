@@ -21,17 +21,20 @@ Attributes:
     transfer; this one keeps a single source from being unbounded on its own.
   SHARE_MAX_TRANSFER_BYTES: Cap on ``recipients x total_bytes`` — the bytes the Distributed Map
     actually copies, and the byte-axis twin of ``SHARE_MAX_TRANSFER_ITEMS``. **What sizes it is
-    the state machine's ``TimeoutSeconds``.** The fan-out reaches 160 concurrent server-side
-    copies (``MAP_MAX_CONCURRENCY`` children x ``COPY_CONCURRENCY`` workers), so at
-    ``CONSERVATIVE_STREAM_BYTES_PER_SECOND`` 16 TiB is about 4,400 seconds against a 10,800
-    second ceiling.
+    the state machine's ``TimeoutSeconds``, under a MAKESPAN model.** The tempting denominator
+    is 160 concurrent copies (``MAP_MAX_CONCURRENCY`` x ``COPY_CONCURRENCY``), and it is wrong:
+    a batch whose bytes sit in one large object occupies **one** worker for that object's whole
+    duration while its siblings idle, because ``copy_batch`` schedules a whole object per worker
+    and the multipart loop is serial. The pessimistic denominator is therefore
+    ``MAP_MAX_CONCURRENCY x CONSERVATIVE_STREAM_BYTES_PER_SECOND`` — 500 MB/s, not 4 GB/s. At
+    that rate 3 TiB is ~6,600 s, inside the copy's share of the 10,800 second ceiling once the
+    finish Map (~3,000 s) and the serial verbs (~870 s) are taken out.
 
-    It exists because the source cap could not stand in for it: 50 recipients x a 1 TiB source
-    is **50 TiB**, which needs 3.8 hours even at the conservative rate and 19 at the pessimistic
-    one — so the timeout would kill a share every cap had accepted, mid-copy, leaving recipients
-    holding partial data. That is the same omission ``SHARE_MAX_TRANSFER_ITEMS`` exists to close
-    one axis over, and it was missed here for two review rounds because the timeout's arithmetic
-    was written against the un-multiplied number.
+    Two things it exists for, in the order they were found. The source cap cannot stand in for
+    it: 50 recipients x a 1 TiB source is **50 TiB**. And the aggregate-bandwidth model cannot
+    size it: under that model 16 TiB read as 4,400 s when the real figure is 35,000. Both were
+    the same mistake — measuring against a quantity the copy path does not actually deliver —
+    and each survived until a review round derived the number independently.
   SHARE_MAX_OBJECT_BYTES: Cap on ONE object, which the total-size cap does not imply and which
     raising that cap is what made necessary. **What sizes it is the copy verb's timeout, via
     the BATCH — not via the object.** That distinction is the whole of this constant and an
@@ -39,12 +42,19 @@ Attributes:
     so the unit that has to finish inside ``copy-objects``' 900 seconds is
     ``MAX_ITEMS_PER_BATCH`` objects, not one. While ``SHARE_MAX_TOTAL_BYTES`` was 20 GiB the
     bound was implicit — a batch could not exceed the whole table — and raising the total to
-    1 TiB removed it without anything replacing it. At 10 GiB with a 10-item batch the worst
-    batch is 100 GiB, ~537 seconds at a conservative 25 MB/s per stream across
-    ``COPY_CONCURRENCY`` workers. ``test_a_worst_case_batch_copies_inside_the_verb_timeout``
-    computes that from the constants, so raising either without the other fails the build.
-    It also stays above S3's 5 GiB single-copy limit, keeping the multipart part-copy path
-    reachable rather than silently dead.
+    1 TiB removed it without anything replacing it.
+
+    **And a batch's cost is a MAKESPAN, not its bytes over a bandwidth.** ``copy_batch`` hands
+    one whole object to each worker and ``copy_one`` part-copies serially, so a batch costs
+    ``ceil(items / COPY_CONCURRENCY)`` rounds of its slowest object. ``MAX_ITEMS_PER_BATCH``
+    equals ``COPY_CONCURRENCY`` (8) precisely so that ceiling is one, which makes a batch cost
+    exactly one object's time: **429 seconds at 10 GiB**, inside two thirds of
+    ``COPY_TIMEOUT_SECONDS``. The aggregate reading of the same numbers said 537 s and the real
+    figure at a 10-item batch was 859 — 41 seconds from a hard timeout.
+    ``test_a_worst_case_batch_copies_inside_the_verb_timeout`` computes the makespan and
+    ``test_a_batch_is_exactly_one_round_of_the_worker_pool`` pins the invariant, so raising any
+    of the three constants without the others fails the build. 10 GiB also stays above S3's
+    5 GiB single-copy limit, keeping the multipart part-copy path reachable rather than dead.
   SHARE_MAX_TRANSFER_ITEMS: Cap on ``recipients x objects`` — the manifest's real bound, and
     the one neither cap above expresses, since 20,000 objects to 50 recipients is a million
     transfer items. **What sizes it is the manifest write and the collector's read-back**,
@@ -83,7 +93,7 @@ SHARE_MAX_TOTAL_BYTES = 1024**4
 SHARE_MAX_OBJECT_BYTES = 10 * 1024**3
 
 SHARE_MAX_TRANSFER_ITEMS = 20_000
-SHARE_MAX_TRANSFER_BYTES = 16 * 1024**4
+SHARE_MAX_TRANSFER_BYTES = 3 * 1024**4
 
 RECIPIENT_KINDS = frozenset({"user", "space"})
 

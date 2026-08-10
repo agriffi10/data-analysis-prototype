@@ -14,16 +14,23 @@ Attributes:
     63-byte bucket names put an item near 2.3 KB, so even 50 items sat under half the limit.
     That is why this was 50 until SPEC-161.
 
-    The time bound is what moved it to 10. ``ItemBatcher`` batches by **count**, never by
-    bytes, so the worst batch is ``MAX_ITEMS_PER_BATCH x SHARE_MAX_OBJECT_BYTES`` and the whole
-    of it must copy inside ``copy-objects``' 900-second timeout on ``COPY_CONCURRENCY`` workers.
-    While table-share's TOTAL cap was 20 GiB that bound was implicit — a batch could not exceed
-    the whole table — and raising the total to 1 TiB removed it. At 10 items x 10 GiB the worst
-    batch is 100 GiB, which finishes in ~537 s at a conservative 25 MB/s per stream; at the old
-    50 it would have been 1000 GiB and timed out even at 100 MB/s per stream.
-    ``test_a_worst_case_batch_stays_under_the_input_limit`` computes the payload bound and
-    ``test_a_worst_case_batch_copies_inside_the_verb_timeout`` computes the time bound, so
-    raising either constant without re-checking fails the build.
+    The time bound is what moved it off 50, and it is a **makespan, not a bandwidth**.
+    ``ItemBatcher`` batches by count and never by bytes, and ``copy_batch`` hands one WHOLE
+    object to each of ``COPY_CONCURRENCY`` workers — ``copy_one``'s multipart loop is serial —
+    so an object occupies one worker for ``size / rate`` no matter how many other workers are
+    idle. A batch therefore costs ``ceil(items / COPY_CONCURRENCY)`` rounds of the slowest
+    object in it, which is NOT ``total bytes / (workers x rate)``. Dividing bytes by aggregate
+    bandwidth is what let this bound read as satisfied through three review rounds.
+
+    **This is why the value equals ``COPY_CONCURRENCY``.** At 8 the ceiling is exactly one
+    round, so a batch costs one object's time — 429 s for a 10 GiB object at the conservative
+    rate, inside two thirds of ``COPY_TIMEOUT_SECONDS``. At 10 it was two rounds and 859 s,
+    41 seconds from a hard Lambda timeout. Keeping the two equal makes the relationship
+    structural rather than arithmetic: a batch is one round, always.
+    ``test_a_worst_case_batch_stays_under_the_input_limit`` computes the payload bound,
+    ``test_a_worst_case_batch_copies_inside_the_verb_timeout`` the makespan, and
+    ``test_a_batch_is_exactly_one_round_of_the_worker_pool`` the invariant, so raising any of
+    these constants without re-checking fails the build.
   MAP_MAX_CONCURRENCY: Child executions in flight. Deliberately not the 10,000 default — each
     child invokes a Lambda that opens up to ``COPY_CONCURRENCY`` S3 connections, so the default
     would put the account's whole Lambda concurrency and a large S3 request rate behind one
@@ -32,12 +39,13 @@ Attributes:
   COPY_TIMEOUT_SECONDS: The batch verb's Lambda timeout, mirrored from ``locals.tf`` so the
     time bound above can be computed rather than asserted. A test holds the two together.
   CONSERVATIVE_STREAM_BYTES_PER_SECOND: The per-stream server-side copy throughput the time
-    bound assumes. Deliberately pessimistic — a measured rate would make the bound depend on
-    the day S3 was measured, and the cost of being wrong is a timed-out batch that fails a
-    recipient. Raise it only with evidence.
+    bounds assume. **A STREAM is one object on one worker** — not a share of some aggregate
+    pipe — because that is how the copier schedules. Deliberately pessimistic: a measured rate
+    would make the bound depend on the day S3 was measured, and the cost of being wrong is a
+    timed-out batch that fails a recipient. Raise it only with evidence.
 """
 
-MAX_ITEMS_PER_BATCH = 10
+MAX_ITEMS_PER_BATCH = 8
 
 MAP_MAX_CONCURRENCY = 20
 

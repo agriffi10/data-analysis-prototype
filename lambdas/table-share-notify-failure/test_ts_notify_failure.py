@@ -68,7 +68,16 @@ def _event(error, actor="alice", source_table="sales"):
 # ── The failures no verb can catch (FR-004) ───────────────────────────────────
 
 
-def test_a_step_functions_timeout_still_notifies():
+def test_an_engine_error_notifies_without_leaking_its_name():
+    """An error no verb raised — no decoded reason, so the generic sentence, and never the
+    raw Step Functions name in a user's inbox.
+
+    ``States.Timeout`` is the payload here for historical reasons and is now a **stand-in for
+    any engine error**, not a scenario: SPEC-161 established that a top-level timeout bypasses
+    every catcher, so it cannot reach this door at all. The EventBridge tests below cover the
+    real timeout path. Renamed rather than deleted — the assertion is still the right one for
+    the class of error that does arrive here.
+    """
     fake = _arm()
     nf.handler(_event({"Error": "States.Timeout"}), None)
     message = fake.messages()[0]
@@ -392,6 +401,24 @@ def test_an_unattributable_timeout_is_a_logged_no_op(monkeypatch, kwargs, why):
     nf.handler(_timeout_event(**kwargs), None)
 
     assert fake.calls == [], f"notified someone despite {why}"
+
+
+def test_a_malformed_detail_notifies_nobody_and_does_not_raise(monkeypatch):
+    """Not raising is the assertion, and it is not politeness.
+
+    ``_on_execution_timed_out`` does ``event.get("detail") or {}``, which passes a truthy
+    non-dict straight through. An ``AttributeError`` on ``detail.get`` would surface as an
+    async Lambda failure, and **EventBridge retries those twice** — turning one unattributable
+    event into three invocations.
+    """
+    fake = _arm()
+    _verified(monkeypatch)
+
+    for detail in ("a string", ["a", "list"], 7):
+        event = {**_timeout_event(), "detail": detail}
+        assert nf.handler(event, None) == {}
+
+    assert fake.calls == []
 
 
 def test_an_unverifiable_token_notifies_nobody(monkeypatch):

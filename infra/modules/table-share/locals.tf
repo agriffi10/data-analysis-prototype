@@ -120,8 +120,14 @@ locals {
   # SPEC-160 FR-002. The Distributed Map's two sizing numbers. Terraform cannot import Python,
   # so these are literals fed into the ASL — and cpcommon/transfer/config.py holds the same two
   # for the batch verb. A test asserts the pair still match, because two homes for one number is
-  # how a batch quietly grows past the 256 KB child-input limit it was sized against.
-  transfer_max_items_per_batch = 10
+  # how a batch quietly grows past the limit it was sized against.
+  #
+  # SPEC-161: the batch equals COPY_CONCURRENCY (8) on purpose. copy_batch gives one WHOLE object
+  # to each worker and copy_one part-copies serially, so a batch costs ceil(items/workers) rounds
+  # of its slowest object — a makespan, not bytes over a bandwidth. At 8 that ceiling is one
+  # round, so a batch costs one object's time. At 10 it was two rounds and 859s against a 900s
+  # Lambda timeout.
+  transfer_max_items_per_batch = 8
   transfer_map_max_concurrency = 20
 
   # SPEC-161 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field —
@@ -142,12 +148,17 @@ locals {
   # once PER RECIPIENT. Sized against the 1 TiB source cap alone, this number was short by a
   # factor of SHARE_MAX_RECIPIENTS — 50 TiB needs 3.8 hours even at the conservative rate.
   #
-  # At 160 concurrent server-side streams (transfer_map_max_concurrency x COPY_CONCURRENCY) and
-  # cpcommon.transfer.config's CONSERVATIVE_STREAM_BYTES_PER_SECOND, 16 TiB is ~4,400s — inside
-  # two thirds of this ceiling, which is the same budget convention the batch bound uses. The
-  # finish Map's Athena creates add ceil(SHARE_MAX_RECIPIENTS / MaxConcurrency 5) x create-table's
-  # 300s = 3,000s worst case, far inside the remainder. A test computes the whole thing, because
-  # the hard-coded floor that stood here before is exactly what let the mismatch ship.
+  # The denominator is a MAKESPAN, not an aggregate bandwidth, and that correction cost a fourth
+  # review round. 160 concurrent copies (transfer_map_max_concurrency x COPY_CONCURRENCY) is the
+  # rate only when every batch holds eight comparable objects; copy_batch gives one whole object
+  # to one worker and copy_one part-copies serially, so a batch dominated by one large object
+  # runs at ONE stream while seven idle. That is an ordinary mixed-size Parquet table, not a
+  # corner. The pessimistic rate is therefore transfer_map_max_concurrency x
+  # CONSERVATIVE_STREAM_BYTES_PER_SECOND = 500 MB/s, under which SHARE_MAX_TRANSFER_BYTES (3 TiB)
+  # is ~6,600s. Add the finish Map's ceil(SHARE_MAX_RECIPIENTS / MaxConcurrency 5) x create-table
+  # 300s = 3,000s and ~720s of serial verbs and the worst run is ~10,300s, inside this ceiling.
+  # A test computes all of it: the hard-coded floor that stood here first, and then the aggregate
+  # reading that replaced it, each hid a mismatch for a full round.
   #
   # It is deliberately not longer. The timeout is how fast a wedged share becomes a
   # notification, so the margin is bought against the sender's silence, not for free.

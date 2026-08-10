@@ -312,27 +312,32 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 >
 > **`SHARE_MAX_OBJECTS` = 20,000. Bound: `inspect-source`'s listing time.** `list_data_objects`
 > pages at 1000 keys, so 20,000 objects is 20 `ListObjectsV2` round trips — one to two seconds of
-> a 60-second budget — and the copy plan it writes is about 3.4 MB.
+> a 120-second budget — and the copy plan it writes is ~3.4 MB at ordinary Hive keys, ~21 MB at
+> S3's worst-case 1024-byte ones, which is what inspect-source's 1024 MB is sized for.
 >
 > **`SHARE_MAX_TOTAL_BYTES` = 1 TiB. Bound: one copy of the SOURCE, and nothing more.** It caps
 > what inspect-source lists and what the copy plan describes. **It does NOT bound the transfer**,
 > and reading it as though it did is how the machine's `TimeoutSeconds` shipped unsatisfiable
 > through two review rounds — see the entry below.
 >
-> **`SHARE_MAX_TRANSFER_BYTES` = 16 TiB (NEW). Bound: the state machine's `TimeoutSeconds`.** The
+> **`SHARE_MAX_TRANSFER_BYTES` = 3 TiB (NEW). Bound: the state machine's `TimeoutSeconds`.** The
 > manifest carries one item per (recipient, object) pair and **every item is a full copy**, so the
-> Map moves `total_bytes × recipients`. The fan-out reaches **160** concurrent server-side copies
-> (`MAP_MAX_CONCURRENCY` 20 × `COPY_CONCURRENCY` 8), which at
-> `CONSERVATIVE_STREAM_BYTES_PER_SECOND` is 4.0 GB/s, so 16 TiB is ~4,400 s inside a 10,800 s
-> ceiling.
+> Map moves `total_bytes × recipients`. This is the byte-axis twin of `SHARE_MAX_TRANSFER_ITEMS`,
+> and the argument is verbatim the one that cap already made.
 >
-> **What it prevents, measured:** 50 recipients × a 1 TiB source is **50 TiB** — 3.8 h at the
-> conservative rate, 4.8 h at 20 MB/s, 19.1 h at a pessimistic 5 MB/s, every one of them past the
-> ceiling. Break-even is 8 recipients at 5 MB/s and 40 at 25 MB/s, so it was reachable well short
-> of the corner. This is the byte-axis twin of `SHARE_MAX_TRANSFER_ITEMS`, and the argument is
-> verbatim the one that cap already made — it simply was not applied here, and the timeout's
-> arithmetic was then written against the un-multiplied number so every doc restating it agreed
-> with every other.
+> **Two wrong models were tried before this number, and both read as safe.** First, sizing the
+> timeout against `SHARE_MAX_TOTAL_BYTES` alone — 50 recipients × a 1 TiB source is **50 TiB**,
+> 3.8 h at the conservative rate against a 3 h ceiling, with break-even at 8 recipients. Second,
+> dividing by an **aggregate bandwidth** of 160 concurrent copies (`MAP_MAX_CONCURRENCY` ×
+> `COPY_CONCURRENCY` × 25 MB/s = 4.0 GB/s), under which 16 TiB looked like 4,400 s.
+>
+> **The rate is a makespan.** `copy_batch` hands one WHOLE object to one worker and `copy_one`
+> part-copies serially, so a batch whose bytes sit in one large object runs at **one** stream
+> while seven idle — an ordinary mixed-size Parquet table, not a corner. The pessimistic
+> denominator is `MAP_MAX_CONCURRENCY × rate` = **500 MB/s**, at which 16 TiB is 35,000 s. 3 TiB
+> is ~6,600 s, and adding the finish Map (3,000 s) and the serial verbs (~720 s) the worst run is
+> ~10,300 s inside the 10,800 s ceiling. All three terms are in the test, because each time a
+> term was left out it stayed out for a whole review round.
 >
 > **`SHARE_MAX_OBJECT_BYTES` = 10 GiB (NEW). Bound: the copy verb's timeout, via the BATCH** — and
 > that qualifier is the whole of it, because the first version of this cap got the granularity
@@ -344,14 +349,21 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > 100 MB/s per stream, so the child dies on the Lambda timeout, lands in `FAILED_n.json`, and the
 > recipient is failed for a reason they cannot act on.
 >
-> **So `MAX_ITEMS_PER_BATCH` moves 50 → 10 alongside it**, holding `batch x per-object` at
-> **100 GiB** — ~537 s at a conservative 25 MB/s per stream across `COPY_CONCURRENCY` (8) workers.
-> The pair is chosen over (2 GiB x 50) because 10 GiB stays above S3's 5 GiB single-copy limit, so
-> the multipart part-copy path stays reachable rather than becoming dead code. The price is ~5x the
-> child executions for a many-small-files share; state transitions and Lambda invocations are both
-> cheap and `MAP_MAX_CONCURRENCY` still bounds in-flight work.
-> `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes the bound from the constants,
-> so raising either one alone fails the build.
+> **So `MAX_ITEMS_PER_BATCH` moves alongside it — to 8, which is `COPY_CONCURRENCY`.** And the
+> quantity it is held against is a **makespan, not the batch's bytes**: `copy_batch` gives one
+> whole object to one worker and `copy_one` part-copies serially, so a batch costs
+> `ceil(items / COPY_CONCURRENCY)` ROUNDS of its slowest object. Setting the two equal makes that
+> ceiling one, so a batch costs one object's time — **429 s** for 10 GiB at the conservative rate,
+> inside two thirds of the 900 s timeout. At 10 items it was two rounds and **859 s**, 41 seconds
+> from a hard timeout, while the bytes-over-bandwidth reading of the same numbers said 537 s.
+>
+> 10 GiB is chosen over a smaller per-object cap because it stays above S3's 5 GiB single-copy
+> limit, so the multipart part-copy path stays reachable rather than becoming dead code. The price
+> is more child executions on a many-small-files share; state transitions and Lambda invocations
+> are both cheap and `MAP_MAX_CONCURRENCY` still bounds in-flight work.
+> `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes the makespan and
+> `test_a_batch_is_exactly_one_round_of_the_worker_pool` pins the equality, so moving any of the
+> three constants alone fails the build.
 >
 > **`SHARE_MAX_TRANSFER_ITEMS` = 20,000 (NEW). Bound: the manifest write and the collector's
 > read-back**, which are the same volume in both directions. At S3's worst-case 1024-byte keys an

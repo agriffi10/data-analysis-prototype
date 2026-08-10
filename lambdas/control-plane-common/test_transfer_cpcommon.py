@@ -7,6 +7,7 @@ python3 test_transfer_cpcommon.py.
 """
 
 import json
+import math
 import os
 import re
 import sys
@@ -181,35 +182,56 @@ def test_a_worst_case_batch_stays_under_the_input_limit():
 
 
 def test_a_worst_case_batch_copies_inside_the_verb_timeout():
-    """SPEC-161: the batch's OTHER bound, and the one that actually binds.
+    """SPEC-161: the batch's OTHER bound, computed as a MAKESPAN rather than a bandwidth.
 
-    The payload bound above is why the batch was 50; this is why it is 10. ``ItemBatcher``
-    batches by **count**, never by bytes, so the unit that has to finish inside one
-    ``copy-objects`` invocation is ``MAX_ITEMS_PER_BATCH`` objects at the per-object cap —
-    and while table-share's TOTAL cap was 20 GiB that was implicit, because a batch could not
-    exceed the whole table. Raising the total to 1 TiB removed the implicit bound, and at 50
-    items x a 20 GiB object cap the worst batch was **1000 GiB**: over 900 seconds even at an
-    optimistic 100 MB/s per stream, so the child dies on the Lambda timeout, lands in
-    FAILED_n.json, and the recipient is failed for a reason they cannot act on.
+    The payload bound above is why the batch was 50; this is why it is ``COPY_CONCURRENCY``.
+    ``ItemBatcher`` batches by **count**, never by bytes, so the unit that must finish inside
+    one ``copy-objects`` invocation is ``MAX_ITEMS_PER_BATCH`` objects at the per-object cap.
+    While table-share's TOTAL cap was 20 GiB that was implicit — a batch could not exceed the
+    whole table — and raising it to 1 TiB removed the bound.
 
-    Computed from the constants rather than asserted, so raising either the batch size or the
-    per-object cap without the other fails here. The throughput is deliberately pessimistic:
-    a measured rate would make the bound depend on the day S3 was measured, and being wrong
-    costs a timed-out batch.
+    **The model matters as much as the number, and an earlier version of this test got it
+    wrong in a way that read as safe.** It divided the batch's bytes by
+    ``COPY_CONCURRENCY x rate``, as though the objects shared one pipe. They do not:
+    ``copy_batch`` submits one WHOLE object per worker and ``copy_one`` part-copies serially,
+    so an object holds a worker for ``size / rate`` however idle the others are. A batch costs
+    ``ceil(items / COPY_CONCURRENCY)`` ROUNDS of its slowest object. At 10 items the aggregate
+    reading said 537 s and the makespan was 859 — 41 seconds from a hard Lambda timeout, and
+    green the whole time.
+
+    The throughput is deliberately pessimistic: a measured rate would make the bound depend on
+    the day S3 was measured, and being wrong costs a timed-out batch and a failed recipient.
     """
     sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
     from tscommon import config as ts_config
 
-    worst_batch_bytes = transfer_config.MAX_ITEMS_PER_BATCH * ts_config.SHARE_MAX_OBJECT_BYTES
-    throughput = copy_mod.COPY_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
-    seconds = worst_batch_bytes / throughput
+    per_object = ts_config.SHARE_MAX_OBJECT_BYTES / transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    rounds = math.ceil(transfer_config.MAX_ITEMS_PER_BATCH / copy_mod.COPY_CONCURRENCY)
+    makespan = rounds * per_object
     budget = transfer_config.COPY_TIMEOUT_SECONDS * 2 / 3
 
-    assert seconds < budget, (
-        f"a worst-case batch is {worst_batch_bytes / GIB:,.0f} GiB, which needs {seconds:,.0f}s "
-        f"at {throughput / 1e6:.0f} MB/s against copy-objects' "
-        f"{transfer_config.COPY_TIMEOUT_SECONDS}s timeout — lower MAX_ITEMS_PER_BATCH or "
-        f"SHARE_MAX_OBJECT_BYTES"
+    assert makespan < budget, (
+        f"a worst-case batch is {rounds} round(s) of a "
+        f"{ts_config.SHARE_MAX_OBJECT_BYTES / GIB:,.0f} GiB object = {makespan:,.0f}s at "
+        f"{transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND / 1e6:.0f} MB/s per stream, "
+        f"against copy-objects' {transfer_config.COPY_TIMEOUT_SECONDS}s timeout — lower "
+        f"MAX_ITEMS_PER_BATCH or SHARE_MAX_OBJECT_BYTES"
+    )
+
+
+def test_a_batch_is_exactly_one_round_of_the_worker_pool():
+    """The invariant that makes the makespan above one object's time rather than several.
+
+    Structural, not arithmetic: while ``MAX_ITEMS_PER_BATCH <= COPY_CONCURRENCY`` every item in
+    a batch starts immediately, so the batch costs its slowest object and nothing more. Raise
+    the batch above the pool and the cost doubles at the first item over — a step change, not a
+    gradient, which is the kind of thing a bytes-based bound cannot express at all.
+    """
+    assert transfer_config.MAX_ITEMS_PER_BATCH <= copy_mod.COPY_CONCURRENCY, (
+        f"a batch of {transfer_config.MAX_ITEMS_PER_BATCH} on "
+        f"{copy_mod.COPY_CONCURRENCY} workers takes "
+        f"{math.ceil(transfer_config.MAX_ITEMS_PER_BATCH / copy_mod.COPY_CONCURRENCY)} rounds, "
+        "so its worst case is a multiple of the slowest object rather than the object itself"
     )
 
 
