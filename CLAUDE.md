@@ -79,11 +79,12 @@ group name to `{Key, Size}` entries and that **`Key` is absolute, not prefix-rel
 owed: the SCALE half** — that run was one small batch, so share a **several-hundred-object** table
 to two recipients where one conflicts: several child executions, the conflicting one refused with
 `conflict` and **no child execution of its own**, the other receiving every object at the right key,
-and `logs/service=table-share/` carrying one `batch copied` event per child. **Also owed, and
-plane-wide rather than 160's:** redrive one request after its execution has closed, to settle
-whether the Pipe's **deterministic (v5) execution names** make SQS redelivery a no-op, a false
-DLQ failure, or a real retry — `architecture.md` → *Control Planes → The shared pattern* records
-what is known and what is inferred.
+and `logs/service=table-share/` carrying one `batch copied` event per child. **Plane-wide, and now
+mostly settled:** the `StartExecution` name contract is **verified against the deployed machine** —
+idempotent while running, `ExecutionAlreadyExists` once closed. What remains inferred is only that
+the Pipe's **v5 (deterministic) execution names** are derived *per message*; **a redrive cannot
+settle that and should not be attempted** (see `architecture.md` → *Control Planes → The shared
+pattern*, which records the working probe and why redrive is the wrong tool).
 
 **Three arcs remain filed as Draft (2026-08-10) — authored, not started.** **162→163** feature flags (a git-controlled per-environment
 JSON at `_config/feature-flags.json` in the **user-space** bucket beside `_directory/` — the admin
