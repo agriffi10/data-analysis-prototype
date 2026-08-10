@@ -39,10 +39,14 @@ env:
   #
   # Pinned to the same version as security.yml, for the same reason (#311).
   CHECKOV_VERSION: '3.3.9'
-  # `report` | `block`, applied by .github/scripts/apply-gate.sh. Ships report-only,
-  # consistent with every other scanner (SPEC-138); the proposed threshold lives in
-  # docs/security-baseline.md.
-  GATE_CHECKOV_PLAN: report
+  # `report` | `block`, applied by .github/scripts/apply-gate.sh.
+  #
+  # BLOCKING as of 2026-08-09, on a narrowed count: IAM findings that are not on
+  # .github/checkov-plan-accepted.txt. A blanket block was never available — two findings on
+  # the deploy role are permanent (no ARN exists before the resource does, and no condition
+  # key applies), which is why the accept list is keyed by check ID AND resource rather than
+  # by ID. Every other IAM finding fails this job, and the isolation policies have none.
+  GATE_CHECKOV_PLAN: block
   # Normalises Checkov's three output shapes to one with .summary and .results — see the
   # comment at the scan step. Declared once so the validation and the summary cannot drift.
   CHECKOV_NORM: >-
@@ -228,7 +232,20 @@ jobs:
             echo "::error title=Checkov (plan)::$parse_errs parsing error(s) — the plan was not fully scanned."
             exit 1
           fi
-          echo "CHECKOV_PLAN_FINDINGS already recorded above"
+          echo "CHECKOV_PLAN_FINDINGS recorded above as the full count; the next step narrows it"
+
+      # THE GATE'S NUMERATOR, and the reason this job exists. `count` above is every
+      # finding, including the non-IAM rules security.yml already reports and disposes of
+      # (no VPC, no CMK, no X-Ray) — gating those here would fail an infrastructure deploy
+      # for reasons that have nothing to do with what this scan is for. This narrows to IAM
+      # findings that are not on .github/checkov-plan-accepted.txt.
+      #
+      # Narrowing AFTER the pessimistic record above is deliberate: every path that skips
+      # this step leaves the gate holding the full count, so it fails closed.
+      - name: Narrow to unaccepted IAM findings
+        working-directory: infra
+        run: |
+          echo "CHECKOV_PLAN_FINDINGS=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)" >> "$GITHUB_ENV"
 
       # The Checkov RESULT is publishable. The plan that produced it is not — see the
       # cleanup step below.

@@ -1,0 +1,119 @@
+# Checkov check IDs held at ZERO failures on infra/ (the .tf scan in security.yml).
+#
+# THIS FILE IS THE GATE. `GATE_CHECKOV=block` fails the job when any check listed here
+# reports a failure; every other Checkov finding is published and does not block. The
+# reasoning — why an enforce list rather than a suppression list — is in
+# .github/scripts/checkov-enforced.sh and docs/security-baseline.md.
+#
+# THE CRITERION IS "PASSES TODAY", NOT "MATTERS MOST". Every ID below was measured at zero
+# failures against checkov 3.3.9 on 2026-08-09 (508 passed / 373 failed overall). Turning
+# them on therefore cost no remediation, and the list needs no argument about relative
+# importance — an argument that would have to be re-litigated every time someone added a
+# resource. A couple are merely operational rather than security-critical (CKV_AWS_216,
+# CKV_AWS_305); they are here because they pass, which is the whole rule.
+#
+# The failing rules are NOT here, and each has a disposition in docs/security-baseline.md:
+# no VPC, no CMK, no X-Ray, no WAF, and S3 versioning (deferred by decision — revisit
+# before any real user data lands).
+#
+# TO REGENERATE after an intentional infra change:
+#   checkov -d infra --framework terraform --skip-path .terraform --output json --compact \
+#     --soft-fail > /tmp/ck.json
+#   jq -r '(if type=="array" then .[0] else . end) |
+#          ((.results.failed_checks // []) | map(.check_id) | unique) as $f |
+#          ((.results.passed_checks // []) | map(.check_id) | unique)
+#          | map(select(. as $c | $f | index($c) | not)) | .[]' /tmp/ck.json | sort
+# Do NOT paste the output over this file unthinkingly: an ID that DISAPPEARS from it has
+# started failing, and deleting the line is how a gate gets quietly turned off. Removing an
+# entry is a decision that belongs in docs/security-baseline.md.
+#
+# Note: no --quiet above. It strips passed_checks, and the gate cannot tell "this check
+# passed" from "this check never ran" without them.
+
+# aws
+CKV_AWS_41     # Ensure no hard coded AWS access key and secret key exists in provider (1)
+
+# aws_athena_workgroup
+CKV_AWS_159    # Ensure that Athena Workgroup is encrypted (1)
+
+# aws_cloudfront_distribution
+CKV2_AWS_32    # Ensure CloudFront distribution has a response headers policy attached (1)
+CKV2_AWS_46    # Ensure AWS CloudFront Distribution with S3 have Origin Access set to enabled (1)
+CKV2_AWS_54    # Ensure AWS CloudFront distribution is using secure SSL protocols for HTTPS communication (1)
+CKV2_AWS_72    # Ensure AWS CloudFront origin protocol policy enforces HTTPS-only (1)
+CKV_AWS_216    # Ensure CloudFront distribution is enabled (1)
+CKV_AWS_305    # Ensure CloudFront distribution has a default root object configured (1)
+CKV_AWS_34     # Ensure CloudFront distribution ViewerProtocolPolicy is set to HTTPS (1)
+
+# aws_cloudfront_response_headers_policy
+CKV_AWS_259    # Ensure CloudFront response header policy enforces Strict Transport Security (1)
+
+# aws_cloudwatch_log_group
+CKV_AWS_66     # Ensure that CloudWatch Log Group specifies retention days (45)
+
+# aws_cognito_identity_pool
+CKV_AWS_366    # Ensure AWS Cognito identity pool does not allow unauthenticated guest access (1)
+
+# aws_iam_policy_document
+CKV2_AWS_40    # Ensure AWS IAM policy does not allow full IAM privileges (3)
+CKV_AWS_1      # Ensure IAM policies that allow full "*-*" administrative privileges are not created (3)
+CKV_AWS_107    # Ensure IAM policies does not allow credentials exposure (3)
+CKV_AWS_108    # Ensure IAM policies does not allow data exfiltration (3)
+CKV_AWS_109    # Ensure IAM policies does not allow permissions management / resource exposure without constraints (3)
+CKV_AWS_110    # Ensure IAM policies does not allow privilege escalation (3)
+CKV_AWS_111    # Ensure IAM policies does not allow write access without constraints (3)
+CKV_AWS_283    # Ensure no IAM policies documents allow ALL or any AWS principal permissions to the resource (3)
+CKV_AWS_356    # Ensure no IAM policies documents allow "*" as a statement's resource for restrictable actions (3)
+CKV_AWS_358    # Ensure AWS GitHub Actions OIDC authorization policies only allow safe claims and claim order (3)
+CKV_AWS_49     # Ensure no IAM policies documents allow "*" as a statement's actions (3)
+
+# aws_iam_role
+CKV2_AWS_56    # Ensure AWS Managed IAMFullAccess IAM policy is not used. (20)
+CKV_AWS_274    # Disallow IAM roles, users, and groups from using the AWS AdministratorAccess policy (30)
+CKV_AWS_393    # Ensure AWS GitHub Actions OIDC authorization policies only allow safe claims and claim order on IAM role (21)
+CKV_AWS_60     # Ensure IAM role allows only specific services or principals to assume it (21)
+CKV_AWS_61     # Ensure AWS IAM policy does not allow assume role permission across all services (21)
+
+# aws_iam_role_policy
+CKV_AWS_62     # Ensure IAM policies that allow full "*-*" administrative privileges are not created (37)
+CKV_AWS_63     # Ensure no IAM policies documents allow "*" as a statement's actions (37)
+
+# aws_lambda_function
+CKV2_AWS_75    # Ensure no open CORS policy (41)
+CKV_AWS_363    # Ensure Lambda Runtime is not deprecated (41)
+CKV_AWS_45     # Ensure no hard-coded secrets exist in lambda environment (41)
+
+# aws_lambda_permission
+CKV_AWS_301    # Ensure that AWS Lambda function is not publicly accessible (5)
+CKV_AWS_364    # Ensure that AWS Lambda function permissions delegated to AWS services are limited by SourceArn or SourceAccount (5)
+
+# aws_s3_bucket
+CKV2_AWS_6     # Ensure that S3 bucket has a Public Access block (5)
+CKV2_AWS_61    # Ensure that an S3 bucket has a lifecycle configuration (5)
+CKV_AWS_19     # Ensure all data stored in the S3 bucket is securely encrypted at rest (5)
+CKV_AWS_20     # S3 Bucket has an ACL defined which allows public READ access. (5)
+CKV_AWS_57     # S3 Bucket has an ACL defined which allows public WRITE access. (5)
+CKV_AWS_93     # Ensure S3 bucket policy does not lockout all but root user. (Prevent lockouts needing root account fixes) (7)
+
+# aws_s3_bucket_lifecycle_configuration
+CKV_AWS_300    # Ensure S3 lifecycle configuration sets period for aborting failed uploads (5)
+
+# aws_s3_bucket_ownership_controls
+CKV2_AWS_65    # Ensure access control lists for S3 buckets are disabled (4)
+
+# aws_s3_bucket_policy
+CKV_AWS_70     # Ensure S3 bucket does not allow an action with any Principal (1)
+
+# aws_s3_bucket_public_access_block
+CKV_AWS_53     # Ensure S3 bucket has block public ACLS enabled (5)
+CKV_AWS_54     # Ensure S3 bucket has block public policy enabled (5)
+CKV_AWS_55     # Ensure S3 bucket has ignore public ACLs enabled (5)
+CKV_AWS_56     # Ensure S3 bucket has 'restrict_public_buckets' enabled (5)
+
+# aws_sfn_state_machine
+CKV_AWS_285    # Ensure State Machine has execution history logging enabled (4)
+
+# aws_sqs_queue
+CKV2_AWS_73    # Ensure AWS SQS uses CMK not AWS default keys for encryption (11)
+CKV_AWS_168    # Ensure SQS queue policy is not public by only allowing specific services or principals to access it (11)
+CKV_AWS_27     # Ensure all data stored in the SQS queue is encrypted (11)

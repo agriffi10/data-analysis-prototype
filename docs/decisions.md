@@ -201,6 +201,53 @@ Five classes of scan across all three surfaces — SAST (Semgrep `p/owasp-top-te
 
 SPEC-138's Checkov step reads `.tf` and therefore evaluates **zero** IAM policy-document checks, because every policy in this system is a `templatefile()` call it cannot resolve. `deploy-infra.yml`'s plan job now saves the plan, renders it with `tofu show -json`, and scans that with `--framework terraform_plan`: **431 IAM checks against 55 IAM resources**, where the `.tf` scan evaluates none. It lives in `deploy-infra.yml` rather than `security.yml` because the plan and the AWS credentials already are, and that workflow is now in **its own path filter** — otherwise a change to how we scan the infrastructure could merge having never run. **Renaming the `.tftpl` policies to `.json` was raised and REJECTED on measurement:** Checkov emits nothing — zero findings, exit 0 — for a standalone policy file containing `"Action": "*", "Resource": "*"`, because it evaluates `aws_iam_policy` *resources*, not loose documents. The extension was never the blocker; the unevaluated `templatefile()` in the `.tf` was. Keeping `.tftpl` also keeps the signal that `$${aws:PrincipalTag/username}` escaping applies, which is the most error-prone thing about these files. (51 of the 57 templates happen to parse as JSON; 6 do not.) **Two scanners, deliberately:** the `.tf` scan runs every PR + weekly and reports checks the plan scan does not; the plan scan is the only one that reads IAM. Neither is redundant. **The scan asserts its own coverage:** if the plan holds `aws_iam_policy` resources but no IAM check was evaluated, the job fails — a silent regression to the `.tf`-only state would otherwise look identical to a clean run, and that tripwire caught a real matcher bug (`^aws_iam_` never matches `module.data.aws_iam_policy.x`) before CI did. First-run result: the isolation policies are **clean**; all 6 IAM findings are deploy-role `lambda:*EventSourceMapping` statements on `Resource: "*"`, an action AWS does not allow to be resource-scoped — the available hardening is a `lambda:FunctionArn` condition key. Detail: `docs/security-baseline.md`.
 
+### A scanner gate blocks on a narrowed count, never a total (2026-08-09, completes SPEC-138)
+
+SPEC-138 shipped every scanner as `report` and `docs/security-baseline.md` proposed a threshold for
+each. Four now block: `gitleaks` and `pip-audit` at a true zero (2026-08-02), and **Semgrep** and
+**Checkov** here, plus `GATE_CHECKOV_PLAN` on the rendered-plan IAM scan. Semgrep needed one thing —
+`--exclude-rule` for a Flask template-injection rule in a fleet with no Flask, excluded **by rule ID**
+rather than by dropping `p/owasp-top-ten`, with a test asserting there is exactly one exclusion so a
+second cannot arrive without a disposition. Checkov needed a shape.
+
+**The shape is an ENFORCE list, not a suppression list.** Checkov reports 373 failures over 22 rules
+on `infra/`, nearly all of them documented accepts — no VPC, no CMK, no X-Ray, no WAF. Gating that
+total would mean suppressing 22 rules to enforce a handful, producing a file nobody reads and a gate
+whose meaning drifts every time the scanner adds a rule. So `.github/checkov-enforced.txt` names the
+**52 check IDs measured at zero**, and the gate counts failures on those; the rest publish and do not
+block. **The criterion is "passes today", not "matters most"** — two entries are merely operational
+(`CKV_AWS_216`, `CKV_AWS_305`) and are in because they pass. Deciding which checks *deserve*
+enforcement is an argument to re-litigate on every infra change; holding everything already clean is
+not, and it costs no remediation to turn on. Same ratchet-at-the-measured-level shape as the coverage
+floors (SPEC-150) and the mypy baseline.
+
+**The plan scan accepts by check ID AND resource, never by ID.** Its two permanent findings —
+`CKV_AWS_290`/`CKV_AWS_355` on `module.base.aws_iam_role_policy.github_actions_deploy` — exist because
+the deploy role must create resources that have no ARN yet and no applicable condition key. Keyed by
+resource, the same two rules firing on any other policy still fail; keyed by ID alone, the exemption
+would silently cover the isolation policies, which is the one thing this scan exists to watch.
+
+**Three implementation facts that are not obvious and will bite again:**
+
+- **`--quiet` strips `passed_checks`**, and without them an enforced ID that passed is
+  indistinguishable from one that never ran. The flag is gone from the `.tf` scan (the plan scan had
+  already learned this) and a test pins its absence.
+- **An enforced ID evaluated against nothing is a hard error, not a pass.** A typo, a rename in a
+  scanner bump, or a resource class leaving the repo all yield a line that enforces nothing while
+  reading as enforcement — "did not run is never clean", turned on the gate's own configuration. A
+  **stale plan-scan acceptance only warns**, deliberately: that workflow applies production
+  infrastructure, and blocking a deploy over gate bookkeeping is the wrong trade. The `.tf` list can
+  afford to be strict because it runs on PRs and a weekly schedule and blocks nothing that ships.
+- **Both workflows record the FULL count into the gate variable first, then overwrite it with the
+  narrowed one.** It reads like a redundant write. It is not: any path that skips the narrowing step
+  leaves the gate holding the full count and failing closed. Recording only the narrowed count turns
+  a broken narrowing step into a comfortable zero.
+
+**Still not blocking, by decision:** `npm audit` — `apply-gate.sh` has no severity threshold and the
+runtime scope carries two accepted `dompurify` advisories (monaco pins the version exactly), so a
+flip would redden every PR; ZAP — two Lows survive by decision, so gate by `riskcode >= 2` or not at
+all. Record: `docs/security-baseline.md` → *Addendum — The Gates Went On*.
+
 ### Deploy-role refresh deadlock has an in-repo lever (`skip_refresh`)
 
 `deploy-infra.yml`'s `workflow_dispatch` takes an off-by-default `skip_refresh` boolean that adds `-refresh=false` to the apply. It exists because **the deploy role can lock itself out**: tighten (or widen) one of its own grants and the next refresh needs the permission the pending change would restore, so plan, apply **and revert** all fail on the same `AccessDenied`. Applying from cached state installs the fix and unblocks normal runs. **Deliberately unreachable from `push`** — skipping refresh means drift is not detected, so it must be a conscious act; the step emits a warning telling the operator to follow up with an ordinary run, and that follow-up is not optional (an apply that skipped refresh has proved nothing about drift). It replaces the out-of-band `aws iam put-role-policy` break-glass as the *preferred* escape, because it needs no AWS access outside CI — that break-glass stays as the fallback. First use: 2026-08-02, recovering from the SPEC-139 follow-up (`lambda:ListTags` removed from an event-source-mapping statement on the false assumption that the function-scoped grant covered it — a mapping ARN and a function ARN are different resource types). **Caveat worth knowing before trusting any single run:** during that incident `plan` passed twice while `apply` failed on the identical call with no policy change between them, so IAM's eventual consistency can make the deadlock look intermittent — a green plan is not evidence the permission problem is fixed. Full trap list: `architecture.md` → *Deploy-role IAM — adding a new resource type*.

@@ -1,0 +1,19 @@
+# IAM findings accepted on the RENDERED PLAN scan (deploy-infra.yml), by check ID AND
+# resource. Anything not listed here fails the job when GATE_CHECKOV_PLAN=block.
+#
+# Both entries are the same cause and are permanent: the deploy role must create resources
+# that do not exist yet. `cloudfront:CreateDistribution`, `cognito-idp:CreateUserPool`,
+# `cognito-identity:CreateIdentityPool`, `logs:DescribeLogGroups` and the Lake Formation
+# account-level actions have no resource ARN to name before the resource exists, and no
+# applicable condition key. SPEC-139 took the IAM findings from 6 to 2; these are the 2.
+#
+# They are accepted by check ID AND RESOURCE, never by check ID alone — the same rules
+# firing on any other policy still fail. The isolation policies (`portal-role-permissions`
+# and the per-plane execution roles) have zero `Resource: "*"` and must stay that way.
+#
+# A line here that no longer matches a finding WARNS rather than fails: this runs in the
+# workflow that applies production infrastructure, and blocking a deploy over gate
+# bookkeeping is the wrong trade. Delete the line when the warning appears.
+
+CKV_AWS_290  module.base.aws_iam_role_policy.github_actions_deploy
+CKV_AWS_355  module.base.aws_iam_role_policy.github_actions_deploy

@@ -281,14 +281,17 @@ What the follow-up spec should implement, per scanner.
 |---|---|---|
 | `gitleaks` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 357 commits; flipped to `block`. No remediation was needed. |
 | `pip-audit` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 13 packages; flipped to `block`. |
-| Semgrep | `block` after excluding the Flask rule | One known false positive stands between here and zero. |
-| `npm audit` (runtime) | still `report`, but the blocker is gone | The RSC advisory that made `high` unusable was cleared by the v8 major (2026-08-05), and **`npm audit --omit=dev` now reports no highs** — only the two deferred `dompurify` rows (low + moderate). `GATE_NPM_AUDIT_RUNTIME=block` at `high` would pass today. **Not flipped here:** gate changes are SPEC-138's, and flipping one in a dependency PR is how a gate gets turned on without anyone deciding to. Worth taking deliberately. |
+| Semgrep | ~~`block` after excluding the Flask rule~~ **DONE 2026-08-09** | The one false positive is excluded by rule ID (`--exclude-rule`) on the Lambdas scan, and `GATE_SEMGREP` is `block`. The ruleset is otherwise unnarrowed — dropping `p/owasp-top-ten` to silence one rule would have dropped everything else it brings. A test asserts there is exactly **one** exclusion, so a second needs its own disposition here. |
+| `npm audit` (runtime) | stay `report` — **and it cannot be `block` today** | **The earlier note in this row was wrong twice over and is corrected here.** There is no `GATE_NPM_AUDIT_RUNTIME` variable — the gate is `GATE_NPM_AUDIT`, fed the runtime **total** — and `apply-gate.sh` has **no severity threshold**: it fails on `findings > 0`. So "block at `high` would pass today" was not available; flipping it would go red immediately on the two accepted `dompurify` rows. It becomes available when dompurify clears, which needs monaco to move (it pins the version exactly). Adding a severity threshold to `apply-gate.sh` is the alternative, and is a change to every scanner's gate rather than this row's. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
-| Checkov | `block` only on an **explicit allow-list of check IDs** | 305 failures over 25 rules, most not applicable. Gating the total would mean suppressing 20 rules to enforce 5. Pick the five in the FIX rows, gate those by ID, leave the rest reporting. |
+| Checkov | ~~`block` only on an explicit allow-list of check IDs~~ **DONE 2026-08-09** | Implemented as an **enforce list**, `.github/checkov-enforced.txt` — 52 check IDs, every one measured at **zero failures** (checkov 3.3.9, 508 passed / 373 failed overall). `GATE_CHECKOV` is `block` and reads that narrowed count; the other 373 are still published and still do not block. The criterion is deliberately "passes today", not "matters most": picking the five that matter is an argument to re-litigate on every infra change, and holding everything already clean costs nothing to turn on. An enforced ID that gets evaluated against **nothing** is a hard error — a typo or a renamed check must not read as enforcement. |
 | ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. **Measured 2026-08-03:** 0 fail, 2 Medium, 8 Low. After SPEC-140 two Lows survive by decision, so a total-count gate is wrong here — gate by **risk level** (`riskcode >= 2`) if at all. |
 
-Two of these — gitleaks and pip-audit — are at zero **today** and could be flipped in the same PR
-that fixes the five Checkov items. That is the natural next change.
+> **Status, 2026-08-09.** Four of six scanners now block: gitleaks, pip-audit, Semgrep and
+> Checkov (narrowed), plus `GATE_CHECKOV_PLAN` on the rendered-plan IAM scan. The two that
+> remain on `report` are there for stated reasons, not inertia — `npm audit` needs either
+> dompurify to clear or a severity threshold in `apply-gate.sh`, and ZAP needs gating by risk
+> level rather than by count. Neither is a fix waiting to be written; both are decisions.
 
 
 ---
@@ -492,3 +495,71 @@ Two things worth carrying forward:
 `GATE_CHECKOV_PLAN` **cannot** become a blanket `block`: 2 permanent findings remain on
 `github_actions_deploy`, and neither has a resource ARN to name or a condition key to apply. Gate by
 **check ID + resource**, or carry a documented suppression for those two and block on everything else.
+
+---
+
+# Addendum — The Gates Went On, 2026-08-09
+
+Four scanners block as of this change: gitleaks and pip-audit (since 2026-08-02), plus **Semgrep**
+and **Checkov**, and `GATE_CHECKOV_PLAN` on the rendered-plan IAM scan. What each one needed:
+
+## Semgrep — one exclusion, by rule ID
+
+`--exclude-rule=python.flask.security.audit.directly-returned-format-string` on the Lambdas scan.
+That was the entire finding set. The ruleset is otherwise unnarrowed, because dropping
+`p/owasp-top-ten` to silence one rule would drop everything else it brings. A test asserts there is
+**exactly one** exclusion, so a second one cannot be added without landing a disposition here.
+
+## Checkov (`.tf`) — an enforce list, not a suppression list
+
+`.github/checkov-enforced.txt` names **52 check IDs**, every one measured at zero failures. The gate
+reads the number of failures on those IDs; the other 373 findings publish and do not block.
+
+The direction matters. Suppressing 22 accepted rules to enforce the rest would produce a file nobody
+reads and a gate whose meaning drifts every time a rule is added upstream. Enforcing what already
+passes costs no remediation, states exactly what it holds, and fails on the thing worth failing on —
+a regression.
+
+**The criterion is "passes today", not "matters most."** Two of the 52 are merely operational
+(`CKV_AWS_216` distribution-enabled, `CKV_AWS_305` default-root-object). Deciding which checks
+deserve enforcement is an argument that has to be had again on every infra change; "everything
+currently clean" does not.
+
+Two traps the implementation had to handle:
+
+- **`--quiet` strips `passed_checks`**, and without them every enforced ID looks *unevaluated*. The
+  flag is gone from the scan, and a test pins its absence — `deploy-infra.yml`'s plan scan had
+  already learned this and said so in a comment.
+- **An enforced ID evaluated against nothing is a hard error**, not a pass. A typo, a check renamed
+  by a version bump, or a resource class leaving the repo all produce a line that enforces nothing
+  while reading as enforcement. Same rule as "did not run is never clean", turned on the gate's own
+  configuration.
+
+## Checkov (rendered plan) — accepted by check ID **and resource**
+
+`.github/checkov-plan-accepted.txt` carries the two permanent deploy-role findings — `CKV_AWS_290`
+and `CKV_AWS_355` on `module.base.aws_iam_role_policy.github_actions_deploy` — and nothing else. The
+gate counts IAM findings not on that list; today that is **0** of 2 (454 IAM checks passed).
+
+Accepting by ID *and* resource is the point: the same two rules firing on any other policy still
+fail the job. The isolation policies have zero `Resource: "*"` and this is what keeps it that way.
+
+**A stale acceptance warns; it does not fail.** This runs in the workflow that applies production
+infrastructure, and blocking a deploy over gate bookkeeping is the wrong trade. The `.tf` enforce
+list takes the opposite choice and can afford to — it runs on PRs and a weekly schedule, and blocks
+nothing that ships.
+
+## Both counts narrow *after* a pessimistic record
+
+Each workflow records the **full** finding count into the gate's variable first, then overwrites it
+with the narrowed one. It reads like a redundant write and is not: any path that skips the narrowing
+step leaves the gate holding the full count, so it fails closed. The alternative — recording only
+the narrowed count — turns a broken narrowing step into a comfortable zero.
+
+## What still does not block, and why it is not an oversight
+
+- **`npm audit`** — the gate has no severity threshold (`apply-gate.sh` fails on `> 0`), and the
+  runtime scope carries two accepted `dompurify` advisories. Needs monaco to move, or a threshold in
+  the shared script.
+- **ZAP** — a count gate is wrong here; two Lows survive by decision. Gate by `riskcode >= 2` if at
+  all.

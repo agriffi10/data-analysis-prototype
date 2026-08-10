@@ -130,16 +130,18 @@ What remains below is the live checks that are owed.
   chunks — `index`, `QueryPage`, `ConnectionsPage`, `shared-spaces`, `CollapsibleRail` — **every one
   under `assets/`, none at the root**, which is the prefix scoping working rather than a lucky diff.
   The pass is now exercised, not merely configured.
-- **SPEC-138 shipped security scanning report-only; the follow-up is written but not built.**
-  `docs/security-baseline.md` has every first-run finding with a disposition and a proposed gate
-  per scanner. Two are at **zero today** — `gitleaks` (357 commits) and `pip-audit` (13 packages) —
-  and **have now been flipped to `block` (2026-08-02)**. **`react-router` is on 8.3.0 (2026-08-05) —
+- **SPEC-138's follow-up is now BUILT: four of six scanners block (2026-08-09).**
+  `docs/security-baseline.md` has every finding with a disposition, and its threshold table is now a
+  record rather than a proposal. `gitleaks` + `pip-audit` went `block` at zero (2026-08-02);
+  **Semgrep** and **Checkov** joined them. **`react-router` is on 8.3.0 (2026-08-05) —
   every one of its advisories is now cleared**, including the RSC-mode survivor that had been accepted
   as inapplicable; the v8 major was a package rename (`react-router-dom` is gone) and nothing else.
   **`npm audit --omit=dev` now reports NO highs.** The build-time `postcss` /
   `brace-expansion` advisories are **fixed (2026-08-03)** — both resolved by `npm update` inside the
-  existing caret ranges, no `package.json` change and no `overrides` needed. Still open: **two** Checkov fixes
-  (multipart-abort lifecycle, Athena workgroup enforcement). **S3 versioning is deferred by decision
+  existing caret ranges, no `package.json` change and no `overrides` needed. **Both Checkov "FIX" rows
+  are closed:** multipart-abort shipped 2026-08-05, and the Athena workgroup was **re-dispositioned to
+  accept** — enforcing workgroup configuration would force every query to the workgroup default (the
+  admin-only bucket) and break per-user results. **S3 versioning is deferred by decision
   (2026-08-03)** — pre-production, no real user data. Revisit before any real data lands, because the
   exposure it covers is unrecoverable loss on a failed `CopyObject`+`DeleteObject`. **ZAP now stands at
   13 alerts (1 Medium, 2 Low, 10 Info), down from 20**, every remaining non-Info row accepted with
@@ -276,6 +278,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **The directory is readable by EVERY authenticated user (146), and that is accepted:** one `s3:GetObject` on `_directory/*`, no `ListBucket` widening (so it stays invisible to the file browser), no write. The username is already the prefix, the principal tag and the DB name; usernames only — **no emails**. The builder's own `ListBucket` is unconditioned and holds **no `GetObject` anywhere**; the `s3:prefix`-on-empty-string tightening is rejected as unverifiable.
 - **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header). Accepted orphan class: **stale root files**.
 - **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.
+- **A scanner gate blocks on a NARROWED count, never a total (2026-08-09):** Checkov gates on an **enforce list** of check IDs measured at zero (`.github/checkov-enforced.txt`, 52) — enforcing what already passes, not suppressing what doesn't; the plan scan gates on IAM findings not on an **accept list keyed by check ID AND resource** (2 permanent deploy-role rows). Both workflows record the **full** count first and overwrite it with the narrowed one, so a skipped narrowing step fails closed. An enforced ID evaluated against **nothing** is a hard error; a stale plan-scan acceptance only **warns**, because that workflow deploys production. `--quiet` strips `passed_checks` and must never come back.
 - **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead, and **asserts its own coverage** (fails if IAM resources are present but no IAM check ran). Isolation policies are clean; the residual findings are non-scopable deploy-role actions.
 - **Every plane notifies on a pre-verb failure (152):** all four machines carry a `NotifyFailure` before `Fail`, reached on **every** failure path (the no-verb-ran paths can't be selected for in ASL), invoking a thin verb that decodes the raw `{Error, Cause}` with `cpcommon.errors.failure_reason` — the **only** decoder. A fleet test asserts every machine has the state and copies `$.error` **whole**; the exemption list is empty. Duplicate suppression differs **by force, not style**: tb/ts suppress on **one positively-identified name** (`Error == "TerminalError"`) and notify on everything else — the tempting "a dot means an engine error" heuristic **silences an import-time bare `RuntimeError`**, which is PR #196's own shape, so don't reintroduce it; a **seed** must therefore never wear a verb's error name (`DiffMissingSeed`). shared-spaces reproduces the verb's **FIFO dedup token** instead, because five of its seven verbs notify nothing. shared-spaces also needed `ResultPath` on its seven catches — without it the verified actor was **discarded**. **No deploy-role IAM was needed** (verified: per-plane wildcards already cover it).
 - **A layer gate checks the COPY LIST, not the flag map (153):** for any layer packaged by an explicit per-file list (only `shared-space-common`), assert **set equality** between the workflow's list and the directory — completing the flag map closes nothing, because all nine modules ship behind one flag. A sweep fails if a second explicit list appears; a guard-the-guard fails if the parse goes trivial.

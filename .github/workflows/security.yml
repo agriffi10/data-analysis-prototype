@@ -35,20 +35,32 @@ env:
   # change too large to review honestly. docs/security-baseline.md recorded that first run
   # and proposed a threshold per scanner.
   #
-  # GITLEAKS and PIP_AUDIT are now `block`. Both measured ZERO — no secret across all 357
-  # commits, no advisory across 13 packages — so turning them on cost no remediation at
-  # all, and there is no defensible reason to accept a first committed secret or a first
-  # vulnerable Python dependency. The rest stay `report` pending the fixes the baseline
-  # names; flipping one is still a single-value edit here.
+  # GITLEAKS and PIP_AUDIT went `block` on 2026-08-02. Both measured ZERO — no secret across
+  # all 357 commits, no advisory across 13 packages — so turning them on cost no remediation
+  # at all, and there is no defensible reason to accept a first committed secret or a first
+  # vulnerable Python dependency.
+  #
+  # SEMGREP and CHECKOV joined them on 2026-08-09, each after the one thing standing between
+  # it and zero was dealt with:
+  #   * Semgrep had exactly one finding, a Flask rule with no Flask under it. It is excluded
+  #     by rule ID in the Lambdas scan; the scan is otherwise unnarrowed.
+  #   * Checkov could never gate its TOTAL — 373 failures over 22 rules, mostly deliberate
+  #     accepts. `GATE_CHECKOV` reads a NARROWED count: only the check IDs in
+  #     .github/checkov-enforced.txt, all 52 of them measured at zero. Everything else is
+  #     still published and still does not block.
+  #
+  # NPM_AUDIT stays `report` and cannot yet be `block`: this script has no severity
+  # threshold, and the runtime scope carries two accepted dompurify advisories (transitive
+  # through monaco, which pins the version exactly). See docs/security-baseline.md.
   #
   # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003) run
   # in ci.yml's existing `npm run lint`, which already blocks. Injection sinks in code
   # being written now stop the PR; they do not become baseline entries.
-  GATE_SEMGREP: report
+  GATE_SEMGREP: block
   GATE_NPM_AUDIT: report
   GATE_PIP_AUDIT: block
   GATE_GITLEAKS: block
-  GATE_CHECKOV: report
+  GATE_CHECKOV: block
   GATE_ZAP: report
 
   # ── VERSIONS ───────────────────────────────────────────────────────────────────
@@ -162,6 +174,16 @@ jobs:
           fi
 
       - name: Scan the Lambdas
+        # --exclude-rule: the one accepted false positive, and the reason GATE_SEMGREP can be
+        # `block`. `p/owasp-top-ten` pulls Flask's rules in as part of its Python set, and
+        # `directly-returned-format-string` is a template-injection check about returning a
+        # format string as an HTTP response. There is no Flask and no HTTP response anywhere
+        # in this fleet — the control planes are queue-driven Lambdas.
+        #
+        # Excluded by RULE ID, not by narrowing the ruleset: dropping p/owasp-top-ten to
+        # silence one rule would drop everything else it brings. If a second exclusion is
+        # ever needed it gets its own disposition in docs/security-baseline.md; a test
+        # asserts there is exactly one.
         run: |
           set +e
           semgrep scan \
@@ -170,6 +192,7 @@ jobs:
             --metrics=off \
             --json --output semgrep-lambdas.json \
             --exclude=__pycache__ \
+            --exclude-rule=python.flask.security.audit.directly-returned-format-string \
             lambdas
           rc=$?
           set -e
@@ -516,11 +539,16 @@ jobs:
         # an exit code that means two different things.
         #
         # OpenTofu's .tf parses as terraform; there is no separate framework for it.
+        #
+        # NO --quiet: it strips passed_checks, and the enforced gate below cannot tell "this
+        # check passed" from "this check never ran" without them. Those two must never look
+        # alike. deploy-infra.yml's plan scan carries the same constraint for the same
+        # reason, and a test in lambdas/test_security_gates.py pins the flag's absence.
         run: |
           checkov -d infra \
             --framework terraform \
             --skip-path '.terraform' \
-            --output json --compact --quiet --soft-fail > checkov.json || true
+            --output json --compact --soft-fail > checkov.json || true
           if ! jq -e '(if type=="array" then .[0] else . end) | .summary.failed' checkov.json >/dev/null 2>&1; then
             echo "::error title=Checkov::output is not valid — the scan did not complete."
             exit 1
@@ -549,6 +577,9 @@ jobs:
               echo
               echo "> **Coverage gap:** the IAM policies in \`.tftpl\` templates are opaque to Checkov."
               echo "> A green result here says nothing about the \`\${aws:PrincipalTag/username}\` isolation model."
+              echo
+              echo "> **What blocks:** only the check IDs in \`.github/checkov-enforced.txt\`, each held at zero."
+              echo "> The count above is every failure, most with a documented disposition in \`docs/security-baseline.md\`."
             } > body.md
           fi
           .github/scripts/summary-section.sh "Checkov — infra/" "$count" body.md
@@ -559,7 +590,21 @@ jobs:
             echo "::error title=Checkov::$parse_errs file(s) failed to parse — infra/ was not fully scanned."
             exit 1
           fi
+
+          # PESSIMISTIC FIRST. The gate reads the enforced subset, computed in the next
+          # step — but if that step never runs, the gate must see the whole failing count
+          # rather than a comfortable zero. Recording the total here and narrowing it after
+          # means every path that skips the narrowing fails closed.
           echo "CHECKOV_FINDINGS=$count" >> "$GITHUB_ENV"
+
+      # THE GATE'S NUMERATOR. `count` above is every failure, most of them documented
+      # accepts (no VPC, no CMK, no X-Ray); blocking on it would mean suppressing twenty
+      # rules to enforce five. This narrows it to the checks .github/checkov-enforced.txt
+      # holds at zero. The script hard-errors if an enforced ID was evaluated against
+      # nothing, so a typo or a renamed check cannot read as enforcement.
+      - name: Narrow to the enforced checks
+        run: |
+          echo "CHECKOV_FINDINGS=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)" >> "$GITHUB_ENV"
 
       - name: Upload raw output
         if: always()
