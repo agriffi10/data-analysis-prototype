@@ -1,7 +1,8 @@
 # ── Control-plane Lambdas (SPEC-088 skeleton) ────────────────────────────────
-# Five single-task verb Lambdas — validate-authorize / inspect-source /
-# check-target-absent / copy-objects / create-table — orchestrated by the Step
-# Function (stepfunction.tf). All five share ONE execution role (iam.tf; user
+# Single-task verb Lambdas — validate-authorize / inspect-source /
+# check-target-absent / build-transfer-manifest / copy-objects /
+# collect-transfer-results / create-table / notify-failure — orchestrated by the
+# Step Function (stepfunction.tf). All share ONE execution role (iam.tf; user
 # decision, docs/architecture.md Control Planes -> Table Share) and each gets its task's real
 # timeout/memory (locals.tf; a small validator ≠ a long parallel S3 copy,
 # lambdas.md §4).
@@ -47,7 +48,7 @@ resource "aws_lambda_function" "functions" {
   memory_size   = each.value.memory
 
   # EVERY variable tscommon/config.py _require()s at import must be COMMON to all
-  # five verbs: the shared layer's fail-fast runs on any `from tscommon import …`
+  # verbs: the shared layer's fail-fast runs on any `from tscommon import …`
   # chain, so a verb missing ANY required var crashes at cold start (the
   # table-builder production break, PR #196). The per-verb map (locals.tf) is
   # reserved for OPTIONAL action env only.

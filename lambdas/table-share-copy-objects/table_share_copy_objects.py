@@ -1,10 +1,24 @@
-"""copy-objects — the recipient Map's data copy.
+"""copy-objects — the Distributed Map's batch copier.
 
-For one conflict-cleared recipient: server-side-copies every planned object from the source
-location into the recipient's own shared-tables prefix, layout preserved, with a bounded
-parallel pool and multipart copy for objects over S3's single-copy limit. Idempotent — a Step
-Function retry re-copies the same keys harmlessly, because check-target-absent already
-guaranteed the destination held no foreign data. No object bytes pass through the Lambda.
+One invocation copies one BATCH of transfer items, whatever recipients they belong to:
+server-side ``CopyObject``, multipart ``UploadPartCopy`` above S3's single-copy limit, on a
+bounded pool. No object bytes pass through the Lambda. Before SPEC-160 this verb copied a
+whole recipient's table inside one invocation, which is why the share caps were the shape of
+its 900-second timeout.
+
+It knows nothing about recipients, the copy plan, or the request. Every destination was
+resolved upstream and written into the manifest, and this verb copies what it is handed —
+which is what lets the same code serve the file-send and archive planes later.
+
+**A deterministic failure does not raise.** The batch returns its per-item outcomes and
+succeeds, so one unreadable key never costs its siblings their copy; ``collect-transfer-results``
+attributes those failures to their recipients from the Map Run's export. A transient failure
+does raise, so Step Functions retries the whole idempotent batch.
+
+**No ``@notifies_on_failure``, deliberately.** A batch carries no actor and no single
+recipient, so the decorator's emit would resolve to nothing and send nothing — a decoration
+that reads like a guarantee while providing none. The sender hears about a copy failure from
+the collector, which is the first place a failure has a recipient again.
 
 The service name is the control plane, not the function, so one share's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
@@ -13,70 +27,43 @@ Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` 
 import logging
 
 from cpcommon import observability
-from tscommon import copy as copy_mod
-from tscommon import copy_plan, notify
+from cpcommon.transfer import copy as copy_mod
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="table-share")
 
+COPY_FAILED = "copy_failed"
+
 
 @observability.traced("copy-objects")
-@notify.notifies_on_failure("copy")
 def handler(event, context) -> dict:
-    """Recipient-Map entry point: copies the source objects into the recipient's prefix.
+    """Distributed-Map child entry point: copies one batch of transfer items.
 
-    ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
-    out, so if it were outermost the span would close as successful on an invocation that
-    actually failed and notified.
-
-    The plan is loaded by pointer, because the object list is far too large to ride on the
-    Map's state. The inline fallback covers the rolling-deploy window only: the verbs deploy as
-    parallel matrix jobs, so an execution that cleared inspect-source under the old code
-    carries the list itself and no key, and without the fallback every one of its recipients
-    would fail on a missing key. Removable once no pre-pointer execution can still be in flight.
-
-    The copy is recorded per recipient, never per object. This verb already runs once per
-    recipient inside the Map, and a folder can hold thousands of objects, each of which would
-    otherwise be an SQS message and a line in a day object the sweep rewrites in full.
+    The copy is recorded per BATCH, never per object: a share can hold thousands of objects,
+    each of which would otherwise be an SQS message and a line in a day object the sweep
+    rewrites in full.
 
     Args:
-      event: The Map item, carrying the recipient and the request.
+      event: The batch, ``{"Items": [<transfer item>, …]}`` as the Map's ItemBatcher builds it.
       context: The Lambda context, unused.
 
     Returns:
-      The recipient, the request, and the number of objects copied.
+      ``{"copied": n, "failures": [{"recipient": …, "reason": "copy_failed"}, …]}`` — the
+      shape the collector reads back out of the results export.
 
     Raises:
-      TerminalError: ``copy_failed`` on a deterministic copy fault, notified to the sender
-        before the per-recipient Catch records it.
-      TransientError: On a retryable fault, passed through for the SFN Retry.
+      TransientError: When any item failed retryably, so the Map retries the whole batch.
     """
-    recipient = event.get("recipient") or {}
-    request = event.get("request") or {}
-    location = request.get("location") or {}
-    plan_key = request.get("copyPlanKey")
-    objects = copy_plan.load(plan_key) if plan_key else (request.get("objects") or [])
+    items = event.get("Items") or []
+    outcome = copy_mod.copy_batch(items, COPY_FAILED)
 
-    copied = copy_mod.copy_prefix(
-        src_bucket=location.get("bucket"),
-        src_prefix=location.get("prefix"),
-        objects=objects,
-        dest_bucket=recipient.get("destBucket"),
-        dest_prefix=recipient.get("destPrefix"),
-    )
-    logger.info(
-        "copied %d objects to %s/%s",
-        copied,
-        recipient.get("destBucket"),
-        recipient.get("destPrefix"),
-    )
+    logger.info("copied %d of %d items in this batch", outcome["copied"], len(items))
     observability.info(
-        "objects copied",
-        recipient=recipient.get("name"),
-        dest_bucket=recipient.get("destBucket"),
-        dest_prefix=recipient.get("destPrefix"),
-        objects=copied,
+        "batch copied",
+        items=len(items),
+        objects=outcome["copied"],
+        failed=len(outcome["failures"]),
     )
-    return {"recipient": recipient, "request": request, "copiedObjects": copied}
+    return outcome

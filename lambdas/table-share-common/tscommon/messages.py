@@ -50,6 +50,10 @@ _BODIES = {
     "conflict": 'a table named "{tableName}" already exists there.',
     "target_not_readable": "the recipient's database couldn't be checked.",
     "copy_failed": "copying the data failed.",
+    "transfer_results_unreadable": (
+        "we couldn't confirm the copy finished, so the share was stopped. "
+        "Please try again or contact the Administrator."
+    ),
     "create_failed": "creating the table failed. Please try again or contact the Administrator.",
     "create_timeout": "creating the table failed. Please try again or contact the Administrator.",
 }

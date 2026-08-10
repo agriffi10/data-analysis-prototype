@@ -94,7 +94,7 @@ PLANES = [
     Plane(
         service="table-share",
         glob="table-share-*",
-        verb_count=6,
+        verb_count=8,
         notifies_on_failure=True,
         not_verbs=frozenset({"table-share-common"}),
     ),

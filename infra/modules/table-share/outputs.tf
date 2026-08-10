@@ -21,11 +21,11 @@ output "state_machine_arn" {
 }
 
 output "execution_role_arn" {
-  description = "ARN of the ONE shared execution role all five verb Lambdas run under (LF-admin wiring lands in SPEC-092 via a constructed-string root local)."
+  description = "ARN of the ONE shared execution role every verb Lambda runs under (LF-admin wiring lands in SPEC-092 via a constructed-string root local)."
   value       = aws_iam_role.execution.arn
 }
 
 output "tscommon_layer_name" {
-  description = "Name of the table-share-common (tscommon) Lambda layer CI builds + publishes (attached to all five verbs). The version ARN is produced by deploy-lambdas.yml, not Terraform (CI-owned layer pattern)."
+  description = "Name of the table-share-common (tscommon) Lambda layer CI builds + publishes (attached to every verb that carries this plane's wording; copy-objects is deliberately without it since SPEC-160). The version ARN is produced by deploy-lambdas.yml, not Terraform (CI-owned layer pattern)."
   value       = local.tscommon_layer_name
 }

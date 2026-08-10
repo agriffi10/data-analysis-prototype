@@ -556,12 +556,17 @@ jobs:
           - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
           - { name: table-builder-notify-failure, layer: false, polars: false, tbcommon: true, cpcommon: true }
           # Table-share verbs (SPEC-088). `tscommon: true` attaches the table-share-common
-          # layer — all five verbs share the tscommon package (stub namespaces now; real
-          # helpers land with SPEC-089→094).
+          # layer — every verb that carries this plane's WORDING or key layout needs it.
+          # copy-objects is the exception since SPEC-160: it became the shared batch copier
+          # over cpcommon.transfer and imports no tscommon at all, which is the property that
+          # lets the file-send and archive planes reuse it. `tscommon: false` there is
+          # deliberate, and its suite asserts the import stays gone.
           - { name: table-share-validate-authorize, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-inspect-source, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-build-transfer-manifest, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: false, cpcommon: true }
+          - { name: table-share-collect-transfer-results, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only

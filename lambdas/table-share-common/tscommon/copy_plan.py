@@ -22,9 +22,17 @@ import, the failure below raises a validation error in any process that has not 
 imported it — true of a process importing only this module, and the same class of import-order
 trap that once shipped three unraisable reason codes.
 
+This module also owns the transfer manifest's KEY LAYOUT (SPEC-160). The manifest's bytes and
+its reader belong to ``cpcommon.transfer`` — the engine is shared with the file-send and
+archive planes — but where table-share puts it, and what makes that key unique, is this
+plane's business and belongs beside the plan it sits next to.
+
 Attributes:
   PREFIX: Prefix inside the admin bucket, matching the lifecycle rule's filter.
   BASENAME: The plan object's basename.
+  MANIFEST_BASENAME: The transfer manifest's basename.
+  RESULTS_FOLDER: Folder under the execution's prefix that the Distributed Map's ResultWriter
+    exports into. Step Functions appends its own Map Run component below it.
 """
 
 import hashlib
@@ -38,6 +46,78 @@ from . import messages  # noqa: F401
 
 PREFIX = "table-share"
 BASENAME = "copy-plan.json"
+MANIFEST_BASENAME = "transfer-manifest.jsonl"
+RESULTS_FOLDER = "results"
+
+
+def request_digest(request: dict) -> str:
+    """Digests the fields that identify a share.
+
+    Args:
+      request: The share request, carrying the actor, source and result name.
+
+    Returns:
+      The hex digest both this plane's admin-bucket keys are grouped under.
+
+    Raises:
+      None.
+    """
+    source = request.get("source") or {}
+    return hashlib.sha256(
+        "\x00".join(
+            [
+                str(request.get("actor") or ""),
+                str(source.get("database") or ""),
+                str(source.get("table") or ""),
+                str(request.get("tableName") or ""),
+            ]
+        ).encode()
+    ).hexdigest()
+
+
+def transfer_manifest_key(request: dict, execution_name: str) -> str:
+    """Derives the transfer manifest's key, which is unique to ONE execution.
+
+    That is the difference from ``plan_key`` beside it, and it is not stylistic. A copy plan
+    is a pure function of the request, and two overlapping executions colliding on one plan
+    key is harmless because both plans describe the same object set. A manifest's lines depend
+    on which recipients the guard Map accepted — time- and destination-dependent — so on a
+    shared key the later execution would overwrite the earlier one's manifest, and a Map Run
+    could copy for a recipient its own guard had refused as ``conflict``.
+
+    Args:
+      request: The share request.
+      execution_name: The Step Functions execution name, stamped onto the state by a Pass.
+
+    Returns:
+      The manifest key under the admin bucket.
+
+    Raises:
+      ValueError: If no execution name was stamped. Falling back to a shared key would
+        reintroduce exactly the collision this component exists to prevent, so it refuses.
+    """
+    if not execution_name:
+        raise ValueError("a transfer manifest key needs the execution name")
+    return f"{PREFIX}/{request_digest(request)}/{execution_name}/{MANIFEST_BASENAME}"
+
+
+def transfer_results_prefix(request: dict, execution_name: str) -> str:
+    """Derives the prefix the Map Run's ResultWriter exports under, for the same execution.
+
+    Args:
+      request: The share request.
+      execution_name: The Step Functions execution name.
+
+    Returns:
+      The results prefix under the admin bucket, with no trailing slash — Step Functions
+      appends its own Map Run component and manifest basename below it.
+
+    Raises:
+      ValueError: If no execution name was stamped.
+    """
+    if not execution_name:
+        raise ValueError("a transfer results prefix needs the execution name")
+    return f"{PREFIX}/{request_digest(request)}/{execution_name}/{RESULTS_FOLDER}"
 
 
 def plan_key(request: dict) -> str:
@@ -57,7 +137,9 @@ def plan_key(request: dict) -> str:
     listings, where the earlier execution would copy the later snapshot. Nothing here silently
     mixes two different sources, because the digest covers the database and table. Making it
     airtight would take an execution-unique salt threaded through the state, which costs an ASL
-    payload-shape change the bounded exposure did not justify.
+    payload-shape change the bounded exposure did not justify. SPEC-160 pays that cost for the
+    transfer manifest, where the argument above does NOT carry — see
+    ``transfer_manifest_key``. The plan is deliberately left as it was.
 
     Args:
       request: The share request, carrying the actor, source and result name.
@@ -68,18 +150,7 @@ def plan_key(request: dict) -> str:
     Raises:
       None.
     """
-    source = request.get("source") or {}
-    digest = hashlib.sha256(
-        "\x00".join(
-            [
-                str(request.get("actor") or ""),
-                str(source.get("database") or ""),
-                str(source.get("table") or ""),
-                str(request.get("tableName") or ""),
-            ]
-        ).encode()
-    ).hexdigest()
-    return f"{PREFIX}/{digest}/{BASENAME}"
+    return f"{PREFIX}/{request_digest(request)}/{BASENAME}"
 
 
 def write(request: dict, objects: list) -> str:

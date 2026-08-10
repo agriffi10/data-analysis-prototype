@@ -1,12 +1,14 @@
-"""Unit tests for the table-share copy-objects Lambda + tscommon.copy (SPEC-091).
+"""Unit tests for the table-share copy-objects Lambda as a BATCH verb (SPEC-160).
 
-Pure logic, AWS stubbed with a recording fake S3. Asserts layout-preserving
-destination keys, single-vs-multipart routing at the 5 GiB threshold, part-range
-math, abort-on-failure, and the transient/terminal error mapping. Runnable under
+The copy mechanics themselves moved to ``cpcommon.transfer.copy`` and are tested there. What
+this file holds is what is table-share's: the batch contract with the Distributed Map, and the
+FR-003 property that the verb knows nothing about recipients, plans or requests. Runnable under
 pytest or directly: python3 test_table_share_copy_objects.py.
 """
 
+import ast
 import os
+import pathlib
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-share-common"))
@@ -18,12 +20,13 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
+import pytest
 import table_share_copy_objects as m
 from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
-from tscommon import copy as copy_mod
+from cpcommon.errors import TransientError
 
 GIB = 1024**3
+_SOURCE = pathlib.Path(__file__).resolve().parent / "table_share_copy_objects.py"
 
 
 class _S3Error(Exception):
@@ -33,17 +36,16 @@ class _S3Error(Exception):
 
 
 class _FakeS3:
-    def __init__(self, copy_error=None, part_error=None):
+    def __init__(self, copy_error=None):
         self.copies = []
         self.multipart = []
-        self.aborted = []
         self.copy_error = copy_error
-        self.part_error = part_error
         self._uploads = 0
 
     def copy_object(self, **kwargs):
-        if self.copy_error:
-            raise self.copy_error
+        error = self.copy_error(kwargs) if callable(self.copy_error) else self.copy_error
+        if error:
+            raise error
         self.copies.append(kwargs)
 
     def create_multipart_upload(self, **kwargs):
@@ -51,8 +53,6 @@ class _FakeS3:
         return {"UploadId": f"u{self._uploads}"}
 
     def upload_part_copy(self, **kwargs):
-        if self.part_error:
-            raise self.part_error
         self.multipart.append(kwargs)
         return {"CopyPartResult": {"ETag": f"etag-{kwargs['PartNumber']}"}}
 
@@ -60,7 +60,7 @@ class _FakeS3:
         self.multipart.append({"complete": kwargs})
 
     def abort_multipart_upload(self, **kwargs):
-        self.aborted.append(kwargs)
+        pass
 
 
 def _setup(**kwargs):
@@ -69,159 +69,132 @@ def _setup(**kwargs):
     return fake
 
 
-def _event(objects):
-    # The plan travels by POINTER now (tscommon.copy_plan): inline, the object list pushed
-    # the Map's state to 95% of Step Functions' 256 KB payload limit. The verb loads it, so
-    # the fixture stubs the load rather than putting the list on the state.
-    # No local restore: conftest's snapshot covers tscommon since SPEC-153 FR-004.
-    m.copy_plan.load = lambda key: objects
+def _batch(*items):
+    return {"Items": list(items)}
+
+
+def _item(recipient="bob", rel="part-0.parquet", size=10):
     return {
-        "recipient": {
-            "kind": "user",
-            "name": "bob",
-            "valid": True,
-            "database": "bob",
-            "destBucket": "user-bkt",
-            "destPrefix": "bob/shared_tables/orders_copy/",
-        },
-        "request": {
-            "tableName": "orders_copy",
-            "location": {"bucket": "user-bkt", "prefix": "alice/sales/"},
-            "copyPlanKey": "table-share/h/copy-plan.json",
-        },
+        "recipient": recipient,
+        "kind": "user",
+        "srcBucket": "user-bkt",
+        "srcKey": f"alice/sales/{rel}",
+        "destBucket": "user-bkt",
+        "destKey": f"{recipient}/shared_tables/orders_copy/{rel}",
+        "size": size,
     }
 
 
-def test_copies_every_object_layout_preserved():
+def test_a_batch_copies_every_item_layout_preserved():
     fake = _setup()
-    out = m.handler(
-        _event([
-            {"relKey": "part-0.parquet", "size": 100},
-            {"relKey": "year=2025/part-1.parquet", "size": 50},
-        ]),
-        None,
-    )
-    assert out["copiedObjects"] == 2
+
+    out = m.handler(_batch(_item(rel="part-0.parquet"), _item(rel="year=2025/part-1.parquet")), None)
+
+    assert out == {"copied": 2, "failures": []}
     assert sorted((c["CopySource"]["Key"], c["Key"]) for c in fake.copies) == [
         ("alice/sales/part-0.parquet", "bob/shared_tables/orders_copy/part-0.parquet"),
         ("alice/sales/year=2025/part-1.parquet", "bob/shared_tables/orders_copy/year=2025/part-1.parquet"),
     ]
-    assert fake.multipart == []  # small objects: single CopyObject only
 
 
-def test_large_object_uses_multipart_ranges():
+def test_one_batch_spans_recipients():
+    """The fan-out is over (recipient x object) pairs, so a batch is NOT one recipient's work."""
     fake = _setup()
-    size = 5 * GIB + 512  # just over the single-copy limit
-    m.handler(_event([{"relKey": "big.parquet", "size": size}]), None)
-    assert fake.copies == []
-    parts = [c for c in fake.multipart if "PartNumber" in c]
-    complete = [c for c in fake.multipart if "complete" in c]
-    assert len(parts) == 6  # 5 full GiB parts + the 512-byte tail
-    assert parts[0]["CopySourceRange"] == f"bytes=0-{GIB - 1}"
-    assert parts[-1]["CopySourceRange"] == f"bytes={5 * GIB}-{size - 1}"
-    assert len(complete) == 1
-    assert [p["PartNumber"] for p in complete[0]["complete"]["MultipartUpload"]["Parts"]] == [1, 2, 3, 4, 5, 6]
+
+    out = m.handler(_batch(_item("bob"), _item("carol"), _item("dave")), None)
+
+    assert out["copied"] == 3
+    assert {c["Key"].split("/")[0] for c in fake.copies} == {"bob", "carol", "dave"}
 
 
-def test_failed_multipart_aborts_the_upload():
-    fake = _setup(part_error=_S3Error("AccessDenied"))
-    try:
-        m.handler(_event([{"relKey": "big.parquet", "size": 6 * GIB}]), None)
-    except TerminalError as exc:
-        assert exc.reason == "copy_failed"
-        assert len(fake.aborted) == 1
-        return
-    raise AssertionError("expected TerminalError(copy_failed)")
+def test_a_deterministic_failure_does_not_fail_the_batch():
+    """FR-003 AC3 — the batch SUCCEEDS so its siblings' copies stand and attribution happens
+    downstream. Raising here would abort 49 good copies for one bad key."""
+    _setup(copy_error=lambda kwargs: _S3Error("AccessDenied") if "bad" in kwargs["Key"] else None)
+
+    out = m.handler(_batch(_item("bob", "good.parquet"), _item("carol", "bad.parquet")), None)
+
+    assert out == {"copied": 1, "failures": [{"recipient": "carol", "reason": "copy_failed"}]}
 
 
-def test_throttle_is_transient():
+def test_a_throttle_still_raises_so_the_map_retries_the_batch():
     _setup(copy_error=_S3Error("SlowDown"))
-    try:
-        m.handler(_event([{"relKey": "a.parquet", "size": 1}]), None)
-    except TransientError:
-        return
-    raise AssertionError("expected TransientError")
+    with pytest.raises(TransientError):
+        m.handler(_batch(_item()), None)
 
 
-def test_deterministic_failure_is_copy_failed():
-    _setup(copy_error=_S3Error("AccessDenied"))
-    try:
-        m.handler(_event([{"relKey": "a.parquet", "size": 1}]), None)
-    except TerminalError as exc:
-        assert exc.reason == "copy_failed"
-        return
-    raise AssertionError("expected TerminalError(copy_failed)")
-
-
-def test_copy_prefix_bounds_concurrency():
-    """The bound is OBSERVED, not inferred from the copy count (SPEC-153 FR-007).
-
-    This used to assert only that 20 objects were copied — true of an unbounded pool, a
-    pool of one, and a serial loop alike, so the name promised more than the body checked.
-    The fake now records peak in-flight copies, which is the property ``concurrency=`` is
-    for: ``copy_prefix`` fans out across a whole prefix, and an unbounded pool would open a
-    connection per object.
-    """
-    import threading
-    import time
-
-    lock = threading.Lock()
-    state = {"in_flight": 0, "peak": 0}
+def test_a_large_object_still_multipart_copies():
     fake = _setup()
-    real_copy = fake.copy_object
+    m.handler(_batch(_item(rel="big.parquet", size=6 * GIB)), None)
+    assert fake.copies == []
+    assert [c for c in fake.multipart if "PartNumber" in c]
 
-    def _observed(**kwargs):
-        with lock:
-            state["in_flight"] += 1
-            state["peak"] = max(state["peak"], state["in_flight"])
-        time.sleep(0.02)  # long enough for the pool to saturate its workers
-        try:
-            return real_copy(**kwargs)
-        finally:
-            with lock:
-                state["in_flight"] -= 1
 
-    fake.copy_object = _observed
+def test_an_empty_batch_is_a_no_op():
+    fake = _setup()
+    assert m.handler({"Items": []}, None) == {"copied": 0, "failures": []}
+    assert fake.copies == []
 
-    n = copy_mod.copy_prefix(
-        "user-bkt",
-        "alice/sales/",
-        [{"relKey": f"p{i}.parquet", "size": 1} for i in range(20)],
-        "user-bkt",
-        "bob/shared_tables/orders_copy/",
-        concurrency=2,
+
+def test_re_running_an_identical_batch_is_harmless():
+    """FR-003 AC5 — copy is idempotent and the conflict guard has already run, which is what
+    makes the Map's whole-batch retry safe."""
+    fake = _setup()
+    batch = _batch(_item(rel="a.parquet"))
+
+    first = m.handler(batch, None)
+    second = m.handler(batch, None)
+
+    assert first == second == {"copied": 1, "failures": []}
+    assert len(fake.copies) == 2
+    assert fake.copies[0]["Key"] == fake.copies[1]["Key"]
+
+
+def test_the_verb_imports_nothing_recipient_shaped():
+    """FR-003 AC4 — the property, asserted rather than described.
+
+    Destination resolution, the copy plan and every per-recipient concept moved upstream. A
+    reintroduced ``copy_plan`` or ``glue`` import here means this verb has started deciding
+    something the manifest already decided, and the two would drift.
+    """
+    tree = ast.parse(_SOURCE.read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+
+    forbidden = {name for name in imported if any(
+        part in name for part in ("copy_plan", "cognito", "glue", "registry", "ddl", "athena")
+    )}
+    assert not forbidden, f"copy-objects must stay recipient-agnostic; it imports {forbidden}"
+    assert not [name for name in imported if name.startswith("tscommon")], (
+        "copy-objects imports the table-share domain layer, so it is no longer the shared "
+        "batch copier the send-files and archive planes are meant to reuse"
     )
 
-    assert n == 20 and len(fake.copies) == 20
-    assert state["peak"] <= 2, f"the pool exceeded its bound: {state['peak']} in flight"
-    # Guards the observation: a serial loop would also satisfy the bound above.
-    assert state["peak"] >= 2, f"the pool never saturated ({state['peak']}) — bound unproven"
 
+def test_the_verb_never_names_the_copy_plan():
+    """The other half of AC4: an import scan cannot see a key read off the event.
 
-
-
-def test_an_in_flight_pre_pointer_execution_still_copies():
-    """The ROLLING-DEPLOY window, which has no other guard.
-
-    The five verbs deploy as parallel matrix jobs, so an execution that cleared
-    InspectSource under the old code carries `objects` inline and no copyPlanKey. Without
-    the fallback, copy_plan.load(None) raises and EVERY recipient of that in-flight share
-    fails — a self-inflicted outage lasting as long as the longest running execution.
+    ``copyPlanKey`` is the one field that would let this verb resolve work for itself, and
+    resolving it in two places is how the manifest and the copy drift apart.
     """
-    fake = _setup()
-    objects = [{"relKey": "part-0.parquet", "size": 10}]
-    event = {
-        "recipient": {"kind": "user", "name": "bob", "destBucket": "user-bkt", "destPrefix": "bob/shared_tables/t/"},
-        "request": {
-            "location": {"bucket": "user-bkt", "prefix": "alice/orders/"},
-            "objects": objects,          # the OLD inline shape
-        },
+    tree = ast.parse(_SOURCE.read_text(encoding="utf-8"))
+    read_keys = {
+        node.args[0].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
     }
-
-    out = m.handler(event, None)
-
-    assert out["copiedObjects"] == 1
-    assert fake.copies, "nothing was copied for a pre-pointer execution"
+    assert read_keys == {"Items"}, (
+        f"copy-objects reads {read_keys} off its event; a batch verb reads its batch and "
+        "nothing else"
+    )
 
 
 if __name__ == "__main__":

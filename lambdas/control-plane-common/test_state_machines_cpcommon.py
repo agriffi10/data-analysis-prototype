@@ -73,9 +73,19 @@ def _intrinsics_in(value):
 
 
 def _load(path):
-    """Parse a .tftpl with its Terraform placeholders stubbed to a literal."""
+    """Parse a .tftpl with its Terraform placeholders stubbed to a literal.
+
+    Two substitutions, not one, because SPEC-160 introduced the fleet's first placeholder in a
+    NUMERIC position (``"MaxItemsPerBatch": $${…}`` — the Distributed Map's sizing, fed from
+    locals.tf). Stubbing that to a bare word produced invalid JSON and failed every check in
+    this file at once, which reads like a broken machine rather than a broken parser. A
+    placeholder that directly follows a colon is a value and becomes ``0``; every other one is
+    inside a string and becomes ``stub``.
+    """
     with open(path) as handle:
-        return json.loads(re.sub(r"\$\{[^}]+\}", "stub", handle.read()))
+        raw = handle.read()
+    raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", raw)
+    return json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw))
 
 
 def _states(asl):

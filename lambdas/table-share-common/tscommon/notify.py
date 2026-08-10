@@ -30,6 +30,7 @@ logger = logging.getLogger()
 __all__ = [
     "emit_failure",
     "emit_notification",
+    "emit_recipient_failure",
     "emit_recipient_success",
     "emit_unexpected",
     "notifies_on_failure",
@@ -148,6 +149,40 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
       None.
     """
     return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
+
+
+def emit_recipient_failure(request: dict, kind: str, name: str, reason: str) -> None:
+    """Emits the sender-addressed failure notification for one recipient, from a collector.
+
+    Every other per-recipient failure notification comes from the failing verb's own decorator,
+    which holds both the recipient and the error. A copy failure no longer has such a verb:
+    SPEC-160's batch copier runs over a mixed batch of recipients' objects and succeeds while
+    reporting them, so the recipient is only known once the Map Run's results are attributed.
+    Without this the copy failure would be the one outcome that told the sender nothing.
+
+    Args:
+      request: The share request, carrying the actor, source and result name.
+      kind: The recipient kind.
+      name: The recipient's name.
+      reason: The terminal reason code for this recipient.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    source = request.get("source") if isinstance(request.get("source"), dict) else {}
+    emit_notification(
+        request.get("actor") or "",
+        failure_message(
+            reason,
+            (source or {}).get("table") or "",
+            kind=kind,
+            name=name,
+            table_name=request.get("tableName") or "",
+        ),
+    )
 
 
 def emit_recipient_success(event: dict) -> None:
