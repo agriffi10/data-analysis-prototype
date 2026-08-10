@@ -45,7 +45,7 @@ pins it with a test.
   the compiled-in defaults.
 - **One** new `VITE_*` variable (`VITE_ENVIRONMENT`) **including its deploy wiring** —
   `deploy-app.yml` build env plus the GitHub Actions repo variable. The bucket is resolved from the
-  existing `userSpace()` helper, so no bucket variable is added.
+  existing `userSpaceBucket()` helper, so no bucket variable is added.
 - Portal-role IAM: `s3:GetObject` on `{user_space_bucket}/_config/*`, a `ReadTheFeatureFlags` Sid
   written directly beside the existing `ReadTheUsernameDirectory`.
 - **No deploy-role change** — the deploy role already holds `${user_space_bucket_arn}/*`. FR-003
@@ -193,7 +193,7 @@ The recorded `VITE_*` trap: a variable the app reads that is not wired into the 
 - [ ] It is added to `deploy-app.yml`'s build env **and** set as a GitHub Actions repo variable.
 - [ ] A missing `VITE_ENVIRONMENT` resolves to `defaults` rather than crashing — the app never
       white-screens on an unwired variable.
-- [ ] **No bucket variable is added.** The bucket comes from the existing `userSpace()` helper, which
+- [ ] **No bucket variable is added.** The bucket comes from the existing `userSpaceBucket()` helper, which
       the file browser and the username directory already resolve through, so there is no second
       place for the bucket name to be wrong.
 
@@ -212,8 +212,10 @@ silent-fallback feature ships permanently broken. Each gets one assertion.
       `aws_s3_bucket_cors_configuration` allowing `GET` from the app origin; if it is ever removed,
       this spec's feature breaks and the assertion is what says so.
 - [ ] A test or plan assertion confirms the user-space bucket host is present in `csp_connect_src`.
-- [ ] The portal role is confirmed to be on the user-space bucket-policy principal allowlist (it is —
-      it is the first entry), so the identity grant is not overridden by a resource Deny.
+- [ ] A rendered-policy assertion confirms the portal role is on the user-space bucket-policy
+      principal allowlist, so the identity grant is not overridden by a resource Deny. It is the
+      first entry today — the assertion exists so a later edit to that hand-maintained list fails a
+      test rather than silently killing this feature into its all-on fallback.
 - [ ] **No new CORS resource, no new `connect-src` host, and no bucket-policy change is made.** If
       any of the three assertions fails, that is a finding to raise — not a licence to widen infra
       inside this spec.
@@ -286,7 +288,7 @@ Add to `apps/portal/.env.example`:
 ```
 # Which feature-flag environment block this build resolves (SPEC-162).
 VITE_ENVIRONMENT=prod
-# (No bucket variable — the document lives in the user-space bucket, resolved via userSpace().)
+# (No bucket variable — the document lives in the user-space bucket, resolved via userSpaceBucket().)
 ```
 
 ## File & Folder Structure
@@ -317,7 +319,11 @@ apps/portal/src/features/feature-flags/
 
 - `deploy-config.yml`; the portal-role `ReadTheFeatureFlags` Sid on `_config/*`, written beside
   `ReadTheUsernameDirectory`; `tofu validate` + policy render checks. **No `ListBucket` widening** —
-  the document must stay invisible to the file browser, exactly as the directory does.
+  the document must stay invisible to the file browser. IAM already guarantees it (`UserPrefixList`
+  conditions `s3:prefix` on the username, and `_config` is not a claimable username), but
+  `_directory` **also** appears in `HIDDEN_BROWSER_FOLDERS` and `PICKER_LOCKED_FOLDERS` as
+  deliberate belt-and-braces — so `_config` joins both lists too. Parity with the directory means
+  both layers, not just the IAM one.
 - FR-008's three assertions (CORS, `connect-src`, bucket-policy allowlist) land here too, as checks
   on infra this spec does not change.
 
