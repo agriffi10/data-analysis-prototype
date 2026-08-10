@@ -276,6 +276,38 @@ plan already by pointer, 50 recipients all failing:
 **`SHARE_MAX_OBJECTS` / `SHARE_MAX_TOTAL_BYTES`.** Sized so a recipient Map item's parallel
 server-side copy finishes comfortably inside copy-objects' 900s timeout (architecture §12).
 
+> **Amended (SPEC-160).** That sizing rationale is now historical: the copy is a Distributed Map
+> over batches, so no single invocation carries a recipient's whole table and the timeout no longer
+> sets the ceiling. **The two values are unchanged anyway** — 160 changed the mechanism only, so it
+> is provably behaviour-neutral, and SPEC-161 is where the ceiling moves. The two caps that are
+> still load-bearing on the *state* — `SHARE_MAX_RECIPIENTS` and `SHARE_MAX_DEFINITION_BYTES` — are
+> untouched by the restructure: the per-recipient array is still exactly one entry per recipient.
+
+## `cpcommon/transfer/config.py` — sizing the Distributed Map
+
+**`MAX_ITEMS_PER_BATCH = 50`.** A batch IS a child execution's input, and Step Functions caps that
+at **256 KB**. The bound is taken against S3's worst case rather than a typical key, because a key
+is user-controlled and the failure it prevents is a whole batch refused at start time: a source key
+and a destination key can each be 1024 bytes, and a bucket name 63, which puts one manifest item
+near **2.3 KB**. At 50 items that is ~112 KB — **under half the limit** — and with ordinary Hive
+keys of ~140 characters it is closer to 16 KB. `test_a_worst_case_batch_stays_under_the_input_limit`
+(`lambdas/control-plane-common/test_transfer_cpcommon.py`) **computes** that rather than asserting
+the number, so raising the constant without re-checking it fails the build. The second bound is
+time, and it is slack: 50 server-side copies on the bounded pool finish far inside copy-objects'
+900-second timeout even when several go multipart.
+
+**`MAP_MAX_CONCURRENCY = 20`.** Deliberately not the **10,000** default. Each child execution
+invokes a Lambda that opens up to `COPY_CONCURRENCY` (8) S3 connections, so the default would put
+the account's entire Lambda concurrency and a very large S3 request rate behind one user's share —
+and the throttles that follows would be attributed to whatever else was running. 20 gives up to 160
+in-flight copies, which is throughput without a self-inflicted `SlowDown`.
+
+**Both numbers exist twice** — here for the verb, and in `infra/modules/table-share/locals.tf` for
+the rendered ASL, because Terraform cannot import Python. `test_the_maps_sizing_matches_the_constants_the_verb_reads`
+(`lambdas/table-share-common/test_state_machine_table_share.py`) asserts the pair still agree. Two
+homes for one number is how a batch grows past the limit it was sized against while its own test
+still passes.
+
 ## `cpcommon/bounded_read.py` — why polars' cloud reader is not used
 
 Every control plane that infers a schema wants the same thing: the first few bytes of an
