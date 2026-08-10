@@ -22,26 +22,11 @@ function historyKey(username: string): string {
   return userSettingsKey(username, 'query-history.json');
 }
 
-// Forgivingly parse the history file body FOR DISPLAY: a malformed or legacy file
-// falls back to empty rather than erroring, so a corrupt file never breaks the
-// History panel. Read-modify-WRITE uses `parseHistoryForWrite`.
-function parseHistory(body: string | undefined): QueryHistory {
-  if (!body) return emptyHistory();
-  try {
-    const parsed = JSON.parse(body) as QueryHistory;
-    if (parsed?.version === 1 && Array.isArray(parsed.entries)) return parsed;
-    return emptyHistory();
-  } catch {
-    return emptyHistory();
-  }
-}
-
-// The same body, parsed for the WRITE path. See savedQueries.service.ts for the
-// full reasoning: the write is an unconditional PutObject, so a body misread as
-// empty is committed as empty, and one append would discard the whole history.
-// This file is the ONLY record of a query beyond Athena's ~45-day retention, and
-// the user cannot re-create it — there is no clear/delete, by design.
-// An ABSENT object is still the empty history; only an unreadable one fails.
+// Parse for the WRITE path. Same reasoning as savedQueries.service.ts: the write is
+// an unconditional PutObject, so a body misread as empty is COMMITTED as empty and
+// one append discards the whole history. This file is the only record of a query
+// beyond Athena's ~45-day retention and the user cannot re-create it — there is no
+// clear/delete, by design. An absent or zero-byte body is still the empty history.
 function parseHistoryForWrite(body: string | undefined): ServiceResult<QueryHistory> {
   if (!body) return ok(emptyHistory());
   try {
@@ -59,8 +44,16 @@ function parseHistoryForWrite(body: string | undefined): ServiceResult<QueryHist
   };
 }
 
-// The read that precedes every write. Separate from `getQueryHistory` only in how
-// it treats a body it cannot parse.
+// The DISPLAY read, derived from the write parser so the two can never drift apart
+// on what a valid history is. Same validation, different answer to an unreadable
+// body: empty here, a refusal there.
+function parseHistory(body: string | undefined): QueryHistory {
+  const result = parseHistoryForWrite(body);
+  return result.success ? result.data : emptyHistory();
+}
+
+// The read that precedes every write. Differs from `getQueryHistory` only in how it
+// treats a body it cannot parse.
 async function readHistoryForWrite(username: string): Promise<ServiceResult<QueryHistory>> {
   return readJsonDocument({
     bucket: userSpaceBucket(),

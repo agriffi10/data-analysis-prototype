@@ -752,6 +752,11 @@ describe('queryHistory.service', () => {
   // Same hazard as savedQueries, and worse to lose: this file is the only record
   // of a query beyond Athena's ~45-day retention, and the user cannot re-create it
   // (there is no clear/delete, by design).
+  //
+  // As there, only `append` could actually commit the empty document; `update` took
+  // its not-found no-op branch first. `update` is covered because that no-op was
+  // reported as success carrying the EMPTY history, which `useQueryHistory`'s
+  // onWriteSuccess seeded into the cache — blanking the panel on a read fault.
   describe('the read-modify-write path never overwrites an unreadable history', () => {
     const unreadable = ['not json{', JSON.stringify({version: 2, entries: [entry('q1')]})];
 
@@ -913,9 +918,14 @@ describe('savedQueries.service', () => {
   // ── The write path refuses a body it cannot read ─────────────────────────────
   // The display read is forgiving on purpose (a corrupt file must not lock the
   // user out of the page), but the write is an unconditional PutObject, so the
-  // same forgiveness on the write path COMMITTED the empty fallback: one Save
-  // replaced the user's whole library with the query being saved. `user_settings/`
-  // denies delete and the bucket is unversioned, so there was no way back.
+  // same forgiveness on the write path COMMITTED the empty fallback.
+  //
+  // Only `upsert` was destructive: it wrote `{queries: [theNewOne]}` over the whole
+  // library. `remove` was NOT — the forgiving read gave it an empty store, the
+  // filter left the length unchanged, and it took the unknown-id no-op branch
+  // before any write. It is covered here because it reported that no-op as SUCCESS
+  // against a store it had failed to read, which `useSavedQueries.onWriteSuccess`
+  // then seeded into the cache — blanking the panel without touching S3.
   describe('the read-modify-write path never overwrites an unreadable store', () => {
     // Not just a syntax error: a future schema bump read by a tab still running
     // today's code produces a perfectly valid JSON document this parser rejects,

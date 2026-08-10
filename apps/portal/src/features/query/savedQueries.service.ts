@@ -15,31 +15,12 @@ function storeKey(username: string): string {
   return userSettingsKey(username, 'saved-queries.json');
 }
 
-// Forgivingly parse the store body FOR DISPLAY: a malformed/legacy file falls
-// back to empty rather than erroring, so a corrupt settings file never locks the
-// user out of the Query page. Read-modify-WRITE uses `parseStoreForWrite`.
-function parseStore(body: string | undefined): SavedQueriesStore {
-  if (!body) return emptyStore();
-  try {
-    const parsed = JSON.parse(body) as SavedQueriesStore;
-    if (parsed?.version === 1 && Array.isArray(parsed.queries)) return parsed;
-    return emptyStore();
-  } catch {
-    return emptyStore();
-  }
-}
-
-// The same body, parsed for the WRITE path, where "I couldn't understand this"
-// must NOT become "this is empty". The write is an unconditional PutObject, so a
-// body misread as empty is committed as empty — one Save would replace the whole
-// library with the query being saved, and `user_settings/` denies delete + the
-// bucket is unversioned, so there is no way back.
-//
-// This is the same hazard the control planes close with a conditional write
-// (`shared-space-common/cache.py`: treating an unreadable object as absent is
-// "safe only because the create path is conditional"). The browser has no
-// precondition to fall back on, so it refuses instead. An ABSENT object is still
-// the empty store — there is nothing to lose — and only an unreadable one fails.
+// Parse for the WRITE path, where "I can't read this" must NOT become "this is
+// empty": the write is an unconditional PutObject, so a body misread as empty is
+// COMMITTED as empty, and one Save would replace the whole library with the query
+// being saved. `user_settings/` denies delete and the bucket is unversioned, so
+// there is no way back. An absent or zero-byte body is still the empty store —
+// neither has anything to lose.
 function parseStoreForWrite(body: string | undefined): ServiceResult<SavedQueriesStore> {
   if (!body) return ok(emptyStore());
   try {
@@ -57,8 +38,18 @@ function parseStoreForWrite(body: string | undefined): ServiceResult<SavedQuerie
   };
 }
 
-// The read that precedes every write. Separate from `getSavedQueries` only in how
-// it treats a body it cannot parse.
+// The DISPLAY read, derived from the write parser rather than written out again so
+// the two can never disagree about what a valid store is — a tightened write
+// parser and a stale display one would fail every save for a store the panel shows
+// as fine. Same validation, different answer to an unreadable body: empty here (a
+// corrupt file must not lock the user out of the page), a refusal there.
+function parseStore(body: string | undefined): SavedQueriesStore {
+  const result = parseStoreForWrite(body);
+  return result.success ? result.data : emptyStore();
+}
+
+// The read that precedes every write. Differs from `getSavedQueries` only in how it
+// treats a body it cannot parse.
 async function readStoreForWrite(username: string): Promise<ServiceResult<SavedQueriesStore>> {
   return readJsonDocument({
     bucket: userSpaceBucket(),
