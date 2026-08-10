@@ -128,13 +128,36 @@ existing rule expires a *live* run's manifest underneath it, now that a run can 
 
 ### FR-005: Honest refusal wording
 
+#### Description:
+
+**The docs are already corrected** (2026-08-10): `architecture.md` → *Table Share* carries a
+superseded marker, *Deferred / Future Scope* no longer lists a Batch Ops scale path, `decisions.md`
+→ *Table Share* has the amended fence, and `ARCS.md`, SPEC-090, SPEC-091 and SPEC-090's delivery doc
+each carry an in-place marker. What remains is three strings in `lambdas/`.
+
+**They are operator-facing, not user-facing** — worth stating precisely, because the obvious reading
+is wrong. Both call sites pass the phrase as a `TerminalError` **detail**, which
+`tscommon.notify.emit_failure` deliberately does **not** forward to the user message; it stays on
+the exception for logs and the Step Functions record. The user sentence is
+`messages.py`'s `"source_too_large"` — *"the source table is too large to share."* — which has never
+contained the phrase and needs no change. The audience for this fix is an operator reading a failed
+run, and the reason it matters is that a stale detail sends them looking for a Batch Ops path that
+no longer exists.
+
 #### Acceptance Criteria:
 
-- [ ] No user-facing message or code comment claims S3 Batch Operations is the deferred scale path;
-      the caps message states the limit and that the share is too large, nothing more.
-- [ ] `architecture.md` → *Table Share* and *Deferred / Future Scope* no longer describe S3 Batch
-      Operations as the escape hatch (SPEC-160 records why it was rejected).
-- [ ] A grep-style test or docs check fails if the retired phrase reappears in `lambdas/`.
+- [ ] `table_share_inspect_source.py`'s two `TerminalError` details no longer mention S3 Batch
+      Operations; they state the measured value and the cap, nothing more.
+- [ ] `tscommon/config.py`'s `SHARE_MAX_OBJECTS` docstring is corrected the same way.
+- [ ] The user-facing `"source_too_large"` sentence is **unchanged** — it was already correct, and
+      it continues to resolve through the `cpcommon` `Resolver`. The detail stays composed at the
+      raise site and bounded by `bounded_detail`: detail is operator context and wording is the
+      `Resolver`'s, and SPEC-156 settled that split.
+- [ ] A grep-style check fails if the retired phrase reappears anywhere in `lambdas/`. **No existing
+      test asserts the old wording** (the suites assert `exc.reason` and the user sentence, neither
+      of which carries it), so this check is the only guard and must be added, not assumed.
+- [ ] **No further docs edit is needed** — re-editing `architecture.md`, `decisions.md`, `ARCS.md` or
+      the SPEC-090/091 markers for this would mean one was missed, which is itself the finding.
 
 ---
 
@@ -182,5 +205,5 @@ SHARE_MAX_RECIPIENTS = 50  # unchanged
 ### Phase 5: Completion ritual
 
 - Delivery doc (including the `TimeoutSeconds` arithmetic), INDEX status, `decisions.md` entry for
-  the pointer-not-state rule extended to the definition, one Key Decisions line, and the
-  `architecture.md` corrections FR-005 requires.
+  the pointer-not-state rule extended to the definition, and one Key Decisions line. **No
+  `architecture.md` edit** — FR-005's last criterion says why.

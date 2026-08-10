@@ -28,6 +28,13 @@ Implement the recipient fan-out: a Step Function **`Map`** over the validated re
 - Creating the recipient table (DDL) — SPEC-092 (the third Map state).
 - Notifications — SPEC-094.
 - S3 Batch Operations — deferred; v1 copies per-object (caps from SPEC-090 bound the work).
+
+> **Superseded by SPEC-160 (2026-08-10):** S3 Batch Operations is **rejected, not deferred**. Its
+> Copy operation cannot rewrite a key (`TargetKeyPrefix` prepends the *full* source key), it caps
+> objects at 5 GB where `UploadPartCopy` already handles more, and one job writes to one destination
+> bucket while recipients span two. The scale path is a top-level **Step Functions Distributed Map**
+> over a flat `(recipient × object)` manifest. Full entry: `decisions.md` → *Table Share*.
+
 - Rolling back a partial copy on a later create failure — the copied objects remain; a retry/overwrite is a future concern (documented).
 
 ---

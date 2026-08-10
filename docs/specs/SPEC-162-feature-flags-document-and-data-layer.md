@@ -9,9 +9,18 @@
 
 The portal ships every feature to every environment the moment it merges. There is no way to hold a
 half-finished area back from users, or to run an environment with a feature deliberately off. This
-spec adds a **feature-flag document**: a git-controlled JSON file, uploaded to the admin bucket by
-CI, that names each primary feature — Files, Query, Shared Workspaces, Data Quality — as on or off,
-**per environment**, so one environment can hide Query while another keeps it.
+spec adds a **feature-flag document**: a git-controlled JSON file, published by CI to
+`_config/feature-flags.json` in the **user-space bucket**, that names each primary feature — Files,
+Query, Shared Workspaces, Data Quality — as on or off, **per environment**, so one environment can
+hide Query while another keeps it.
+
+**It sits beside `_directory/usernames.json` deliberately.** That bucket already has a CORS
+configuration, its host is already in the enforcing CSP `connect-src`, the portal role already has a
+one-line `GetObject` grant on `_directory/*` to copy, and the deploy role already holds
+`${user_space_bucket_arn}/*`. The admin bucket has **none** of those: it carries an explicit "never
+read by the browser" comment in place of a CORS config, and adding it to `connect-src` is the exact
+shape of the omission that broke fresh sign-in for a day (SPEC-140). Putting an advisory,
+browser-read document in the bucket that already serves one costs nothing and adds no new exposure.
 
 This spec builds the document, the publish pipeline, and the browser data layer that resolves it.
 SPEC-163 uses the result to actually hide things.
@@ -27,19 +36,22 @@ pins it with a test.
 ### In Scope
 
 - `config/feature-flags.json` in the repository — the **only** place a flag is edited.
-- A **publish workflow** that validates the document and uploads it to each environment's admin
-  bucket at `config/feature-flags.json` with `Cache-Control: no-cache`.
+- A **publish workflow** that validates the document and uploads it to each environment's user-space
+  bucket at `_config/feature-flags.json` with `Cache-Control: no-cache`.
 - **Validation as a hard error**, in CI on every PR and again before upload: unknown flag keys,
   non-boolean values, an unknown `version`, or an environment key with no upload target all fail the
   job.
 - The browser data layer: `featureFlags.service.ts`, `useFeatureFlags()`, the resolution rules, and
   the compiled-in defaults.
-- Two new `VITE_*` variables (`VITE_ENVIRONMENT`, `VITE_S3_ADMIN_BUCKET`) **including their deploy
-  wiring** — `deploy-app.yml` build env plus the GitHub Actions repo variables.
-- Portal-role IAM: `s3:GetObject` on exactly `{admin_bucket}/config/feature-flags.json`.
-- Deploy-role IAM: `s3:PutObject` on exactly that key.
-- **The two infra gates that make the browser read possible at all** (FR-008): a CORS configuration
-  on the admin bucket, and the admin bucket's host added to the CloudFront CSP `connect-src`.
+- **One** new `VITE_*` variable (`VITE_ENVIRONMENT`) **including its deploy wiring** —
+  `deploy-app.yml` build env plus the GitHub Actions repo variable. The bucket is resolved from the
+  existing `userSpaceBucket()` helper, so no bucket variable is added.
+- Portal-role IAM: `s3:GetObject` on `{user_space_bucket}/_config/*`, a `ReadTheFeatureFlags` Sid
+  written directly beside the existing `ReadTheUsernameDirectory`.
+- **No deploy-role change** — the deploy role already holds `${user_space_bucket_arn}/*`. FR-003
+  asserts this rather than assuming it.
+- **No CORS, CSP, or bucket-policy change** — all three already cover this bucket. FR-008 asserts
+  that too, because "it already works" is a claim, not a fact, until something checks it.
 
 ### Out of Scope
 
@@ -95,16 +107,20 @@ again in the publish workflow immediately before upload.
 
 #### Description:
 
-A workflow uploads the validated document to each environment's admin bucket, independently of an
-app build — flipping a flag must not require rebuilding and redeploying the SPA.
+A workflow uploads the validated document to each environment's user-space bucket, independently of
+an app build — flipping a flag must not require rebuilding and redeploying the SPA.
 
 #### Acceptance Criteria:
 
 - [ ] The workflow runs on pushes to `main` that touch `config/**`, and on manual dispatch.
-- [ ] It uploads to `s3://{admin_bucket}/config/feature-flags.json` for every declared environment,
-      with `Cache-Control: no-cache` so a flag change is picked up on the next fetch.
-- [ ] The upload uses the existing GitHub-OIDC deploy role; the deploy role's policy grants
-      `s3:PutObject` on **exactly that key**, not the prefix or the bucket.
+- [ ] It uploads to `s3://{user_space_bucket}/_config/feature-flags.json` for every declared
+      environment, with `Cache-Control: no-cache` so a flag change is picked up on the next fetch.
+- [ ] The upload uses the existing GitHub-OIDC deploy role, whose policy **already** covers
+      `${user_space_bucket_arn}/*` — the spec asserts this and adds **no** deploy-role statement. If
+      the assertion fails, that is the finding, not a licence to widen the grant.
+- [ ] The upload never touches `_directory/` — a mis-scoped `--delete` or a wrong key that clobbered
+      the username directory would break typeahead everywhere. The workflow addresses one exact key
+      and performs no sync or delete.
 - [ ] A failed validation stops the workflow before any upload.
 - [ ] The workflow is watched to completion like every other deploy — a red publish is a red deploy.
 
@@ -117,8 +133,9 @@ flag set.
 
 #### Acceptance Criteria:
 
-- [ ] `getFeatureFlags()` reads `config/feature-flags.json` from `VITE_S3_ADMIN_BUCKET` through
-      `readJsonDocument`, returns `ServiceResult<FeatureFlags>` and never throws.
+- [ ] `getFeatureFlags()` reads `_config/feature-flags.json` from `userSpaceBucket()` through
+      `readJsonDocument`, returns `ServiceResult<FeatureFlags>` and never throws — the same service
+      shape as `getUserDirectory()`, one prefix over.
 - [ ] `useFeatureFlags()` exposes `{flags, status}` with `status: 'loading' | 'ready' | 'fallback'`,
       is gated on a signed-in user, and uses a long `staleTime` with `retry: false` — the same shape
       as `useUserDirectory`.
@@ -172,45 +189,36 @@ The recorded `VITE_*` trap: a variable the app reads that is not wired into the 
 
 #### Acceptance Criteria:
 
-- [ ] `VITE_ENVIRONMENT` and `VITE_S3_ADMIN_BUCKET` are documented in `apps/portal/.env.example` with
-      their source.
-- [ ] Both are added to `deploy-app.yml`'s build env **and** set as GitHub Actions repo variables.
-- [ ] A missing `VITE_ENVIRONMENT` resolves to `defaults` rather than crashing, and a missing
-      `VITE_S3_ADMIN_BUCKET` resolves to the compiled-in fallback — the app never white-screens on an
-      unwired variable.
+- [ ] `VITE_ENVIRONMENT` is documented in `apps/portal/.env.example` with its source.
+- [ ] It is added to `deploy-app.yml`'s build env **and** set as a GitHub Actions repo variable.
+- [ ] A missing `VITE_ENVIRONMENT` resolves to `defaults` rather than crashing — the app never
+      white-screens on an unwired variable.
+- [ ] **No bucket variable is added.** The bucket comes from the existing `userSpaceBucket()` helper, which
+      the file browser and the username directory already resolve through, so there is no second
+      place for the bucket name to be wrong.
 
-### FR-008: The admin bucket must actually be reachable from the browser
+### FR-008: The reachability assumptions are asserted, not assumed
 
 #### Description:
 
-The IAM grant is necessary and **not sufficient**. The admin bucket has never been read by a browser
-and two independent gates block it — neither of which the IAM policy can affect:
-
-1. **No CORS.** `infra/modules/analytics/s3.tf` deliberately carries no
-   `aws_s3_bucket_cors_configuration`, with a comment saying the bucket is never read by the
-   browser. The user-space and shared-space buckets both have one — which is why SPEC-146's
-   directory read works, and why this spec's stated precedent does not transfer: that document
-   lives in the user-space bucket.
-2. **Not in the enforcing CSP.** `csp_connect_src` enumerates exactly two S3 hosts (user-space and
-   shared-space). The admin bucket is a third. `connect-src` **is** the app's network surface, and
-   the recorded consequence of omitting a host is SPEC-140's Hosted UI domain breaking fresh sign-in
-   for a day.
-
-Left unfixed, the fetch is blocked, FR-005's silent fallback makes the app look completely normal
-with every flag on, and SPEC-163 then ships a gating system that can never gate anything.
+Moving the document to the user-space bucket means CORS, the CSP `connect-src` entry and the bucket
+policy are all **already** in place — that is the whole reason for the location. But "already works"
+is a claim about three files this spec does not touch, and a claim nothing checks is how a
+silent-fallback feature ships permanently broken. Each gets one assertion.
 
 #### Acceptance Criteria:
 
-- [ ] An `aws_s3_bucket_cors_configuration` on the admin bucket allows `GET` from the app origin,
-      scoped no wider than the existing data-bucket configurations; the "never read by the browser"
-      comment is replaced, not left contradicting the code.
-- [ ] The admin bucket's S3 host is added to `csp_connect_src`, threaded through a
-      `modules/app` variable from root locals — **variables, never module outputs** (SPEC-140's rule).
-- [ ] A browser fetch of `config/feature-flags.json` succeeds from the deployed app with **no** CSP
-      violation and **no** CORS error in the console.
-- [ ] The verification uses a **same-origin page script**, not a CDP eval — a CDP eval bypasses page
-      CSP and would pass against a policy that blocks the real app (SPEC-140's settled method).
-- [ ] Findings are diffed per check ID, not by total.
+- [ ] A test or plan assertion confirms the user-space bucket has an
+      `aws_s3_bucket_cors_configuration` allowing `GET` from the app origin; if it is ever removed,
+      this spec's feature breaks and the assertion is what says so.
+- [ ] A test or plan assertion confirms the user-space bucket host is present in `csp_connect_src`.
+- [ ] A rendered-policy assertion confirms the portal role is on the user-space bucket-policy
+      principal allowlist, so the identity grant is not overridden by a resource Deny. It is the
+      first entry today — the assertion exists so a later edit to that hand-maintained list fails a
+      test rather than silently killing this feature into its all-on fallback.
+- [ ] **No new CORS resource, no new `connect-src` host, and no bucket-policy change is made.** If
+      any of the three assertions fails, that is a finding to raise — not a licence to widen infra
+      inside this spec.
 
 ### FR-009: A silent fallback must not hide a broken read
 
@@ -280,8 +288,7 @@ Add to `apps/portal/.env.example`:
 ```
 # Which feature-flag environment block this build resolves (SPEC-162).
 VITE_ENVIRONMENT=prod
-# Admin bucket holding config/feature-flags.json. Source: `tofu output` → athena admin bucket name.
-VITE_S3_ADMIN_BUCKET=dat-prod-athena-admin
+# (No bucket variable — the document lives in the user-space bucket, resolved via userSpaceBucket().)
 ```
 
 ## File & Folder Structure
@@ -308,14 +315,17 @@ apps/portal/src/features/feature-flags/
 
 - The JSON file, the validator, its tests (including guard-the-guard), and the CI job on PRs.
 
-### Phase 2: Publish pipeline + IAM + reachability
+### Phase 2: Publish pipeline + IAM
 
-- `deploy-config.yml`; deploy-role `PutObject` and portal-role `GetObject`, each scoped to the exact
-  key; `tofu validate` + policy render checks. **Note:** this is the portal role's first grant on the
-  admin bucket — keep it to one object, no `ListBucket`, no prefix wildcard.
-- **FR-008's two gates in the same phase as the grant** — the CORS configuration and the
-  `connect-src` host. An IAM grant landed without them is a grant that cannot be exercised, and the
-  silent fallback means nothing downstream will report it.
+- `deploy-config.yml`; the portal-role `ReadTheFeatureFlags` Sid on `_config/*`, written beside
+  `ReadTheUsernameDirectory`; `tofu validate` + policy render checks. **No `ListBucket` widening** —
+  the document must stay invisible to the file browser. IAM already guarantees it (`UserPrefixList`
+  conditions `s3:prefix` on the username, and `_config` is not a claimable username), but
+  `_directory` **also** appears in `HIDDEN_BROWSER_FOLDERS` and `PICKER_LOCKED_FOLDERS` as
+  deliberate belt-and-braces — so `_config` joins both lists too. Parity with the directory means
+  both layers, not just the IAM one.
+- FR-008's three assertions (CORS, `connect-src`, bucket-policy allowlist) land here too, as checks
+  on infra this spec does not change.
 
 ### Phase 3: Browser data layer
 
@@ -326,14 +336,15 @@ apps/portal/src/features/feature-flags/
 
 - Unit tests across every fallback path.
 - **Live check (owed):** publish the document, sign in, and confirm in the network panel that the
-  `GetObject` on `config/feature-flags.json` **returns 200** and that the hook reports `'ready'`,
-  not `'fallback'` — the IAM grant, the CORS configuration and the CSP entry are each only proven by
-  a real fetch, and all three must hold for one to matter. Check the console for CSP and CORS
-  violations explicitly; a working-looking app proves nothing here.
+  `GetObject` on `_config/feature-flags.json` **returns 200** and that the hook reports `'ready'`,
+  not `'fallback'`. The silent fallback means a working-looking app proves nothing — an all-on
+  environment is exactly what a permanently blocked read produces. Confirm the document is not
+  listable from the file browser in the same pass.
 
 ### Phase 5: Completion ritual
 
 - Delivery doc, INDEX status, a `component-inventory/feature-flags-feature.md` area file plus a
-  router row (a whole new area), a `decisions.md` entry (flags are presentation-only; the portal
-  role's first admin-bucket read and why it is scoped to one key), and one Key Decisions line.
+  router row (a whole new area), a `decisions.md` entry (flags are presentation-only; and why the
+  document lives beside `_directory/` rather than in the admin bucket — the second advisory
+  browser-read document in that bucket, and the precedent for a third), and one Key Decisions line.
   **No Help & guides change** — nothing user-visible ships until SPEC-163.

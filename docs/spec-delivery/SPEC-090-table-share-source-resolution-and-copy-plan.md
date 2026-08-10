@@ -7,6 +7,13 @@
 - **`tscommon.glue`**: `get_table` (error-code mapping; other failures → `TransientError` for SFN Retry) + `clone_definition` (columns/partitionKeys/SerDe/formats/`TBLPROPERTIES` carried verbatim; `LOCATION`, catalog identity, `transient_lastDdlTime`, `EXTERNAL` stripped).
 - **`tscommon.s3_listing`**: paginated listing emitting **prefix-relative** keys + sizes with the shared ignore rules.
 - **Caps** (named constants): `SHARE_MAX_OBJECTS = 1000`, `SHARE_MAX_TOTAL_BYTES = 20 GiB` (sized for copy-objects' 900s timeout; "too large for v1 — S3 Batch Ops deferred" reason).
+
+> **Superseded by SPEC-160 (2026-08-10):** S3 Batch Operations is **rejected, not deferred**. Its
+> Copy operation cannot rewrite a key (`TargetKeyPrefix` prepends the *full* source key), it caps
+> objects at 5 GB where `UploadPartCopy` already handles more, and one job writes to one destination
+> bucket while recipients span two. The scale path is a top-level **Step Functions Distributed Map**
+> over a flat `(recipient × object)` manifest. Full entry: `decisions.md` → *Table Share*.
+
 - **Infra**: `USER_SPACE_BUCKET`/`SHARED_SPACE_BUCKET` module vars + execution-role `s3:ListBucket`/`GetBucketLocation` on both buckets; **the full tscommon-required env is now COMMON to all five verbs** (the PR #196 env-union rule); `tscommon.clients.glue()` added.
 
 In-session decisions (reversible, documented):

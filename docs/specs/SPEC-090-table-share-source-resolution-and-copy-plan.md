@@ -31,6 +31,13 @@ Implement **inspect-source**: given the validated request, `GetTable` the source
 - **Clone** the source definition into a portable structure: `columns`, `partitionKeys`, `serde/inputFormat/outputFormat`, `tableType`, and the `TBLPROPERTIES` to carry (incl. `projection.*`, `storage.location.template`, serde params) — everything except `LOCATION`, catalog/DB identity, and stat/owner metadata.
 - **List** the source objects under the resolved `LOCATION` (`tscommon.s3_listing`), computing the object count + total bytes and preserving each object's **key relative to the source prefix** (for layout-preserving copy).
 - **Enforce caps**: `SHARE_MAX_OBJECTS` and `SHARE_MAX_TOTAL_BYTES` (named constants); exceeding either is a whole-request terminal failure with a "too large for v1 — S3 Batch Ops deferred" reason.
+
+> **Superseded by SPEC-160 (2026-08-10):** S3 Batch Operations is **rejected, not deferred**. Its
+> Copy operation cannot rewrite a key (`TargetKeyPrefix` prepends the *full* source key), it caps
+> objects at 5 GB where `UploadPartCopy` already handles more, and one job writes to one destination
+> bucket while recipients span two. The scale path is a top-level **Step Functions Distributed Map**
+> over a flat `(recipient × object)` manifest. Full entry: `decisions.md` → *Table Share*.
+
 - Emit `{ tableDefinition, location:{bucket,prefix}, objects:[{relKey,size}], partitioned:boolean }` for the `Map`.
 - Wire as the SFN state after `validate` (before the recipient `Map`).
 
