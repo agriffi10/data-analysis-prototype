@@ -393,23 +393,31 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 
 ## `cpcommon/transfer/config.py` — sizing the Distributed Map
 
-**`MAX_ITEMS_PER_BATCH` (50 until SPEC-161, now 10).** A batch IS a child execution's input, and Step Functions caps that
+**`MAX_ITEMS_PER_BATCH` (50 until SPEC-161, now 8).** A batch IS a child execution's input, and Step Functions caps that
 at **256 KB**. The bound is taken against S3's worst case rather than a typical key, because a key
 is user-controlled and the failure it prevents is a whole batch refused at start time: a source key
 and a destination key can each be 1024 bytes, and a bucket name 63, which puts one manifest item
-near **2.3 KB**. At 50 items that was ~112 KB — under half the limit — and at 10 it is ~23 KB.
+near **2.3 KB**. At 50 items that was ~112 KB — under half the limit — and at 8 it is ~18.9 KB.
 `test_a_worst_case_batch_stays_under_the_input_limit`
 (`lambdas/control-plane-common/test_transfer_cpcommon.py`) **computes** that rather than asserting
 the number, so raising the constant without re-checking it fails the build.
 
 **The second bound is time, and SPEC-161 is where it stopped being slack** — it is now the binding
-one, and it is why this constant is 10 rather than 50. The sentence that used to sit here read "50
-server-side copies on the bounded pool finish far inside copy-objects' 900-second timeout even when
-several go multipart", and that was true only because table-share's TOTAL cap was 20 GiB, so a batch
-could never exceed a whole table. Raising the total to 1 TiB removed that implicit bound. The bound
-now lives with `SHARE_MAX_OBJECT_BYTES` (entry above): `MAX_ITEMS_PER_BATCH x SHARE_MAX_OBJECT_BYTES`
-must copy inside 900 s, which `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes.
-**These two constants can no longer be changed independently of each other or of table-share's
+one, and it is why this constant is **8**. The sentence that used to sit here read "50 server-side
+copies on the bounded pool finish far inside copy-objects' 900-second timeout even when several go
+multipart", and that was true only because table-share's TOTAL cap was 20 GiB, so a batch could
+never exceed a whole table. Raising the total to 1 TiB removed that implicit bound.
+
+**The bound is a MAKESPAN, and `items x object-size` is NOT it** — that product was the first
+replacement tried and it is wrong for the same reason the sentence before it was. `copy_batch`
+hands one WHOLE object to each of `COPY_CONCURRENCY` workers and `copy_one` part-copies serially,
+so a batch costs `ceil(items / COPY_CONCURRENCY)` **rounds of its slowest object**, not its total
+bytes over an aggregate rate. **8 = `COPY_CONCURRENCY` makes that ceiling one**, so a batch costs
+one object's time — 429 s at `SHARE_MAX_OBJECT_BYTES` 10 GiB, inside two thirds of the 900 s
+timeout. At 10 items it was two rounds and 859 s; the product reading of the same configuration
+said 537 s and stayed green. `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes the
+makespan and `test_a_batch_is_exactly_one_round_of_the_worker_pool` pins the equality.
+**These constants can no longer be changed independently of each other or of table-share's
 per-object cap.**
 
 **`MAP_MAX_CONCURRENCY = 20`.** Deliberately not the **10,000** default. Each child execution

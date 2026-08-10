@@ -176,8 +176,9 @@ keys + sizes, shared ignore rules incl. `_`/`.`-prefixed path segments) → enfo
 `{tableDefinition, location, objects[], partitioned}` merged over the request.
 
 > **Superseded (SPEC-161).** The caps are now `SHARE_MAX_OBJECTS` 20,000 /
-> `SHARE_MAX_TOTAL_BYTES` 1 TiB, plus a new `SHARE_MAX_TRANSFER_ITEMS` (20,000) on
-> `recipients × objects`, and the emitted shape is
+> `SHARE_MAX_TOTAL_BYTES` 1 TiB / `SHARE_MAX_OBJECT_BYTES` 10 GiB, plus two product caps on the
+> recipient count — `SHARE_MAX_TRANSFER_ITEMS` (20,000) and `SHARE_MAX_TRANSFER_BYTES` (3 TiB) —
+> and the emitted shape is
 > `{definitionKey, location, copyPlanKey, objectCount, partitioned}` — the definition
 > travels by pointer too. See the SPEC-161 section below.
 
@@ -259,9 +260,12 @@ siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok
 Three changes, none of them to the transfer mechanism (that is SPEC-160):
 
 - **Caps re-sized.** `SHARE_MAX_OBJECTS` 20,000 (bound: `inspect-source`'s listing
-  time), `SHARE_MAX_TOTAL_BYTES` 1 TiB (bound: the Map Run's wall clock), and a new
-  `SHARE_MAX_TRANSFER_ITEMS` 20,000 on `recipients × objects` (bound: the manifest
-  write and the collector's read-back). `SHARE_MAX_RECIPIENTS` stays 50.
+  time), `SHARE_MAX_TOTAL_BYTES` 1 TiB (bound: one copy of the source only),
+  `SHARE_MAX_OBJECT_BYTES` 10 GiB (bound: a batch's makespan), and two **product** caps on
+  the recipient count, because every manifest item is a full copy —
+  `SHARE_MAX_TRANSFER_ITEMS` 20,000 (bound: the manifest write and the collector's
+  read-back) and `SHARE_MAX_TRANSFER_BYTES` 3 TiB (bound: the state machine's timeout).
+  `SHARE_MAX_RECIPIENTS` stays 50; `MAX_ITEMS_PER_BATCH` 50 → 8.
 - **The definition travels by pointer**, as `definitionKey`.
 - **`TimeoutSeconds` 10,800** (top-level), plus an **EventBridge `TIMED_OUT` rule** — the
   timeout alone cannot notify anyone, because Step Functions catchers do not cover top-level

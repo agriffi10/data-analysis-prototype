@@ -392,20 +392,34 @@ def test_the_timeout_is_fed_from_a_named_value_and_clears_the_caps():
     copy_seconds = ts_config.SHARE_MAX_TRANSFER_BYTES / throughput
 
     asl = _asl()
-    finish_concurrency = asl["States"]["FinishRecipients"]["MaxConcurrency"]
-    create_timeout, _ = _verb_sizing("create-table")
-    finish_seconds = math.ceil(ts_config.SHARE_MAX_RECIPIENTS / finish_concurrency) * create_timeout
+    # EVERY serial phase in the window, read from the machine and the sizing rather than listed
+    # by hand: the two inline Maps each cost ceil(recipients / their own MaxConcurrency) rounds
+    # of their verb's timeout, and the four once-per-request verbs run end to end. An earlier
+    # version enumerated three of the six from memory and undercounted by 165s, which is the
+    # same shape of mistake as measuring against the wrong unit — a term simply left out.
+    def _map_seconds(state, verb):
+        rounds = math.ceil(ts_config.SHARE_MAX_RECIPIENTS / asl["States"][state]["MaxConcurrency"])
+        return rounds * _verb_sizing(verb)[0]
+
+    finish_seconds = _map_seconds("FinishRecipients", "create-table")
+    guard_seconds = _map_seconds("GuardRecipients", "check-target-absent")
     serial_seconds = sum(
         _verb_sizing(v)[0]
-        for v in ("inspect-source", "build-transfer-manifest", "collect-transfer-results")
+        for v in (
+            "validate-authorize",
+            "inspect-source",
+            "build-transfer-manifest",
+            "collect-transfer-results",
+        )
     )
-    total = copy_seconds + finish_seconds + serial_seconds
+    total = copy_seconds + finish_seconds + guard_seconds + serial_seconds
 
     assert total < _timeout_seconds(), (
         f"the worst share the caps allow needs {total:,.0f}s — copy {copy_seconds:,.0f}s for "
         f"{ts_config.SHARE_MAX_TRANSFER_BYTES / 1024**4:,.0f} TiB at {throughput / 1e6:.0f} MB/s, "
-        f"finish Map {finish_seconds:,.0f}s, serial verbs {serial_seconds:,.0f}s — against a "
-        f"{_timeout_seconds()}s ceiling. Lower SHARE_MAX_TRANSFER_BYTES or raise the timeout."
+        f"guard Map {guard_seconds:,.0f}s, finish Map {finish_seconds:,.0f}s, serial verbs "
+        f"{serial_seconds:,.0f}s — against a {_timeout_seconds()}s ceiling. Lower "
+        f"SHARE_MAX_TRANSFER_BYTES or raise the timeout."
     )
 
 
