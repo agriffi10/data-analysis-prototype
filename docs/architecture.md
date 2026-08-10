@@ -167,6 +167,24 @@ browser-direct.
 - **Outcomes via the notifications inbox** (SPEC-058 trusted-producer contract; best-effort;
   `@notifies_on_failure` on every verb; friendly wording per SPEC-106). The UI never blocks —
   transient toast + pending state; terminal SFN states write nothing durable.
+- **At-least-once delivery does NOT give you a re-run** (measured 2026-08-10, applies to all four
+  planes). The Pipe starts executions `FIRE_AND_FORGET` and **cannot name them** — Pipes exposes no
+  execution-name parameter at all — and the names it generates are **v5 UUIDs**, i.e. derived
+  deterministically from something stable per message (the SQS `messageId` is v4/random, so it is
+  not simply copied). AWS is explicit about what a repeated name then does, and the middle case is
+  the trap: same name + same input **while the original is still running** → the call succeeds and
+  returns the original execution (no second run); but if the original has **closed**, or the input
+  differs, it is a **400 `ExecutionAlreadyExists`**, and the name is only reusable **90 days after
+  it closes**. So a redelivered SQS message does not retry the work — it is either swallowed or it
+  **fails the target invocation**, and a target that keeps failing exhausts the redrive policy and
+  lands on the request DLQ, where SPEC-126's drain turns it into a **user-facing failure
+  notification for a request that may have SUCCEEDED**. Do not design a plane's recovery story
+  around SQS redelivery.
+  > **Unproven, and cheap to settle:** that Pipes derives the name *per message* is inferred from
+  > the v5 version nibble — the namespace is private, so no combination of the message id, pipe ARN
+  > or state-machine ARN reproduces an observed name. Redrive one real request after its execution
+  > has closed and look for a second execution: if one appears, the naming is per-delivery and this
+  > whole bullet is wrong in the safe direction. Until then, treat redelivery as unreliable.
 - **Ops.** Request DLQs are swept every 10 min by the shared drain (SPEC-126; the notifications DLQ
   stays undrained — circular). All planes emit structured logs (SPEC-127→137).
 

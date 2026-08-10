@@ -79,7 +79,11 @@ group name to `{Key, Size}` entries and that **`Key` is absolute, not prefix-rel
 owed: the SCALE half** — that run was one small batch, so share a **several-hundred-object** table
 to two recipients where one conflicts: several child executions, the conflicting one refused with
 `conflict` and **no child execution of its own**, the other receiving every object at the right key,
-and `logs/service=table-share/` carrying one `batch copied` event per child.
+and `logs/service=table-share/` carrying one `batch copied` event per child. **Also owed, and
+plane-wide rather than 160's:** redrive one request after its execution has closed, to settle
+whether the Pipe's **deterministic (v5) execution names** make SQS redelivery a no-op, a false
+DLQ failure, or a real retry — `architecture.md` → *Control Planes → The shared pattern* records
+what is known and what is inferred.
 
 **Three arcs remain filed as Draft (2026-08-10) — authored, not started.** **162→163** feature flags (a git-controlled per-environment
 JSON at `_config/feature-flags.json` in the **user-space** bucket beside `_directory/` — the admin
