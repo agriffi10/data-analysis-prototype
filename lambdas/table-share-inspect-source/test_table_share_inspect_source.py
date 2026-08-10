@@ -100,9 +100,19 @@ def _plan_writes():
     return written
 
 
+#: What inspect-source wrote to the definition object, most recent last (SPEC-161 FR-002).
+#: Same pointer discipline as the plan above, and the same test consequence: the assertions
+#: that used to read ``out["tableDefinition"]`` read the written content instead.
+_DEFINITIONS: list = []
+
+
 def _setup(table=None, objects=None, glue_error=None):
     clients._glue = _FakeGlue(table=table, error_code=glue_error)
     plan = _plan_writes()
+    _DEFINITIONS.clear()
+    m.copy_plan.write_definition = lambda request, definition: (
+        _DEFINITIONS.append(definition) or "table-share/h/definition.json"
+    )
     clients._s3 = _FakeS3(objects if objects is not None else [("alice/sales/part-0.parquet", 100)])
     return plan
 
@@ -138,9 +148,25 @@ def test_flat_external_table_emits_copy_plan():
     assert out["actor"] == "alice" and out["tableName"] == "orders_copy"
 
 
+def test_the_definition_travels_by_pointer_and_not_on_the_state():
+    """SPEC-161 FR-002 AC1 — the state carries a key; the columns live in the object.
+
+    Asserted on the emitted dict rather than only on the written content, because the
+    regression that undoes this spec is putting the value BACK beside the key, which every
+    other test here would still pass.
+    """
+    _setup(table=_table())
+    out = m.handler(_event(), None)
+
+    assert out["definitionKey"] == "table-share/h/definition.json"
+    assert "tableDefinition" not in out
+    assert len(_DEFINITIONS) == 1
+
+
 def test_clone_carries_definition_and_strips_source_metadata():
     _setup(table=_table(parameters={"classification": "parquet"}))
-    d = m.handler(_event(), None)["tableDefinition"]
+    m.handler(_event(), None)
+    d = _DEFINITIONS[-1]
     assert d["columns"] == [
         {"name": "id", "type": "bigint"},
         {"name": "note", "type": "string", "comment": "free text"},
@@ -164,7 +190,7 @@ def test_projection_partitioned_table_passes_with_props():
            objects=[("alice/sales/year=2025/part-0.parquet", 10)])
     out = m.handler(_event(), None)
     assert out["partitioned"] is True
-    d = out["tableDefinition"]
+    d = _DEFINITIONS[-1]
     assert d["partitionKeys"] == [{"name": "year", "type": "string"}]
     assert d["tableProperties"]["projection.enabled"] == "true"
     assert d["tableProperties"]["storage.location.template"].endswith("year=${year}/")
@@ -270,13 +296,13 @@ def test_total_bytes_cap():
 
 
 def test_an_oversized_table_definition_is_a_whole_request_terminal():
-    """The last unbounded, USER-CONTROLLED term on the Map's state.
+    """SPEC-161 FR-002 AC4 — the bound is Athena's, not Step Functions', and it still bites.
 
-    columns/comments and the source's Glue table properties are cloned verbatim, and a user
-    sets both from the query workspace. Measured with the copy plan already by pointer and
-    50 recipients failing, 1,000 columns carrying 255-char comments reached 150% of Step
-    Functions' 256 KB payload — States.DataLimitExceeded on the Map, destroying every
-    per-recipient outcome. Rejected here, before any recipient runs.
+    The definition no longer rides on the state, so the 256 KB payload limit is not what sizes
+    this any more. What does is Athena's 262,144-byte query-string quota, which is hard: the
+    whole definition renders into one CREATE EXTERNAL TABLE, and a statement over it is
+    refused. Rejected here, before the write and before any recipient runs, so nobody gets a
+    definition object that cannot be rendered.
     """
     wide = _table()
     wide["StorageDescriptor"]["Columns"] = [
@@ -288,6 +314,7 @@ def test_an_oversized_table_definition_is_a_whole_request_terminal():
         m.handler(_event(), None)
 
     assert excinfo.value.reason == "source_definition_too_large"
+    assert not _DEFINITIONS, "a refused share must leave no definition object behind"
 
 
 def test_an_ordinary_wide_table_is_still_accepted():
@@ -299,6 +326,35 @@ def test_an_ordinary_wide_table_is_still_accepted():
     _setup(table=ordinary)
 
     assert m.handler(_event(), None)["copyPlanKey"]
+
+
+def test_a_hundred_commented_columns_with_projection_is_accepted():
+    """SPEC-161 FR-002 AC3 — the shape the arc exists for, at the old cap's breaking point.
+
+    100 columns each carrying a 255-character comment serialise to roughly 32 KiB, which is
+    exactly where SHARE_MAX_DEFINITION_BYTES used to sit. It is the concrete table the spec
+    names, and under the old cap it was a coin flip.
+    """
+    keys = [{"Name": "dt", "Type": "string"}]
+    wide = _table(
+        partition_keys=keys,
+        parameters={
+            "projection.enabled": "true",
+            "projection.dt.type": "date",
+            "projection.dt.range": "2020-01-01,NOW",
+            "storage.location.template": f"s3://{USER_BUCKET}/alice/sales/dt=${{dt}}/",
+        },
+    )
+    wide["StorageDescriptor"]["Columns"] = [
+        {"Name": f"column_number_{i:03d}", "Type": "string", "Comment": "c" * 255} for i in range(100)
+    ]
+    _setup(table=wide, objects=[("alice/sales/dt=2025-01-01/part-0.parquet", 10)])
+
+    out = m.handler(_event(), None)
+
+    assert out["definitionKey"] == "table-share/h/definition.json"
+    assert len(_DEFINITIONS[-1]["columns"]) == 100
+    assert _DEFINITIONS[-1]["tableProperties"]["projection.enabled"] == "true"
 
 
 if __name__ == "__main__":

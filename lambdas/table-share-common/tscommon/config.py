@@ -16,10 +16,15 @@ Attributes:
     state payload raises a limit error on the Map that destroys every per-recipient outcome
     the Map exists to preserve. A test computes the worst case from these constants, so
     changing one without re-checking the other fails the build.
-  SHARE_MAX_DEFINITION_BYTES: Cap on the serialised cloned table definition — the last
-    unbounded term on the Map's state, and a user-controlled one, since a user can set both
-    columns and table properties from the query workspace. Rejected in inspect-source as a
-    whole-request terminal before any recipient runs.
+  SHARE_MAX_DEFINITION_BYTES: Sanity check on the serialised cloned table definition, and
+    since SPEC-161 that is ALL it is — it is no longer a bound on the Step Functions state,
+    because the definition travels by pointer. What sizes it now is Athena's query-string
+    quota: the definition is rendered into one CREATE EXTERNAL TABLE, and Athena refuses a
+    query string over 262,144 bytes (a hard quota). The rendered DDL is of the same order as
+    the serialised JSON — the backticks and quotes replace the JSON keys — so a 128 KiB
+    ceiling on the object leaves roughly a factor of two before the statement itself is
+    refused. Rejected in inspect-source as a whole-request terminal, before the write and
+    before any recipient runs, so nobody gets a definition that cannot be rendered.
 """
 
 SHARE_MAX_OBJECTS = 1000
@@ -29,4 +34,4 @@ RECIPIENT_KINDS = frozenset({"user", "space"})
 
 SHARE_MAX_RECIPIENTS = 50
 
-SHARE_MAX_DEFINITION_BYTES = 32 * 1024
+SHARE_MAX_DEFINITION_BYTES = 128 * 1024

@@ -43,6 +43,10 @@ _BODIES = {
         "that table has too many columns (or too much column detail) to share. "
         "Please share a narrower table."
     ),
+    "definition_unreadable": (
+        "we couldn't read the table's own definition, so no table was created. "
+        "Please try again or contact the Administrator."
+    ),
     "source_location_unsupported": "the source table's data location isn't supported.",
     "unknown_user": "there is no user with that name.",
     "unknown_space": "there is no shared space with that name.",

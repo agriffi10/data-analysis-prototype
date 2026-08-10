@@ -5,8 +5,10 @@ its definition verbatim, lists the source data objects, and enforces the copy ca
 with no copy or create side effects. Every rejection is a whole-request terminal failure, so no
 recipient runs.
 
-The object list goes to S3 and travels by pointer rather than on the state — inline, the Map's
-state reached 95% of the payload limit at the shipped caps.
+Neither of the two things it produces rides on the state. The object list went to S3 first
+(inline, the Map's state reached 95% of the payload limit at the shipped caps); SPEC-161 sent
+the cloned definition the same way, because it was the last user-controlled term left and a
+wide commented table breached the limit on its own.
 
 The service name is the control plane, not the function, so one share's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
@@ -40,8 +42,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The request merged with the cloned definition, source location, copy plan key, object
-      count and partitioned flag.
+      The request merged with the definition key, source location, copy plan key, object count
+      and partitioned flag.
 
     Raises:
       TerminalError: Any source shape or cap rejection. It is a whole-request failure, so no
@@ -52,13 +54,14 @@ def handler(event, context) -> dict:
 
 
 def _enforce_definition_cap(definition, database, table) -> None:
-    """Rejects a cloned definition too large to ride on the Step Functions state.
+    """Rejects a cloned definition too large for Athena to accept as one statement.
 
-    The object list travels by pointer now, but the cloned definition does not — and it is
-    user-controlled, since the columns and the source's table properties are copied verbatim
-    and a user can set both from the query workspace. Rejected here as a whole-request terminal
-    before any recipient runs, matching the object and byte caps rather than failing 50
-    recipients one at a time.
+    The definition travels by pointer since SPEC-161, so this is no longer about the Step
+    Functions state — it is about what create-table will do with it. The whole definition is
+    rendered into a single CREATE EXTERNAL TABLE, and Athena refuses a query string over
+    262,144 bytes. Rejected here as a whole-request terminal before the write and before any
+    recipient runs, matching the object and byte caps rather than failing 50 recipients one at
+    a time with an Athena error each.
 
     Args:
       definition: The cloned definition.
@@ -82,18 +85,20 @@ def _enforce_definition_cap(definition, database, table) -> None:
 
 
 def _inspect_source(event) -> dict:
-    """Clones the source, lists its objects, enforces the caps and writes the plan.
+    """Clones the source, lists its objects, enforces the caps and writes both artifacts.
 
-    The record carries the plan, not the objects: counts and totals are what an operator needs
-    to tell a share that was too large from one that was mis-scoped, and the object keys live
-    in the plan the state machine carries. The object count stays on the state so a reader of
-    the execution can see the size of the share without fetching the plan.
+    The record carries the keys, not the contents: counts and totals are what an operator needs
+    to tell a share that was too large from one that was mis-scoped, and the object keys and
+    the column list live in the objects the state machine points at. The object count stays on
+    the state so a reader of the execution can see the size of the share without fetching them.
+
+    Every cap is enforced before either write, so a refused share leaves nothing behind.
 
     Args:
       event: The validated request.
 
     Returns:
-      The request merged with the cloned definition, location, plan key, object count and
+      The request merged with the definition key, location, plan key, object count and
       partitioned flag.
 
     Raises:
@@ -147,7 +152,7 @@ def _inspect_source(event) -> dict:
     )
     return {
         **event,
-        "tableDefinition": definition,
+        "definitionKey": copy_plan.write_definition(event, definition),
         "location": location,
         "copyPlanKey": copy_plan.write(event, objects),
         "objectCount": len(objects),

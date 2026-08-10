@@ -83,6 +83,7 @@ _SENDER_MESSAGES = {
     "a_code_nobody_registered": 'Couldn\'t share "db.orders": something went wrong.',
     "conflict": 'Couldn\'t share "db.orders": a table named "orders_copy" already exists there.',
     "copy_failed": 'Couldn\'t share "db.orders": copying the data failed.',
+    "definition_unreadable": 'Couldn\'t share "db.orders": we couldn\'t read the table\'s own definition, so no table was created. Please try again or contact the Administrator.',
     "create_failed": 'Couldn\'t share "db.orders": creating the table failed. Please try again or contact the Administrator.',
     "create_timeout": 'Couldn\'t share "db.orders": creating the table failed. Please try again or contact the Administrator.',
     "forbidden": "You don't have access to share that table.",
