@@ -90,6 +90,22 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
+  // ── Settings documents refusing to be overwritten from a body they could not
+  // parse. The read-modify-write path treats "unreadable" as a failure rather than
+  // as the empty document, because the write is an unconditional PutObject: an
+  // empty misread would be COMMITTED, discarding the whole document. The user
+  // needs to know the save didn't happen, and that nothing was lost. ──
+  {
+    code: 'SavedQueriesUnreadable',
+    message: `Your saved queries couldn’t be read, so nothing was changed. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+  {
+    code: 'QueryHistoryUnreadable',
+    message: `Your query history couldn’t be read, so nothing was changed. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
   // Trigger: user aborted an in-flight upload. Not an error to fix. ──
   {code: 'Cancelled', message: 'Upload cancelled.', userFixable: true},
   // Trigger: an object/table/DDL target was missing (S3 404, Glue table-absent).

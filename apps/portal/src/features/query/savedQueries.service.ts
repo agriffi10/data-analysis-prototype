@@ -15,8 +15,9 @@ function storeKey(username: string): string {
   return userSettingsKey(username, 'saved-queries.json');
 }
 
-// Forgivingly parse the store body: a malformed/legacy file falls back to empty
-// rather than erroring (same spirit as the missing-file case).
+// Forgivingly parse the store body FOR DISPLAY: a malformed/legacy file falls
+// back to empty rather than erroring, so a corrupt settings file never locks the
+// user out of the Query page. Read-modify-WRITE uses `parseStoreForWrite`.
 function parseStore(body: string | undefined): SavedQueriesStore {
   if (!body) return emptyStore();
   try {
@@ -26,6 +27,46 @@ function parseStore(body: string | undefined): SavedQueriesStore {
   } catch {
     return emptyStore();
   }
+}
+
+// The same body, parsed for the WRITE path, where "I couldn't understand this"
+// must NOT become "this is empty". The write is an unconditional PutObject, so a
+// body misread as empty is committed as empty — one Save would replace the whole
+// library with the query being saved, and `user_settings/` denies delete + the
+// bucket is unversioned, so there is no way back.
+//
+// This is the same hazard the control planes close with a conditional write
+// (`shared-space-common/cache.py`: treating an unreadable object as absent is
+// "safe only because the create path is conditional"). The browser has no
+// precondition to fall back on, so it refuses instead. An ABSENT object is still
+// the empty store — there is nothing to lose — and only an unreadable one fails.
+function parseStoreForWrite(body: string | undefined): ServiceResult<SavedQueriesStore> {
+  if (!body) return ok(emptyStore());
+  try {
+    const parsed = JSON.parse(body) as SavedQueriesStore;
+    if (parsed?.version === 1 && Array.isArray(parsed.queries)) return ok(parsed);
+  } catch {
+    // Fall through to the shared refusal below.
+  }
+  return {
+    success: false,
+    error: {
+      message: 'Saved queries could not be read, so nothing was changed.',
+      code: 'SavedQueriesUnreadable'
+    }
+  };
+}
+
+// The read that precedes every write. Separate from `getSavedQueries` only in how
+// it treats a body it cannot parse.
+async function readStoreForWrite(username: string): Promise<ServiceResult<SavedQueriesStore>> {
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: storeKey(username),
+    parse: parseStoreForWrite,
+    onMissing: () => ({success: true, data: emptyStore()}),
+    fallbackMessage: 'Failed to load saved queries'
+  });
 }
 
 /** Reads + parses the store. A missing file is the empty state, not an error. */
@@ -55,7 +96,7 @@ async function writeStore(username: string, store: SavedQueriesStore): Promise<S
  * updated in place (keeping list position); a new id is prepended.
  */
 export async function upsertSavedQuery(username: string, query: SavedQuery): Promise<ServiceResult<SavedQueriesStore>> {
-  const current = await getSavedQueries(username);
+  const current = await readStoreForWrite(username);
   if (!current.success) return current;
 
   const existingIdx = current.data.queries.findIndex((q) => q.id === query.id);
@@ -75,7 +116,7 @@ export async function upsertSavedQuery(username: string, query: SavedQuery): Pro
  * delete). An unknown id is a no-op success.
  */
 export async function removeSavedQuery(username: string, id: string): Promise<ServiceResult<SavedQueriesStore>> {
-  const current = await getSavedQueries(username);
+  const current = await readStoreForWrite(username);
   if (!current.success) return current;
 
   const queries = current.data.queries.filter((q) => q.id !== id);

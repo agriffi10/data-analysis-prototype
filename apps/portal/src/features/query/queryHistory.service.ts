@@ -22,8 +22,9 @@ function historyKey(username: string): string {
   return userSettingsKey(username, 'query-history.json');
 }
 
-// Forgivingly parse the history file body: a malformed or legacy file falls back
-// to empty rather than erroring (same spirit as the missing-file case).
+// Forgivingly parse the history file body FOR DISPLAY: a malformed or legacy file
+// falls back to empty rather than erroring, so a corrupt file never breaks the
+// History panel. Read-modify-WRITE uses `parseHistoryForWrite`.
 function parseHistory(body: string | undefined): QueryHistory {
   if (!body) return emptyHistory();
   try {
@@ -33,6 +34,41 @@ function parseHistory(body: string | undefined): QueryHistory {
   } catch {
     return emptyHistory();
   }
+}
+
+// The same body, parsed for the WRITE path. See savedQueries.service.ts for the
+// full reasoning: the write is an unconditional PutObject, so a body misread as
+// empty is committed as empty, and one append would discard the whole history.
+// This file is the ONLY record of a query beyond Athena's ~45-day retention, and
+// the user cannot re-create it — there is no clear/delete, by design.
+// An ABSENT object is still the empty history; only an unreadable one fails.
+function parseHistoryForWrite(body: string | undefined): ServiceResult<QueryHistory> {
+  if (!body) return ok(emptyHistory());
+  try {
+    const parsed = JSON.parse(body) as QueryHistory;
+    if (parsed?.version === 1 && Array.isArray(parsed.entries)) return ok(parsed);
+  } catch {
+    // Fall through to the shared refusal below.
+  }
+  return {
+    success: false,
+    error: {
+      message: 'Query history could not be read, so nothing was changed.',
+      code: 'QueryHistoryUnreadable'
+    }
+  };
+}
+
+// The read that precedes every write. Separate from `getQueryHistory` only in how
+// it treats a body it cannot parse.
+async function readHistoryForWrite(username: string): Promise<ServiceResult<QueryHistory>> {
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: historyKey(username),
+    parse: parseHistoryForWrite,
+    onMissing: () => ({success: true, data: emptyHistory()}),
+    fallbackMessage: 'Failed to load query history'
+  });
 }
 
 /** Reads + parses the history file. A missing file is the empty state, not an error. */
@@ -67,7 +103,7 @@ export async function appendQueryHistory(
   username: string,
   entry: QueryHistoryEntry
 ): Promise<ServiceResult<QueryHistory>> {
-  const current = await getQueryHistory(username);
+  const current = await readHistoryForWrite(username);
   if (!current.success) return current;
 
   const entries = [entry, ...current.data.entries].slice(0, QUERY_HISTORY_MAX);
@@ -87,7 +123,7 @@ export async function updateQueryHistoryEntry(
   queryExecutionId: string,
   patch: Partial<QueryHistoryEntry>
 ): Promise<ServiceResult<QueryHistory>> {
-  const current = await getQueryHistory(username);
+  const current = await readHistoryForWrite(username);
   if (!current.success) return current;
 
   let found = false;

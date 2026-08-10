@@ -59,10 +59,13 @@ export async function listFiles(
   const result = await listWithClient(clientResult.data, bucket, prefix, continuationToken, abortSignal);
   if (result.success || !isExpiryError(result.error.code)) return result;
 
-  // Credentials expired mid-session — refresh once and retry transparently.
+  // Credentials expired mid-session — refresh once and retry transparently. The
+  // signal is threaded through the retry too: dropping it here left SPEC-155
+  // FR-006's guarantee (navigating out of a folder stops the request on the wire)
+  // silently untrue on the one path where the listing takes longest.
   const refreshed = await getS3Client(true);
   if (!refreshed.success) return refreshed;
-  return listWithClient(refreshed.data, bucket, prefix, continuationToken);
+  return listWithClient(refreshed.data, bucket, prefix, continuationToken, abortSignal);
 }
 
 async function listWithClient(

@@ -292,6 +292,24 @@ describe('listFiles', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
+  it('threads the caller AbortSignal through the credential-refresh retry', async () => {
+    // The retry used to be built by hand without the signal, so SPEC-155 FR-006's
+    // guarantee — navigating out of a folder stops the request on the wire — held
+    // for the first attempt and silently not for the retry. Asserted on the RETRY
+    // call specifically: the first call carrying the signal is what made the gap
+    // invisible.
+    const controller = new AbortController();
+    mockSend
+      .mockRejectedValueOnce(Object.assign(new Error('token expired'), {name: 'ExpiredToken'}))
+      .mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
+
+    const result = await listFiles('my-bucket', 'alice/', 'TOKEN-1', controller.signal);
+
+    expect(result.success).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend).toHaveBeenNthCalledWith(2, expect.anything(), {abortSignal: controller.signal});
+  });
+
   it('surfaces the credential error when getS3Client fails (not signed in)', async () => {
     mockGetS3Client.mockResolvedValueOnce({
       success: false,

@@ -67,6 +67,20 @@ describe('errorMessages', () => {
       expect(message).not.toContain('KaboomException');
     });
 
+    it('tells the user a settings write was refused AND that nothing was lost', () => {
+      // These two codes exist because the write path now refuses a document it
+      // could not parse rather than committing the empty fallback over it. Both
+      // must say "nothing was changed" — a bare "Something went wrong" would leave
+      // the user assuming the opposite of what happened.
+      for (const code of ['SavedQueriesUnreadable', 'QueryHistoryUnreadable']) {
+        const {message} = toUserMessage({code, message: 'Unexpected token } in JSON at position 4'});
+        expect(message).toContain('nothing was changed');
+        expect(message).not.toBe('Something went wrong. Contact the Administrator.');
+        // Never the raw parser text.
+        expect(message).not.toContain('JSON');
+      }
+    });
+
     it('preserves service-authored "missed information" text via passthrough codes (FR-005)', () => {
       // InvalidName carries the folder-name validation reason; TooLarge carries the size.
       expect(toUserMessage({code: 'InvalidName', message: 'Folder names cannot contain “/”.'}).message).toBe(
