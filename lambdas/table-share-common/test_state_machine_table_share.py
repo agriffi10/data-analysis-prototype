@@ -236,6 +236,88 @@ def test_the_summary_still_reads_one_flat_per_recipient_array():
     }
 
 
+# ── SPEC-161: the caps and the verbs that have to survive them ──────────────
+
+
+def _verb_sizing(suffix):
+    """The (timeout, memory) locals.tf declares for one table-share verb."""
+    with open(_LOCALS) as handle:
+        match = re.search(
+            rf'^\s*"{suffix}"\s*=\s*\{{[^}}]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)',
+            handle.read(),
+            re.MULTILINE,
+        )
+    assert match, f"locals.tf declares no timeout/memory for {suffix} — the block was reformatted"
+    return int(match.group(1)), int(match.group(2))
+
+
+def test_the_verb_sizing_parse_did_not_go_trivial():
+    """Guards the guard: a regex that stops matching makes the two checks below vacuous."""
+    assert _verb_sizing("copy-objects") == (900, 1024)
+
+
+@pytest.mark.parametrize("suffix", ["build-transfer-manifest", "collect-transfer-results"])
+def test_the_manifest_verbs_are_sized_for_the_transfer_item_cap(suffix):
+    """SPEC-161 FR-001 AC1 — the cap's docstring names these two, so hold them to it.
+
+    They handle the same volume in opposite directions: build-transfer-manifest serialises
+    every transfer item, and collect-transfer-results reads the Map Run export, which carries
+    every batch's input back again. The worst-case byte volume is COMPUTED from the cap and
+    the same worst-case item the batch sizing uses (two 1024-byte keys, two 63-byte buckets),
+    so raising SHARE_MAX_TRANSFER_ITEMS without re-sizing the verbs fails here.
+
+    The multiplier is 8x rather than 1x because the constraint is not the bytes, it is
+    ``json.loads`` of them: a parsed dict of short string keys costs several times its
+    serialised size in Python objects, and the verb holds the source and the parse at once.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from tscommon import config as ts_config
+
+    worst_item = json.dumps({
+        "recipient": "r" * 63, "kind": "space",
+        "srcBucket": "b" * 63, "srcKey": "s" * 1024,
+        "destBucket": "d" * 63, "destKey": "k" * 1024,
+        "size": 5 * 1024**3,
+    })
+    worst_bytes = (len(worst_item.encode()) + 1) * ts_config.SHARE_MAX_TRANSFER_ITEMS
+    timeout, memory = _verb_sizing(suffix)
+
+    assert memory * 1024**2 >= worst_bytes * 8, (
+        f"{suffix} has {memory} MB for a worst-case {worst_bytes / 1024**2:.0f} MB of JSON at "
+        f"SHARE_MAX_TRANSFER_ITEMS={ts_config.SHARE_MAX_TRANSFER_ITEMS:,}"
+    )
+    assert timeout >= 300, f"{suffix} has {timeout}s to move {worst_bytes / 1024**2:.0f} MB"
+
+
+def test_the_recipient_cap_is_unchanged_by_the_scale_work():
+    """SPEC-161 FR-001 AC4, as an explicit pin rather than an absence.
+
+    It bounds the INLINE Map's state and the per-item error detail — neither of which this
+    arc touched — so raising it alongside the others would be a change nothing here sized.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from tscommon import config as ts_config
+
+    assert ts_config.SHARE_MAX_RECIPIENTS == 50
+
+
+def test_the_transfer_item_cap_is_the_binding_one():
+    """The product is what the manifest costs, so it must not exceed either factor's reach.
+
+    A SHARE_MAX_TRANSFER_ITEMS above objects x recipients would be decorative — nothing could
+    ever reach it — and one below SHARE_MAX_OBJECTS would refuse a single-recipient share the
+    object cap just allowed, which is the more confusing of the two failures.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from tscommon import config as ts_config
+
+    assert ts_config.SHARE_MAX_TRANSFER_ITEMS >= ts_config.SHARE_MAX_OBJECTS
+    assert (
+        ts_config.SHARE_MAX_TRANSFER_ITEMS
+        <= ts_config.SHARE_MAX_OBJECTS * ts_config.SHARE_MAX_RECIPIENTS
+    )
+
+
 # ── FR-006: which role holds the Map's permissions ──────────────────────────
 
 

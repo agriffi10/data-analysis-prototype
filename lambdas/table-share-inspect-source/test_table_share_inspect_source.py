@@ -117,12 +117,12 @@ def _setup(table=None, objects=None, glue_error=None):
     return plan
 
 
-def _event():
+def _event(recipients=1):
     return {
         "actor": "alice",
         "source": {"database": "alice", "table": "orders"},
         "tableName": "orders_copy",
-        "recipients": [{"kind": "user", "name": "bob", "valid": True}],
+        "recipients": [{"kind": "user", "name": f"bob{i}", "valid": True} for i in range(recipients)],
     }
 
 
@@ -291,6 +291,73 @@ def test_total_bytes_cap():
         _expect_reason("source_too_large")
     finally:
         m.config.SHARE_MAX_TOTAL_BYTES = original
+
+
+@pytest.mark.parametrize("reason_cap", ["SHARE_MAX_OBJECTS", "SHARE_MAX_TOTAL_BYTES"])
+def test_a_cap_refusal_names_the_measurement_and_the_cap_and_nothing_else(reason_cap):
+    """SPEC-161 FR-005 AC1 — the detail is operator context, so it states what was measured.
+
+    It used to trail a clause naming a deferred bulk-copy escape hatch, which sent an operator
+    reading a failed run to look for a scale path SPEC-160 rejected on the API. The phrase
+    itself is quoted nowhere in this fleet — including here — and
+    ``test_the_retired_refusal_phrasing_is_gone_from_the_fleet`` is what keeps it that way.
+    The user sentence is untouched and never carried it.
+    """
+    original = getattr(m.config, reason_cap)
+    setattr(m.config, reason_cap, 1)
+    try:
+        _setup(table=_table(), objects=[("alice/sales/a.parquet", 100), ("alice/sales/b.parquet", 100)])
+        with pytest.raises(TerminalError) as excinfo:
+            m.handler(_event(), None)
+    finally:
+        setattr(m.config, reason_cap, original)
+
+    assert excinfo.value.reason == "source_too_large"
+    assert "cap 1" in excinfo.value.detail
+    assert "batch" not in excinfo.value.detail.lower()
+
+
+def test_the_transfer_item_cap_is_a_whole_request_terminal():
+    """SPEC-161 FR-001 AC3 — the product neither other cap expresses.
+
+    20,000 objects is fine and 50 recipients is fine; together they are a million manifest
+    lines. Refused here, so the manifest is never written and the guard Map never runs.
+    """
+    original = m.config.SHARE_MAX_TRANSFER_ITEMS
+    m.config.SHARE_MAX_TRANSFER_ITEMS = 5
+    try:
+        plan = _setup(
+            table=_table(),
+            objects=[(f"alice/sales/p{i}.parquet", 1) for i in range(3)],
+        )
+        with pytest.raises(TerminalError) as excinfo:
+            m.handler(_event(recipients=2), None)
+    finally:
+        m.config.SHARE_MAX_TRANSFER_ITEMS = original
+
+    assert excinfo.value.reason == "too_many_transfer_items"
+    assert "2 recipients x 3 objects is 6" in excinfo.value.detail
+    assert "cap 5" in excinfo.value.detail
+    assert plan == [], "a refused share must write no copy plan"
+    assert not _DEFINITIONS, "a refused share must write no definition"
+
+
+def test_the_transfer_item_cap_counts_recipients_times_objects_not_either_alone():
+    """The boundary, from the other side: the same object count passes for one recipient and
+    fails for two. A cap on objects alone could not express that, which is why this exists."""
+    original = m.config.SHARE_MAX_TRANSFER_ITEMS
+    m.config.SHARE_MAX_TRANSFER_ITEMS = 3
+    try:
+        _setup(table=_table(), objects=[(f"alice/sales/p{i}.parquet", 1) for i in range(3)])
+        assert m.handler(_event(recipients=1), None)["objectCount"] == 3
+
+        _setup(table=_table(), objects=[(f"alice/sales/p{i}.parquet", 1) for i in range(3)])
+        with pytest.raises(TerminalError) as excinfo:
+            m.handler(_event(recipients=2), None)
+    finally:
+        m.config.SHARE_MAX_TRANSFER_ITEMS = original
+
+    assert excinfo.value.reason == "too_many_transfer_items"
 
 
 

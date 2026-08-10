@@ -84,6 +84,41 @@ def _enforce_definition_cap(definition, database, table) -> None:
         )
 
 
+def _enforce_transfer_item_cap(event, object_count: int) -> None:
+    """Rejects a share whose ``recipients x objects`` would overrun the transfer manifest.
+
+    Neither cap beside it expresses this one: 20,000 objects is fine and 50 recipients is
+    fine, and together they are a million manifest lines. What the product bounds is the
+    manifest build-transfer-manifest writes and the Map Run export collect-transfer-results
+    reads back, which are the same volume in both directions.
+
+    It counts the REQUESTED recipients, not the ones the guard Map will go on to accept. That
+    is deliberately the conservative reading: refusing on the upper bound is a decision the
+    sender can predict from what they asked for, where refusing on the accepted count would
+    make an identical request succeed or fail depending on which recipients happened to
+    already hold a table of that name. It also fails here, before the guard, so a share too
+    large to transfer costs no Glue reads and no destination listings.
+
+    Args:
+      event: The validated request, carrying the recipient list.
+      object_count: How many source objects the listing found.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``too_many_transfer_items`` when the product exceeds the cap.
+    """
+    recipients = len(event.get("recipients") or [])
+    items = recipients * object_count
+    if items > config.SHARE_MAX_TRANSFER_ITEMS:
+        raise TerminalError(
+            "too_many_transfer_items",
+            f"{recipients} recipients x {object_count} objects is {items} transfer items "
+            f"(cap {config.SHARE_MAX_TRANSFER_ITEMS})",
+        )
+
+
 def _inspect_source(event) -> dict:
     """Clones the source, lists its objects, enforces the caps and writes both artifacts.
 
@@ -103,8 +138,9 @@ def _inspect_source(event) -> dict:
 
     Raises:
       TerminalError: ``source_not_found`` or ``source_not_readable`` from the catalog read, a
-        shape refusal from the clone, ``source_definition_too_large``, ``source_empty``, or
-        ``source_too_large`` when either copy cap is exceeded.
+        shape refusal from the clone, ``source_definition_too_large``, ``source_empty``,
+        ``source_too_large`` when either copy cap is exceeded, or
+        ``too_many_transfer_items`` when the recipient/object product is.
       TransientError: On a retryable Glue or S3 fault.
     """
     source = event.get("source") or {}
@@ -123,16 +159,16 @@ def _inspect_source(event) -> dict:
             raise TerminalError(
                 "source_too_large",
                 f"{database}.{table} has more than {config.SHARE_MAX_OBJECTS} objects "
-                "— too large for v1 (S3 Batch Operations is the deferred path)",
+                f"(cap {config.SHARE_MAX_OBJECTS})",
             )
     if not objects:
         raise TerminalError("source_empty", f"{database}.{table} has no data objects to share")
     if total_bytes > config.SHARE_MAX_TOTAL_BYTES:
         raise TerminalError(
             "source_too_large",
-            f"{database}.{table} is {total_bytes} bytes (cap {config.SHARE_MAX_TOTAL_BYTES}) "
-            "— too large for v1 (S3 Batch Operations is the deferred path)",
+            f"{database}.{table} is {total_bytes} bytes (cap {config.SHARE_MAX_TOTAL_BYTES})",
         )
+    _enforce_transfer_item_cap(event, len(objects))
 
     logger.info(
         "copy plan for %s.%s: %d objects, %d bytes, partitioned=%s",

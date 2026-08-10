@@ -1,9 +1,14 @@
 """Unit tests for tscommon.messages — the sender-facing failure wording.
 
+Also home to the sweep that keeps a RETIRED phrase out of the fleet (SPEC-161 FR-005). The
+scope of that check is all of ``lambdas/``, not this layer, but the phrase it hunts is this
+plane's wording and this is the file wording lives in.
+
 Runnable under pytest or directly: python3 test_messages_tscommon.py.
 """
 
 import os
+import pathlib
 import re
 import sys
 
@@ -94,6 +99,7 @@ _SENDER_MESSAGES = {
     "source_catalog_partitioned": 'Couldn\'t share "db.orders": tables with catalog-registered partitions can\'t be shared (yet).',
     "source_definition_too_large": 'Couldn\'t share "db.orders": that table has too many columns (or too much column detail) to share. Please share a narrower table.',
     "source_empty": 'Couldn\'t share "db.orders": the source table has no data files.',
+    "too_many_transfer_items": 'Couldn\'t share "db.orders": that\'s too many files to copy to that many recipients at once. Please share to fewer recipients, or share a smaller table.',
     "source_is_view": 'Couldn\'t share "db.orders": views can\'t be shared - only tables with data files.',
     "source_location_unsupported": 'Couldn\'t share "db.orders": the source table\'s data location isn\'t supported.',
     "source_not_external": 'Couldn\'t share "db.orders": only base external tables can be shared.',
@@ -201,6 +207,55 @@ def test_a_token_cannot_shadow_the_result_table_name():
 
     assert "orders_copy" in rendered
     assert "SPOOFED" not in rendered
+
+
+# ── the retired refusal phrasing (SPEC-161 FR-005) ──────────────────────────
+
+#: Every ``.py`` under ``lambdas/``, this file excluded — its own patterns would match.
+_FLEET_SOURCES = [
+    p
+    for p in sorted(pathlib.Path(__file__).resolve().parent.parent.rglob("*.py"))
+    if p.name != pathlib.Path(__file__).name and "__pycache__" not in p.parts
+]
+
+#: Phrasings retired by SPEC-161, as case-insensitive patterns. Both said a share above the
+#: caps was "too large for v1" with S3 Batch Operations as the deferred escape hatch. Neither
+#: describes anything true since SPEC-160: the copy IS a Distributed Map, and Batch Ops was
+#: rejected on the API rather than deferred. They are operator-facing — both rode as a
+#: TerminalError DETAIL, which emit_failure deliberately does not forward to the user — and
+#: the cost of leaving them was an operator reading a failed run and going to look for a
+#: scale path that does not exist.
+_RETIRED = (
+    re.compile(r"batch\s*operations", re.IGNORECASE),
+    re.compile(r"batch\s*ops", re.IGNORECASE),
+    re.compile(r"too\s+large\s+for\s+v1", re.IGNORECASE),
+)
+
+
+def test_the_fleet_sweep_found_the_files():
+    """Guards the guard: a glob that matches nothing makes the check below vacuous."""
+    assert len(_FLEET_SOURCES) >= 100, f"only found {len(_FLEET_SOURCES)} Python files"
+
+
+@pytest.mark.parametrize("pattern", _RETIRED, ids=lambda p: p.pattern)
+def test_the_retired_refusal_phrasing_is_gone_from_the_fleet(pattern):
+    """NO EXISTING TEST ASSERTED THE OLD WORDING, which is why this one has to exist.
+
+    The suites assert ``exc.reason`` and the user-facing sentence, and neither ever carried
+    the phrase — so deleting it broke nothing, and re-adding it would break nothing either.
+    A grep is the only thing standing between a stale detail and the next operator.
+    """
+    offenders = [
+        f"{path.relative_to(path.parent.parent)}:{text.count(chr(10), 0, match.start()) + 1}"
+        for path in _FLEET_SOURCES
+        for text in [path.read_text()]
+        for match in pattern.finditer(text)
+    ]
+
+    assert not offenders, (
+        f"the retired /{pattern.pattern}/ phrasing is back — S3 Batch Operations was REJECTED "
+        f"on the API by SPEC-160, not deferred, and the copy is a Distributed Map: {offenders}"
+    )
 
 
 if __name__ == "__main__":

@@ -43,9 +43,17 @@ locals {
     # SPEC-160. The two verbs either side of the Distributed Map. build-transfer-manifest reads
     # the copy plan and writes one JSONL line per (recipient x object) — S3-bound work whose
     # memory is about holding the expanded list, not about parallelism.
-    # collect-transfer-results reads the Map Run's export, which is several small objects.
-    "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 60, memory = 512 }
-    "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 60, memory = 512 }
+    # collect-transfer-results reads the Map Run's export.
+    #
+    # SPEC-161 raised both from 60s/512MB, because these two ARE the binding constraint on
+    # SHARE_MAX_TRANSFER_ITEMS and the cap moved 1,000 -> 20,000. They handle the same volume in
+    # opposite directions: at S3's worst-case 1024-byte keys a transfer item is ~2.3 KB, so
+    # 20,000 items is a ~46 MB manifest to build and serialise, and the Map Run export carries
+    # every batch's input back again. Parsing that at 512 MB is where it would have died first.
+    # The memory is also the CPU dial — a 2048 MB function gets ~4x the CPU of a 512 MB one, and
+    # this is JSON work, so it buys the timeout as much as the headroom.
+    "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
+    "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 300, memory = 2048 }
     # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path, so it takes the smallest shape any verb here has.
     "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 15, memory = 256 }

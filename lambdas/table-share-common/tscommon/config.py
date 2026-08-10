@@ -2,14 +2,30 @@
 
 The shared core — region, user pool identifiers, buckets, workgroup, notifications queue, the
 catalog identifier rule — lives in ``cpcommon.config``. Only table-share's own constants live
-here. The sizing evidence behind the three caps is in ``docs/lambda-rationale.md``.
+here. The sizing evidence behind the four caps is in ``docs/lambda-rationale.md``.
+
+Every cap below is a whole-request terminal in inspect-source, raised before either artifact
+is written, so a refused share leaves nothing behind and no recipient runs.
 
 Attributes:
-  SHARE_MAX_OBJECTS: Object-count cap. A share exceeding it is a whole-request terminal
-    failure — too large for this version, with S3 Batch Operations the deferred escape hatch.
-    Sized so a recipient's parallel server-side copy finishes comfortably inside the copy
-    verb's timeout.
-  SHARE_MAX_TOTAL_BYTES: Total-size cap, sized the same way.
+  SHARE_MAX_OBJECTS: Object-count cap. **What sizes it is inspect-source's listing time.**
+    ``list_data_objects`` pages at 1000 keys, so 20,000 objects is 20 ListObjectsV2 round
+    trips — one to two seconds of a 60-second budget — and the copy plan it writes is about
+    3.4 MB. It is no longer sized by the copy: SPEC-160 made that a Distributed Map over
+    batches, so no single invocation carries a recipient's whole table any more.
+  SHARE_MAX_TOTAL_BYTES: Total-size cap. **What sizes it is the Map Run's wall clock.** The
+    fan-out reaches 160 concurrent server-side copies (``MAP_MAX_CONCURRENCY`` children x
+    ``COPY_CONCURRENCY`` workers), so 1 TiB is roughly six minutes at 20 MB/s per stream and
+    twenty-two at a pessimistic 5 MB/s — comfortably inside the state machine's
+    ``TimeoutSeconds``, which is what a share that cannot finish now runs into.
+  SHARE_MAX_TRANSFER_ITEMS: Cap on ``recipients x objects`` — the manifest's real bound, and
+    the one neither cap above expresses, since 20,000 objects to 50 recipients is a million
+    transfer items. **What sizes it is the manifest write and the collector's read-back**,
+    which are the same volume in both directions: at S3's worst-case 1024-byte keys an item
+    is about 2.3 KB, so 20,000 items is a ~46 MB manifest, and the Map Run export
+    ``collect-transfer-results`` reads carries every batch's input again. Both verbs are
+    sized for that (locals.tf). Step Functions' own limits are nowhere near binding — an
+    ItemReader file may be 10 GB and a Map Run 100,000,000 items.
   RECIPIENT_KINDS: The two recipient kinds a share request may target.
   SHARE_MAX_RECIPIENTS: Recipient cap. What it prevents is not the fan-out but the Map's
     result: each failed item carries the raw Step Functions error, and breaching the 256 KB
@@ -27,8 +43,10 @@ Attributes:
     before any recipient runs, so nobody gets a definition that cannot be rendered.
 """
 
-SHARE_MAX_OBJECTS = 1000
-SHARE_MAX_TOTAL_BYTES = 20 * 1024**3
+SHARE_MAX_OBJECTS = 20_000
+SHARE_MAX_TOTAL_BYTES = 1024**4
+
+SHARE_MAX_TRANSFER_ITEMS = 20_000
 
 RECIPIENT_KINDS = frozenset({"user", "space"})
 

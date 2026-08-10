@@ -410,7 +410,9 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
             "manifestKey": "table-share/" + ("0" * 64) + "/" + ("e" * 80) + "/transfer-manifest.jsonl",
             "resultsBucket": "b" * 63,
             "resultsPrefix": "table-share/" + ("0" * 64) + "/" + ("e" * 80) + "/results",
-            "itemCount": ts_config.SHARE_MAX_OBJECTS * recipients,
+            # The product, not objects x recipients: SPEC-161's SHARE_MAX_TRANSFER_ITEMS is
+            # what bounds this, and it is smaller than the two caps multiplied together.
+            "itemCount": ts_config.SHARE_MAX_TRANSFER_ITEMS,
         },
     }
 
