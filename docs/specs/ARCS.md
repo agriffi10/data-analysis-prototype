@@ -931,3 +931,115 @@ is already the S3 prefix, the principal tag, the Glue database name and a roster
 is discoverable today only by colliding with it at create time, and space names are user-chosen and
 often descriptive. So 158 suggests only what the user can already see, and any other space stays
 typeable. **Do not add the directory "for symmetry with SPEC-146."**
+
+## Table-share-at-scale arc (SPEC-160 → 161 — filed 2026-08-10)
+
+The arc exists because the table-share caps are not a policy — they are the shape of one Lambda.
+`copy-objects` copies every object for a recipient inside a single 900-second invocation, and
+`SHARE_MAX_OBJECTS = 1000` / `SHARE_MAX_TOTAL_BYTES = 20 GiB` were sized backwards from that
+timeout (SPEC-090's delivery doc says so outright). A user with several hundred Parquet part files
+over 20 GiB does not get a slow share; they get a refusal that reads like a product decision and
+is really an implementation detail.
+
+**160 changes the mechanism, 161 moves the ceiling.** Deliberately in that order: 160 must be
+provably behaviour-neutral — same push, same conflict rules, same notifications, same caps — before
+anything is allowed to get bigger, so a regression in the new engine cannot hide behind a new limit.
+
+**S3 Batch Operations was the recorded escape hatch since SPEC-090, and 160 rejects it on
+measurement of the API, not preference.** Its Copy operation cannot rewrite a key:
+`TargetKeyPrefix` *prepends* to the full source key, so a job can only produce
+`bob/…/alice/tables/sales/year=2024/part-0.parquet` — the source's own prefix echoed inside the
+recipient's space, with the recipient table's `LOCATION` pointed at a path that names the sender's
+directory layout. It also caps objects at 5 GB, where `tscommon.copy` already handles more via
+`UploadPartCopy`, and one job writes to exactly one destination bucket. **Step Functions Distributed
+Map** has none of those properties, reads the manifest the plane already writes to the admin bucket,
+and runs the existing copy code unchanged.
+
+The restructure that makes it work is worth stating, because the obvious version does not: the
+Distributed Map is **top level**, over a flat `(recipient × object)` manifest — not nested inside
+the recipient `Map`. That keeps every recipient's objects in one fan-out, sidesteps the nesting
+question entirely, and costs one thing: per-recipient failure attribution stops being a property of
+the Map item and becomes a verb that reads the `ResultWriter` export. `ToleratedFailurePercentage`
+is therefore **100** — the Map Run must always finish so the collector can attribute — and child
+executions are **STANDARD, not EXPRESS**, because a batch may hold a multi-GiB object whose
+multipart copy would blow EXPRESS's 5-minute ceiling and whose at-least-once re-run would recopy
+the batch.
+
+The engine lands on **`cpcommon`**, not `tscommon`, and that is the arc's other reason to exist:
+the send-files arc below is its second caller, and SPEC-156 already settled that `cpcommon` owns
+the algorithm while a domain layer owns the wording.
+
+## Feature-flags arc (SPEC-162 → 163 — filed 2026-08-10)
+
+Everything ships to everyone the moment it merges. The arc adds a git-controlled JSON document in
+the admin bucket, per environment, naming the four primary features on or off — and then actually
+hides a disabled one.
+
+**The split is document-then-gate, and 162 ships something nothing reads.** That is intentional: the
+publish pipeline, the IAM grant and the fallback semantics are all verifiable on their own, and a
+flag set that resolves correctly is a precondition for gating rather than a part of it.
+
+Two decisions carry the arc. **A flag is presentation, never authorization** — turning Query off
+hides the tab and every entry point and revokes nothing; the IAM grants are untouched, and a test
+forbids any service or `lib/` module importing the flags. This is the username directory's advisory
+rule (SPEC-146) applied to a second document, for the same reason: the moment someone treats it as a
+boundary, it becomes one, badly. And **an unreadable document falls back to compiled-in defaults
+(everything on)**, accepting openly that during an outage a deliberate "off" does not take effect —
+the alternative, failing closed, strips the app to Files for everyone on one S3 blip.
+
+**163's hard part is not the tab, it is the cross-feature entry points.** "Create table from this
+folder" lives in the file browser but is a Query feature; "Share table" lives in the Query rail but
+targets Shared Workspaces. Gating component-by-component is exactly how the fourth one ships
+unhidden — the failure mode `process.md` records from `log-forge`'s SPEC-033. So the surfaces live in
+a **registry** with a test that walks it in both states, plus a guard-the-guard that fails if the
+registry ever goes trivial (SPEC-153's discipline).
+
+This arc also gives the portal role its **first grant on the admin bucket**, scoped to one object
+key with no `ListBucket` — worth noticing rather than nodding through, since that bucket has been
+admin-only since SPEC-032.
+
+## Send-files arc (SPEC-164 → 165 → 166 → 167 — filed 2026-08-10)
+
+A user can move a file anywhere inside a space they can reach, and can share a whole *table* with
+anyone — but cannot hand a colleague a file. The browser has no permission to write into another
+user's prefix, which is the isolation model working exactly as designed, so "send these files to
+Bob" needs a privileged path for the same reason table share did.
+
+**It gets its own control plane rather than a mode on table share's.** The two share an algorithm
+(`cpcommon.transfer`, from SPEC-160) and nothing else: different request contract, different
+authorization question, different failure vocabulary. Folding them together would put one queue and
+one DLQ under two unrelated user features, and a malformed send would dead-letter someone's table
+share.
+
+The arc is the table-share arc's shape, one spec per reviewable unit: **164** the plane, the contract
+and validate-authorize; **165** source resolution and the copy plan; **166** the conflict guard, the
+Distributed-Map transfer and the terminals; **167** the UI and the notifications.
+
+Three decisions are settled up front. **The destination is an inbox namespaced by sender** —
+`{target}/shared_files/{sender}/{item}` — mirroring `shared_tables/{table}/`, so two senders never
+collide and provenance is visible in the file browser without a metadata lookup. **A send is a push
+and never an overwrite**: no consent step (table share's recorded precedent), and a non-empty
+destination is a per-recipient `conflict` that names the colliding item. And **the recipient field
+is the field we already built** — SPEC-147's combobox with SPEC-158's prop-supplied source,
+usernames from the directory and spaces from the user's own connections cache, which is precisely
+why 158's prop lift was worth doing before a second consumer existed.
+
+The containment check in 164 deserves its own line, because it is the one place a path bug becomes a
+cross-tenant read: an item's key is validated against a **trailing-slash-normalised** source root, so
+`alice2/` never passes as inside `alice/`, and 165 re-checks every key that comes back from
+`ListObjectsV2` rather than trusting the request-time check.
+
+### Build order across the three 2026-08-10 arcs
+
+They are not independent, and two of the edges are easy to miss:
+
+- **160 before 164→167.** The send-files plane consumes `cpcommon.transfer` — the manifest writer,
+  the batch copier and the result reader — which 160 creates. Building the send arc first would
+  fork the engine, which is the outcome SPEC-156 exists to prevent.
+- **163 before 167.** SPEC-167's *Send to…* control is a gated surface: it declares
+  `Depends On: SPEC-163` and two of its acceptance criteria (FR-001 AC4, FR-006 AC3) require the
+  registry to exist. Shipping 167 first leaves the entry point outside the registry, which is
+  precisely the miss the registry was built to prevent.
+- 161 after 160, and 165→166→167 in order, are internal to their arcs.
+
+162 → 163 has no dependency on the other two arcs and can run in parallel with them.
