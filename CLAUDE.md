@@ -70,15 +70,23 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**No spec is in flight.** The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
+**SPEC-159 is in flight (Draft, not started).** It finishes a papercut fix that stopped halfway:
+the browser's `user_settings/` write path now refuses a document it cannot parse instead of
+overwriting it with an empty one, which closed the data loss and made the failure **permanent**
+(the folder denies delete, the bucket is unversioned, there is no admin UI). 159 is the recovery
+route — quarantine the unreadable object to a sibling key, then write — and it turns on
+distinguishing a **newer schema** from a corrupt body, because quarantining a `version: 2`
+document written by a newer tab would be the downgrade the spec exists to prevent. **No IAM
+change**: it is `GetObject` + `PutObject` inside the user's own prefix.
+
+The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
 and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
 un-opted-into removal, replaces the definition **in place** via `glue:UpdateTable`, and **145 gave it a
 browser surface**: a **Refresh table** item in the Query rail, the always-unchecked removals opt-in, and
 the `columns_removed` notification link that names the columns. The live checks below are now runnable
 from the UI.
 
-**The 2026-08-05 audit arc: 150→156 are COMPLETE, and SPEC-157 and 158 have landed. No spec is in
-flight — every spec in `INDEX.md` is Completed.**
+**The 2026-08-05 audit arc: 150→156 are COMPLETE, and SPEC-157 and 158 have landed.**
 150 was browser+CI guardrails; 151 was the Python control planes, and it closed two defects that
 reached users — a single-file data-quality check that profiled the whole parent folder (and could
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space

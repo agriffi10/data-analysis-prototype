@@ -164,6 +164,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 156 — Lambda Layer Consolidation: Folding the Deliberate Twins onto `cpcommon` | Completed |
 | 157 — Serialize Concurrent Table Refresh | Completed |
 | 158 — Shared-Space Suggestions from the Local Cache | Completed |
+| 159 — `user_settings/` Recovery from an Unreadable Document | Draft |
 
 ## Arcs
 
