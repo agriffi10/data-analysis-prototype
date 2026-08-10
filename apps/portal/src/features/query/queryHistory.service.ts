@@ -1,5 +1,6 @@
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
-import {readJsonDocument, writeJsonDocument} from '../../lib/s3Json';
+import {classifyDocument, quarantineDocument, readJsonDocument, writeJsonDocument} from '../../lib/s3Json';
+import type {DocumentParse, WriteOutcome} from '../../lib/s3Json';
 import {ok} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
@@ -16,52 +17,88 @@ import {QUERY_HISTORY_MAX} from './query.constants';
 // The folder is hidden from the file browser. History is read-only to the
 // user: there is no delete/clear.
 
-const emptyHistory = (): QueryHistory => ({version: 1, entries: []});
+const HISTORY_VERSION = 1;
+
+const emptyHistory = (): QueryHistory => ({version: HISTORY_VERSION, entries: []});
 
 function historyKey(username: string): string {
   return userSettingsKey(username, 'query-history.json');
 }
 
-// Parse for the WRITE path. Same reasoning as savedQueries.service.ts: the write is
-// an unconditional PutObject, so a body misread as empty is COMMITTED as empty and
-// one append discards the whole history. This file is the only record of a query
-// beyond Athena's ~45-day retention and the user cannot re-create it — there is no
-// clear/delete, by design. An absent or zero-byte body is still the empty history.
-function parseHistoryForWrite(body: string | undefined): ServiceResult<QueryHistory> {
-  if (!body) return ok(emptyHistory());
-  try {
-    const parsed = JSON.parse(body) as QueryHistory;
-    if (parsed?.version === 1 && Array.isArray(parsed.entries)) return ok(parsed);
-  } catch {
-    // Fall through to the shared refusal below.
-  }
-  return {
-    success: false,
-    error: {
-      message: 'Query history could not be read, so nothing was changed.',
-      code: 'QueryHistoryUnreadable'
-    }
-  };
+// Classification for the WRITE path. Same reasoning as savedQueries.service.ts: the
+// write is an unconditional PutObject, so a body misread as empty is COMMITTED as
+// empty and one append discards the whole history. This file is the only record of a
+// query beyond Athena's ~45-day retention and the user cannot re-create it — there is
+// no clear/delete, by design.
+function classifyHistory(body: string | undefined): DocumentParse<QueryHistory> {
+  return classifyDocument({
+    body,
+    version: HISTORY_VERSION,
+    empty: emptyHistory,
+    isReadable: (document) => Array.isArray(document.entries)
+  });
 }
 
-// The DISPLAY read, derived from the write parser so the two can never drift apart
-// on what a valid history is. Same validation, different answer to an unreadable
-// body: empty here, a refusal there.
+// The DISPLAY read, derived from the write classifier so the two can never drift
+// apart on what a valid history is. Same validation, different answer to an unusable
+// body: empty here, a refusal or a recovery there.
 function parseHistory(body: string | undefined): QueryHistory {
-  const result = parseHistoryForWrite(body);
-  return result.success ? result.data : emptyHistory();
+  const parsed = classifyHistory(body);
+  return parsed.readable ? parsed.value : emptyHistory();
 }
 
 // The read that precedes every write. Differs from `getQueryHistory` only in how it
 // treats a body it cannot parse.
-async function readHistoryForWrite(username: string): Promise<ServiceResult<QueryHistory>> {
-  return readJsonDocument({
+async function readHistoryForWrite(username: string): Promise<ServiceResult<DocumentParse<QueryHistory>>> {
+  return readJsonDocument<DocumentParse<QueryHistory>>({
     bucket: userSpaceBucket(),
     key: historyKey(username),
-    parse: parseHistoryForWrite,
-    onMissing: () => ({success: true, data: emptyHistory()}),
+    parse: (body) => ok(classifyHistory(body)),
+    onMissing: () => ok({readable: true, value: emptyHistory()}),
     fallbackMessage: 'Failed to load query history'
   });
+}
+
+/**
+ * The history a write should be applied to, quarantining an unreadable document first.
+ *
+ * `savedQueries.service.ts`'s `storeForWrite`, for the other document: readable is
+ * used as-is, NEWER is refused untouched (overwriting would downgrade what a newer tab
+ * wrote), unparseable is copied aside and the write proceeds from the empty history —
+ * and only if that copy succeeded, because a failed quarantine must never become a
+ * silent overwrite.
+ *
+ * The user is not told about any of it (these writes are a side effect of running a
+ * query, not something they asked for), but the document still recovers rather than
+ * staying broken forever.
+ */
+async function historyForWrite(username: string): Promise<ServiceResult<{history: QueryHistory; recovered: boolean}>> {
+  const current = await readHistoryForWrite(username);
+  if (!current.success) return current;
+  if (current.data.readable) return ok({history: current.data.value, recovered: false});
+
+  if (current.data.reason === 'newer') {
+    return {
+      success: false,
+      error: {
+        message: 'Query history was written by a newer version of this app.',
+        code: 'QueryHistoryNewerVersion'
+      }
+    };
+  }
+
+  const quarantined = await quarantineDocument({bucket: userSpaceBucket(), key: historyKey(username)});
+  if (!quarantined.success) {
+    return {
+      success: false,
+      error: {
+        message: 'Query history could not be read, so nothing was changed.',
+        code: 'QueryHistoryQuarantineFailed'
+      }
+    };
+  }
+
+  return ok({history: emptyHistory(), recovered: true});
 }
 
 /** Reads + parses the history file. A missing file is the empty state, not an error. */
@@ -95,16 +132,17 @@ async function writeHistory(username: string, history: QueryHistory): Promise<Se
 export async function appendQueryHistory(
   username: string,
   entry: QueryHistoryEntry
-): Promise<ServiceResult<QueryHistory>> {
-  const current = await readHistoryForWrite(username);
+): Promise<WriteOutcome<QueryHistory>> {
+  const current = await historyForWrite(username);
   if (!current.success) return current;
+  const {history, recovered} = current.data;
 
-  const entries = [entry, ...current.data.entries].slice(0, QUERY_HISTORY_MAX);
-  const next: QueryHistory = {version: 1, entries};
+  const entries = [entry, ...history.entries].slice(0, QUERY_HISTORY_MAX);
+  const next: QueryHistory = {version: HISTORY_VERSION, entries};
 
   const written = await writeHistory(username, next);
   if (!written.success) return written;
-  return {success: true, data: next};
+  return {success: true, data: next, recovered};
 }
 
 /**
@@ -115,22 +153,25 @@ export async function updateQueryHistoryEntry(
   username: string,
   queryExecutionId: string,
   patch: Partial<QueryHistoryEntry>
-): Promise<ServiceResult<QueryHistory>> {
-  const current = await readHistoryForWrite(username);
+): Promise<WriteOutcome<QueryHistory>> {
+  const current = await historyForWrite(username);
   if (!current.success) return current;
+  const {history, recovered} = current.data;
 
   let found = false;
-  const entries = current.data.entries.map((e) => {
+  const entries = history.entries.map((e) => {
     if (e.queryExecutionId === queryExecutionId) {
       found = true;
       return {...e, ...patch};
     }
     return e;
   });
-  if (!found) return {success: true, data: current.data};
+  // As in `removeSavedQuery`: after a recovery the write is no longer optional, or the
+  // unreadable document survives its own quarantine and stays broken.
+  if (!found && !recovered) return {success: true, data: history, recovered};
 
-  const next: QueryHistory = {version: 1, entries};
+  const next: QueryHistory = {version: HISTORY_VERSION, entries};
   const written = await writeHistory(username, next);
   if (!written.success) return written;
-  return {success: true, data: next};
+  return {success: true, data: next, recovered};
 }

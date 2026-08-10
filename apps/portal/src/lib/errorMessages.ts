@@ -90,18 +90,55 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
-  // ── Settings documents refusing to be overwritten from a body they could not
-  // parse. The read-modify-write path treats "unreadable" as a failure rather than
-  // as the empty document, because the write is an unconditional PutObject: an
-  // empty misread would be COMMITTED, discarding the whole document. The user
-  // needs to know the save didn't happen, and that nothing was lost. ──
+  // ── Settings documents whose live body the write path could not use (SPEC-159).
+  // The read-modify-write path never treats "unreadable" as the empty document,
+  // because the write is an unconditional PutObject: an empty misread would be
+  // COMMITTED, discarding the whole document. What follows from that splits three
+  // ways, and each way owes the user a different sentence — what happened to their
+  // data is not the same fact in the three cases. ──
+  //
+  // Recovered: the save WENT THROUGH. The old document couldn't be read, so it was
+  // copied aside and a fresh one written — which means the list the user is now
+  // looking at is missing everything that was in it before, and saying so is the
+  // whole point. Not user-fixable in the sense of an action to take, but not an
+  // administrator's problem either: nothing is broken any more. ──
   {
-    code: 'SavedQueriesUnreadable',
+    code: 'SavedQueriesRecovered',
+    message:
+      'Your saved queries couldn’t be read, so a copy was kept and a new list started. This query was saved; earlier ones aren’t in the list.',
+    userFixable: true
+  },
+  {
+    code: 'QueryHistoryRecovered',
+    message: 'Your query history couldn’t be read, so a copy was kept and a new history started.',
+    userFixable: true
+  },
+
+  // Newer: valid JSON from a LATER version of this app — almost certainly another
+  // tab that has since been updated. Refused deliberately and left untouched, since
+  // overwriting it would downgrade real data. Reloading gets the current build, so
+  // this is the one of the three the user can actually fix. ──
+  {
+    code: 'SavedQueriesNewerVersion',
+    message: 'Your saved queries were updated by a newer version of this app. Reload the page and try again.',
+    userFixable: true
+  },
+  {
+    code: 'QueryHistoryNewerVersion',
+    message: 'Your query history was updated by a newer version of this app. Reload the page and try again.',
+    userFixable: true
+  },
+
+  // Quarantine failed: the document couldn't be read AND couldn't be copied aside,
+  // so the write was refused rather than overwriting it. Nothing changed — which is
+  // the reassurance the user needs, ahead of the cause. ──
+  {
+    code: 'SavedQueriesQuarantineFailed',
     message: `Your saved queries couldn’t be read, so nothing was changed. ${CONTACT_ADMIN}`,
     userFixable: false
   },
   {
-    code: 'QueryHistoryUnreadable',
+    code: 'QueryHistoryQuarantineFailed',
     message: `Your query history couldn’t be read, so nothing was changed. ${CONTACT_ADMIN}`,
     userFixable: false
   },

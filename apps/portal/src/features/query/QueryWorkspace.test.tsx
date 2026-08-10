@@ -520,13 +520,11 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
     });
 
-    it('tells the user when the store could not be read, instead of appearing to save', async () => {
-      // The save path relabels the tab optimistically and its failure log is
-      // DEV-only, so a refusal here used to be indistinguishable from a success:
-      // dialog closed, tab renamed, query not saved, nothing said. The service now
-      // refuses rather than overwriting an unreadable store, which only helps if
-      // the refusal reaches the screen.
-      mockUpsert.mockResolvedValue(fail('Saved queries could not be read.', 'SavedQueriesUnreadable'));
+    // SPEC-159 FR-004: all three write outcomes are asserted by RENDERING the save
+    // flow, not by calling `toUserMessage` — a mapping that exists but is never
+    // reached is exactly the failure mode here, since the save path relabels the tab
+    // optimistically and its failure log is DEV-only. Silence looks like success.
+    async function saveAQuery() {
       seedSingle('SELECT r;');
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
@@ -535,9 +533,46 @@ describe('QueryWorkspace', () => {
       const dialog = screen.getByRole('dialog', {name: 'Save query'});
       await user.type(within(dialog).getByLabelText('Name'), 'My report');
       await user.click(within(dialog).getByRole('button', {name: 'Save'}));
+    }
+
+    it('tells the user when the store could not be read or set aside, instead of appearing to save', async () => {
+      mockUpsert.mockResolvedValue(fail('Saved queries could not be read.', 'SavedQueriesQuarantineFailed'));
+
+      await saveAQuery();
 
       // The mapped wording (SPEC-106), never the raw service text.
       expect(await screen.findByText(/couldn’t be read, so nothing was changed/i)).toBeInTheDocument();
+    });
+
+    it('tells the user to reload when a NEWER version of the app wrote the store', async () => {
+      // Distinct advice, because the cause is a stale tab rather than corruption —
+      // and nothing was quarantined, so nothing is lost.
+      mockUpsert.mockResolvedValue(fail('Saved queries were written by a newer version.', 'SavedQueriesNewerVersion'));
+
+      await saveAQuery();
+
+      expect(await screen.findByText(/newer version of this app/i)).toBeInTheDocument();
+      expect(screen.getByText(/reload the page/i)).toBeInTheDocument();
+    });
+
+    it('tells the user their earlier queries are gone when the save RECOVERED an unreadable store', async () => {
+      // The save succeeded, so nothing throws and the tab renames as usual — this
+      // toast is the only sign that the list is no longer the one they had.
+      mockUpsert.mockResolvedValue({...ok({version: 1, queries: []}), recovered: true});
+
+      await saveAQuery();
+
+      expect(await screen.findByText(/a copy was kept and a new list started/i)).toBeInTheDocument();
+      expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
+    });
+
+    it('says nothing on an ordinary save', async () => {
+      mockUpsert.mockResolvedValue(ok({version: 1, queries: []}));
+
+      await saveAQuery();
+
+      await screen.findByRole('tab', {name: /My report/});
+      expect(screen.queryByText(/a copy was kept/i)).not.toBeInTheDocument();
     });
 
     it('shows a dirty marker on a linked tab whose SQL diverged from the saved query', async () => {

@@ -16,6 +16,7 @@ import {useSaveResults} from './useSaveResults';
 import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
+import type {SavedQueriesWrite} from './useSavedQueries';
 import {useConnections} from '../connections/useConnections';
 import {useAllSchemas, useSchema} from './useSchema';
 import {
@@ -46,6 +47,13 @@ import type {QueryHistoryEntry, QueryTab, SavedQuery, GlueTableSummary} from './
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
+
+// SPEC-159: the saved-queries write failures this screen SPEAKS, as against the ones
+// it logs and swallows. Both mean the store on S3 could not be used and nothing was
+// written — one because a newer build wrote it (reload), one because the unreadable
+// document could not even be copied aside (nothing changed). Listed here rather than
+// inline so the exception to `logBackgroundFailure` stays a short, visible list.
+const SAVED_QUERIES_SPOKEN_CODES = new Set(['SavedQueriesNewerVersion', 'SavedQueriesQuarantineFailed']);
 
 // SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
 // (main), wired to the SPEC-034 data layer. SPEC-041 makes the editor multi-tab:
@@ -392,22 +400,32 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
-  // A saved-queries write that failed because the STORE ITSELF could not be read is
+  // A saved-queries write that failed because the STORE ITSELF could not be used is
   // the one background failure on this screen the user has to be told about, and
   // `logBackgroundFailure` is dev-only. Its silence was calibrated for transient
-  // faults — retry and it works — but this one is permanent until an admin acts, and
-  // the Save flow optimistically renames the tab, so silence reads as success on the
-  // one failure where nothing was written. Everything else keeps the silent log:
-  // narrowed by code so this stays an exception to that rule, not a repeal of it.
-  // Query-history writes are deliberately NOT included — they are a side effect the
-  // user never asked for, and toasting one per run would be the interruption
-  // `logBackgroundFailure` exists to avoid.
+  // faults — retry and it works — but the Save flow optimistically renames the tab,
+  // so silence reads as success on the failures where nothing was written. Everything
+  // else keeps the silent log: narrowed by code so this stays an exception to that
+  // rule, not a repeal of it. Query-history writes are deliberately NOT included —
+  // they are a side effect the user never asked for, and toasting one per run would
+  // be the interruption `logBackgroundFailure` exists to avoid.
   const reportSavedQueriesFailure = (error: unknown) => {
-    if ((error as {code?: string} | null)?.code === 'SavedQueriesUnreadable') {
+    if (SAVED_QUERIES_SPOKEN_CODES.has((error as {code?: string} | null)?.code ?? '')) {
       toast.push({variant: 'danger', message: toUserText(error)});
       return;
     }
     logBackgroundFailure('saved-queries', error);
+  };
+
+  // SPEC-159 FR-004: the recovery is a SUCCESS, so nothing throws and nothing else on
+  // this screen would ever mention it — but the panel the user is looking at has just
+  // lost every query it used to hold, and the copy that was kept is in a folder they
+  // cannot browse. `info` rather than `danger`: the save worked, and unlike the two
+  // refusals this toast stays put until dismissed rather than flashing for four
+  // seconds, because it is the only time the news is delivered.
+  const reportSavedQueriesRecovery = ({recovered}: SavedQueriesWrite) => {
+    if (!recovered) return;
+    toast.push({variant: 'info', message: toUserText({code: 'SavedQueriesRecovered'})});
   };
 
   // SPEC-043 FR-001/002/003: resolve the name prompt into an upsert. targetId is
@@ -427,7 +445,7 @@ export function QueryWorkspace() {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
-    saved.upsert(query).catch(reportSavedQueriesFailure);
+    saved.upsert(query).then(reportSavedQueriesRecovery).catch(reportSavedQueriesFailure);
     tabs.setActiveTabMeta({label: name, savedQueryId: query.id});
     setSaveOpen(false);
     editorRef.current?.focus();
@@ -447,7 +465,7 @@ export function QueryWorkspace() {
   // FR-007: delete a saved query (JSON rewrite, never an S3 delete) and unlink any
   // open tab pointing at it (the tab keeps its SQL; a later Save creates new).
   const handleDeleteSaved = (id: string) => {
-    saved.remove(id).catch(reportSavedQueriesFailure);
+    saved.remove(id).then(reportSavedQueriesRecovery).catch(reportSavedQueriesFailure);
     tabs.unlinkSavedQuery(id);
   };
 

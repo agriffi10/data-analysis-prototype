@@ -1,9 +1,147 @@
-import {GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
+import {CopyObjectCommand, GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {getS3Client} from './s3Client';
 import {withCredentialRetry} from './credentialRetry';
 import {toServiceError} from './serviceResult';
 import {isNotFound} from './s3Errors';
 import type {ServiceResult} from '../types/service.types';
+
+/**
+ * Why a document could not be used, when it could not be used.
+ *
+ * `newer` is NOT a failure of the document — it is a failure of THIS build to be
+ * current, and it is the one outcome that must never be overwritten or quarantined:
+ * doing either would downgrade a document a newer tab wrote, which is the exact class
+ * of loss the write path's refusal exists to prevent.
+ */
+export type UnusableReason = 'unparseable' | 'newer';
+
+/** What a write-path parser returns instead of a bare success/failure. */
+export type DocumentParse<T> = {readable: true; value: T} | {readable: false; reason: UnusableReason};
+
+/**
+ * A read-modify-write's result, plus whether the previous document had to be set aside
+ * before it could be written.
+ *
+ * `recovered` rides alongside `data` rather than inside it because it describes HOW the
+ * write happened, not what was written — the document the caller gets back is a perfectly
+ * ordinary one, and every existing consumer of `data` is unaffected. It is the only signal
+ * that the user's earlier content is no longer in the list they are now looking at, so a
+ * surface that can speak has to be able to see it.
+ */
+export type WriteOutcome<T> = ServiceResult<T> & {recovered?: boolean};
+
+/**
+ * Classify a versioned settings document into readable / newer / unparseable.
+ *
+ * The write path needs three answers where a boolean parser gave two. A body carrying a
+ * `version` GREATER than the one this build writes is a document from a newer client, not
+ * a corrupt one — telling the two apart is the whole point, because the corrupt case is
+ * recovered by quarantining the bytes and the newer case must be left strictly alone.
+ *
+ * Written once here rather than per document: `saved-queries.json` and `query-history.json`
+ * had byte-identical parsers differing only in the array field's name, and a tightened
+ * classifier that reached one of them and not the other is the drift this closes.
+ *
+ * An absent or zero-byte body is the EMPTY document, not a failure — absence has nothing
+ * to lose. Everything else that is not the current version and shaped right is
+ * `unparseable`, including a version BELOW the current one: this build has no reader for
+ * it either.
+ *
+ * @param opts.body - The raw object body; `undefined`/empty means no document yet.
+ * @param opts.version - The document version this build reads and writes.
+ * @param opts.empty - Freshly allocates the empty document (never a shared value).
+ * @param opts.isReadable - Validates the version-matched body's own shape (its array field).
+ * @returns The classification; `value` is present only when `readable`.
+ *
+ * @example
+ * classifyDocument({body, version: 1, empty: emptyStore, isReadable: (d) => Array.isArray(d.queries)})
+ */
+export function classifyDocument<T>(opts: {
+  body: string | undefined;
+  version: number;
+  empty: () => T;
+  isReadable: (parsed: Record<string, unknown>) => boolean;
+}): DocumentParse<T> {
+  const {body, version, empty, isReadable} = opts;
+  if (!body) return {readable: true, value: empty()};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return {readable: false, reason: 'unparseable'};
+  }
+
+  // An array is an object to `typeof`, and `[].version` is `undefined` — the numeric
+  // check below rejects it, but naming the shape here keeps that from being an accident.
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return {readable: false, reason: 'unparseable'};
+  }
+
+  const document = parsed as Record<string, unknown>;
+  if (typeof document.version !== 'number' || !Number.isFinite(document.version)) {
+    return {readable: false, reason: 'unparseable'};
+  }
+
+  // Checked BEFORE the shape: a newer document is newer whatever else it contains, and a
+  // newer schema is free to have renamed or dropped the field this build validates.
+  if (document.version > version) return {readable: false, reason: 'newer'};
+
+  if (document.version === version && isReadable(document)) return {readable: true, value: document as T};
+  return {readable: false, reason: 'unparseable'};
+}
+
+/**
+ * Copy an unreadable document aside, server-side, so the caller may then overwrite it.
+ *
+ * The way out of a refusal that would otherwise be permanent: `user_settings/` denies
+ * `s3:DeleteObject` and the bucket is unversioned, so a body the write path cannot read
+ * can be neither removed nor (correctly) replaced, and saving stays broken for that user
+ * forever. Quarantine keeps the evidence AND unblocks them, which neither destroying the
+ * document nor refusing it does.
+ *
+ * The key is the source key with `.unreadable-{ISO-8601 basic UTC}.json` appended — same
+ * prefix, so the user's existing `GetObject`/`PutObject` grants already cover it and no
+ * IAM changes. Both segments are app-generated (a catalog-safe username, a fixed basename,
+ * a generated timestamp), so `CopySource` needs no percent-encoding.
+ *
+ * A `CopyObject`, never a read-then-write: the unreadable bytes never enter the browser,
+ * so an arbitrarily large or hostile document costs no memory and no second `GetObject`.
+ *
+ * The quarantine object inherits the folder's delete deny, so nothing in the app can ever
+ * remove one — accepted, because one object per genuine corruption event is a smaller
+ * problem than the evidence being destroyed. Never throws.
+ *
+ * @param opts.bucket - The bucket holding the document (source and destination).
+ * @param opts.key - The unreadable document's key.
+ * @param opts.now - Injected for determinism in tests; defaults to the current time.
+ * @returns The quarantine key on success; a failure the caller must treat as fatal.
+ */
+export async function quarantineDocument(opts: {
+  bucket: string;
+  key: string;
+  now?: Date;
+}): Promise<ServiceResult<{quarantineKey: string}>> {
+  const {bucket, key, now = new Date()} = opts;
+  const quarantineKey = `${key}.unreadable-${basicUtcTimestamp(now)}.json`;
+
+  return withCredentialRetry(getS3Client, async (client) => {
+    try {
+      await client.send(new CopyObjectCommand({Bucket: bucket, Key: quarantineKey, CopySource: `${bucket}/${key}`}));
+      return {success: true, data: {quarantineKey}};
+    } catch (err) {
+      return toServiceError(err, 'Failed to set the unreadable file aside');
+    }
+  });
+}
+
+/** `2026-08-10T13:15:00.123Z` → `20260810T131500Z` (ISO-8601 basic, UTC). */
+function basicUtcTimestamp(now: Date): string {
+  return now
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d+Z$/, 'Z');
+}
 
 /**
  * Read one JSON document out of S3 — the skeleton seven services had written out
@@ -73,9 +211,10 @@ export async function readJsonDocument<T>(opts: {
  * committed verbatim. A read that forgivingly returned the EMPTY document for a body it
  * could not parse therefore commits emptiness over the real document — losing the whole
  * file rather than one update. The forgiving parse is right for DISPLAY and wrong before a
- * write, so a read-modify-write must use a `parse` that FAILS on an unreadable body (see
- * `savedQueries.service.ts`'s `parseStoreForWrite`); an absent object is still the empty
- * document, because absence has nothing to lose.
+ * write, so a read-modify-write must classify the body first (`classifyDocument`, and see
+ * `savedQueries.service.ts`'s `storeForWrite`) and reach this function only for a body it
+ * could read or one it has first copied aside with `quarantineDocument`; an absent object
+ * is still the empty document, because absence has nothing to lose.
  *
  * The control planes close the same hazard the other way, with a conditional write —
  * `shared-space-common/cache.py` treats an unreadable object as absent and notes that is
