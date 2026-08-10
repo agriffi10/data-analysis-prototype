@@ -1028,3 +1028,18 @@ The containment check in 164 deserves its own line, because it is the one place 
 cross-tenant read: an item's key is validated against a **trailing-slash-normalised** source root, so
 `alice2/` never passes as inside `alice/`, and 165 re-checks every key that comes back from
 `ListObjectsV2` rather than trusting the request-time check.
+
+### Build order across the three 2026-08-10 arcs
+
+They are not independent, and two of the edges are easy to miss:
+
+- **160 before 164→167.** The send-files plane consumes `cpcommon.transfer` — the manifest writer,
+  the batch copier and the result reader — which 160 creates. Building the send arc first would
+  fork the engine, which is the outcome SPEC-156 exists to prevent.
+- **163 before 167.** SPEC-167's *Send to…* control is a gated surface: it declares
+  `Depends On: SPEC-163` and two of its acceptance criteria (FR-001 AC4, FR-006 AC3) require the
+  registry to exist. Shipping 167 first leaves the entry point outside the registry, which is
+  precisely the miss the registry was built to prevent.
+- 161 after 160, and 165→166→167 in order, are internal to their arcs.
+
+162 → 163 has no dependency on the other two arcs and can run in parallel with them.

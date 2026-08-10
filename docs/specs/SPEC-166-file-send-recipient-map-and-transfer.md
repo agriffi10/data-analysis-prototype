@@ -91,9 +91,12 @@ No send ever overwrites anything.
 
 #### Acceptance Criteria:
 
-- [ ] `collect-transfer-results` reads the Map Run's `manifest.json` → `FAILED_n.json` (and
-      `PENDING_n.json` when present) and marks a recipient `copy_failed` if **any** of its items
-      failed, `ok` only if none did.
+- [ ] `collect-transfer-results` reads **both** `SUCCEEDED_n.json` (for the per-item `failures` a
+      succeeded batch returns) and `FAILED_n.json`/`PENDING_n.json` (for whole-batch failures),
+      exactly as SPEC-160 FR-004 defines — Step Functions files by child-execution **status**, not by
+      payload content, so a `FAILED_n.json`-only collector reports universal success. A recipient is
+      `copy_failed` if **any** of its items failed, `ok` only if none did.
+- [ ] A record with `OutputDetails.Included: false` is unattributable and fails the whole request.
 - [ ] Earlier terminals (`conflict`, `unknown_*`) are never overwritten by attribution.
 - [ ] The whole-request terminal reports every recipient exactly once, with counts — never a list of
       failed keys (bounding the state, matching `bounded_detail`).
@@ -101,23 +104,35 @@ No send ever overwrites anything.
       not a silent success.
 - [ ] A request where every recipient conflicts reaches the terminal with no child execution started.
 
-### FR-004: Execution-role IAM
+### FR-004: IAM — across two roles and one bucket policy
+
+#### Description:
+
+Three distinct surfaces, and getting the split wrong renders and applies cleanly before failing on
+the first real send: the **Lambda execution role** does the copies, the **state-machine role** runs
+the Distributed Map, and the **user-space bucket policy** decides whether either is admitted at all.
 
 #### Acceptance Criteria:
 
-- [ ] `s3:GetObject` on both data buckets for the source read; `s3:PutObject`,
-      `s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts` scoped to `*/shared_files/*` in
-      both — the role can write **nowhere else** in a user's prefix.
+- [ ] **Lambda execution role:** `s3:GetObject` on both data buckets for the source read;
+      `s3:PutObject`, `s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts` scoped to
+      `*/shared_files/*` in both — the role can write **nowhere else** in a user's prefix. This
+      mirrors table share's shipped `*/shared_tables/*` grant one-for-one.
 - [ ] An explicit `s3:DeleteObject` **Deny** on both data buckets and the admin bucket: this plane
       never deletes anything, and the Deny makes that structural rather than behavioural.
-- [ ] `states:StartExecution` on this machine, `states:DescribeExecution`/`StopExecution` on its
-      executions, manifest `GetObject`, and the `ResultWriter` object actions on
-      `{admin_bucket}/file-send/*`.
+- [ ] **State-machine role** (not the execution role — SPEC-160 FR-006's finding):
+      `states:StartExecution` on this machine, `states:DescribeExecution` on its executions, the
+      manifest `GetObject`, and the `ResultWriter` object actions on `{admin_bucket}/file-send/*`.
+      A test asserts these render on the SFN policy and **not** on the execution policy.
+- [ ] SPEC-164 FR-006's user-space bucket-policy allowlist entry is in place; without it every
+      `user` recipient fails `AccessDenied` while every `space` recipient succeeds.
 - [ ] No new `Resource: "*"`; the SPEC-139 plan scan's IAM findings do not grow.
-- [ ] The grants are verified by **policy simulation against the deployed role** — each expected
-      allow paired with an expected deny, and each `implicitDeny` paired with an `allowed` control,
-      because an `implicitDeny` alone cannot distinguish an ungranted action from a wrong ARN
-      (SPEC-149/157's lesson).
+- [ ] The grants are verified by **policy simulation against the deployed role**, each expected allow
+      paired with an expected deny and each `implicitDeny` paired with an `allowed` control
+      (SPEC-149/157's lesson). **The simulation must pass the user-space bucket policy explicitly
+      (`--resource-policy`)** — `simulate-principal-policy` does not consult a bucket policy on its
+      own, so a simulation without it returns `allowed` for a `PutObject` the real call denies. A
+      false green here is worse than no simulation.
 
 ### FR-005: Bounded runs and artifact expiry
 

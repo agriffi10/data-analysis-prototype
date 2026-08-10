@@ -48,7 +48,7 @@ instance of a rule rather than a one-off.
 
 | Flag | Surfaces it hides |
 |---|---|
-| `files` | `/files` route; Files tab + drawer item; the upload/browse entry from the landing page |
+| `files` | `/files` route; Files tab + drawer item; the **"Go to Dashboard"** control an already-signed-in visitor sees on the landing page (the *unauthenticated* landing page has no gated surface — see FR-007) |
 | `query` | `/query` route; Query tab + drawer item; **"Create table from this folder"** in the file browser; **"Refresh table"**, **"Share table"** and **create-view** in the Query schema rail; any "open in Query" link elsewhere |
 | `sharedWorkspaces` | `/connections` route; Connections tab + drawer item; the spaces list in the Files sidebar and mobile drawer; the `?space=` deep link (falls back to personal); **Add members**; the **Shared spaces** recipient kind in the Share-table dialog |
 | `dataQuality` | `/data-quality` and `/data-quality/:space/:requestId` routes; Data quality tab + drawer item; **"Check data quality"** in the selection toolbar and the file-browser dialogs; the data-quality link on a notification |
@@ -121,9 +121,15 @@ discovery exercise.
       table-builder dialog cannot be opened by any path.
 - [ ] With `dataQuality` off, neither the selection toolbar nor the file-browser dialogs offer
       "Check data quality", and no data-quality request can be enqueued from the UI.
-- [ ] With `sharedWorkspaces` off, the Files sidebar shows no spaces list, a `?space=` deep link
-      falls back to the personal space using the existing `useFileSpace` reconciliation (no error
-      banner), and the Share-table dialog offers **only** the Users recipient kind.
+- [ ] With `sharedWorkspaces` off, the Files sidebar shows no spaces list, and the Share-table dialog
+      offers **only** the Users recipient kind.
+- [ ] With `sharedWorkspaces` off, a `?space=` deep link resolves to the **personal** space with
+      **no** notice. This needs its own mechanism — the route ignores the parameter while the flag
+      is off. It must **not** be routed through `useFileSpace`'s `fellBack`: that path fires only for
+      a space the user genuinely cannot browse (gone/revoked/not-yet-active), and it renders the
+      visible "That shared space is no longer available" banner, which would be untrue. A valid
+      space still resolves normally through `useConnections`, because SPEC-162 FR-006 forbids a flag
+      touching a service.
 - [ ] With `sharedWorkspaces` off, the Share-table dialog's kind toggle does not render as a
       single-option control — it renders no toggle at all, and the field is labelled for usernames.
 - [ ] Every removed control's absence is asserted by accessible name in the registry test, not by
@@ -143,8 +149,15 @@ discovery exercise.
 
 - [ ] While `status === 'loading'`, gated surfaces render **nothing** — a tab that appears and then
       vanishes under the pointer is worse than one that arrives a tick late.
-- [ ] The unauthenticated landing page renders identically regardless of flag status; it exposes no
-      gated surface, so it never waits on the document.
+- [ ] The **unauthenticated** landing page renders identically regardless of flag status and never
+      waits on the document — it shows sign-in/sign-up, which nothing gates. This is consistent with
+      SPEC-162 FR-004 gating the fetch on a signed-in user, and it is why the gating contract's
+      landing-page row names the **signed-in** visitor's "Go to Dashboard" control specifically.
+- [ ] An already-signed-in visitor on `/` with `files` **off** sees no "Go to Dashboard" control;
+      the landing page instead offers the first enabled feature, and if **no** feature is enabled it
+      renders the same "not available" state FR-004 defines, naming no feature.
+- [ ] A test covers the signed-in landing page in both states — the surface only exists for an
+      authenticated visitor, so an unauthenticated-only test would pass while shipping it visible.
 - [ ] Under `status === 'fallback'` every feature is on (SPEC-162's compiled defaults) and the app is
       indistinguishable from an all-on `'ready'`.
 - [ ] No layout shift beyond the nav's own reflow, and no spinner is introduced in the header.

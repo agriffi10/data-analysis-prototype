@@ -28,8 +28,8 @@ with a hundred columns shares without hitting a refusal that exists only because
   read by `create-table` — retiring `SHARE_MAX_DEFINITION_BYTES` as a *state-size* bound.
 - An explicit **`TimeoutSeconds`** on the table-share state machine, so a wedged run terminates and
   reaches `NotifyFailure` instead of hanging.
-- An **admin-bucket lifecycle rule** expiring `table-share/` request artifacts (copy plan, manifest,
-  definition, Map Run results).
+- Confirming the **existing** admin-bucket lifecycle rule (`expire-table-share-copy-plans`) covers
+  the new artifacts and cannot expire a live run's manifest underneath it.
 - Updated refusal wording — the "too large for v1 — S3 Batch Ops deferred" reason no longer
   describes anything true.
 
@@ -103,23 +103,26 @@ The state machine declares a `TimeoutSeconds` sized for the new caps.
       delivery doc records the arithmetic.
 - [ ] The SPEC-152 fleet test still passes.
 
-### FR-004: Request artifacts expire
+### FR-004: Request artifacts expire — and not too soon
 
 #### Description:
 
-The copy plan, transfer manifest, definition and Map Run results accumulate forever today — the
-execution role holds an explicit `s3:DeleteObject` **Deny** on the admin bucket, so nothing in code
-can clean them up. A bucket lifecycle rule is the only mechanism available.
+**The rule already exists.** `expire-table-share-copy-plans` on the admin bucket
+(`filter { prefix = "table-share/" }`, `expiration { days = var.admin_results_retention_days }`)
+already covers every artifact this arc adds — manifest, definition and Map Run results all live
+under `table-share/` — and `check "admin_lifecycle_rules_are_prefix_scoped"` already pins the prefix
+scoping. So the obligation here is **inverted**: nothing new needs expiring, and the risk is that an
+existing rule expires a *live* run's manifest underneath it, now that a run can last hours.
 
 #### Acceptance Criteria:
 
-- [ ] An S3 lifecycle rule on the admin bucket expires objects under the `table-share/` prefix after
-      a named retention period.
-- [ ] The rule is scoped **by prefix** — `logs/` (retained forever, SPEC-127) and
-      `locks/table-builder/` (SPEC-157) are demonstrably unaffected; a test or plan assertion pins
-      the prefix scoping.
-- [ ] The retention period is longer than `TimeoutSeconds` by a stated margin, so no live run can
-      have its own manifest expire underneath it.
+- [ ] `admin_results_retention_days` is confirmed to exceed the new `TimeoutSeconds` by a stated
+      margin; if it does not, the variable's default is raised and the delivery doc records both
+      numbers.
+- [ ] The new artifacts (transfer manifest, `definition.json`, the `ResultWriter` export) are
+      confirmed to sit under the `table-share/` prefix, so the existing rule covers them with **no
+      new rule and no new rule id**.
+- [ ] No duplicate lifecycle rule is added, and the existing `check` block still passes.
 - [ ] The execution role's `s3:DeleteObject` Deny on the admin bucket is **unchanged** — expiry is
       the bucket's job, not the plane's.
 
@@ -163,10 +166,10 @@ SHARE_MAX_RECIPIENTS = 50  # unchanged
 - Re-size the constants, add `SHARE_MAX_TRANSFER_ITEMS` and its pre-manifest check, move every
   refusal string onto the `Resolver`, and retire the S3-Batch-Ops phrasing.
 
-### Phase 3: Timeout + lifecycle
+### Phase 3: Timeout + retention check
 
-- Top-level `TimeoutSeconds`; the admin-bucket lifecycle rule scoped to `table-share/` with the
-  `logs/` and `locks/` non-interference assertion.
+- Top-level `TimeoutSeconds`; confirm `admin_results_retention_days` clears it by the stated margin
+  and that the new artifacts fall under the existing `table-share/` rule. **Do not add a rule.**
 
 ### Phase 4: Verification
 

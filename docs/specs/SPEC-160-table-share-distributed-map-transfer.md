@@ -88,7 +88,16 @@ rejected contribute no lines.
       are carried forward unchanged to the terminal summary.
 - [ ] When **no** recipient was accepted the verb emits `itemCount: 0` and writes no manifest; the
       machine skips the Distributed Map (see FR-005) and no child execution starts.
-- [ ] The manifest is written under the request's existing `{hash}` prefix, beside `copy-plan.json`.
+- [ ] The manifest key carries an **execution-unique** component — it is written under
+      `table-share/{hash}/{executionName}/transfer-manifest.jsonl`, **not** beside `copy-plan.json`
+      on the bare `{hash}`. `tscommon.copy_plan.plan_key` is deliberately a pure function of the
+      request, and its docstring argues that a collision between two overlapping executions is
+      harmless *because both plans describe the same object set*. **That argument does not carry
+      over**: the manifest's lines depend on which recipients the guard Map accepted, which is
+      time- and destination-dependent, so two overlapping executions would clobber each other and a
+      Map Run could copy for a recipient its own guard rejected as `conflict`. The execution name is
+      taken from the `Pass`-stamped context (SPEC-157's pattern — reading `$$` in a task's own
+      `Parameters` wraps the payload).
 
 ### FR-002: The Distributed Map state
 
@@ -146,10 +155,25 @@ loading and per-recipient knowledge all move upstream.
 `collect-transfer-results` reads the Map Run's exported results and turns item-level failures back
 into the per-recipient outcomes the rest of the machine already understands.
 
+**Step Functions files results by child-execution status, not by payload content.** FR-003 makes a
+batch carrying per-item failures **succeed** — so those failures are exported to `SUCCEEDED_n.json`,
+and a collector reading only `FAILED_n.json` would report universal success while a recipient
+received an incomplete dataset and a table over it. Attribution therefore has **two** paths, and
+both are required.
+
 #### Acceptance Criteria:
 
-- [ ] The verb reads `ResultWriterDetails` → `manifest.json` → every `FAILED_n.json` (and
-      `PENDING_n.json` when present) from the results prefix.
+- [ ] The verb reads `ResultWriterDetails` → `manifest.json`, then **both**: every
+      `SUCCEEDED_n.json` (for the per-item `failures` list a succeeded batch returns) **and** every
+      `FAILED_n.json` / `PENDING_n.json` (for whole-batch failures — an exhausted `TransientError`
+      retry, a Lambda timeout, an aborted run), where attribution comes from the record's `Input`
+      (the `{"Items": […]}` batch).
+- [ ] A test fixtures a **succeeded** child execution whose `Output` carries a non-empty `failures`
+      list and asserts the affected recipient is `copy_failed` — the case a `FAILED_n.json`-only
+      collector silently passes.
+- [ ] A record whose `OutputDetails.Included` (or `InputDetails.Included`) is `false` — Step
+      Functions may omit a large payload — is treated as **unattributable** and fails the whole
+      request with a clear reason, never as "no failures found".
 - [ ] A recipient with **zero** failed items is `ok` and proceeds to `create-table`; a recipient
       with **one or more** failed items is `copy_failed` and does **not** get a table.
 - [ ] Recipients carried through from the guard Map (`conflict`, `unknown_target`) keep their
@@ -181,22 +205,32 @@ finish Map.
 - [ ] The machine still carries its `NotifyFailure` state before `Fail` on every failure path
       (SPEC-152); the fleet test still passes with the new states present.
 
-### FR-006: Execution-role IAM
+### FR-006: State-machine-role IAM
 
 #### Description:
 
-The table-share execution role gains exactly what the Distributed Map needs, scoped to this machine
-and this prefix.
+**The Distributed Map's permissions belong to the STATE MACHINE role, not the Lambda execution
+role.** AWS is explicit that it is the state machine role that invokes `StartExecution` for a
+Distributed Map and that reads/writes the `ItemReader` and `ResultWriter` objects. The table-share
+module defines both roles — `aws_iam_role.execution` (Lambda trust, `execution.json.tftpl`) and
+`aws_iam_role.sfn` (Step Functions trust, `sfn-permissions.json.tftpl`) — and the latter currently
+holds only `lambda:InvokeFunction` and logs, with **no S3 and no `states:` at all**. Granting these
+to the execution role renders green, applies green, passes the policy-render test, and fails on the
+first real share with `AccessDenied` at the `ItemReader`.
 
 #### Acceptance Criteria:
 
-- [ ] `states:StartExecution` is granted on the table-share state machine ARN, and
-      `states:DescribeExecution` + `states:StopExecution` on `…:execution:{machineName}:*`.
-- [ ] `s3:GetObject` covers the manifest key; `s3:PutObject`, `s3:GetObject`,
-      `s3:ListMultipartUploadParts` and `s3:AbortMultipartUpload` cover
-      `{admin_bucket}/table-share/*` for the `ResultWriter`.
-- [ ] The existing explicit `s3:DeleteObject` **Deny** on both data buckets and the admin bucket is
-      unchanged and still renders.
+- [ ] `states:StartExecution` on the table-share state machine ARN and `states:DescribeExecution` on
+      `…:execution:{machineName}:*` are added to **`sfn-permissions.json.tftpl`** (the documented
+      least-privilege pair; `StopExecution` is not required and is not granted).
+- [ ] `s3:GetObject` on the manifest key, and `s3:PutObject`, `s3:GetObject`,
+      `s3:ListMultipartUploadParts`, `s3:AbortMultipartUpload` on `{admin_bucket}/table-share/*` for
+      the `ResultWriter`, are also on the **state-machine** role.
+- [ ] The Lambda execution role gains **nothing** from this FR; its existing explicit
+      `s3:DeleteObject` **Deny** (in `execution.json.tftpl`) is untouched and still renders.
+- [ ] A test asserts the `states:` and `ResultWriter` actions appear in the rendered
+      `sfn-permissions` policy and **not** in the rendered `execution` policy — the two roles are
+      easy to confuse and nothing else in the plane would catch the swap.
 - [ ] No new `Resource: "*"` statement appears; the SPEC-139 plan scan's IAM findings do not grow.
 - [ ] The results bucket is in the same account and Region as the state machine (a cross-account or
       cross-Region `ResultWriter` fails the execution with `States.ResultWriterFailed`) — asserted
@@ -217,8 +251,9 @@ and this prefix.
   "destKey": "bob/shared_tables/sales/year=2024/part-0.parquet"
 }
 
-# build-transfer-manifest output
-{ "transferManifestKey": "table-share/{hash}/transfer-manifest.jsonl", "itemCount": 4200 }
+# build-transfer-manifest output — note the execution-unique path component (FR-001)
+{ "transferManifestKey": "table-share/{hash}/{executionName}/transfer-manifest.jsonl",
+  "itemCount": 4200 }
 
 # copy-objects (batch verb) input / output
 { "Items": [ <transfer item>, ... ] }

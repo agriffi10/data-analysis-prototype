@@ -115,9 +115,16 @@ someone a file.
       notified, and no other member is.
 - [ ] The message names the sender, the item names and the count.
 - [ ] It carries a `link` to `/files?prefix=…` for a user recipient and
-      `/files?space={space}&prefix=…` for a space recipient, where the prefix is
-      `shared_files/{sender}/` — the route already honours `prefix` only when it resolves inside the
-      space root, and the link is validated by `isSafeInAppPath` before it is stored.
+      `/files?space={space}&prefix=…` for a space recipient, where the prefix is the **full key
+      including the recipient's space root** — `{recipientRoot}shared_files/{sender}/`, e.g.
+      `bob/shared_files/alice/`. The route keeps `prefix` only when
+      `prefixParam.startsWith(target.rootPrefix)`, so a root-relative `shared_files/{sender}/` is
+      silently discarded and the recipient lands at their space root instead.
+- [ ] The link is minted by the **Python producer** through a shared builder mirroring
+      `dqcommon.notify.report_link`, and its safety rule is reproduced there — `isSafeInAppPath` is
+      browser TypeScript and cannot run at mint time. The browser's render-time validation stays as
+      the second gate, unchanged.
+- [ ] A test pins the built link against the route's own `startsWith` rule, so the two cannot drift.
 - [ ] Following the link lands the recipient in the folder holding the received files.
 - [ ] A recipient failure notifies the **sender only**; a recipient is never told about a send that
       did not reach them.
@@ -197,8 +204,8 @@ lambdas/file-send-notify/          # the producer verb
 
 ### Phase 3: Notification producer
 
-- The verb, `fscommon.messages`, the sender and recipient paths, the link builder and its
-  `isSafeInAppPath` validation, wired into the SPEC-166 terminals.
+- The verb, `fscommon.messages`, the sender and recipient paths, the Python link builder (full-key
+  prefix, `report_link`'s safety rule reproduced), wired into the SPEC-166 terminals.
 
 ### Phase 4: Verification
 
