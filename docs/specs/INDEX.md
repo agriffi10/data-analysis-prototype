@@ -166,7 +166,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 158 — Shared-Space Suggestions from the Local Cache | Completed |
 | 159 — `user_settings/` Recovery from an Unreadable Document | Completed |
 | 160 — Table Share at Scale: Transfer Manifest & Distributed-Map Copy | Completed |
-| 161 — Table Share at Scale: Raised Caps, Wide Definitions & Long Runs | Draft |
+| 161 — Table Share at Scale: Raised Caps, Wide Definitions & Long Runs | Completed |
 | 162 — Feature Flags: Document, Publish Pipeline & Browser Data Layer | Draft |
 | 163 — Feature Flags: Gating Nav, Routes & Cross-Feature Entry Points | Draft |
 | 164 — Send Files: Foundation Infrastructure & validate-authorize | Draft |

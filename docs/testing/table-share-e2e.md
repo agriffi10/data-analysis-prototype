@@ -175,6 +175,12 @@ keys + sizes, shared ignore rules incl. `_`/`.`-prefixed path segments) → enfo
 `SHARE_MAX_OBJECTS` (1000) / `SHARE_MAX_TOTAL_BYTES` (20 GiB) → emit the copy plan
 `{tableDefinition, location, objects[], partitioned}` merged over the request.
 
+> **Superseded (SPEC-161).** The caps are now `SHARE_MAX_OBJECTS` 20,000 /
+> `SHARE_MAX_TOTAL_BYTES` 1 TiB, plus a new `SHARE_MAX_TRANSFER_ITEMS` (20,000) on
+> `recipients × objects`, and the emitted shape is
+> `{definitionKey, location, copyPlanKey, objectCount, partitioned}` — the definition
+> travels by pointer too. See the SPEC-161 section below.
+
 **Supported source shapes (v1):** base `EXTERNAL_TABLE`, flat or
 partition-projection. Terminal reasons: `source_is_view` / `source_not_external` /
 `source_catalog_partitioned` / `source_location_unsupported` (LOCATION must be
@@ -239,3 +245,97 @@ siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok
 > `tableDefinition` still rides inline and is now capped by `SHARE_MAX_DEFINITION_BYTES`,
 > since columns/comments/table-properties are user-controlled and a 1,000-column
 > commented table breached even after the pointer landed.
+
+> **Superseded (SPEC-161):** `tableDefinition` no longer rides inline either.
+> `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/definition.json` and
+> emits `definitionKey`; `create-table` fetches it. `SHARE_MAX_DEFINITION_BYTES` still
+> exists but bounds something else now — Athena's 262,144-byte query-string quota, since
+> the definition renders into one `CREATE EXTERNAL TABLE` — and is 128 KiB, not 32.
+
+---
+
+## SPEC-161 — the caps, the wide definition, and the long run
+
+Three changes, none of them to the transfer mechanism (that is SPEC-160):
+
+- **Caps re-sized.** `SHARE_MAX_OBJECTS` 20,000 (bound: `inspect-source`'s listing
+  time), `SHARE_MAX_TOTAL_BYTES` 1 TiB (bound: the Map Run's wall clock), and a new
+  `SHARE_MAX_TRANSFER_ITEMS` 20,000 on `recipients × objects` (bound: the manifest
+  write and the collector's read-back). `SHARE_MAX_RECIPIENTS` stays 50.
+- **The definition travels by pointer**, as `definitionKey`.
+- **`TimeoutSeconds` 10,800** (top-level), so a wedged run terminates into
+  `NotifyFailure` instead of running to Step Functions' one-year default.
+
+### Checks
+
+1. **Unit tests** — `pytest lambdas/` covers all of it: the item-cap arithmetic and
+   its refusal detail, DDL byte-equivalence across the pointer, the unreadable-definition
+   path, the top-level timeout, the retention margin, and a fleet-wide sweep for the
+   retired refusal phrasing.
+2. **Live check (OWED).** Everything below is one signed-in session plus one CLI read.
+
+#### Fixture
+
+A source table of **several hundred part files totalling well over 20 GiB** — the case
+that motivated the arc, and the one the old caps refused twice over.
+
+```bash
+# Confirm the fixture is actually over both old caps before sharing it.
+aws s3 ls --recursive --summarize s3://<user-space-bucket>/<you>/<source-prefix>/ | tail -3
+# Expect: "Total Objects:" in the hundreds, "Total Size:" > 21474836480
+```
+
+#### 1. The share that used to be refused
+
+In the portal: **Query → the source table → Share table**, recipient `<a real user>`,
+result name `scale_check`. Submit.
+
+- Expect a **success** notification naming the recipient. Before this spec the same
+  request produced *"the source table is too large to share."*
+- The recipient signs in and queries `SELECT count(*) FROM <their-db>.scale_check` —
+  it returns the source's row count, not zero.
+
+```bash
+# The item count is in the structured log, one line per run.
+aws s3 cp s3://<admin-bucket>/logs/service=table-share/year=<Y>/month=<M>/day=<D>/data.jsonl - \
+  | grep 'transfer manifest built'
+# Expect one event carrying recipients=1 and items=<the object count>.
+```
+
+#### 2. The refusal that names the count and the cap
+
+Share the **same** table to enough recipients that `recipients × objects` exceeds
+20,000 (with ~500 objects, 41 recipients does it).
+
+- Expect a failure notification: *"Couldn't share "…": that's too many files to copy
+  to that many recipients at once. Please share to fewer recipients, or share a
+  smaller table."*
+- The **detail** — operator-facing, in the execution record and the logs, not the
+  notification — reads `N recipients x M objects is <product> transfer items (cap 20000)`.
+- Confirm **nothing was written**: the execution failed at `InspectSource`, so there is
+  no manifest and no definition for this run.
+
+```bash
+aws s3 ls s3://<admin-bucket>/table-share/ --recursive | grep -c transfer-manifest
+# Expect the count NOT to have grown from before step 2.
+```
+
+#### 3. The 100-column definition survived the pointer
+
+Share a table with **100 columns carrying comments** and projection `TBLPROPERTIES` —
+about 32 KiB serialised, which is exactly where the old cap sat.
+
+```bash
+aws glue get-table --database-name <recipient-db> --name <result-name> \
+  --query 'Table.{cols: length(StorageDescriptor.Columns), props: Parameters}'
+# Expect: cols == 100, and every projection.* property present.
+```
+
+Then confirm the comments came through, since they are the term that made the old cap
+bite:
+
+```bash
+aws glue get-table --database-name <recipient-db> --name <result-name> \
+  --query 'length(StorageDescriptor.Columns[?Comment!=`null`])'
+# Expect 100.
+```

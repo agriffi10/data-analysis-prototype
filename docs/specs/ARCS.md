@@ -938,12 +938,21 @@ is discoverable today only by colliding with it at create time, and space names 
 often descriptive. So 158 suggests only what the user can already see, and any other space stays
 typeable. **Do not add the directory "for symmetry with SPEC-146."**
 
-## Table-share-at-scale arc (SPEC-160 → 161 — filed 2026-08-10; **160 shipped**)
+## Table-share-at-scale arc (SPEC-160 → 161 — filed 2026-08-10; **COMPLETE**)
 
 > **160 is COMPLETE (2026-08-10).** The mechanism changed and nothing user-visible did — the
 > caps, conflict rules and notifications are exactly as they were, which was the arc's stated
 > precondition for 161 moving the ceiling. What shipped:
 > `docs/spec-delivery/SPEC-160-table-share-distributed-map-transfer.md`.
+>
+> **161 is COMPLETE (2026-08-10) and the ceiling has moved.** `SHARE_MAX_OBJECTS` **20,000**,
+> `SHARE_MAX_TOTAL_BYTES` **1 TiB**, plus a new `SHARE_MAX_TRANSFER_ITEMS` (20,000) on
+> `recipients × objects`. The cloned definition joined the object list behind a pointer, which
+> is what let `SHARE_MAX_DEFINITION_BYTES` stop being a choice between the 256 KB payload and a
+> 100-column commented table. The machine declares a top-level `TimeoutSeconds` of 10,800, so a
+> run that can now last hours cannot last a year. **One live check is owed** — the script is in
+> `docs/testing/table-share-e2e.md` → *SPEC-161*. What shipped:
+> `docs/spec-delivery/SPEC-161-table-share-caps-wide-definitions-long-runs.md`.
 
 The arc exists because the table-share caps are not a policy — they are the shape of one Lambda.
 `copy-objects` copies every object for a recipient inside a single 900-second invocation, and

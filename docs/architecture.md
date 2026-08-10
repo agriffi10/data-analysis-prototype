@@ -296,6 +296,15 @@ table over them in the recipient's DB.
   > itself is unchanged and now lives on `cpcommon.transfer`. **The caps still stand** — 160 changed
   > the mechanism only, so it is provably behaviour-neutral; SPEC-161 moves the ceiling. Full entry:
   > `decisions.md` → *Table Share*.
+  > **Superseded (SPEC-161, shipped 2026-08-10):** the ceiling moved. `SHARE_MAX_OBJECTS` is
+  > **20,000**, `SHARE_MAX_TOTAL_BYTES` **1 TiB**, and a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)**
+  > bounds `recipients × objects` — the manifest's real limit, which neither other cap expresses.
+  > `SHARE_MAX_RECIPIENTS` (50) is unchanged. `SHARE_MAX_DEFINITION_BYTES` still exists but bounds
+  > something else now: the definition **travels by pointer** (`definitionKey` →
+  > `table-share/{hash}/definition.json`), so its 128 KiB is a sanity check against **Athena's
+  > 262,144-byte query-string quota**, not against the state payload. The machine also declares a
+  > top-level **`TimeoutSeconds` of 10,800**. Full entries: `decisions.md` → *Everything unbounded
+  > on the state travels by pointer* and *Every control-plane machine that can run for hours*.
 - **Per-recipient attribution is a verb, not a Map item (SPEC-160).** The fan-out is over
   `(recipient × object)` pairs, so `collect-transfer-results` reads the Map Run's export and decides
   who gets a table: **one failed item ⇒ no table for that recipient**. It reads **both**

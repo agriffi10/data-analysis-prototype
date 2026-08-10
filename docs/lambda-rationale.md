@@ -127,6 +127,11 @@ The refresh path's definition cap is **40 KiB**, and it is deliberately not tsco
 `SHARE_MAX_DEFINITION_BYTES`. That 32 KiB was measured for table-share's 50-recipient Map,
 where the definition is copied into every item; table-builder has no Map.
 
+> **Note (SPEC-161).** The comparison above is now against a value that means something different:
+> table-share's definition travels by pointer, so its 128 KiB bounds Athena's query string, not a
+> state payload. The 40 KiB here is unaffected — table-builder's definition still rides on its own
+> state, and this paragraph's reasoning about that is unchanged.
+
 What rides on a refresh state instead is one definition plus what `infer-schema` then adds
 to the **same** state — its own inferred columns and the generated DDL. **Columns therefore
 ride three times** while table properties ride once, so the worst case is a definition spent
@@ -259,6 +264,11 @@ constants, so changing either without re-checking the other fails the build. The
 right — 1000 objects × 50 recipients is 50,000 `CopyObject` calls, and there was previously no
 cap at all.
 
+> **Amended (SPEC-161).** The product is now bounded directly by `SHARE_MAX_TRANSFER_ITEMS`
+> (20,000), so `SHARE_MAX_RECIPIENTS` no longer carries that second job by implication — its own
+> two bounds, the inline Map's state and the per-item error detail, are untouched by the scale
+> work and the value stays **50**.
+
 **`SHARE_MAX_DEFINITION_BYTES = 32 KiB`.** The last unbounded term on the Map's state. Moving
 the object list to a pointer removed the big one, but `tableDefinition` still rides inline —
 and it is **user-controlled**: it clones the source's columns (name/type/comment) and its Glue
@@ -273,6 +283,20 @@ plan already by pointer, 50 recipients all failing:
 
 32 KiB is generous — roughly 600 plain columns — and lands the worst case near 41%.
 
+> **Superseded (SPEC-161).** Every word above is now historical, and the reason is worth keeping:
+> **32 KiB was generous for plain columns and tight for commented ones.** A 100-column table with
+> a 255-character comment per column serialises to about 32 KiB — an ordinary thing to want to
+> share, sitting exactly on the boundary. The cap was doing two incompatible jobs at once, and a
+> cap cannot: protect the payload, or decide how wide a table a user may share. The definition
+> **travels by pointer** now (`definitionKey`), so the term is a digest path and the choice is
+> gone. Measured after the move: an at-cap definition put back inline takes the guard peak from
+> ~34% to **~84%** of the limit, which
+> `test_the_whole_map_state_stays_under_the_payload_limit` now asserts so the pointer is
+> demonstrated load-bearing rather than assumed tidy. **`SHARE_MAX_DEFINITION_BYTES` survives at
+> 128 KiB bounding something else entirely** — Athena's query-string quota, **262,144 bytes and
+> not adjustable**, because the definition renders into one `CREATE EXTERNAL TABLE`. Do not read
+> it as a state bound.
+
 **`SHARE_MAX_OBJECTS` / `SHARE_MAX_TOTAL_BYTES`.** Sized so a recipient Map item's parallel
 server-side copy finishes comfortably inside copy-objects' 900s timeout (architecture §12).
 
@@ -282,6 +306,40 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > is provably behaviour-neutral, and SPEC-161 is where the ceiling moves. The two caps that are
 > still load-bearing on the *state* — `SHARE_MAX_RECIPIENTS` and `SHARE_MAX_DEFINITION_BYTES` — are
 > untouched by the restructure: the per-recipient array is still exactly one entry per recipient.
+
+> **Superseded (SPEC-161) — the ceiling moved, and each cap now names a DIFFERENT limit.** They
+> used to share one rationale (the copy verb's timeout) because one verb was the whole bound.
+>
+> **`SHARE_MAX_OBJECTS` = 20,000. Bound: `inspect-source`'s listing time.** `list_data_objects`
+> pages at 1000 keys, so 20,000 objects is 20 `ListObjectsV2` round trips — one to two seconds of
+> a 60-second budget — and the copy plan it writes is about 3.4 MB.
+>
+> **`SHARE_MAX_TOTAL_BYTES` = 1 TiB. Bound: the Map Run's wall clock.** The fan-out reaches **160**
+> concurrent server-side copies (`MAP_MAX_CONCURRENCY` 20 × `COPY_CONCURRENCY` 8): ~6 minutes at
+> 20 MB/s per stream, ~22 at a pessimistic 5 MB/s. That is what sized the machine's
+> `TimeoutSeconds` (10,800 s ≈ 8× the pessimistic case), so the two numbers move together.
+>
+> **`SHARE_MAX_TRANSFER_ITEMS` = 20,000 (NEW). Bound: the manifest write and the collector's
+> read-back**, which are the same volume in both directions. At S3's worst-case 1024-byte keys an
+> item is ~2.3 KB, so 20,000 items is a ~46 MB manifest, and the Map Run export
+> `collect-transfer-results` reads carries every batch's input again. **This is the cap the other
+> two cannot express** — 20,000 objects is fine and 50 recipients is fine, and together they are a
+> million manifest lines. It is enforced in `inspect-source` on the **requested** recipient count,
+> before the guard Map, so an identical request cannot succeed or fail depending on who already
+> holds a table of that name.
+>
+> **`build-transfer-manifest` and `collect-transfer-results` went 60 s/512 MB → 300 s/2048 MB**,
+> because they *are* that third bound. Memory is also the CPU dial and this is JSON work, so it
+> buys the timeout as much as the headroom.
+> `test_the_manifest_verbs_are_sized_for_the_transfer_item_cap`
+> (`lambdas/table-share-common/test_state_machine_table_share.py`) **computes** the worst-case
+> volume from the cap and the same worst-case item the batch sizing uses, so raising the constant
+> without re-sizing the verbs fails the build.
+>
+> **Step Functions is nowhere near binding at any of this** (checked against the live quota pages,
+> 2026-08-10): an `ItemReader` file may be **10 GB**, a Map Run **100,000,000** items, and a
+> Standard execution runs a **year**. Our own Lambdas are the ceiling, which is why every bound
+> above names one.
 
 ## `cpcommon/transfer/config.py` — sizing the Distributed Map
 
