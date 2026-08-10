@@ -258,6 +258,12 @@ stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but r
 
 Filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/architecture.md` → *Control Planes → Table Share* (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
 
+> **Superseded in part by SPEC-160 (2026-08-10):** "parallel `CopyObject` (Batch Ops deferred)" no
+> longer describes the plan. **S3 Batch Operations is rejected, not deferred** — its Copy cannot
+> rewrite a key (`TargetKeyPrefix` prepends the full source key) and it caps objects at 5 GB. The
+> scale path is a top-level **Step Functions Distributed Map** over a flat `(recipient × object)`
+> manifest, running the same copy code. Full entry: `decisions.md` → *Table Share*.
+
 > **"An LF admin" is history in one load-bearing way (SPEC-111 correction):** admin status does **not** confer
 > `CREATE_TABLE` — table creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions.md` →
 > *Control-plane table creation = TBAC*.
@@ -972,7 +978,8 @@ the algorithm while a domain layer owns the wording.
 ## Feature-flags arc (SPEC-162 → 163 — filed 2026-08-10)
 
 Everything ships to everyone the moment it merges. The arc adds a git-controlled JSON document in
-the admin bucket, per environment, naming the four primary features on or off — and then actually
+the user-space bucket (`_config/feature-flags.json`, beside `_directory/`), per environment,
+naming the four primary features on or off — and then actually
 hides a disabled one.
 
 **The split is document-then-gate, and 162 ships something nothing reads.** That is intentional: the
@@ -994,9 +1001,15 @@ unhidden — the failure mode `process.md` records from `log-forge`'s SPEC-033. 
 a **registry** with a test that walks it in both states, plus a guard-the-guard that fails if the
 registry ever goes trivial (SPEC-153's discipline).
 
-This arc also gives the portal role its **first grant on the admin bucket**, scoped to one object
-key with no `ListBucket` — worth noticing rather than nodding through, since that bucket has been
-admin-only since SPEC-032.
+**The document was first specced into the admin bucket and moved (2026-08-10, before build).** That
+would have given the portal role its first-ever grant on a bucket admin-only since SPEC-032 — and,
+more to the point, the grant would not have worked: the admin bucket carries an explicit "never read
+by the browser" comment in place of a CORS config, and its host is absent from the enforcing CSP
+`connect-src`. Two infra gates, on the exact surface SPEC-140 records breaking sign-in for a day,
+bought nothing that `_config/` beside `_directory/` does not already have. The lesson generalises:
+**for a browser-read advisory document, the bucket that already serves one is the cheap answer** —
+and because this feature fails *silently* to its all-on defaults, a blocked read would have looked
+exactly like a healthy environment.
 
 ## Send-files arc (SPEC-164 → 165 → 166 → 167 — filed 2026-08-10)
 

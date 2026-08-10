@@ -84,7 +84,9 @@ at scale (a top-level Step Functions **Distributed Map** over a `(recipient × o
 replaces the single-Lambda copy; **S3 Batch Operations is rejected** — its Copy cannot rewrite a key,
 `TargetKeyPrefix` prepends the full source key — and the engine lands on `cpcommon.transfer` because
 the send-files arc is its second caller). **162→163** feature flags (a git-controlled per-environment
-JSON in the admin bucket; **presentation-only, never authorization**; unreadable ⇒ compiled-in
+JSON at `_config/feature-flags.json` in the **user-space** bucket beside `_directory/` — the admin
+bucket has no CORS and is not in the CSP `connect-src`, so it would have cost two infra gates for no
+gain; **presentation-only, never authorization**; unreadable ⇒ compiled-in
 defaults, all on; gating driven by a **registry with a walking test**, because the cross-feature entry
 points are what a per-component pass misses). **164→167** send files/folders to another person's
 personal or shared space (its own control plane; destination `shared_files/{sender}/`; push, never

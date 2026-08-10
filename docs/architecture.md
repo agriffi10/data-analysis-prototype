@@ -252,7 +252,12 @@ table over them in the recipient's DB.
   must have **source** access (own DB, or active member of the source space).
 - **Copy:** parallel server-side `CopyObject` (multipart above 5 GiB), key layout preserved. Caps:
   `SHARE_MAX_OBJECTS` / `SHARE_MAX_TOTAL_BYTES` / `SHARE_MAX_RECIPIENTS` (50) /
-  `SHARE_MAX_DEFINITION_BYTES`. S3 Batch Operations is the recorded scale escape hatch.
+  `SHARE_MAX_DEFINITION_BYTES`.
+  > **Superseded (SPEC-160, 2026-08-10):** the scale escape hatch is a **Step Functions Distributed
+  > Map** over a flat `(recipient × object)` manifest, **not S3 Batch Operations**. Batch Ops cannot
+  > rewrite a key — `TargetKeyPrefix` prepends to the *full* source key, so a job cannot produce
+  > `bob/shared_tables/sales/…` from `alice/tables/sales/…` — and it caps objects at 5 GB where this
+  > path already handles more via `UploadPartCopy`. Full entry: `decisions.md` → *Table Share*.
 - **The 256 KB cap, twice:** the copy plan rides as an S3 pointer
   (`<admin-bucket>/table-share/{hash}/copy-plan.json` — inline, the Map's `ItemSelector` put the
   state at 101% of the cap, PR #256); the recipient cap exists because each failed Map item carries
@@ -472,5 +477,9 @@ Lambda **code** and **infrastructure** are deliberately separated; `tofu apply` 
 File preview (PDF/image in-browser) · admin UI (user mgmt, access audit) · audit logging
 (CloudTrail/S3 access logs) · staging environment + promotion pipeline · real-time access revocation
 (needs a backend) · Excel support + a file-converter pipeline (arc cancelled; convert externally,
-then check/build over Parquet) · table-share partition-metadata copy + S3 Batch Ops scale path ·
+then check/build over Parquet) · table-share partition-metadata copy ·
 table-builder multi-file schema union · data-quality report retention/TTL + cost guardrails.
+
+**No longer deferred:** the table-share *scale* path. S3 Batch Operations was the recorded escape
+hatch and is **rejected** (it cannot rewrite a key); SPEC-160 specifies a Step Functions Distributed
+Map instead. Don't re-file Batch Ops here.

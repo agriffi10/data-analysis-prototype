@@ -128,13 +128,25 @@ existing rule expires a *live* run's manifest underneath it, now that a run can 
 
 ### FR-005: Honest refusal wording
 
+#### Description:
+
+**The docs are already corrected** (2026-08-10): `architecture.md` → *Table Share* carries a
+superseded marker, *Deferred / Future Scope* no longer lists a Batch Ops scale path, and
+`decisions.md` → *Table Share* has the amended fence explaining why it is rejected rather than
+deferred. What remains is the **code**, where two call sites and a docstring still tell users that
+S3 Batch Operations is the deferred path.
+
 #### Acceptance Criteria:
 
-- [ ] No user-facing message or code comment claims S3 Batch Operations is the deferred scale path;
-      the caps message states the limit and that the share is too large, nothing more.
-- [ ] `architecture.md` → *Table Share* and *Deferred / Future Scope* no longer describe S3 Batch
-      Operations as the escape hatch (SPEC-160 records why it was rejected).
-- [ ] A grep-style test or docs check fails if the retired phrase reappears in `lambdas/`.
+- [ ] `table_share_inspect_source.py`'s two cap-refusal messages no longer mention S3 Batch
+      Operations; they state the limit and that the share is too large, nothing more.
+- [ ] `tscommon/config.py`'s `SHARE_MAX_OBJECTS` docstring is corrected the same way.
+- [ ] The replacement wording renders through the `cpcommon` `Resolver` (FR-001), so the message is
+      not re-fixed at a call site.
+- [ ] The tests asserting the old wording are updated, not deleted.
+- [ ] A grep-style check fails if the retired phrase reappears anywhere in `lambdas/`.
+- [ ] **No further docs edit is needed** — re-editing `architecture.md` or `decisions.md` for this
+      would mean the marker was missed, which is itself the finding.
 
 ---
 
