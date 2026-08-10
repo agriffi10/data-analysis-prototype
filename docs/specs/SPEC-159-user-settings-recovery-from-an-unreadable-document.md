@@ -1,8 +1,8 @@
 # Spec: `user_settings/` Recovery from an Unreadable Document
 
 **ID:** SPEC-159
-**Status:** Draft
-**Last Updated:** 2026-08-09
+**Status:** Completed
+**Last Updated:** 2026-08-10
 **Depends On:** SPEC-043 (saved queries), SPEC-048 (query history), SPEC-106 (the user-facing error-wording contract), SPEC-155 (`lib/s3Json.ts`, and the `lib/` → `features/` layering rule this must not break)
 
 > **This spec adds no user-facing feature.** It finishes a fix that stopped halfway: the branch
@@ -246,8 +246,10 @@ no longer a terminal state:
 ```
 apps/portal/src/
 ├── lib/
-│   ├── s3Json.ts                  # + quarantineDocument, DocumentParse, UnusableReason
-│   ├── s3Json.test.ts             # NEW — the primitive's own suite
+│   ├── s3Json.ts                  # + classifyDocument, quarantineDocument, DocumentParse,
+│   │                              #   UnusableReason, WriteOutcome
+│   ├── clientAdapters.test.ts     # the primitive's own suite — s3Json's EXISTING home
+│   │                              #   (SPEC-155), not the new file this spec first named
 │   └── errorMessages.ts           # + six codes, - the two this replaces
 └── features/query/
     ├── savedQueries.service.ts    # three-way parse + quarantine-then-proceed

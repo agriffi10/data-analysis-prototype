@@ -610,22 +610,37 @@ describe('queryHistory.service', () => {
   const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
 
   // A stateful fake user-space bucket: GetObject reads the stored JSON (or throws
-  // NoSuchKey when absent); PutObject (input has a Body) overwrites it.
-  function fakeBucket(initial: string | null) {
+  // NoSuchKey when absent); PutObject (input has a Body) overwrites it; CopyObject
+  // (input has a CopySource) is RECORDED rather than stored, so `stored()` keeps
+  // answering for the document under test while `copies` shows what was set aside.
+  // `copyFails` denies the copy, which is the only way to reach the refusal that must
+  // never become a silent overwrite.
+  function fakeBucket(initial: string | null, opts: {copyFails?: boolean; putFails?: boolean} = {}) {
     let stored = initial;
-    const send = vi.fn(async (cmd: {input: {Body?: string}}) => {
-      if (cmd.input.Body !== undefined) {
-        stored = cmd.input.Body;
-        return {};
+    const commands: string[] = [];
+    const copies: {key: string; source: string}[] = [];
+    const send = vi.fn(
+      async (cmd: {constructor: {name: string}; input: {Body?: string; Key?: string; CopySource?: string}}) => {
+        commands.push(cmd.constructor.name);
+        if (cmd.input.CopySource !== undefined) {
+          if (opts.copyFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
+          copies.push({key: cmd.input.Key as string, source: cmd.input.CopySource});
+          return {};
+        }
+        if (cmd.input.Body !== undefined) {
+          if (opts.putFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
+          stored = cmd.input.Body;
+          return {};
+        }
+        if (stored === null) {
+          throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
+        }
+        const body = stored;
+        return {Body: {transformToString: async () => body}};
       }
-      if (stored === null) {
-        throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
-      }
-      const body = stored;
-      return {Body: {transformToString: async () => body}};
-    });
+    );
     mockGetClient.mockResolvedValue({success: true, data: {send}});
-    return {send, stored: () => stored};
+    return {send, stored: () => stored, commands, copies};
   }
 
   function entry(id: string): QueryHistoryEntry {
@@ -757,37 +772,77 @@ describe('queryHistory.service', () => {
   // its not-found no-op branch first. `update` is covered because that no-op was
   // reported as success carrying the EMPTY history, which `useQueryHistory`'s
   // onWriteSuccess seeded into the cache — blanking the panel on a read fault.
-  describe('the read-modify-write path never overwrites an unreadable history', () => {
-    const unreadable = ['not json{', JSON.stringify({version: 2, entries: [entry('q1')]})];
+  describe('the read-modify-write path never overwrites a history it cannot read', () => {
+    const newer = [JSON.stringify({version: 2, entries: [entry('q1')]}), JSON.stringify({version: 2})];
 
-    it.each(unreadable)('append refuses and writes nothing (%#)', async (body) => {
+    it('append sets the unreadable body aside, then writes', async () => {
+      const fake = fakeBucket('not json{');
+
+      const result = await appendQueryHistory('alice', entry('new'));
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.recovered).toBe(true);
+      expect(result.data.entries.map((e) => e.queryExecutionId)).toEqual(['new']);
+      expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
+      expect(fake.copies[0].key).toMatch(
+        /^alice\/user_settings\/query-history\.json\.unreadable-\d{8}T\d{6}Z-[0-9a-f]{8}\.json$/
+      );
+      expect(fake.copies[0].source).toBe('user-bucket/alice/user_settings/query-history.json');
+    });
+
+    it('update forfeits its unknown-id shortcut after a recovery, so the document is repaired', async () => {
+      const fake = fakeBucket('not json{');
+
+      const result = await updateQueryHistoryEntry('alice', 'q1', {status: 'SUCCEEDED'});
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.recovered).toBe(true);
+      expect(JSON.parse(fake.stored() as string)).toEqual({version: 1, entries: []});
+    });
+
+    it('refuses and writes nothing when the copy fails', async () => {
+      const fake = fakeBucket('not json{', {copyFails: true});
+
+      const result = await appendQueryHistory('alice', entry('new'));
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('QueryHistoryQuarantineFailed');
+      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(fake.stored()).toBe('not json{');
+    });
+
+    it.each(newer)('refuses a NEWER document without copying or writing it (%#)', async (body) => {
       const fake = fakeBucket(body);
 
       const result = await appendQueryHistory('alice', entry('new'));
 
       expect(result.success).toBe(false);
       if (result.success) return;
-      expect(result.error.code).toBe('QueryHistoryUnreadable');
+      expect(result.error.code).toBe('QueryHistoryNewerVersion');
+      expect(fake.commands).toEqual(['GetObjectCommand']);
       expect(fake.stored()).toBe(body);
-      // Read only — the append never reached a PutObject.
-      expect(fake.send).toHaveBeenCalledTimes(1);
     });
 
-    it.each(unreadable)('update refuses and writes nothing (%#)', async (body) => {
+    it.each(newer)('refuses a NEWER document on the update path too (%#)', async (body) => {
       const fake = fakeBucket(body);
 
       const result = await updateQueryHistoryEntry('alice', 'q1', {status: 'SUCCEEDED'});
 
       expect(result.success).toBe(false);
       if (result.success) return;
-      expect(result.error.code).toBe('QueryHistoryUnreadable');
+      expect(result.error.code).toBe('QueryHistoryNewerVersion');
+      expect(fake.commands).toEqual(['GetObjectCommand']);
       expect(fake.stored()).toBe(body);
-      expect(fake.send).toHaveBeenCalledTimes(1);
     });
 
-    it('leaves the DISPLAY read forgiving', async () => {
+    it('leaves the DISPLAY read forgiving, for a newer document as well as a corrupt one', async () => {
       fakeBucket('not json{');
+      expect(await getQueryHistory('alice')).toEqual({success: true, data: {version: 1, entries: []}});
 
+      fakeBucket(JSON.stringify({version: 2, entries: [entry('q1')]}));
       expect(await getQueryHistory('alice')).toEqual({success: true, data: {version: 1, entries: []}});
     });
   });
@@ -802,23 +857,33 @@ describe('savedQueries.service', () => {
   // NoSuchKey when absent); a command carrying a Body is a PutObject overwrite.
   // A DeleteObjectCommand would carry no Body and no read intent — tracked so we
   // can assert it's NEVER issued (delete is IAM-denied in athenaresults/).
-  function fakeBucket(initial: string | null) {
+  // As in `queryHistory.service` above: Get reads, Put overwrites, Copy is recorded.
+  function fakeBucket(initial: string | null, opts: {copyFails?: boolean; putFails?: boolean} = {}) {
     let stored = initial;
     const commands: string[] = [];
-    const send = vi.fn(async (cmd: {constructor: {name: string}; input: {Body?: string}}) => {
-      commands.push(cmd.constructor.name);
-      if (cmd.input.Body !== undefined) {
-        stored = cmd.input.Body;
-        return {};
+    const copies: {key: string; source: string}[] = [];
+    const send = vi.fn(
+      async (cmd: {constructor: {name: string}; input: {Body?: string; Key?: string; CopySource?: string}}) => {
+        commands.push(cmd.constructor.name);
+        if (cmd.input.CopySource !== undefined) {
+          if (opts.copyFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
+          copies.push({key: cmd.input.Key as string, source: cmd.input.CopySource});
+          return {};
+        }
+        if (cmd.input.Body !== undefined) {
+          if (opts.putFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
+          stored = cmd.input.Body;
+          return {};
+        }
+        if (stored === null) {
+          throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
+        }
+        const body = stored;
+        return {Body: {transformToString: async () => body}};
       }
-      if (stored === null) {
-        throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
-      }
-      const body = stored;
-      return {Body: {transformToString: async () => body}};
-    });
+    );
     mockGetClient.mockResolvedValue({success: true, data: {send}});
-    return {send, stored: () => stored, commands};
+    return {send, stored: () => stored, commands, copies};
   }
 
   function sq(id: string, name = id, sql = 'SELECT 1'): SavedQuery {
@@ -926,35 +991,113 @@ describe('savedQueries.service', () => {
   // before any write. It is covered here because it reported that no-op as SUCCESS
   // against a store it had failed to read, which `useSavedQueries.onWriteSuccess`
   // then seeded into the cache — blanking the panel without touching S3.
-  describe('the read-modify-write path never overwrites an unreadable store', () => {
-    // Not just a syntax error: a future schema bump read by a tab still running
-    // today's code produces a perfectly valid JSON document this parser rejects,
-    // which is the trigger that needs no corruption to occur at all.
-    const unreadable = ['not json{', JSON.stringify({version: 2, queries: [sq('a')]})];
+  describe('the read-modify-write path never overwrites a store it cannot read', () => {
+    const unparseable = ['not json{', JSON.stringify(['queries']), JSON.stringify({queries: []})];
 
-    it.each(unreadable)('upsert refuses and writes nothing (%#)', async (body) => {
+    // A future schema bump read by a tab still running today's code produces a
+    // perfectly valid document this build cannot read — the trigger that needs no
+    // corruption at all, and the one outcome that must be left strictly alone. The
+    // second body has no `queries` at all: newer is newer WHATEVER else it contains,
+    // because a newer schema is free to have renamed the field we validate.
+    const newer = [JSON.stringify({version: 2, queries: [sq('a')]}), JSON.stringify({version: 2})];
+
+    it.each(unparseable)('upsert sets the unreadable body aside, then writes (%#)', async (body) => {
+      const fake = fakeBucket(body);
+
+      const result = await upsertSavedQuery('alice', sq('new'));
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.recovered).toBe(true);
+      // The recovered store holds ONLY the query being saved — the point of telling
+      // the user, and of keeping the copy.
+      expect(result.data.queries.map((q) => q.id)).toEqual(['new']);
+      // The copy is a precondition, not a courtesy: it lands BEFORE the overwrite.
+      expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
+      expect(fake.copies).toHaveLength(1);
+      expect(fake.copies[0].key).toMatch(
+        /^alice\/user_settings\/saved-queries\.json\.unreadable-\d{8}T\d{6}Z-[0-9a-f]{8}\.json$/
+      );
+      expect(fake.copies[0].source).toBe('user-bucket/alice/user_settings/saved-queries.json');
+    });
+
+    it('remove forfeits its unknown-id shortcut after a recovery, so the document is repaired', async () => {
+      // Without this the store would be quarantined and then left exactly as broken
+      // as it was found: the filter changes nothing against an empty store, and the
+      // no-op branch returns before any write.
+      const fake = fakeBucket('not json{');
+
+      const result = await removeSavedQuery('alice', 'gone');
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.recovered).toBe(true);
+      expect(fake.commands).toContain('PutObjectCommand');
+      expect(JSON.parse(fake.stored() as string)).toEqual({version: 1, queries: []});
+    });
+
+    it('refuses and writes nothing when the copy fails', async () => {
+      const fake = fakeBucket('not json{', {copyFails: true});
+
+      const result = await upsertSavedQuery('alice', sq('new'));
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('SavedQueriesQuarantineFailed');
+      // The point of the test: a failed quarantine never becomes a silent overwrite.
+      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(fake.stored()).toBe('not json{');
+    });
+
+    it.each(newer)('refuses a NEWER document without copying or writing it (%#)', async (body) => {
       const fake = fakeBucket(body);
 
       const result = await upsertSavedQuery('alice', sq('new'));
 
       expect(result.success).toBe(false);
       if (result.success) return;
-      expect(result.error.code).toBe('SavedQueriesUnreadable');
-      // The point of the test: the original bytes are still there.
-      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(result.error.code).toBe('SavedQueriesNewerVersion');
+      // Quarantining this would be the downgrade the whole spec exists to prevent.
+      expect(fake.commands).toEqual(['GetObjectCommand']);
       expect(fake.stored()).toBe(body);
     });
 
-    it.each(unreadable)('remove refuses and writes nothing (%#)', async (body) => {
+    it.each(newer)('refuses a NEWER document on the remove path too (%#)', async (body) => {
       const fake = fakeBucket(body);
 
       const result = await removeSavedQuery('alice', 'a');
 
       expect(result.success).toBe(false);
       if (result.success) return;
-      expect(result.error.code).toBe('SavedQueriesUnreadable');
-      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(result.error.code).toBe('SavedQueriesNewerVersion');
+      expect(fake.commands).toEqual(['GetObjectCommand']);
       expect(fake.stored()).toBe(body);
+    });
+
+    it('reports a failed write after a SUCCESSFUL copy as a failure, leaving the document unrepaired', async () => {
+      // The gap between the two halves of quarantine-then-proceed. The copy landed,
+      // so the evidence is safe, but the document is still unreadable and the user
+      // is told the save failed rather than being told a fiction about recovery.
+      const fake = fakeBucket('not json{', {putFails: true});
+
+      const result = await upsertSavedQuery('alice', sq('new'));
+
+      expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('AccessDenied');
+      expect(result.recovered).toBeUndefined();
+    });
+
+    it('reports an ordinary write as NOT recovered', async () => {
+      fakeBucket(JSON.stringify({version: 1, queries: [sq('a')]} as SavedQueriesStore));
+
+      const result = await upsertSavedQuery('alice', sq('b'));
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.recovered).toBe(false);
     });
 
     it('still creates the store when the object is genuinely ABSENT', async () => {
@@ -971,11 +1114,15 @@ describe('savedQueries.service', () => {
       expect((JSON.parse(fake.stored() as string) as SavedQueriesStore).queries).toHaveLength(1);
     });
 
-    it('leaves the DISPLAY read forgiving', async () => {
-      // The refusal is scoped to the write path; the panel still renders empty
-      // rather than erroring, which is the deliberate behaviour it started with.
-      fakeBucket('not json{');
+    it('leaves the DISPLAY read forgiving, and copies nothing while doing it', async () => {
+      // The write path's business is scoped to the write path: the panel still
+      // renders empty rather than erroring, which is the deliberate behaviour it
+      // started with, and merely LOOKING at a broken document quarantines nothing.
+      const fake = fakeBucket('not json{');
+      expect(await getSavedQueries('alice')).toEqual({success: true, data: {version: 1, queries: []}});
+      expect(fake.commands).toEqual(['GetObjectCommand']);
 
+      fakeBucket(JSON.stringify({version: 2, queries: [sq('a')]}));
       expect(await getSavedQueries('alice')).toEqual({success: true, data: {version: 1, queries: []}});
     });
   });

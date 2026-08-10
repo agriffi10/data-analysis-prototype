@@ -42,6 +42,12 @@ export function useQueryHistory(username: string | null): UseQueryHistoryResult 
   // Seed the cache for an instant UI update, then invalidate so the next read
   // reconciles against S3 (the source of truth) — guards against any drift from
   // the services' read-modify-write writes.
+  //
+  // The service's `recovered` flag is DELIBERATELY dropped here, unlike in
+  // `useSavedQueries`: a history write is a side effect of running a query, not
+  // something the user asked for, and SPEC-159 FR-004 keeps it silent. The document
+  // still recovers — the user is simply not interrupted to be told (the recovered
+  // history is empty, and the panel shows that).
   const onWriteSuccess = (data: QueryHistory) => {
     queryClient.setQueryData(key, data);
     void queryClient.invalidateQueries({queryKey: key});
