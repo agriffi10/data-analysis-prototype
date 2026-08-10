@@ -212,14 +212,14 @@ def test_one_bad_item_never_costs_its_siblings_their_copy():
     )
 
     assert out["copied"] == 2
-    assert out["failures"] == [{"recipient": "carol", "reason": _FAILED}]
+    assert out["failures"] == [{"recipient": "carol", "kind": "user", "reason": _FAILED}]
     assert len(fake.copies) == 2
 
 
 def test_a_failure_names_the_recipient_and_never_the_key():
     _setup(copy_error=_S3Error("AccessDenied"))
     out = copy_mod.copy_batch([_item("bob", "secret-name.parquet")], _FAILED)
-    assert out["failures"] == [{"recipient": "bob", "reason": _FAILED}]
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
 
 
 def test_a_throttled_item_raises_so_the_batch_retries():
@@ -233,7 +233,7 @@ def test_a_malformed_line_fails_its_own_item_only():
     out = copy_mod.copy_batch([{"recipient": "bob"}, _item("carol")], _FAILED)
 
     assert out["copied"] == 1
-    assert out["failures"] == [{"recipient": "bob", "reason": _FAILED}]
+    assert out["failures"] == [{"recipient": "bob", "kind": None, "reason": _FAILED}]
     assert len(fake.copies) == 1
 
 
@@ -242,7 +242,7 @@ def test_a_failed_multipart_upload_is_aborted():
     fake.upload_part_copy = lambda **kwargs: (_ for _ in ()).throw(_S3Error("AccessDenied"))
     out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
 
-    assert out["failures"] == [{"recipient": "bob", "reason": _FAILED}]
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
     assert len(fake.aborted) == 1
 
 
@@ -254,7 +254,7 @@ def test_a_failed_abort_never_hides_the_copy_failure():
 
     out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
 
-    assert out["failures"] == [{"recipient": "bob", "reason": _FAILED}]
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
 
 
 def test_the_pool_is_bounded():
@@ -319,6 +319,11 @@ def _failed_record(items):
 
 
 def _read(objects):
+    """The failures alone — the item count is asserted where it is the point (below)."""
+    return _read_outcome(objects)["failures"]
+
+
+def _read_outcome(objects):
     _setup(objects=objects)
     return results_mod.read_failed_items(
         "admin-bkt",
@@ -346,10 +351,10 @@ def test_a_succeeded_batch_carrying_failures_is_still_attributed():
         "table-share/h/exec/results/manifest.json": _run_manifest(SUCCEEDED=["r/SUCCEEDED_0.json"]),
         "r/SUCCEEDED_0.json": [
             _succeeded_record(
-                [_item("bob"), _item("carol")], [{"recipient": "carol", "reason": _FAILED}]
+                [_item("bob"), _item("carol")], [{"recipient": "carol", "kind": "user", "reason": _FAILED}]
             )
         ],
-    }) == [{"recipient": "carol", "reason": _FAILED}]
+    }) == [{"recipient": "carol", "kind": "user", "reason": _FAILED}]
 
 
 def test_a_whole_batch_failure_is_attributed_from_its_input():
@@ -357,8 +362,8 @@ def test_a_whole_batch_failure_is_attributed_from_its_input():
         "table-share/h/exec/results/manifest.json": _run_manifest(FAILED=["r/FAILED_0.json"]),
         "r/FAILED_0.json": [_failed_record([_item("bob"), _item("carol")])],
     }) == [
-        {"recipient": "bob", "reason": _FAILED},
-        {"recipient": "carol", "reason": _FAILED},
+        {"recipient": "bob", "kind": "user", "reason": _FAILED},
+        {"recipient": "carol", "kind": "user", "reason": _FAILED},
     ]
 
 
@@ -367,7 +372,7 @@ def test_a_pending_batch_is_attributed_too():
     assert _read({
         "table-share/h/exec/results/manifest.json": _run_manifest(PENDING=["r/PENDING_0.json"]),
         "r/PENDING_0.json": [_failed_record([_item("bob")])],
-    }) == [{"recipient": "bob", "reason": _FAILED}]
+    }) == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
 
 
 def test_every_result_file_in_a_group_is_read():
@@ -465,13 +470,57 @@ def test_an_already_parsed_output_is_accepted():
     }) == [{"recipient": "bob", "reason": _FAILED}]
 
 
-def test_a_result_file_entry_with_no_key_is_skipped():
-    """The manifest's own shape, not a payload — an entry naming no object has nothing to read."""
-    assert _read({
-        "table-share/h/exec/results/manifest.json": {
-            "ResultFiles": {"SUCCEEDED": [{"Size": 0}]},
-        },
-    }) == []
+def test_a_result_file_entry_with_no_key_is_unattributable():
+    """An entry naming no object is a shape this reader does not understand.
+
+    Skipping it is the tempting move and it is the wrong direction: the batches in that file are
+    then simply never read, and a run with real failures reports clean.
+    """
+    with pytest.raises(TerminalError) as caught:
+        _read({
+            "table-share/h/exec/results/manifest.json": {
+                "ResultFiles": {"SUCCEEDED": [{"Size": 0}]},
+            },
+        })
+    assert caught.value.reason == _UNREADABLE
+
+
+def test_a_result_file_that_is_not_a_list_of_records_is_unattributable():
+    with pytest.raises(TerminalError) as caught:
+        _read({
+            "table-share/h/exec/results/manifest.json": _run_manifest(SUCCEEDED=["r/SUCCEEDED_0.json"]),
+            "r/SUCCEEDED_0.json": {"not": "a list"},
+        })
+    assert caught.value.reason == _UNREADABLE
+
+
+def test_a_succeeded_record_with_no_item_count_is_unattributable():
+    """The count is what lets the caller check the export against the manifest it wrote."""
+    record = _succeeded_record([_item("bob")], [])
+    record["Output"] = json.dumps({"failures": []})
+    with pytest.raises(TerminalError) as caught:
+        _read({
+            "table-share/h/exec/results/manifest.json": _run_manifest(SUCCEEDED=["r/SUCCEEDED_0.json"]),
+            "r/SUCCEEDED_0.json": [record],
+        })
+    assert caught.value.reason == _UNREADABLE
+
+
+def test_the_reader_reports_how_many_items_the_export_accounted_for():
+    """The number the collector reconciles against its manifest — a well-formed export covering
+    only some batches is the one silent-success path a shape check cannot catch."""
+    outcome = _read_outcome({
+        "table-share/h/exec/results/manifest.json": _run_manifest(
+            SUCCEEDED=["r/SUCCEEDED_0.json"], FAILED=["r/FAILED_0.json"]
+        ),
+        "r/SUCCEEDED_0.json": [
+            _succeeded_record([_item("bob"), _item("bob")], [{"recipient": "bob", "reason": _FAILED}])
+        ],
+        "r/FAILED_0.json": [_failed_record([_item("carol")])],
+    })
+
+    assert outcome["items"] == 3
+    assert len(outcome["failures"]) == 2
 
 
 def test_a_throttled_results_read_is_transient():

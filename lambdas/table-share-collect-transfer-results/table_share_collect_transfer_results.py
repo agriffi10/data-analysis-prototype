@@ -40,19 +40,29 @@ def _failed_item_counts(event) -> Counter:
     An execution where the Choice skipped the Map has no run to read, and no items either —
     that is the "every recipient conflicted" path, not a missing export.
 
+    **The export is checked against the manifest, not merely parsed.** The engine raises on any
+    shape it does not recognise, but an export can be well-formed and still cover only some of the
+    batches — and a partial export read as a clean run is the exact failure this plane must not
+    have: every recipient would be told the share went well and given a table over a dataset that
+    may be missing objects. So the item count the export accounts for must equal the count
+    build-transfer-manifest wrote.
+
     Args:
       event: The request, carrying the ``transfer`` block and the Map state's output.
 
     Returns:
-      Failed item counts keyed by recipient name.
+      Failed item counts keyed by ``(kind, name)`` — a destination is that pair, and nothing stops
+      a shared space being named after a user, so counting on the name alone would deny one of them
+      a copy the other lost.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the Map ran but its export cannot be
-        read or attributed. Whole-request, because the alternative is telling every recipient
-        the share went well without having checked.
+        read, attributed, or reconciled with the manifest. Whole-request, because the alternative
+        is telling every recipient the share went well without having checked.
       TransientError: On a retryable S3 fault reading the export.
     """
-    if not (event.get("transfer") or {}).get("itemCount"):
+    expected = (event.get("transfer") or {}).get("itemCount")
+    if not expected:
         return Counter()
 
     details = (event.get("mapRun") or {}).get("ResultWriterDetails") or {}
@@ -63,13 +73,21 @@ def _failed_item_counts(event) -> Counter:
             "the transfer ran but its results export was not reported by the Map state",
         )
 
-    failures = results_mod.read_failed_items(
+    outcome = results_mod.read_failed_items(
         bucket,
         key,
         batch_failure_reason=COPY_FAILED,
         unreadable_reason=RESULTS_UNREADABLE,
     )
-    return Counter(failure.get("recipient") for failure in failures)
+    if outcome["items"] != expected:
+        raise TerminalError(
+            RESULTS_UNREADABLE,
+            f"the transfer results account for {outcome['items']} of {expected} items, so some "
+            "batches cannot be attributed to a recipient",
+        )
+    return Counter(
+        (failure.get("kind"), failure.get("recipient")) for failure in outcome["failures"]
+    )
 
 
 def _recipient_of(guard_record: dict) -> dict:
@@ -103,6 +121,17 @@ def _entry(guard_record: dict, failed_items: int) -> dict:
       guard_record: The guard Map's record for this recipient.
       failed_items: How many of this recipient's items failed to copy.
 
+    **The raw ``{Error, Cause}`` is decoded here and NOT carried forward**, and that is a payload
+    decision rather than a tidying one. A Cause runs to hundreds of bytes with its stack, and the
+    state would otherwise hold one per refused recipient three times over — in ``guardResults``,
+    here, and again in the finish Map's results — against a 256 KB limit whose breach lands ON a
+    Map and destroys every per-recipient outcome. The reason code is what a reader needs; the raw
+    error is still in the execution history at the state that produced it.
+
+    Args:
+      guard_record: The guard Map's record for this recipient.
+      failed_items: How many of this recipient's items failed to copy.
+
     Returns:
       A uniform outcome entry. Every key is always present — the finish Map's pass-through
       references them by path, and an absent path raises an uncatchable ``States.Runtime``.
@@ -121,7 +150,6 @@ def _entry(guard_record: dict, failed_items: int) -> dict:
             "reason": errors.failure_reason(guard_record.get("error")),
             "failedItems": 0,
             "recipient": None,
-            "error": guard_record.get("error"),
         }
     if failed_items:
         return {
@@ -131,7 +159,6 @@ def _entry(guard_record: dict, failed_items: int) -> dict:
             "reason": COPY_FAILED,
             "failedItems": failed_items,
             "recipient": None,
-            "error": None,
         }
     return {
         "kind": kind,
@@ -140,7 +167,6 @@ def _entry(guard_record: dict, failed_items: int) -> dict:
         "reason": "",
         "failedItems": 0,
         "recipient": recipient,
-        "error": None,
     }
 
 
@@ -172,15 +198,21 @@ def handler(event, context) -> dict:
 def _collect_transfer_results(event) -> dict:
     """Counts failed items per recipient, shapes the outcomes and notifies the copy failures.
 
-    Counts and names, never keys: this list rides the state through two more Map states, and
-    a failed-key list is the unbounded term that breaches the 256 KB payload limit — where the
-    limit error lands ON the Map and destroys every per-recipient outcome it exists to keep.
+    Counts and names, never keys: this list rides the state through one more Map, and a failed-key
+    list is the unbounded term that breaches the 256 KB payload limit — where the limit error lands
+    ON the Map and destroys every per-recipient outcome it exists to keep.
+
+    **``guardResults`` is consumed, not carried.** It is this verb's input and its raw
+    ``{Error, Cause}`` per refused recipient is the state's heaviest per-recipient term. Leaving it
+    on the state alongside the outcomes and then the finish Map's results would hold three copies
+    of it at once, and a 50-recipient share where most conflict is the ordinary case, not the
+    pathological one.
 
     Args:
       event: The request with its guard results and Map Run output.
 
     Returns:
-      The request with its per-recipient outcome list.
+      The request with its per-recipient outcome list, and without the guard results it replaces.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the export cannot be attributed.
@@ -189,7 +221,7 @@ def _collect_transfer_results(event) -> dict:
     counts = _failed_item_counts(event)
     guard_results = event.get("guardResults") or []
     entries = [
-        _entry(record, counts.get(_recipient_of(record).get("name"), 0))
+        _entry(record, counts.get((_recipient_of(record).get("kind"), _recipient_of(record).get("name")), 0))
         for record in guard_results
         if isinstance(record, dict)
     ]
@@ -208,4 +240,4 @@ def _collect_transfer_results(event) -> dict:
         copied=copied,
         failed_items=sum(counts.values()),
     )
-    return {**event, "outcomes": entries}
+    return {**{k: v for k, v in event.items() if k != "guardResults"}, "outcomes": entries}

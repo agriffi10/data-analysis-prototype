@@ -385,13 +385,12 @@
           },
           "RecipientCarried": {
             "Type": "Pass",
-            "Comment": "A recipient whose outcome was already decided — refused by the guard, or short of a copied object. Every field it reads is present on EVERY entry the collector emits, which is why that shape is uniform rather than sparse: a Pass reading an absent path raises an uncatchable States.Runtime.",
+            "Comment": "A recipient whose outcome was already decided — refused by the guard, or short of a copied object. It carries the DECODED reason rather than the raw {Error, Cause}: a Cause runs to hundreds of bytes with its stack, and carrying it here would put a third copy of every refusal on the state (guardResults, outcomes, these results) against the 256 KB limit whose breach lands ON a Map and destroys every per-recipient outcome. collect-transfer-results decodes it with cpcommon.errors.failure_reason and drops the raw error; the raw object is still in the execution history at the state that produced it. Every field read here is present on EVERY entry the collector emits, which is why that shape is uniform rather than sparse: a Pass reading an absent path raises an uncatchable States.Runtime.",
             "Parameters": {
               "kind.$": "$.entry.kind",
               "name.$": "$.entry.name",
               "status.$": "$.entry.status",
-              "reason.$": "$.entry.reason",
-              "error.$": "$.entry.error"
+              "reason.$": "$.entry.reason"
             },
             "End": true
           }

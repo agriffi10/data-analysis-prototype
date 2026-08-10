@@ -114,7 +114,7 @@ def test_a_deterministic_failure_does_not_fail_the_batch():
 
     out = m.handler(_batch(_item("bob", "good.parquet"), _item("carol", "bad.parquet")), None)
 
-    assert out == {"copied": 1, "failures": [{"recipient": "carol", "reason": "copy_failed"}]}
+    assert out == {"copied": 1, "failures": [{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]}
 
 
 def test_a_throttle_still_raises_so_the_map_retries_the_batch():

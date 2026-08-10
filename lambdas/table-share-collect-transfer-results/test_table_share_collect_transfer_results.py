@@ -75,7 +75,7 @@ def _item(recipient):
     return {"recipient": recipient, "kind": "user", "srcKey": "alice/sales/p.parquet"}
 
 
-def _event(guard_results, item_count=4):
+def _event(guard_results, item_count=2):
     return {
         "actor": "alice",
         "source": {"database": "alice", "table": "sales"},
@@ -89,8 +89,13 @@ def _event(guard_results, item_count=4):
     }
 
 
-def _export(failures=(), failed_batches=()):
-    """A results export: one SUCCEEDED file carrying per-item failures, one FAILED file."""
+def _export(failures=(), failed_batches=(), copied=None):
+    """A results export: one SUCCEEDED file carrying per-item failures, one FAILED file.
+
+    The item counts matter as much as the failures — the collector reconciles what the export
+    accounts for against the manifest's own `itemCount` (default 2 here), so a fixture that
+    under-reports is itself a valid test of that guard.
+    """
     objects = {
         _MANIFEST_KEY: {
             "ResultFiles": {
@@ -101,7 +106,10 @@ def _export(failures=(), failed_batches=()):
         "r/SUCCEEDED_0.json": [
             {
                 "Status": "SUCCEEDED",
-                "Output": json.dumps({"copied": 1, "failures": list(failures)}),
+                "Output": json.dumps({
+                    "copied": 2 - len(failures) - len(failed_batches) if copied is None else copied,
+                    "failures": list(failures),
+                }),
                 "OutputDetails": {"Included": True},
             }
         ],
@@ -129,7 +137,7 @@ def test_a_clean_transfer_leaves_every_recipient_ok():
 
 def test_a_recipient_with_one_failed_item_gets_no_table():
     """FR-004 AC4 — a partial copy under a table definition is worse than no table."""
-    _setup(_export(failures=[{"recipient": "carol", "reason": "copy_failed"}]))
+    _setup(_export(failures=[{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]))
 
     out = m.handler(
         _event([{"status": "ok", "recipient": _resolved("bob")}, {"status": "ok", "recipient": _resolved("carol")}]),
@@ -145,7 +153,7 @@ def test_a_recipient_with_one_failed_item_gets_no_table():
 
 def test_the_failed_item_count_is_reported_and_the_keys_are_not():
     """FR-004 AC6 — counts and names, never a list of failed keys."""
-    _setup(_export(failures=[{"recipient": "carol", "reason": "copy_failed"}] * 3))
+    _setup(_export(failures=[{"recipient": "carol", "kind": "user", "reason": "copy_failed"}] * 3))
 
     out = m.handler(_event([{"status": "ok", "recipient": _resolved("carol")}]), None)
 
@@ -197,7 +205,7 @@ def test_a_refused_recipient_is_not_resurrected_by_a_clean_run():
 
 def test_the_sender_is_told_about_a_copy_failure():
     """The notification a batch verb cannot send: the copy failure only has a recipient here."""
-    sent = _setup(_export(failures=[{"recipient": "carol", "reason": "copy_failed"}]))
+    sent = _setup(_export(failures=[{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]))
 
     m.handler(_event([{"status": "ok", "recipient": _resolved("bob")}, {"status": "ok", "recipient": _resolved("carol")}]), None)
 
@@ -235,6 +243,41 @@ def test_a_missing_results_pointer_fails_the_whole_request():
     assert caught.value.reason == "transfer_results_unreadable"
 
 
+def test_an_export_that_covers_only_some_batches_fails_the_whole_request():
+    """The silent success a shape check cannot catch (SPEC-160 review).
+
+    An export can be perfectly well-formed and still account for fewer items than the manifest
+    listed — a group this reader does not know about, a truncated write. Read as a clean run it
+    would give every recipient a table over a dataset that may be missing objects, which is the
+    one outcome this plane must never produce. So the counts must reconcile.
+    """
+    _setup(_export())
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(_event([{"status": "ok", "recipient": _resolved("bob")}], item_count=99), None)
+    assert caught.value.reason == "transfer_results_unreadable"
+
+
+def test_a_user_and_a_space_of_the_same_name_are_attributed_separately():
+    """A destination is a (kind, name) PAIR, and nothing stops a space being named after a user.
+
+    Keyed on the name alone, one failed object in space "acme" would deny user "acme" a table they
+    actually received — and hand them a failure notification for it.
+    """
+    _setup(_export(failures=[{"recipient": "acme", "kind": "space", "reason": "copy_failed"}]))
+
+    out = m.handler(
+        _event([
+            {"status": "ok", "recipient": _resolved("acme", kind="user")},
+            {"status": "ok", "recipient": _resolved("acme", kind="space")},
+        ]),
+        None,
+    )
+
+    by_kind = {e["kind"]: e["status"] for e in out["outcomes"]}
+    assert by_kind == {"user": "ok", "space": "failed"}
+
+
 def test_an_unreadable_export_fails_the_whole_request():
     """FR-004 AC7 — never a silent 'everything succeeded'."""
     _setup({})
@@ -257,7 +300,7 @@ def test_an_omitted_payload_fails_the_whole_request():
 def test_every_entry_carries_every_key_the_pass_through_reads():
     """The finish Map echoes a non-ok entry field by field, and an ABSENT path in a Pass raises
     an uncatchable States.Runtime — so the shape has to be uniform, not merely correct."""
-    _setup(_export(failures=[{"recipient": "carol", "reason": "copy_failed"}]))
+    _setup(_export(failures=[{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]))
 
     out = m.handler(
         _event([
@@ -269,7 +312,30 @@ def test_every_entry_carries_every_key_the_pass_through_reads():
     )
 
     for entry in out["outcomes"]:
-        assert set(entry) == {"kind", "name", "status", "reason", "failedItems", "recipient", "error"}
+        assert set(entry) == {"kind", "name", "status", "reason", "failedItems", "recipient"}
+
+
+def test_the_raw_error_is_decoded_here_and_not_carried_forward():
+    """A payload decision, not tidying (SPEC-160 review).
+
+    A raw {Error, Cause} runs to hundreds of bytes with its stack. Carried onward it would sit on
+    the state three times over — guardResults, outcomes, and the finish Map's results — and 50
+    conflicting recipients measured over the 256 KB limit, where the breach lands ON a Map and
+    destroys every per-recipient outcome. The reason code is what a reader needs; the raw object
+    stays in the execution history at the state that produced it.
+    """
+    _setup(_export())
+    refused = {
+        "status": "failed",
+        "recipient": {"kind": "user", "name": "carol"},
+        "error": {"Error": "TerminalError", "Cause": "x" * 4000},
+    }
+
+    out = m.handler(_event([refused], item_count=0), None)
+
+    assert "guardResults" not in out, "the guard results were consumed; carrying them triples the Causes"
+    assert "x" * 100 not in json.dumps(out)
+    assert out["outcomes"][0]["reason"] == "TerminalError"
 
 
 if __name__ == "__main__":

@@ -111,26 +111,43 @@ def _payload(record: dict, field: str, unreadable_reason: str) -> dict:
     return parsed
 
 
-def _failures_from_output(record: dict, unreadable_reason: str) -> list:
-    """Reads the per-item failures a succeeded batch reported.
+def _from_output(record: dict, unreadable_reason: str) -> tuple:
+    """Reads the per-item failures a succeeded batch reported, and how many items it covered.
+
+    The count matters as much as the failures: it is what lets the caller check that the export
+    accounts for every item the manifest listed, rather than trusting that the groups this module
+    knows about are the only ones there were.
 
     Args:
       record: One exported ``SUCCEEDED`` record.
       unreadable_reason: The domain reason code for an unattributable record.
 
     Returns:
-      The batch's failure entries, empty when it copied everything.
+      ``(failures, items covered)``.
 
     Raises:
-      TerminalError: ``unreadable_reason`` when the output was omitted or is unparseable.
+      TerminalError: ``unreadable_reason`` when the output was omitted, is unparseable, or does
+        not carry the batch verb's ``copied`` count.
     """
     output = _payload(record, "Output", unreadable_reason)
-    failures = output.get("failures")
-    return [entry for entry in failures if isinstance(entry, dict)] if isinstance(failures, list) else []
+    copied = output.get("copied")
+    raw = output.get("failures")
+    failures = [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
+    if not isinstance(copied, int) or isinstance(copied, bool):
+        raise TerminalError(
+            unreadable_reason,
+            "a succeeded child execution's output carries no item count, so the export cannot be "
+            "checked against the manifest",
+        )
+    return failures, copied + len(failures)
 
 
-def _failures_from_input(record: dict, batch_failure_reason: str, unreadable_reason: str) -> list:
+def _from_input(record: dict, batch_failure_reason: str, unreadable_reason: str) -> tuple:
     """Turns a whole-batch failure into one failure entry per item it carried.
+
+    Every item in the batch fails, including any the child had already copied before it died. That
+    is fail-closed on purpose: a batch that failed as a whole reported nothing per item, so which
+    of its items landed is genuinely unknown, and the conservative answer is the only honest one.
 
     Args:
       record: One exported ``FAILED`` or ``PENDING`` record.
@@ -138,7 +155,7 @@ def _failures_from_input(record: dict, batch_failure_reason: str, unreadable_rea
       unreadable_reason: The domain reason code for an unattributable record.
 
     Returns:
-      One entry per item in the child's input batch.
+      ``(failures, items covered)``.
 
     Raises:
       TerminalError: ``unreadable_reason`` when the input was omitted or is unparseable.
@@ -150,17 +167,29 @@ def _failures_from_input(record: dict, batch_failure_reason: str, unreadable_rea
             unreadable_reason,
             "a failed child execution's input carries no item batch to attribute",
         )
-    return [
-        {"recipient": item.get("recipient"), "reason": batch_failure_reason}
+    failures = [
+        {
+            "recipient": item.get("recipient"),
+            "kind": item.get("kind"),
+            "reason": batch_failure_reason,
+        }
         for item in items
         if isinstance(item, dict)
     ]
+    return failures, len(items)
 
 
 def read_failed_items(
     bucket: str, manifest_key: str, *, batch_failure_reason: str, unreadable_reason: str
-) -> list:
+) -> dict:
     """Reads a Map Run's export and returns every failed item, attributed to its recipient.
+
+    **Every unrecognised shape raises**, and that direction is the whole design. A reader that
+    skips what it does not understand reports a clean run over an export it never read, and the
+    caller then creates tables over datasets that may be missing objects. So an entry naming no
+    object, a result file that is not a list of records, and a manifest listing no files are all
+    terminal rather than empty — and the caller is handed the item count so it can check the
+    export against the manifest it wrote.
 
     Args:
       bucket: The results bucket from the Map state's ``ResultWriterDetails``.
@@ -169,12 +198,13 @@ def read_failed_items(
       unreadable_reason: The reason code for an export that cannot be read or attributed.
 
     Returns:
-      ``[{"recipient": …, "reason": …}, …]`` — empty when every item copied.
+      ``{"failures": [{"recipient", "kind", "reason"}, …], "items": n}`` — ``failures`` empty when
+      every item copied, ``items`` the number of manifest items the export accounted for.
 
     Raises:
       TransientError: On a retryable S3 fault reading the export.
       TerminalError: ``unreadable_reason`` when the run manifest or any result file is absent,
-        unparseable, or carries a record whose payload was omitted.
+        unparseable, of an unexpected shape, or carries a record whose payload was omitted.
     """
     manifest = _read_json(bucket, manifest_key, unreadable_reason)
     result_files = manifest.get("ResultFiles")
@@ -184,17 +214,27 @@ def read_failed_items(
         )
 
     failures: list = []
+    items = 0
     for group in (_SUCCEEDED, *_INPUT_ATTRIBUTED):
         for entry in result_files.get(group) or []:
             key = entry.get("Key") if isinstance(entry, dict) else None
             if not key:
-                continue
+                raise TerminalError(
+                    unreadable_reason,
+                    f"the {group} results of {bucket}/{manifest_key} name a file with no key, so "
+                    "the batches in it cannot be attributed",
+                )
             records = _read_json(bucket, key, unreadable_reason)
-            for record in records if isinstance(records, list) else []:
-                if group == _SUCCEEDED:
-                    failures.extend(_failures_from_output(record, unreadable_reason))
-                else:
-                    failures.extend(
-                        _failures_from_input(record, batch_failure_reason, unreadable_reason)
-                    )
-    return failures
+            if not isinstance(records, list):
+                raise TerminalError(
+                    unreadable_reason, f"transfer results {bucket}/{key} are not a list of records"
+                )
+            for record in records:
+                found, covered = (
+                    _from_output(record, unreadable_reason)
+                    if group == _SUCCEEDED
+                    else _from_input(record, batch_failure_reason, unreadable_reason)
+                )
+                failures.extend(found)
+                items += covered
+    return {"failures": failures, "items": items}

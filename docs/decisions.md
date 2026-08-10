@@ -1060,6 +1060,39 @@ there is nothing for the collector to attribute. Children are STANDARD because a
 multi-GiB object whose multipart copy exceeds EXPRESS's five-minute ceiling, and EXPRESS's
 at-least-once semantics would re-run whole batches.
 
+**A WHOLE-batch failure fails every recipient in that batch, and that is fail-closed on purpose.**
+Items are batched in recipient-major order, so a batch spans several recipients only when a
+recipient has fewer objects than the batch size — but when it does, a child execution that dies
+outright (an exhausted `TransientError` retry, a Lambda timeout) takes all of them down with it. It
+reported nothing per item, so which of its items landed is genuinely unknown, and the conservative
+answer is the only honest one. Pre-160 each recipient had its own invocation and its own retry
+budget, so this is a real narrowing of isolation, accepted deliberately: the alternative is trusting
+a copy nobody observed. A Distributed Map cannot partition batches by key, so a per-recipient
+guarantee would mean a Map per recipient — the nested design this decision rejects.
+
+**Attribution keys on `(kind, name)`, never the name alone.** A destination is a pair, and nothing
+in this system stops a shared space being named after a user (the archival arc records the same
+hazard for its key layout). Keyed on the name, one failed object in space `acme` would deny user
+`acme` a table they actually received, and send them a failure notification for it.
+
+**The export is reconciled against the manifest, not merely parsed.** Every unrecognised shape
+raises — an entry naming no object, a result file that is not a list of records, a record with no
+item count — because a reader that skips what it does not understand reports a clean run over an
+export it never read. Shape checks alone are not enough, though: a well-formed export can still
+cover only some of the batches, so the collector requires the item count the export accounts for to
+equal the count `build-transfer-manifest` wrote. Anything less is a whole-request failure.
+
+**The raw `{Error, Cause}` is decoded at the collector and NOT carried onward.** This is a payload
+decision. A Cause runs to hundreds of bytes with its stack; leaving `guardResults` on the state
+*and* re-emitting the raw error in the outcomes would put three copies of every refusal on the state
+by the time the finish Map merges its results — measured at **108% of the 256 KB limit** for 50
+conflicting recipients, which is the *ordinary* case of re-sharing a table most recipients already
+have, and a breach there lands **on a Map** and destroys every per-recipient outcome. So the
+collector **consumes** `guardResults` and carries `cpcommon.errors.failure_reason`'s decoded code;
+the raw object remains in the execution history at the state that produced it. The two peaks — the
+guard Map's output and the finish Map's — are both modelled by
+`test_the_whole_map_state_stays_under_the_payload_limit`, at 42% and 45%.
+
 **A deterministic item failure never raises; a transient one always does.** The batch returns
 per-item outcomes and succeeds, so one unreadable key never costs its 49 siblings their copy. A
 throttle raises after every in-flight copy settles, and the Map retries the whole batch — safe

@@ -47,16 +47,50 @@ verb*. Sizing evidence: `lambda-rationale.md` → *`cpcommon/transfer/config.py`
   threshold.
 - **The collector's output key is `outcomes`, not `recipients`** — `$.recipients` is already the
   validated request's recipient list, and overwriting it with a different shape is a trap.
-- **The per-recipient entry gained `reason` and `failedItems`.** The summary's existing fields
-  (`kind`/`name`/`status`/`error`) are unchanged and nothing downstream reads the new ones; they
-  exist because the finish Map's pass-through references every field **by path**, and an absent path
-  in a `Pass` raises an uncatchable `States.Runtime` — so the shape had to be uniform, not merely
-  correct.
+- **The per-recipient entry gained `reason` and `failedItems`.** Nothing downstream reads them;
+  they exist because the finish Map's pass-through references every field **by path**, and an absent
+  path in a `Pass` raises an uncatchable `States.Runtime` — so the shape had to be uniform, not
+  merely correct.
 - **No `component-inventory` row.** That inventory is explicitly `apps/portal/src/` and lists no
   Lambda layer; `cpcommon.transfer` is recorded in `architecture.md`'s *Layers* bullet instead,
   where `cpcommon`'s modules are already enumerated.
 - **No new reason code for a failed batch beyond `copy_failed`**, plus one new whole-request code,
-  `transfer_results_unreadable`, for an export that cannot be read or attributed.
+  `transfer_results_unreadable`, for an export that cannot be read, attributed **or reconciled**.
+- **A whole-batch failure fails every recipient in that batch.** Items batch recipient-major, so a
+  batch spans recipients only when one has fewer objects than the batch size — but then a child
+  that dies outright takes all of them down. Fail-closed on purpose (the batch reported nothing per
+  item, so which of its items landed is unknown), and a real narrowing of the pre-160 isolation,
+  where each recipient had its own invocation and retry budget. Recorded in `decisions.md`.
+- **The per-recipient entry drops the raw `{Error, Cause}` and carries the decoded `reason`.** The
+  final summary therefore reads `{kind, name, status, reason}` for a guard refusal where it used to
+  read `{kind, name, status, error}`; a *create* failure still carries the raw error, unchanged.
+  Nothing reads the execution output, and the raw object stays in the execution history at the
+  state that produced it. This is a payload decision, not tidying — see the review section below.
+- **`collect-transfer-results` consumes `guardResults`** rather than passing it on.
+
+### The review that changed the shipped code
+
+The fresh-context review found four things worth recording, all fixed on the branch before merge:
+
+1. **A 256 KB payload breach in the ordinary case.** Carrying `guardResults` forward *and*
+   re-emitting the raw error put three copies of every refusal on the state by the time the finish
+   Map merged — **108% of the limit** at 50 conflicting recipients, i.e. re-sharing a table most
+   recipients already have. `States.DataLimitExceeded` lands **on a Map**, outside every `Catch`, so
+   the sender would have heard nothing at all. Fixed by consuming `guardResults` and decoding the
+   error; both peaks are now modelled (42% / 45%) where the old test still described the pre-160
+   single-Map shape and certified a bound that no longer existed.
+2. **Silent-success paths in the results reader.** An entry naming no object, a result file that
+   was not a list, and a manifest listing no files all returned "no failures". They raise now — and
+   the reader returns the **item count** it accounted for, which the collector reconciles against
+   the manifest's own `itemCount`, closing the well-formed-but-partial export that no shape check
+   can catch.
+3. **Attribution keyed on the recipient name alone**, dropping the `kind` the manifest carries. A
+   user and a shared space can share a name, so one failed object in space `acme` denied user
+   `acme` a table they had received. Now keyed on `(kind, name)`.
+4. **The instrumentation guard's skip.** `copy-objects` legitimately has no `notifies_on_failure`,
+   but the guard *skipped* any verb without one — so an accidental removal was indistinguishable
+   from a deliberate one. It now asserts against a named `_NO_NOTIFIER` list, which immediately
+   surfaced `release_refresh_lock` (SPEC-157) sitting in that position undeclared.
 
 ## What changed from earlier specs?
 
@@ -75,10 +109,20 @@ verb*. Sizing evidence: `lambda-rationale.md` → *`cpcommon/transfer/config.py`
   parser.
 - **`test_instrumentation_coverage.py`'s table-share `verb_count` 6 → 8.**
 
+## User-facing docs sweep
+
+Nothing in **Help & guides** changed. The share flow, its wording, its caps and its notifications are
+identical; the only new user-visible string is a failure notification
+(`transfer_results_unreadable`), and `helpContent.ts` documents flows rather than enumerating
+failure messages.
+
 ## Verification
 
-`ruff`, `mypy` (the five layers, at zero), `pytest lambdas/` (2,289 passed, coverage 97%) and
-`tofu validate`/`fmt` all green locally. New guards: the ASL/IAM suite
+`ruff`, `mypy` (the five layers, at zero), `pytest lambdas/` (2,297 passed, coverage 97%) and
+`tofu validate`/`fmt` all green locally. `states:DescribeExecution` on
+`execution:{machineName}:*` was **checked against the current AWS docs** — it is their documented
+least-privilege form verbatim; the `execution:{name}/{mapRunLabel}:*` variant belongs to
+`RedriveExecution`, which is not granted. New guards: the ASL/IAM suite
 (`test_state_machine_table_share.py`, 21 tests) covers the top-level-Map property, the batcher
 sizing against `cpcommon`'s constants, both `IsPresent`-before-value Choices, and the
 `states:`-on-the-wrong-role swap.

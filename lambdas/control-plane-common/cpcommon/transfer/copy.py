@@ -144,9 +144,11 @@ def copy_batch(items: list, failure_reason: str, concurrency: int = COPY_CONCURR
       concurrency: Worker pool size.
 
     Returns:
-      ``{"copied": n, "failures": [{"recipient": …, "reason": …}, …]}``. Failures name the
-      recipient and never the key: the list rides the exported result and then the state, and
-      keys are the unbounded term.
+      ``{"copied": n, "failures": [{"recipient": …, "kind": …, "reason": …}, …]}``. Failures name
+      the recipient and never the key: the list rides the exported result and then the state, and
+      keys are the unbounded term. The ``kind`` travels with the name because a destination is a
+      ``(kind, name)`` pair — nothing stops a shared space being named after a user, and attributing
+      on the name alone would deny one of them a transfer the other lost.
 
     Raises:
       TransientError: When any item failed retryably, after every in-flight copy has settled.
@@ -164,7 +166,11 @@ def copy_batch(items: list, failure_reason: str, concurrency: int = COPY_CONCURR
                 logger.warning(
                     "copy failed for %s/%s: %s", item.get("srcBucket"), item.get("srcKey"), exc
                 )
-                failures.append({"recipient": item.get("recipient"), "reason": failure_reason})
+                failures.append({
+                    "recipient": item.get("recipient"),
+                    "kind": item.get("kind"),
+                    "reason": failure_reason,
+                })
     if transient is not None:
         raise transient
     return {"copied": len(items) - len(failures), "failures": failures}
