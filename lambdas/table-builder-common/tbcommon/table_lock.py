@@ -44,6 +44,7 @@ Attributes:
 import json
 import logging
 from datetime import UTC, datetime
+from typing import cast
 
 from cpcommon import cas, clients, config, observability
 
@@ -337,7 +338,7 @@ def _put(key: str, body: bytes, etag: str | None) -> dict:
         kwargs["IfNoneMatch"] = "*"
     else:
         kwargs["IfMatch"] = etag
-    return clients.s3().put_object(**kwargs)
+    return cast("dict", clients.s3().put_object(**kwargs))
 
 
 def _body(*, holder: str | None, acquired_at: str | None) -> bytes:

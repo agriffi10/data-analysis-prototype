@@ -31,6 +31,8 @@ Attributes:
 """
 
 import logging
+from collections.abc import Callable
+from typing import Any
 
 from .errors import error_code
 
@@ -73,16 +75,16 @@ def is_precondition(exc):
     return error_code(exc) in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
 
 
-def cas_mutate(
-    read,
-    apply,
-    write,
+def cas_mutate[T](
+    read: Callable[[], tuple[Any, Any]],
+    apply: Callable[[Any], T],
+    write: Callable[[T, Any], Any],
     *,
-    label="object",
-    max_attempts=MAX_ATTEMPTS,
-    on_conflict=None,
-    skip_no_op=True,
-):
+    label: str = "object",
+    max_attempts: int = MAX_ATTEMPTS,
+    on_conflict: Callable[[int], Any] | None = None,
+    skip_no_op: bool = True,
+) -> T:
     """Compare-and-swaps an object through a transform, retrying on a concurrent writer.
 
     The write is caught broadly so a fake or a real client error is handled the same way, and

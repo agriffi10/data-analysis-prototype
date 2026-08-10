@@ -11,7 +11,7 @@ Attributes:
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from .errors import TerminalError
 
@@ -59,7 +59,7 @@ def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> dict:
     if not body:
         raise fail("missing message body")
     try:
-        return json.loads(body)
+        return cast("dict", json.loads(body))
     except (TypeError, ValueError) as err:
         raise fail(f"body is not valid JSON: {err}") from err
 

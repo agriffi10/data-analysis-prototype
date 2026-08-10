@@ -49,10 +49,13 @@ def bounded_detail(text) -> str:
     Raises:
       None.
     """
-    text = str(text)
-    if len(text) <= MAX_DETAIL_CHARS:
-        return text
-    return f"{text[:MAX_DETAIL_CHARS]}… [truncated {len(text) - MAX_DETAIL_CHARS} chars; full text in logs]"
+    bounded = str(text)
+    if len(bounded) <= MAX_DETAIL_CHARS:
+        return bounded
+    return (
+        f"{bounded[:MAX_DETAIL_CHARS]}… "
+        f"[truncated {len(bounded) - MAX_DETAIL_CHARS} chars; full text in logs]"
+    )
 
 
 def failure_reason(error) -> str:

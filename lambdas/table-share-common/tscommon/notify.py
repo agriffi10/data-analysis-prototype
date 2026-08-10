@@ -54,9 +54,12 @@ def _context(event) -> tuple[str, str, str, dict | None]:
       None.
     """
     data = event if isinstance(event, dict) else {}
-    request = data.get("request") if isinstance(data.get("request"), dict) else data
-    recipient = data.get("recipient") if isinstance(data.get("recipient"), dict) else None
-    source = request.get("source") if isinstance(request.get("source"), dict) else {}
+    nested = data.get("request")
+    request = nested if isinstance(nested, dict) else data
+    candidate = data.get("recipient")
+    recipient = candidate if isinstance(candidate, dict) else None
+    declared = request.get("source")
+    source = declared if isinstance(declared, dict) else {}
     return (
         request.get("actor") or "",
         source.get("table") or "",

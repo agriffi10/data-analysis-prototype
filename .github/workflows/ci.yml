@@ -92,14 +92,14 @@ jobs:
       - name: Lint (ruff)
         run: ruff check lambdas/
 
-      # REPORT-ONLY, deliberately (SPEC-153 FR-009). This is the first notch of a ratchet:
-      # the shared layers are where a signature change fans out, so they are checked first
-      # and the baseline finding count is the number the next notch has to beat. It does NOT
-      # gate the build — `continue-on-error` keeps a finding visible without turning a type
-      # observation into a merge blocker before the baseline is cleared. Config, scope and
-      # the full ratchet path live in the [tool.mypy] block of pyproject.toml.
-      - name: Typecheck (mypy, report-only)
-        continue-on-error: true
+      # BLOCKING as of notch 2 (was report-only under SPEC-153 FR-009, at a 19-finding
+      # baseline). The baseline is cleared, so `continue-on-error` is gone: a type error in
+      # the shared layers now fails the build, which is the whole point of a ratchet — the
+      # cleared number is only worth clearing if nothing can put findings back. Scope is
+      # still the five shared layers; widening it to the verb packages is notch 3, and lands
+      # report-only again. Config and the full ratchet path live in pyproject.toml's
+      # [tool.mypy] block.
+      - name: Typecheck (mypy)
         run: mypy
 
       - name: Test (pytest)

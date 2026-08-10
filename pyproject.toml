@@ -92,7 +92,7 @@ ignore = [
 "lambdas/shared-space-common/fakes.py" = ["S101"]  # test doubles, imported by suites only
 
 # ── mypy ─────────────────────────────────────────────────────────────────────
-# REPORT-ONLY, and the first notch of a ratchet (SPEC-153 FR-009).
+# BLOCKING over the five shared layers — notch 2 of the ratchet SPEC-153 FR-009 started.
 #
 # `ci.yml` ran ruff and pytest and no type checker, for a fleet whose contract with the SPA
 # is JSON envelope shapes crossing a Step Functions state payload. This starts where a
@@ -104,10 +104,19 @@ ignore = [
 # where it matches today's default, so a release changing a default is a no-op here.
 # `lambdas/requirements-dev.txt` bounds the minor as the second half of that guarantee.
 #
-# THE RATCHET PATH, in order: (1) report-only over the shared layers — here; (2) fix the
-# baseline to zero and flip the CI step to blocking; (3) widen `files` to the verb packages,
-# report-only again; (4) `disallow_untyped_defs` on `cpcommon` alone. Each notch is its own
-# PR with its own number to beat, exactly as the coverage floors are (SPEC-150 FR-002).
+# THE RATCHET PATH, in order: (1) report-only over the shared layers — DONE, SPEC-153, at a
+# 21-finding baseline, 19 by the time notch 2 measured it; (2) clear the baseline to zero and
+# flip the CI step to blocking — DONE, and `scope` below is what is now held at zero;
+# (3) widen `files` to the verb packages, report-only again; (4) `disallow_untyped_defs` on
+# `cpcommon` alone. Each notch is its own PR with its own number to beat, exactly as the
+# coverage floors are (SPEC-150 FR-002).
+#
+# NOTCH 2 FIXED TYPES, NOT BEHAVIOUR. Every finding was closed with an annotation, a `cast`
+# at a genuinely dynamic boundary (`json.loads`, a boto3 response, a JWT claim), or a
+# narrowing rewrite that computes the same answer — no control flow moved, and the suite is
+# unchanged. A `cast` here is a claim about a boundary mypy cannot see, so it stays honest
+# only while the boundary does: if one starts lying, fix the call site rather than widening
+# the declared return type to match it.
 [tool.mypy]
 python_version = "3.12"
 

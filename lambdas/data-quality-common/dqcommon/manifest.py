@@ -14,6 +14,7 @@ must be a retryable fault — the verb is replay-safe and a retry simply rewrite
 """
 
 import json
+from typing import cast
 
 from cpcommon import clients, errors
 from cpcommon.errors import TerminalError
@@ -47,7 +48,7 @@ def load(bucket: str, key: str) -> dict:
         ) from err
 
     try:
-        return json.loads(body)
+        return cast("dict", json.loads(body))
     except ValueError as err:
         raise TerminalError(
             messages.INVALID_REQUEST, f"manifest {key} is not valid JSON: {err}"
