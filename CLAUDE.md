@@ -72,11 +72,14 @@ down elsewhere — when a spec closes, prune it rather than appending.**
 
 **SPEC-160 is COMPLETE (2026-08-10) — the engine the other three arcs depend on now exists.**
 `cpcommon.transfer` (manifest writer, batch copier, Map Run result reader) is built and table-share
-runs on it; **161** still owes the raised caps and the wide-definition/long-run work. 160 owes **one
-live check**: share a several-hundred-object table to two recipients where one conflicts — the
-conflicting one gets `conflict` with no child execution, the other gets every object at the right
-key, and `logs/service=table-share/` carries the run. That run is also what **demonstrates** the Map
-Run `manifest.json` shape the collector parses, which today is corroborated from AWS docs only.
+runs on it; **161** still owes the raised caps and the wide-definition/long-run work.
+**DISCHARGED: the Map Run `manifest.json` shape** — a real one is transcribed into
+`test_transfer_cpcommon.py` and parsed by the shipped reader, settling that `ResultFiles` maps a
+group name to `{Key, Size}` entries and that **`Key` is absolute, not prefix-relative**. **Still
+owed: the SCALE half** — that run was one small batch, so share a **several-hundred-object** table
+to two recipients where one conflicts: several child executions, the conflicting one refused with
+`conflict` and **no child execution of its own**, the other receiving every object at the right key,
+and `logs/service=table-share/` carrying one `batch copied` event per child.
 
 **Three arcs remain filed as Draft (2026-08-10) — authored, not started.** **162→163** feature flags (a git-controlled per-environment
 JSON at `_config/feature-flags.json` in the **user-space** bucket beside `_directory/` — the admin

@@ -127,11 +127,20 @@ least-privilege form verbatim; the `execution:{name}/{mapRunLabel}:*` variant be
 sizing against `cpcommon`'s constants, both `IsPresent`-before-value Choices, and the
 `states:`-on-the-wrong-role swap.
 
-**Owed live (Phase 4):** share a table of several hundred objects to two recipients where one
-conflicts — confirm the conflicting recipient gets `conflict` with no child execution for it, the
-other receives every object at the correct key, and `logs/service=table-share/` carries the run.
-**The Map Run `manifest.json` shape is corroborated, not demonstrated**: `ResultWriterDetails`
-`{Bucket, Key}`, the `SUCCEEDED_n`/`FAILED_n`/`PENDING_n` grouping and the record fields are read
-from the current AWS docs, but the `ResultFiles` object itself is not shown in them. The reader
-fails **loudly** on any shape it does not recognise rather than reporting success, which is the
-right failure direction — but the live run is what settles it.
+**DISCHARGED (2026-08-10): the Map Run `manifest.json` shape.** A real one from the first live
+share is transcribed byte-for-byte into `test_transfer_cpcommon.py` (`_LIVE_MANIFEST`) and parsed
+by the shipped reader. It settles the one assumption the docs could not: `ResultFiles` is a mapping
+of group name to a list of `{Key, Size}`, empty groups are present as empty arrays, and **`Key` is
+an absolute key from the bucket root** — which is what the reader assumes when it hands it straight
+back to `get_object`. Had it been relative, every share would have failed
+`transfer_results_unreadable` for the wrong reason. It also shows Step Functions appending
+`{mapRunUuid}/` under the configured prefix; nothing depends on that, because the manifest's own key
+comes from `ResultWriterDetails`.
+
+**Still owed live: the SCALE half of Phase 4.** The run above exercised one small batch (its
+`SUCCEEDED_0.json` is 1,011 bytes — a single child execution), so what is still unproven is a table
+of **several hundred objects** to two recipients where one conflicts: several child executions, the
+conflicting recipient refused with `conflict` and **no child execution of its own**, the other
+receiving every object at the correct key, and `logs/service=table-share/` carrying one
+`batch copied` event per child. The batching arithmetic and the per-recipient attribution across
+more than one batch are what that run tests and this one did not.

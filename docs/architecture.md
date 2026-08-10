@@ -280,6 +280,27 @@ table over them in the recipient's DB.
   state at 101% of the cap, PR #256); the recipient cap exists because each failed Map item carries
   raw `{Error, Cause}` and `cpcommon.errors.bounded_detail` truncation is the other half of the
   bound.
+- **The admin-bucket key layout, and what the hash is NOT.** Three levels, only the first two ours:
+
+  ```
+  table-share/{digest}/copy-plan.json                              ← the SOURCE's file list
+  table-share/{digest}/{executionName}/transfer-manifest.jsonl     ← one RUN's (recipient × object) items
+  table-share/{digest}/{executionName}/results/{mapRunId}/…        ← Step Functions' ResultWriter export
+  ```
+
+  **The digest names the copy plan, not a share request.** It is a SHA-256 of
+  `actor + source database + source table + result name` and **deliberately excludes recipients**:
+  the plan is the source object list, identical whoever receives it, and content-addressing is what
+  makes an `inspect-source` retry rewrite the same object instead of orphaning a second one
+  (SPEC-090). So **two shares of the same table to different people share a root** and differ one
+  level down, where the recipient-dependent manifest lives — which is exactly the split SPEC-160
+  FR-001 needed, since a manifest's lines depend on which recipients the guard accepted *at that
+  moment*. It reads as one share swallowing another and is not; verified 2026-08-10 against two real
+  runs. The bucket is **not readable by eye** — go from the execution's state output (or the Map
+  state's `ResultWriterDetails`) to the keys, never by browsing. Recorded improvement, **not built**:
+  the nesting puts run-scoped artifacts under a plan-scoped name, and a `plans/{digest}/` +
+  `runs/{execution}/` split would separate the two identities (neither the `table-share/*` IAM grant
+  nor the `table-share/` lifecycle rule would change).
 - **Notifications:** the sender hears every per-recipient outcome; on success the recipient is also
   told (a user directly; a space via its **owner only**, never the members). Failures notify the
   sender only.
