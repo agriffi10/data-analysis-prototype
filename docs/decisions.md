@@ -232,16 +232,30 @@ would silently cover the isolation policies, which is the one thing this scan ex
 - **`--quiet` strips `passed_checks`**, and without them an enforced ID that passed is
   indistinguishable from one that never ran. The flag is gone from the `.tf` scan (the plan scan had
   already learned this) and a test pins its absence.
-- **An enforced ID evaluated against nothing is a hard error, not a pass.** A typo, a rename in a
-  scanner bump, or a resource class leaving the repo all yield a line that enforces nothing while
-  reading as enforcement — "did not run is never clean", turned on the gate's own configuration. A
-  **stale plan-scan acceptance only warns**, deliberately: that workflow applies production
-  infrastructure, and blocking a deploy over gate bookkeeping is the wrong trade. The `.tf` list can
-  afford to be strict because it runs on PRs and a weekly schedule and blocks nothing that ships.
-- **Both workflows record the FULL count into the gate variable first, then overwrite it with the
-  narrowed one.** It reads like a redundant write. It is not: any path that skips the narrowing step
-  leaves the gate holding the full count and failing closed. Recording only the narrowed count turns
-  a broken narrowing step into a comfortable zero.
+- **An enforced ID evaluated against nothing is a hard error, not a pass** — and so is a plan-scan
+  acceptance that matches no finding. A typo, a rename in a scanner bump, or a resource class
+  leaving the repo all yield a line that enforces nothing while reading as enforcement: "did not run
+  is never clean", turned on the gate's own configuration. **Neither Checkov gate can redden a
+  production deploy:** `deploy-infra.yml`'s `plan` job is `pull_request`-only and `apply` does not
+  depend on it, so both gates block PRs and nothing else.
+- **A gate's count defaults to a NON-NUMERIC sentinel, and its narrowing step assigns before it
+  echoes.** These two together are what make the hard errors above reachable, and the first draft
+  had neither — every one of them arrived at the gate as a silent green. `echo "VAR=$(script)"` does
+  **not** fail the step when the script fails: `echo` exits 0, `set -e` sees success, and the empty
+  value it writes wins over any earlier record. Only an assignment's failed substitution trips
+  `set -e`. And `${VAR:-0}` substitutes on **empty** as well as unset, so a numeric default converts
+  "no count was written" into "clean" — `apply-gate.sh` rejects a non-numeric count, which is what an
+  absent count is. ZAP's pre-existing `no-report` default is the same idea; it was there to be copied
+  and wasn't. **A pessimistic pre-write does not substitute for either**, which is what the first
+  draft believed.
+
+**One exposure accepted, and it is not the Checkov one.** Semgrep's binary is pinned but its
+`--config p/*` rulesets are fetched from the registry at scan time and are **not** — so an upstream
+rule addition can redden every PR with no code change, the shape #311 made this repo pin everything
+to avoid. Accepted because `pip-audit` already blocks on a live advisory database with exactly the
+same property, and because the alternative (vendoring 157 rules) trades a rare interruption for a
+permanent staleness. The Flask false positive is the demonstration that these rulesets misfire here;
+if a second arrives, the answer is another `--exclude-rule` with a disposition, not a narrowed count.
 
 **Still not blocking, by decision:** `npm audit` — `apply-gate.sh` has no severity threshold and the
 runtime scope carries two accepted `dompurify` advisories (monaco pins the version exactly), so a

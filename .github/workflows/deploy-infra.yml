@@ -236,16 +236,19 @@ jobs:
 
       # THE GATE'S NUMERATOR, and the reason this job exists. `count` above is every
       # finding, including the non-IAM rules security.yml already reports and disposes of
-      # (no VPC, no CMK, no X-Ray) — gating those here would fail an infrastructure deploy
-      # for reasons that have nothing to do with what this scan is for. This narrows to IAM
-      # findings that are not on .github/checkov-plan-accepted.txt.
+      # (no VPC, no CMK, no X-Ray) — gating those here would fail this job for reasons that
+      # have nothing to do with what the scan is for. This narrows to IAM findings that are
+      # not on .github/checkov-plan-accepted.txt.
       #
-      # Narrowing AFTER the pessimistic record above is deliberate: every path that skips
-      # this step leaves the gate holding the full count, so it fails closed.
+      # ASSIGN, THEN ECHO — never `echo "VAR=$(script)"`. A failing command substitution
+      # inside an argument to `echo` does not fail the step (echo exits 0), and the empty
+      # value it writes then wins over the full count recorded above. Only an assignment's
+      # substitution failure trips `set -e`.
       - name: Narrow to unaccepted IAM findings
         working-directory: infra
         run: |
-          echo "CHECKOV_PLAN_FINDINGS=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)" >> "$GITHUB_ENV"
+          findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)
+          echo "CHECKOV_PLAN_FINDINGS=$findings" >> "$GITHUB_ENV"
 
       # The Checkov RESULT is publishable. The plan that produced it is not — see the
       # cleanup step below.
@@ -260,7 +263,10 @@ jobs:
 
       - name: Apply gate
         if: always()
-        run: .github/scripts/apply-gate.sh "Checkov (plan)" "$GATE_CHECKOV_PLAN" "${CHECKOV_PLAN_FINDINGS:-0}"
+        # `no-count`, not `0`: `:-` substitutes on empty as well as unset, so defaulting to
+        # zero would turn "no number was ever written" into "clean". apply-gate.sh treats a
+        # non-numeric count as a hard error, which is exactly what an absent count is.
+        run: .github/scripts/apply-gate.sh "Checkov (plan)" "$GATE_CHECKOV_PLAN" "${CHECKOV_PLAN_FINDINGS:-no-count}"
 
       # A rendered plan is strictly more revealing than the .tf it came from: resolved
       # ARNs, account identifiers, and every policy document in full. SPEC-138 uploads

@@ -29,6 +29,25 @@
 #
 # Note: no --quiet above. It strips passed_checks, and the gate cannot tell "this check
 # passed" from "this check never ran" without them.
+#
+# ENTRIES THAT ORDINARY WORK CAN TRIP, so the failure is recognised rather than mysterious:
+#
+#   * CKV_AWS_45 (no hard-coded secrets in a Lambda env) matches ANY 40-character run of
+#     [A-Za-z0-9/+=] on shape alone — a slash-joined S3 prefix, a base64 value, or a 40-char
+#     opaque id with no -, _, . or : in it. It is the one entry with a real false-positive
+#     mode, and this gate has no per-finding suppression: the only lever is deleting the ID.
+#   * A NEW BUCKET missing the usual block fires up to nine of these at once (CKV2_AWS_6,
+#     CKV2_AWS_61, CKV_AWS_19, CKV_AWS_53-56, CKV2_AWS_65, CKV_AWS_300). That is the gate
+#     working; add the public-access block, encryption and lifecycle rules.
+#   * A NEW LAMBDA without `retention_in_days` on its log group trips CKV_AWS_66; a new SQS
+#     queue without a CMK trips CKV_AWS_27/CKV2_AWS_73; a new state machine without
+#     `logging_configuration` trips CKV_AWS_285; an `aws_lambda_permission` without
+#     `source_arn` trips CKV_AWS_364.
+#   * TWELVE IDs are evaluated against exactly ONE resource today (CKV_AWS_41, 34, 70, 159,
+#     216, 259, 305, 366 and CKV2_AWS_32, 46, 54, 72). Deleting that resource makes the ID
+#     unevaluated, which is a hard error by design. The known case is the client-environment
+#     transition (docs/transition_plan.md): removing the Cognito identity pool leaves
+#     CKV_AWS_366 with nothing to evaluate. Delete the line in the same change.
 
 # aws
 CKV_AWS_41     # Ensure no hard coded AWS access key and secret key exists in provider (1)

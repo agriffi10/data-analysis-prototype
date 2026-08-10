@@ -192,7 +192,7 @@ jobs:
             --metrics=off \
             --json --output semgrep-lambdas.json \
             --exclude=__pycache__ \
-            --exclude-rule=python.flask.security.audit.directly-returned-format-string \
+            --exclude-rule=python.flask.security.audit.directly-returned-format-string.directly-returned-format-string \
             lambdas
           rc=$?
           set -e
@@ -591,10 +591,10 @@ jobs:
             exit 1
           fi
 
-          # PESSIMISTIC FIRST. The gate reads the enforced subset, computed in the next
-          # step — but if that step never runs, the gate must see the whole failing count
-          # rather than a comfortable zero. Recording the total here and narrowing it after
-          # means every path that skips the narrowing fails closed.
+          # The FULL count, published above. The gate reads the enforced subset instead,
+          # computed in the next step — this write exists so that a run which somehow ends
+          # between here and there leaves the gate holding a failing number rather than
+          # nothing. It is belt to the sentinel's braces, not the primary defence.
           echo "CHECKOV_FINDINGS=$count" >> "$GITHUB_ENV"
 
       # THE GATE'S NUMERATOR. `count` above is every failure, most of them documented
@@ -602,9 +602,16 @@ jobs:
       # rules to enforce five. This narrows it to the checks .github/checkov-enforced.txt
       # holds at zero. The script hard-errors if an enforced ID was evaluated against
       # nothing, so a typo or a renamed check cannot read as enforcement.
+      #
+      # ASSIGN, THEN ECHO — never `echo "VAR=$(script)"`. A command substitution that fails
+      # inside an argument to `echo` does NOT fail the step: `echo` exits 0, `set -e` sees
+      # success, and the empty value it wrote wins over the pessimistic record above. An
+      # assignment is the one construct whose substitution failure `set -e` acts on. Every
+      # hard error this script raises reached the gate as a silent green until this changed.
       - name: Narrow to the enforced checks
         run: |
-          echo "CHECKOV_FINDINGS=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)" >> "$GITHUB_ENV"
+          findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)
+          echo "CHECKOV_FINDINGS=$findings" >> "$GITHUB_ENV"
 
       - name: Upload raw output
         if: always()
@@ -617,7 +624,11 @@ jobs:
 
       - name: Apply gate
         if: always()
-        run: .github/scripts/apply-gate.sh Checkov "$GATE_CHECKOV" "${CHECKOV_FINDINGS:-0}"
+        # `no-count`, not `0`. `:-` substitutes on empty as well as unset, so a default of 0
+        # turns "the narrowing step never wrote a number" into "clean" — the exact shape this
+        # workflow exists to refuse. apply-gate.sh rejects a non-numeric count as a hard
+        # error, which is what an absent count is. ZAP's `no-report` does the same thing.
+        run: .github/scripts/apply-gate.sh Checkov "$GATE_CHECKOV" "${CHECKOV_FINDINGS:-no-count}"
 
   # ── DAST ─────────────────────────────────────────────────────────────────────────
   # OWASP ZAP baseline against the deployed portal.

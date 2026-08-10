@@ -19,11 +19,15 @@
 # accepted by check ID AND resource — not by check ID — so the same rule firing on any other
 # policy still fails.
 #
-# A STALE ACCEPT WARNS, IT DOES NOT FAIL. This runs in the workflow that applies production
-# infrastructure, where a hard error over gate bookkeeping would block a deploy for a reason
-# unrelated to the deploy. (The .tf scan's enforced list takes the opposite choice, and can:
-# it runs on PRs and a weekly schedule, and blocks nothing that ships.) The warning is loud
-# and lands in the job summary; the fix is deleting the line.
+# A STALE ACCEPT IS A HARD ERROR, same as the .tf enforced list. An acceptance that matches
+# no finding either describes something already fixed or points at a resource that has been
+# renamed — and in the second case it is silently accepting nothing while reading as an
+# acceptance. Both want a deliberate edit.
+#
+# This is PR-only despite living in the deploy workflow: `plan` runs on pull_request, `apply`
+# runs on push/dispatch and does not depend on it. Nothing here can redden a production
+# deploy. An earlier draft made this a warning on the opposite belief and said so in five
+# places; the belief was wrong.
 #
 # Usage: checkov-plan-iam.sh <checkov-plan-json> <accepted-list-file>
 # Prints the unaccepted IAM finding count on stdout. Diagnostics go to stderr.
@@ -34,13 +38,15 @@ json="${1:?checkov plan json required}"
 accepted_file="${2:?accepted list file required}"
 
 err() { echo "::error title=Checkov (plan IAM)::$1" >&2; }
-warn() { echo "::warning title=Checkov (plan IAM)::$1" >&2; }
 
 [ -f "$json" ] || { err "$json is missing — the scan did not run."; exit 2; }
 [ -f "$accepted_file" ] || { err "$accepted_file is missing — that file IS the gate."; exit 2; }
 
 norm='(if type=="array" then .[0] else . end)'
-iam='(.resource | test("(^|[.])aws_iam_"))'
+# `.resource // ""` because jq's test() RAISES on null, and a raise aborts the whole filter —
+# one malformed finding with no resource would take every real finding down with it and
+# report a clean zero.
+iam='((.resource // "") | test("(^|[.])aws_iam_"))'
 
 accepted=$(sed -e 's/#.*//' "$accepted_file" | awk 'NF >= 2 {print $1 "\t" $2}' | sort -u || true)
 
@@ -55,18 +61,25 @@ if [ -n "$accepted" ]; then
   done <<< "$accepted"
 fi
 
-if ! iam_failed=$(jq -er "$norm | (.results.failed_checks // []) | map(select($iam)) | map(.check_id + \"\t\" + .resource) | .[]" "$json" 2>/dev/null); then
-  iam_failed=""
+# NOT swallowed. An unreadable scan is not an absence of findings, and a `|| true` here would
+# make every jq failure look like a clean IAM result.
+#
+# No `-e`: with it, jq exits non-zero merely because the selection was EMPTY, which is the
+# healthy case. Plain jq exits non-zero only when it could not read or evaluate.
+if ! raw=$(jq -r "$norm | [(.results.failed_checks // [])[] | select($iam) | .check_id + \"\t\" + (.resource // \"\")] | .[]" "$json"); then
+  err "could not read IAM findings from $json — the scan output is not readable."
+  exit 2
 fi
-iam_failed=$(echo "$iam_failed" | grep -v '^$' | sort -u || true)
+iam_failed=$(printf '%s\n' "$raw" | grep -v '^$' | sort -u || true)
 
 if [ -n "$accepted" ]; then
   stale=$(comm -23 <(echo "$accepted") <(echo "$iam_failed") || true)
   if [ -n "$stale" ]; then
     while IFS=$'\t' read -r id resource; do
       [ -n "$id" ] || continue
-      warn "$id on $resource is accepted but no longer reported — either it was fixed (delete the line) or the resource was renamed (the acceptance is now pointing at nothing)."
+      err "$id on $resource is accepted but no longer reported — either it was fixed (delete the line) or the resource was renamed, in which case the acceptance is covering nothing while reading as an acceptance."
     done <<< "$stale"
+    exit 2
   fi
 fi
 

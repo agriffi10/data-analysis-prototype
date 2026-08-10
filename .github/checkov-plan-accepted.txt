@@ -11,9 +11,18 @@
 # firing on any other policy still fail. The isolation policies (`portal-role-permissions`
 # and the per-plane execution roles) have zero `Resource: "*"` and must stay that way.
 #
-# A line here that no longer matches a finding WARNS rather than fails: this runs in the
-# workflow that applies production infrastructure, and blocking a deploy over gate
-# bookkeeping is the wrong trade. Delete the line when the warning appears.
+# A line here that no longer matches a finding is a HARD ERROR — it either describes something
+# already fixed, or points at a resource that has been renamed, in which case it is accepting
+# nothing while reading as an acceptance. Delete or correct the line.
+#
+# This blocks PRs only. The `plan` job runs on pull_request; `apply` runs on push/dispatch and
+# does not depend on it, so nothing here can redden a production deploy.
+#
+# ONE PIECE OF FRICTION WORTH EXPECTING. This list covers only the two rules firing today.
+# Adding a new non-scopable wildcard action to `github_actions_deploy` — the recurring case
+# CLAUDE.md's "Infra rule" mandates for any spec provisioning new infra — can fire
+# CKV_AWS_356 / CKV_AWS_111 / CKV_AWS_49 on that same resource, none of them accepted here.
+# That makes such a change a two-step edit: the grant, and the acceptance for it. Deliberate.
 
 CKV_AWS_290  module.base.aws_iam_role_policy.github_actions_deploy
 CKV_AWS_355  module.base.aws_iam_role_policy.github_actions_deploy

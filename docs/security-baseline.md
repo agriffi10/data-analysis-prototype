@@ -138,7 +138,7 @@ Notes that change the priority order:
 
 | Sev | Rule | Location | Disposition |
 |---|---|---|---|
-| warning | `python.flask.security.audit.directly-returned-format-string` | `lambdas/table-share-common/tscommon/copy_plan.py:84` | **accept** — false positive |
+| warning | `python.flask.security.audit.directly-returned-format-string.directly-returned-format-string` | `lambdas/table-share-common/tscommon/copy_plan.py:84` | **accept** — false positive |
 
 The rule is a Flask template-injection check about returning a format string as an HTTP response.
 There is no Flask and no HTTP response in this fleet; `p/owasp-top-ten` pulls the Flask rules in as
@@ -505,7 +505,7 @@ and **Checkov**, and `GATE_CHECKOV_PLAN` on the rendered-plan IAM scan. What eac
 
 ## Semgrep — one exclusion, by rule ID
 
-`--exclude-rule=python.flask.security.audit.directly-returned-format-string` on the Lambdas scan.
+`--exclude-rule=python.flask.security.audit.directly-returned-format-string.directly-returned-format-string` on the Lambdas scan.
 That was the entire finding set. The ruleset is otherwise unnarrowed, because dropping
 `p/owasp-top-ten` to silence one rule would drop everything else it brings. A test asserts there is
 **exactly one** exclusion, so a second one cannot be added without landing a disposition here.
@@ -530,10 +530,10 @@ Two traps the implementation had to handle:
 - **`--quiet` strips `passed_checks`**, and without them every enforced ID looks *unevaluated*. The
   flag is gone from the scan, and a test pins its absence — `deploy-infra.yml`'s plan scan had
   already learned this and said so in a comment.
-- **An enforced ID evaluated against nothing is a hard error**, not a pass. A typo, a check renamed
-  by a version bump, or a resource class leaving the repo all produce a line that enforces nothing
-  while reading as enforcement. Same rule as "did not run is never clean", turned on the gate's own
-  configuration.
+- **An enforced ID evaluated against nothing is a hard error**, not a pass — and so is a plan-scan
+  acceptance matching no finding. A typo, a check renamed by a version bump, or a resource class
+  leaving the repo all produce a line that enforces nothing while reading as enforcement. Same rule
+  as "did not run is never clean", turned on the gate's own configuration.
 
 ## Checkov (rendered plan) — accepted by check ID **and resource**
 
@@ -544,17 +544,35 @@ gate counts IAM findings not on that list; today that is **0** of 2 (454 IAM che
 Accepting by ID *and* resource is the point: the same two rules firing on any other policy still
 fail the job. The isolation policies have zero `Resource: "*"` and this is what keeps it that way.
 
-**A stale acceptance warns; it does not fail.** This runs in the workflow that applies production
-infrastructure, and blocking a deploy over gate bookkeeping is the wrong trade. The `.tf` enforce
-list takes the opposite choice and can afford to — it runs on PRs and a weekly schedule, and blocks
-nothing that ships.
+**A stale acceptance is a hard error, same as the enforced list.** An earlier draft made it a
+warning, reasoning that this job "applies production infrastructure". It does not: `plan` is
+`pull_request`-only and `apply` has no `needs: plan`, so **neither Checkov gate can redden a deploy**
+— both block PRs and nothing else. The reasoning was wrong; the strict behaviour it was arguing
+against is the right one.
 
-## Both counts narrow *after* a pessimistic record
+**The accept list covers only the rules firing today.** Adding a new non-scopable wildcard action to
+`github_actions_deploy` — the recurring case CLAUDE.md's "Infra rule" mandates — can fire
+`CKV_AWS_356`/`CKV_AWS_111`/`CKV_AWS_49` on that resource, none of them accepted. Such a change is a
+two-part edit: the grant, and its acceptance. Designed friction, recorded so it is not a surprise.
 
-Each workflow records the **full** finding count into the gate's variable first, then overwrites it
-with the narrowed one. It reads like a redundant write and is not: any path that skips the narrowing
-step leaves the gate holding the full count, so it fails closed. The alternative — recording only
-the narrowed count — turns a broken narrowing step into a comfortable zero.
+## Two shell facts are what make every hard error above reachable
+
+The first draft of this change had neither, and every hard error it so carefully raised arrived at
+the gate as a **silent green**. Both are worth knowing before writing another gate step.
+
+- **`echo "VAR=$(script)"` does not fail the step when `script` fails.** `echo` exits 0 whatever its
+  argument's substitution did, `set -e` sees success, and the empty string it writes to `GITHUB_ENV`
+  wins over anything recorded earlier. Only an **assignment**'s failed substitution trips `set -e`.
+  Measured: the `echo` form leaves `CHECKOV_FINDINGS=` and a step exit of 0; the assignment form
+  exits 2.
+- **`${VAR:-0}` substitutes on EMPTY as well as unset.** So the empty value above becomes `0`, and
+  `apply-gate.sh` — which does reject a non-numeric count — never sees one. Both gates now default to
+  the non-numeric sentinel `no-count`. ZAP's step already used `no-report` for exactly this reason,
+  with a comment saying so; it was there to be copied and wasn't.
+
+Each workflow still records the full count before narrowing. That is belt to the sentinel's braces,
+not the primary defence — the claim in an earlier draft that it made the gate "fail closed" was
+wrong, since the failure mode it named is the one it did not cover.
 
 ## What still does not block, and why it is not an oversight
 
@@ -563,3 +581,24 @@ the narrowed count — turns a broken narrowing step into a comfortable zero.
   the shared script.
 - **ZAP** — a count gate is wrong here; two Lows survive by decision. Gate by `riskcode >= 2` if at
   all.
+
+## One exposure accepted with the Semgrep flip
+
+`SEMGREP_VERSION` pins the binary; `--config p/owasp-top-ten` and the language sets are fetched from
+the registry at scan time and are **not pinned**. Blocking on an unpinned rule source means an
+upstream rule addition can redden every PR and the weekly `main` run with no code change — the shape
+#311 made this repo pin everything to avoid, and CLAUDE.md's "every scanner version-pinned" is
+therefore true of the binaries and not of Semgrep's rule content.
+
+Accepted, for two reasons. `pip-audit` already blocks against a live advisory database with the
+identical property, so this is not a new class of exposure. And the alternative — vendoring the ~157
+rules — trades a rare interruption for permanent staleness in the one scanner whose value is that its
+rules keep up. If a second false positive arrives, the answer is another `--exclude-rule` with a
+disposition in this file, not a narrowed count.
+
+**The first attempt at the exclusion was wrong and the gate caught it.** Semgrep's rule ID doubles
+its last component — `python.flask.security.audit.directly-returned-format-string.directly-returned-format-string`
+— and this file's findings table had transcribed the short form, which the workflow, the comment and
+the guard test all inherited. The guard test passed (it asserts the string is present, not that
+Semgrep matches it); the CI run failed. Worth noting as the general case: **a test that a scanner is
+configured is not a test that the configuration works.** Only the blocking run is.
