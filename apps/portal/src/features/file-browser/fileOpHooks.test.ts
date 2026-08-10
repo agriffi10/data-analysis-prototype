@@ -13,7 +13,7 @@ import {
   objectExists,
   uploadFile
 } from './fileBrowser.service';
-import {invalidateListing} from '../../lib/queryClient';
+import {invalidateListing} from './invalidateListing';
 import {useDelete} from './useDelete';
 import type {DeleteSummary} from './useDelete';
 import {useFileUpload} from './useFileUpload';
@@ -36,7 +36,7 @@ vi.mock('./fileBrowser.service', async (importOriginal) => ({
   moveFolder: vi.fn()
 }));
 
-vi.mock('../../lib/queryClient', () => ({
+vi.mock('./invalidateListing', () => ({
   invalidateListing: vi.fn().mockResolvedValue(undefined)
 }));
 

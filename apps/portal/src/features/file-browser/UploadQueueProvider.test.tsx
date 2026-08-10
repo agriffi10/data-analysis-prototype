@@ -8,11 +8,11 @@ import {useUploadQueue} from './uploadQueueContext';
 import {uploadQueueReducer, initialUploadQueueState, type UploadQueueState} from './uploadQueueContext';
 import type {UploadItem} from './upload.types';
 import {uploadFile} from './fileBrowser.service';
-import {invalidateListing} from '../../lib/queryClient';
+import {invalidateListing} from './invalidateListing';
 import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
 
 vi.mock('./fileBrowser.service', () => ({uploadFile: vi.fn()}));
-vi.mock('../../lib/queryClient', () => ({
+vi.mock('./invalidateListing', () => ({
   invalidateListing: vi.fn().mockResolvedValue(undefined)
 }));
 

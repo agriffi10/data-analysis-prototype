@@ -33,6 +33,7 @@ Public barrel: `features/file-browser/index.ts`.
 | Symbol | File | Purpose |
 |---|---|---|
 | `useFileBrowser(bucket, prefix?, markerKey?)` | `useFileBrowser.ts` | Paginated listing via `useInfiniteQuery`; merges/sorts pages, hides the marker. |
+| `invalidateListing(client, bucket, prefix)` | `invalidateListing.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). Was `lib/queryClient.ts` until 2026-08-09; it lives beside `fileBrowserKeys` so the shared layer imports no feature. |
 | `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |

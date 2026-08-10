@@ -8,9 +8,6 @@ import {enqueueSharedSpaceRequest} from '../features/shared-spaces/sharedSpaces.
 import {enqueueTableBuild, enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
 import {REQUIRED_ENV, envVar, isPortalConfigured, missingRequiredEnv, warnIfMisconfigured} from './env';
-import {QueryClient} from '@tanstack/react-query';
-import {invalidateListing} from './queryClient';
-import {fileBrowserKeys} from '../features/file-browser/fileBrowserKeys';
 import type {ServiceResult} from '../types/service.types';
 import protectedLayoutSource from '../components/ProtectedLayout.tsx?raw';
 import fileBrowserServiceSource from '../features/file-browser/fileBrowser.service.ts?raw';
@@ -427,26 +424,6 @@ describe('env', () => {
       warnIfMisconfigured();
 
       expect(warn).not.toHaveBeenCalled();
-    });
-  });
-});
-
-// ─── from queryClient.test.ts ───
-describe('queryClient', () => {
-  describe('invalidateListing', () => {
-    it('invalidates exactly the listing key for the given bucket + prefix', async () => {
-      const client = new QueryClient();
-      const spy = vi.spyOn(client, 'invalidateQueries').mockResolvedValue();
-
-      await invalidateListing(client, 'my-bucket', 'alice/');
-
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: fileBrowserKeys.list('my-bucket', 'alice/')
-      });
-    });
-
-    it('produces a key that matches the factory (single source of truth)', () => {
-      expect(fileBrowserKeys.list('b', 'p/')).toEqual(['file-browser', 'list', 'b', 'p/']);
     });
   });
 });

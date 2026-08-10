@@ -24,6 +24,9 @@ import {act, renderHook} from '@testing-library/react';
 import {MemoryRouter} from 'react-router';
 import {useFileSpace} from './useFileSpace';
 import type {Connection} from '../connections/connection.types';
+import {QueryClient} from '@tanstack/react-query';
+import {fileBrowserKeys} from './fileBrowserKeys';
+import {invalidateListing} from './invalidateListing';
 
 // ─── from fileBrowser.download.test.ts ───
 describe('fileBrowser.download', () => {
@@ -350,5 +353,23 @@ describe('useFileSpace', () => {
       const {result} = setup('/files?space=marketing_data', {sharedSpaceBucket: undefined});
       expect(result.current.space).toBeNull();
     });
+  });
+});
+
+// ─── from lib/support.test.ts, which had it via lib/queryClient ───
+describe('invalidateListing', () => {
+  it('invalidates exactly the listing key for the given bucket + prefix', async () => {
+    const client = new QueryClient();
+    const spy = vi.spyOn(client, 'invalidateQueries').mockResolvedValue();
+
+    await invalidateListing(client, 'my-bucket', 'alice/');
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: fileBrowserKeys.list('my-bucket', 'alice/')
+    });
+  });
+
+  it('produces a key that matches the factory (single source of truth)', () => {
+    expect(fileBrowserKeys.list('b', 'p/')).toEqual(['file-browser', 'list', 'b', 'p/']);
   });
 });

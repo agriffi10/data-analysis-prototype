@@ -13,7 +13,6 @@ Public surface only — the code is the source of truth; verify signatures befor
 | `getSqsClient(forceRefresh?)` | `lib/sqsClient.ts` | Authenticated SQS client from Identity-Pool creds; `ServiceResult<SQSClient>`. The browser's only shared-space write is `sqs:SendMessage` to the control queue (SPEC-051). |
 | `withCredentialRetry(getClient, op)` / `isExpiryError(code?)` | `lib/credentialRetry.ts` | Run an authenticated op with one transparent refresh-and-retry on credential-expiry; shared by the S3/Athena/Glue/SQS services (SPEC-034). |
 | `queryClient` | `lib/queryClient.ts` | App-wide TanStack `QueryClient` (staleTime 30s, retry 1, no refetch-on-focus). |
-| `invalidateListing(client, bucket, prefix)` | `lib/queryClient.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). |
 | `isAmplifyConfigured` | `lib/amplify.ts` | Boolean — whether Cognito/Amplify env is configured. |
 | `setReturnPath(path)` / `setReturnPathIfAbsent(path)` / `takeReturnPath()` | `lib/returnPath.ts` | Stash (always / only-if-empty) + consume a post-login return path. `IfAbsent` seeds a default (e.g. `/files`) at sign-in/up without clobbering an auth-gate-captured path. |
 | `useCopyToClipboard(resetMs?)` | `lib/useCopyToClipboard.ts` | `{copied, copy(text)}` — writes to the clipboard and flags a transient confirm; never throws (insecure-context/denied = silent no-op). |

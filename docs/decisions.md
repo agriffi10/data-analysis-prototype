@@ -776,11 +776,19 @@ Two residuals, both recorded rather than hidden:
 - `features/connections/useConnections.ts` still reads `queryKeys.connections` from
   `features/query/queryKeys.ts`. Feature-to-feature is allowed, and splitting the key factory would
   change key *values* that two tests assert.
-- **`lib/queryClient.ts` imports `features/file-browser/fileBrowserKeys`** — a lower layer importing
-  a feature, and a strictly worse inversion than the one this decision targets. It is **not** covered
-  by the rule, because six test files mock `lib/queryClient` by module path and moving it would
-  change tests SPEC-155 requires to pass unchanged. Widening the rule to `src/lib/**` is the natural
-  next notch, and needs that move first.
+- ~~**`lib/queryClient.ts` imports `features/file-browser/fileBrowserKeys`**~~ — **CLOSED 2026-08-09.**
+  It was a lower layer importing a feature, and a strictly worse inversion than the one this decision
+  targets. `invalidateListing` moved to `features/file-browser/invalidateListing.ts`, beside the key
+  factory it builds from; `lib/queryClient.ts` now owns only the client and imports no feature.
+  `features/query`'s save-results flow reaches it through the file-browser barrel — feature-to-feature,
+  which is allowed, and which was already true transitively through `lib/`.
+
+  **The rule widened with it**, to `src/lib/**` and `src/hooks/**`, with the same test exemption. That
+  was the point of the move: fixing the one file without widening the glob leaves the next one to be
+  found by hand. Both directories were already clean of feature imports, so no new exemption was needed.
+  The mock count in the original note was wrong — **two** test files mocked the module by path
+  (`fileOpHooks.test.ts`, `UploadQueueProvider.test.tsx`); the other four merely imported it. That
+  overstatement is most of why this looked expensive enough to defer.
 
 ### Dialog Enter-to-submit fires from ONE field, never from the form (SPEC-155)
 
