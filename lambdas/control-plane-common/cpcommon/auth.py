@@ -20,6 +20,8 @@ Issuer, audience, signature, expiry and ``token_use`` are all checked offline ag
 pool JWKS.
 """
 
+from typing import cast
+
 import jwt
 
 from . import clients, config
@@ -137,7 +139,8 @@ def verified_username(id_token: str, *, missing_token_detail: str = "missing idT
       TerminalError: With reason ``unauthorized`` on any verification failure.
     """
     try:
-        return verify_id_token(id_token, missing_token_detail=missing_token_detail)["cognito:username"]
+        claims = verify_id_token(id_token, missing_token_detail=missing_token_detail)
+        return cast("str", claims["cognito:username"])
     except AuthError as exc:
         raise TerminalError("unauthorized", str(exc)) from exc
 
@@ -160,8 +163,7 @@ def verified_username_ignoring_expiry(id_token: str, *, missing_token_detail: st
         expiry.
     """
     try:
-        return verify_id_token_ignoring_expiry(id_token, missing_token_detail=missing_token_detail)[
-            "cognito:username"
-        ]
+        claims = verify_id_token_ignoring_expiry(id_token, missing_token_detail=missing_token_detail)
+        return cast("str", claims["cognito:username"])
     except AuthError as exc:
         raise TerminalError("unauthorized", str(exc)) from exc

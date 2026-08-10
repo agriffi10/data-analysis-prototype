@@ -11,6 +11,8 @@ here is everything domain-shaped: the exception type, since this plane's Standar
 catches its own; the exact message strings; and the whole authorizer.
 """
 
+from typing import cast
+
 import config
 from cpcommon import auth as cpauth
 from cpcommon.errors import AuthError
@@ -38,7 +40,7 @@ def verified_username(id_token: str) -> str:
       AuthorizationError: On any verification failure.
     """
     try:
-        return cpauth.verify_id_token(id_token)["cognito:username"]
+        return cast("str", cpauth.verify_id_token(id_token)["cognito:username"])
     except AuthError as exc:
         raise AuthorizationError(str(exc)) from exc
 

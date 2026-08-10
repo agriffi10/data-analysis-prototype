@@ -84,10 +84,13 @@ reached users — a single-file data-quality check that profiled the whole paren
 return **`clean` over `rowCount: 0`** when a sibling shared the file's stem), and a partial shared-space
 teardown that **freed the name with objects still under it**. Both are Phase-5 verified. **152 gave
 every plane a `NotifyFailure`**, so "it just never came back" is no longer reachable. **153 closed ten
-guards that passed by coincidence** and left **mypy report-only at a 21-finding baseline** as the next
-ratchet notch. **154 closed the frontend journey gaps** — table share, sign-in/out, collision
+guards that passed by coincidence** and left **mypy report-only** as the next ratchet notch.
+**That notch is now taken: mypy is BLOCKING over the five shared layers at zero** (2026-08-09),
+so a type error there fails CI. Notch 3 — widen `files` to the verb packages, report-only again —
+is recorded in `pyproject.toml`'s `[tool.mypy]` block, which is the only home of the ratchet path.
+**154 closed the frontend journey gaps** — table share, sign-in/out, collision
 resolution, upload-to-completion, pagination and the dev-unauth guard all now have a test that
-performs them. **155 was the reuse-and-structure pass**: seven JSON readers behind one `s3Json`, eleven dialog chromes behind `FormDialog`, a `features/connections/` that ends `features/query/`'s career as an undeclared shared layer (with an **ESLint rule** holding the line), and `QueryWorkspace` 1770→727 / `FileBrowser` 1101→516. Five deliberate user-visible changes and the two residual layering inversions are in its delivery doc. **156 discharged the deliberate twins in `lambdas/`** — CAS, the message resolver, results location, the JWKS path, the SQS parser and the Athena runner each exist once on `cpcommon`; `mypy` is now at **17**, so the ratchet notch is 17, not 21.
+performs them. **155 was the reuse-and-structure pass**: seven JSON readers behind one `s3Json`, eleven dialog chromes behind `FormDialog`, a `features/connections/` that ends `features/query/`'s career as an undeclared shared layer (with an **ESLint rule** holding the line), and `QueryWorkspace` 1770→727 / `FileBrowser` 1101→516. Five deliberate user-visible changes and the two residual layering inversions are in its delivery doc. **156 discharged the deliberate twins in `lambdas/`** — CAS, the message resolver, results location, the JWKS path, the SQS parser and the Athena runner each exist once on `cpcommon`.
 
 **The username-directory arc (146 → 147 → 148) is COMPLETE and deployed, and SPEC-158 has landed on
 top of it.** The daily builder publishes `_directory/usernames.json`; both `AddMembersDialog` and

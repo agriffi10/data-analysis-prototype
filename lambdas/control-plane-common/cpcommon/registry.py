@@ -7,6 +7,7 @@ a share target exists.
 """
 
 import json
+from typing import cast
 
 from . import clients, config
 
@@ -29,14 +30,16 @@ def load(name: str) -> dict | None:
         obj = s3.get_object(Bucket=config.ADMIN_BUCKET, Key=f"shared-spaces/{name}.json")
     except s3.exceptions.NoSuchKey:
         return None
-    return json.loads(obj["Body"].read())
+    return cast("dict", json.loads(obj["Body"].read()))
 
 
 def is_active(record: dict | None) -> bool:
     """Reports whether a registry record is a provisioned, live space.
 
     Args:
-      record: A record from ``load``, or None.
+      record: A record from ``load``, or None. Anything that is not a dict answers False
+        rather than raising — this is an authorization predicate, and the only safe direction
+        for an unreadable record is closed.
 
     Returns:
       True if the space exists and is a valid share target.
@@ -44,7 +47,7 @@ def is_active(record: dict | None) -> bool:
     Raises:
       None.
     """
-    return bool(record) and record.get("status") == "active"
+    return isinstance(record, dict) and record.get("status") == "active"
 
 
 def is_active_member(record: dict | None, actor: str) -> bool:
@@ -64,4 +67,4 @@ def is_active_member(record: dict | None, actor: str) -> bool:
     Raises:
       None.
     """
-    return is_active(record) and actor in (record.get("members") or [])
+    return is_active(record) and actor in ((record or {}).get("members") or [])

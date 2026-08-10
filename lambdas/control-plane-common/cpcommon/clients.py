@@ -11,7 +11,7 @@ _glue = None
 _athena = None
 _cognito = None
 _lf = None
-_jwks = {}
+_jwks: dict = {}
 
 
 def s3():

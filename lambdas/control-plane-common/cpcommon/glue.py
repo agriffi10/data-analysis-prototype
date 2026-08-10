@@ -25,6 +25,7 @@ Attributes:
 """
 
 from datetime import UTC
+from typing import cast
 
 from . import config, messages
 from .errors import TerminalError
@@ -40,7 +41,7 @@ _SHAPE_REASONS = (
 messages.register_reasons(_SHAPE_REASONS)
 
 
-def _parse_location(location: str) -> dict:
+def _parse_location(location: str | None) -> dict:
     """Resolves a table LOCATION to a single listable prefix in a known bucket.
 
     It must parse as ``s3://bucket/prefix``, the bucket must be one of the two
@@ -49,7 +50,8 @@ def _parse_location(location: str) -> dict:
     downstream.
 
     Args:
-      location: The raw LOCATION from the table's storage descriptor.
+      location: The raw LOCATION from the table's storage descriptor, or None when the
+        descriptor declares none. Any non-string is refused the same way.
 
     Returns:
       ``{"bucket": …, "prefix": …}`` with the prefix slash-terminated.
@@ -103,7 +105,7 @@ def update_time(table: dict) -> str | None:
     if stamp is None:
         return None
     if hasattr(stamp, "astimezone"):
-        return stamp.astimezone(UTC).isoformat()
+        return cast("str", stamp.astimezone(UTC).isoformat())
     return str(stamp) or None
 
 

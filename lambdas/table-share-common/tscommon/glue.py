@@ -6,6 +6,8 @@ caller and test keeps working against this module. The two verbs below stay, bec
 reason codes are table-share's own request vocabulary rather than shape checks.
 """
 
+from typing import cast
+
 from cpcommon import clients, errors
 from cpcommon.errors import TerminalError
 from cpcommon.glue import clone_definition
@@ -35,7 +37,7 @@ def get_table(database: str, table: str) -> dict:
     """
     client = clients.glue()
     try:
-        return client.get_table(DatabaseName=database, Name=table)["Table"]
+        return cast("dict", client.get_table(DatabaseName=database, Name=table)["Table"])
     except Exception as exc:
         code = errors.error_code(exc)
         if code == "EntityNotFoundException":
