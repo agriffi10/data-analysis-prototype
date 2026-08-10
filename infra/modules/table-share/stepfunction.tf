@@ -33,6 +33,8 @@ resource "aws_sfn_state_machine" "table_share" {
     # SPEC-160 FR-002 — mirrored in cpcommon/transfer/config.py; a test holds the two together.
     transfer_max_items_per_batch = local.transfer_max_items_per_batch
     transfer_map_max_concurrency = local.transfer_map_max_concurrency
+    # SPEC-161 FR-003 — a TOP-LEVEL ASL field. See the local for the arithmetic.
+    state_machine_timeout_seconds = local.state_machine_timeout_seconds
   })
 
   logging_configuration {

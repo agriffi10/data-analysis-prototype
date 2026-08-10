@@ -112,6 +112,22 @@ locals {
   transfer_max_items_per_batch = 50
   transfer_map_max_concurrency = 20
 
+  # SPEC-161 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field —
+  # the same distinction SPEC-157 settled for the table-builder. Without it a Standard
+  # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run never
+  # reaches NotifyFailure and the sender is told nothing at all, which is precisely the
+  # "it just never came back" that SPEC-152 exists to make unreachable.
+  #
+  # 3 hours, and the arithmetic is the FR-001 caps: at SHARE_MAX_TOTAL_BYTES = 1 TiB the copy
+  # runs 160 concurrent server-side streams (transfer_map_max_concurrency x COPY_CONCURRENCY),
+  # which is ~6 minutes at 20 MB/s per stream and ~22 at a pessimistic 5 MB/s. 10,800s is
+  # roughly 8x that pessimistic worst case, with the guard and finish Maps' Athena creates
+  # (bounded by SHARE_MAX_RECIPIENTS x create-table's 300s) far inside the remainder.
+  #
+  # It is deliberately not longer. The timeout is how fast a wedged share becomes a
+  # notification, so the margin is bought against the sender's silence, not for free.
+  state_machine_timeout_seconds = 10800
+
   # SPEC-160 FR-006. The Distributed Map's OWN permissions belong to the STATE MACHINE role: it
   # is the state machine that calls StartExecution for each child and that reads the ItemReader
   # object and writes the ResultWriter export. Granting these to the Lambda execution role

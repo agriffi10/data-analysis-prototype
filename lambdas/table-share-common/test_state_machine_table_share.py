@@ -318,6 +318,124 @@ def test_the_transfer_item_cap_is_the_binding_one():
     )
 
 
+# ── SPEC-161 FR-003/FR-004: the machine cannot hang, and nothing expires under it ──
+
+
+def _timeout_seconds():
+    """The named value locals.tf gives the state machine's TimeoutSeconds."""
+    with open(_LOCALS) as handle:
+        match = re.search(
+            r"^\s*state_machine_timeout_seconds\s*=\s*(\d+)\s*$", handle.read(), re.MULTILINE
+        )
+    assert match, "locals.tf declares no state_machine_timeout_seconds"
+    return int(match.group(1))
+
+
+def test_the_timeout_is_a_top_level_field_of_the_definition():
+    """SPEC-161 FR-003 AC1, and the distinction is the whole criterion.
+
+    TimeoutSeconds is a field of the STATE MACHINE, beside StartAt — not an argument to the
+    aws_sfn_state_machine resource and not a task field. Put on a Task it bounds that step
+    only, which is not what a wedged run needs; omitted entirely, a Standard workflow runs to
+    Step Functions' one-year default. SPEC-157 settled the same point for the table-builder.
+    """
+    asl = _asl()
+
+    assert "TimeoutSeconds" in asl, "the machine has no top-level TimeoutSeconds"
+    for name, state in _states(asl):
+        assert "TimeoutSeconds" not in state, (
+            f"{name} carries a TimeoutSeconds — this spec bounds the RUN, not a step"
+        )
+
+
+def test_the_timeout_is_fed_from_a_named_value_and_clears_the_caps():
+    """SPEC-161 FR-003 AC1/AC3 — a named local, sized against the FR-001 caps.
+
+    Asserted as a floor rather than an equality: the value may be tuned, but not below the
+    pessimistic worst case the caps allow. 1 TiB over 160 concurrent streams at 5 MB/s is
+    ~22 minutes, so the floor is an hour — comfortably above it, well below the value.
+    """
+    with open(_TFTPL) as handle:
+        assert '"TimeoutSeconds": ${state_machine_timeout_seconds}' in handle.read()
+
+    assert _timeout_seconds() >= 3600
+
+
+def test_a_timed_out_run_still_reaches_the_failure_notification():
+    """SPEC-161 FR-003 AC2 — the timeout is only worth having if it is heard.
+
+    States.Timeout is raised on the EXECUTION, not inside a state, so no Catch in the machine
+    sees it; Step Functions terminates the run. What makes the sender told anyway is SPEC-152's
+    NotifyFailure sitting before Fail on every whole-request path, and the fleet test asserts
+    that state exists. Pinned here too because the reason to care is new: before this spec the
+    run could not time out at all inside a year.
+    """
+    asl = _asl()
+
+    assert asl["States"]["RecordFailure"]["Next"] == "NotifyFailure"
+    assert asl["States"]["NotifyFailure"]["Catch"][0]["Next"] == "Failed"
+
+
+def test_the_admin_retention_window_outlasts_a_whole_run():
+    """SPEC-161 FR-004 AC1 — the risk here is INVERTED from the usual one.
+
+    Nothing new needs expiring: the manifest, the definition and the ResultWriter export all
+    sit under table-share/, which expire-table-share-copy-plans already covers. The exposure a
+    longer-running machine creates is the opposite — the rule expiring a LIVE run's manifest
+    out from under its own Map Run. Read from infra/ so the two cannot drift apart.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    variables = os.path.join(here, "..", "..", "infra", "modules", "analytics", "variables.tf")
+    with open(variables) as handle:
+        block = re.search(
+            r'variable "admin_results_retention_days".*?default\s*=\s*(\d+)',
+            handle.read(),
+            re.DOTALL,
+        )
+    assert block, "admin_results_retention_days has no default to compare against"
+
+    retention_seconds = int(block.group(1)) * 86400
+    assert retention_seconds > _timeout_seconds() * 100, (
+        f"{block.group(1)}-day retention is only "
+        f"{retention_seconds / _timeout_seconds():.0f}x the {_timeout_seconds()}s run ceiling"
+    )
+
+
+def test_no_second_lifecycle_rule_covers_the_transfer_artifacts():
+    """SPEC-161 FR-004 AC2/AC3 — the obligation is to add NOTHING, so assert the absence.
+
+    All three artifacts share the copy plan's prefix by construction (tscommon.copy_plan owns
+    every key this plane writes), so a second rule would be a duplicate that S3 resolves by
+    taking the shortest expiry — a silent tightening nobody chose.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "..", "..", "infra", "modules", "analytics", "s3.tf")) as handle:
+        lifecycle = handle.read()
+
+    assert lifecycle.count('prefix = "table-share/"') == 1, "a second table-share/ rule appeared"
+    assert 'id     = "expire-table-share-copy-plans"' in lifecycle
+
+
+def test_expiry_stays_the_buckets_job_and_not_the_planes():
+    """SPEC-161 FR-004 AC4 — the Deny that makes "expired" mean the bucket did it.
+
+    Read from the RAW template, not the stubbed policy: ``_policy`` collapses every ARN
+    placeholder to one literal, so a check on the parsed form cannot tell the admin bucket
+    from the two space buckets and would pass on a deny that had stopped covering it.
+    """
+    with open(_EXECUTION_POLICY) as handle:
+        raw = json.loads(re.sub(r"\$\{([a-z_]+)\}", r"\1", handle.read()))
+    deny = next(
+        s for s in raw["Statement"] if s["Effect"] == "Deny" and s["Action"] == "s3:DeleteObject"
+    )
+    resources = deny["Resource"] if isinstance(deny["Resource"], list) else [deny["Resource"]]
+
+    assert "admin_bucket_arn/*" in resources, (
+        "the execution role's DeleteObject deny no longer covers the admin bucket, so a verb "
+        "could delete a transfer artifact the lifecycle rule is supposed to expire"
+    )
+
+
 # ── FR-006: which role holds the Map's permissions ──────────────────────────
 
 
