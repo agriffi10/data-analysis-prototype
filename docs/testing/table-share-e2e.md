@@ -250,7 +250,7 @@ siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok
 > `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/definition.json` and
 > emits `definitionKey`; `create-table` fetches it. `SHARE_MAX_DEFINITION_BYTES` still
 > exists but bounds something else now — Athena's 262,144-byte query-string quota, since
-> the definition renders into one `CREATE EXTERNAL TABLE` — and is 128 KiB, not 32.
+> the definition renders into one `CREATE EXTERNAL TABLE` — and is 64 KiB, not 32.
 
 ---
 

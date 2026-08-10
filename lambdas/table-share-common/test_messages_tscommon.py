@@ -213,11 +213,14 @@ def test_a_token_cannot_shadow_the_result_table_name():
 
 # ── the retired refusal phrasing (SPEC-161 FR-005) ──────────────────────────
 
-#: Every ``.py`` under ``lambdas/``, this file excluded — its own patterns would match.
+#: Every ``.py`` under ``lambdas/``, this file excluded — its own patterns would match. The
+#: exclusion is by resolved PATH, not by basename: a same-named file elsewhere in the tree
+#: would otherwise be exempted silently, which is the shape of a guard that stops guarding.
+_SELF = pathlib.Path(__file__).resolve()
 _FLEET_SOURCES = [
     p
-    for p in sorted(pathlib.Path(__file__).resolve().parent.parent.rglob("*.py"))
-    if p.name != pathlib.Path(__file__).name and "__pycache__" not in p.parts
+    for p in sorted(_SELF.parent.parent.rglob("*.py"))
+    if p != _SELF and "__pycache__" not in p.parts
 ]
 
 #: Phrasings retired by SPEC-161, as case-insensitive patterns. Both said a share above the

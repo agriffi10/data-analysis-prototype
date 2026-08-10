@@ -128,7 +128,7 @@ The refresh path's definition cap is **40 KiB**, and it is deliberately not tsco
 where the definition is copied into every item; table-builder has no Map.
 
 > **Note (SPEC-161).** The comparison above is now against a value that means something different:
-> table-share's definition travels by pointer, so its 128 KiB bounds Athena's query string, not a
+> table-share's definition travels by pointer, so its 64 KiB bounds Athena's query string, not a
 > state payload. The 40 KiB here is unaffected — table-builder's definition still rides on its own
 > state, and this paragraph's reasoning about that is unchanged.
 
@@ -290,10 +290,10 @@ plan already by pointer, 50 recipients all failing:
 > cap cannot: protect the payload, or decide how wide a table a user may share. The definition
 > **travels by pointer** now (`definitionKey`), so the term is a digest path and the choice is
 > gone. Measured after the move: an at-cap definition put back inline takes the guard peak from
-> ~34% to **~84%** of the limit, which
+> ~29% to **~55%** of the limit, which
 > `test_the_whole_map_state_stays_under_the_payload_limit` now asserts so the pointer is
 > demonstrated load-bearing rather than assumed tidy. **`SHARE_MAX_DEFINITION_BYTES` survives at
-> 128 KiB bounding something else entirely** — Athena's query-string quota, **262,144 bytes and
+> 64 KiB bounding something else entirely** — Athena's query-string quota, **262,144 bytes and
 > not adjustable**, because the definition renders into one `CREATE EXTERNAL TABLE`. Do not read
 > it as a state bound.
 
@@ -319,15 +319,24 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > 20 MB/s per stream, ~22 at a pessimistic 5 MB/s. That is what sized the machine's
 > `TimeoutSeconds` (10,800 s ≈ 8× the pessimistic case), so the two numbers move together.
 >
-> **`SHARE_MAX_OBJECT_BYTES` = 20 GiB (NEW). Bound: the copy verb's timeout** — the one place a
-> single Lambda still bounds this plane. `cpcommon.transfer.copy` part-copies an object above 5 GiB
-> in **sequential** 1 GiB ranges inside one invocation, so a single object's copy time is linear in
-> its size and the Distributed Map cannot spread it. Under the old 20 GiB TOTAL cap no object could
-> exceed 20 GiB, so the worst case was ~20 sequential part copies inside `copy-objects`' 900-second
-> ceiling. **Raising the total to 1 TiB is what made this cap necessary**: without it, one 1 TiB
-> object passes every other cap and then times out its batch. 20 GiB keeps exactly the per-object
-> reach the plane demonstrably had, and a test pins that it stays above S3's 5 GiB single-copy limit
-> so the multipart path is not silently retired.
+> **`SHARE_MAX_OBJECT_BYTES` = 10 GiB (NEW). Bound: the copy verb's timeout, via the BATCH** — and
+> that qualifier is the whole of it, because the first version of this cap got the granularity
+> wrong. `ItemBatcher` batches by **COUNT, never by bytes**, so the unit that has to copy inside
+> `copy-objects`' 900 seconds is `MAX_ITEMS_PER_BATCH` objects, not one. While the TOTAL cap was
+> 20 GiB that bound was implicit — a batch could not exceed the whole table — and **raising the
+> total to 1 TiB removed it with nothing replacing it**. A per-object cap alone does not restore
+> it: at 50 items x 20 GiB the worst batch is **1000 GiB**, over 900 s even at an optimistic
+> 100 MB/s per stream, so the child dies on the Lambda timeout, lands in `FAILED_n.json`, and the
+> recipient is failed for a reason they cannot act on.
+>
+> **So `MAX_ITEMS_PER_BATCH` moves 50 → 10 alongside it**, holding `batch x per-object` at
+> **100 GiB** — ~537 s at a conservative 25 MB/s per stream across `COPY_CONCURRENCY` (8) workers.
+> The pair is chosen over (2 GiB x 50) because 10 GiB stays above S3's 5 GiB single-copy limit, so
+> the multipart part-copy path stays reachable rather than becoming dead code. The price is ~5x the
+> child executions for a many-small-files share; state transitions and Lambda invocations are both
+> cheap and `MAP_MAX_CONCURRENCY` still bounds in-flight work.
+> `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes the bound from the constants,
+> so raising either one alone fails the build.
 >
 > **`SHARE_MAX_TRANSFER_ITEMS` = 20,000 (NEW). Bound: the manifest write and the collector's
 > read-back**, which are the same volume in both directions. At S3's worst-case 1024-byte keys an
@@ -357,16 +366,24 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 
 ## `cpcommon/transfer/config.py` — sizing the Distributed Map
 
-**`MAX_ITEMS_PER_BATCH = 50`.** A batch IS a child execution's input, and Step Functions caps that
+**`MAX_ITEMS_PER_BATCH` (50 until SPEC-161, now 10).** A batch IS a child execution's input, and Step Functions caps that
 at **256 KB**. The bound is taken against S3's worst case rather than a typical key, because a key
 is user-controlled and the failure it prevents is a whole batch refused at start time: a source key
 and a destination key can each be 1024 bytes, and a bucket name 63, which puts one manifest item
-near **2.3 KB**. At 50 items that is ~112 KB — **under half the limit** — and with ordinary Hive
-keys of ~140 characters it is closer to 16 KB. `test_a_worst_case_batch_stays_under_the_input_limit`
+near **2.3 KB**. At 50 items that was ~112 KB — under half the limit — and at 10 it is ~23 KB.
+`test_a_worst_case_batch_stays_under_the_input_limit`
 (`lambdas/control-plane-common/test_transfer_cpcommon.py`) **computes** that rather than asserting
-the number, so raising the constant without re-checking it fails the build. The second bound is
-time, and it is slack: 50 server-side copies on the bounded pool finish far inside copy-objects'
-900-second timeout even when several go multipart.
+the number, so raising the constant without re-checking it fails the build.
+
+**The second bound is time, and SPEC-161 is where it stopped being slack** — it is now the binding
+one, and it is why this constant is 10 rather than 50. The sentence that used to sit here read "50
+server-side copies on the bounded pool finish far inside copy-objects' 900-second timeout even when
+several go multipart", and that was true only because table-share's TOTAL cap was 20 GiB, so a batch
+could never exceed a whole table. Raising the total to 1 TiB removed that implicit bound. The bound
+now lives with `SHARE_MAX_OBJECT_BYTES` (entry above): `MAX_ITEMS_PER_BATCH x SHARE_MAX_OBJECT_BYTES`
+must copy inside 900 s, which `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes.
+**These two constants can no longer be changed independently of each other or of table-share's
+per-object cap.**
 
 **`MAP_MAX_CONCURRENCY = 20`.** Deliberately not the **10,000** default. Each child execution
 invokes a Lambda that opens up to `COPY_CONCURRENCY` (8) S3 connections, so the default would put

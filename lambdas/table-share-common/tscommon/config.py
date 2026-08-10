@@ -19,14 +19,18 @@ Attributes:
     twenty-two at a pessimistic 5 MB/s — comfortably inside the state machine's
     ``TimeoutSeconds``, which is what a share that cannot finish now runs into.
   SHARE_MAX_OBJECT_BYTES: Cap on ONE object, which the total-size cap does not imply and which
-    raising that cap is what made necessary. **What sizes it is the copy verb's timeout**, and
-    it is the one place a single Lambda still bounds this plane: ``cpcommon.transfer.copy``
-    part-copies an object above 5 GiB in **sequential** 1 GiB ranges, so an object's copy time
-    is linear in its size inside one invocation and cannot be spread across the Map. At 20 GiB
-    that is ~20 sequential part copies, comfortably inside ``copy-objects``' 900-second
-    ceiling — the reach the plane demonstrably had before ``SHARE_MAX_TOTAL_BYTES`` moved, kept
-    deliberately rather than by accident. Without it, 1 TiB in one object passes every other
-    cap and then times out its batch.
+    raising that cap is what made necessary. **What sizes it is the copy verb's timeout, via
+    the BATCH — not via the object.** That distinction is the whole of this constant and an
+    earlier version of it got it wrong: ``ItemBatcher`` batches by **count**, never by bytes,
+    so the unit that has to finish inside ``copy-objects``' 900 seconds is
+    ``MAX_ITEMS_PER_BATCH`` objects, not one. While ``SHARE_MAX_TOTAL_BYTES`` was 20 GiB the
+    bound was implicit — a batch could not exceed the whole table — and raising the total to
+    1 TiB removed it without anything replacing it. At 10 GiB with a 10-item batch the worst
+    batch is 100 GiB, ~537 seconds at a conservative 25 MB/s per stream across
+    ``COPY_CONCURRENCY`` workers. ``test_a_worst_case_batch_copies_inside_the_verb_timeout``
+    computes that from the constants, so raising either without the other fails the build.
+    It also stays above S3's 5 GiB single-copy limit, keeping the multipart part-copy path
+    reachable rather than silently dead.
   SHARE_MAX_TRANSFER_ITEMS: Cap on ``recipients x objects`` — the manifest's real bound, and
     the one neither cap above expresses, since 20,000 objects to 50 recipients is a million
     transfer items. **What sizes it is the manifest write and the collector's read-back**,
@@ -45,16 +49,24 @@ Attributes:
     since SPEC-161 that is ALL it is — it is no longer a bound on the Step Functions state,
     because the definition travels by pointer. What sizes it now is Athena's query-string
     quota: the definition is rendered into one CREATE EXTERNAL TABLE, and Athena refuses a
-    query string over 262,144 bytes (a hard quota). The rendered DDL is of the same order as
-    the serialised JSON — the backticks and quotes replace the JSON keys — so a 128 KiB
-    ceiling on the object leaves roughly a factor of two before the statement itself is
-    refused. Rejected in inspect-source as a whole-request terminal, before the write and
-    before any recipient runs, so nobody gets a definition that cannot be rendered.
+    query string over 262,144 bytes (a hard quota, not adjustable).
+
+    **The rendered DDL can be TWICE the serialised JSON, and the doubling is not spread
+    evenly.** ``ddl.literal`` backslash-escapes, so a ``'`` costs one byte in the JSON this
+    cap measures and two in the statement. Where that ``'`` sits decides the ratio: a column
+    pays ~40 bytes of JSON overhead per comment, so apostrophe-heavy COMMENTS render at about
+    1.7x, while a table property or a SerDe parameter pays ~9 and renders at nearly the full
+    2x. Measured at a 128 KiB cap the worst case reached **99.98%** of the quota — sixty-two
+    bytes of margin, which is a coin flip rather than a check — so the cap is 64 KiB, where
+    the same worst case lands near half. ``test_an_at_cap_definition_still_renders_under_
+    athenas_query_string_quota`` builds the property-shaped worst case, not the comment-shaped
+    one. Rejected in inspect-source as a whole-request terminal, before the write and before
+    any recipient runs, so nobody gets a definition that cannot be rendered.
 """
 
 SHARE_MAX_OBJECTS = 20_000
 SHARE_MAX_TOTAL_BYTES = 1024**4
-SHARE_MAX_OBJECT_BYTES = 20 * 1024**3
+SHARE_MAX_OBJECT_BYTES = 10 * 1024**3
 
 SHARE_MAX_TRANSFER_ITEMS = 20_000
 
@@ -62,4 +74,4 @@ RECIPIENT_KINDS = frozenset({"user", "space"})
 
 SHARE_MAX_RECIPIENTS = 50
 
-SHARE_MAX_DEFINITION_BYTES = 128 * 1024
+SHARE_MAX_DEFINITION_BYTES = 64 * 1024

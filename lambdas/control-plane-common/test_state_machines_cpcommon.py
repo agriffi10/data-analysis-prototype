@@ -468,8 +468,8 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     # definition the caps still allow back on the same state and it fails the SAME safety bar
     # the three peaks above just cleared — which is what makes those assertions a property of
     # the pointer rather than of the numbers happening to be small today. Measured: the guard
-    # peak goes from ~34% of the limit to ~84% with an at-cap definition inline. Not a breach
-    # at 128 KiB, and that is the point in both directions — the old 32 KiB cap kept it under
+    # peak goes from ~29% of the limit to ~55% with an at-cap definition inline. Not a breach
+    # at 64 KiB, and that is the point in both directions — the old 32 KiB cap kept it under
     # the bar only by refusing a 100-column commented table, which is an ordinary thing to
     # share. Inline, the cap had to choose between the payload and the user.
     with_definition = {

@@ -8,11 +8,18 @@ python3 test_transfer_cpcommon.py.
 
 import json
 import os
+import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
+os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
+os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
+os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
+os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
+os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import pytest
 from cpcommon import clients, messages
@@ -171,6 +178,57 @@ def test_a_worst_case_batch_stays_under_the_input_limit():
     }
     batch = json.dumps({"Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH})
     assert len(batch.encode()) < 256 * 1024 // 2, "a worst-case batch is not far below the limit"
+
+
+def test_a_worst_case_batch_copies_inside_the_verb_timeout():
+    """SPEC-161: the batch's OTHER bound, and the one that actually binds.
+
+    The payload bound above is why the batch was 50; this is why it is 10. ``ItemBatcher``
+    batches by **count**, never by bytes, so the unit that has to finish inside one
+    ``copy-objects`` invocation is ``MAX_ITEMS_PER_BATCH`` objects at the per-object cap —
+    and while table-share's TOTAL cap was 20 GiB that was implicit, because a batch could not
+    exceed the whole table. Raising the total to 1 TiB removed the implicit bound, and at 50
+    items x a 20 GiB object cap the worst batch was **1000 GiB**: over 900 seconds even at an
+    optimistic 100 MB/s per stream, so the child dies on the Lambda timeout, lands in
+    FAILED_n.json, and the recipient is failed for a reason they cannot act on.
+
+    Computed from the constants rather than asserted, so raising either the batch size or the
+    per-object cap without the other fails here. The throughput is deliberately pessimistic:
+    a measured rate would make the bound depend on the day S3 was measured, and being wrong
+    costs a timed-out batch.
+    """
+    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
+    from tscommon import config as ts_config
+
+    worst_batch_bytes = transfer_config.MAX_ITEMS_PER_BATCH * ts_config.SHARE_MAX_OBJECT_BYTES
+    throughput = copy_mod.COPY_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    seconds = worst_batch_bytes / throughput
+    budget = transfer_config.COPY_TIMEOUT_SECONDS * 2 / 3
+
+    assert seconds < budget, (
+        f"a worst-case batch is {worst_batch_bytes / GIB:,.0f} GiB, which needs {seconds:,.0f}s "
+        f"at {throughput / 1e6:.0f} MB/s against copy-objects' "
+        f"{transfer_config.COPY_TIMEOUT_SECONDS}s timeout — lower MAX_ITEMS_PER_BATCH or "
+        f"SHARE_MAX_OBJECT_BYTES"
+    )
+
+
+def test_the_copy_timeout_constant_matches_the_deployed_verb():
+    """Guards the guard above: the budget it divides by lives in locals.tf, not in Python.
+
+    A `copy-objects` timeout lowered in Terraform while this constant stayed at 900 would
+    leave the batch bound computing against a budget the verb no longer has.
+    """
+    locals_tf = os.path.join(
+        _HERE, "..", "..", "infra", "modules", "table-share", "locals.tf"
+    )
+    with open(locals_tf) as handle:
+        text = handle.read()
+
+    assert re.search(
+        rf'"copy-objects"\s*=\s*\{{[^}}]*timeout\s*=\s*{transfer_config.COPY_TIMEOUT_SECONDS}\b',
+        text,
+    ), f"locals.tf's copy-objects timeout is not {transfer_config.COPY_TIMEOUT_SECONDS}s"
 
 
 # ── copy_batch ──────────────────────────────────────────────────────────────

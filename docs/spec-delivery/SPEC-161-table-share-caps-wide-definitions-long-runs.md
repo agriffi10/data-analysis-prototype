@@ -9,14 +9,15 @@ true. Nothing about the request contract, the push semantics or the notification
 
 - **The caps.** `SHARE_MAX_OBJECTS` 1,000 → **20,000**, `SHARE_MAX_TOTAL_BYTES` 20 GiB → **1 TiB**,
   a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)** on `recipients × objects`, and a new
-  **`SHARE_MAX_OBJECT_BYTES` (20 GiB)** on a single object. `SHARE_MAX_RECIPIENTS` stays 50, pinned
-  by a test rather than by absence. Each docstring names the limit that sized it.
+  **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** on a single object — which also moved SPEC-160's
+  `MAX_ITEMS_PER_BATCH` 50 → 10. `SHARE_MAX_RECIPIENTS` stays 50, pinned by a test rather than by
+  absence. Each docstring names the limit that sized it.
 - **The definition travels by pointer.** `inspect-source` writes
   `{admin_bucket}/table-share/{hash}/definition.json` and emits `definitionKey`; `create-table`
   fetches it. `tscommon.copy_plan` gained `definition_key` / `write_definition` / `load_definition`,
   keeping every admin-bucket key this plane writes in one module. **No IAM change** —
   `CopyPlanReadWrite` already covered `PutObject`/`GetObject` on `table-share/*`.
-- **`SHARE_MAX_DEFINITION_BYTES` 32 KiB → 128 KiB**, re-expressed as an object-size sanity check.
+- **`SHARE_MAX_DEFINITION_BYTES` 32 KiB → 64 KiB**, re-expressed as an object-size sanity check.
   What sizes it now is Athena's query-string quota, **262,144 bytes and not adjustable** (verified
   against the live service-quotas page), because the definition renders into one
   `CREATE EXTERNAL TABLE`.
@@ -105,15 +106,19 @@ from a space bucket).
 - **A new reason code, `definition_unreadable`**, rather than reusing `create_failed`. FR-002 AC5
   wants a clear reason, and the failure is genuinely a different thing from a DDL that ran and
   failed.
-- **A new cap the spec does not list: `SHARE_MAX_OBJECT_BYTES` (20 GiB).** Raising
-  `SHARE_MAX_TOTAL_BYTES` to 1 TiB introduced a regression nothing else would have caught.
-  `cpcommon.transfer.copy` part-copies an object above 5 GiB in **sequential** 1 GiB ranges inside
-  one invocation, so a single object's copy time is linear in its size and the Distributed Map
-  cannot spread it. Under the old 20 GiB *total* cap no object could exceed 20 GiB, so the worst
-  case was ~20 sequential parts inside `copy-objects`' 900 s ceiling. At 1 TiB total, one 1 TiB
-  object passes every other cap and then times out its batch. The new cap keeps exactly the
-  per-object reach the plane demonstrably had, and a test pins that it stays above S3's 5 GiB
-  single-copy limit so the multipart path is not silently retired.
+- **A new cap the spec does not list, and a SPEC-160 constant changed: `SHARE_MAX_OBJECT_BYTES`
+  (10 GiB) with `MAX_ITEMS_PER_BATCH` 50 → 10.** Raising `SHARE_MAX_TOTAL_BYTES` to 1 TiB introduced
+  a regression nothing else would have caught, and it took two goes to bound correctly. **The unit
+  that must copy inside `copy-objects`' 900 s is a BATCH, not an object** — `ItemBatcher` batches by
+  count, never by bytes. While the total cap was 20 GiB that bound was implicit, because a batch
+  could not exceed the whole table; raising the total removed it with nothing replacing it. A
+  per-object cap alone does not restore it: at 50 items × 20 GiB the worst batch is **1000 GiB**,
+  over 900 s even at an optimistic 100 MB/s per stream. The pair now holds `batch × per-object` at
+  **100 GiB** (~537 s at a conservative 25 MB/s per stream over 8 workers), computed by
+  `test_a_worst_case_batch_copies_inside_the_verb_timeout`. **(10 GiB × 10) was chosen over
+  (2 GiB × 50)** because it stays above S3's 5 GiB single-copy limit, keeping the multipart
+  part-copy path reachable rather than dead code; the price is ~5× the child executions on a
+  many-small-files share, which is state transitions and Lambda invocations, both cheap.
 - **`architecture.md` and `ARCS.md` were edited, which Phase 5 said not to do.** That instruction
   comes from FR-005's last criterion, and reading it in context it is scoped to the *refusal
   wording* — those docs were already corrected for the Batch Ops fence on 2026-08-10, so re-editing
@@ -127,7 +132,7 @@ from a space bucket).
 - **The payload-limit model now proves the pointer rather than assuming it.**
   `test_the_whole_map_state_stays_under_the_payload_limit` adds a worst-allowed definition back to
   the modelled state and measures the result: the guard peak goes from ~34% of the 256 KB limit to
-  ~84%. Not a breach at 128 KiB — and that is the finding in both directions. Inline, the cap had to
+  ~55%. Not a breach at 64 KiB — and that is the finding in both directions. Inline, the cap had to
   choose between the payload and the user, and the old 32 KiB value kept the state safe only by
   refusing a 100-column commented table.
 - **The retired-phrase sweep caught one of this spec's own test docstrings**, which quoted the
@@ -135,14 +140,15 @@ from a space bucket).
   old wording — the suites assert `exc.reason` and the user sentence, neither of which ever carried
   it — so a grep is the only thing standing between a stale operator-facing detail and the next
   operator to read a failed run.
-- **The 128 KiB definition cap is measured against Athena's quota, not argued.** The first cut
-  claimed it "leaves roughly a factor of two". It does not: `ddl.literal` backslash-escapes, so a
-  `'` costs one byte in the JSON the cap measures and **two** in the rendered DDL. Measured, an
-  apostrophe-heavy at-cap definition renders to **227,721 bytes against the 262,144 quota — 87%**,
-  where plain text is 46%. Still safe, but the margin is 1.15×, and nothing tested it.
-  `test_an_at_cap_definition_still_renders_under_athenas_query_string_quota` now renders one through
-  the real renderer and says in its docstring that a failure means **lower the cap**, not raise the
-  assertion.
+- **The definition cap is measured against Athena's quota, and it took two goes.** The first cut
+  claimed 128 KiB "leaves roughly a factor of two". It does not: `ddl.literal` backslash-escapes, so
+  a `'` costs one byte in the JSON the cap measures and **two** in the DDL. The first test built
+  apostrophe-heavy *comments* and measured 87% — but **where the quotes sit decides the ratio**. A
+  column carries ~40 bytes of JSON overhead per comment (1.7×); a **table property or SerDe
+  parameter** carries ~9 and renders at nearly the full 2×. The real worst case at 128 KiB is
+  **262,082 of 262,144 bytes — 99.98%, sixty-two bytes of margin**. The cap is now **64 KiB**, where
+  the same worst case lands at 50%, and the test builds the property-shaped fixture with
+  max-length identifiers.
 
 ## A multi-recipient ceiling worth stating
 

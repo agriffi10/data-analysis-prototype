@@ -408,36 +408,66 @@ def test_an_at_cap_definition_still_renders_under_athenas_query_string_quota():
     ``SHARE_MAX_DEFINITION_BYTES`` bounds the SERIALISED definition, but what actually refuses
     is Athena, on the RENDERED statement, at 262,144 bytes (a hard quota). The two are not the
     same size and the gap is not constant: ``ddl.literal`` backslash-escapes, so a ``'`` costs
-    one byte in the JSON this cap measures and **two** in the DDL. An apostrophe-heavy comment
-    is therefore the worst case, and it is the one built here — measured at ~87% of the quota,
-    where plain text is ~46%.
+    one byte in the JSON this cap measures and **two** in the DDL.
+
+    **WHERE the apostrophes sit decides the ratio, and getting that wrong is how this test
+    first shipped too weak.** A column pays ~40 bytes of JSON overhead per comment
+    (``name``/``type``/``comment`` keys), so apostrophe-heavy COMMENTS only reach ~1.7x. A
+    table property or a SerDe parameter pays ~9, so it renders at nearly the full 2x. At a
+    128 KiB cap the property-shaped case measured **99.98%** of the quota against the
+    comment-shaped case's 87% — sixty-two bytes of margin, which is why the cap is 64 KiB.
+    The worst case is built here; the identifiers are at their legal maximums too, because
+    they are the fixed cost added on top.
 
     If this ever fails, LOWER THE CAP; do not raise the assertion. An at-cap definition that
     renders over the quota means inspect-source accepts a share, copies the data to every
     recipient, and then hands all 50 of them an Athena error — the exact failure the cap's own
     docstring says it prevents.
     """
-    definition = {
-        "columns": [],
-        "partitionKeys": [],
-        "serde": {"serializationLibrary": "org.apache.hadoop.hive.serde2.OpenCSVSerde", "parameters": {}},
-        "inputFormat": "org.apache.hadoop.mapred.TextInputFormat",
-        "outputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
-        "tableType": "EXTERNAL_TABLE",
-        "tableProperties": {},
-    }
-    while len(json.dumps(definition, separators=(",", ":")).encode()) < m.config.SHARE_MAX_DEFINITION_BYTES:
-        definition["columns"].append({
-            "name": f"column_number_{len(definition['columns']):04d}",
-            "type": "string",
-            "comment": "'" * 200,
-        })
+    def _at_cap(pad):
+        return {
+            "columns": [{"name": "id", "type": "bigint"}],
+            "partitionKeys": [],
+            "serde": {
+                "serializationLibrary": "org.apache.hadoop.hive.serde2.OpenCSVSerde",
+                "parameters": {},
+            },
+            "inputFormat": "org.apache.hadoop.mapred.TextInputFormat",
+            "outputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+            "tableType": "EXTERNAL_TABLE",
+            "tableProperties": {"p": "'" * pad},
+        }
 
-    query = ddl.render_create_external(definition, "recipient_db", "shared_copy", "s3://b/p/")
+    def _serialised(definition):
+        return len(json.dumps(definition, separators=(",", ":")).encode())
 
-    assert len(query.encode()) < _ATHENA_QUERY_STRING_QUOTA, (
-        f"an at-cap definition renders to {len(query.encode()):,} bytes against Athena's "
+    low, high = 0, 4 * m.config.SHARE_MAX_DEFINITION_BYTES
+    while low < high:
+        mid = (low + high + 1) // 2
+        if _serialised(_at_cap(mid)) <= m.config.SHARE_MAX_DEFINITION_BYTES:
+            low = mid
+        else:
+            high = mid - 1
+    definition = _at_cap(low)
+
+    query = ddl.render_create_external(
+        definition,
+        "d" * 63,
+        "t" * 63,
+        "s3://" + "b" * 63 + "/" + "n" * 63 + "/shared_tables/" + "t" * 63 + "/",
+    )
+    rendered = len(query.encode())
+
+    assert rendered < _ATHENA_QUERY_STRING_QUOTA, (
+        f"an at-cap definition renders to {rendered:,} bytes against Athena's "
         f"{_ATHENA_QUERY_STRING_QUOTA:,}-byte hard quota — lower SHARE_MAX_DEFINITION_BYTES"
+    )
+    assert rendered < _ATHENA_QUERY_STRING_QUOTA * 0.75, (
+        f"an at-cap definition reaches {rendered / _ATHENA_QUERY_STRING_QUOTA:.1%} of the quota "
+        "— it fits, but with no room for a renderer change; lower SHARE_MAX_DEFINITION_BYTES"
+    )
+    assert _serialised(definition) > m.config.SHARE_MAX_DEFINITION_BYTES * 0.99, (
+        "the binary search did not reach the cap, so this measures nothing"
     )
 
 

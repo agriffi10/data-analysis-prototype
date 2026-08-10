@@ -299,12 +299,12 @@ table over them in the recipient's DB.
   > **Superseded (SPEC-161, shipped 2026-08-10):** the ceiling moved. `SHARE_MAX_OBJECTS` is
   > **20,000**, `SHARE_MAX_TOTAL_BYTES` **1 TiB**, a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)**
   > bounds `recipients × objects` — the manifest's real limit, which neither other cap expresses —
-  > and a new **`SHARE_MAX_OBJECT_BYTES` (20 GiB)** bounds ONE object, because the multipart copy is
-  > sequential inside a single invocation and raising the total alone would admit a file no batch
-  > can copy in 900 s.
+  > and a new **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** bounds one object — because `ItemBatcher` batches
+  > by COUNT, the unit that must copy inside `copy-objects`' 900 s is a whole batch, so
+  > `MAX_ITEMS_PER_BATCH` also drops **50 → 10** to hold `batch × per-object` at 100 GiB.
   > `SHARE_MAX_RECIPIENTS` (50) is unchanged. `SHARE_MAX_DEFINITION_BYTES` still exists but bounds
   > something else now: the definition **travels by pointer** (`definitionKey` →
-  > `table-share/{hash}/definition.json`), so its 128 KiB is a sanity check against **Athena's
+  > `table-share/{hash}/definition.json`), so its 64 KiB is a sanity check against **Athena's
   > 262,144-byte query-string quota**, not against the state payload. The machine also declares a
   > top-level **`TimeoutSeconds` of 10,800** — which **cannot itself reach `NotifyFailure`** (AWS
   > catchers do not cover top-level execution failures), so it ships with an **EventBridge

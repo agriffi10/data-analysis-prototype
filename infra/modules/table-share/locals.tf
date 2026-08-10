@@ -55,8 +55,14 @@ locals {
     "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 300, memory = 2048 }
     # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
-    # on a whole-request failure path, so it takes the smallest shape any verb here has.
-    "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 15, memory = 256 }
+    # on a whole-request failure path.
+    #
+    # SPEC-161 raised it 15s -> 60s. It gained a SECOND door (the EventBridge TIMED_OUT rule
+    # in stepfunction.tf), and that path does strictly more work than the ASL one: a cold-start
+    # JWKS fetch over the network plus a JWT verify before the send, because the sender has to
+    # come from the token in the timed-out execution's own input. 15s was sized for a decode
+    # and a send. The DLQ drain, which does the same verify, is at 60s for the same reason.
+    "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 60, memory = 256 }
   }
 
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR
@@ -109,7 +115,7 @@ locals {
   # so these are literals fed into the ASL — and cpcommon/transfer/config.py holds the same two
   # for the batch verb. A test asserts the pair still match, because two homes for one number is
   # how a batch quietly grows past the 256 KB child-input limit it was sized against.
-  transfer_max_items_per_batch = 50
+  transfer_max_items_per_batch = 10
   transfer_map_max_concurrency = 20
 
   # SPEC-161 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field —
