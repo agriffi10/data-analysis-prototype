@@ -7,6 +7,7 @@ terminal/transient routing. Runnable under pytest or directly:
 python3 test_table_share_create_table.py.
 """
 
+import json
 import os
 import sys
 
@@ -57,10 +58,14 @@ def _event(definition=_DEFINITION):
     """One Map item, with the definition staged behind its pointer (SPEC-161 FR-002).
 
     The stub stands in for ``copy_plan.load_definition``, which is the seam the verb now
-    fetches through. No local restore: conftest's SPEC-153 FR-004 snapshot covers shared-layer
-    module namespaces, tscommon included.
+    fetches through. It round-trips through JSON deliberately: returning the caller's own dict
+    would make the equivalence test below compare ``render(x)`` with ``render(x)`` and pass
+    however badly the real writer and reader mangled the definition in between.
+
+    No local restore: conftest's SPEC-153 FR-004 snapshot covers shared-layer module
+    namespaces, tscommon included.
     """
-    m.copy_plan.load_definition = lambda key: definition
+    m.copy_plan.load_definition = lambda key: json.loads(json.dumps(definition))
     return {
         "recipient": {
             "kind": "user",
@@ -187,17 +192,29 @@ def test_the_pointer_renders_the_same_ddl_the_inline_definition_did():
     through the renderer directly and through the verb's fetch-then-render path must produce
     one string; anything the pointer did to the definition on the way (a re-serialisation that
     reorders properties, a lost comment) shows up here as a diff and nowhere else.
+
+    The fetch stub round-trips through JSON, so this exercises the serialisation the real
+    writer and reader perform. Run over a definition with comments, projection properties and
+    SerDe parameters rather than the bare one, because those are the parts a round-trip could
+    plausibly disturb.
     """
     fake = _setup()
+    rich = {
+        **_DEFINITION,
+        "columns": [
+            {"name": "id", "type": "bigint", "comment": "the 'primary' id"},
+            {"name": "amount", "type": "double", "comment": "in \\ units"},
+        ],
+    }
     recipient = _event()["recipient"]
     inline = m.ddl.render_create_external(
-        _DEFINITION,
+        rich,
         recipient["database"],
         "orders_copy",
         f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",
     )
 
-    m.handler(_event(), None)
+    m.handler(_event(definition=rich), None)
 
     assert fake.calls[0]["query"] == inline
 

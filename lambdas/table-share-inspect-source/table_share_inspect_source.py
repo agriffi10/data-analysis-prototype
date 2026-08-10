@@ -155,6 +155,12 @@ def _inspect_source(event) -> dict:
     for rel_key, size in s3_listing.list_data_objects(location["bucket"], location["prefix"], relative=True):
         objects.append({"relKey": rel_key, "size": size})
         total_bytes += size
+        if size > config.SHARE_MAX_OBJECT_BYTES:
+            raise TerminalError(
+                "source_object_too_large",
+                f"{database}.{table} has an object of {size} bytes "
+                f"(per-object cap {config.SHARE_MAX_OBJECT_BYTES})",
+            )
         if len(objects) > config.SHARE_MAX_OBJECTS:
             raise TerminalError(
                 "source_too_large",

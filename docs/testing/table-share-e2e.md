@@ -263,8 +263,9 @@ Three changes, none of them to the transfer mechanism (that is SPEC-160):
   `SHARE_MAX_TRANSFER_ITEMS` 20,000 on `recipients × objects` (bound: the manifest
   write and the collector's read-back). `SHARE_MAX_RECIPIENTS` stays 50.
 - **The definition travels by pointer**, as `definitionKey`.
-- **`TimeoutSeconds` 10,800** (top-level), so a wedged run terminates into
-  `NotifyFailure` instead of running to Step Functions' one-year default.
+- **`TimeoutSeconds` 10,800** (top-level), plus an **EventBridge `TIMED_OUT` rule** — the
+  timeout alone cannot notify anyone, because Step Functions catchers do not cover top-level
+  execution failures.
 
 ### Checks
 
@@ -339,3 +340,37 @@ aws glue get-table --database-name <recipient-db> --name <result-name> \
   --query 'length(StorageDescriptor.Columns[?Comment!=`null`])'
 # Expect 100.
 ```
+
+#### 4. The timeout notifies (do NOT wait 3 hours)
+
+The point of this check is the **rule and the second door**, not the clock. Waiting out a real
+3-hour timeout is not a test anyone will run, so drive it directly.
+
+```bash
+# The rule exists, matches TIMED_OUT only, and targets the notifier.
+aws events describe-rule --name <project>-prod-table-share-orchestrator-timed-out \
+  --query 'EventPattern' --output text
+# Expect detail.status == ["TIMED_OUT"] and NO "FAILED".
+
+aws events list-targets-by-rule --rule <project>-prod-table-share-orchestrator-timed-out \
+  --query 'Targets[].Arn'
+# Expect the table-share-notify-failure function ARN.
+```
+
+Then prove the handler end to end by putting a synthetic event on the default bus. It carries a
+real (expired is fine — that is the point) ID token in the SQS-shaped input:
+
+```bash
+aws events put-events --entries '[{
+  "Source": "aws.states",
+  "DetailType": "Step Functions Execution Status Change",
+  "Detail": "{\"executionArn\":\"arn:aws:states:us-east-1:ACCT:execution:M:probe\",\"stateMachineArn\":\"<state-machine-arn>\",\"status\":\"TIMED_OUT\",\"inputDetails\":{\"included\":true},\"input\":\"[{\\\"body\\\":\\\"{\\\\\\\"actor\\\\\\\":\\\\\\\"<AN ID TOKEN>\\\\\\\",\\\\\\\"source\\\\\\\":{\\\\\\\"database\\\\\\\":\\\\\\\"<you>\\\\\\\",\\\\\\\"table\\\\\\\":\\\\\\\"sales\\\\\\\"},\\\\\\\"tableName\\\\\\\":\\\\\\\"probe\\\\\\\"}\\\"}]\"}"
+}]'
+```
+
+- Expect a notification in **your own** inbox: *"the share ran for too long and was stopped. Some
+  recipients may have received part of the data…"*
+- The `stateMachineArn` in the detail must be the real one or the rule will not match — which is
+  itself worth confirming: send it once with a wrong ARN and expect **no** notification.
+- Confirm the username came from the **token**, not the body: repeat with a `username` field
+  added to the body naming someone else, and expect the notification still to arrive in yours.

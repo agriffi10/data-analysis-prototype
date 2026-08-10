@@ -17,11 +17,35 @@ is no double-notification to design around on the recipient path.
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
 way — an ASL decode raises an uncatchable runtime error whenever the Cause is absent or is not
 JSON, killing the execution on precisely the failures a user most needs to hear about.
+
+**It has TWO doors, and the second one exists because the first cannot reach one failure.**
+The ASL door above is a state, so it is reached by a ``Catch`` — and Step Functions catchers
+cover Task, Parallel and Map states but **not top-level execution failures**. A run that
+exhausts the machine's own ``TimeoutSeconds`` is terminated outright: no state runs, no Catch
+fires, and this function is never invoked. The documented remedy is the second door, and it is
+what SPEC-161 wired: an EventBridge rule on ``Step Functions Execution Status Change`` with
+``status: TIMED_OUT`` invokes this same function with an event of a completely different shape.
+
+The two doors cannot double-notify. The ASL door is reached only through a ``Catch``, which a
+timeout never fires; the EventBridge door matches ``TIMED_OUT`` only, never ``FAILED``, so an
+execution that reached ``Fail`` normally does not appear on it.
+
+The timeout door has to recover the sender the hard way. The execution input is what the Pipe
+forwarded — the raw SQS batch — so the actor is the **verified claim from the ID token in that
+body**, never the body's own assertion. Expiry is deliberately not enforced: the timeout fires
+hours after the token was minted, and by construction it is always expired. That relaxation is
+the DLQ drain's, taken through the same separately-named entry point, and it is safe for the
+same reason — this path grants nothing, it only addresses a message.
+
+Attributes:
+  _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
+  _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
 """
 
+import json
 import logging
 
-from cpcommon import observability
+from cpcommon import auth, events, observability
 from cpcommon.errors import TerminalError, failure_reason
 from tscommon import messages, notify
 
@@ -29,6 +53,9 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="table-share")
+
+_TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
+_TIMEOUT_REASON = "share_timed_out"
 
 
 def _verb_already_notified(error) -> bool:
@@ -61,6 +88,115 @@ def _verb_already_notified(error) -> bool:
     return isinstance(error, dict) and error.get("Error") == TerminalError.__name__
 
 
+def _is_execution_timeout(event) -> bool:
+    """Reports whether this invocation came through the EventBridge door.
+
+    Matched on the detail-type rather than on the presence of ``detail``, because the ASL door's
+    payload is the request object and a request could in principle carry any field name. The
+    status is NOT re-checked here — the rule pattern matches ``TIMED_OUT`` alone, and a second
+    check in Python would silently swallow anything a future pattern widening let through
+    instead of notifying about it.
+
+    Args:
+      event: The Lambda event.
+
+    Returns:
+      True when this is a Step Functions execution status-change event.
+
+    Raises:
+      None.
+    """
+    return isinstance(event, dict) and event.get("detail-type") == _TIMEOUT_DETAIL_TYPE
+
+
+def _timed_out_request(detail) -> dict:
+    """Recovers the sender and the source from a timed-out execution's own input.
+
+    The input is the Pipe's forwarded SQS batch, so this is the same parse every verb does,
+    then the token — and the token is the ONLY acceptable source of the username. The body's
+    ``source``/``tableName`` are display-only, exactly as validate-authorize treats them: they
+    reach the message text, and the text goes to an inbox the verified claim chose.
+
+    Args:
+      detail: The event's ``detail`` block.
+
+    Returns:
+      A request-shaped dict carrying the verified actor, the source and the result name — or
+      an empty actor when the input was omitted or cannot be attributed.
+
+    Raises:
+      None. Every failure degrades to no verified actor, which the caller logs as a no-op.
+    """
+    included = (detail.get("inputDetails") or {}).get("included")
+    raw = detail.get("input")
+    if included is False or not isinstance(raw, str) or not raw:
+        logger.info("timed-out execution carries no input; nobody can be attributed")
+        return {}
+
+    try:
+        body = events.parse_sqs_request(json.loads(raw), reason=_TIMEOUT_REASON)
+        actor = auth.verified_username_ignoring_expiry(
+            body.get("actor"), missing_token_detail="missing actor token"
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("could not attribute the timed-out execution: %s", exc)
+        return {}
+
+    source = body.get("source") if isinstance(body.get("source"), dict) else {}
+    return {
+        "actor": actor,
+        "source": {"database": source.get("database"), "table": source.get("table")},
+        "tableName": body.get("tableName"),
+        "error": {"Error": "States.Timeout", "Cause": None},
+    }
+
+
+def _on_execution_timed_out(event) -> dict:
+    """Notifies the sender that the whole run was stopped by the machine's own timeout.
+
+    The wording is deliberately not the generic failure sentence. A timeout is the one whole-
+    request failure that can leave a recipient holding **part** of a dataset: the guard and the
+    copy may both have run, and the create may not have, so "try again" alone would be wrong
+    advice. ``share_timed_out`` says so and points at the Administrator.
+
+    Args:
+      event: The EventBridge event.
+
+    Returns:
+      The recovered request, for the log and for symmetry with the ASL door.
+
+    Raises:
+      None.
+    """
+    request = _timed_out_request(event.get("detail") or {})
+    actor = request.get("actor") or ""
+    source = request.get("source") or {}
+
+    if not actor:
+        logger.info("timed-out execution has no verified sender; nothing to notify")
+        observability.warning(
+            "no verified actor on a timed-out execution; nothing to notify",
+            outcome="no-recipient",
+            reason=_TIMEOUT_REASON,
+            notified=False,
+        )
+        return request
+
+    notify.emit_notification(
+        actor,
+        messages.failure_message(_TIMEOUT_REASON, source.get("table") or ""),
+    )
+    logger.info("notified %s that their share timed out", actor)
+    observability.info(
+        "notified the sender that the execution timed out",
+        outcome="notified",
+        reason=_TIMEOUT_REASON,
+        actor=actor,
+        notified=True,
+    )
+    return request
+
+
 @observability.traced("notify-failure")
 def handler(event, context) -> dict:
     """Notifies the sender that their share failed, and threads the request object onward.
@@ -77,8 +213,15 @@ def handler(event, context) -> dict:
     own actor field is attacker-controlled, and notifying it would let anyone deliver text to
     any inbox.
 
+    Two entry shapes reach this one handler, dispatched on the detail-type: the ASL state's
+    request object, and EventBridge's status-change event for a run the machine's own
+    ``TimeoutSeconds`` stopped. One function rather than two because they end in the same
+    place — one verified actor, one sentence, one queue — and a second function would be a
+    second copy of the emit with a second chance to drift.
+
     Args:
-      event: The failed request, carrying the raw Step Functions error.
+      event: The failed request carrying the raw Step Functions error, or an EventBridge
+        ``Step Functions Execution Status Change`` event.
       context: The Lambda context, unused.
 
     Returns:
@@ -88,6 +231,9 @@ def handler(event, context) -> dict:
       None. The execution has already failed; the only thing this function can add is a
       message, and a crash here would replace a friendly notification with nothing.
     """
+    if _is_execution_timeout(event):
+        return _on_execution_timed_out(event)
+
     request = dict(event) if isinstance(event, dict) else {}
     actor = request.get("actor") or ""
     source = request.get("source") if isinstance(request.get("source"), dict) else {}

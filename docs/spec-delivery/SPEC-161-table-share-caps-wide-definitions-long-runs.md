@@ -8,9 +8,9 @@ now shares — where before it was refused twice over, both times for reasons th
 true. Nothing about the request contract, the push semantics or the notifications changed.
 
 - **The caps.** `SHARE_MAX_OBJECTS` 1,000 → **20,000**, `SHARE_MAX_TOTAL_BYTES` 20 GiB → **1 TiB**,
-  and a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)** on `recipients × objects`.
-  `SHARE_MAX_RECIPIENTS` stays 50, pinned by a test rather than by absence. Each docstring names the
-  limit that sized it.
+  a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)** on `recipients × objects`, and a new
+  **`SHARE_MAX_OBJECT_BYTES` (20 GiB)** on a single object. `SHARE_MAX_RECIPIENTS` stays 50, pinned
+  by a test rather than by absence. Each docstring names the limit that sized it.
 - **The definition travels by pointer.** `inspect-source` writes
   `{admin_bucket}/table-share/{hash}/definition.json` and emits `definitionKey`; `create-table`
   fetches it. `tscommon.copy_plan` gained `definition_key` / `write_definition` / `load_definition`,
@@ -20,8 +20,9 @@ true. Nothing about the request contract, the push semantics or the notification
   What sizes it now is Athena's query-string quota, **262,144 bytes and not adjustable** (verified
   against the live service-quotas page), because the definition renders into one
   `CREATE EXTERNAL TABLE`.
-- **A top-level `TimeoutSeconds` of 10,800**, from a named local, so a wedged run terminates into
-  `NotifyFailure` rather than running to Step Functions' one-year default.
+- **A top-level `TimeoutSeconds` of 10,800**, from a named local, so a wedged run terminates instead
+  of running to Step Functions' one-year default — **plus an EventBridge `TIMED_OUT` rule**, because
+  the timeout alone cannot tell anyone (see below).
 - **The retired refusal wording is gone** from `lambdas/`, with a fleet-wide sweep holding it out.
 
 ## The `TimeoutSeconds` arithmetic
@@ -42,6 +43,40 @@ the margin is bought against the sender's silence rather than being free.
 **Retention clears it by 240×.** `admin_results_retention_days` is 30 (720 h) against a 3 h run
 ceiling, so `expire-table-share-copy-plans` cannot expire a live run's manifest underneath it. A
 test computes that ratio from both files.
+
+## FR-003 AC2: a top-level timeout cannot notify anyone, and review caught it
+
+The first cut of this spec shipped `TimeoutSeconds` alone and claimed in four places that a timed-out
+run would reach `NotifyFailure`. **It would not.** AWS is explicit: *"Step Functions catchers are
+available for Task, Parallel and Map states, but not for top-level state machine execution
+failures"* — the expiry terminates the run outright, so no state runs and no `Catch` fires. The
+state sits in the machine looking exactly like it would work.
+
+That is worse than it first appears. A `TimeoutSeconds` shipped alone would have **bounded the run
+and made the sender's silence permanent instead of merely long**, with SPEC-152's guarantee reading
+as satisfied by a state that could never be reached. The test written for AC2 was vacuous — it
+asserted the pre-existing `RecordFailure → NotifyFailure` wiring and passed with `TimeoutSeconds`
+deleted.
+
+**The fix is the remedy AWS names**: an EventBridge rule on `Step Functions Execution Status Change`
+matching **`TIMED_OUT` only**, invoking the same `notify-failure` verb through a second door.
+
+- **`TIMED_OUT` only is load-bearing.** Every other whole-request failure already reaches the verb
+  through a `Catch` and ends at `Fail`, whose status is `FAILED`. Matching both would send a second
+  notification for every caught failure. The doors are disjoint by construction, not by suppression.
+- **The sender comes from the token, not the body.** The execution input is the Pipe's forwarded SQS
+  batch, so the actor is the verified `cognito:username` inside the body's ID token. Expiry is
+  deliberately not enforced — by construction the token is expired, since the timeout fires hours
+  after it was minted — through the DLQ drain's separately-named `verified_username_ignoring_expiry`.
+  Safe for the same reason: this path grants nothing, it addresses a message.
+- **Unattributable is a logged no-op.** EventBridge caps an event at 256 KB and Step Functions omits
+  an input too large for it, so `inputDetails.included: false` is a real shape. No guessed inbox.
+- **Its own wording, `share_timed_out`.** A timeout is the one whole-request failure that can leave a
+  recipient holding *part* of a dataset — the copy may have run and the create may not — so the
+  generic "try again" would be wrong advice.
+
+Deploy-role IAM gained one `events:*` statement scoped to this rule's ARN; the invoke is a
+resource-based `aws_lambda_permission`, so no invoke role, matching the DLQ drain's sweep.
 
 ## What FR-004 required was adding nothing
 
@@ -70,6 +105,15 @@ from a space bucket).
 - **A new reason code, `definition_unreadable`**, rather than reusing `create_failed`. FR-002 AC5
   wants a clear reason, and the failure is genuinely a different thing from a DDL that ran and
   failed.
+- **A new cap the spec does not list: `SHARE_MAX_OBJECT_BYTES` (20 GiB).** Raising
+  `SHARE_MAX_TOTAL_BYTES` to 1 TiB introduced a regression nothing else would have caught.
+  `cpcommon.transfer.copy` part-copies an object above 5 GiB in **sequential** 1 GiB ranges inside
+  one invocation, so a single object's copy time is linear in its size and the Distributed Map
+  cannot spread it. Under the old 20 GiB *total* cap no object could exceed 20 GiB, so the worst
+  case was ~20 sequential parts inside `copy-objects`' 900 s ceiling. At 1 TiB total, one 1 TiB
+  object passes every other cap and then times out its batch. The new cap keeps exactly the
+  per-object reach the plane demonstrably had, and a test pins that it stays above S3's 5 GiB
+  single-copy limit so the multipart path is not silently retired.
 - **`architecture.md` and `ARCS.md` were edited, which Phase 5 said not to do.** That instruction
   comes from FR-005's last criterion, and reading it in context it is scoped to the *refusal
   wording* — those docs were already corrected for the Batch Ops fence on 2026-08-10, so re-editing
@@ -91,6 +135,22 @@ from a space bucket).
   old wording — the suites assert `exc.reason` and the user sentence, neither of which ever carried
   it — so a grep is the only thing standing between a stale operator-facing detail and the next
   operator to read a failed run.
+- **The 128 KiB definition cap is measured against Athena's quota, not argued.** The first cut
+  claimed it "leaves roughly a factor of two". It does not: `ddl.literal` backslash-escapes, so a
+  `'` costs one byte in the JSON the cap measures and **two** in the rendered DDL. Measured, an
+  apostrophe-heavy at-cap definition renders to **227,721 bytes against the 262,144 quota — 87%**,
+  where plain text is 46%. Still safe, but the margin is 1.15×, and nothing tested it.
+  `test_an_at_cap_definition_still_renders_under_athenas_query_string_quota` now renders one through
+  the real renderer and says in its docstring that a failure means **lower the cap**, not raise the
+  assertion.
+
+## A multi-recipient ceiling worth stating
+
+`SHARE_MAX_TRANSFER_ITEMS` equals `SHARE_MAX_OBJECTS`, so the object cap is only reachable by a
+single-recipient share. 500 objects can go to 40 recipients; **500 objects to all 50 is refused** at
+25,000 items. That is a deliberate consequence of bounding the product, and the refusal names both
+numbers — but it is a shape a user can meet without doing anything unreasonable, so it is recorded
+here rather than left to be discovered.
 
 ## Owed
 

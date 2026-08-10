@@ -319,6 +319,16 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > 20 MB/s per stream, ~22 at a pessimistic 5 MB/s. That is what sized the machine's
 > `TimeoutSeconds` (10,800 s ≈ 8× the pessimistic case), so the two numbers move together.
 >
+> **`SHARE_MAX_OBJECT_BYTES` = 20 GiB (NEW). Bound: the copy verb's timeout** — the one place a
+> single Lambda still bounds this plane. `cpcommon.transfer.copy` part-copies an object above 5 GiB
+> in **sequential** 1 GiB ranges inside one invocation, so a single object's copy time is linear in
+> its size and the Distributed Map cannot spread it. Under the old 20 GiB TOTAL cap no object could
+> exceed 20 GiB, so the worst case was ~20 sequential part copies inside `copy-objects`' 900-second
+> ceiling. **Raising the total to 1 TiB is what made this cap necessary**: without it, one 1 TiB
+> object passes every other cap and then times out its batch. 20 GiB keeps exactly the per-object
+> reach the plane demonstrably had, and a test pins that it stays above S3's 5 GiB single-copy limit
+> so the multipart path is not silently retired.
+>
 > **`SHARE_MAX_TRANSFER_ITEMS` = 20,000 (NEW). Bound: the manifest write and the collector's
 > read-back**, which are the same volume in both directions. At S3's worst-case 1024-byte keys an
 > item is ~2.3 KB, so 20,000 items is a ~46 MB manifest, and the Map Run export
@@ -335,6 +345,10 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > (`lambdas/table-share-common/test_state_machine_table_share.py`) **computes** the worst-case
 > volume from the cap and the same worst-case item the batch sizing uses, so raising the constant
 > without re-sizing the verbs fails the build.
+>
+> **The item cap equals the object cap, so the object cap is reachable only for a single-recipient
+> share** — 500 objects can go to 40 recipients, and 500 to all 50 is refused at 25,000 items. A
+> deliberate consequence of bounding the product; the refusal names both numbers.
 >
 > **Step Functions is nowhere near binding at any of this** (checked against the live quota pages,
 > 2026-08-10): an `ItemReader` file may be **10 GB**, a Map Run **100,000,000** items, and a

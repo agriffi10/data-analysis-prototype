@@ -6,6 +6,7 @@ ignore rules, and the caps. Runnable under pytest or directly:
 python3 test_table_share_inspect_source.py.
 """
 
+import json
 import os
 import sys
 
@@ -22,8 +23,14 @@ import pytest
 import table_share_inspect_source as m
 from cpcommon import clients, config
 from cpcommon.errors import TerminalError, TransientError
+from tscommon import ddl
 
 USER_BUCKET = config.USER_SPACE_BUCKET
+
+#: Athena's maximum query string, in bytes. A HARD quota — not adjustable via Service Quotas
+#: (docs.aws.amazon.com/athena/latest/ug/service-limits.html, checked 2026-08-10). It is what
+#: SHARE_MAX_DEFINITION_BYTES became a sanity check against once the definition left the state.
+_ATHENA_QUERY_STRING_QUOTA = 262_144
 
 
 class _GlueError(Exception):
@@ -393,6 +400,93 @@ def test_an_ordinary_wide_table_is_still_accepted():
     _setup(table=ordinary)
 
     assert m.handler(_event(), None)["copyPlanKey"]
+
+
+def test_an_at_cap_definition_still_renders_under_athenas_query_string_quota():
+    """SPEC-161 FR-002 AC4 — the cap is only a sanity check if the thing it guards is measured.
+
+    ``SHARE_MAX_DEFINITION_BYTES`` bounds the SERIALISED definition, but what actually refuses
+    is Athena, on the RENDERED statement, at 262,144 bytes (a hard quota). The two are not the
+    same size and the gap is not constant: ``ddl.literal`` backslash-escapes, so a ``'`` costs
+    one byte in the JSON this cap measures and **two** in the DDL. An apostrophe-heavy comment
+    is therefore the worst case, and it is the one built here — measured at ~87% of the quota,
+    where plain text is ~46%.
+
+    If this ever fails, LOWER THE CAP; do not raise the assertion. An at-cap definition that
+    renders over the quota means inspect-source accepts a share, copies the data to every
+    recipient, and then hands all 50 of them an Athena error — the exact failure the cap's own
+    docstring says it prevents.
+    """
+    definition = {
+        "columns": [],
+        "partitionKeys": [],
+        "serde": {"serializationLibrary": "org.apache.hadoop.hive.serde2.OpenCSVSerde", "parameters": {}},
+        "inputFormat": "org.apache.hadoop.mapred.TextInputFormat",
+        "outputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+        "tableType": "EXTERNAL_TABLE",
+        "tableProperties": {},
+    }
+    while len(json.dumps(definition, separators=(",", ":")).encode()) < m.config.SHARE_MAX_DEFINITION_BYTES:
+        definition["columns"].append({
+            "name": f"column_number_{len(definition['columns']):04d}",
+            "type": "string",
+            "comment": "'" * 200,
+        })
+
+    query = ddl.render_create_external(definition, "recipient_db", "shared_copy", "s3://b/p/")
+
+    assert len(query.encode()) < _ATHENA_QUERY_STRING_QUOTA, (
+        f"an at-cap definition renders to {len(query.encode()):,} bytes against Athena's "
+        f"{_ATHENA_QUERY_STRING_QUOTA:,}-byte hard quota — lower SHARE_MAX_DEFINITION_BYTES"
+    )
+
+
+def test_a_share_of_several_hundred_objects_over_twenty_gib_succeeds():
+    """SPEC-161 FR-001 AC2 — the case the whole arc exists for, at the real cap values.
+
+    Deliberately NOT parameterised on a lowered cap like the refusal tests beside it: the
+    criterion is that the SHIPPED numbers admit this share, so lowering them would test the
+    opposite of what is claimed. 500 objects x 48 MiB is ~23.4 GiB — over the old 20 GiB
+    ceiling, under every new one.
+    """
+    size = 48 * 1024**2
+    objects = [(f"alice/sales/part-{i:04d}.parquet", size) for i in range(500)]
+    plan = _setup(table=_table(), objects=objects)
+
+    out = m.handler(_event(), None)
+
+    assert sum(o["size"] for o in plan[-1]) > 20 * 1024**3, "the fixture is not over the old cap"
+    assert out["objectCount"] == 500
+    assert out["definitionKey"] and out["copyPlanKey"]
+
+
+def test_a_single_object_too_large_to_copy_is_refused():
+    """The regression raising SHARE_MAX_TOTAL_BYTES to 1 TiB would otherwise have introduced.
+
+    ``cpcommon.transfer.copy`` part-copies an object above 5 GiB in SEQUENTIAL 1 GiB ranges
+    inside one invocation, so copy time is linear in a single object's size and the Distributed
+    Map cannot spread it. Under the old 20 GiB TOTAL cap no object could exceed 20 GiB, so the
+    worst case was ~20 sequential parts inside copy-objects' 900s ceiling. At 1 TiB total, one
+    1 TiB object passes every other cap and then times out its batch — attributed as a copy
+    failure, with the recipient told their share failed for no reason they can act on.
+    """
+    _setup(table=_table(), objects=[("alice/sales/huge.parquet", m.config.SHARE_MAX_OBJECT_BYTES + 1)])
+
+    with pytest.raises(TerminalError) as excinfo:
+        m.handler(_event(), None)
+
+    assert excinfo.value.reason == "source_object_too_large"
+    assert f"per-object cap {m.config.SHARE_MAX_OBJECT_BYTES}" in excinfo.value.detail
+
+
+def test_the_per_object_cap_leaves_the_multipart_path_reachable():
+    """The other side: objects above S3's 5 GiB single-copy limit must still be shareable.
+
+    A per-object cap set at or below 5 GiB would silently retire the multipart path
+    ``copy_one`` exists for, which no test of that function would notice.
+    """
+    assert m.config.SHARE_MAX_OBJECT_BYTES > 5 * 1024**3
+    assert m.config.SHARE_MAX_OBJECT_BYTES <= m.config.SHARE_MAX_TOTAL_BYTES
 
 
 def test_a_hundred_commented_columns_with_projection_is_accepted():

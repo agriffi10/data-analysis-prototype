@@ -361,19 +361,33 @@ def test_the_timeout_is_fed_from_a_named_value_and_clears_the_caps():
     assert _timeout_seconds() >= 3600
 
 
-def test_a_timed_out_run_still_reaches_the_failure_notification():
-    """SPEC-161 FR-003 AC2 — the timeout is only worth having if it is heard.
+def test_the_machine_itself_cannot_notify_a_timeout_so_a_rule_must():
+    """SPEC-161 FR-003 AC2 — asserted as the thing that is TRUE, not the thing we wish were.
 
-    States.Timeout is raised on the EXECUTION, not inside a state, so no Catch in the machine
-    sees it; Step Functions terminates the run. What makes the sender told anyway is SPEC-152's
-    NotifyFailure sitting before Fail on every whole-request path, and the fleet test asserts
-    that state exists. Pinned here too because the reason to care is new: before this spec the
-    run could not time out at all inside a year.
+    An earlier version of this test asserted `RecordFailure → NotifyFailure` and called the
+    criterion covered. That is pre-existing SPEC-152 wiring, it passes with `TimeoutSeconds`
+    deleted, and it proves nothing about a timeout: AWS is explicit that "catchers are
+    available for Task, Parallel and Map states, but not for top-level state machine execution
+    failures". A top-level timeout terminates the run outright — no state runs, no Catch fires,
+    and `NotifyFailure` is unreachable on this one path.
+
+    So what has to hold is that **something outside the machine listens**. The rule and its
+    handler are covered in `table-share-notify-failure/test_ts_notify_failure.py`; what belongs
+    here is that the in-machine path is still intact for every OTHER whole-request failure, and
+    that the two cannot both fire (the rule matches TIMED_OUT, the Fail state produces FAILED).
     """
     asl = _asl()
 
     assert asl["States"]["RecordFailure"]["Next"] == "NotifyFailure"
     assert asl["States"]["NotifyFailure"]["Catch"][0]["Next"] == "Failed"
+    assert asl["States"]["Failed"]["Type"] == "Fail"
+
+    with open(os.path.join(_MODULE, "stepfunction.tf")) as handle:
+        stepfunction = handle.read()
+    assert "aws_cloudwatch_event_rule" in stepfunction, (
+        "nothing listens for TIMED_OUT, so a wedged run ends silently — the timeout bounds the "
+        "run but tells the sender nothing"
+    )
 
 
 def test_the_admin_retention_window_outlasts_a_whole_run():

@@ -18,6 +18,15 @@ Attributes:
     ``COPY_CONCURRENCY`` workers), so 1 TiB is roughly six minutes at 20 MB/s per stream and
     twenty-two at a pessimistic 5 MB/s — comfortably inside the state machine's
     ``TimeoutSeconds``, which is what a share that cannot finish now runs into.
+  SHARE_MAX_OBJECT_BYTES: Cap on ONE object, which the total-size cap does not imply and which
+    raising that cap is what made necessary. **What sizes it is the copy verb's timeout**, and
+    it is the one place a single Lambda still bounds this plane: ``cpcommon.transfer.copy``
+    part-copies an object above 5 GiB in **sequential** 1 GiB ranges, so an object's copy time
+    is linear in its size inside one invocation and cannot be spread across the Map. At 20 GiB
+    that is ~20 sequential part copies, comfortably inside ``copy-objects``' 900-second
+    ceiling — the reach the plane demonstrably had before ``SHARE_MAX_TOTAL_BYTES`` moved, kept
+    deliberately rather than by accident. Without it, 1 TiB in one object passes every other
+    cap and then times out its batch.
   SHARE_MAX_TRANSFER_ITEMS: Cap on ``recipients x objects`` — the manifest's real bound, and
     the one neither cap above expresses, since 20,000 objects to 50 recipients is a million
     transfer items. **What sizes it is the manifest write and the collector's read-back**,
@@ -45,6 +54,7 @@ Attributes:
 
 SHARE_MAX_OBJECTS = 20_000
 SHARE_MAX_TOTAL_BYTES = 1024**4
+SHARE_MAX_OBJECT_BYTES = 20 * 1024**3
 
 SHARE_MAX_TRANSFER_ITEMS = 20_000
 

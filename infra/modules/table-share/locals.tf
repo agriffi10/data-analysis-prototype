@@ -114,9 +114,15 @@ locals {
 
   # SPEC-161 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field —
   # the same distinction SPEC-157 settled for the table-builder. Without it a Standard
-  # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run never
-  # reaches NotifyFailure and the sender is told nothing at all, which is precisely the
-  # "it just never came back" that SPEC-152 exists to make unreachable.
+  # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run simply
+  # never ends.
+  #
+  # It does NOT on its own reach NotifyFailure, and that trap is worth stating here because
+  # the state sits right there in the machine looking like it would. AWS is explicit that
+  # catchers cover Task, Parallel and Map states but NOT top-level execution failures: this
+  # timeout terminates the run outright, so no state runs and no Catch fires. The sender is
+  # told by the EventBridge TIMED_OUT rule in stepfunction.tf, which is the documented remedy
+  # and is what actually discharges SPEC-152's "it just never came back" guarantee here.
   #
   # 3 hours, and the arithmetic is the FR-001 caps: at SHARE_MAX_TOTAL_BYTES = 1 TiB the copy
   # runs 160 concurrent server-side streams (transfer_map_max_concurrency x COPY_CONCURRENCY),

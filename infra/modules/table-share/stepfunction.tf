@@ -48,3 +48,41 @@ resource "aws_sfn_state_machine" "table_share" {
     aws_cloudwatch_log_group.orchestrator,
   ]
 }
+
+# ── SPEC-161 FR-003 AC2: the timed-out run's only route to a notification ─────
+# A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
+# cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
+# RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
+# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# EventBridge bus is the documented remedy, and this is it.
+#
+# TIMED_OUT ONLY, never FAILED. Every other whole-request failure already reaches NotifyFailure
+# through a Catch, so matching FAILED here would send a second notification for every one of them.
+resource "aws_cloudwatch_event_rule" "execution_timed_out" {
+  name        = "${local.state_machine_name}-timed-out"
+  description = "Notify the sender when a table-share execution is stopped by the state machine's own timeout."
+
+  event_pattern = jsonencode({
+    "source"      = ["aws.states"]
+    "detail-type" = ["Step Functions Execution Status Change"]
+    "detail" = {
+      status          = ["TIMED_OUT"]
+      stateMachineArn = [local.state_machine_arn]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "execution_timed_out" {
+  rule = aws_cloudwatch_event_rule.execution_timed_out.name
+  arn  = aws_lambda_function.functions["notify-failure"].arn
+}
+
+# Resource-based grant so the rule (events.amazonaws.com) may invoke the notifier — the same
+# reason the DLQ drain's sweep needs no invoke role. Scoped to this rule's ARN.
+resource "aws_lambda_permission" "execution_timed_out" {
+  statement_id  = "AllowEventBridgeExecutionTimedOut"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.functions["notify-failure"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.execution_timed_out.arn
+}

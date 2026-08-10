@@ -39,6 +39,10 @@ _BODIES = {
     "source_catalog_partitioned": "tables with catalog-registered partitions can't be shared (yet).",
     "source_empty": "the source table has no data files.",
     "source_too_large": "the source table is too large to share.",
+    "source_object_too_large": (
+        "one of that table's data files is too large to copy. "
+        "Please contact the Administrator."
+    ),
     "too_many_transfer_items": (
         "that's too many files to copy to that many recipients at once. "
         "Please share to fewer recipients, or share a smaller table."
@@ -61,6 +65,10 @@ _BODIES = {
     "transfer_results_unreadable": (
         "we couldn't confirm the copy finished, so the share was stopped. "
         "Please try again or contact the Administrator."
+    ),
+    "share_timed_out": (
+        "the share ran for too long and was stopped. Some recipients may have received part "
+        "of the data. Please contact the Administrator before trying again."
     ),
     "create_failed": "creating the table failed. Please try again or contact the Administrator.",
     "create_timeout": "creating the table failed. Please try again or contact the Administrator.",
