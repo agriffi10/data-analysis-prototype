@@ -10,14 +10,28 @@ is written, so a refused share leaves nothing behind and no recipient runs.
 Attributes:
   SHARE_MAX_OBJECTS: Object-count cap. **What sizes it is inspect-source's listing time.**
     ``list_data_objects`` pages at 1000 keys, so 20,000 objects is 20 ListObjectsV2 round
-    trips — one to two seconds of a 60-second budget — and the copy plan it writes is about
-    3.4 MB. It is no longer sized by the copy: SPEC-160 made that a Distributed Map over
-    batches, so no single invocation carries a recipient's whole table any more.
-  SHARE_MAX_TOTAL_BYTES: Total-size cap. **What sizes it is the Map Run's wall clock.** The
-    fan-out reaches 160 concurrent server-side copies (``MAP_MAX_CONCURRENCY`` children x
-    ``COPY_CONCURRENCY`` workers), so 1 TiB is roughly six minutes at 20 MB/s per stream and
-    twenty-two at a pessimistic 5 MB/s — comfortably inside the state machine's
-    ``TimeoutSeconds``, which is what a share that cannot finish now runs into.
+    trips — one to two seconds of a 120-second budget — and the copy plan it writes is ~3.4 MB
+    at ordinary Hive keys, ~21 MB at S3's worst-case 1024-byte ones, which is what the verb's
+    1024 MB is sized for (locals.tf). It is no longer sized by the copy: SPEC-160 made that a
+    Distributed Map over batches, so no single invocation carries a recipient's whole table.
+  SHARE_MAX_TOTAL_BYTES: Cap on the SOURCE table's size, and only that. It bounds what
+    inspect-source lists and what the copy plan describes — **it says nothing about how much
+    the Map Run moves**, because the manifest carries one item per (recipient, object) pair and
+    every one of them is a full copy. ``SHARE_MAX_TRANSFER_BYTES`` below is the cap on the
+    transfer; this one keeps a single source from being unbounded on its own.
+  SHARE_MAX_TRANSFER_BYTES: Cap on ``recipients x total_bytes`` — the bytes the Distributed Map
+    actually copies, and the byte-axis twin of ``SHARE_MAX_TRANSFER_ITEMS``. **What sizes it is
+    the state machine's ``TimeoutSeconds``.** The fan-out reaches 160 concurrent server-side
+    copies (``MAP_MAX_CONCURRENCY`` children x ``COPY_CONCURRENCY`` workers), so at
+    ``CONSERVATIVE_STREAM_BYTES_PER_SECOND`` 16 TiB is about 4,400 seconds against a 10,800
+    second ceiling.
+
+    It exists because the source cap could not stand in for it: 50 recipients x a 1 TiB source
+    is **50 TiB**, which needs 3.8 hours even at the conservative rate and 19 at the pessimistic
+    one — so the timeout would kill a share every cap had accepted, mid-copy, leaving recipients
+    holding partial data. That is the same omission ``SHARE_MAX_TRANSFER_ITEMS`` exists to close
+    one axis over, and it was missed here for two review rounds because the timeout's arithmetic
+    was written against the un-multiplied number.
   SHARE_MAX_OBJECT_BYTES: Cap on ONE object, which the total-size cap does not imply and which
     raising that cap is what made necessary. **What sizes it is the copy verb's timeout, via
     the BATCH — not via the object.** That distinction is the whole of this constant and an
@@ -69,6 +83,7 @@ SHARE_MAX_TOTAL_BYTES = 1024**4
 SHARE_MAX_OBJECT_BYTES = 10 * 1024**3
 
 SHARE_MAX_TRANSFER_ITEMS = 20_000
+SHARE_MAX_TRANSFER_BYTES = 16 * 1024**4
 
 RECIPIENT_KINDS = frozenset({"user", "space"})
 

@@ -126,7 +126,14 @@ def _timed_out_request(detail) -> dict:
 
     Raises:
       None. Every failure degrades to no verified actor, which the caller logs as a no-op.
+      That includes a ``detail`` of the wrong type: the shape check is not defensive padding,
+      because a raise here would be an async Lambda failure and EventBridge retries those,
+      turning one unattributable event into three.
     """
+    if not isinstance(detail, dict):
+        logger.info("timed-out execution event carries no detail object")
+        return {}
+
     included = (detail.get("inputDetails") or {}).get("included")
     raw = detail.get("input")
     if included is False or not isinstance(raw, str) or not raw:

@@ -35,8 +35,14 @@ locals {
   # table-builder's identically-named verbs on sys.modules under one
   # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
   table_share_functions = {
-    "validate-authorize"  = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
-    "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 60, memory = 512 }
+    "validate-authorize" = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
+    # SPEC-161 raised inspect-source from 60s/512MB. SHARE_MAX_OBJECTS went 1,000 -> 20,000, and
+    # this is the verb that lists them and holds the whole copy plan in memory before writing it.
+    # At S3's worst-case 1024-byte keys that plan is ~21 MB serialised (~3.4 MB at ordinary Hive
+    # keys), and the in-memory list of dicts is several times either. It fit at 512 MB, but every
+    # other cap on this plane reasons from the worst case rather than the typical one, and the two
+    # verbs either side of the Map were raised for exactly this volume.
+    "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 120, memory = 1024 }
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
     "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
@@ -130,11 +136,18 @@ locals {
   # told by the EventBridge TIMED_OUT rule in stepfunction.tf, which is the documented remedy
   # and is what actually discharges SPEC-152's "it just never came back" guarantee here.
   #
-  # 3 hours, and the arithmetic is the FR-001 caps: at SHARE_MAX_TOTAL_BYTES = 1 TiB the copy
-  # runs 160 concurrent server-side streams (transfer_map_max_concurrency x COPY_CONCURRENCY),
-  # which is ~6 minutes at 20 MB/s per stream and ~22 at a pessimistic 5 MB/s. 10,800s is
-  # roughly 8x that pessimistic worst case, with the guard and finish Maps' Athena creates
-  # (bounded by SHARE_MAX_RECIPIENTS x create-table's 300s) far inside the remainder.
+  # 3 hours, and the arithmetic is SHARE_MAX_TRANSFER_BYTES (16 TiB) — NOT SHARE_MAX_TOTAL_BYTES.
+  # That distinction is the whole of it and two review rounds missed it: the manifest carries one
+  # item per (recipient, object) pair and every item is a full copy, so the Map moves the source
+  # once PER RECIPIENT. Sized against the 1 TiB source cap alone, this number was short by a
+  # factor of SHARE_MAX_RECIPIENTS — 50 TiB needs 3.8 hours even at the conservative rate.
+  #
+  # At 160 concurrent server-side streams (transfer_map_max_concurrency x COPY_CONCURRENCY) and
+  # cpcommon.transfer.config's CONSERVATIVE_STREAM_BYTES_PER_SECOND, 16 TiB is ~4,400s — inside
+  # two thirds of this ceiling, which is the same budget convention the batch bound uses. The
+  # finish Map's Athena creates add ceil(SHARE_MAX_RECIPIENTS / MaxConcurrency 5) x create-table's
+  # 300s = 3,000s worst case, far inside the remainder. A test computes the whole thing, because
+  # the hard-coded floor that stood here before is exactly what let the mismatch ship.
   #
   # It is deliberately not longer. The timeout is how fast a wedged share becomes a
   # notification, so the margin is bought against the sender's silence, not for free.

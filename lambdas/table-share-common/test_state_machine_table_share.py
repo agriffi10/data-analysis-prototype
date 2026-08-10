@@ -269,6 +269,10 @@ def test_the_manifest_verbs_are_sized_for_the_transfer_item_cap(suffix):
     The multiplier is 8x rather than 1x because the constraint is not the bytes, it is
     ``json.loads`` of them: a parsed dict of short string keys costs several times its
     serialised size in Python objects, and the verb holds the source and the parse at once.
+
+    The collector's side is counted at TWICE the manifest, not once: a Map Run export record
+    carries the child's ``Input`` as well as its ``Output``, and ``results.read_failed_items``
+    reads both groups. Modelling it at one copy would spend half the stated headroom silently.
     """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from tscommon import config as ts_config
@@ -279,7 +283,8 @@ def test_the_manifest_verbs_are_sized_for_the_transfer_item_cap(suffix):
         "destBucket": "d" * 63, "destKey": "k" * 1024,
         "size": 5 * 1024**3,
     })
-    worst_bytes = (len(worst_item.encode()) + 1) * ts_config.SHARE_MAX_TRANSFER_ITEMS
+    manifest_bytes = (len(worst_item.encode()) + 1) * ts_config.SHARE_MAX_TRANSFER_ITEMS
+    worst_bytes = manifest_bytes * (2 if suffix == "collect-transfer-results" else 1)
     timeout, memory = _verb_sizing(suffix)
 
     assert memory * 1024**2 >= worst_bytes * 8, (
@@ -349,16 +354,64 @@ def test_the_timeout_is_a_top_level_field_of_the_definition():
 
 
 def test_the_timeout_is_fed_from_a_named_value_and_clears_the_caps():
-    """SPEC-161 FR-003 AC1/AC3 — a named local, sized against the FR-001 caps.
+    """SPEC-161 FR-003 AC1/AC3 — a named local, COMPUTED against the FR-001 caps.
 
-    Asserted as a floor rather than an equality: the value may be tuned, but not below the
-    pessimistic worst case the caps allow. 1 TiB over 160 concurrent streams at 5 MB/s is
-    ~22 minutes, so the floor is an hour — comfortably above it, well below the value.
+    An earlier version asserted a hard-coded ``>= 3600`` floor, and that is how the branch
+    shipped an unsatisfiable timeout through two review rounds. The floor was derived from
+    ``SHARE_MAX_TOTAL_BYTES`` alone — but the Map copies the source once PER RECIPIENT, so the
+    real quantity is ``SHARE_MAX_TRANSFER_BYTES``, and at 50 recipients x a 1 TiB source it was
+    50 TiB: 3.8 hours at the conservative rate against a 3-hour ceiling. A magic number cannot
+    notice that; a computation can, and the two sibling bounds on this branch were already
+    written that way.
+
+    So this multiplies the caps out the way the run does, and it is the guard that fails if
+    ``SHARE_MAX_TRANSFER_BYTES``, ``MAP_MAX_CONCURRENCY``, ``COPY_CONCURRENCY`` or the timeout
+    itself moves without the others.
     """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
+    from cpcommon.transfer import config as transfer_config
+    from cpcommon.transfer import copy as copy_mod
+    from tscommon import config as ts_config
+
     with open(_TFTPL) as handle:
         assert '"TimeoutSeconds": ${state_machine_timeout_seconds}' in handle.read()
 
-    assert _timeout_seconds() >= 3600
+    throughput = (
+        transfer_config.MAP_MAX_CONCURRENCY
+        * copy_mod.COPY_CONCURRENCY
+        * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    )
+    seconds = ts_config.SHARE_MAX_TRANSFER_BYTES / throughput
+    budget = _timeout_seconds() * 2 / 3
+
+    assert seconds < budget, (
+        f"the worst share the caps allow moves "
+        f"{ts_config.SHARE_MAX_TRANSFER_BYTES / 1024**4:,.0f} TiB, which needs {seconds:,.0f}s "
+        f"at {throughput / 1e9:.1f} GB/s against a {_timeout_seconds()}s ceiling — lower "
+        f"SHARE_MAX_TRANSFER_BYTES or raise the timeout"
+    )
+
+
+def test_the_byte_product_is_what_the_timeout_is_sized_against_not_the_source():
+    """The distinction that made the bug invisible, pinned so it cannot be un-learned.
+
+    ``SHARE_MAX_TOTAL_BYTES`` bounds ONE copy of the source. The manifest carries one item per
+    (recipient, object) pair, so the Map moves the source once per recipient — and a timeout
+    sized against the source alone is short by a factor of ``SHARE_MAX_RECIPIENTS``.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from tscommon import config as ts_config
+
+    assert ts_config.SHARE_MAX_TRANSFER_BYTES >= ts_config.SHARE_MAX_TOTAL_BYTES, (
+        "a single-recipient share of a max-size source must not be refused by the transfer cap"
+    )
+    assert (
+        ts_config.SHARE_MAX_TRANSFER_BYTES
+        < ts_config.SHARE_MAX_TOTAL_BYTES * ts_config.SHARE_MAX_RECIPIENTS
+    ), (
+        "the transfer cap is above source x recipients, so it can never bind — which is the "
+        "state the plane was in when the timeout could not cover its own caps"
+    )
 
 
 def test_the_machine_itself_cannot_notify_a_timeout_so_a_rule_must():

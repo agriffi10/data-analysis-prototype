@@ -10,8 +10,9 @@ true. Nothing about the request contract, the push semantics or the notification
 - **The caps.** `SHARE_MAX_OBJECTS` 1,000 → **20,000**, `SHARE_MAX_TOTAL_BYTES` 20 GiB → **1 TiB**,
   a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)** on `recipients × objects`, and a new
   **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** on a single object — which also moved SPEC-160's
-  `MAX_ITEMS_PER_BATCH` 50 → 10. `SHARE_MAX_RECIPIENTS` stays 50, pinned by a test rather than by
-  absence. Each docstring names the limit that sized it.
+  `MAX_ITEMS_PER_BATCH` 50 → 10 — plus **`SHARE_MAX_TRANSFER_BYTES` (16 TiB)** on
+  `recipients × bytes`, the byte-axis twin of the item cap. `SHARE_MAX_RECIPIENTS` stays 50,
+  pinned by a test rather than by absence. Each docstring names the limit that sized it.
 - **The definition travels by pointer.** `inspect-source` writes
   `{admin_bucket}/table-share/{hash}/definition.json` and emits `definitionKey`; `create-table`
   fetches it. `tscommon.copy_plan` gained `definition_key` / `write_definition` / `load_definition`,
@@ -28,18 +29,23 @@ true. Nothing about the request contract, the push semantics or the notification
 
 ## The `TimeoutSeconds` arithmetic
 
-The bound is the byte cap, since the copy is the only stage whose duration scales.
+**The bound is `SHARE_MAX_TRANSFER_BYTES`, not `SHARE_MAX_TOTAL_BYTES`, and getting that wrong is
+finding 3 below.** The manifest carries one item per (recipient, object) pair and every item is a
+full copy, so the Map moves the source once *per recipient*.
 
 | term | value | where from |
 |---|---|---|
 | in-flight server-side copies | **160** | `MAP_MAX_CONCURRENCY` (20) × `COPY_CONCURRENCY` (8) |
-| 1 TiB at 20 MB/s per stream | **~6 min** | 3.2 GB/s aggregate |
-| 1 TiB at a pessimistic 5 MB/s | **~22 min** | 800 MB/s aggregate |
-| the guard and finish Maps | bounded | 50 recipients at `MaxConcurrency` 5, `create-table` 300 s |
-| **`TimeoutSeconds`** | **10,800 s (3 h)** | ~8× the pessimistic worst case |
+| conservative aggregate | **4.0 GB/s** | 160 × `CONSERVATIVE_STREAM_BYTES_PER_SECOND` (25 MB/s) |
+| **`SHARE_MAX_TRANSFER_BYTES`** | **16 TiB** | ~4,400 s — inside ⅔ of the ceiling |
+| the finish Map's Athena creates | **3,000 s** | ⌈50 / `MaxConcurrency` 5⌉ × `create-table` 300 s |
+| **`TimeoutSeconds`** | **10,800 s (3 h)** | ~2.5× the conservative worst case |
+| *what it would have been sized on* | *50 TiB* | *50 recipients × the 1 TiB source cap — **3.8 h**, over the ceiling* |
 
 It is deliberately not longer. The timeout is how quickly a wedged share becomes a notification, so
-the margin is bought against the sender's silence rather than being free.
+the margin is bought against the sender's silence rather than being free — the cap moves before the
+timeout does. `test_the_timeout_is_fed_from_a_named_value_and_clears_the_caps` **computes** this
+from the constants; the hard-coded floor that stood there first is what let the mismatch ship.
 
 **Retention clears it by 240×.** `admin_results_retention_days` is 30 (720 h) against a 3 h run
 ceiling, so `expire-table-share-copy-plans` cannot expire a live run's manifest underneath it. A
@@ -149,6 +155,32 @@ from a space bucket).
   **262,082 of 262,144 bytes — 99.98%, sixty-two bytes of margin**. The cap is now **64 KiB**, where
   the same worst case lands at 50%, and the test builds the property-shaped fixture with
   max-length identifiers.
+
+## Finding 3: the timeout was sized against one copy of a table the Map copies N times
+
+Three review rounds, three bounds applied at the wrong unit, each one axis further out than the
+last. This was the third and the largest: `SHARE_MAX_TOTAL_BYTES` caps the **source**, but the Map
+transfers `source × recipients`, and nothing bounded that product. The worst share every cap
+accepted — 50 recipients × a 1 TiB source, with 400 objects keeping `recipients × objects` exactly
+at 20,000 — is **50 TiB**, which needs 3.8 h at the conservative rate, 4.8 h at 20 MB/s and 19.1 h
+at the pessimistic 5 MB/s. All three exceed the 3 h ceiling. Break-even is **8 recipients** at
+5 MB/s and **40** at 25 MB/s, so it was not only reachable at the corner.
+
+The sender would have waited three hours, had the run killed mid-copy, and been told (correctly, by
+the door added in round 2) that recipients may hold partial data. A better failure than silence, but
+FR-003 AC3 — *"the timeout is larger than the worst-case run implied by the FR-001 caps"* — was
+false as shipped.
+
+**What made it invisible is worth more than the fix.** The spec's own reasoning for
+`SHARE_MAX_TRANSFER_ITEMS` says it plainly: *"20,000 objects is fine and 50 recipients is fine, and
+together they are a million manifest lines."* That argument was applied to the item axis and never
+to the byte axis, and the timeout's arithmetic was then written against the un-multiplied number, so
+every doc restating it agreed with every other. Round 2's batch fix did not help either — batch
+50 → 10 changes per-batch duration, not total wall clock, because `MAP_MAX_CONCURRENCY` is the
+throughput limiter.
+
+`SHARE_MAX_TRANSFER_BYTES` (16 TiB) now closes it, enforced in the same pass as the item cap, and
+the FR-003 test computes the timeout against it instead of asserting a floor.
 
 ## A multi-recipient ceiling worth stating
 

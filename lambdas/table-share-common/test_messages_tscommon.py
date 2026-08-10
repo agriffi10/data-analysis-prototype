@@ -102,6 +102,7 @@ _SENDER_MESSAGES = {
     "source_empty": 'Couldn\'t share "db.orders": the source table has no data files.',
     "source_object_too_large": 'Couldn\'t share "db.orders": one of that table\'s data files is too large to copy. Please contact the Administrator.',
     "too_many_transfer_items": 'Couldn\'t share "db.orders": that\'s too many files to copy to that many recipients at once. Please share to fewer recipients, or share a smaller table.',
+    "transfer_too_large": 'Couldn\'t share "db.orders": that\'s too much data to copy to that many recipients at once. Please share to fewer recipients, or share a smaller table.',
     "source_is_view": 'Couldn\'t share "db.orders": views can\'t be shared - only tables with data files.',
     "source_location_unsupported": 'Couldn\'t share "db.orders": the source table\'s data location isn\'t supported.',
     "source_not_external": 'Couldn\'t share "db.orders": only base external tables can be shared.',

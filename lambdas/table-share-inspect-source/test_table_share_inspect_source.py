@@ -349,6 +349,62 @@ def test_the_transfer_item_cap_is_a_whole_request_terminal():
     assert not _DEFINITIONS, "a refused share must write no definition"
 
 
+def test_the_transfer_byte_cap_is_a_whole_request_terminal():
+    """SPEC-161: the byte-axis twin of the item cap, and the one two review rounds missed.
+
+    The manifest carries one item per (recipient, object) pair and every item is a FULL copy,
+    so the Map moves ``recipients x total_bytes``. ``SHARE_MAX_TOTAL_BYTES`` bounds one copy of
+    the source and says nothing about that product — 50 recipients x a 1 TiB source is 50 TiB,
+    which no plausible throughput moves inside the state machine's 3-hour ceiling.
+    """
+    original = m.config.SHARE_MAX_TRANSFER_BYTES
+    m.config.SHARE_MAX_TRANSFER_BYTES = 300
+    try:
+        plan = _setup(
+            table=_table(),
+            objects=[("alice/sales/a.parquet", 100), ("alice/sales/b.parquet", 100)],
+        )
+        with pytest.raises(TerminalError) as excinfo:
+            m.handler(_event(recipients=2), None)
+    finally:
+        m.config.SHARE_MAX_TRANSFER_BYTES = original
+
+    assert excinfo.value.reason == "transfer_too_large"
+    assert "2 recipients x 200 bytes is 400 bytes" in excinfo.value.detail
+    assert "cap 300" in excinfo.value.detail
+    assert plan == [], "a refused share must write no copy plan"
+    assert not _DEFINITIONS, "a refused share must write no definition"
+
+
+def test_a_source_inside_the_total_cap_can_still_be_refused_by_the_byte_product():
+    """The whole point of the second cap: the SOURCE is fine and the TRANSFER is not.
+
+    Asserted at the shipped values rather than by lowering one, because the claim is about how
+    the real caps relate — a source at the total cap shared to enough recipients must be
+    refused, and the same source to one recipient must not be.
+    """
+    # Objects at the per-object cap, enough of them to sit just under the total cap. Built this
+    # way rather than as a few huge ones because SHARE_MAX_OBJECT_BYTES would refuse those
+    # first, and the refusal under test here is a different one.
+    per_object = m.config.SHARE_MAX_OBJECT_BYTES
+    count = m.config.SHARE_MAX_TOTAL_BYTES // per_object
+    objects = [(f"alice/sales/p{i:05d}.parquet", per_object) for i in range(count)]
+    total = count * per_object
+
+    _setup(table=_table(), objects=objects)
+    assert m.handler(_event(recipients=1), None)["objectCount"] == count
+
+    recipients = m.config.SHARE_MAX_TRANSFER_BYTES // total + 1
+    assert recipients <= m.config.SHARE_MAX_RECIPIENTS, (
+        "the byte cap can never bind below the recipient cap, so it is decorative"
+    )
+    _setup(table=_table(), objects=objects)
+    with pytest.raises(TerminalError) as excinfo:
+        m.handler(_event(recipients=recipients), None)
+
+    assert excinfo.value.reason == "transfer_too_large"
+
+
 def test_the_transfer_item_cap_counts_recipients_times_objects_not_either_alone():
     """The boundary, from the other side: the same object count passes for one recipient and
     fails for two. A cap on objects alone could not express that, which is why this exists."""

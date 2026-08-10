@@ -84,15 +84,18 @@ def _enforce_definition_cap(definition, database, table) -> None:
         )
 
 
-def _enforce_transfer_item_cap(event, object_count: int) -> None:
-    """Rejects a share whose ``recipients x objects`` would overrun the transfer manifest.
+def _enforce_transfer_caps(event, object_count: int, total_bytes: int) -> None:
+    """Rejects a share whose ``recipients x source`` would overrun the transfer.
 
-    Neither cap beside it expresses this one: 20,000 objects is fine and 50 recipients is
-    fine, and together they are a million manifest lines. What the product bounds is the
-    manifest build-transfer-manifest writes and the Map Run export collect-transfer-results
-    reads back, which are the same volume in both directions.
+    **Two caps, one idea, and it is the idea the per-source caps cannot express.** The manifest
+    carries one item per (recipient, object) pair and every item is a full copy, so both what
+    the Map lists and what it moves scale with the recipient count. 20,000 objects is fine and
+    50 recipients is fine and together they are a million manifest lines; 1 TiB is fine and 50
+    recipients is fine and together they are 50 TiB, which no plausible throughput moves inside
+    the state machine's timeout. The item product bounds the manifest write and the collector's
+    read-back; the byte product bounds the Map Run's wall clock.
 
-    It counts the REQUESTED recipients, not the ones the guard Map will go on to accept. That
+    Both count the REQUESTED recipients, not the ones the guard Map will go on to accept. That
     is deliberately the conservative reading: refusing on the upper bound is a decision the
     sender can predict from what they asked for, where refusing on the accepted count would
     make an identical request succeed or fail depending on which recipients happened to
@@ -102,12 +105,14 @@ def _enforce_transfer_item_cap(event, object_count: int) -> None:
     Args:
       event: The validated request, carrying the recipient list.
       object_count: How many source objects the listing found.
+      total_bytes: How many bytes those objects hold.
 
     Returns:
       None.
 
     Raises:
-      TerminalError: ``too_many_transfer_items`` when the product exceeds the cap.
+      TerminalError: ``too_many_transfer_items`` when the item product exceeds its cap, or
+        ``transfer_too_large`` when the byte product exceeds its own.
     """
     recipients = len(event.get("recipients") or [])
     items = recipients * object_count
@@ -116,6 +121,14 @@ def _enforce_transfer_item_cap(event, object_count: int) -> None:
             "too_many_transfer_items",
             f"{recipients} recipients x {object_count} objects is {items} transfer items "
             f"(cap {config.SHARE_MAX_TRANSFER_ITEMS})",
+        )
+
+    transfer_bytes = recipients * total_bytes
+    if transfer_bytes > config.SHARE_MAX_TRANSFER_BYTES:
+        raise TerminalError(
+            "transfer_too_large",
+            f"{recipients} recipients x {total_bytes} bytes is {transfer_bytes} bytes to copy "
+            f"(cap {config.SHARE_MAX_TRANSFER_BYTES})",
         )
 
 
@@ -139,8 +152,8 @@ def _inspect_source(event) -> dict:
     Raises:
       TerminalError: ``source_not_found`` or ``source_not_readable`` from the catalog read, a
         shape refusal from the clone, ``source_definition_too_large``, ``source_empty``,
-        ``source_too_large`` when either copy cap is exceeded, or
-        ``too_many_transfer_items`` when the recipient/object product is.
+        ``source_too_large`` when either source cap is exceeded, or
+        ``too_many_transfer_items``/``transfer_too_large`` when a recipient product is.
       TransientError: On a retryable Glue or S3 fault.
     """
     source = event.get("source") or {}
@@ -174,7 +187,7 @@ def _inspect_source(event) -> dict:
             "source_too_large",
             f"{database}.{table} is {total_bytes} bytes (cap {config.SHARE_MAX_TOTAL_BYTES})",
         )
-    _enforce_transfer_item_cap(event, len(objects))
+    _enforce_transfer_caps(event, len(objects), total_bytes)
 
     logger.info(
         "copy plan for %s.%s: %d objects, %d bytes, partitioned=%s",

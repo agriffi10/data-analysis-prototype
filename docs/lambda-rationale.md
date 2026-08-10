@@ -314,10 +314,25 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > pages at 1000 keys, so 20,000 objects is 20 `ListObjectsV2` round trips — one to two seconds of
 > a 60-second budget — and the copy plan it writes is about 3.4 MB.
 >
-> **`SHARE_MAX_TOTAL_BYTES` = 1 TiB. Bound: the Map Run's wall clock.** The fan-out reaches **160**
-> concurrent server-side copies (`MAP_MAX_CONCURRENCY` 20 × `COPY_CONCURRENCY` 8): ~6 minutes at
-> 20 MB/s per stream, ~22 at a pessimistic 5 MB/s. That is what sized the machine's
-> `TimeoutSeconds` (10,800 s ≈ 8× the pessimistic case), so the two numbers move together.
+> **`SHARE_MAX_TOTAL_BYTES` = 1 TiB. Bound: one copy of the SOURCE, and nothing more.** It caps
+> what inspect-source lists and what the copy plan describes. **It does NOT bound the transfer**,
+> and reading it as though it did is how the machine's `TimeoutSeconds` shipped unsatisfiable
+> through two review rounds — see the entry below.
+>
+> **`SHARE_MAX_TRANSFER_BYTES` = 16 TiB (NEW). Bound: the state machine's `TimeoutSeconds`.** The
+> manifest carries one item per (recipient, object) pair and **every item is a full copy**, so the
+> Map moves `total_bytes × recipients`. The fan-out reaches **160** concurrent server-side copies
+> (`MAP_MAX_CONCURRENCY` 20 × `COPY_CONCURRENCY` 8), which at
+> `CONSERVATIVE_STREAM_BYTES_PER_SECOND` is 4.0 GB/s, so 16 TiB is ~4,400 s inside a 10,800 s
+> ceiling.
+>
+> **What it prevents, measured:** 50 recipients × a 1 TiB source is **50 TiB** — 3.8 h at the
+> conservative rate, 4.8 h at 20 MB/s, 19.1 h at a pessimistic 5 MB/s, every one of them past the
+> ceiling. Break-even is 8 recipients at 5 MB/s and 40 at 25 MB/s, so it was reachable well short
+> of the corner. This is the byte-axis twin of `SHARE_MAX_TRANSFER_ITEMS`, and the argument is
+> verbatim the one that cap already made — it simply was not applied here, and the timeout's
+> arithmetic was then written against the un-multiplied number so every doc restating it agreed
+> with every other.
 >
 > **`SHARE_MAX_OBJECT_BYTES` = 10 GiB (NEW). Bound: the copy verb's timeout, via the BATCH** — and
 > that qualifier is the whole of it, because the first version of this cap got the granularity

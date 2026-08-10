@@ -47,6 +47,10 @@ _BODIES = {
         "that's too many files to copy to that many recipients at once. "
         "Please share to fewer recipients, or share a smaller table."
     ),
+    "transfer_too_large": (
+        "that's too much data to copy to that many recipients at once. "
+        "Please share to fewer recipients, or share a smaller table."
+    ),
     "source_definition_too_large": (
         "that table has too many columns (or too much column detail) to share. "
         "Please share a narrower table."
