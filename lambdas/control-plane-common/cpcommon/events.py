@@ -11,14 +11,14 @@ Attributes:
 """
 
 import json
-from typing import Any, cast
+from typing import Any
 
 from .errors import TerminalError
 
 MALFORMED = "malformed_event"
 
 
-def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> dict:
+def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> Any:
     """Extracts and JSON-parses the single SQS record body an EventBridge Pipe forwards.
 
     The Pipe forwards the raw SQS batch as a JSON array; this takes the single record and
@@ -36,10 +36,11 @@ def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> dict:
         ``AuthorizationError``, which is what its own copy of this function existed for.
 
     Returns:
-      The parsed request body. Typed as a dict because every producer sends one, but the parse
-      is unguarded, so a body that is valid JSON of another type — a list, a number — is
+      The parsed request body — a dict from every producer, but declared ``Any`` because the
+      parse is unguarded: a body that is valid JSON of another type — a list, a number — is
       returned as-is and the caller's first field read raises. Every caller either reads
-      through ``require``, which type-checks, or guards the shape itself.
+      through ``require``, which type-checks, or guards the shape itself. Declaring ``dict``
+      would state to a type checker exactly the thing this paragraph says is not true.
 
     Raises:
       TerminalError: On an empty batch, an unrecognised event shape, a missing body, or a
@@ -59,7 +60,7 @@ def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> dict:
     if not body:
         raise fail("missing message body")
     try:
-        return cast("dict", json.loads(body))
+        return json.loads(body)
     except (TypeError, ValueError) as err:
         raise fail(f"body is not valid JSON: {err}") from err
 

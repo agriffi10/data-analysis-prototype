@@ -92,8 +92,10 @@ jobs:
       - name: Lint (ruff)
         run: ruff check lambdas/
 
-      # BLOCKING as of notch 2 (was report-only under SPEC-153 FR-009, at a 19-finding
-      # baseline). The baseline is cleared, so `continue-on-error` is gone: a type error in
+      # BLOCKING as of notch 2. It was report-only under SPEC-153 FR-009, whose baseline was
+      # 21; SPEC-156 took it to 17 and SPEC-157's table_lock put it back to 19, which is what
+      # notch 2 measured and cleared. The baseline is zero, so `continue-on-error` is gone —
+      # a type error in
       # the shared layers now fails the build, which is the whole point of a ratchet — the
       # cleared number is only worth clearing if nothing can put findings back. Scope is
       # still the five shared layers; widening it to the verb packages is notch 3, and lands

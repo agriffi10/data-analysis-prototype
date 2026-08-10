@@ -37,7 +37,9 @@ def is_active(record: dict | None) -> bool:
     """Reports whether a registry record is a provisioned, live space.
 
     Args:
-      record: A record from ``load``, or None.
+      record: A record from ``load``, or None. Anything that is not a dict answers False
+        rather than raising — this is an authorization predicate, and the only safe direction
+        for an unreadable record is closed.
 
     Returns:
       True if the space exists and is a valid share target.
@@ -45,7 +47,7 @@ def is_active(record: dict | None) -> bool:
     Raises:
       None.
     """
-    return record is not None and record.get("status") == "active"
+    return isinstance(record, dict) and record.get("status") == "active"
 
 
 def is_active_member(record: dict | None, actor: str) -> bool:

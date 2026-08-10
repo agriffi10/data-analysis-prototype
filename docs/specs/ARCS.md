@@ -874,7 +874,13 @@ otherwise independent and can run in parallel.
 **What the arc deliberately does not do.** No feature work. No `noUncheckedIndexedAccess` (239 sites, two
 load-bearing — its own decision). No blanket `fireEvent` → `userEvent` migration; §21 scopes that rule to
 new and reworked tests, so it stays opportunistic. No blocking mypy — 153 lands it report-only over the
-shared layers as the first notch of a ratchet. No fix for the concurrent-refresh race at the Pipe level:
+shared layers as the first notch of a ratchet.
+
+> **Superseded (2026-08-09, notch 2):** mypy is now **blocking** over the shared layers at a cleared
+> zero baseline. The arc's scope statement stands as written for 153 itself; the ratchet has since
+> moved a notch. Path and current state: the `[tool.mypy]` block of `pyproject.toml`.
+
+No fix for the concurrent-refresh race at the Pipe level:
 150 FR-003 closes the browser side, and the real fix is a serialization change that belongs to its own spec.
 
 **One correction the arc carries, because two of five audit passes got it wrong and it would cost real
