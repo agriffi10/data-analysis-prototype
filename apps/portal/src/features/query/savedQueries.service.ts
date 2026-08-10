@@ -15,17 +15,49 @@ function storeKey(username: string): string {
   return userSettingsKey(username, 'saved-queries.json');
 }
 
-// Forgivingly parse the store body: a malformed/legacy file falls back to empty
-// rather than erroring (same spirit as the missing-file case).
-function parseStore(body: string | undefined): SavedQueriesStore {
-  if (!body) return emptyStore();
+// Parse for the WRITE path, where "I can't read this" must NOT become "this is
+// empty": the write is an unconditional PutObject, so a body misread as empty is
+// COMMITTED as empty, and one Save would replace the whole library with the query
+// being saved. `user_settings/` denies delete and the bucket is unversioned, so
+// there is no way back. An absent or zero-byte body is still the empty store —
+// neither has anything to lose.
+function parseStoreForWrite(body: string | undefined): ServiceResult<SavedQueriesStore> {
+  if (!body) return ok(emptyStore());
   try {
     const parsed = JSON.parse(body) as SavedQueriesStore;
-    if (parsed?.version === 1 && Array.isArray(parsed.queries)) return parsed;
-    return emptyStore();
+    if (parsed?.version === 1 && Array.isArray(parsed.queries)) return ok(parsed);
   } catch {
-    return emptyStore();
+    // Fall through to the shared refusal below.
   }
+  return {
+    success: false,
+    error: {
+      message: 'Saved queries could not be read, so nothing was changed.',
+      code: 'SavedQueriesUnreadable'
+    }
+  };
+}
+
+// The DISPLAY read, derived from the write parser rather than written out again so
+// the two can never disagree about what a valid store is — a tightened write
+// parser and a stale display one would fail every save for a store the panel shows
+// as fine. Same validation, different answer to an unreadable body: empty here (a
+// corrupt file must not lock the user out of the page), a refusal there.
+function parseStore(body: string | undefined): SavedQueriesStore {
+  const result = parseStoreForWrite(body);
+  return result.success ? result.data : emptyStore();
+}
+
+// The read that precedes every write. Differs from `getSavedQueries` only in how it
+// treats a body it cannot parse.
+async function readStoreForWrite(username: string): Promise<ServiceResult<SavedQueriesStore>> {
+  return readJsonDocument({
+    bucket: userSpaceBucket(),
+    key: storeKey(username),
+    parse: parseStoreForWrite,
+    onMissing: () => ({success: true, data: emptyStore()}),
+    fallbackMessage: 'Failed to load saved queries'
+  });
 }
 
 /** Reads + parses the store. A missing file is the empty state, not an error. */
@@ -55,7 +87,7 @@ async function writeStore(username: string, store: SavedQueriesStore): Promise<S
  * updated in place (keeping list position); a new id is prepended.
  */
 export async function upsertSavedQuery(username: string, query: SavedQuery): Promise<ServiceResult<SavedQueriesStore>> {
-  const current = await getSavedQueries(username);
+  const current = await readStoreForWrite(username);
   if (!current.success) return current;
 
   const existingIdx = current.data.queries.findIndex((q) => q.id === query.id);
@@ -75,7 +107,7 @@ export async function upsertSavedQuery(username: string, query: SavedQuery): Pro
  * delete). An unknown id is a no-op success.
  */
 export async function removeSavedQuery(username: string, id: string): Promise<ServiceResult<SavedQueriesStore>> {
-  const current = await getSavedQueries(username);
+  const current = await readStoreForWrite(username);
   if (!current.success) return current;
 
   const queries = current.data.queries.filter((q) => q.id !== id);

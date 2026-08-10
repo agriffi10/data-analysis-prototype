@@ -392,6 +392,24 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
+  // A saved-queries write that failed because the STORE ITSELF could not be read is
+  // the one background failure on this screen the user has to be told about, and
+  // `logBackgroundFailure` is dev-only. Its silence was calibrated for transient
+  // faults — retry and it works — but this one is permanent until an admin acts, and
+  // the Save flow optimistically renames the tab, so silence reads as success on the
+  // one failure where nothing was written. Everything else keeps the silent log:
+  // narrowed by code so this stays an exception to that rule, not a repeal of it.
+  // Query-history writes are deliberately NOT included — they are a side effect the
+  // user never asked for, and toasting one per run would be the interruption
+  // `logBackgroundFailure` exists to avoid.
+  const reportSavedQueriesFailure = (error: unknown) => {
+    if ((error as {code?: string} | null)?.code === 'SavedQueriesUnreadable') {
+      toast.push({variant: 'danger', message: toUserText(error)});
+      return;
+    }
+    logBackgroundFailure('saved-queries', error);
+  };
+
   // SPEC-043 FR-001/002/003: resolve the name prompt into an upsert. targetId is
   // the saved query to write into (an existing id) or null to create a new one;
   // either way the active tab is (re)linked + relabelled and its dirty marker
@@ -409,7 +427,7 @@ export function QueryWorkspace() {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
-    saved.upsert(query).catch((e) => logBackgroundFailure('saved-queries', e));
+    saved.upsert(query).catch(reportSavedQueriesFailure);
     tabs.setActiveTabMeta({label: name, savedQueryId: query.id});
     setSaveOpen(false);
     editorRef.current?.focus();
@@ -429,7 +447,7 @@ export function QueryWorkspace() {
   // FR-007: delete a saved query (JSON rewrite, never an S3 delete) and unlink any
   // open tab pointing at it (the tab keeps its SQL; a later Save creates new).
   const handleDeleteSaved = (id: string) => {
-    saved.remove(id).catch((e) => logBackgroundFailure('saved-queries', e));
+    saved.remove(id).catch(reportSavedQueriesFailure);
     tabs.unlinkSavedQuery(id);
   };
 

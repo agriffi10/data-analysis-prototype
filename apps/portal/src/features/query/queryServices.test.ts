@@ -747,6 +747,50 @@ describe('queryHistory.service', () => {
       expect(fake.send).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ── The write path refuses a body it cannot read ─────────────────────────────
+  // Same hazard as savedQueries, and worse to lose: this file is the only record
+  // of a query beyond Athena's ~45-day retention, and the user cannot re-create it
+  // (there is no clear/delete, by design).
+  //
+  // As there, only `append` could actually commit the empty document; `update` took
+  // its not-found no-op branch first. `update` is covered because that no-op was
+  // reported as success carrying the EMPTY history, which `useQueryHistory`'s
+  // onWriteSuccess seeded into the cache — blanking the panel on a read fault.
+  describe('the read-modify-write path never overwrites an unreadable history', () => {
+    const unreadable = ['not json{', JSON.stringify({version: 2, entries: [entry('q1')]})];
+
+    it.each(unreadable)('append refuses and writes nothing (%#)', async (body) => {
+      const fake = fakeBucket(body);
+
+      const result = await appendQueryHistory('alice', entry('new'));
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('QueryHistoryUnreadable');
+      expect(fake.stored()).toBe(body);
+      // Read only — the append never reached a PutObject.
+      expect(fake.send).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(unreadable)('update refuses and writes nothing (%#)', async (body) => {
+      const fake = fakeBucket(body);
+
+      const result = await updateQueryHistoryEntry('alice', 'q1', {status: 'SUCCEEDED'});
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('QueryHistoryUnreadable');
+      expect(fake.stored()).toBe(body);
+      expect(fake.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the DISPLAY read forgiving', async () => {
+      fakeBucket('not json{');
+
+      expect(await getQueryHistory('alice')).toEqual({success: true, data: {version: 1, entries: []}});
+    });
+  });
 });
 
 // ─── from savedQueries.service.test.ts ───
@@ -868,6 +912,71 @@ describe('savedQueries.service', () => {
       const result = await removeSavedQuery('alice', 'missing');
       expect(result.success).toBe(true);
       expect(fake.commands).not.toContain('PutObjectCommand');
+    });
+  });
+
+  // ── The write path refuses a body it cannot read ─────────────────────────────
+  // The display read is forgiving on purpose (a corrupt file must not lock the
+  // user out of the page), but the write is an unconditional PutObject, so the
+  // same forgiveness on the write path COMMITTED the empty fallback.
+  //
+  // Only `upsert` was destructive: it wrote `{queries: [theNewOne]}` over the whole
+  // library. `remove` was NOT — the forgiving read gave it an empty store, the
+  // filter left the length unchanged, and it took the unknown-id no-op branch
+  // before any write. It is covered here because it reported that no-op as SUCCESS
+  // against a store it had failed to read, which `useSavedQueries.onWriteSuccess`
+  // then seeded into the cache — blanking the panel without touching S3.
+  describe('the read-modify-write path never overwrites an unreadable store', () => {
+    // Not just a syntax error: a future schema bump read by a tab still running
+    // today's code produces a perfectly valid JSON document this parser rejects,
+    // which is the trigger that needs no corruption to occur at all.
+    const unreadable = ['not json{', JSON.stringify({version: 2, queries: [sq('a')]})];
+
+    it.each(unreadable)('upsert refuses and writes nothing (%#)', async (body) => {
+      const fake = fakeBucket(body);
+
+      const result = await upsertSavedQuery('alice', sq('new'));
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('SavedQueriesUnreadable');
+      // The point of the test: the original bytes are still there.
+      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(fake.stored()).toBe(body);
+    });
+
+    it.each(unreadable)('remove refuses and writes nothing (%#)', async (body) => {
+      const fake = fakeBucket(body);
+
+      const result = await removeSavedQuery('alice', 'a');
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('SavedQueriesUnreadable');
+      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(fake.stored()).toBe(body);
+    });
+
+    it('still creates the store when the object is genuinely ABSENT', async () => {
+      // The refusal must not break the bootstrap case — absent has nothing to
+      // lose, and treating it as a refusal would mean nobody could ever save a
+      // first query.
+      const fake = fakeBucket(null);
+
+      const result = await upsertSavedQuery('alice', sq('first'));
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.queries.map((q) => q.id)).toEqual(['first']);
+      expect((JSON.parse(fake.stored() as string) as SavedQueriesStore).queries).toHaveLength(1);
+    });
+
+    it('leaves the DISPLAY read forgiving', async () => {
+      // The refusal is scoped to the write path; the panel still renders empty
+      // rather than erroring, which is the deliberate behaviour it started with.
+      fakeBucket('not json{');
+
+      expect(await getSavedQueries('alice')).toEqual({success: true, data: {version: 1, queries: []}});
     });
   });
 });

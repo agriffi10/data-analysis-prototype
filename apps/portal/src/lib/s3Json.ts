@@ -66,7 +66,21 @@ export async function readJsonDocument<T>(opts: {
 
 /**
  * Write one JSON document to S3. PutObject only — never a delete — so the worst outcome of
- * a race on a single user's own file is last-writer-wins, which every caller accepts.
+ * a RACE on a single user's own file is last-writer-wins, which every caller accepts.
+ *
+ * That is the worst outcome of a race, NOT the worst outcome available. The write is
+ * unconditional, so it has no precondition to fail on: whatever the caller read is
+ * committed verbatim. A read that forgivingly returned the EMPTY document for a body it
+ * could not parse therefore commits emptiness over the real document — losing the whole
+ * file rather than one update. The forgiving parse is right for DISPLAY and wrong before a
+ * write, so a read-modify-write must use a `parse` that FAILS on an unreadable body (see
+ * `savedQueries.service.ts`'s `parseStoreForWrite`); an absent object is still the empty
+ * document, because absence has nothing to lose.
+ *
+ * The control planes close the same hazard the other way, with a conditional write —
+ * `shared-space-common/cache.py` treats an unreadable object as absent and notes that is
+ * "safe only because the create path is conditional". The browser has no such precondition,
+ * so it refuses instead.
  */
 export async function writeJsonDocument(opts: {
   bucket: string;
