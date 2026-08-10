@@ -79,7 +79,7 @@ distinguishing a **newer schema** from a corrupt body, because quarantining a `v
 document written by a newer tab would be the downgrade the spec exists to prevent. **No IAM
 change**: it is `GetObject` + `PutObject` inside the user's own prefix.
 
-**Three new arcs are filed as Draft (2026-08-10) — authored, not started.** **160→161** table share
+**Four new arcs are filed as Draft (2026-08-10) — authored, not started.** **160→161** table share
 at scale (a top-level Step Functions **Distributed Map** over a `(recipient × object)` manifest
 replaces the single-Lambda copy; **S3 Batch Operations is rejected** — its Copy cannot rewrite a key,
 `TargetKeyPrefix` prepends the full source key — and the engine lands on `cpcommon.transfer` because
@@ -90,7 +90,15 @@ gain; **presentation-only, never authorization**; unreadable ⇒ compiled-in
 defaults, all on; gating driven by a **registry with a walking test**, because the cross-feature entry
 points are what a per-component pass misses). **164→167** send files/folders to another person's
 personal or shared space (its own control plane; destination `shared_files/{sender}/`; push, never
-overwrite; the recipient field is SPEC-147's combobox with SPEC-158's prop source). Narrative:
+overwrite; the recipient field is SPEC-147's combobox with SPEC-158's prop source). **168→172** archive/restore
+(a fifth bucket + a fifth plane; **`GLACIER`**, so restore is `RestoreObject` + a 3–5 h `Wait` loop +
+a copy, not a copy; retention is a **7-year lifecycle ceiling, not Object Lock** — versioning is
+deferred and compliance mode would block the restore's own cleanup; the archive bucket is
+**browser-invisible** (no CORS, not in CSP, zero portal-role statements) and `archive/` is
+**Deny**-written in both space buckets; **the source is deleted only when every object is confirmed
+copied**, and a partial *archive* rolls back where a partial *restore* does not; the receipt is a
+**report, not a record** — the archived key carries its own origin; keys are partitioned
+`personal/`/`shared/` because **nothing checks a space name against the User Pool**). Narrative:
 `@docs/specs/ARCS.md`.
 
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
