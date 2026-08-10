@@ -62,6 +62,11 @@ The spec forbids user-visible change except where called out. Five landed, each 
   are named in `eslint.config.js`. Tests are exempt (they mount real features by design). Three
   files that *were* on that list (`Sidebar`, `SpacesList`, `UsernameCombobox`/`UsernameChipsField`)
   were moved into features instead. Reasoning and the two residuals are in `decisions.md`.
+> **Superseded (2026-08-09):** the import is gone. `invalidateListing` moved to
+> `features/file-browser/invalidateListing.ts` and the ESLint rule widened to `src/lib/**` and
+> `src/hooks/**`. The mock count below was also wrong — **two** test files mocked the module by
+> path, not six; the rest merely imported it. Record: `decisions.md`.
+
 - **`lib/queryClient.ts` still imports `features/file-browser/fileBrowserKeys`** — the same inversion
   one layer lower, and not covered by the rule. Six test files mock that module by path, so moving
   it would change tests this spec requires to pass unchanged. Named in `decisions.md` as the next

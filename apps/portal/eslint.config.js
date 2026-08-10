@@ -59,8 +59,9 @@ export default defineConfig([
     // `lib/queryClient.ts` importing `features/file-browser/fileBrowserKeys` — the same
     // inversion one layer lower, and the rule as written did not reach it. The import is
     // gone (`invalidateListing` moved into the feature, beside the keys it builds), so the
-    // glob can widen without an exemption. Widening it is the point: fixing the one file
-    // without extending the rule leaves the next one to be found by hand.
+    // glob can widen. Widening it is the point: fixing the one file without extending the
+    // rule leaves the next one to be found by hand. The test exemption below is what makes
+    // the widening survive — `lib/support.test.ts` imports seven feature services by design.
     files: ['src/components/**/*.{ts,tsx}', 'src/lib/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [

@@ -33,7 +33,6 @@ Public barrel: `features/file-browser/index.ts`.
 | Symbol | File | Purpose |
 |---|---|---|
 | `useFileBrowser(bucket, prefix?, markerKey?)` | `useFileBrowser.ts` | Paginated listing via `useInfiniteQuery`; merges/sorts pages, hides the marker. |
-| `invalidateListing(client, bucket, prefix)` | `invalidateListing.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). Was `lib/queryClient.ts` until 2026-08-09; it lives beside `fileBrowserKeys` so the shared layer imports no feature. |
 | `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
@@ -77,6 +76,7 @@ Public barrel: `features/file-browser/index.ts`.
 | Symbol | File | Purpose |
 |---|---|---|
 | `fileBrowserKeys.list(bucket, prefix)` / `.metadata(bucket, key)` | `fileBrowserKeys.ts` | Single source of truth for query keys — never hand-build key arrays. |
+| `invalidateListing(client, bucket, prefix)` | `invalidateListing.ts` | Invalidate one prefix listing so the next read refetches (call after a mutation). Plain async function, not a hook. Was `lib/queryClient.ts` until 2026-08-09; it sits beside the key factory so the shared layer imports no feature. |
 | `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult`, `MoveResult`, `CopyResult` | `fileBrowser.types.ts` | Feature result/data types. |
 | `SelectableItem`, `SelectionContextValue`, `itemId` | `selectionContext.ts` | Multi-select item shape (file key \| folder prefix), context value, id helper. |
 | `BulkOperationState` / `BulkOperationError` | `fileBrowser.types.ts` | The ONE shape delete, move and copy report: `{count, errors[{item, message}], isBusy, progress?, error?, …}`. Replaces `DeleteSummary`/`MoveSummary`/`CopySummary` and their `deletedCount`/`movedCount`/`copiedCount` + `key`-vs-`item` divergence (SPEC-155 FR-003). |

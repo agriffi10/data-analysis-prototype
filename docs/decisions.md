@@ -783,12 +783,24 @@ Two residuals, both recorded rather than hidden:
   `features/query`'s save-results flow reaches it through the file-browser barrel — feature-to-feature,
   which is allowed, and which was already true transitively through `lib/`.
 
-  **The rule widened with it**, to `src/lib/**` and `src/hooks/**`, with the same test exemption. That
-  was the point of the move: fixing the one file without widening the glob leaves the next one to be
-  found by hand. Both directories were already clean of feature imports, so no new exemption was needed.
+  **The rule widened with it**, to `src/lib/**` and `src/hooks/**`. That was the point of the move:
+  fixing the one file without widening the glob leaves the next one to be found by hand.
+
+  **The test exemption is load-bearing on `src/lib/**`, not a formality.** `lib/support.test.ts`
+  imports seven feature service modules — it is the consolidated lib suite, and testing a lib helper
+  against real feature callers is what it is for. Without `src/lib/**/*.test.{ts,tsx}` on the
+  exemption list the rule reports **6** violations there and `npm run lint` fails. The
+  `src/hooks/**` test glob is inert today (nothing under `src/hooks/` imports a feature) and is
+  carried for symmetry. Non-test files in both directories were clean, which is what made the
+  widening a one-line glob change rather than a migration.
+
   The mock count in the original note was wrong — **two** test files mocked the module by path
   (`fileOpHooks.test.ts`, `UploadQueueProvider.test.tsx`); the other four merely imported it. That
   overstatement is most of why this looked expensive enough to defer.
+
+  **What the rule still does not catch:** a dynamic `await import('../features/…')`. Base
+  `no-restricted-imports` only sees static import/export forms — type-only imports, `export … from`
+  and deep relative paths are all caught. The hole predates the widening and is unchanged by it.
 
 ### Dialog Enter-to-submit fires from ONE field, never from the form (SPEC-155)
 
