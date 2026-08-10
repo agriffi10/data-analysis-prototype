@@ -1042,7 +1042,73 @@ cross-tenant read: an item's key is validated against a **trailing-slash-normali
 `alice2/` never passes as inside `alice/`, and 165 re-checks every key that comes back from
 `ListObjectsV2` rather than trusting the request-time check.
 
-### Build order across the three 2026-08-10 arcs
+## Archival arc (SPEC-168 → 169 → 170 → 171 → 172 — filed 2026-08-10)
+
+Data a user has finished with still costs S3 Standard rates and still fills the file browser. There
+is no way to put something away. The arc adds a fifth bucket, a fifth control plane, and two
+operations: **archive** a file or a folder into Glacier and delete the original, and **restore** it
+back by pasting the id from the receipt the archive left behind.
+
+**The storage class is the whole design.** `GLACIER` (Flexible Retrieval) is not readable, and a
+`CopyObject` whose source is in `GLACIER` fails `InvalidObjectState` — so restore is not a copy, it
+is `RestoreObject` plus a 3–5 hour wait plus a copy, and the plane grows a `Wait`/poll loop no other
+plane in this repo has. `GLACIER_IR` was rejected (readable in real time, which would delete the
+whole restore path but makes "archive" mean "moved to a cheaper bucket") and `DEEP_ARCHIVE` too
+(12–48 hours, 180-day minimum). The 90-day minimum duration is accepted and surfaced in the confirm
+dialog: archive-then-restore-next-week still bills 90 days.
+
+**Retention is a ceiling, not a floor.** A 7-year lifecycle expiry, not Object Lock. Object Lock
+needs versioning — deferred by decision — and in compliance mode nothing can delete the object, not
+even root, which would make the restore's archive cleanup impossible. The rule is deliberately
+bucket-wide with no prefix filter, the inverse of the admin bucket's prefix-scoped `check`, because
+this bucket holds exactly one class of object and a filter would be a silent way to leave some data
+unexpired.
+
+**The archive bucket is the first bucket the browser has no relationship with at all** — no CORS,
+absent from the CSP `connect-src`, and the portal role holds zero statements naming it. The only
+route to archived bytes is a restore request. What the browser *does* get is a **Deny**: `PutObject`
+and `DeleteObject` under `archive/` in both space buckets, so the receipt cannot be forged or
+deleted by the user it describes.
+
+Two decisions carry the correctness of the thing. **The source is deleted only when every object is
+confirmed copied** — archiving is the only operation here that deletes data as a side effect of a
+copy, and "copied 900 of 1000, deleted 1000" is the failure it must never have; the commit gate is
+explicit and a partial transfer rolls the archive copy back instead. And **the receipt is a report,
+not a record**: an archived key carries its own origin, so restore reconstructs every destination
+from a `ListObjectsV2` over the archive prefix, exactly as SPEC-143 judges a table by shape rather
+than by the marker it also writes. The manifest exists only as a cross-check that can fire when
+something is already wrong.
+
+**The key layout is partitioned by space kind, and that is not cosmetic.** Receipts sit at
+`{username}/archive/{uuid}/` and `{space}/archive/{uuid}/` in their own space's bucket, where they
+cannot collide. The archive bucket is the first place both namespaces meet — and shared-space names
+are made unique against the *shared-space registry* only; **nothing checks a proposed space name
+against the User Pool**, so a user `alice` and a space `alice` can both exist today. Flat, they would
+share one archive prefix, and since restore authorizes by space and then reads whatever sits there, a
+member of space `alice` could restore user `alice`'s files into the shared space. The leading
+`personal/` / `shared/` segment is the entire fix.
+
+**The restore guard is absolute.** Any occupied destination key refuses the whole restore and names a
+bounded sample of the collisions — no skip, no overwrite, no partial restore around an obstacle. It
+runs before `RestoreObject` because retrieval is billed and cannot be cancelled. Its asymmetry with
+archiving's rollback is deliberate and recorded: a partial *archive* rolls back, a partial *restore*
+does not, because deleting restored data to make the operation atomic would destroy the thing the
+restore was for.
+
+The arc is the table-share shape, one spec per reviewable unit: **168** the bucket, the plane and
+validate-authorize; **169** expansion, the Glacier transfer, the commit gate and the receipt;
+**170** the restore contract, the archive lookup and the destination guard — everything verifiable in
+seconds; **171** retrieval, the wait loop and the copy-back — everything that takes hours; **172**
+the UI, the read-only `archive/` mirror and the notifications.
+
+One structural note for 172: **there is no context menu in the file browser.** Rows carry an
+always-visible *Details* button and nothing else, so a per-item action has exactly two homes — the
+details panels and the selection toolbar — and Archive takes both. 172 also builds the app's **first
+prefix-based write gate**: nothing today gates Upload or *New folder* on the current prefix, so
+without it a user who walks into `archive/` and uploads gets a bare `AccessDenied` for a rule this
+application wrote.
+
+### Build order across the four 2026-08-10 arcs
 
 They are not independent, and two of the edges are easy to miss:
 
@@ -1055,4 +1121,14 @@ They are not independent, and two of the edges are easy to miss:
   precisely the miss the registry was built to prevent.
 - 161 after 160, and 165→166→167 in order, are internal to their arcs.
 
-162 → 163 has no dependency on the other two arcs and can run in parallel with them.
+- **160 before 168→172 as well.** The archive plane is `cpcommon.transfer`'s **third** caller, and
+  SPEC-169 extends the engine with a per-item storage class. Building the archival arc first would
+  fork the copier a second time.
+- **168 → 169 → 170 → 171 → 172 in order**, and the ordering inside it is load-bearing in one place:
+  170 must land before 171, because 170's destination guard is what makes 171's billed, uncancellable
+  Glacier retrieval safe to initiate.
+
+162 → 163 has no dependency on the other three arcs and can run in parallel with them. The archival
+arc has no dependency on 162→163 or 164→167 beyond the shared `cpcommon.transfer` edge; if 163 has
+landed by the time 172 is built, the archive entry points register in its surface registry (they
+inherit the Files flag rather than gaining one of their own).
