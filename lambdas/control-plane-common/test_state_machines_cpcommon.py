@@ -73,9 +73,19 @@ def _intrinsics_in(value):
 
 
 def _load(path):
-    """Parse a .tftpl with its Terraform placeholders stubbed to a literal."""
+    """Parse a .tftpl with its Terraform placeholders stubbed to a literal.
+
+    Two substitutions, not one, because SPEC-160 introduced the fleet's first placeholder in a
+    NUMERIC position (``"MaxItemsPerBatch": $${…}`` — the Distributed Map's sizing, fed from
+    locals.tf). Stubbing that to a bare word produced invalid JSON and failed every check in
+    this file at once, which reads like a broken machine rather than a broken parser. A
+    placeholder that directly follows a colon is a value and becomes ``0``; every other one is
+    inside a string and becomes ``stub``.
+    """
     with open(path) as handle:
-        return json.loads(re.sub(r"\$\{[^}]+\}", "stub", handle.read()))
+        raw = handle.read()
+    raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", raw)
+    return json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw))
 
 
 def _states(asl):
@@ -341,6 +351,16 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     unbounded, user-controlled term), and the pointer (no object list at all). No single one
     suffices: at the 32 KB Cause ceiling the records breach on their own at seven recipients,
     and a 1,000-column commented definition breached at 150% even after the pointer landed.
+
+    **SPEC-160 split the one Map into three states, so this now models TWO peaks.** The old
+    single-peak model went stale the moment the machine grew a guard Map: a raw Cause per refused
+    recipient appears in `guardResults`, and if the collector both kept that array and re-emitted
+    the raw error, the finish Map's merge would hold THREE copies of every refusal at once — which
+    measured at 108% of the limit for 50 conflicting recipients, i.e. a silent breach in the most
+    ordinary case there is (re-sharing a table most recipients already have). Two rules keep it
+    where it was: `collect-transfer-results` CONSUMES `guardResults` rather than passing it on, and
+    it carries the DECODED reason instead of the raw error. Both are modelled below, so undoing
+    either fails here rather than in production.
     """
     sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
     from cpcommon import errors
@@ -353,7 +373,11 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         "stackTrace": ['  File "/var/task/table_share_create_table.py", line 999, in _fn\n    raise\n'] * 8,
     })
     recipients = ts_config.SHARE_MAX_RECIPIENTS
-    state = {
+    resolved = {
+        "kind": "space", "name": "s" * 64, "valid": True, "database": "s" * 64,
+        "destBucket": "b" * 63, "destPrefix": ("s" * 64) + "/shared_tables/" + ("n" * 64) + "/",
+    }
+    request = {
         "actor": "a" * 64,
         "source": {"database": "d" * 64, "table": "t" * 64},
         "tableName": "n" * 64,
@@ -367,23 +391,67 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         # modelled at exactly that cap rather than at a column count someone guessed.
         "tableDefinition": _definition_at_cap(ts_config.SHARE_MAX_DEFINITION_BYTES),
         "location": {"bucket": "b" * 63, "prefix": "p" * 200},
-        # THE POINT OF THIS CHANGE: a key, not up to 1000 {relKey, size} entries.
+        # THE POINT OF PR #256: a key, not up to 1000 {relKey, size} entries.
         "copyPlanKey": "table-share/" + ("0" * 64) + "/copy-plan.json",
         "objectCount": ts_config.SHARE_MAX_OBJECTS,
         "partitioned": True,
+        "execution": {"name": "e" * 80},
+        "transfer": {
+            "manifestBucket": "b" * 63,
+            "manifestKey": "table-share/" + ("0" * 64) + "/" + ("e" * 80) + "/transfer-manifest.jsonl",
+            "resultsBucket": "b" * 63,
+            "resultsPrefix": "table-share/" + ("0" * 64) + "/" + ("e" * 80) + "/results",
+            "itemCount": ts_config.SHARE_MAX_OBJECTS * recipients,
+        },
+    }
+
+    # PEAK 1 — the guard Map's output: every recipient refused, each carrying a raw Cause. A
+    # refused item carries the UNRESOLVED recipient, because a Catch hands back the task's input
+    # and check-target-absent raises before it can return the resolved one. (`resolved` below is
+    # the accepted shape, which is bigger per entry but carries no Cause — the all-refused case
+    # is the heavier of the two.)
+    after_guard = {
+        **request,
+        "guardResults": [
+            {"status": "failed", "recipient": {"kind": "space", "name": "s" * 64, "valid": True},
+             "error": {"Error": "TerminalError", "Cause": cause}}
+            for _ in range(recipients)
+        ],
+    }
+
+    # The all-accepted variant, for completeness: no Causes, but the resolved recipient per entry.
+    after_guard_accepted = {
+        **request,
+        "guardResults": [{"status": "ok", "recipient": resolved} for _ in range(recipients)],
+    }
+
+    # PEAK 2 — the finish Map's output. `guardResults` is GONE (the collector consumed it) and the
+    # outcomes carry a decoded reason, not the raw error; only `recipientResults` holds Causes.
+    after_finish = {
+        **request,
+        "outcomes": [
+            {"kind": "space", "name": "s" * 64, "status": "failed", "reason": "conflict",
+             "failedItems": 0, "recipient": None}
+            for _ in range(recipients)
+        ],
         "recipientResults": [
             {"kind": "space", "name": "s" * 64, "status": "failed",
              "error": {"Error": "TerminalError", "Cause": cause}}
             for _ in range(recipients)
         ],
     }
-    total = len(json.dumps(state))
 
-    assert total < _STATE_PAYLOAD_LIMIT // 2, (
-        f"the Map's whole output state reaches {total:,} bytes at SHARE_MAX_RECIPIENTS="
-        f"{recipients} x MAX_DETAIL_CHARS={errors.MAX_DETAIL_CHARS} — too close to the "
-        f"{_STATE_PAYLOAD_LIMIT:,}-byte limit to be safe"
-    )
+    for label, state in (
+        ("guard (all refused)", after_guard),
+        ("guard (all accepted)", after_guard_accepted),
+        ("finish", after_finish),
+    ):
+        total = len(json.dumps(state))
+        assert total < _STATE_PAYLOAD_LIMIT // 2, (
+            f"the {label} Map's whole output state reaches {total:,} bytes at "
+            f"SHARE_MAX_RECIPIENTS={recipients} x MAX_DETAIL_CHARS={errors.MAX_DETAIL_CHARS} — too "
+            f"close to the {_STATE_PAYLOAD_LIMIT:,}-byte limit to be safe"
+        )
 
 
 def test_the_copy_plan_never_returns_to_the_state():

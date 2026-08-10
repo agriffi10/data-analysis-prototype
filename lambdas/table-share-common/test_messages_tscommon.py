@@ -89,6 +89,7 @@ _SENDER_MESSAGES = {
     "invalid_recipients": 'Couldn\'t share "db.orders": the recipient list is malformed.',
     "invalid_table_name": 'Couldn\'t share "db.orders": the result name isn\'t a valid table name.',
     "no_recipients": 'Couldn\'t share "db.orders": no recipients were given.',
+    "transfer_results_unreadable": 'Couldn\'t share "db.orders": we couldn\'t confirm the copy finished, so the share was stopped. Please try again or contact the Administrator.',
     "source_catalog_partitioned": 'Couldn\'t share "db.orders": tables with catalog-registered partitions can\'t be shared (yet).',
     "source_definition_too_large": 'Couldn\'t share "db.orders": that table has too many columns (or too much column detail) to share. Please share a narrower table.',
     "source_empty": 'Couldn\'t share "db.orders": the source table has no data files.',

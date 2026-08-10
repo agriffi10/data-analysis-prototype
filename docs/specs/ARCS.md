@@ -938,7 +938,12 @@ is discoverable today only by colliding with it at create time, and space names 
 often descriptive. So 158 suggests only what the user can already see, and any other space stays
 typeable. **Do not add the directory "for symmetry with SPEC-146."**
 
-## Table-share-at-scale arc (SPEC-160 → 161 — filed 2026-08-10)
+## Table-share-at-scale arc (SPEC-160 → 161 — filed 2026-08-10; **160 shipped**)
+
+> **160 is COMPLETE (2026-08-10).** The mechanism changed and nothing user-visible did — the
+> caps, conflict rules and notifications are exactly as they were, which was the arc's stated
+> precondition for 161 moving the ceiling. What shipped:
+> `docs/spec-delivery/SPEC-160-table-share-distributed-map-transfer.md`.
 
 The arc exists because the table-share caps are not a policy — they are the shape of one Lambda.
 `copy-objects` copies every object for a recipient inside a single 900-second invocation, and
@@ -1112,7 +1117,7 @@ application wrote.
 
 They are not independent, and two of the edges are easy to miss:
 
-- **160 before 164→167.** The send-files plane consumes `cpcommon.transfer` — the manifest writer,
+- **160 before 164→167 — SATISFIED; `cpcommon.transfer` exists.** The send-files plane consumes it — the manifest writer,
   the batch copier and the result reader — which 160 creates. Building the send arc first would
   fork the engine, which is the outcome SPEC-156 exists to prevent.
 - **163 before 167.** SPEC-167's *Send to…* control is a gated surface: it declares
@@ -1121,7 +1126,7 @@ They are not independent, and two of the edges are easy to miss:
   precisely the miss the registry was built to prevent.
 - 161 after 160, and 165→166→167 in order, are internal to their arcs.
 
-- **160 before 168→172 as well.** The archive plane is `cpcommon.transfer`'s **third** caller, and
+- **160 before 168→172 as well — also satisfied.** The archive plane is `cpcommon.transfer`'s **third** caller, and
   SPEC-169 extends the engine with a per-item storage class. Building the archival arc first would
   fork the copier a second time.
 - **168 → 169 → 170 → 171 → 172 in order**, and the ordering inside it is load-bearing in one place:

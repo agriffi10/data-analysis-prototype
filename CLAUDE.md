@@ -70,11 +70,15 @@ Status is authoritative in `@docs/specs/INDEX.md` (each spec file's header carri
 arc narrative is in `@docs/specs/ARCS.md`. **Keep the note below to what's live and not yet written
 down elsewhere — when a spec closes, prune it rather than appending.**
 
-**Four new arcs are filed as Draft (2026-08-10) — authored, not started.** **160→161** table share
-at scale (a top-level Step Functions **Distributed Map** over a `(recipient × object)` manifest
-replaces the single-Lambda copy; **S3 Batch Operations is rejected** — its Copy cannot rewrite a key,
-`TargetKeyPrefix` prepends the full source key — and the engine lands on `cpcommon.transfer` because
-the send-files arc is its second caller). **162→163** feature flags (a git-controlled per-environment
+**SPEC-160 is COMPLETE (2026-08-10) — the engine the other three arcs depend on now exists.**
+`cpcommon.transfer` (manifest writer, batch copier, Map Run result reader) is built and table-share
+runs on it; **161** still owes the raised caps and the wide-definition/long-run work. 160 owes **one
+live check**: share a several-hundred-object table to two recipients where one conflicts — the
+conflicting one gets `conflict` with no child execution, the other gets every object at the right
+key, and `logs/service=table-share/` carries the run. That run is also what **demonstrates** the Map
+Run `manifest.json` shape the collector parses, which today is corroborated from AWS docs only.
+
+**Three arcs remain filed as Draft (2026-08-10) — authored, not started.** **162→163** feature flags (a git-controlled per-environment
 JSON at `_config/feature-flags.json` in the **user-space** bucket beside `_directory/` — the admin
 bucket has no CORS and is not in the CSP `connect-src`, so it would have cost two infra gates for no
 gain; **presentation-only, never authorization**; unreadable ⇒ compiled-in
@@ -276,6 +280,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Member roster (075):** reverses 053 — every member sees a read-only roster; `cache.write_roster_to_all` fans out on add/remove/leave.
 - **Table Builder (066→072):** dedicated control plane (5 linear verbs, one role, `tbcommon` + `polars` layers). Partition keys are **user-declared** + Athena partition projection. CSV all-string. Record: `architecture.md` → *Control Planes → Table Builder*.
 - **Table Share (088→094):** dedicated control plane w/ recipient `Map`; **clone** the source Glue table def, never re-infer; push (no consent). Record: `architecture.md` → *Control Planes → Table Share*.
+- **The copy is a top-level Distributed Map and attribution is a verb (160, supersedes 091's per-recipient copy):** a `(recipient × object)` JSONL manifest, batched into `cpcommon.transfer` (the engine, because send-files and archive are callers two and three); **not nested** in the recipient Map, and **S3 Batch Ops is rejected on the API, not deferred**. `ToleratedFailurePercentage: 100` + `STANDARD` children; a deterministic item failure **succeeds** its batch (so `collect-transfer-results` must read `SUCCEEDED_n` **and** `FAILED_n`/`PENDING_n` — a FAILED-only collector reports universal success over an incomplete dataset), an omitted payload is **unattributable ⇒ whole-request failure**, and **one failed item ⇒ no table**. The manifest key is **execution-unique** where the copy plan deliberately is not. The Map's `states:`/S3 grants belong to the **state-machine role** — on the execution role it renders, applies and unit-tests green, then `AccessDenied`s at the `ItemReader`. **Caps unchanged**; 161 moves them.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
 - **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. FR-005's alarms were **removed** → **SPEC-126**.

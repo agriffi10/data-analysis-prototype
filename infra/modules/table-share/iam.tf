@@ -1,5 +1,5 @@
 # ── Control-plane IAM roles (SPEC-088) ───────────────────────────────────────
-# ONE shared execution role for all five verb Lambdas (user decision,
+# ONE shared execution role for every verb Lambda (user decision,
 # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's consolidated
 # model; per-verb roles are NOT used), plus the Step Function role and the Pipe
 # role. Trust + permission policies are .tftpl templates rendered with
@@ -86,10 +86,25 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
+  # SPEC-160 FR-006: the Distributed Map's permissions are the STATE MACHINE's, not the
+  # Lambdas'. AWS is explicit that the state machine role invokes StartExecution for each
+  # child workflow and reads/writes the ItemReader + ResultWriter objects — so the manifest
+  # read and the results write belong here, beside states:StartExecution, and NOT in
+  # execution.json.tftpl. That misplacement renders green, applies green, passes the policy
+  # render test, and fails on the first real share with AccessDenied at the ItemReader.
+  # StopExecution is NOT granted: nothing here stops a child, and StartExecution +
+  # DescribeExecution is the documented least-privilege pair.
+  #
+  # The ResultWriter bucket is the ADMIN bucket — a module input of this account's stack — so
+  # the same-account/same-Region requirement (a cross-account or cross-Region export fails the
+  # execution with States.ResultWriterFailed) holds by construction rather than by assertion.
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
     # Invoke every verb Lambda (constructed ARNs, known at plan).
-    function_arns_json = jsonencode(local.table_share_function_arns)
-    sfn_log_group_arn  = local.sfn_log_group_arn
+    function_arns_json           = jsonencode(local.table_share_function_arns)
+    sfn_log_group_arn            = local.sfn_log_group_arn
+    state_machine_arn            = local.state_machine_arn
+    child_execution_arn_wildcard = local.child_execution_arn_wildcard
+    admin_bucket_arn             = local.admin_bucket_arn
   })
 }
 

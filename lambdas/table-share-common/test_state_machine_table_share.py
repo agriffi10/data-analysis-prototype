@@ -1,0 +1,304 @@
+"""The table-share machine and its two roles, after the Distributed Map (SPEC-160).
+
+The repo-wide invariants — reachability, no throwing intrinsic, the failure-seed rule,
+NotifyFailure before Fail — live in ``control-plane-common/test_state_machines_cpcommon.py``
+and cover this machine with the other three. What is asserted HERE is what only this machine
+has: that the transfer Map is TOP LEVEL, that its sizing matches the constants the batch verb
+reads, that the recipient work really did split into a guard and a finish, and that the Map's
+permissions landed on the STATE MACHINE role rather than the Lambda one.
+
+Reads the deployed templates rather than a copy, so drift fails rather than passes. Runnable
+under pytest or directly: python3 test_state_machine_table_share.py.
+"""
+
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
+
+import pytest
+from cpcommon.transfer import config as transfer_config
+
+_MODULE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules", "table-share"
+)
+_TFTPL = os.path.join(_MODULE, "state-machine.asl.json.tftpl")
+_SFN_POLICY = os.path.join(_MODULE, "policies", "sfn-permissions.json.tftpl")
+_EXECUTION_POLICY = os.path.join(_MODULE, "policies", "execution.json.tftpl")
+_LOCALS = os.path.join(_MODULE, "locals.tf")
+
+
+def _asl():
+    """The rendered machine, with placeholders stubbed the way the fleet guard stubs them."""
+    with open(_TFTPL) as handle:
+        raw = handle.read()
+    raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", raw)
+    return json.loads(re.sub(r"\$\{[^}]+\}", "ARN", raw))
+
+
+def _states(asl, states=None, prefix=""):
+    """(qualified name, state) for every state, including inside a Map's ItemProcessor."""
+    for name, state in (states or asl["States"]).items():
+        yield prefix + name, state
+        if "ItemProcessor" in state:
+            yield from _states(asl, state["ItemProcessor"]["States"], f"{prefix}{name}/")
+
+
+def _tasks_in(state):
+    """The Lambda ARNs a Map's ItemProcessor invokes."""
+    return [
+        s["Parameters"]["FunctionName"]
+        for s in state["ItemProcessor"]["States"].values()
+        if s.get("Type") == "Task"
+    ]
+
+
+def _policy(path):
+    """The rendered policy. A bare placeholder in a value position (``jsonencode``d ARN lists)
+    is stubbed to a string, a quoted one to its contents — the same two-step the ASL needs."""
+    with open(path) as handle:
+        raw = handle.read()
+    raw = re.sub(r":\s*\$\{[^}]+\}", ': "STUB"', raw)
+    return json.loads(re.sub(r"\$\{[^}]+\}", "STUB", raw))
+
+
+def _actions(policy):
+    actions = set()
+    for statement in policy["Statement"]:
+        action = statement["Action"]
+        actions.update([action] if isinstance(action, str) else action)
+    return actions
+
+
+# ── the Distributed Map ─────────────────────────────────────────────────────
+
+
+def test_the_transfer_map_is_top_level_and_not_nested():
+    """FR-002 AC7 — the restructure's whole point, as an assertion.
+
+    Nesting a Distributed Map inside the recipient Map is the obvious version of this change
+    and the wrong one: it fans out per recipient, so the caps would still be per-recipient
+    work, and it raises the nesting question this design sidesteps by covering every recipient
+    in one Map over (recipient x object) pairs.
+    """
+    asl = _asl()
+    for name, state in _states(asl):
+        if "/" not in name:
+            continue
+        mode = (state.get("ItemProcessor") or {}).get("ProcessorConfig", {}).get("Mode")
+        assert mode != "DISTRIBUTED", f"{name} is a Distributed Map nested inside another Map"
+
+
+def test_the_transfer_map_reads_the_manifest_as_jsonl():
+    reader = _asl()["States"]["TransferObjects"]["ItemReader"]
+
+    assert reader["Resource"] == "arn:aws:states:::s3:getObject"
+    assert reader["ReaderConfig"] == {"InputType": "JSONL"}
+    assert reader["Parameters"] == {
+        "Bucket.$": "$.transfer.manifestBucket",
+        "Key.$": "$.transfer.manifestKey",
+    }
+
+
+def test_the_child_executions_are_standard_not_express():
+    """FR-002 AC2. A batch may hold a multi-GiB object whose multipart copy exceeds EXPRESS's
+    five-minute ceiling, and EXPRESS's at-least-once semantics would re-run whole batches."""
+    assert _asl()["States"]["TransferObjects"]["ItemProcessor"]["ProcessorConfig"] == {
+        "Mode": "DISTRIBUTED",
+        "ExecutionType": "STANDARD",
+    }
+
+
+def test_an_item_failure_never_fails_the_map_run():
+    """FR-002 AC5 — the run MUST finish, because attribution reads its export."""
+    assert _asl()["States"]["TransferObjects"]["ToleratedFailurePercentage"] == 100
+
+
+def test_the_map_exports_its_results_rather_than_returning_them():
+    """FR-002 AC6 — an inline array of every child result breaches the 256 KB state limit at
+    exactly the scale this Map exists for."""
+    writer = _asl()["States"]["TransferObjects"]["ResultWriter"]
+
+    assert writer["Resource"] == "arn:aws:states:::s3:putObject"
+    assert writer["Parameters"] == {
+        "Bucket.$": "$.transfer.resultsBucket",
+        "Prefix.$": "$.transfer.resultsPrefix",
+    }
+    assert _asl()["States"]["TransferObjects"]["ResultPath"] == "$.mapRun"
+
+
+def test_the_maps_sizing_matches_the_constants_the_verb_reads():
+    """FR-002 AC3/AC4 — the numbers live in Python AND in locals.tf, so hold them together.
+
+    Terraform cannot import cpcommon. Two homes for one number is how a batch grows past the
+    256 KB child-input limit it was sized against while its own test still passes.
+    """
+    with open(_LOCALS) as handle:
+        locals_tf = handle.read()
+
+    for name, value in (
+        ("transfer_max_items_per_batch", transfer_config.MAX_ITEMS_PER_BATCH),
+        ("transfer_map_max_concurrency", transfer_config.MAP_MAX_CONCURRENCY),
+    ):
+        assert re.search(rf"^\s*{name}\s*=\s*{value}\s*$", locals_tf, re.MULTILINE), (
+            f"locals.tf's {name} does not match cpcommon.transfer.config's {value}"
+        )
+
+    with open(_TFTPL) as handle:
+        asl_raw = handle.read()
+    assert '"MaxItemsPerBatch": ${transfer_max_items_per_batch}' in asl_raw
+    assert '"MaxConcurrency": ${transfer_map_max_concurrency}' in asl_raw
+
+
+def test_the_map_concurrency_is_bounded():
+    """FR-002 AC4 — declared, and nowhere near the 10,000 default.
+
+    Every child execution invokes a Lambda that opens up to COPY_CONCURRENCY S3 connections,
+    so the default would put the account's whole Lambda concurrency behind one user's share.
+    """
+    assert "MaxConcurrency" in _asl()["States"]["TransferObjects"]
+    assert 0 < transfer_config.MAP_MAX_CONCURRENCY <= 100
+
+
+# ── the restructure ─────────────────────────────────────────────────────────
+
+
+def test_the_guard_map_runs_the_conflict_check_only():
+    """FR-005 AC1 — copy and create moved out; the guard keeps its per-item Catch."""
+    guard = _asl()["States"]["GuardRecipients"]
+
+    assert len(_tasks_in(guard)) == 1
+    assert guard["ItemProcessor"]["StartAt"] == "CheckTargetAbsent"
+    assert guard["ItemProcessor"]["ProcessorConfig"]["Mode"] == "INLINE"
+    catches = guard["ItemProcessor"]["States"]["CheckTargetAbsent"]["Catch"]
+    assert catches[0]["Next"] == "RecipientRefused", "a refusal must end the ITEM, not the Map"
+
+
+def test_the_finish_map_runs_create_table_only():
+    """FR-005 AC2."""
+    finish = _asl()["States"]["FinishRecipients"]
+
+    assert len(_tasks_in(finish)) == 1
+    assert finish["ItemProcessor"]["States"]["CreateTable"]["Parameters"]["Payload"] == {
+        "recipient.$": "$.entry.recipient",
+        "request.$": "$.request",
+    }
+
+
+def test_the_finish_map_only_creates_for_a_cleared_recipient():
+    """A recipient short of a copied object must not get a table over a partial dataset."""
+    choice = _asl()["States"]["FinishRecipients"]["ItemProcessor"]["States"]["RecipientOutcome"]
+
+    assert choice["Choices"][0]["And"][1] == {"Variable": "$.entry.status", "StringEquals": "ok"}
+    assert choice["Default"] == "RecipientCarried"
+
+
+@pytest.mark.parametrize(
+    ("state", "path"),
+    [("HasTransferItems", "$.transfer.itemCount"), ("FinishRecipients/RecipientOutcome", "$.entry.status")],
+)
+def test_every_choice_tests_is_present_before_it_tests_the_value(state, path):
+    """FR-005 AC3, and the settled rule behind it: a Choice on an ABSENT path raises
+    States.Runtime, which is uncatchable and which `Default` does NOT cover."""
+    choice = dict(_states(_asl()))[state]
+    conditions = choice["Choices"][0]["And"]
+
+    assert conditions[0] == {"Variable": path, "IsPresent": True}, (
+        f"{state} must test IsPresent FIRST — Default does not cover an absent path"
+    )
+
+
+def test_the_empty_transfer_skips_the_map_entirely():
+    """FR-005 AC4 — every recipient conflicted: no child execution, no States.Runtime."""
+    assert _asl()["States"]["HasTransferItems"]["Default"] == "CollectTransferResults"
+
+
+def test_the_copy_batch_has_no_catch_of_its_own():
+    """A caught batch failure would SUCCEED its child execution, filing a failed batch under
+    SUCCEEDED_n.json with no per-item failures in it — and the collector would report every
+    one of those items as copied."""
+    copy_state = _asl()["States"]["TransferObjects"]["ItemProcessor"]["States"]["CopyObjects"]
+
+    assert "Catch" not in copy_state
+    assert copy_state["End"] is True
+    assert "TransientError" in copy_state["Retry"][0]["ErrorEquals"]
+
+
+def test_the_summary_still_reads_one_flat_per_recipient_array():
+    """SPEC-092's terminal shape and SPEC-094's notifications are unchanged by this spec."""
+    assert _asl()["States"]["ShapeSummary"]["Parameters"] == {
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "tableName.$": "$.tableName",
+        "results.$": "$.recipientResults",
+    }
+
+
+# ── FR-006: which role holds the Map's permissions ──────────────────────────
+
+
+def test_the_state_machine_role_holds_the_distributed_maps_permissions():
+    """FR-006 AC1/AC2. It is the STATE MACHINE that starts each child execution and that
+    reads the ItemReader object and writes the ResultWriter export."""
+    actions = _actions(_policy(_SFN_POLICY))
+
+    assert "states:StartExecution" in actions
+    assert "states:DescribeExecution" in actions
+    assert {"s3:GetObject", "s3:PutObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"} <= actions
+
+
+def test_stop_execution_is_not_granted():
+    """FR-006 AC1 — nothing here stops a child; StartExecution + DescribeExecution is the
+    documented least-privilege pair."""
+    assert "states:StopExecution" not in _actions(_policy(_SFN_POLICY))
+
+
+def test_the_lambda_execution_role_gains_nothing_from_the_map():
+    """FR-006 AC4 — THE SWAP NOTHING ELSE WOULD CATCH.
+
+    Granting these to the execution role renders green, applies green, and passes every other
+    policy assertion in this repo. It fails on the first real share, at the ItemReader, with an
+    AccessDenied that names a role nobody was looking at.
+    """
+    actions = _actions(_policy(_EXECUTION_POLICY))
+
+    assert not {a for a in actions if a.startswith("states:")}, (
+        "the Distributed Map's states: actions are on the LAMBDA execution role"
+    )
+
+
+def test_the_execution_roles_delete_deny_still_stands():
+    """FR-006 AC3 — untouched by this spec, and worth asserting because it is the one
+    statement whose loss would let a verb delete a user's data."""
+    policy = _policy(_EXECUTION_POLICY)
+    denies = [s for s in policy["Statement"] if s["Effect"] == "Deny"]
+
+    assert any(s["Action"] == "s3:DeleteObject" for s in denies)
+
+
+def test_no_new_wildcard_resource_appears():
+    """FR-006 AC5 — the SPEC-139 plan scan's IAM findings must not grow.
+
+    The one pre-existing `Resource: "*"` here is Step Functions' own log delivery, which has no
+    ARN to scope to; this pins the count at that one rather than forbidding it.
+    """
+    wildcards = [s["Sid"] for s in _policy(_SFN_POLICY)["Statement"] if s["Resource"] == "*"]
+    assert wildcards == ["StepFunctionLogDelivery"], f"new wildcard statements: {wildcards}"
+
+
+def test_the_results_bucket_is_the_admin_bucket():
+    """FR-006 AC6 — a cross-account or cross-Region ResultWriter fails the execution with
+    States.ResultWriterFailed. The admin bucket is a module input of this account's stack, so
+    the requirement holds by construction; this pins the prefix the grant covers."""
+    resources = {
+        s["Resource"]
+        for s in _policy(_SFN_POLICY)["Statement"]
+        if s["Sid"] in ("ReadTransferManifest", "WriteTransferResults")
+    }
+    assert resources == {"STUB/table-share/*"}
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))

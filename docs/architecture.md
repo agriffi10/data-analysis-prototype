@@ -147,7 +147,9 @@ browser-direct.
   Analytics); roles are LF admins for Describe only.
 - **Layers.** Every verb attaches `cpcommon` (SPEC-107/125: boto/JWKS clients, lazily-resolving env
   config, ID-token verification, notifications send + FIFO `dedup_id`, observability, `errors`,
-  `messages`, `cas`, `results`, `athena.bound_runner`, `events`, `ddl`, `glue`, `s3_listing`) + a
+  `messages`, `cas`, `results`, `athena.bound_runner`, `events`, `ddl`, `glue`, `s3_listing`,
+  **`transfer` — the bulk-copy engine: JSONL manifest writer, batch copier, Map Run result reader
+  (SPEC-160; table-share is the first caller, file-send and archive are the next two)**) + a
   domain layer (`shared-space-common` / `tbcommon` / `tscommon` / `dqcommon`). polars is its own
   layer, attached only to verbs that read file bytes (table-builder `infer-schema`, data-quality
   `inspect-source`). **SPEC-156 folded the deliberate twins onto `cpcommon`** — the CAS loop, the
@@ -242,10 +244,14 @@ table over them in the recipient's DB.
   repointed — format-agnostic, exact schema, no `MSCK`. **v1 sources:** flat or
   projection-partitioned base `EXTERNAL_TABLE`s; views, catalog-registered-partition tables,
   non-external tables, and unresolvable `LOCATION`s are rejected (partition-metadata copy deferred).
-- **SFN:** validate-authorize → inspect-source (clone def, list objects, enforce caps) → **`Map`
-  over recipients** (check-target-absent → copy-objects → create-table) with a **per-item `Catch`**
-  — one recipient's failure never aborts siblings. Conflict (name exists, or a non-empty target
-  prefix) fails **that recipient only**; no overwrite. FIFO `MessageGroupId` = source
+- **SFN (SPEC-160 shape):** validate-authorize → inspect-source (clone def, list objects, enforce
+  caps) → **guard `Map`** (check-target-absent, per-item `Catch`) → build-transfer-manifest →
+  **top-level Distributed `Map`** over a `(recipient × object)` JSONL manifest (batched
+  copy-objects, `STANDARD` children, `ToleratedFailurePercentage: 100`, `ResultWriter` export) →
+  collect-transfer-results → **finish `Map`** (create-table for the recipients that copied cleanly,
+  the rest carried through). One recipient's failure never aborts siblings — the guard by its
+  per-item `Catch`, the copy by attribution after the fact. Conflict (name exists, or a non-empty
+  target prefix) fails **that recipient only**; no overwrite. FIFO `MessageGroupId` = source
   `database.table` (a heavy copy never overlaps itself).
 - **Recipients:** a `user` must exist in the User Pool; a `space` is **any space by name** — the
   sender need not be a member (deliberate, recorded: the execution role does the write). The sender
@@ -253,11 +259,22 @@ table over them in the recipient's DB.
 - **Copy:** parallel server-side `CopyObject` (multipart above 5 GiB), key layout preserved. Caps:
   `SHARE_MAX_OBJECTS` / `SHARE_MAX_TOTAL_BYTES` / `SHARE_MAX_RECIPIENTS` (50) /
   `SHARE_MAX_DEFINITION_BYTES`.
-  > **Superseded (SPEC-160, 2026-08-10):** the scale escape hatch is a **Step Functions Distributed
-  > Map** over a flat `(recipient × object)` manifest, **not S3 Batch Operations**. Batch Ops cannot
-  > rewrite a key — `TargetKeyPrefix` prepends to the *full* source key, so a job cannot produce
-  > `bob/shared_tables/sales/…` from `alice/tables/sales/…` — and it caps objects at 5 GB where this
-  > path already handles more via `UploadPartCopy`. Full entry: `decisions.md` → *Table Share*.
+  > **Superseded (SPEC-160, shipped 2026-08-10):** the copy is a **Step Functions Distributed Map**
+  > over a flat `(recipient × object)` manifest, **not** one Lambda per recipient and **not S3 Batch
+  > Operations**. Batch Ops cannot rewrite a key — `TargetKeyPrefix` prepends to the *full* source
+  > key, so a job cannot produce `bob/shared_tables/sales/…` from `alice/tables/sales/…` — and it
+  > caps objects at 5 GB where this path already handles more via `UploadPartCopy`. The copy code
+  > itself is unchanged and now lives on `cpcommon.transfer`. **The caps still stand** — 160 changed
+  > the mechanism only, so it is provably behaviour-neutral; SPEC-161 moves the ceiling. Full entry:
+  > `decisions.md` → *Table Share*.
+- **Per-recipient attribution is a verb, not a Map item (SPEC-160).** The fan-out is over
+  `(recipient × object)` pairs, so `collect-transfer-results` reads the Map Run's export and decides
+  who gets a table: **one failed item ⇒ no table for that recipient**. It reads **both**
+  `SUCCEEDED_n.json` (a batch reports per-item failures and still succeeds) and
+  `FAILED_n`/`PENDING_n` (whole-batch failures, attributed from the child's input); a record whose
+  payload Step Functions omitted is **unattributable and fails the whole request**, never "no
+  failures found". It is also where a copy failure is notified from — the batch verb has no
+  recipient to name.
 - **The 256 KB cap, twice:** the copy plan rides as an S3 pointer
   (`<admin-bucket>/table-share/{hash}/copy-plan.json` — inline, the Map's `ItemSelector` put the
   state at 101% of the cap, PR #256); the recipient cap exists because each failed Map item carries
@@ -481,5 +498,6 @@ then check/build over Parquet) · table-share partition-metadata copy ·
 table-builder multi-file schema union · data-quality report retention/TTL + cost guardrails.
 
 **No longer deferred:** the table-share *scale* path. S3 Batch Operations was the recorded escape
-hatch and is **rejected** (it cannot rewrite a key); SPEC-160 specifies a Step Functions Distributed
-Map instead. Don't re-file Batch Ops here.
+hatch and is **rejected** (it cannot rewrite a key); the Step Functions Distributed Map that replaces
+it **shipped with SPEC-160**. Don't re-file Batch Ops here. What remains open is the *ceiling* —
+SPEC-161 raises the caps 160 deliberately left in place.

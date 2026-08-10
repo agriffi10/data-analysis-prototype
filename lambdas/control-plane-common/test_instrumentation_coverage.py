@@ -94,7 +94,7 @@ PLANES = [
     Plane(
         service="table-share",
         glob="table-share-*",
-        verb_count=6,
+        verb_count=8,
         notifies_on_failure=True,
         not_verbs=frozenset({"table-share-common"}),
     ),
@@ -171,6 +171,31 @@ def test_every_verb_initialises_its_control_plane_service(plane, path):
     )
 
 
+#: Verbs in a notifying plane that legitimately carry NO ``notifies_on_failure``, named so the
+#: escape hatch below cannot be claimed by accident.
+#:
+#: The four ``*_notify_failure`` modules ARE the failure handler (SPEC-152). The other two each have
+#: a stated reason, and naming them is the point — before SPEC-160 this test SKIPPED any verb with
+#: no decorator, so a verb that lost one by accident was indistinguishable from one that never had
+#: one. (``release_refresh_lock`` was already in that position, undeclared.)
+#:
+#: * ``release_refresh_lock`` (SPEC-157) never fails a request — a release it cannot write is logged
+#:   and the state proceeds, because the lock is recoverable by the staleness steal. There is no
+#:   user-facing failure for it to notify.
+#: * ``table_share_copy_objects`` (SPEC-160) copies a BATCH spanning several recipients and carries
+#:   no actor, so the decorator's emit would resolve to nothing and send nothing — a decoration that
+#:   reads like a guarantee while providing none. Its copy failures are notified by
+#:   ``collect-transfer-results``, the first place a failure has a recipient again.
+_NO_NOTIFIER = frozenset({
+    "tb_notify_failure.py",
+    "ts_notify_failure.py",
+    "ss_notify_failure.py",
+    "dq_notify_failure.py",
+    "release_refresh_lock.py",
+    "table_share_copy_objects.py",
+})
+
+
 @pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
 def test_the_decorator_expectation_for_this_plane_holds(plane, path):
     """Two different rules, and which one applies is declared on the Plane (FR-002).
@@ -197,7 +222,12 @@ def test_the_decorator_expectation_for_this_plane_holds(plane, path):
         return
 
     if notify_idx is None:
-        pytest.skip("this verb IS the failure handler and has no notifies_on_failure")
+        assert path.name in _NO_NOTIFIER, (
+            f"{path.name} carries no @notifies_on_failure and is not one of the verbs declared "
+            f"as having no sender to notify ({sorted(_NO_NOTIFIER)}). A verb that quietly loses "
+            "the decorator fails its user in silence — declare it here or restore it."
+        )
+        pytest.skip(f"{path.name} is declared as having no notifier")
     assert traced_idx < notify_idx, (
         f"{path.name}: @traced must sit ABOVE @notifies_on_failure, or failed invocations "
         "close their span as ok"

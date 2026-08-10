@@ -138,6 +138,31 @@ def test_access_denied_reasons_surface_no_table_detail():
     assert messages.failure_message("forbidden", "orders") == "You don't have access to share that table."
 
 
+def test_a_collected_copy_failure_reads_like_any_other_per_recipient_failure():
+    """SPEC-160. The copy failure is the one per-recipient outcome with no failing verb to
+    notify from — the batch that failed spans several recipients and succeeds anyway — so the
+    collector emits it. The sentence must be the one the decorator would have produced.
+    """
+    fake = _install()
+
+    notify.emit_recipient_failure(
+        {"actor": "alice", "source": {"database": "alice", "table": "orders"}, "tableName": "orders_copy"},
+        "user",
+        "bob",
+        "copy_failed",
+    )
+
+    assert _sent(fake) == [
+        ("alice", 'Couldn\'t share "orders" to user "bob": copying the data failed.')
+    ]
+
+
+def test_a_collected_failure_with_no_actor_is_a_no_op():
+    fake = _install()
+    notify.emit_recipient_failure({}, "user", "bob", "copy_failed")
+    assert _sent(fake) == []
+
+
 def test_user_recipient_success_notifies_sender_and_the_user():
     fake = _install()
     notify.emit_recipient_success(_map_event(kind="user", name="bob"))

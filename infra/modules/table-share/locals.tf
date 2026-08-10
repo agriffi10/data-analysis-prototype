@@ -13,7 +13,7 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-table-share-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-table-share-sfn-role"
 
-  # ONE shared execution role for all five verb Lambdas (user decision, recorded in
+  # ONE shared execution role for every verb Lambda (user decision, recorded in
   # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's post-SPEC-072
   # consolidated model; per-verb roles are NOT used). Its permission policy
   # (execution.json.tftpl) grows with the arc: logs (088) + registry/Cognito/Glue
@@ -23,12 +23,14 @@ locals {
   execution_role_name = "${var.project_name}-${var.environment}-table-share-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
 
-  # The five single-task verb Lambdas. Keyed by the function SUFFIX (= the
+  # The single-task verb Lambdas. Keyed by the function SUFFIX (= the
   # lambdas/table-share-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
   # "table-share-<suffix>"); value = the handler + the task's real timeout/memory
   # need (a small validator ≠ a long parallel S3 copy — lambdas.md §4).
-  # validate-authorize + inspect-source run once per request; the other three run
-  # per recipient inside the Step Function Map (stepfunction.tf).
+  # validate-authorize / inspect-source / build-transfer-manifest /
+  # collect-transfer-results run once per request; check-target-absent and
+  # create-table run per recipient in the guard and finish Maps; copy-objects runs
+  # once per BATCH inside the Distributed Map (stepfunction.tf, SPEC-160).
   # Module names carry the table_share_ prefix so they can't collide with the
   # table-builder's identically-named verbs on sys.modules under one
   # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
@@ -38,6 +40,12 @@ locals {
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
     "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
+    # SPEC-160. The two verbs either side of the Distributed Map. build-transfer-manifest reads
+    # the copy plan and writes one JSONL line per (recipient x object) — S3-bound work whose
+    # memory is about holding the expanded list, not about parallelism.
+    # collect-transfer-results reads the Map Run's export, which is several small objects.
+    "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 60, memory = 512 }
+    "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 60, memory = 512 }
     # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path, so it takes the smallest shape any verb here has.
     "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 15, memory = 256 }
@@ -79,7 +87,7 @@ locals {
 
   # The shared execution role writes to EVERY verb's log group, so its policy scopes
   # logs to the /aws/lambda/{project}-{env}-table-share-* wildcard (one statement
-  # covering all five function log groups) rather than a per-verb ARN.
+  # covering every function log group) rather than a per-verb ARN.
   table_share_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-share-*"
 
   # table-share-common (tscommon) Lambda layer — CI builds + publishes it
@@ -88,6 +96,19 @@ locals {
   # ignores the `layers` attribute). Named to match the deploy-role *-table-share-*
   # layer wildcard (modules/base). Referenced here for documentation/parity only.
   tscommon_layer_name = "${var.project_name}-${var.environment}-table-share-common"
+
+  # SPEC-160 FR-002. The Distributed Map's two sizing numbers. Terraform cannot import Python,
+  # so these are literals fed into the ASL — and cpcommon/transfer/config.py holds the same two
+  # for the batch verb. A test asserts the pair still match, because two homes for one number is
+  # how a batch quietly grows past the 256 KB child-input limit it was sized against.
+  transfer_max_items_per_batch = 50
+  transfer_map_max_concurrency = 20
+
+  # SPEC-160 FR-006. The Distributed Map's OWN permissions belong to the STATE MACHINE role: it
+  # is the state machine that calls StartExecution for each child and that reads the ItemReader
+  # object and writes the ResultWriter export. Granting these to the Lambda execution role
+  # renders, applies and unit-tests green, then fails on the first real share with AccessDenied.
+  child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}:*"
 
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"

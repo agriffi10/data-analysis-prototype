@@ -1,7 +1,7 @@
 # Spec: Table Share at Scale — Transfer Manifest & Distributed-Map Copy
 
 **ID:** SPEC-160
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-090 (copy plan + cloned definition), SPEC-091 (recipient Map, `tscommon.copy`), SPEC-092 (create-table + terminal states), SPEC-152 (`NotifyFailure` on every plane), SPEC-156 (`cpcommon` owns the algorithm)
 
