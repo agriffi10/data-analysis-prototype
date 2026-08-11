@@ -16,6 +16,7 @@ Attributes:
   _ASL: The rendered-at-apply state machine template.
 """
 
+import fnmatch
 import json
 import os
 import pathlib
@@ -475,7 +476,8 @@ def _raw_policy(path):
     Raises:
       None.
     """
-    return json.loads(re.sub(r"\$\{([a-z_]+)\}", r"\1", path.read_text()))
+    raw = re.sub(r":\s*\$\{([a-z_]+)\}", r': "\1"', path.read_text())
+    return json.loads(re.sub(r"\$\{([a-z_]+)\}", r"\1", raw))
 
 
 def _actions(policy):
@@ -545,11 +547,18 @@ def test_the_only_write_into_a_users_space_is_an_inbox():
     """FR-004 AC1. The scoping is the isolation: this role is on the user-space bucket's
     principal allowlist, so an unscoped PutObject would let a bug in any verb write anywhere in
     anybody's prefix. Read from the NAMED-placeholder form, because the collapsed one cannot
-    tell the two data buckets from the admin bucket."""
+    tell the two data buckets from the admin bucket.
+
+    Matched by GLOB rather than by the literal action, so a statement widened to ``s3:*`` or
+    ``s3:Put*`` is caught as the write it is instead of slipping past a name comparison."""
     writes = [
         statement
         for statement in _raw_policy(_EXECUTION_POLICY)["Statement"]
-        if statement["Effect"] == "Allow" and "s3:PutObject" in _actions({"Statement": [statement]})
+        if statement["Effect"] == "Allow"
+        and any(
+            fnmatch.fnmatch("s3:PutObject", action)
+            for action in _actions({"Statement": [statement]})
+        )
     ]
     into_user_space = [
         resource
@@ -603,3 +612,42 @@ def test_no_new_wildcard_resource_appears():
     for path in (_SFN_POLICY, _EXECUTION_POLICY):
         wildcards = [s.get("Sid") for s in _policy(path)["Statement"] if s["Resource"] == "*"]
         assert wildcards in ([], ["StepFunctionLogDelivery"]), f"new wildcards in {path.name}: {wildcards}"
+
+
+def test_the_transfer_grants_name_THIS_planes_prefix_and_machine():
+    """The copy-paste this file's own provenance makes likely, and the one thing the action-set
+    assertions above cannot see.
+
+    ``_policy`` collapses every ARN placeholder to one literal, so a policy still pointing at
+    ``${admin_bucket_arn}/table-share/*`` — or starting executions of table-share's machine —
+    renders, applies and passes every other test here, then fails on the first real send at the
+    ItemReader. Read from the NAMED-placeholder form, where those two are different strings.
+    """
+    statements = {s["Sid"]: s for s in _raw_policy(_SFN_POLICY)["Statement"]}
+
+    for sid in ("ReadTransferManifest", "WriteTransferResults"):
+        assert _resources(statements[sid]) == ["admin_bucket_arn/file-send/*"], (
+            f"{sid} does not scope to this plane's own admin-bucket prefix"
+        )
+    assert _resources(statements["StartDistributedMapChildExecutions"]) == ["state_machine_arn"]
+    assert _resources(statements["DescribeDistributedMapChildExecutions"]) == [
+        "child_execution_arn_wildcard"
+    ]
+
+
+def test_the_copy_timeout_matches_this_planes_deployed_verb():
+    """The budget every makespan bound in ``cpcommon.transfer`` divides by, held against the
+    function that actually has it.
+
+    The equivalent test in ``control-plane-common`` reads TABLE-SHARE's locals and nothing else,
+    so before this one, lowering file-send's ``copy-objects`` timeout would have left the engine
+    computing batch sizes against a budget this plane no longer had — with a green suite.
+    """
+    from cpcommon.transfer import config as transfer_config
+
+    locals_tf = (_HERE.parent.parent / "infra" / "modules" / "file-send" / "locals.tf").read_text()
+
+    assert re.search(
+        rf'"copy-objects"\s*=\s*\{{[^}}]*timeout\s*=\s*{transfer_config.COPY_TIMEOUT_SECONDS}\b',
+        locals_tf,
+    ), f"file-send's copy-objects timeout is not {transfer_config.COPY_TIMEOUT_SECONDS}s"

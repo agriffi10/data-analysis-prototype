@@ -201,10 +201,24 @@ def test_no_transfer_artifact_invents_a_key_either(derive, request_id):
         derive({"requestId": request_id})
 
 
+def _plan_body(**overrides):
+    """A well-formed plan document, as ``write`` produces it, with fields overridden per test."""
+    return json.dumps(
+        {
+            "source": _SOURCE,
+            "sender": "alice",
+            "objects": _OBJECTS,
+            "objectCount": len(_OBJECTS),
+            "totalBytes": 91746,
+            **overrides,
+        }
+    ).encode()
+
+
 def test_the_plan_reads_back_whole():
     """The manifest builder needs the sender and the source bucket as well as the objects — the
     plan is the object that knows which sender its keys were expanded for."""
-    _install(body=json.dumps({"source": _SOURCE, "sender": "alice", "objects": _OBJECTS}).encode())
+    _install(body=_plan_body())
 
     plan = copy_plan.load("file-send/req-1/copy-plan.json")
 
@@ -214,17 +228,20 @@ def test_the_plan_reads_back_whole():
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "why"),
     [
-        b"not json",
-        b'["objects"]',
-        json.dumps({"sender": "alice", "objects": []}).encode(),
-        json.dumps({"sender": "alice"}).encode(),
-        json.dumps({"objects": _OBJECTS}).encode(),
-        json.dumps({"sender": "", "objects": _OBJECTS}).encode(),
+        (b"not json", "not json at all"),
+        (b'["objects"]', "not an object"),
+        (_plan_body(objects=[], objectCount=0), "no objects"),
+        (_plan_body(sender=""), "no sender"),
+        (_plan_body(source={"root": "alice/"}), "no source bucket"),
+        (_plan_body(objects=_OBJECTS[:1]), "SHORT of the count it records"),
+        (_plan_body(objectCount="2"), "a count that is not a number"),
+        (_plan_body(objects=[{"relKey": "", "size": 1}], objectCount=1), "an entry with no item name"),
+        (_plan_body(objects=[{"item": "notes.txt", "size": 1}], objectCount=1), "an entry with no source key"),
     ],
 )
-def test_an_unreadable_plan_is_terminal_rather_than_partially_used(body):
+def test_an_unreadable_plan_is_terminal_rather_than_partially_used(body, why):
     """Fail-closed, and the direction is the whole point: a plan short of its objects would
     produce a manifest short of its lines, the copy would succeed over it, and every recipient
     would be told the send went well while holding only some of what was sent."""
@@ -232,6 +249,31 @@ def test_an_unreadable_plan_is_terminal_rather_than_partially_used(body):
 
     with pytest.raises(TerminalError):
         copy_plan.load("file-send/req-1/copy-plan.json")
+
+
+def test_a_truncated_plan_is_caught_by_the_count_it_records_itself():
+    """The case a non-empty check cannot see, and the one that matters most: a plan short of its
+    objects produces a manifest short of its LINES, the copy succeeds over it, and every
+    recipient is told the send went well while holding some of what was sent. The plan records
+    its own objectCount at write time, so the check is one comparison."""
+    _install(body=_plan_body(objects=_OBJECTS[:1]))
+
+    with pytest.raises(TerminalError) as caught:
+        copy_plan.load("file-send/req-1/copy-plan.json")
+
+    assert caught.value.reason == "copy_failed"
+
+
+def test_what_write_produces_is_what_load_accepts():
+    """The two halves are held together rather than each asserted against a fixture: a field
+    added to the writer and not to the reader's checks (or the reverse) is how a document
+    validates against a shape nothing writes."""
+    fake = _install()
+    copy_plan.write({"requestId": "req-1"}, _SOURCE, "alice", _OBJECTS, 91746)
+    written = fake.puts[0]["Body"]
+    _install(body=written)
+
+    assert copy_plan.load("file-send/req-1/copy-plan.json")["objects"] == _OBJECTS
 
 
 def test_a_throttled_plan_read_is_transient_so_the_retry_reruns_the_verb():

@@ -37,6 +37,7 @@ fan-out stay one queryable set. The per-verb identity rides as the ``verb`` fiel
 import logging
 
 from cpcommon import observability
+from cpcommon.errors import TerminalError
 from fscommon import authz, inbox, paths
 
 logger = logging.getLogger()
@@ -60,11 +61,22 @@ def _item_names(source: dict) -> list:
       The item names, in selection order.
 
     Raises:
-      TerminalError: ``forbidden`` when an item key has no final segment. Unreachable through
-        validate-authorize, which refuses an empty key; the name is what the destination is
-        built from, so it is checked rather than assumed.
+      TerminalError: ``no_items`` when the selection reaches here empty, and ``forbidden`` when
+        an item key has no final segment.
+
+        **The empty case fails CLOSED, and that is not defensive padding.** A guard with no
+        names to check finds no collisions, so it would clear every recipient and report ``ok``
+        over an inbox that already holds the send — the one answer this verb must never give.
+        The selection cannot be empty through validate-authorize, which refuses it outright; it
+        can be empty if the Map's ``ItemSelector`` stops threading the source, which is a
+        wiring fault whose only other trace would be ``items: 0`` in a span nobody reads.
     """
-    return [paths.item_name(item["key"]) for item in source.get("items") or []]
+    items = source.get("items") or []
+    if not items:
+        raise TerminalError(
+            "no_items", "the guard was handed no selection, so it has nothing to check"
+        )
+    return [paths.item_name(item["key"]) for item in items]
 
 
 def _outcome(recipient: dict, status: str, reason: str = "", detail: str = "") -> dict:
@@ -108,9 +120,9 @@ def handler(event, context) -> dict:
       TransientError: On a listing fault — a guard that cannot see the destination retries and
         then fails its own Map item, and never falls through to "nothing is there", which is the
         one answer that ends in an overwrite.
-      TerminalError: ``forbidden`` for a recipient kind the resolver does not know or an item
-        with no name. Neither reaches here through validate-authorize; both fail the item rather
-        than guessing a bucket.
+      TerminalError: ``no_items`` when the selection arrived empty, or ``forbidden`` for a
+        recipient kind the resolver does not know or an item with no name. None of the three
+        reaches here through validate-authorize; each fails the item rather than guessing.
     """
     return _check_target_absent(event)
 
@@ -132,7 +144,7 @@ def _check_target_absent(event) -> dict:
 
     Raises:
       TransientError: On a listing fault.
-      TerminalError: ``forbidden`` from the resolver or the item namer.
+      TerminalError: ``no_items``, or ``forbidden`` from the resolver or the item namer.
     """
     recipient = event.get("recipient") or {}
     request = event.get("request") or {}

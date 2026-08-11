@@ -198,6 +198,32 @@ def test_every_record_carries_every_field_whatever_the_outcome():
         assert isinstance(record["recipient"], dict)
 
 
+@pytest.mark.parametrize(
+    "request_source",
+    [None, {}, {"bucket": "user-bkt", "root": "alice/"}, {"items": []}],
+    ids=["absent", "empty", "no-items-key", "empty-items"],
+)
+def test_a_selection_that_arrives_empty_fails_the_item_rather_than_clearing_it(request_source):
+    """The guard's fail-OPEN direction, which is the one that ends in an overwrite.
+
+    With no names to check there are no collisions, so an unguarded version returns ``ok`` over
+    an inbox that already holds the send — and the sender is told it went well. It cannot happen
+    through validate-authorize, which refuses an empty selection outright; it CAN happen if the
+    Map's ItemSelector stops threading the source, and this is the only place that would be
+    caught. Note the asymmetry it removes: a missing ACTOR already failed closed, through the
+    inbox prefix builder, three lines away."""
+    _install(["bob/shared_files/alice/notes.txt", "bob/shared_files/alice/reports/x.csv"])
+    event = {
+        "recipient": {"kind": "user", "name": "bob"},
+        "request": {"requestId": "req-1", "actor": {"username": "alice"}, "source": request_source},
+    }
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(event, None)
+
+    assert caught.value.reason == "no_items"
+
+
 def test_the_verb_reaches_no_notifier_at_all():
     """Every per-recipient outcome is told to the sender ONCE, from the terminal summary
     (SPEC-167), so a decorator emit here would be the second message about one conflict.

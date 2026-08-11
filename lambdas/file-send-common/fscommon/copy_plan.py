@@ -197,9 +197,16 @@ def load(key: str) -> dict:
     Raises:
       TransientError: On a retryable S3 fault; the caller's Retry re-runs the verb.
       TerminalError: ``copy_failed`` when the plan is absent, is not valid JSON, is not an
-        object, carries no objects, or names no sender. inspect-source wrote it earlier in this
-        same execution, so a failure here means the object is missing or corrupt, which no
-        retry fixes.
+        object, carries no objects, is SHORT OF THE COUNT IT RECORDS, names no sender or source
+        bucket, or holds an entry missing the fields a destination is built from.
+        inspect-source wrote it earlier in this same execution, so a failure here means the
+        object is missing or corrupt, which no retry fixes.
+
+        **The count check is what makes the paragraph above true rather than aspirational.** A
+        non-empty list is not a complete one, and a truncated plan is precisely the shape that
+        produces a manifest short of its lines, a copy that succeeds over it, and a recipient
+        told the send went well while holding some of what was sent. The plan records its own
+        ``objectCount`` at write time, so the check costs one comparison.
     """
     try:
         body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
@@ -214,8 +221,22 @@ def load(key: str) -> dict:
 
     if not isinstance(plan, dict):
         raise TerminalError("copy_failed", f"copy plan {key} is not an object")
-    if not isinstance(plan.get("objects"), list) or not plan["objects"]:
+    objects = plan.get("objects")
+    if not isinstance(objects, list) or not objects:
         raise TerminalError("copy_failed", f"copy plan {key} carries no objects")
+    recorded = plan.get("objectCount")
+    if not isinstance(recorded, int) or isinstance(recorded, bool) or len(objects) != recorded:
+        raise TerminalError(
+            "copy_failed",
+            f"copy plan {key} holds {len(objects)} objects but records {recorded!r}",
+        )
     if not isinstance(plan.get("sender"), str) or not plan["sender"]:
         raise TerminalError("copy_failed", f"copy plan {key} names no sender")
+    if not (plan.get("source") or {}).get("bucket"):
+        raise TerminalError("copy_failed", f"copy plan {key} names no source bucket")
+    for entry in objects:
+        if not isinstance(entry, dict) or not entry.get("item") or not entry.get("srcKey"):
+            raise TerminalError(
+                "copy_failed", f"copy plan {key} holds an object with no item name or source key"
+            )
     return plan

@@ -45,14 +45,23 @@ COPY_FAILED = "copy_failed"
 RESULTS_UNREADABLE = "transfer_results_unreadable"
 
 
-def _failed_item_counts(event) -> Counter:
+def _failed_item_counts(event, accepted: int) -> Counter:
     """Reads the Map Run's export and counts the failed items per recipient.
 
-    An execution where the Choice skipped the Map has no run to read and no items either — that
-    is the "every recipient was already holding it" path, not a missing export.
+    **"No items" is only believable when no recipient was accepted**, and that distinction is
+    the difference between the ordinary skip and a silent universal success. An execution where
+    the Choice skipped the Map has no run to read and no items either — the "everybody was
+    already holding it" path. But a ``transfer`` block that is absent, malformed, or reports
+    zero items while a recipient DID clear the guard is a wiring fault, and reading it as "no
+    failures" would tell every one of those recipients the send went well without a single S3
+    call having been made. The manifest builder cannot produce that combination: it writes a
+    line per (accepted recipient x planned object) and the plan reader refuses an empty object
+    list, so an accepted recipient always means a positive item count.
 
     Args:
       event: The request, carrying the ``transfer`` block and the Map state's output.
+      accepted: How many recipients cleared the guard, which is what makes a zero item count
+        either expected or impossible.
 
     Returns:
       Failed item counts keyed by ``(kind, name)``. A destination is that pair: nothing stops a
@@ -60,13 +69,23 @@ def _failed_item_counts(event) -> Counter:
       them a copy the other lost.
 
     Raises:
-      TerminalError: ``transfer_results_unreadable`` when the Map ran but its export cannot be
-        read, attributed, or reconciled with the manifest. Whole-request, because the
-        alternative is telling every recipient the send went well without having checked.
+      TerminalError: ``transfer_results_unreadable`` when a recipient was accepted but no
+        transfer was reported, or when the Map ran and its export cannot be read, attributed, or
+        reconciled with the manifest. Whole-request, because the alternative is telling every
+        recipient the send went well without having checked.
       TransientError: On a retryable S3 fault reading the export.
     """
-    expected = (event.get("transfer") or {}).get("itemCount")
+    transfer = event.get("transfer")
+    expected = transfer.get("itemCount") if isinstance(transfer, dict) else None
+    if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
+        expected = None
     if not expected:
+        if accepted:
+            raise TerminalError(
+                RESULTS_UNREADABLE,
+                f"{accepted} recipient(s) cleared the guard but no transfer was reported, so "
+                "nothing can be said about what they received",
+            )
         return Counter()
 
     details = (event.get("mapRun") or {}).get("ResultWriterDetails") or {}
@@ -225,8 +244,8 @@ def _collect_transfer_results(event) -> dict:
       TerminalError: ``transfer_results_unreadable`` when the export cannot be attributed.
       TransientError: On a retryable S3 fault.
     """
-    counts = _failed_item_counts(event)
     records = [record for record in event.get("guardResults") or [] if isinstance(record, dict)]
+    counts = _failed_item_counts(event, sum(1 for r in records if r.get("status") == "ok"))
     entries = [
         _entry(
             record,

@@ -265,6 +265,43 @@ def test_a_request_where_every_recipient_conflicted_reaches_the_terminal_with_no
     assert [o["status"] for o in outcomes] == ["failed"]
 
 
+@pytest.mark.parametrize("transfer", [None, {}, {"itemCount": 0}, {"itemCount": "2"}])
+def test_an_accepted_recipient_with_no_reported_transfer_fails_the_whole_request(transfer):
+    """The silent-universal-success hole, closed by the one invariant the event already carries.
+
+    A missing or zero ``transfer`` block is indistinguishable from "the Choice legitimately
+    skipped the Map" — except that the manifest builder CANNOT report zero items while a
+    recipient cleared the guard: it writes a line per (accepted recipient x planned object) and
+    the plan reader refuses an empty object list. So an accepted recipient with no transfer is a
+    wiring fault, and reading it as "no failures" would tell that recipient's sender the send
+    went well without a single S3 call having been made — which is what an unguarded version
+    does, with no S3 fake installed at all."""
+    _setup({})
+    event = _event([_cleared("user", "bob")], map_run=False)
+    if transfer is None:
+        del event["transfer"]
+    else:
+        event["transfer"] = transfer
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(event, None)
+
+    assert caught.value.reason == "transfer_results_unreadable"
+
+
+def test_a_skipped_map_is_still_believable_when_nobody_was_accepted():
+    """The other half of the same rule, so the guard above cannot be satisfied by refusing
+    everything: the ordinary "everybody was already holding it" send reads no export and
+    reports every refusal."""
+    _setup({})
+
+    outcomes = m.handler(
+        _event([_refused("user", "bob", "conflict", "notes.txt")], item_count=0, map_run=False), None
+    )["outcomes"]
+
+    assert [o["reason"] for o in outcomes] == ["conflict"]
+
+
 def test_the_outcomes_carry_counts_and_never_keys():
     """FR-003 AC4. This list rides the state through the terminal Pass states, and a failed-key
     list is the unbounded term that breaches the 256 KB payload limit — where the error lands ON

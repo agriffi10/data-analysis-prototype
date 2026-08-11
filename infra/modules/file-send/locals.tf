@@ -80,18 +80,24 @@ locals {
     # are JSON work over the transfer-item cap, so memory is the CPU dial as much as
     # the headroom — a 2048 MB function gets ~4x the CPU of a 512 MB one.
     #
-    # THE MEMORY IS THE TRANSFER-ITEM CAP'S OTHER HALF, exactly as inspect-source's is
-    # the object cap's: fscommon/config.py sizes SEND_MAX_TRANSFER_ITEMS against this
-    # number and a test READS IT, so raising the cap without raising this fails the
-    # build rather than the invocation.
+    # 2048 MB IS AN ASSERTED NUMBER AT THIS STAGE, AND SAYING SO IS THE HONEST
+    # VERSION. It is table-share's shipped sizing for the identical pair of verbs at a
+    # 20,000-item cap. This plane has no transfer-item cap yet — the manifest is
+    # (recipients x objects), so today's caps permit 50 x 20,000 = 1M items, which this
+    # memory does NOT hold. SPEC-166 PR2 adds SEND_MAX_TRANSFER_ITEMS with a test that
+    # READS THIS ROW and computes the cap against it, the way
+    # test_the_worst_case_copy_plan_fits_in_the_verbs_memory already reads
+    # inspect-source's. Until then the bound is prose, which is what the cap is for.
     "build-transfer-manifest"  = { handler = "file_send_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "file_send_collect_transfer_results.handler", timeout = 300, memory = 2048 }
     # SPEC-166. One BATCH of transfer items per invocation, on cpcommon.transfer's
-    # bounded worker pool. 900s is not a preference: it is COPY_TIMEOUT_SECONDS, which
-    # cpcommon/transfer/config.py divides by to size MAX_ITEMS_PER_BATCH and this
-    # plane's per-object cap, and a test holds the two numbers together. No object
-    # bytes pass through the function, so the memory buys CPU for the pool's threads
-    # and nothing else.
+    # bounded worker pool. 900s is not a preference: it is COPY_TIMEOUT_SECONDS, the
+    # budget cpcommon/transfer/config.py divides by to size MAX_ITEMS_PER_BATCH — and
+    # test_the_copy_timeout_matches_this_planes_deployed_verb reads THIS row back, so
+    # lowering it here fails the build rather than silently invalidating every makespan
+    # bound the engine reasons with. (The pre-existing twin in cpcommon reads
+    # table-share's locals only; one file, one plane.) No object bytes pass through the
+    # function, so the memory buys CPU for the pool's threads and nothing else.
     "copy-objects" = { handler = "file_send_copy_objects.handler", timeout = 900, memory = 1024 }
     # SPEC-152's notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
