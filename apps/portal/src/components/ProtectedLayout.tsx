@@ -2,7 +2,7 @@ import {type ReactNode, useEffect} from 'react';
 import {Navigate, Outlet, useLocation} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
-import {useFeatureFlags} from '../features/feature-flags';
+import {useFeatureSet} from '../features/feature-flags';
 import {UploadQueueProvider} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
@@ -67,7 +67,7 @@ export function ProtectedLayout() {
   // cached for an hour, so a route change does not re-read a document that changes on a
   // deploy. It hides nothing and cannot fail the shell — an unusable document resolves
   // to the compiled-in all-on defaults.
-  useFeatureFlags();
+  useFeatureSet();
 
   if (devBypass)
     return (

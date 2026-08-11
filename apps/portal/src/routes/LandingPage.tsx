@@ -1,11 +1,13 @@
 import type {ReactNode} from 'react';
 import {Navigate, useNavigate} from 'react-router';
 import {useAuth} from '../features/auth';
+import {FEATURE_FLAG_KEYS, navDestination, useFeatureSet} from '../features/feature-flags';
 import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
 import {Badge} from '../components/Badge';
 import {Button} from '../components/Button';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
+import {FeatureUnavailablePage} from './FeatureUnavailablePage';
 import {cx} from '../lib/cx';
 import {CheckIcon, FolderIcon, DatabaseIcon, ConnectionsIcon, PlayIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
@@ -378,9 +380,31 @@ export default function LandingPage() {
 
   const isAuthed = status === 'authenticated';
 
+  // SPEC-163 FR-007. The UNAUTHENTICATED page is untouched by flags and never waits on the
+  // document: it offers sign-in and sign-up, which nothing gates, and SPEC-162 gates the
+  // fetch itself on a signed-in user — so a visitor who is not signed in would wait forever.
+  // Everything below is therefore scoped to `isAuthed`.
+  //
+  // "Go to Dashboard" points at /files, so it is a `files` surface. With Files off it becomes
+  // the first ENABLED feature rather than disappearing — a signed-in visitor still needs a
+  // way in. While the flags resolve it renders NOTHING, which is why each site below is
+  // `dashboard && …` rather than defaulting to /files.
+  const {isEnabled, status: flagsStatus} = useFeatureSet();
+  const dashboardKey = FEATURE_FLAG_KEYS.find((key) => isEnabled(key) && navDestination(key));
+  const dashboard = dashboardKey
+    ? // Keep the established wording for the ordinary case; name the destination otherwise.
+      dashboardKey === 'files'
+      ? {to: '/files', label: 'Dashboard'}
+      : navDestination(dashboardKey)
+    : undefined;
+
   // A visitor who just completed an auth round-trip is sent on to their pending
   // return path. An already-signed-in visitor has none — they stay here and see
   // "Go to Dashboard" instead of the sign-in/sign-up buttons.
+  // Signed in with every feature off: there is nowhere to send them, so the landing page
+  // becomes the same "not available" state a gated route renders, naming no feature.
+  if (isAuthed && flagsStatus !== 'loading' && !dashboardKey) return <FeatureUnavailablePage />;
+
   if (isAuthed) {
     const target = takeReturnPath();
     if (target)
@@ -418,12 +442,14 @@ export default function LandingPage() {
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             {isAuthed ? (
-              <Button
-                variant="primary"
-                className="!h-10 !px-3 tablet:!px-5"
-                onClick={() => navigate('/files')}>
-                Go to Dashboard
-              </Button>
+              dashboard && (
+                <Button
+                  variant="primary"
+                  className="!h-10 !px-3 tablet:!px-5"
+                  onClick={() => navigate(dashboard.to)}>
+                  Go to {dashboard.label}
+                </Button>
+              )
             ) : (
               <>
                 <Button
@@ -461,13 +487,15 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col gap-3 tablet:flex-row tablet:flex-wrap tablet:justify-center">
               {isAuthed ? (
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className="w-full tablet:w-auto"
-                  onClick={() => navigate('/files')}>
-                  Go to Dashboard
-                </Button>
+                dashboard && (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full tablet:w-auto"
+                    onClick={() => navigate(dashboard.to)}>
+                    Go to {dashboard.label}
+                  </Button>
+                )
               ) : (
                 <>
                   <Button
@@ -562,12 +590,14 @@ export default function LandingPage() {
               </p>
               <div className="flex flex-col justify-center gap-3 tablet:flex-row tablet:flex-wrap">
                 {isAuthed ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/files')}
-                    className="h-[46px] w-full rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff] tablet:w-auto">
-                    Go to Dashboard
-                  </button>
+                  dashboard && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(dashboard.to)}
+                      className="h-[46px] w-full rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff] tablet:w-auto">
+                      Go to {dashboard.label}
+                    </button>
+                  )
                 ) : (
                   <>
                     <button

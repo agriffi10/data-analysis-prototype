@@ -1,4 +1,4 @@
-import {useEffect} from 'react';
+import {useEffect, useMemo} from 'react';
 import {useLocation, useNavigate} from 'react-router';
 import {PageLayout} from '../../components/PageLayout';
 import {usePageTitle} from '../../hooks/usePageTitle';
@@ -7,12 +7,15 @@ import {HelpGuideCard} from './HelpGuideCard';
 import {HelpSidebar} from './HelpSidebar';
 import {HelpSectionChips} from './HelpSectionChips';
 import {HELP_SECTIONS} from './helpContent';
+import {hiddenHelpIds, useFeature} from '../feature-flags';
 import type {HelpSectionId} from './help.types';
 
-function sectionFromHash(hash: string): HelpSectionId {
+function sectionFromHash(hash: string, sections: typeof HELP_SECTIONS): HelpSectionId {
   const id = hash.replace(/^#/, '');
-  const match = HELP_SECTIONS.find((s) => s.id === id);
-  return match ? match.id : HELP_SECTIONS[0].id;
+  const match = sections.find((s) => s.id === id);
+  // Falls back to the first VISIBLE section, so `/help#query` with Query off lands somewhere
+  // real instead of on a section the list no longer offers (FR-006: unreachable by anchor).
+  return match ? match.id : sections[0].id;
 }
 
 /**
@@ -29,8 +32,27 @@ export function HelpPage() {
 
   const {hash} = useLocation();
   const navigate = useNavigate();
-  const activeId = sectionFromHash(hash);
-  const section = HELP_SECTIONS.find((s) => s.id === activeId) ?? HELP_SECTIONS[0];
+
+  // SPEC-163 FR-006: a disabled feature's guides are neither listed nor reachable. The
+  // guide→flag mapping lives ONLY in the registry (`hiddenHelpIds`) — `helpContent.ts` knows
+  // nothing about flags, so a guide cannot end up gated in the list and ungated by anchor.
+  //
+  // Sections AND guides, not sections alone: the two data-quality guides live inside the
+  // Files section, so a section-level filter would leave them listed with Data Quality off.
+  const files = useFeature('files');
+  const query = useFeature('query');
+  const sharedWorkspaces = useFeature('sharedWorkspaces');
+  const dataQuality = useFeature('dataQuality');
+  const sections = useMemo(() => {
+    const hidden = hiddenHelpIds((key) => ({files, query, sharedWorkspaces, dataQuality})[key]);
+    return HELP_SECTIONS.filter((s) => !hidden.has(s.id)).map((s) => ({
+      ...s,
+      guides: s.guides.filter((g) => !hidden.has(g.id))
+    }));
+  }, [files, query, sharedWorkspaces, dataQuality]);
+
+  const activeId = sectionFromHash(hash, sections.length ? sections : HELP_SECTIONS);
+  const section = sections.find((s) => s.id === activeId) ?? sections[0] ?? HELP_SECTIONS[0];
 
   // Reset the content panel to the top when the section changes so a long
   // scroll position doesn't carry over (FR-003).
@@ -50,7 +72,7 @@ export function HelpPage() {
     <div className="flex min-h-0 flex-1">
       {!isMobile && (
         <HelpSidebar
-          sections={HELP_SECTIONS}
+          sections={sections}
           activeId={activeId}
           onSelect={selectSection}
         />
@@ -61,7 +83,7 @@ export function HelpPage() {
         contentClassName="max-w-[820px] gap-2.5">
         {isMobile && (
           <HelpSectionChips
-            sections={HELP_SECTIONS}
+            sections={sections}
             activeId={activeId}
             onSelect={selectSection}
           />

@@ -6,6 +6,7 @@ import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {AddMembersDialog} from './AddMembersDialog';
 import {MembersList} from './MembersList';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
+import {FeatureGate} from '../feature-flags';
 import type {Member} from './sharedSpaces.types';
 
 type Props = {
@@ -75,13 +76,15 @@ export function ManageMembersDrawer({
             refreshing={refreshing}
             onRefresh={onRefresh}
           />
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setAddOpen(true)}
-            disabled={busy}>
-            Add members
-          </Button>
+          <FeatureGate flag="sharedWorkspaces">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setAddOpen(true)}
+              disabled={busy}>
+              Add members
+            </Button>
+          </FeatureGate>
         </div>
       }
       // SPEC-155 FR-006: no `closeOnEscape` gate — `useEscapeKey` dispatches by tree

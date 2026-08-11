@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
 import {TableShareDialog} from './TableShareDialog';
 import {getUserDirectory} from '../user-directory';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
@@ -437,6 +438,12 @@ describe('TableShareDialog.a11y', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     client.clear();
+    // SPEC-163 gates the recipient-KIND toggle on `sharedWorkspaces`, so the flags have to be
+    // in the cache. AFTER `client.clear()`, which would otherwise wipe them — and
+    // `setQueryDefaults` first, because the harness client runs `gcTime: 0` and would evict
+    // an observer-less seed before the dialog ever mounts.
+    client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
+    client.setQueryData(featureFlagKeys.resolved(undefined), FEATURE_FLAG_DEFAULTS);
     vi.mocked(getUserDirectory).mockResolvedValue({
       success: true,
       data: {usernames: ['bob', 'bob_smith'], generatedAt: null}
@@ -459,6 +466,9 @@ describe('TableShareDialog.a11y', () => {
     return (
       <AuthContext.Provider value={authValue()}>
         <QueryClientProvider client={client}>
+          {/* SPEC-163 gates the recipient-KIND toggle on `sharedWorkspaces`. This file
+              drives its own client, so it seeds the flags itself rather than through the
+              shared harness. */}
           <TableShareDialog
             source={{database: 'alice', table: 'orders'}}
             onSubmit={noop}

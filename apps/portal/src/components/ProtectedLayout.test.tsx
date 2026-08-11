@@ -67,7 +67,7 @@ const renderAtFiles = (auth: AuthContextValue, {withHeader = false} = {}) =>
         />
       </Route>
     </Routes>,
-    {route: '/files', auth}
+    {route: '/files', auth, seedFeatureFlags: false}
   );
 
 beforeEach(() => {

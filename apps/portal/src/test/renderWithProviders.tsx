@@ -1,3 +1,4 @@
+import {useState} from 'react';
 import {render, renderHook} from '@testing-library/react';
 import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -9,6 +10,8 @@ import {AuthContext} from '../features/auth/authContext';
 import type {AuthContextValue} from '../features/auth/auth.types';
 import {ToastProvider} from '../components/ToastProvider';
 import {authValue} from './authFixtures';
+import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../features/feature-flags';
+import {envVar} from '../lib/env';
 
 /**
  * QueryClient for tests: retries off (a mocked service rejection should fail the
@@ -42,16 +45,59 @@ export type ProviderOptions = {
   auth?: AuthContextValue | null;
   /** Reuse a QueryClient (e.g. to seed or assert cache); a fresh one otherwise. */
   queryClient?: QueryClient;
+  /**
+   * Pre-resolve SPEC-162's feature flags to the compiled-in defaults (everything on).
+   *
+   * ON BY DEFAULT, because SPEC-163 made every gated surface wait on a fetch: without a
+   * seeded answer, `useFeature` reports `false` while the query is pending and a test that
+   * has nothing to do with flags asserts against a shell with no tabs, no "Create table" and
+   * no Help sections. Seeding all-on is the same answer production reaches when the document
+   * is unreadable, so a test's default world is the app at its most visible.
+   *
+   * Pass `false` when the flags themselves are the subject — `gatedSurfaces.test.tsx` mocks
+   * the service and needs the real resolve to be what fills the cache.
+   */
+  seedFeatureFlags?: boolean;
 };
 
-function Providers({
+/**
+ * Put the compiled-in flags in the cache under the key the hook will look for.
+ *
+ * Written through the SAME key factory the hook uses, so a change to the key shape cannot
+ * leave every test silently un-seeded and every gated surface silently absent.
+ */
+function seedFlags(client: QueryClient): void {
+  // `setQueryDefaults` FIRST, and it is not optional: the test client runs `gcTime: 0`, so a
+  // seeded entry with no observer yet is evicted the moment it is written. Every gated
+  // surface that mounts LATER — a control inside a drawer the test has to click open — would
+  // then start from a cold, pending query and read as flagged off, while the same control
+  // asserted at first paint passed. Infinite gc/stale keeps the seed alive and stops the real
+  // service being called behind it.
+  client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
+  client.setQueryData(featureFlagKeys.resolved(envVar('VITE_ENVIRONMENT')), FEATURE_FLAG_DEFAULTS);
+}
+
+/**
+ * The provider stack as a component, for the few callers that cannot use
+ * `renderWithProviders` — chiefly `expectNoA11yViolations`, which renders the element it is
+ * given rather than accepting an already-rendered container.
+ */
+export function TestProviders({
   children,
   route = '/',
   auth = authValue(),
-  queryClient
-}: ProviderOptions & {children: ReactNode; queryClient: QueryClient}): ReactElement {
+  queryClient,
+  seedFeatureFlags = true
+}: ProviderOptions & {children: ReactNode}): ReactElement {
+  // Built here rather than required, so a direct caller (an axe render) gets the same seeded
+  // client `renderWithProviders` would have handed it.
+  const [client] = useState(() => {
+    const created = queryClient ?? createTestQueryClient();
+    if (seedFeatureFlags) seedFlags(created);
+    return created;
+  });
   const tree = (
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[route]}>
         <ToastProvider>{children}</ToastProvider>
       </MemoryRouter>
@@ -74,17 +120,19 @@ export type RenderWithProvidersResult = ReturnType<typeof render> & {
  */
 export function renderWithProviders(
   ui: ReactElement,
-  {route, auth, queryClient, ...options}: ProviderOptions & Omit<RenderOptions, 'wrapper'> = {}
+  {route, auth, queryClient, seedFeatureFlags = true, ...options}: ProviderOptions & Omit<RenderOptions, 'wrapper'> = {}
 ): RenderWithProvidersResult {
   const client = queryClient ?? createTestQueryClient();
+  if (seedFeatureFlags) seedFlags(client);
   const result = render(ui, {
     wrapper: ({children}) => (
-      <Providers
+      <TestProviders
         route={route}
         auth={auth}
-        queryClient={client}>
+        queryClient={client}
+        seedFeatureFlags={seedFeatureFlags}>
         {children}
-      </Providers>
+      </TestProviders>
     ),
     ...options
   });
@@ -98,17 +146,25 @@ export function renderWithProviders(
  */
 export function renderHookWithProviders<Result, Props>(
   hook: (props: Props) => Result,
-  {route, auth, queryClient, ...options}: ProviderOptions & Omit<RenderHookOptions<Props>, 'wrapper'> = {}
+  {
+    route,
+    auth,
+    queryClient,
+    seedFeatureFlags = true,
+    ...options
+  }: ProviderOptions & Omit<RenderHookOptions<Props>, 'wrapper'> = {}
 ) {
   const client = queryClient ?? createTestQueryClient();
+  if (seedFeatureFlags) seedFlags(client);
   const result = renderHook(hook, {
     wrapper: ({children}) => (
-      <Providers
+      <TestProviders
         route={route}
         auth={auth}
-        queryClient={client}>
+        queryClient={client}
+        seedFeatureFlags={seedFeatureFlags}>
         {children}
-      </Providers>
+      </TestProviders>
     ),
     ...options
   });

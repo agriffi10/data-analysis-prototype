@@ -21,6 +21,7 @@ describe('AppNavDrawer', () => {
         <AppNavDrawer
           open
           onClose={props.onClose ?? vi.fn()}
+          isPathEnabled={() => true}
           {...props}
         />
       </MemoryRouter>
@@ -84,6 +85,7 @@ describe('AppNavDrawer', () => {
             <AppNavDrawer
               open={open}
               onClose={vi.fn()}
+              isPathEnabled={() => true}
             />
           </MemoryRouter>
         );
@@ -109,6 +111,7 @@ describe('AppNavDrawer', () => {
           <AppNavDrawer
             open
             onClose={vi.fn()}
+            isPathEnabled={() => true}
             contextualRail={<div>rail</div>}
           />
         </MemoryRouter>,
@@ -284,7 +287,7 @@ describe('PrimaryNav', () => {
     it('renders Files, Query, Connections and Data quality tabs with their routes', () => {
       render(
         <MemoryRouter>
-          <PrimaryNav />
+          <PrimaryNav isPathEnabled={() => true} />
         </MemoryRouter>
       );
       expect(screen.getByRole('link', {name: 'Files'})).toHaveAttribute('href', '/files');
@@ -297,7 +300,7 @@ describe('PrimaryNav', () => {
     it('orders Data quality last, after Connections', () => {
       render(
         <MemoryRouter>
-          <PrimaryNav />
+          <PrimaryNav isPathEnabled={() => true} />
         </MemoryRouter>
       );
       expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
@@ -311,7 +314,7 @@ describe('PrimaryNav', () => {
     it('marks the Data quality tab active on its own route', () => {
       render(
         <MemoryRouter initialEntries={['/data-quality']}>
-          <PrimaryNav />
+          <PrimaryNav isPathEnabled={() => true} />
         </MemoryRouter>
       );
       expect(screen.getByRole('link', {name: 'Data quality'})).toHaveAttribute('aria-current', 'page');
@@ -320,7 +323,7 @@ describe('PrimaryNav', () => {
     it('marks the active tab via aria-current', () => {
       render(
         <MemoryRouter initialEntries={['/connections']}>
-          <PrimaryNav />
+          <PrimaryNav isPathEnabled={() => true} />
         </MemoryRouter>
       );
       expect(screen.getByRole('link', {name: 'Connections'})).toHaveAttribute('aria-current', 'page');

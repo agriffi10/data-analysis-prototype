@@ -8,6 +8,7 @@ import {
   usableSpaceTargets,
   type FileSpaceTarget
 } from '../features/file-browser';
+import {useFeature} from '../features/feature-flags';
 import {Sidebar} from '../features/connections/Sidebar';
 import {SpacesList} from '../features/connections/SpacesList';
 import {useProvideNavRail} from '../components/navRailContext';
@@ -44,12 +45,17 @@ export default function FilesPage() {
 
   // Hooks run unconditionally; the dev-unauth path below overrides the targets.
   const {connections, isLoading: connectionsLoading} = useConnections(user?.username ?? null);
+  // SPEC-163 FR-005: the spaces rail and the `?space=` parameter are shared-workspace
+  // surfaces. With the flag off the page shows no rail and resolves to the personal space
+  // with NO notice — the deep link is ignored, not refused.
+  const sharedSpacesEnabled = useFeature('sharedWorkspaces');
   const {space, activeSpaceId, selectSpace, fellBack, dismissFellBack} = useFileSpace({
     username: user?.username ?? null,
     connections,
     isLoading: connectionsLoading,
     userSpaceBucket,
-    sharedSpaceBucket
+    sharedSpaceBucket,
+    ignoreSpaceParam: !sharedSpacesEnabled
   });
   // SPEC-073: a member resolving a shared space they belong to acks their membership
   // (once per session), flipping them Pending → Active in the owner's projection.
@@ -109,19 +115,22 @@ export default function FilesPage() {
     : usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket);
 
   // Below `tablet` the on-page Spaces rail is hidden; feed the same list into the
-  // mobile AppNavDrawer's contextual slot so it stays reachable (SPEC-099 FR-001).
+  // mobile AppNavDrawer's contextual slot so it stays reachable (SPEC-099 FR-001) — and take
+  // the SAME gate there, because a rail hidden on desktop and present in the hamburger is
+  // the feature still being one tap away.
   const navRail = useMemo(
-    () => (
-      <div className="p-3">
-        <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
-        <SpacesList
-          connections={sidebarConnections}
-          activeSpaceId={sidebarActiveId}
-          onSelectSpace={onSelectSpace}
-        />
-      </div>
-    ),
-    [sidebarConnections, sidebarActiveId, onSelectSpace]
+    () =>
+      sharedSpacesEnabled ? (
+        <div className="p-3">
+          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
+          <SpacesList
+            connections={sidebarConnections}
+            activeSpaceId={sidebarActiveId}
+            onSelectSpace={onSelectSpace}
+          />
+        </div>
+      ) : null,
+    [sharedSpacesEnabled, sidebarConnections, sidebarActiveId, onSelectSpace]
   );
   useProvideNavRail(navRail);
 
@@ -131,11 +140,13 @@ export default function FilesPage() {
 
   return (
     <>
-      <Sidebar
-        connections={sidebarConnections}
-        activeSpaceId={sidebarActiveId}
-        onSelectSpace={onSelectSpace}
-      />
+      {sharedSpacesEnabled && (
+        <Sidebar
+          connections={sidebarConnections}
+          activeSpaceId={sidebarActiveId}
+          onSelectSpace={onSelectSpace}
+        />
+      )}
       <main
         id="main"
         className="min-w-0 flex-1 px-4 py-6">

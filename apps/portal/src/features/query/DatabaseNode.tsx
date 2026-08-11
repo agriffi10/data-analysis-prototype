@@ -9,6 +9,7 @@ import {partitionSchema} from './schema.partition';
 import type {GlueTableSummary} from './query.types';
 import type {Connection} from '../connections/connection.types';
 import type {TableActions} from './SchemaBrowser';
+import {useFeature} from '../feature-flags';
 
 // SPEC-063: a single database in the schema rail — a disclosure node that, when
 // expanded, loads its own schema (`useSchema`, decoupled from the active target)
@@ -45,6 +46,10 @@ function TableRow({
   actions: TableActions;
 }) {
   const isView = table.tableType === 'VIRTUAL_VIEW';
+  // SPEC-163: belt to the `/query` route's braces. The flag already removes the route these
+  // items live inside, so this can only matter if a later spec surfaces the table menu from
+  // somewhere else — which is precisely the class of miss the registry exists to catch.
+  const queryEnabled = useFeature('query');
   return (
     <div>
       <div className="group flex items-center gap-1 rounded-md pr-1 hover:bg-surface-2">
@@ -101,7 +106,7 @@ function TableRow({
               // the server's to enforce, and its refusals come back as user-facing
               // notifications. A client-side gate here would only drift from them.
               // Disabled without a location because the request can't be built.
-              ...(isView
+              ...(isView || !queryEnabled
                 ? []
                 : [
                     {
@@ -112,7 +117,7 @@ function TableRow({
                     }
                   ]),
               // SPEC-093: base tables only — the server rejects views, so no item.
-              ...(isView
+              ...(isView || !queryEnabled
                 ? []
                 : [
                     {

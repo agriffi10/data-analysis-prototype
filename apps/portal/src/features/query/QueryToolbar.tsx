@@ -3,6 +3,7 @@ import {Menu} from '../../components/Menu';
 import {cx} from '../../lib/cx';
 import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
 import {EditorLayoutControl} from './EditorLayoutControl';
+import {FeatureGate} from '../feature-flags';
 import type {EditorLayoutPreset} from './query.constants';
 
 // SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
@@ -68,14 +69,18 @@ export function QueryToolbar({
         <SaveIcon />
         <span className={TOOLBAR_LABEL}>Save</span>
       </Button>
-      <Button
-        variant="ghost"
-        onClick={onCreateView}
-        disabled={!canSave}
-        aria-label="Create view">
-        <EyeIcon />
-        <span className={TOOLBAR_LABEL}>Create view</span>
-      </Button>
+      {/* SPEC-163: registered under the `query` flag, which already removes this whole
+          route — the row exists so a future surface inherits the gate, not the bug. */}
+      <FeatureGate flag="query">
+        <Button
+          variant="ghost"
+          onClick={onCreateView}
+          disabled={!canSave}
+          aria-label="Create view">
+          <EyeIcon />
+          <span className={TOOLBAR_LABEL}>Create view</span>
+        </Button>
+      </FeatureGate>
       {isInFlight ? (
         <Button
           variant="ghost"
