@@ -360,7 +360,7 @@ table over them in the recipient's DB.
   told (a user directly; a space via its **owner only**, never the members). Failures notify the
   sender only.
 
-### Send Files — SPEC-164, 165, 166 (the plane delivers; 167 gives it a face)
+### Send Files — SPEC-164 → 167 (complete)
 
 "Send these files to Bob": copy a user's selected files and folders into another person's or
 space's `shared_files/{sender}/` inbox. The browser cannot write into another user's prefix —
@@ -457,8 +457,17 @@ share did.
   read the input back, because EventBridge drops an input this plane's own cap allows to approach
   200 KB. A `NoDataObjectDelete` **Deny** ships from the first apply, and the only write into a
   user's space is `*/shared_files/*`.
-- **Still absent:** any notification of an outcome (SPEC-167), and no LF-admin designation — no
-  table is created here.
+- **One producer says everything (SPEC-167).** `NotifyOutcomes` runs on the terminal summary, not
+  inside the Maps: sender per outcome, recipient on success only, a `space` through its registered
+  **owner**, a failed recipient told nothing. Its link carries the RECIPIENT's own space root
+  (`/files?prefix={recipientRoot}shared_files/{sender}/`, plus `?space=`), because the route keeps
+  a `?prefix=` only when it starts with the resolved space's root — a root-relative one is
+  discarded and lands them at their space root. Its `Catch` goes to **Succeeded**: the copy has
+  already happened, and a missed message must never turn a delivered send into a failed execution.
+- **The browser's only privilege remains `sqs:SendMessage`.** The **Send to…** control sits on the
+  selection toolbar; `useFileSend` mints the `requestId` per SUBMIT, which is the FIFO dedup id and
+  therefore what makes a retry possible rather than a queue-level guard.
+- **No LF-admin designation** — no table is created here.
 - **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
   spec-delivery doc before building any future plane that touches Bucket 1.
 

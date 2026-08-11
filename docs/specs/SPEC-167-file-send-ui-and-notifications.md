@@ -1,8 +1,8 @@
 # Spec: Send Files — "Send to…" UI & Notification Producer
 
 **ID:** SPEC-167
-**Status:** Draft
-**Last Updated:** 2026-08-10
+**Status:** Completed
+**Last Updated:** 2026-08-11
 **Depends On:** SPEC-166 (terminal per-recipient summary), SPEC-147/148/158 (`UsernameChipsField`, `SuggestionSource`, `useSpaceSuggestions`), SPEC-093 (the Share-table dialog as the pattern), SPEC-058→061 (notifications), SPEC-155 (`FormDialog`, Escape depth, Enter-to-submit), SPEC-163 (the gated-surface registry)
 
 ## Overview
@@ -91,8 +91,11 @@ someone a file.
 - [ ] Success closes the dialog, clears the selection, and raises a toast saying the send was
       **requested** — enqueued is not sent, and the wording must not claim otherwise.
 - [ ] No raw AWS or SQS error text reaches the user; wording comes from `toUserMessage`.
-- [ ] Double-submitting the same dialog state is a no-op at the queue (the explicit dedup id), and
-      the submit control is locked while busy.
+- [ ] Double-submitting the same dialog state sends once. **AMENDED IN BUILD:** the guard is the
+      in-flight ref plus the busy lock, NOT the queue's dedup id — the `requestId` is minted per
+      SUBMIT because it is also what makes a retry possible. Reused across a failed attempt, the
+      second send is swallowed by the queue and the user gets an error, presses the button again,
+      and nothing happens. See the delivery doc.
 
 ### FR-004: Sender notifications
 
@@ -149,13 +152,17 @@ someone a file.
 ```ts
 // src/features/file-send/fileSend.types.ts
 
+// AS SHIPPED (SPEC-164 named these; this spec consumes them unchanged).
 export type SendRecipient = {kind: 'user' | 'space'; name: string};
 
-export type SendSourceItem = {kind: 'file' | 'folder'; key: string};
+export type SendItem = {kind: 'file' | 'folder'; key: string};
+
+export type SendSourceSpace = {kind: 'personal' | 'shared'; name: string};
 
 export type FileSendRequest = {
   requestId: string;
-  source: {space: {kind: 'personal' | 'shared'; name: string}; items: SendSourceItem[]};
+  space: SendSourceSpace;
+  items: SendItem[];
   recipients: SendRecipient[];
 };
 ```
@@ -163,14 +170,22 @@ export type FileSendRequest = {
 ## API / Interface Contract
 
 ```ts
-enqueueFileSend(req: Omit<FileSendRequest, 'requestId'>): Promise<ServiceResult<void>>;
+// AMENDED IN BUILD to what shipped. `enqueueFileSend` is SPEC-164's, and takes the requestId
+// rather than minting one — the hook mints it PER SUBMIT (see FR-003 AC5).
+enqueueFileSend(req: FileSendRequest): Promise<ServiceResult<void>>;
 
-useFileSend(notify: (message: string) => void): {
-  isOpen: boolean;
-  open: (items: SendSourceItem[]) => void;
+useFileSend(
+  space: SendSourceSpace | null,
+  notify: (toast: {variant: 'success'; message: string}) => void
+): {
+  items: SendItem[] | null;
+  open: (items: SendItem[]) => void;
   close: () => void;
-  submit: (recipients: SendRecipient[]) => Promise<void>;
-  isBusy: boolean;
+  // RETURNS whether it worked: the caller clears the selection from this, because `error` read
+  // from the enclosing render is the value from BEFORE the submit — which cleared the selection
+  // under a dialog whose retry then had nothing to send.
+  submit: (recipients: SendRecipient[]) => Promise<boolean>;
+  busy: boolean;
   error: string | null;
 };
 ```
