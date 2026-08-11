@@ -11,6 +11,13 @@ Its input carries the raw Step Functions error rather than a decoded reason, and
 way — an ASL decode raises an uncatchable ``States.Runtime`` whenever the Cause is absent or is
 not JSON, killing the execution on precisely the failures a user most needs to hear about.
 
+**THE SENDER USUALLY COMES FROM THE REQUEST BODY, NOT FROM THE RECORDED FAILURE.** Every
+failure this state exists for happens before a verb produced an actor, so the recorded object
+carries ``actor: null``; the machine's ``CaptureRequest`` state keeps the Pipe's original body
+reachable so the sender can be recovered from the verified token. Without that this function
+would take its no-recipient branch on every single failure — satisfied on paper, silent in
+practice.
+
 **ONE DOOR AT THIS STAGE.** Table-share's twin has a second — an EventBridge ``TIMED_OUT``
 rule — because SPEC-161 gave that machine a top-level ``TimeoutSeconds``, which terminates a
 run outright where no Catch fires. This machine has neither: it calls one 15-second validator
@@ -20,7 +27,7 @@ function's second door must arrive together with it.
 
 import logging
 
-from cpcommon import observability
+from cpcommon import auth, events, observability
 from cpcommon.errors import TerminalError, failure_reason
 from fscommon import messages, notify
 
@@ -28,6 +35,45 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="file-send")
+
+
+def _sender_from_raw_request(raw) -> str:
+    """Recovers the verified sender from the Pipe's original request body.
+
+    **This is what makes the state more than decorative on this plane.** The failures it exists
+    for — a cold-start import error, a state timeout, a task that could not be invoked — all
+    happen before any verb produced an actor, so the recorded-failure object carries
+    ``actor: null`` every time. Without this the notifier would take its no-recipient branch on
+    every single failure, and SPEC-152's guarantee would read as satisfied while telling nobody
+    anything. ``CaptureRequest`` in the ASL is what keeps the body reachable to make this
+    possible.
+
+    The token is the ONLY acceptable source of the username; the body asserts nothing about who
+    sent it. Expiry is deliberately not enforced, through the separately-named entry point the
+    DLQ drain uses: a failure can surface long after the token was minted, and this path grants
+    nothing — it only addresses a message.
+
+    Args:
+      raw: The Pipe's forwarded SQS batch, as captured at the top of the machine.
+
+    Returns:
+      The verified username, or an empty string when it cannot be recovered.
+
+    Raises:
+      None. Every failure degrades to no verified sender, which the caller logs as a no-op —
+      a raise here would replace a missing notification with an unhandled error.
+    """
+    if raw is None:
+        return ""
+    try:
+        body = events.parse_sqs_request(raw, reason="unauthorized")
+        return auth.verified_username_ignoring_expiry(
+            body.get("actor") if isinstance(body, dict) else None,
+            missing_token_detail="missing actor token",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("could not recover a verified sender from the request: %s", exc)
+        return ""
 
 
 def _verb_already_notified(error) -> bool:
@@ -89,6 +135,8 @@ def handler(event, context) -> dict:
     actor = request.get("actor")
     username = actor.get("username") if isinstance(actor, dict) else None
     username = username if isinstance(username, str) else ""
+    if not username:
+        username = _sender_from_raw_request(request.get("raw"))
 
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: actor=%s reason=%s", username, reason)

@@ -21,13 +21,19 @@ Attributes:
   _ITEM_KINDS: The two selection kinds a request may carry.
 """
 
+import json
 import logging
 
 from cpcommon import auth, cognito, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from fscommon import authz, notify, paths
-from fscommon.config import RECIPIENT_KINDS, SEND_MAX_ITEMS, SEND_MAX_RECIPIENTS
+from fscommon.config import (
+    RECIPIENT_KINDS,
+    SEND_MAX_ITEM_BYTES,
+    SEND_MAX_ITEMS,
+    SEND_MAX_RECIPIENTS,
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -38,9 +44,22 @@ _ALLOWED_FIELDS = frozenset({"requestId", "actor", "source", "recipients"})
 
 _ITEM_KINDS = frozenset({"file", "folder"})
 
+#: Cognito's own limit on a username. A longer name is not "no such user" — ``AdminGetUser``
+#: rejects it as an invalid parameter, which the shared lookup classifies as TRANSIENT, so the
+#: machine would retry three times and then fail the WHOLE request over one bad recipient that
+#: should have been annotated and carried. Bounded here, where it is a contract violation.
+_MAX_RECIPIENT_NAME = 128
 
-def _reject_unknown_fields(req) -> None:
-    """Fails the request if it carries a top-level field this contract does not define.
+
+def _check_contract(req) -> None:
+    """Fails the request if its top-level shape is not the one this contract defines.
+
+    Both directions, because only one of them is obvious. Unknown fields are REJECTED rather
+    than ignored (FR-002) — a field the producer thinks it is sending and this verb silently
+    drops is a contract break that surfaces as behaviour nobody asked for. And the required
+    fields are type-checked, which the rejection does not imply: an absent ``requestId``
+    would flow through as ``None`` and a non-string one would flow through whole, and SPEC-166
+    makes that value part of an execution-unique manifest key.
 
     Args:
       req: The parsed request body.
@@ -49,14 +68,17 @@ def _reject_unknown_fields(req) -> None:
       None.
 
     Raises:
-        TerminalError: ``malformed_event`` when the body is not an object, or names a field
-          outside the contract.
+      TerminalError: ``malformed_event`` when the body is not an object, names a field outside
+        the contract, or carries no usable request id.
     """
     if not isinstance(req, dict):
         raise TerminalError(events.MALFORMED, "request body is not an object")
     unknown = sorted(set(req) - _ALLOWED_FIELDS)
     if unknown:
         raise TerminalError(events.MALFORMED, f"unknown request fields: {', '.join(unknown)}")
+    request_id = req.get("requestId")
+    if not isinstance(request_id, str) or not request_id.strip():
+        raise TerminalError(events.MALFORMED, "requestId missing or not a string")
 
 
 def _normalize_items(items, source: dict) -> list:
@@ -80,7 +102,8 @@ def _normalize_items(items, source: dict) -> list:
     Raises:
       TerminalError: ``no_items`` when the list is missing or empty, ``invalid_items`` for a
         non-list, a non-object entry, an unknown kind or a missing key, ``too_many_items``
-        when the cap is exceeded, ``forbidden`` when a key is not inside the source root, and
+        when the count cap is exceeded, ``selection_too_large`` when the serialised keys
+        exceed the byte budget, ``forbidden`` when a key is not inside the source root, and
         ``results_not_sendable`` for the space's own query results.
     """
     if items is None:
@@ -106,6 +129,17 @@ def _normalize_items(items, source: dict) -> list:
         paths.assert_inside_root(root, key)
         authz.assert_not_results_folder(root, key)
         normalized.append({"kind": kind, "key": key})
+
+    # The count cap above bounds the WORK; this bounds the STATE, and they are different
+    # quantities. S3 keys are arbitrary UTF-8 and JSON escaping expands a quote to two bytes
+    # and a control character to six, so a count that fits comfortably in ASCII can be five
+    # times the payload limit in bytes. Measured on the normalised form, which is what
+    # actually rides.
+    serialized = len(json.dumps(normalized, separators=(",", ":")).encode())
+    if serialized > SEND_MAX_ITEM_BYTES:
+        raise TerminalError(
+            "selection_too_large", f"{serialized} bytes of keys, over {SEND_MAX_ITEM_BYTES}"
+        )
     return normalized
 
 
@@ -155,6 +189,8 @@ def _normalize_recipients(recipients) -> list:
         if not isinstance(name, str) or not name.strip():
             raise TerminalError("invalid_recipients", "recipient name missing")
         name = name.strip().lower()
+        if len(name) > _MAX_RECIPIENT_NAME:
+            raise TerminalError("invalid_recipients", f"recipient name is {len(name)} characters")
         key = (kind, name)
         if key in seen:
             continue
@@ -251,7 +287,7 @@ def _validate_and_authorize(event) -> dict:
     )
 
     try:
-        _reject_unknown_fields(req)
+        _check_contract(req)
         declared = req.get("source") if isinstance(req.get("source"), dict) else {}
         source = authz.authorize_source(actor, declared.get("space"))
         source["items"] = _normalize_items(declared.get("items"), source)

@@ -1,16 +1,27 @@
 {
   "Comment": "File-send control plane (SPEC-164 skeleton — the front door only). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not. Nothing is listed, planned or copied: SPEC-165 inserts source resolution and the copy plan after ValidateAuthorize, SPEC-166 the recipient guard, the Distributed-Map transfer and the real terminals. ValidateFailureSeed/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
-  "StartAt": "ValidateAuthorize",
+  "StartAt": "CaptureRequest",
   "States": {
+    "CaptureRequest": {
+      "Type": "Pass",
+      "Comment": "Keeps the Pipe's raw SQS batch reachable after a validate failure, and it is the difference between SPEC-152's guarantee being real here and being decorative. The Pipe's input is a JSON ARRAY, so a Catch on the first Task cannot carry a ResultPath (there is no object to merge into) and the error REPLACES the state — taking the request, and with it the only copy of the caller's token, out of reach. NotifyFailure could then never address anyone, on exactly the failures it exists for: a cold-start import error or a state timeout, where no verb ran and no decorator fired. Wrapping the array once under $.raw makes every downstream Catch a ResultPath merge (FR-001 AC5) and lets the notifier recover the sender from the token the same way the DLQ drain does.",
+      "Parameters": {
+        "raw.$": "$"
+      },
+      "Next": "ValidateAuthorize"
+    },
     "ValidateAuthorize": {
       "Type": "Task",
       "Comment": "Verifies the ID token into the actor, authorizes the source space, checks every selected item is inside the authorized root, enforces the request-shape caps, and annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",
-        "Payload.$": "$"
+        "Payload.$": "$.raw"
       },
-      "OutputPath": "$.Payload",
+      "ResultSelector": {
+        "validated.$": "$.Payload"
+      },
+      "ResultPath": "$.result",
       "Retry": [
         {
           "ErrorEquals": [
@@ -28,6 +39,7 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
           "Next": "ValidateFailureSeed"
         }
       ],
@@ -37,22 +49,23 @@
       "Type": "Pass",
       "Comment": "THE PLACEHOLDER TERMINAL (SPEC-164). The request has been proved legitimate and nothing has been touched. SPEC-165 replaces this state's Next with source resolution; the shape it emits is what the next verb will consume, so it is written as the real thing rather than a bare Succeed.",
       "Parameters": {
-        "requestId.$": "$.requestId",
-        "actor.$": "$.actor",
-        "source.$": "$.source",
-        "recipients.$": "$.recipients",
+        "requestId.$": "$.result.validated.requestId",
+        "actor.$": "$.result.validated.actor",
+        "source.$": "$.result.validated.source",
+        "recipients.$": "$.result.validated.recipients",
         "status": "validated"
       },
       "Next": "Succeeded"
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure can occur BEFORE the request identity exists (its input was the raw SQS array), so its Catch has no ResultPath to merge into and replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every whole-request failure. This is the one Catch on this plane without a ResultPath, and the reason is that there is no verified actor at that point to discard — every catch added downstream of here carries one (SPEC-152's shared-space defect).",
+      "Comment": "A validate-authorize failure happens before the request identity exists, so there is no verified actor to carry — but there IS the raw request, because CaptureRequest wrapped it and this Catch merged the error beside it rather than replacing it. Seed null identity fields, carry the error under $.error and the untouched request under $.raw, so the shared RecordFailure path is uniform AND the notifier has something to recover a sender from. The seed must supply every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime, which is a fleet-wide test rather than a comment.",
       "Parameters": {
         "requestId": null,
         "actor": null,
         "source": null,
-        "error.$": "$"
+        "raw.$": "$.raw",
+        "error.$": "$.error"
       },
       "Next": "RecordFailure"
     },
@@ -63,6 +76,7 @@
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "source.$": "$.source",
+        "raw.$": "$.raw",
         "status": "failed",
         "error.$": "$.error"
       },

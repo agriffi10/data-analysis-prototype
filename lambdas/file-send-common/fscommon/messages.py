@@ -30,6 +30,9 @@ _BODIES = {
     "too_many_items": (
         "you can send at most {maxItems} files or folders at a time. Please send fewer."
     ),
+    "selection_too_large": (
+        "that selection is too large to send in one go. Please send fewer files or folders."
+    ),
     "no_recipients": "no recipients were given.",
     "invalid_recipients": "the recipient list is malformed.",
     "too_many_recipients": (

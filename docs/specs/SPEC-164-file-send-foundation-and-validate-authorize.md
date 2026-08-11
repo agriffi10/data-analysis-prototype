@@ -74,7 +74,13 @@ The infrastructure, following the shared control-plane pattern.
       decoding the raw `{Error, Cause}` through `cpcommon.errors.failure_reason` — the SPEC-152 fleet
       test covers the new machine with no exemption.
 - [ ] Every catch carries `ResultPath` so the verified actor is not discarded (the shared-space
-      defect SPEC-152 fixed).
+      defect SPEC-152 fixed). **Satisfied via a `CaptureRequest` Pass state (added PR3,
+      2026-08-11).** The Pipe's input is a JSON *array*, so a catch on the first task has no object
+      to merge into and the error REPLACES the state — taking the request, and with it the only
+      copy of the caller's token, out of reach. `NotifyFailure` could then never address anyone,
+      on precisely the failures it exists for. Wrapping the array once under `$.raw` makes every
+      catch a merge and lets the notifier recover the sender from the verified token, as the DLQ
+      drain does.
 - [ ] The new request DLQ is in SPEC-126's swept list, so a dead-lettered send becomes a user
       notification.
 - [ ] `lambdas/test_deploy_matrix.py` covers every new function: the deploy matrix and what each
@@ -142,7 +148,11 @@ The sender must actually be able to read what they are sending.
       `fscommon.paths.destination_key`, where a dot segment produces a legal-but-nonsense
       destination.
 - [ ] Each rule has its own test, including the `alice2/` case and the `alice/../bob/` case.
-- [ ] The space's own `athenaresults/` is refused as a source. **This is a new rule for this plane,
+- [ ] The space's own `athenaresults/` is refused as a source — as the folder itself, as anything
+      beneath it, **and as any folder that CONTAINS it** (added PR3, 2026-08-11: selecting the
+      space root passes both containment rules, and SPEC-165 expands a folder by listing its
+      prefix, so a whole-space send would carry other members' query results out of a shared
+      space). **This is a new rule for this plane,
       not an existing one being reused:** `protectedFolders.ts` deliberately keeps three divergent
       lists, in which `athenaresults/` is never a paste *destination* and never a move *source*,
       while copying *out* of it is permitted in the browser today. A send is a copy (see Out of
@@ -164,6 +174,14 @@ The sender must actually be able to read what they are sending.
       (SPEC-146); existence checks stay `admin_get_user`.
 - [ ] More than `SEND_MAX_RECIPIENTS` recipients, or more than `SEND_MAX_ITEMS` selected items, is a
       whole-request terminal failure naming the count and the cap.
+- [ ] A selection whose **serialised** keys exceed `SEND_MAX_ITEM_BYTES` is refused
+      (`selection_too_large`), and each cap is computed by a test from the quantity that sizes it.
+      **Added during PR3 (2026-08-11).** A count cap cannot bound the Step Functions state: S3 keys
+      are arbitrary UTF-8, and JSON escaping expands `"` to two bytes and a control character to
+      six, so the same 200 items measure 216 KB of ASCII keys and 1.2 MB of `\x01` ones. The count
+      bounds the per-item **work** (two containment checks now, one `ListObjectsV2` per folder in
+      SPEC-165); the byte cap bounds the **state**. One cap standing in for both is how a bound
+      comes to certify something it never checked.
 
 ### FR-005: Browser IAM and enqueue surface
 

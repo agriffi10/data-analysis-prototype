@@ -28,7 +28,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_validate_authorize as v
 from cpcommon.errors import TerminalError
-from fscommon.config import SEND_MAX_ITEMS, SEND_MAX_RECIPIENTS
+from fscommon.config import SEND_MAX_ITEM_BYTES, SEND_MAX_ITEMS, SEND_MAX_RECIPIENTS
 
 
 def _setup(actor="alice", spaces=None, users=None):
@@ -40,9 +40,9 @@ def _setup(actor="alice", spaces=None, users=None):
     v.cognito.user_exists = lambda name: name in users
 
 
-def _event(space=None, items=None, recipients=None, token="tok", extra=None):
+def _event(space=None, items=None, recipients=None, token="tok", extra=None, request_id="req-1"):
     body = {
-        "requestId": "req-1",
+        "requestId": request_id,
         "actor": token,
         "source": {
             "space": space if space is not None else {"kind": "personal", "name": "alice"},
@@ -123,6 +123,27 @@ def test_an_unknown_top_level_field_is_rejected_not_ignored():
     _setup()
 
     _expect_reason(_event(extra={"overwrite": True}), "malformed_event")
+
+
+def test_a_missing_request_id_is_rejected():
+    """Rejecting UNKNOWN fields does not imply requiring the KNOWN ones, and the two are
+    different mistakes. SPEC-166 makes this value part of an execution-unique manifest key, so
+    a None flowing through here becomes a key collision there."""
+    _setup()
+
+    _expect_reason(_event(request_id=None), "malformed_event")
+
+
+def test_a_request_id_that_is_not_a_string_is_rejected():
+    _setup()
+
+    _expect_reason(_event(request_id={"evil": "../.."}), "malformed_event")
+
+
+def test_a_blank_request_id_is_rejected():
+    _setup()
+
+    _expect_reason(_event(request_id="   "), "malformed_event")
 
 
 def test_an_unparseable_body_fails_before_any_aws_call():
@@ -404,6 +425,56 @@ def test_too_many_items_is_a_whole_request_failure():
         _event(items=[{"kind": "file", "key": f"alice/f{i}.csv"} for i in range(SEND_MAX_ITEMS + 1)]),
         "too_many_items",
     )
+
+
+def test_a_selection_whose_keys_are_too_large_is_refused_even_under_the_count_cap():
+    """The count cap bounds the WORK; this bounds the STATE, and they are different quantities.
+    S3 keys are arbitrary UTF-8 and JSON escaping expands a control character to six bytes, so
+    a count that fits in ASCII can be several times the payload limit in bytes."""
+    _setup()
+    fat = [{"kind": "file", "key": "alice/" + ("k" * 1000)} for _ in range(SEND_MAX_ITEMS)]
+
+    _expect_reason(_event(items=fat), "selection_too_large")
+
+
+def test_an_ordinary_full_selection_is_not_refused_by_the_byte_guard():
+    """The other direction: the byte guard must not make the count cap unreachable in practice."""
+    _setup()
+    ordinary = [{"kind": "file", "key": f"alice/reports/2026/q1/file-{i:04d}.csv"} for i in range(SEND_MAX_ITEMS)]
+
+    out = v.handler(_event(items=ordinary), None)
+
+    assert len(out["source"]["items"]) == SEND_MAX_ITEMS
+
+
+def test_the_byte_guard_measures_the_serialised_form_and_not_the_character_count():
+    """A key of escape-heavy characters costs its REAL size. Measured against the same budget
+    the config test models, so the two cannot drift."""
+    _setup()
+    # Same character COUNT on both sides — only the escaping differs, which is the whole point.
+    escaped = [{"kind": "file", "key": "alice/" + ('"' * 600)} for _ in range(SEND_MAX_ITEMS)]
+    plain = [{"kind": "file", "key": "alice/" + ("k" * 600)} for _ in range(SEND_MAX_ITEMS)]
+
+    assert len(json.dumps(escaped).encode()) > SEND_MAX_ITEM_BYTES > len(json.dumps(plain).encode())
+    _expect_reason(_event(items=escaped), "selection_too_large")
+    assert len(v.handler(_event(items=plain), None)["source"]["items"]) == SEND_MAX_ITEMS
+
+
+def test_selecting_the_space_root_is_refused_because_it_contains_the_results_folder():
+    """Through the real handler, not just the helper: selecting a whole space passes both
+    containment rules, and SPEC-165 would expand it straight over athenaresults/."""
+    _setup(actor="alice")
+
+    _expect_reason(_event(items=[{"kind": "folder", "key": "alice/"}]), "results_not_sendable")
+
+
+def test_a_recipient_name_longer_than_cognito_allows_is_a_contract_violation():
+    """Not a transient fault. AdminGetUser rejects an over-long username as an invalid
+    parameter, which the shared lookup classifies as transient — so without this bound the
+    machine would retry three times and fail the WHOLE request over one bad recipient."""
+    _setup()
+
+    _expect_reason(_event(recipients=[{"kind": "user", "name": "u" * 129}]), "invalid_recipients")
 
 
 def test_the_item_cap_is_checked_before_any_item_is_examined():

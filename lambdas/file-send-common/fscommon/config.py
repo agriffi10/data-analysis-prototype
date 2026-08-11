@@ -23,16 +23,32 @@ Attributes:
     exists to preserve, outside every Catch. ``test_the_validated_state_stays_under_the_
     payload_limit`` computes the worst case from these constants rather than asserting a
     number, so raising either cap without re-checking fails the build.
-  SEND_MAX_ITEMS: Cap on the number of SELECTED items — the files and folders the user picked,
-    **not** the objects they expand to. **What sizes it is the same state payload**, since the
-    selection rides inline from validate-authorize into SPEC-165: at S3's worst-case 1024-byte
-    key an item costs about 1.1 KB, so the two caps are spending one 256 KB budget between
-    them. It is emphatically NOT a bound on the transfer — a single folder can hold a million
-    objects — and the caps that bound *that* belong to SPEC-165 (the expansion) and SPEC-166
-    (the manifest), the same three-way split table-share arrived at.
+  SEND_MAX_ITEMS: Cap on the NUMBER of selected items — the files and folders the user picked,
+    **not** the objects they expand to. What sizes it is the per-item work that follows: two
+    containment checks and, in SPEC-165, one ``ListObjectsV2`` walk per folder. It is
+    emphatically NOT a bound on the transfer — a single folder can hold a million objects — and
+    the caps that bound *that* belong to SPEC-165 (the expansion) and SPEC-166 (the manifest),
+    the same three-way split table-share arrived at.
+
+    **It does NOT bound the state payload, and an earlier version of this comment claimed it
+    did.** A count cap cannot: S3 keys are arbitrary UTF-8, and JSON escaping expands a `"` to
+    two bytes and a control character to six, so 200 items at a 1024-byte key is 216 KB of
+    ASCII or 1.2 MB of ``\\x01``. The bound that actually holds is ``SEND_MAX_ITEM_BYTES``
+    below, measured on the serialised selection. Two caps because there are two quantities;
+    one cap standing in for both is how a bound comes to certify something it never checked.
 
     The product reading is comfortable: the file browser pages at 25, so this is eight full
     pages of selection.
+  SEND_MAX_ITEM_BYTES: Cap on the SERIALISED selection, which is the term that actually rides
+    on the Step Functions state. **What sizes it is the 256 KB state payload**, minus the
+    recipient list at its own cap, the envelope, and headroom for the fields SPEC-165 adds when
+    it resolves this same state. Breaching the payload limit raises
+    ``States.DataLimitExceeded``; on a Task that is catchable, but on SPEC-166's Map it is
+    thrown outside every Catch and destroys every per-recipient outcome the Map exists to
+    preserve — so the bound is set here, before the Map that will need it exists.
+
+    Checked AFTER normalisation rather than on the raw body: the item count is already bounded
+    by then, so measuring the real serialised form costs nothing and measures the real thing.
   SHARED_FILES_FOLDER: The destination inbox folder, one level under the recipient's space
     root and namespaced by sender — ``{target}/shared_files/{sender}/{item}``. Mirrors
     ``shared_tables/``, so two senders never collide and provenance is visible in the file
@@ -53,6 +69,8 @@ SPACE_KINDS = frozenset({"personal", "shared"})
 SEND_MAX_RECIPIENTS = 50
 
 SEND_MAX_ITEMS = 200
+
+SEND_MAX_ITEM_BYTES = 192 * 1024
 
 SHARED_FILES_FOLDER = "shared_files"
 

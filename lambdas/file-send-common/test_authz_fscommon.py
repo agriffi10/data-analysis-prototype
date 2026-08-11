@@ -145,6 +145,38 @@ def test_a_file_beneath_the_results_folder_is_refused():
     assert caught.value.reason == "results_not_sendable"
 
 
+def test_selecting_the_space_root_is_refused_because_it_CONTAINS_the_results_folder():
+    """THE ANCESTOR CASE, and it is the one the first two rules miss entirely.
+
+    Selecting `sales/` as a folder passes containment and passes "is it the results folder or
+    under it" — and then SPEC-165 expands the folder by listing its prefix, carrying
+    `sales/athenaresults/` out with everything else. In a shared space that is other members'
+    query results reaching a recipient who is not in the space.
+    """
+    for root in ("alice/", "sales/"):
+        with pytest.raises(TerminalError) as caught:
+            authz.assert_not_results_folder(root, root)
+        assert caught.value.reason == "results_not_sendable"
+
+
+def test_the_space_root_without_its_trailing_slash_is_refused_too():
+    with pytest.raises(TerminalError):
+        authz.assert_not_results_folder("alice/", "alice")
+
+
+def test_a_file_whose_name_merely_starts_the_same_way_is_allowed():
+    """The ancestor rule compares PREFIXES. `alice/a` is a file, not a folder containing
+    `alice/athenaresults/`, and refusing it would refuse ordinary user data."""
+    for key in ("alice/a", "alice/athena", "alice/athenaresults.csv"):
+        assert authz.assert_not_results_folder("alice/", key) == key
+
+
+def test_an_intermediate_folder_that_does_not_contain_it_is_allowed():
+    key = "alice/reports/"
+
+    assert authz.assert_not_results_folder("alice/", key) == key
+
+
 def test_a_nested_folder_of_the_same_name_is_allowed():
     """Anchored at the space root, so a folder the user made themselves stays theirs to send."""
     key = "alice/reports/athenaresults/x.csv"

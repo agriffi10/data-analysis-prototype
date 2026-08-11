@@ -5,6 +5,7 @@ because no verb code ran. The tests that matter are the three ways it can go wro
 nobody when it should, telling somebody twice, and telling the wrong person.
 """
 
+import json
 import os
 import sys
 
@@ -25,14 +26,20 @@ def _capture():
     return sent
 
 
-def _request(error, actor="alice"):
+def _request(error, actor="alice", raw=None):
     return {
         "requestId": "req-1",
         "actor": {"username": actor} if actor else None,
         "source": {"bucket": "user-bkt", "root": "alice/"},
+        "raw": raw,
         "status": "failed",
         "error": error,
     }
+
+
+def _raw(token="tok"):
+    """The Pipe's forwarded batch, as CaptureRequest stores it."""
+    return [{"body": json.dumps({"requestId": "req-1", "actor": token})}]
 
 
 def test_an_engine_failure_notifies_the_sender():
@@ -62,6 +69,54 @@ def test_a_verbs_own_terminal_error_is_not_notified_twice():
     sent = _capture()
 
     n.handler(_request({"Error": "TerminalError", "Cause": '{"reason": "forbidden"}'}), None)
+
+    assert sent == []
+
+
+def test_the_sender_is_recovered_from_the_request_when_no_verb_produced_one():
+    """THE CASE THIS STATE ACTUALLY SEES. Every failure it exists for — a cold-start import
+    error, a state timeout, a task that could not be invoked — happens before an actor exists,
+    so the recorded object carries actor: null. Recovering the sender from the verified token
+    in the captured request is the difference between SPEC-152's guarantee holding here and
+    reading as satisfied while telling nobody anything."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    n.handler(_request({"Error": "RuntimeError", "Cause": "ModuleNotFoundError"}, actor=None, raw=_raw()), None)
+
+    assert [user for user, _ in sent] == ["alice"]
+
+
+def test_a_recorded_actor_wins_over_the_captured_request():
+    """Once a verb has produced a verified actor, that is the answer; the body is only ever a
+    fallback and must never override it."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "mallory"
+
+    n.handler(_request({"Error": "States.Timeout"}, actor="alice", raw=_raw()), None)
+
+    assert [user for user, _ in sent] == ["alice"]
+
+
+def test_an_unverifiable_token_in_the_captured_request_notifies_nobody():
+    """The body's own fields are attacker-controlled. If the token does not verify, there is no
+    addressee — notifying anyway would let anyone deliver text to any inbox."""
+    sent = _capture()
+
+    def _reject(token, **kw):
+        raise ValueError("bad signature")
+
+    n.auth.verified_username_ignoring_expiry = _reject
+
+    n.handler(_request({"Error": "States.Timeout"}, actor=None, raw=_raw()), None)
+
+    assert sent == []
+
+
+def test_a_malformed_captured_request_notifies_nobody_rather_than_raising():
+    sent = _capture()
+
+    n.handler(_request({"Error": "States.Timeout"}, actor=None, raw=[{"body": "{not json"}]), None)
 
     assert sent == []
 
