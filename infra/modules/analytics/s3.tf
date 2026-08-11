@@ -113,6 +113,25 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # The file-send copy plan (SPEC-165) — the expanded object list inspect-source hands to
+  # SPEC-166's manifest builder. Same reasoning as the table-share rule above and the same
+  # retention: execution-scoped, read minutes after it is written, kept only so an operator
+  # can inspect the plan of a failed send. It is a SEPARATE rule rather than a widened
+  # filter because S3 lifecycle takes one prefix per rule, and a prefix broad enough to
+  # cover both (`""`) would match `logs/`, which SPEC-127 FR-009 retains indefinitely.
+  rule {
+    id     = "expire-file-send-copy-plans"
+    status = "Enabled"
+
+    filter {
+      prefix = "file-send/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
   # Bucket-wide, and deliberately UNFILTERED (CKV_AWS_300). An abandoned multipart upload
   # leaves orphaned parts that are billed and invisible to every listing, anywhere in the
   # bucket — so scoping this to the prefixes we happen to know about today would leave a new
