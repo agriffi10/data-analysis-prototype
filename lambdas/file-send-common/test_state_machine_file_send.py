@@ -30,6 +30,7 @@ sys.path.insert(0, str(_HERE.parent / "control-plane-common"))
 sys.path.insert(0, str(_HERE.parent / "file-send-validate-authorize"))
 sys.path.insert(0, str(_HERE.parent / "file-send-inspect-source"))
 sys.path.insert(0, str(_HERE.parent / "file-send-build-transfer-manifest"))
+sys.path.insert(0, str(_HERE.parent / "file-send-check-target-absent"))
 sys.path.insert(0, str(_HERE.parent / "file-send-collect-transfer-results"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
@@ -39,6 +40,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_build_transfer_manifest as b
+import file_send_check_target_absent as g
 import file_send_collect_transfer_results as c
 import file_send_inspect_source as i
 import file_send_validate_authorize as v
@@ -132,18 +134,40 @@ def _planned_output() -> dict:
     """
 
     class _FakeS3:
+        """An S3 that SERVES BACK what was written to it.
+
+        The chain below drives four real verbs in sequence, and the third of them reads the copy
+        plan the second wrote. A fake that swallowed the write and 404'd the read would make the
+        manifest verb unreachable here — and it is the verb whose contract with the machine the
+        couplings at the end of this file exist to check.
+        """
+
+        def __init__(self):
+            self.objects = {}
+
         def get_paginator(self, name):
             class _P:
-                def paginate(self, Bucket, Prefix):
-                    yield {"Contents": []}
+                def paginate(self, Bucket, Prefix, **kwargs):
+                    yield {"Contents": [], "CommonPrefixes": []}
 
             return _P()
 
         def head_object(self, Bucket, Key):
             return {"ContentLength": 512}
 
-        def put_object(self, **kwargs):
+        def put_object(self, Bucket, Key, Body, **kwargs):
+            self.objects[Key] = Body
             return {}
+
+        def get_object(self, Bucket, Key):
+            class _B:
+                def __init__(self, payload):
+                    self._payload = payload
+
+                def read(self):
+                    return self._payload
+
+            return {"Body": _B(self.objects[Key])}
 
     clients._s3 = _FakeS3()
     return i.handler(_validated_output(), None)
@@ -223,7 +247,14 @@ def _exit_keys(name: str, state: dict, entry: set) -> set:
     if state.get("Type") == "Pass" and not state.get("ResultPath"):
         return {key.removesuffix(".$") for key in state.get("Parameters", {})}
     if state.get("OutputPath") == "$.Payload":
-        return set(_TASK_OUTPUTS[name]()) if name in _TASK_OUTPUTS else entry
+        # NOT a fallback to `entry`: a Task whose output replaces the state and whose real
+        # output this file does not know is a model that has quietly gone wrong, and every
+        # availability set downstream of it would be stale while still passing.
+        assert name in _TASK_OUTPUTS, (
+            f"{name} replaces the state with its verb's output, which this model does not know "
+            f"— add it to _TASK_OUTPUTS or the catch walk below is checking a stale key set"
+        )
+        return set(_TASK_OUTPUTS[name]())
     result_path = state.get("ResultPath")
     if isinstance(result_path, str) and result_path.startswith("$."):
         return entry | {result_path[2:].split(".")[0]}
@@ -336,11 +367,6 @@ def _reads_through(states: dict, task_name: str, pass_name: str) -> set[str]:
 def _validated_reads(states: dict) -> set[str]:
     """The keys ``Validated`` reads out of validate-authorize's output."""
     return _reads_through(states, "ValidateAuthorize", "Validated")
-
-
-def _planned_reads(states: dict) -> set[str]:
-    """The keys ``Planned`` reads out of inspect-source's output."""
-    return _reads_through(states, "InspectSource", "Planned")
 
 
 def test_the_success_path_reads_only_keys_the_verb_emits():
@@ -479,6 +505,21 @@ def _catches(states: dict):
     """
     on_entry = _entry_keys(states)
     for name, state in states.items():
+        # A Map's ItemProcessor states are walked with the ITEM as their input, which is what
+        # the ItemSelector builds — the guard's per-item Catch is a Pass reading two JSONPaths
+        # on a failure path, which is exactly what this file exists to guard and was the one
+        # such Pass the walk could not see.
+        if "ItemProcessor" in state:
+            item_keys = {key.removesuffix(".$") for key in state.get("ItemSelector", {})}
+            for inner, inner_state in state["ItemProcessor"]["States"].items():
+                for catch in inner_state.get("Catch", []) or []:
+                    if not catch.get("Next"):
+                        continue
+                    result_path = catch.get("ResultPath", "$")
+                    available = set(item_keys) if result_path != "$" else set()
+                    if result_path not in (None, "$"):
+                        available |= {str(result_path)[2:].split(".")[0]}
+                    yield f"{name}/{inner}", f"{name}/{catch['Next']}", available
         for catch in state.get("Catch", []) or []:
             if not catch.get("Next"):
                 continue
@@ -509,15 +550,22 @@ def test_every_catch_reaches_a_terminal_that_reads_only_supplied_keys():
     what the Passes downstream read.
     """
     states = _machine()["States"]
+    nested = {
+        f"{name}/{inner}": inner_state
+        for name, state in states.items()
+        if "ItemProcessor" in state
+        for inner, inner_state in state["ItemProcessor"]["States"].items()
+    }
+    reachable = {**states, **nested}
 
     for failing, entry, available in sorted(_catches(states)):
         supplied, frontier, seen = set(available), [entry], set()
         while frontier:
             name = frontier.pop()
-            if not name or name in seen or name not in states:
+            if not name or name in seen or name not in reachable:
                 continue
             seen.add(name)
-            state = states[name]
+            state = reachable[name]
             if state.get("Type") == "Pass":
                 missing = _read_paths(state["Parameters"]) - supplied
                 assert not missing, (
@@ -538,7 +586,12 @@ def test_the_catch_walk_actually_walked_something():
     """Guards the guard: a machine whose catches stopped being found would pass vacuously."""
     catches = list(_catches(_machine()["States"]))
 
-    assert {"ValidateFailureSeed", "RequestFailureSeed", "Failed"} == {t for _f, t, _a in catches}
+    assert {
+        "ValidateFailureSeed",
+        "RequestFailureSeed",
+        "Failed",
+        "GuardRecipients/RecipientFaulted",
+    } == {t for _f, t, _a in catches}
     assert any(available for _f, _t, available in catches), (
         "no catch on this machine preserves anything — the availability model has gone trivial "
         "and every assertion above passes against an empty set"
@@ -552,7 +605,9 @@ def test_every_post_validate_catch_reaches_the_one_shared_seed():
     plane's are, raises an uncatchable States.Runtime BEFORE ``NotifyFailure``."""
     states = _machine()["States"]
     post_validate = {
-        failing: target for failing, target, _a in _catches(states) if failing != "ValidateAuthorize"
+        failing: target
+        for failing, target, _a in _catches(states)
+        if failing != "ValidateAuthorize" and "/" not in failing
     }
 
     assert post_validate == {
@@ -685,15 +740,29 @@ def test_the_state_machine_role_holds_the_distributed_maps_permissions():
 
 
 def test_the_lambda_execution_role_gains_nothing_from_the_map():
-    """FR-004 AC3 — THE SWAP NOTHING ELSE WOULD CATCH. Granting these to the execution role
-    renders green, applies green and passes every other policy assertion in this repo; it fails
-    on the first real send, at the ItemReader, with an AccessDenied naming a role nobody was
-    looking at. Inherited from SPEC-160 FR-006 rather than rediscovered."""
-    actions = _actions(_policy(_EXECUTION_POLICY))
+    """FR-004 AC3 — THE SWAP NOTHING ELSE WOULD CATCH. Granting the Map's permissions to the
+    execution role renders green, applies green and passes every other policy assertion in this
+    repo; it fails on the first real send, at the ItemReader, with an AccessDenied naming a role
+    nobody was looking at. Inherited from SPEC-160 FR-006 rather than rediscovered.
 
-    assert not {a for a in actions if a.startswith("states:")}, (
-        "the Distributed Map's states: actions are on the LAMBDA execution role"
+    It is asserted as ``StartExecution`` plus a named allowance rather than "no states: actions
+    at all", because SPEC-166 gave this role one of its own: the timeout door reads a timed-out
+    execution's input back, from a Lambda EventBridge invokes outside any execution. A blanket
+    rule would have had to be deleted to add it, taking the guard with it.
+    """
+    statements = {
+        s.get("Sid"): s
+        for s in _raw_policy(_EXECUTION_POLICY)["Statement"]
+        if any(a.startswith("states:") for a in _actions({"Statement": [s]}))
+    }
+
+    assert "states:StartExecution" not in _actions(_policy(_EXECUTION_POLICY)), (
+        "the Distributed Map's StartExecution is on the LAMBDA execution role"
     )
+    assert set(statements) == {"ReadTimedOutExecutionInput"}, (
+        f"the execution role has states: actions beyond the timeout door: {sorted(statements)}"
+    )
+    assert statements["ReadTimedOutExecutionInput"]["Action"] == "states:DescribeExecution"
 
 
 def test_stop_execution_is_not_granted():
@@ -941,3 +1010,86 @@ def test_the_machine_declares_a_top_level_timeout():
     assert not any(
         "TimeoutSeconds" in state for _name, state in _states_including_map_items(machine["States"])
     )
+
+
+# ── SPEC-166: the couplings a Task-to-Task chain hides ──────────────────────
+#
+# The three below are the ASL↔verb contracts this file exists for and did not cover: a Map's
+# ResultPath, an ItemSelector, and the five field names the Map's own reader and writer take
+# from a verb's output. Each was mutation-tested — renaming any of them left the whole suite
+# green while the machine produced a send that reported success and copied nothing.
+
+
+def test_the_guard_maps_result_lands_where_the_manifest_verb_reads_it():
+    """A Map's ``ResultPath`` is a string in Terraform and a ``.get()`` in Python, and nothing
+    joins them. Renamed, ``_accepted()`` sees nothing, every recipient contributes no lines, the
+    Map is skipped, and the run reports a SUCCESSFUL send that copied nothing.
+
+    Driven rather than compared: the guard's records are put where the ASL says they go, the
+    real verb runs, and the manifest either has lines in it or does not.
+    """
+    result_path = _machine()["States"]["GuardRecipients"]["ResultPath"]
+    cleared = {
+        "status": "ok",
+        "recipient": {"kind": "user", "name": "bob", "destBucket": "user-bkt", "destRoot": "bob/"},
+        "reason": "",
+        "detail": "",
+    }
+
+    transfer = b.handler({**_planned_output(), result_path[2:]: [cleared]}, None)["transfer"]
+
+    assert transfer["itemCount"] > 0, (
+        f"the guard Map writes its records to {result_path} and build-transfer-manifest reads "
+        f"none of them — every send would report success having copied nothing"
+    )
+
+
+def test_the_maps_reader_and_writer_read_only_fields_the_manifest_verb_emits():
+    """FR-002 AC1/AC4. The ItemReader's Bucket/Key and the ResultWriter's Bucket/Prefix are
+    JSONPaths into a block ONE verb produces. A renamed field there is an uncatchable failure at
+    the ItemReader on every non-empty send — and the collector reads two more of the same
+    block."""
+    transfer = _machine()["States"]["TransferObjects"]
+    emitted = set(_manifest_output()["transfer"])
+    read = {
+        transfer["ItemReader"]["Parameters"]["Bucket.$"],
+        transfer["ItemReader"]["Parameters"]["Key.$"],
+        transfer["ResultWriter"]["Parameters"]["Bucket.$"],
+        transfer["ResultWriter"]["Parameters"]["Prefix.$"],
+        _machine()["States"]["HasTransferItems"]["Choices"][0]["And"][0]["Variable"],
+    }
+
+    fields = {path.removeprefix("$.transfer.") for path in read}
+    assert all(path.startswith("$.transfer.") for path in read), read
+    assert fields <= emitted, (
+        f"the machine reads $.transfer.{sorted(fields - emitted)}, which "
+        f"build-transfer-manifest does not emit"
+    )
+
+
+def test_the_guard_map_hands_its_verb_exactly_what_that_verb_reads():
+    """The ItemSelector is the other half of the same class of coupling. Dropping ``request.$``
+    leaves check-target-absent with no selection — it now fails closed rather than clearing
+    everybody, but every send fails, and nothing else in the suite notices.
+
+    Driven through the real verb with the real selector, so what is asserted is that the item
+    the machine builds is one the verb can actually work with.
+    """
+    guard = _machine()["States"]["GuardRecipients"]
+    request = _planned_output()
+    item = {
+        key.removesuffix(".$"): (request if value == "$" else {"kind": "user", "name": "bob"})
+        for key, value in guard["ItemSelector"].items()
+    }
+
+    record = g.handler(item, None)
+
+    assert record["status"] == "ok", f"the guard cannot work with the item the Map builds: {record}"
+    assert guard["ItemsPath"] == "$.recipients"
+
+
+def test_the_guard_maps_concurrency_comes_from_the_named_local():
+    """The cap suite computes the guard's contribution to the machine's timeout budget from
+    ``guard_map_max_concurrency``. Hard-coded here instead, that term would be computed from a
+    number the machine no longer uses."""
+    assert '"MaxConcurrency": ${guard_map_max_concurrency}' in _ASL.read_text()

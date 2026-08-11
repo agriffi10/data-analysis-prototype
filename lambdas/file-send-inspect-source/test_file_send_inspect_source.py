@@ -209,6 +209,7 @@ if __name__ == "__main__":
 
 
 def _recipients(count):
+    """A recipient list of the given length, all resolvable."""
     return [{"kind": "user", "name": f"user{n}"} for n in range(count)]
 
 
@@ -253,7 +254,10 @@ def test_the_transfer_caps_are_measured_on_the_REQUESTED_recipients(monkeypatch)
     recipient — and would make a refusal depend on what someone else's inbox happens to hold."""
     monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
     _install({"alice/reports/q1.csv": 10})
-    event = {**_event(), "recipients": [{"kind": "user", "name": "ghost", "invalid": "unknown_user"}] * 1 + _recipients(2)}
+    event = {
+        **_event(),
+        "recipients": [{"kind": "user", "name": "ghost", "invalid": "unknown_user"}, *_recipients(2)],
+    }
 
     with pytest.raises(TerminalError) as caught:
         m.handler(event, None)

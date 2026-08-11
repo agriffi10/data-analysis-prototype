@@ -124,6 +124,17 @@ Attributes:
 
     Neither per-source cap can express it: 20,000 objects is legal and so are 50 recipients, and
     every manifest item is a full copy, so the product is a million lines nothing else bounds.
+
+    **It is deliberately NOT table-share's 20,000, and the divergence is the point.** The
+    parity argument that fixes ``SEND_MAX_OBJECT_BYTES`` to table-share's value does not carry
+    here: that cap bounds ONE object against a shared engine and a shared timeout, where this
+    one bounds a product against a memory budget and a product this plane meets far more often.
+    Table-share's transfer cap equals its own object cap, so at full size it permits exactly one
+    recipient — acceptable when a share is one table. A send of a 2,000-file folder to a
+    30-person team is the ordinary case here and would be refused at 20,000. The computed
+    ceiling at the configured memory is ~150,000 items; 50,000 takes a third of it, and the
+    verbs' 300-second timeouts are not the binding term (``test_the_manifest_verbs_do_their_json
+    _work_inside_their_timeout`` computes that too).
   SEND_MAX_TRANSFER_BYTES: Cap on ``total bytes x REQUESTED recipients`` — what the Map actually
     moves, since every recipient gets a full copy.
 
@@ -134,6 +145,13 @@ Attributes:
     the guard Map, the serial verbs and the per-child overhead of 50,000 items in batches of 8
     take the worst run to ~8,900 s inside the 10,800 s ceiling, and the test computes every term
     rather than asserting the total.
+
+    The one term in that sum with no measurement behind it is the per-child overhead, and the
+    test says so: it is charged per ROUND of the Map's concurrency rather than per child,
+    because slots pipeline. That modelling choice is load-bearing — at even half a second per
+    CHILD the budget would blow — so it is stated rather than buried, and the margin it leaves
+    (~1,900 s, a break-even of ~9 s per round) is what a reader should re-derive before raising
+    any cap here.
   SHARED_FILES_FOLDER: The destination inbox folder, one level under the recipient's space
     root and namespaced by sender — ``{target}/shared_files/{sender}/{item}``. Mirrors
     ``shared_tables/``, so two senders never collide and provenance is visible in the file

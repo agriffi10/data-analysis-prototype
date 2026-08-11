@@ -285,3 +285,60 @@ def test_the_asl_door_is_unaffected_by_the_second_one():
 
     assert len(sent) == 1
     assert "part" not in sent[0][1].lower()
+
+
+def test_a_timed_out_execution_whose_input_was_omitted_is_read_back():
+    """The ordinary case for a large send, not an edge one. EventBridge caps an event at 256 KB
+    and drops the input rather than exceed it, while SEND_MAX_ITEM_BYTES deliberately allows a
+    Pipe record approaching 200 KB — so the sends most likely to run for three hours are exactly
+    the ones the event alone cannot attribute."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+    described = []
+
+    class _Sfn:
+        def describe_execution(self, executionArn):
+            described.append(executionArn)
+            return {"input": json.dumps(_raw())}
+
+    n.clients._sfn = _Sfn()
+    event = _timed_out("", included=False)
+    event["detail"]["executionArn"] = "arn:aws:states:us-east-1:1:execution:m:e"
+
+    n.handler(event, None)
+
+    assert described == ["arn:aws:states:us-east-1:1:execution:m:e"]
+    assert sent and sent[0][0] == "alice"
+
+
+def test_the_read_back_is_skipped_when_the_event_already_carries_the_input():
+    """One API call per timeout at most, and none at all in the common case."""
+    _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    class _Sfn:
+        def describe_execution(self, executionArn):
+            raise AssertionError("described an execution whose input was already in the event")
+
+    n.clients._sfn = _Sfn()
+
+    n.handler(_timed_out(json.dumps(_raw())), None)
+
+
+def test_a_failed_read_back_is_a_logged_no_op():
+    """A raise here would be an async Lambda failure, and EventBridge retries those three
+    times — turning one unattributable timeout into three."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    class _Sfn:
+        def describe_execution(self, executionArn):
+            raise RuntimeError("AccessDenied")
+
+    n.clients._sfn = _Sfn()
+    event = _timed_out("", included=False)
+    event["detail"]["executionArn"] = "arn:aws:states:us-east-1:1:execution:m:e"
+
+    n.handler(event, None)
+
+    assert sent == []

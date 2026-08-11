@@ -309,11 +309,10 @@
     },
     "RequestFailureSeed": {
       "Type": "Pass",
-      "Comment": "The failure seed for every state after the request identity exists. It differs from ValidateFailureSeed in the one way that matters: the request IS on the state here, so the actor comes from $.actor — the verified username the validator already produced — rather than being recovered from a token. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the actor is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path (a fleet-wide test enforces exactly that). It costs nothing on the success path, which never runs this state.",
+      "Comment": "The failure seed for every state after the request identity exists — five of them since SPEC-166. It differs from ValidateFailureSeed in the one way that matters: the request IS on the state here, so the actor comes from $.actor — the verified username the validator already produced — rather than being recovered from a token. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the actor is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path (a fleet-wide test enforces exactly that). IT DELIBERATELY DOES NOT CARRY $.source, AND THAT IS A SIZE DECISION, NOT TIDYING: $.raw is the Pipe's record, which at SEND_MAX_ITEM_BYTES is ~200 KB of escaped selection, and $.source is that same selection AGAIN — the two together breach the 256 KB state limit for a quote-heavy selection, on a Pass with no Catch, killing the run before NotifyFailure on exactly the failures SPEC-152 exists to report. Nothing on the failure path reads it (the notifier uses the actor, the raw request and the error), and an operator who needs the source has it inside $.raw.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
-        "source.$": "$.source",
         "raw.$": "$$.Execution.Input",
         "error.$": "$.error"
       },
@@ -325,7 +324,6 @@
       "Parameters": {
         "requestId": null,
         "actor": null,
-        "source": null,
         "raw.$": "$$.Execution.Input",
         "error.$": "$"
       },
@@ -337,7 +335,6 @@
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
-        "source.$": "$.source",
         "raw.$": "$.raw",
         "status": "failed",
         "error.$": "$.error"

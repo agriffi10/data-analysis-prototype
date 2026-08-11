@@ -7,6 +7,7 @@ Tests patch the cached module globals directly (``clients._s3 = Fake()``).
 
 _s3 = None
 _sqs = None
+_sfn = None
 _glue = None
 _athena = None
 _cognito = None
@@ -52,6 +53,26 @@ def sqs():
 
         _sqs = boto3.client("sqs")
     return _sqs
+
+
+def sfn():
+    """Returns the per-container Step Functions client, creating it on first use.
+
+    Args:
+      None.
+
+    Returns:
+      The cached boto3 Step Functions client.
+
+    Raises:
+      None.
+    """
+    global _sfn
+    if _sfn is None:
+        import boto3
+
+        _sfn = boto3.client("stepfunctions")
+    return _sfn
 
 
 def glue():

@@ -259,16 +259,20 @@ def handler(event, context) -> dict:
 def _collect_transfer_results(event) -> dict:
     """Counts failed items per recipient and shapes the per-recipient outcomes.
 
-    ``guardResults`` is CONSUMED rather than carried: it is this verb's input, its raw
-    ``{Error, Cause}`` per faulted recipient is the state's heaviest per-recipient term, and
-    every fact the summary needs has been copied into the outcomes by the time it is dropped.
+    ``guardResults`` and ``source`` are both CONSUMED rather than carried, and for one reason:
+    this verb's output is the state, and the state has a 256 KB limit whose breach is
+    uncatchable. ``guardResults`` holds a raw ``{Error, Cause}`` per faulted recipient, and
+    ``source`` holds the whole selection — which the item names replace here, since they are
+    derived from it and are what the summary reports. Carrying both alongside ``itemNames``
+    would put two copies of the selection on one state at the moment the run is otherwise
+    finished.
 
     Args:
       event: The request with its guard results and Map Run output.
 
     Returns:
       The request with its per-recipient outcome list and the item names, and without the guard
-      results it replaces.
+      results or the selection they replace.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the export cannot be attributed.
@@ -294,8 +298,9 @@ def _collect_transfer_results(event) -> dict:
         delivered=delivered,
         failed_items=sum(counts.values()),
     )
+    names = _item_names(event)
     return {
-        **{key: value for key, value in event.items() if key != "guardResults"},
-        "itemNames": _item_names(event),
+        **{key: value for key, value in event.items() if key not in ("guardResults", "source")},
+        "itemNames": names,
         "outcomes": entries,
     }

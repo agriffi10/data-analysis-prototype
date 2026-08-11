@@ -179,11 +179,53 @@ def test_a_selection_at_the_byte_cap_can_actually_START_an_execution():
 def test_the_failure_state_carries_the_request_and_still_fits():
     """The failure path reads the whole request back from $$.Execution.Input, so the recorded
     object is the record PLUS the error. If that breached, the notification would be lost on
-    exactly the failures the state exists to report."""
-    for char in ("k", '"'):
-        recorded = _pipe_record(_items_at_the_byte_cap(char)) + 4 * 1024
+    exactly the failures the state exists to report.
 
-        assert recorded < _STATE_PAYLOAD_LIMIT, f"failure state for {char!r} keys is {recorded}"
+    **BOTH seeds are modelled, and the second one is the reason this test was wrong.** It used
+    to model only the pre-identity shape — the raw record plus nulls — while the post-validate
+    seed carries the same record AND, until SPEC-166, the normalised selection again. At the byte
+    cap with quote-heavy keys that pair was ~300 KB: a Pass with no Catch raising
+    States.DataLimitExceeded, on the failure path, after a three-hour copy. The selection is no
+    longer carried, and this is what holds that.
+    """
+    records = {char: _pipe_record(_items_at_the_byte_cap(char)) for char in ("k", '"', _WORST_ESCAPE)}
+
+    for char, record in records.items():
+        assert record + 4 * 1024 < _STATE_PAYLOAD_LIMIT, (
+            f"the failure state for {char!r} keys is {record + 4 * 1024} bytes"
+        )
+
+    would_have_been = max(records.values()) + config.SEND_MAX_ITEM_BYTES + 4 * 1024
+    assert would_have_been > _STATE_PAYLOAD_LIMIT, (
+        f"carrying the selection beside the raw request would now be {would_have_been} bytes, "
+        f"under the limit — so the reason the post-validate seed leaves it off may have gone "
+        f"stale. Re-derive before adding it back."
+    )
+
+
+def test_no_failure_seed_carries_the_selection_twice():
+    """The fix for the above, asserted against the MACHINE rather than trusted.
+
+    Every post-validate catch lands on one seed, and that seed reads ``$$.Execution.Input`` —
+    which already holds the selection. A ``source`` beside it is the same bytes a second time,
+    and the sum is over the limit for a legal request.
+    """
+    asl = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra"
+        / "modules"
+        / "file-send"
+        / "state-machine.asl.json.tftpl"
+    ).read_text()
+    machine = json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", re.sub(r":\s*\$\{[a-z_0-9]+\}", ": 0", asl)))
+
+    for name in ("RequestFailureSeed", "ValidateFailureSeed", "RecordFailure"):
+        parameters = machine["States"][name]["Parameters"]
+        assert "raw.$" in parameters or "raw" in parameters
+        assert "source.$" not in parameters, (
+            f"{name} carries the selection alongside the raw request — together they breach the "
+            f"256 KB state limit, on a Pass with no Catch"
+        )
 
 
 def test_the_byte_cap_leaves_room_for_the_fields_spec_165_adds():
@@ -318,9 +360,23 @@ _S3_PAGE_SIZE = 1000
 #: point of the timeout model is to survive a bad day, not to describe a good one.
 _ROUND_TRIP_SECONDS = 0.2
 
+#: Python's JSON throughput, pessimistically. Real ``json.dumps``/``loads`` on this shape runs
+#: several times faster; the point of the bound is to survive a bad day on a cold, small Lambda.
+_JSON_BYTES_PER_SECOND = 20 * 1024**2
+
+#: A single-part S3 PUT's throughput from a Lambda, pessimistically.
+_S3_PUT_BYTES_PER_SECOND = 20 * 1024**2
+
 #: A child execution's own cost — the StartExecution, the cold start and the poll — charged once
-#: per ROUND of the Map's concurrency. Deliberately generous: it is the term a bytes-only model
-#: drops entirely, and at 50,000 items in batches of 8 there are hundreds of rounds.
+#: per ROUND of the Map's concurrency, because slots pipeline: the Map holds MAP_MAX_CONCURRENCY
+#: children in flight and starts the next as one finishes, so the overhead that lands on the
+#: critical path is one child's per round, not one per child.
+#:
+#: **That modelling choice is load-bearing and is the only input here with no measurement behind
+#: it.** Charged per CHILD instead, even at half a second, 6,250 children would add 3,125s and
+#: put the budget over the ceiling. The margin the sum below leaves is ~1,900s, so the
+#: break-even is ~9s per round — three times this figure. Re-derive it before raising a cap
+#: rather than trusting the assertion still passes.
 _CHILD_EXECUTION_OVERHEAD_SECONDS = 3
 
 #: How much more a parsed JSON document costs in memory than its bytes. Items here are dominated
@@ -334,6 +390,15 @@ def _locals_text() -> str:
 
     Read as DATA rather than restated, for the reason the browser cap mirror is: two homes for
     one number is how a bound quietly stops matching the thing it bounds.
+
+    Args:
+      None.
+
+    Returns:
+      The file's contents.
+
+    Raises:
+      None.
     """
     return (
         pathlib.Path(__file__).resolve().parents[2]
@@ -345,7 +410,18 @@ def _locals_text() -> str:
 
 
 def _verb_row(name: str):
-    """One verb's configured timeout and memory, from the Terraform locals."""
+    """One verb's configured timeout and memory, from the Terraform locals.
+
+    Args:
+      name: The verb's suffix, as it is keyed in ``file_send_functions``.
+
+    Returns:
+      ``(timeout seconds, memory MB)``.
+
+    Raises:
+      AssertionError: When the row is gone or its shape changed, which would otherwise make
+        every bound computed from it vacuous.
+    """
     row = re.search(
         rf'"{name}"\s*=\s*\{{[^}}]*timeout\s*=\s*(\d+)[^}}]*memory\s*=\s*(\d+)', _locals_text()
     )
@@ -354,12 +430,32 @@ def _verb_row(name: str):
 
 
 def _verb_timeout(name: str) -> int:
-    """One verb's configured timeout, in seconds."""
+    """One verb's configured timeout, in seconds.
+
+    Args:
+      name: The verb's suffix.
+
+    Returns:
+      The timeout.
+
+    Raises:
+      AssertionError: From the row lookup.
+    """
     return _verb_row(name)[0]
 
 
 def _verb_memory(name: str) -> int:
-    """One verb's configured memory, in MB."""
+    """One verb's configured memory, in MB.
+
+    Args:
+      name: The verb's suffix.
+
+    Returns:
+      The memory.
+
+    Raises:
+      AssertionError: From the row lookup.
+    """
     return _verb_row(name)[1]
 
 
@@ -369,6 +465,16 @@ def _machine_timeout_seconds() -> int:
     Every cap that bounds the RUN is measured against this, and it lives in Terraform — so it is
     read rather than restated. A ceiling raised in one place and asserted in another is how a cap
     comes to certify something it never checked.
+
+    Args:
+      None.
+
+    Returns:
+      The machine's top-level ``TimeoutSeconds``.
+
+    Raises:
+      AssertionError: When the machine has no ceiling at all, which every run-length bound here
+        would otherwise be measured against nothing.
     """
     found = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", _locals_text())
     assert found, "the file-send machine has no top-level TimeoutSeconds in its locals"
@@ -376,7 +482,18 @@ def _machine_timeout_seconds() -> int:
 
 
 def _guard_map_concurrency() -> int:
-    """The guard Map's fan-out, from the Terraform locals."""
+    """The guard Map's fan-out, from the Terraform locals.
+
+    Args:
+      None.
+
+    Returns:
+      The Map's ``MaxConcurrency``.
+
+    Raises:
+      AssertionError: When it is no longer a named local, which would mean the machine and this
+        model had stopped sharing a number.
+    """
     found = re.search(r"guard_map_max_concurrency\s*=\s*(\d+)", _locals_text())
     assert found, "the guard Map's concurrency is no longer a named local"
     return int(found.group(1))
@@ -387,6 +504,15 @@ def _transfer_item_bytes() -> int:
 
     Pessimistic in a way real items cannot be: the destination key is derived FROM the source
     key, so both cannot independently be 1024 bytes. Over-counting is the safe direction.
+
+    Args:
+      None.
+
+    Returns:
+      The serialised byte length of one worst-case manifest line.
+
+    Raises:
+      None.
     """
     item = {
         "recipient": "r" * 63,
@@ -700,3 +826,53 @@ def test_the_browser_mirrors_the_same_caps():
     assert declared, "the producer no longer declares the caps under the expected names"
     assert eval(declared["SEND_MAX_ITEMS"]) == config.SEND_MAX_ITEMS  # noqa: S307
     assert eval(declared["SEND_MAX_ITEM_BYTES"]) == config.SEND_MAX_ITEM_BYTES  # noqa: S307
+
+
+def test_the_manifest_verbs_do_their_json_work_inside_their_timeout():
+    """The half of SEND_MAX_TRANSFER_ITEMS the memory model does not cover.
+
+    The builder serialises the manifest and PUTs it; the collector parses an export that carries
+    every batch's INPUT and OUTPUT back, so it is modelled at twice the manifest rather than at
+    the manifest — the quantity actually read, not the one already to hand. Both are checked
+    against the timeouts in Terraform. This term is not binding today by two orders of
+    magnitude, which is worth pinning: if it ever becomes binding, the cap moved for a reason
+    nobody wrote down.
+    """
+    manifest_bytes = _transfer_item_bytes() * config.SEND_MAX_TRANSFER_ITEMS
+
+    building = manifest_bytes / _JSON_BYTES_PER_SECOND + manifest_bytes / _S3_PUT_BYTES_PER_SECOND
+    collecting = 2 * manifest_bytes / _JSON_BYTES_PER_SECOND
+
+    assert building < _verb_timeout("build-transfer-manifest") / 2, (
+        f"building a {manifest_bytes / 1024**2:.0f} MB manifest takes {building:.0f}s"
+    )
+    assert collecting < _verb_timeout("collect-transfer-results") / 2, (
+        f"parsing a {2 * manifest_bytes / 1024**2:.0f} MB export takes {collecting:.0f}s"
+    )
+
+
+def test_the_transfer_artifacts_expire_long_after_the_longest_run():
+    """FR-005 AC3, stated as a MARGIN rather than as a fact about days.
+
+    A manifest expiring underneath a live Map Run would fail the transfer at the ItemReader, on
+    the longest sends only. Both numbers are read from Terraform — the retention from the
+    analytics module that owns the bucket, the ceiling from this plane's locals.
+    """
+    analytics = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra"
+        / "modules"
+        / "analytics"
+        / "variables.tf"
+    ).read_text()
+    days = re.search(
+        r'variable "admin_results_retention_days".*?default\s*=\s*(\d+)', analytics, re.DOTALL
+    )
+    assert days, "the admin bucket's retention is no longer a defaulted variable"
+
+    retention = int(days.group(1)) * 86_400
+    assert retention > 100 * _machine_timeout_seconds(), (
+        f"the {int(days.group(1))}-day retention clears the {_machine_timeout_seconds()}s "
+        f"ceiling only {retention / _machine_timeout_seconds():.0f}x — a manifest could expire "
+        f"under a live Map Run"
+    )
