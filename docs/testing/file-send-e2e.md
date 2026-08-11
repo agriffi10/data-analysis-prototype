@@ -503,3 +503,52 @@ Passing 7–10 discharges SPEC-166's Phase 4. It does **not** touch:
   cheaply, and is worth doing once, is that the rule exists and points at the notifier:
   `aws events list-targets-by-rule --rule dat-prod-file-send-orchestrator-timed-out`.
 - **Notifications.** Nothing tells the sender or the recipient anything yet — SPEC-167.
+
+---
+
+## SPEC-167 — the UI and the notifications
+
+**Goal:** prove that the two halves nobody can check offline actually meet — the browser really
+enqueues what the toolbar selected, and the notification link the Python producer mints really
+lands the recipient on what arrived.
+
+**Safari**, because that is the browser this project is used in and the one its tooling is not.
+
+Runs against the deployed app, signed in. You need the same three users and one shared space as
+checks 7–10, and `bob`'s inbox clear (`aws s3 rm --recursive
+"s3://dat-prod-user-space/bob/shared_files/alice/"`, from an identity on the allowlist).
+
+### Check 11 — the send, at both widths
+
+1. Sign in as `alice`, open **Files**, and tick a **folder** and a **file**.
+2. At **desktop**: the toolbar shows **Send to…** beside Copy / Move / Delete. Click it.
+3. The dialog names what is being sent by **item name** with a count — not the full key.
+4. Type `bo` under **Users**: suggestions appear. Commit `bob`. Switch to **Shared spaces**, type
+   `fin`: suggestions appear **under this kind too** (that is SPEC-146's directory read and
+   SPEC-158's connections source, both live). Commit `finance`.
+5. Several chips must still leave **Send** reachable — scroll the dialog body, not the page.
+6. Send. The dialog closes, the selection clears, and the toast says the send was **requested**.
+7. Repeat the whole thing at **400px** (Safari's responsive design mode): the control is
+   **icon-only** and the dialog is usable — the chip list wraps and the footer stays put.
+
+### Check 12 — what each party is told, and where the link goes
+
+Within a minute or two of check 11:
+
+- **alice** has **two** notifications, one per recipient, each naming the recipient and the count.
+- **bob** (sign in as bob) has one naming alice, the items and the count. **Click it.** It must
+  land in `shared_files/alice/` **with the files there** — not at his space root. That is the whole
+  check: the prefix is minted in Python and honoured by a TypeScript route rule, and the failure
+  mode is a link that looks like it worked.
+- **finance's owner** has one saying it went to their SPACE. No other member of `finance` has
+  anything.
+
+Then **send the same selection again** to `bob` and one new user. alice gets a `conflict`
+notification **naming the item** (`reports`), the new user receives everything, and nothing under
+`bob/shared_files/alice/` changed.
+
+### What this discharges, and what it does not
+
+Passing 11–12 discharges SPEC-167's Phase 4, and with checks 7–10 the whole arc. It does **not**
+touch the flag-off states (the registry test walks all four surfaces in both states offline) or the
+timeout door.

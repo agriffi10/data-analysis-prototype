@@ -1685,3 +1685,47 @@ supplies `$.raw` (the Pipe record, ~200 KB at the cap) and **not** `$.source`, w
 selection again: together they breach the 256 KB state limit for a quote-heavy legal request, on a
 Pass with no `Catch`, killing the run before `NotifyFailure` at the end of a three-hour copy.
 Nothing on the failure path reads the source; an operator has it inside `raw`.
+
+
+### One producer says every per-recipient outcome, and the link carries the recipient's own root (SPEC-167)
+
+**Decision.** A single verb at the end of the machine turns SPEC-166's terminal summary into
+messages: one to the sender per recipient outcome, one to each recipient who actually received
+something — a ``user`` directly, a ``space`` through its registered OWNER, never its membership.
+Its link is `/files?prefix={recipientRoot}shared_files/{sender}/`, with `?space=` as well for a
+space.
+
+**Why one producer rather than a decorator per verb.** Table share notifies from its guard, its
+collector and its create verb because each is the only place its own outcome is known. Here every
+per-recipient outcome reaches one flat list before anything is said, so one place can say each
+thing once — and a decorator on the guard would make a conflict two messages. It is also what
+lets the guard return its expected refusals as records: the colliding item name has to reach the
+producer, and a `TerminalError` cannot carry one to a user. The whole-REQUEST verbs still notify
+from their decorators, and must: a request that dies before this state never reaches it.
+
+**A failed recipient is told nothing.** They have no part in the send, nothing to do about it, and
+being told would leak that the sender tried.
+
+**Why the link carries the recipient's root.** `FilesPage` keeps a `?prefix=` only when it starts
+with the resolved space's `rootPrefix`, so a root-relative prefix is silently discarded and the
+recipient lands at their space root — a link that looks like it worked. Two tests read the route's
+gate, `rootPrefix`'s own definition and `isSafeInAppPath`'s accept rule out of the TypeScript, so
+the two languages cannot drift; the first version pinned only the gate and compared against a
+hardcoded value, which would have stayed green through the rename it existed to catch.
+
+**The link is feature-gated, and that was a review finding.** With `files` off it was a live anchor
+into the unavailable page; with `sharedWorkspaces` off the space link resolved the personal space
+and dropped the prefix — the exact failure the full-key rule exists to prevent, reachable from flag
+state alone. `NotificationRow` now gates a MAP of prefixes, with registry rows for both.
+
+**The double-submit guard is the in-flight ref, NOT the queue's dedup id.** FR-003 AC5 said
+otherwise and was amended in build: the `requestId` is minted per SUBMIT, because it is also what
+makes a retry possible — reused across a failed attempt, the second send is swallowed by the queue
+and the user gets an error, presses the button again, and nothing at all happens. The trade is a
+first send whose response was lost being retried as a new request, which the conflict guard then
+refuses per recipient and tells the sender about.
+
+**A refusal must be reachable to be a refusal.** The dialog's Send control stays ENABLED with no
+recipients: `submitDisabled` made the inline refusal dead code where an acceptance criterion was
+supposed to be, and a test asserting only "the button is disabled" passed over it. A disabled
+button also explains nothing to the user who typed a name and forgot to commit it.

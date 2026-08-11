@@ -104,33 +104,18 @@ to reconcile it. And `_config/` being unlistable in the file browser was **not**
 prefix-conditioned `ListBucket` is the mechanism and a test pins it, so the SPA lists are
 belt-and-braces.
 
-**The send-files arc: SPEC-164, 165 and 166 are COMPLETE (2026-08-11); 167 remains Draft.** The
-fifth control plane now **delivers** — a request is proved legitimate, expanded into a copy plan,
-guarded per recipient, copied by a top-level Distributed Map and attributed back. **It is still
-silent: nobody is told anything until 167**, which adds the "Send to…" entry point, the dialog and
-the notification producer. What 167 needs from 166: the terminal is `ShapeSummary`'s
-`{requestId, sender, itemNames, objectCount, recipients[]}`, where each recipient carries
-`{kind, name, status, reason, detail, failedItems}` — `detail` is the **colliding item name** on a
-conflict, which is why the guard returns its expected refusals as records rather than raising (a
-`TerminalError` cannot carry a name to a user). Its producer is the ONE notifier for every
-per-recipient outcome; neither the guard nor the collector emits, deliberately.
-**THREE live checks are owed and they are one session** — `docs/testing/file-send-e2e.md`,
-*SPEC-164* checks 1–3, *SPEC-165* checks 4–6, and *SPEC-166* checks 7–10 (two recipients receive
-every object at `shared_files/{sender}/…`, a repeat refuses **those** recipients naming the item
-while a third still receives, the spans, and the IAM simulation). They must be real invocations: a
-shared layer's import-time failure only shows at cold start (PR #196), a truncated listing returns
-a plausible smaller number rather than an error, and **nothing offline proves the cross-bucket
-`*/shared_files/*` write lands** — a simulation without `--resource-policy` returns `allowed` for a
-`PutObject` the real call denies. **168→172** archive/restore
-(a fifth bucket + a fifth plane; **`GLACIER`**, so restore is `RestoreObject` + a 3–5 h `Wait` loop +
-a copy, not a copy; retention is a **7-year lifecycle ceiling, not Object Lock** — versioning is
-deferred and compliance mode would block the restore's own cleanup; the archive bucket is
-**browser-invisible** (no CORS, not in CSP, zero portal-role statements) and `archive/` is
-**Deny**-written in both space buckets; **the source is deleted only when every object is confirmed
-copied**, and a partial *archive* rolls back where a partial *restore* does not; the receipt is a
-**report, not a record** — the archived key carries its own origin; keys are partitioned
-`personal/`/`shared/` because **nothing checks a space name against the User Pool**). Narrative:
-`@docs/specs/ARCS.md`.
+**The send-files arc (164 → 167) is COMPLETE (2026-08-11).** The fifth control plane delivers and
+speaks: a request is proved legitimate, expanded into a copy plan, guarded per recipient, copied by
+a top-level Distributed Map, attributed back, and told — one message per outcome to the sender, one
+to each recipient who received something, with a link into the folder holding it. **The whole arc's
+live checks are owed and they are ONE session** — `docs/testing/file-send-e2e.md`: *SPEC-164* 1–3,
+*SPEC-165* 4–6, *SPEC-166* 7–10 and *SPEC-167*'s Safari pass. **Read the file's identity note
+first**: a laptop IAM user cannot read or write `dat-prod-user-space` at all (the bucket policy
+allowlists the portal, deploy and execution roles), so every check touching a user's space needs an
+assumed role or the portal UI. Three things nothing offline can prove: the cross-bucket
+`*/shared_files/*` write landing, the conflict refusing **that recipient** while a third still
+receives, and the notification LINK — minted in Python, honoured by a TypeScript route rule.
+**168→172** archive/restore is next.
 
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
 and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
@@ -323,6 +308,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **An expected refusal is a RETURN VALUE, and a conflict is per item NAME (166):** the guard returns `{status, recipient, reason, detail}` for the two refusals it expects and keeps its `Catch` for unpredicted faults — because FR-001 needs the **colliding item named** and a `TerminalError` cannot carry one (tokens are kept out of the message, `detail` is operator text SPEC-106 forbids rendering). The inbox is read with **one delimited listing**, never a probe per item: `/` is not the lowest byte a key may carry, so a `MaxKeys=1` probe returns `notes.txt-old` and reads "clear" over an occupied destination. A name is a name whatever it holds. **Neither the guard nor the collector notifies** — every per-recipient outcome is told once, from the terminal summary, by 167's producer. Two **fail-open** holes were found in review and closed (an empty selection cleared everybody; an absent `transfer` block reported universal success with no S3 call at all); the guard's **TOCTOU is not closed**, as table-share's is not.
 - **The three transfer caps are each measured against a DIFFERENT budget (166):** `SEND_MAX_OBJECT_BYTES` **10 GiB** against `COPY_TIMEOUT_SECONDS` (a batch is one round of the pool and **one object is one worker** — its absence made every distributed model a half-truth, at 43,980s for one 1 TiB object), `SEND_MAX_TRANSFER_ITEMS` **50,000** against the memory the two verbs either side of the Map hold the manifest in (read back **from `locals.tf`**), `SEND_MAX_TRANSFER_BYTES` **3 TiB** against the machine's ceiling at the **makespan** rate. Both product caps are measured on the **requested** recipient count, before the guard. The items cap **deliberately diverges** from table-share's 20,000 — that plane's equals its object cap, so at full size it permits one recipient.
 - **The ceiling ships WITH its rule, and this plane's door needs a fallback (166):** `TimeoutSeconds` **10,800** top-level, plus an EventBridge `TIMED_OUT` rule (never `FAILED`), `fs_notify_failure`'s second door, its 15s→60s raise and the deploy-role `events:` grant — catchers do not cover top-level execution failures. **EventBridge drops an input this plane's own cap allows to approach 200 KB**, so the door reads it back with `states:DescribeExecution` on the **Lambda** role; table-share needs no such fallback and inheriting its shape would have left FR-005 half-delivered. **The seed that reports all this must not carry the request twice**: `RequestFailureSeed` supplies `$.raw` and **not** `$.source` — together ~300 KB, `States.DataLimitExceeded` on a Pass with no Catch, killing the run before `NotifyFailure`.
+- **ONE producer says every per-recipient outcome, and the link carries the RECIPIENT's own root (167):** a single verb at the end of the machine turns the terminal summary into messages — sender per outcome, recipient on success only (a `space` through its registered **owner**, never its membership), **a failed recipient told nothing**. That is why the guard and the collector emit nothing and why the guard returns its refusals as records; the whole-REQUEST verbs still notify from their decorators. The link is `/files?prefix={recipientRoot}shared_files/{sender}/` (plus `?space=`): a **root-relative** prefix is silently discarded by the route and lands the recipient at their space root, so tests read the route's `startsWith` gate, `rootPrefix`'s own definition AND `isSafeInAppPath` out of the TypeScript. **It is feature-gated too** — `NotificationRow` gates a MAP of prefixes, because with `files` off the link was an anchor into the unavailable page and with `sharedWorkspaces` off it resolved the wrong space. **The double-submit guard is the in-flight ref, NOT the queue's dedup id** (FR-003 AC5 amended in build): the `requestId` is minted per SUBMIT, because reusing it makes a RETRY a silent no-op. **A refusal must be reachable to be a refusal** — `submitDisabled` made the dialog's inline "no recipients" banner dead code where an AC was supposed to be, and a test asserting "the button is disabled" passed over it.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
 - **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. FR-005's alarms were **removed** → **SPEC-126**.

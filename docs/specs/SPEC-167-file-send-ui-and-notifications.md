@@ -1,7 +1,7 @@
 # Spec: Send Files — "Send to…" UI & Notification Producer
 
 **ID:** SPEC-167
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-166 (terminal per-recipient summary), SPEC-147/148/158 (`UsernameChipsField`, `SuggestionSource`, `useSpaceSuggestions`), SPEC-093 (the Share-table dialog as the pattern), SPEC-058→061 (notifications), SPEC-155 (`FormDialog`, Escape depth, Enter-to-submit), SPEC-163 (the gated-surface registry)
 
@@ -91,8 +91,11 @@ someone a file.
 - [ ] Success closes the dialog, clears the selection, and raises a toast saying the send was
       **requested** — enqueued is not sent, and the wording must not claim otherwise.
 - [ ] No raw AWS or SQS error text reaches the user; wording comes from `toUserMessage`.
-- [ ] Double-submitting the same dialog state is a no-op at the queue (the explicit dedup id), and
-      the submit control is locked while busy.
+- [ ] Double-submitting the same dialog state sends once. **AMENDED IN BUILD:** the guard is the
+      in-flight ref plus the busy lock, NOT the queue's dedup id — the `requestId` is minted per
+      SUBMIT because it is also what makes a retry possible. Reused across a failed attempt, the
+      second send is swallowed by the queue and the user gets an error, presses the button again,
+      and nothing happens. See the delivery doc.
 
 ### FR-004: Sender notifications
 
