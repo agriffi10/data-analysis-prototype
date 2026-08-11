@@ -1,10 +1,10 @@
 {
-  "Comment": "File-send control plane (SPEC-164 skeleton — the front door only). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not. Nothing is listed, planned or copied: SPEC-165 inserts source resolution and the copy plan after ValidateAuthorize, SPEC-166 the recipient guard, the Distributed-Map transfer and the real terminals. ValidateFailureSeed/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "Comment": "File-send control plane (SPEC-164 skeleton — the front door only). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not. Nothing is listed, planned or copied: SPEC-165 inserts source resolution and the copy plan after ValidateAuthorize, SPEC-166 the recipient guard, the Distributed-Map transfer and the real terminals. ValidateFailureSeed/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user; the seed recovers the request from $$.Execution.Input, which is what lets the notifier name a sender at all. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
       "Type": "Task",
-      "Comment": "Verifies the ID token into the actor, authorizes the source space, checks every selected item is inside the authorized root, enforces the request-shape caps, and annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
+      "Comment": "Verifies the ID token into the actor, authorizes the source space, checks every selected item is inside the authorized root, enforces the request-shape caps, and annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. The request is deliberately NOT threaded alongside it: the Pipe record carries the same selection again as an escaped JSON string, so keeping both would roughly double the state for the whole run — the failure path reads the request from the CONTEXT OBJECT instead, which costs nothing until it is needed. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",
@@ -47,11 +47,12 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure can occur BEFORE the request identity exists (its input was the raw SQS array), so its Catch has no ResultPath to merge into and replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every whole-request failure. This is the one Catch on this plane without a ResultPath, and the reason is that there is no verified actor at that point to discard — every catch added downstream of here carries one (SPEC-152's shared-space defect).",
+      "Comment": "A validate-authorize failure happens before the request identity exists, and its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. That is why $.raw is read from the CONTEXT OBJECT rather than from the state: $$.Execution.Input is the Pipe's forwarded batch, still there whatever the Catch did to the state, and it is the only surviving copy of the caller's token. Without it NotifyFailure would take its no-recipient branch on every single failure — SPEC-152 satisfied on paper and silent in practice, on exactly the cold-start and timeout failures it exists for. Reading $$ in a PASS state rather than in the failing task's own Parameters is SPEC-157's recorded shape. The seed must supply every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime, which a fleet-wide test enforces.",
       "Parameters": {
         "requestId": null,
         "actor": null,
         "source": null,
+        "raw.$": "$$.Execution.Input",
         "error.$": "$"
       },
       "Next": "RecordFailure"
@@ -63,6 +64,7 @@
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "source.$": "$.source",
+        "raw.$": "$.raw",
         "status": "failed",
         "error.$": "$.error"
       },
@@ -76,7 +78,7 @@
         "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
-      "ResultPath": "$.notified",
+      "ResultPath": null,
       "Retry": [
         {
           "ErrorEquals": [

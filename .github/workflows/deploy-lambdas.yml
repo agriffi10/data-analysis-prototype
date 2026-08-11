@@ -295,6 +295,70 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── file-send-common layer (SPEC-164) ──────────────────────────────────────
+  # Publishes the `file-send-common` layer = the `fscommon` package (this plane's config,
+  # source authorization, key containment, wording and notification glue). No external
+  # deps: PyJWT[crypto] is declared ONCE in the cpcommon layer (SPEC-107 FR-001), which
+  # every file-send verb also attaches. A PACKAGE (python/fscommon/), not flat modules, so
+  # its names cannot collide with another domain layer's under pytest.
+  #
+  # NAMED AFTER THE PLANE, NOT THE PACKAGE. The deploy role's layer grant is scoped to
+  # `{project}-*-file-send-*` (modules/base, SPEC-164 PR1), so a layer called
+  # `dat-prod-fscommon` would fail publish with an implicit deny rather than a clear error.
+  file_send_layer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        id: build
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/fscommon-layer/python"
+          rm -rf build/fscommon-layer && mkdir -p "$LAYER_DIR"
+          # A whole-package copy, not a per-file list: a new fscommon module ships by
+          # existing. SPEC-153 FR-002 requires set equality against the directory for any
+          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
+          cp -r lambdas/file-send-common/fscommon "$LAYER_DIR"/fscommon
+          find "$LAYER_DIR"/fscommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
+          (cd build/fscommon-layer && zip --quiet --recurse-paths ../file-send-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-file-send-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared fscommon package for the file-send verb Lambdas (SPEC-164)." \
+            --zip-file "fileb://build/file-send-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   # ── control-plane-common layer (SPEC-107) ──────────────────────────────────
   # Publishes the `control-plane-common` layer = external deps (PyJWT[crypto],
   # declared ONCE here) + the `cpcommon` package (shared auth/clients/config/errors/
@@ -484,7 +548,7 @@ jobs:
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
+    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -569,6 +633,10 @@ jobs:
           - { name: table-share-collect-transfer-results, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
+          # File-send verbs (SPEC-164). Both attach cpcommon + fscommon; the plane's front
+          # door only, with the source resolution and the transfer arriving in SPEC-165/166.
+          - { name: file-send-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read
           # Parquet footers — Athena needs an explicit column list). Stub handlers now;
@@ -644,6 +712,7 @@ jobs:
           [ "${{ matrix.lambda.cpcommon }}" = "true" ] && add "${{ needs.cpcommon_layer.outputs.unzipped_kb }}" control-plane-common
           [ "${{ matrix.lambda.dqcommon }}" = "true" ] && add "${{ needs.dqcommon_layer.outputs.unzipped_kb }}" data-quality-common
           [ "${{ matrix.lambda.dqpolars }}" = "true" ] && add "${{ needs.dq_polars_layer.outputs.unzipped_kb }}" data-quality-polars
+          [ "${{ matrix.lambda.fscommon }}" = "true" ] && add "${{ needs.file_send_layer.outputs.unzipped_kb }}" file-send-common
           echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
           if [ "$TOTAL_KB" -gt 245760 ]; then
             echo "::error::${{ matrix.lambda.name }} exceeds 240 MB unzipped: $((TOTAL_KB / 1024)) MB across ${NAMES} (Lambda's hard limit is 250 MB per function, package + all layers)."
@@ -710,6 +779,7 @@ jobs:
           [ "${{ matrix.lambda.tscommon }}" = "true" ] && LAYERS+=("${{ needs.table_share_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.dqcommon }}" = "true" ] && LAYERS+=("${{ needs.dqcommon_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.dqpolars }}" = "true" ] && LAYERS+=("${{ needs.dq_polars_layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.fscommon }}" = "true" ] && LAYERS+=("${{ needs.file_send_layer.outputs.layer_arn }}")
           if [ "${#LAYERS[@]}" -gt 0 ]; then
             aws lambda update-function-configuration \
               --function-name "$FUNCTION" \

@@ -17,7 +17,12 @@ test_x.py``) keep their own per-file ``sys.path.insert`` for that mode.
 import os
 import sys
 
-_LAYER_DIRS = ("control-plane-common", "table-builder-common", "table-share-common")
+_LAYER_DIRS = (
+    "control-plane-common",
+    "table-builder-common",
+    "table-share-common",
+    "file-send-common",
+)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _dir in _LAYER_DIRS:
     _path = os.path.join(_HERE, _dir)
@@ -51,7 +56,7 @@ import pytest
 # layers, and its process-wide worker/config already has purpose-built save-and-restore in
 # the `captured_events` fixture below. Two mechanisms restoring the same globals in an order
 # nobody chose is how a quiet teardown bug starts.
-_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon")
+_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon")
 
 #: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
 #: DERIVED FROM THE DIRECTORY, never hand-listed: a hand-list drifts silently, and the leak

@@ -75,6 +75,14 @@ const CODE_RULES: readonly ErrorRule[] = [
   // documented deploy gotcha presented as "Something went wrong."
   {code: 'NotConfigured', userFixable: false, passthrough: true},
 
+  // Trigger: a send whose selection exceeds the file-send plane's caps (SPEC-164), refused by
+  // the producer before it reaches SQS. Passthrough for the same reason as the rule above —
+  // the sentence is authored by our own service layer and embeds no AWS text. It is genuinely
+  // user-fixable, and it has to say so: the alternative to refusing here is a request too
+  // large for StartExecution, which dead-letters and reaches the user minutes later as a
+  // failure notification for something they could have fixed by selecting less.
+  {code: 'SelectionTooLarge', userFixable: true, passthrough: true},
+
   // ── Data-quality report reads (SPEC-113 FR-005). Deliberately NOT folded into
   // the generic `NotFound` above: that one says "refresh and try again", which is
   // wrong advice here — a report the user followed a link to is either still being

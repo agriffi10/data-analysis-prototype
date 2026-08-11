@@ -74,7 +74,17 @@ The infrastructure, following the shared control-plane pattern.
       decoding the raw `{Error, Cause}` through `cpcommon.errors.failure_reason` — the SPEC-152 fleet
       test covers the new machine with no exemption.
 - [ ] Every catch carries `ResultPath` so the verified actor is not discarded (the shared-space
-      defect SPEC-152 fixed).
+      defect SPEC-152 fixed) — **except the one on `validate-authorize`, which cannot, and whose
+      purpose is met another way (PR3, 2026-08-11).** Its input is the Pipe's JSON *array*, so
+      there is no object to merge into and the error REPLACES the state, taking the request and
+      the only copy of the caller's token with it. `NotifyFailure` would then take its
+      no-recipient branch on every failure — satisfied on paper, silent in practice, on exactly
+      the cold-start and timeout failures it exists for. The failure seed reads the request back
+      from **`$$.Execution.Input`** instead: it survives whatever the catch did, costs nothing on
+      the success path, and reading `$$` in a *Pass* state is SPEC-157's recorded shape. Threading
+      the request through the state was tried first and rejected — the Pipe record carries the
+      same selection again as an escaped string, so it roughly doubled the payload for the whole
+      run.
 - [ ] The new request DLQ is in SPEC-126's swept list, so a dead-lettered send becomes a user
       notification.
 - [ ] `lambdas/test_deploy_matrix.py` covers every new function: the deploy matrix and what each
@@ -120,8 +130,17 @@ The sender must actually be able to read what they are sending.
       (SPEC-156); an expired, unsigned or wrong-audience token is a terminal failure.
 - [ ] `username` comes from the **verified claim** and from nowhere else.
 - [ ] A `personal` source is authorized only when its name equals the verified username.
-- [ ] A `shared` source is authorized only when the verified username is an **active** member of that
-      space in the registry — `pending`, `leaving`, absent, or a non-existent space all fail.
+- [ ] A `shared` source is authorized only when the verified username is a member of a space the
+      registry reports as **`status: "active"`** — i.e. `cpcommon.registry.is_active_member`.
+      `provisioning`, `deleting`, `failed`, a space the sender is not a member of, and a space that
+      does not exist all fail.
+      **Amended during PR3 (2026-08-11), user-confirmed.** This AC originally read "`pending`,
+      `leaving`, absent" — but `leaving` is not a status anywhere in this repo, and `pending` is the
+      per-member *join chip*, not a space status. Reading it as the chip would reverse **SPEC-073**,
+      under which the chip is display and bookkeeping only and access is granted at add time; a
+      member who has not yet acknowledged a space can already browse it, download from it and share
+      a table out of it, so refusing only the *send* would be an inconsistency with no security
+      benefit. The statuses named above are the ones that exist.
 - [ ] Every selected item's key is confirmed to sit **inside** the authorized source root. The check
       is **two rules, not one**, because either alone leaves a hole:
       (a) the root comparison is on a **trailing-slash-normalised** prefix — this is what refuses
@@ -133,7 +152,11 @@ The sender must actually be able to read what they are sending.
       `fscommon.paths.destination_key`, where a dot segment produces a legal-but-nonsense
       destination.
 - [ ] Each rule has its own test, including the `alice2/` case and the `alice/../bob/` case.
-- [ ] The space's own `athenaresults/` is refused as a source. **This is a new rule for this plane,
+- [ ] The space's own `athenaresults/` is refused as a source — as the folder itself, as anything
+      beneath it, **and as any folder that CONTAINS it** (added PR3, 2026-08-11: selecting the
+      space root passes both containment rules, and SPEC-165 expands a folder by listing its
+      prefix, so a whole-space send would carry other members' query results out of a shared
+      space). **This is a new rule for this plane,
       not an existing one being reused:** `protectedFolders.ts` deliberately keeps three divergent
       lists, in which `athenaresults/` is never a paste *destination* and never a move *source*,
       while copying *out* of it is permitted in the browser today. A send is a copy (see Out of
@@ -155,6 +178,14 @@ The sender must actually be able to read what they are sending.
       (SPEC-146); existence checks stay `admin_get_user`.
 - [ ] More than `SEND_MAX_RECIPIENTS` recipients, or more than `SEND_MAX_ITEMS` selected items, is a
       whole-request terminal failure naming the count and the cap.
+- [ ] A selection whose **serialised** keys exceed `SEND_MAX_ITEM_BYTES` is refused
+      (`selection_too_large`), and each cap is computed by a test from the quantity that sizes it.
+      **Added during PR3 (2026-08-11).** A count cap cannot bound the Step Functions state: S3 keys
+      are arbitrary UTF-8, and JSON escaping expands `"` to two bytes and a control character to
+      six, so the same 200 items measure 216 KB of ASCII keys and 1.2 MB of `\x01` ones. The count
+      bounds the per-item **work** (two containment checks now, one `ListObjectsV2` per folder in
+      SPEC-165); the byte cap bounds the **state**. One cap standing in for both is how a bound
+      comes to certify something it never checked.
 
 ### FR-005: Browser IAM and enqueue surface
 
