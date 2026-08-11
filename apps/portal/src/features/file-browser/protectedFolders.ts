@@ -15,6 +15,10 @@
 //    out of the browser. It is listed anyway because the lists have already
 //    drifted apart from each other (transition_plan.md §6.3), and adding to
 //    both is cheaper than reasoning about which one matters.
+//  - `_config/` — the published feature-flag document (SPEC-162). Hidden
+//    EVERYWHERE, and a bucket-root folder for the same reason `_directory/` is,
+//    so the same note applies: IAM is what really keeps it out of the browser,
+//    and these entries are parity with the directory rather than the mechanism.
 //
 //  - `shared_tables/` — where the table-share pipeline copies tables it has
 //    shared with you (SPEC-088). VISIBLE, because seeing what has been shared
@@ -46,7 +50,7 @@
 // ever creates that folder; it is defensive there and would be dead config here.
 
 /** Hidden from the main file-browser listing. */
-export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory'] as const;
+export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory', '_config'] as const;
 
 /** Never offered as a move/copy destination. */
 export const PICKER_LOCKED_FOLDERS = [
@@ -54,6 +58,7 @@ export const PICKER_LOCKED_FOLDERS = [
   'user_settings',
   '_data-quality-reports',
   '_directory',
+  '_config',
   'shared_tables'
 ] as const;
 

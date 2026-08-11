@@ -42,6 +42,13 @@ export const REQUIRED_ENV = [
 
 /** Set in a working deployment, but each with its own degraded path when absent. */
 export const OPTIONAL_ENV = [
+  // Which block of the feature-flag document this build resolves (SPEC-162). Optional
+  // because its degraded path is total: an unset value resolves to the document's own
+  // `defaults` and still reports 'ready'. Nothing is unavailable without it, so it fails
+  // the REQUIRED_ENV membership test above — but a build that ships it unset silently
+  // ignores every per-environment override, which is why the flags feature owes a live
+  // check that reads 'ready' rather than merely looking right.
+  'VITE_ENVIRONMENT',
   'VITE_COGNITO_IDENTITY_POOL_ID',
   'VITE_S3_SHARED_SPACE_BUCKET',
   'VITE_MAX_UPLOAD_BYTES',
@@ -94,6 +101,7 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
     VITE_APP_URL: import.meta.env.VITE_APP_URL as string | undefined,
     VITE_S3_USER_SPACE_BUCKET: import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
     VITE_ATHENA_WORKGROUP: import.meta.env.VITE_ATHENA_WORKGROUP as string | undefined,
+    VITE_ENVIRONMENT: import.meta.env.VITE_ENVIRONMENT as string | undefined,
     VITE_COGNITO_IDENTITY_POOL_ID: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID as string | undefined,
     VITE_S3_SHARED_SPACE_BUCKET: import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined,
     VITE_MAX_UPLOAD_BYTES: import.meta.env.VITE_MAX_UPLOAD_BYTES as string | undefined,

@@ -90,7 +90,16 @@ jobs:
           pip install -r lambdas/data-quality-polars/requirements.txt
 
       - name: Lint (ruff)
-        run: ruff check lambdas/
+        # `scripts/` joins the scan because SPEC-162 put a Python module there
+        # (validate_feature_flags.py). Nothing else in that directory is Python today.
+        run: ruff check lambdas/ scripts/
+
+      # A malformed feature-flag document must never reach a bucket, and the failure it
+      # produces is silent — the browser falls back to all-on, which is indistinguishable
+      # from a healthy environment. This is the first of the document's two validations;
+      # deploy-config.yml runs the same check again immediately before the upload.
+      - name: Validate the feature-flag document
+        run: python3 scripts/validate_feature_flags.py
 
       # BLOCKING as of notch 2. It was report-only under SPEC-153 FR-009, whose baseline was
       # 21; SPEC-156 took it to 17 and SPEC-157's table_lock put it back to 19, which is what

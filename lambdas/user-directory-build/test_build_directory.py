@@ -265,8 +265,15 @@ def test_no_other_lambda_references_the_directory(s3):
 
     `dqcommon.config` is the one legitimate mention — it lists `_directory` as a RESERVED
     prefix, which is the opposite of reading it — so it is allowlisted by name.
+
+    `test_feature_flags_config.py` is the second, and is not Lambda code at all: it is a
+    repo-as-data suite that names this document to explain why SPEC-162's publish addresses
+    ONE EXACT KEY and never syncs — precisely so that a mis-scoped reconcile cannot delete
+    what lives one prefix over. Forbidding the mention would delete the reasoning, not the
+    coupling. What this tripwire is actually about — a control plane treating the directory
+    as an authorization input — is untouched by it.
     """
-    allowed = {"data-quality-common/dqcommon/config.py"}
+    allowed = {"data-quality-common/dqcommon/config.py", "test_feature_flags_config.py"}
     markers = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
     offenders = []
     for path in LAMBDAS.rglob("*.py"):

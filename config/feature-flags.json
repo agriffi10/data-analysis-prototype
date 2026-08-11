@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "defaults": {
+    "files": true,
+    "query": true,
+    "sharedWorkspaces": true,
+    "dataQuality": true
+  },
+  "environments": {
+    "prod": {}
+  }
+}

@@ -34,6 +34,12 @@
       "Resource": "${bucket_arn}/_directory/*"
     },
     {
+      "Sid": "ReadTheFeatureFlags",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${bucket_arn}/_config/*"
+    },
+    {
       "Sid": "ProtectPrefixMarker",
       "Effect": "Deny",
       "Action": "s3:DeleteObject",
