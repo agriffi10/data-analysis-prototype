@@ -17,8 +17,9 @@ instead of at cold start is narrower, not optional.
 import importlib
 import os
 
-import config
 from cpcommon import config as cpconfig
+
+import config
 
 
 def _requires(module, name):

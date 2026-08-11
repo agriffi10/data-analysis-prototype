@@ -23,10 +23,11 @@ import logging
 
 import auth
 import cache
-import config
 import registry as reg
 from cpcommon import events, observability
 from notify import emit_notification
+
+import config
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

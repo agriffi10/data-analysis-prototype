@@ -25,12 +25,13 @@ Attributes:
 import logging
 
 import cache
-import config
 import membership
 import registry as reg
 from cpcommon import clients, errors, observability
 from cpcommon import config as cpconfig
 from notify import emit_notification
+
+import config
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

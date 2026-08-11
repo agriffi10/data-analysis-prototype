@@ -8,9 +8,10 @@ so the two verbs share one implementation.
 
 import logging
 
-import config
 from cpcommon import clients, errors
 from cpcommon import config as cpconfig
+
+import config
 
 logger = logging.getLogger()
 
