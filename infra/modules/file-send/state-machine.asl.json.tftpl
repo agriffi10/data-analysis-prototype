@@ -1,5 +1,5 @@
 {
-  "Comment": "File-send control plane (SPEC-164 skeleton — the front door only). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not. Nothing is listed, planned or copied: SPEC-165 inserts source resolution and the copy plan after ValidateAuthorize, SPEC-166 the recipient guard, the Distributed-Map transfer and the real terminals. ValidateFailureSeed/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user; the seed recovers the request from $$.Execution.Input, which is what lets the notifier name a sender at all. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "Comment": "File-send control plane (SPEC-164 front door + SPEC-165 source resolution). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not; inspect-source then expands that selection into a copy plan in the admin bucket and threads back only its key, the object count and the byte total. NOTHING IS COPIED — SPEC-166 adds the recipient guard, the Distributed-Map transfer and the real terminals after Planned. The two FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. TWO seeds, because the two failure windows differ: before the actor exists the error REPLACES the state and the request survives only in $$.Execution.Input, while after it the catch merges under a ResultPath and the verified actor is already on the state. Both must supply $.raw, which RecordFailure reads unconditionally and which no post-validate state carries. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -35,15 +35,73 @@
     },
     "Validated": {
       "Type": "Pass",
-      "Comment": "THE PLACEHOLDER TERMINAL (SPEC-164). The request has been proved legitimate and nothing has been touched. SPEC-165 replaces this state's Next with source resolution; the shape it emits is what the next verb will consume, so it is written as the real thing rather than a bare Succeed.",
+      "Comment": "THE ASL/VERB CROSS-CHECK POINT, and that is now its whole job (SPEC-165 took its terminal role away and deliberately kept the state). A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via test_state_machine_file_send.py, which reads this block and the verb's real return value and requires them to agree. It emits exactly the four keys the verb returns; the SPEC-164 'status' literal is gone, because a placeholder marker outliving its placeholder is how a field nothing reads survives into production.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "recipients.$": "$.recipients"
+      },
+      "Next": "InspectSource"
+    },
+    "InspectSource": {
+      "Type": "Task",
+      "Comment": "SPEC-165. Expands every selected item under the authorized root — folders through their pagination boundary — applies this plane's exclusions, refuses an overlapping or name-colliding selection, enforces the object and byte caps, and writes the copy plan to the admin bucket. NEITHER THE OBJECT LIST NOR ANY KEY RETURNS TO THE STATE: at SEND_MAX_OBJECTS the plan is tens of megabytes against a 256 KB payload limit, so what comes back is the plan's KEY plus the count and byte total. Unlike ValidateAuthorize its input IS the request object, so its Catch can carry a ResultPath and merge the error alongside rather than replacing the state.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${inspect_source_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "InspectFailureSeed"
+        }
+      ],
+      "Next": "Planned"
+    },
+    "Planned": {
+      "Type": "Pass",
+      "Comment": "THE PLACEHOLDER TERMINAL (SPEC-165). Everything that will be copied is known and written down, and not one byte has moved. SPEC-166 replaces this state's Next with the per-recipient conflict guard and the Distributed-Map transfer; the shape it emits is what those states will consume, so it is written as the real thing rather than a bare Succeed. It doubles as the cross-check on inspect-source's own output, exactly as Validated does for the validator.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "source.$": "$.source",
         "recipients.$": "$.recipients",
-        "status": "validated"
+        "copyPlanKey.$": "$.copyPlanKey",
+        "objectCount.$": "$.objectCount",
+        "totalBytes.$": "$.totalBytes",
+        "status": "planned"
       },
       "Next": "Succeeded"
+    },
+    "InspectFailureSeed": {
+      "Type": "Pass",
+      "Comment": "The failure seed for every state after the request identity exists. It differs from ValidateFailureSeed in the one way that matters: the request IS on the state here, so the actor comes from $.actor — the verified username the validator already produced — rather than being recovered from a token. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the actor is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path (a fleet-wide test enforces exactly that). It costs nothing on the success path, which never runs this state.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "raw.$": "$$.Execution.Input",
+        "error.$": "$.error"
+      },
+      "Next": "RecordFailure"
     },
     "ValidateFailureSeed": {
       "Type": "Pass",

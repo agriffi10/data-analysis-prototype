@@ -64,11 +64,53 @@ Attributes:
 
     Checked AFTER normalisation rather than on the raw body: the item count is already bounded
     by then, so measuring the real serialised form costs nothing and measures the real thing.
+  SEND_MAX_OBJECTS: Cap on the EXPANDED object count — what the selection resolves to, which
+    is the quantity neither cap above can express: ``SEND_MAX_ITEMS`` bounds the things the
+    user picked, and one of them can be a folder holding a million objects.
+
+    **What sizes it is inspect-source holding the whole copy plan in memory before writing
+    it**, not the listing time. ``list_data_objects`` pages at 1,000 keys, so 20,000 objects is
+    20 round trips — a second or two of a 120-second budget, nowhere near binding. The plan is:
+    each entry carries the absolute source key, the relative key and the owning item name, so
+    at S3's worst-case 1024-byte keys an entry serialises to roughly 2.4 KB and the whole plan
+    to ~48 MB, with the in-memory list of dicts several times that again. The verb's 1024 MB
+    (locals.tf) is sized for exactly that, and ``test_the_worst_case_copy_plan_fits_in_the_
+    verbs_memory`` computes it, so raising this cap without raising the memory fails the build.
+
+    It is NOT a bound on the transfer. The manifest carries one item per (recipient, object)
+    pair, so 20,000 objects to 50 recipients is a million items — the product caps are
+    SPEC-166's, sized against the Map Run its own ``TimeoutSeconds`` bounds.
+  SEND_MAX_TOTAL_BYTES: Cap on the bytes ONE selection holds, and only that. Like its
+    table-share twin it says nothing about how much the copy moves, because every recipient
+    gets a full copy; it exists so a single send cannot be unbounded on its own.
+
+    **What sizes it is the copy's MAKESPAN, at the rate the engine actually delivers.** The
+    copy is ``cpcommon.transfer`` for this plane too, and its recorded model is a makespan
+    rather than an aggregate: ``copy_batch`` hands one whole object to each worker and the
+    multipart loop inside ``copy_one`` is serial, so the pessimistic denominator is
+    ``MAP_MAX_CONCURRENCY x CONSERVATIVE_STREAM_BYTES_PER_SECOND`` — 500 MB/s, not the
+    4 GB/s an aggregate-bandwidth reading suggests. At that rate 1 TiB is ~2,200 seconds for a
+    single recipient, comfortably inside the 10,800-second ceiling the identical engine already
+    runs under on table-share. ``test_a_full_size_selection_copies_inside_the_engines_ceiling``
+    computes it.
+
+    **SPEC-166 must add the recipient product cap and the machine ``TimeoutSeconds`` together.**
+    This cap alone permits 50 recipients x 1 TiB = 50 TiB, which no plausible throughput moves;
+    that is table-share's ``SHARE_MAX_TRANSFER_BYTES`` lesson, and it is deferred here rather
+    than guessed because the ceiling it must be measured against does not exist on this machine
+    yet. A per-object cap is deferred with it, for the same reason and to the same place: what
+    sizes one is the copy verb's batch makespan against ``COPY_TIMEOUT_SECONDS``, and the copy
+    plan already carries every object's size, so 166 enforces it with no second listing and
+    still before any byte moves.
   SHARED_FILES_FOLDER: The destination inbox folder, one level under the recipient's space
     root and namespaced by sender — ``{target}/shared_files/{sender}/{item}``. Mirrors
     ``shared_tables/``, so two senders never collide and provenance is visible in the file
     browser without a metadata lookup. Named here because it is the one layout constant
     validate-authorize and the SPEC-166 verbs must agree on.
+  USER_SETTINGS_FOLDER: The space's own portal-managed settings folder — the notification inbox
+    and the shared-space connections cache. Excluded from an EXPANSION (SPEC-165), anchored at
+    the space root, not refused as a selected item: the browser hides it everywhere, so a user
+    cannot select it, and the exclusion is what keeps a root-level walk from carrying it out.
   ATHENA_RESULTS_FOLDER: The space's own Athena results folder, refused as a send source.
     **A NEW RULE FOR THIS PLANE, not an existing list being reused** — ``protectedFolders.ts``
     keeps three deliberately divergent lists in which ``athenaresults/`` is never a paste
@@ -87,6 +129,12 @@ SEND_MAX_ITEMS = 200
 
 SEND_MAX_ITEM_BYTES = 96 * 1024
 
+SEND_MAX_OBJECTS = 20_000
+
+SEND_MAX_TOTAL_BYTES = 1024**4
+
 SHARED_FILES_FOLDER = "shared_files"
 
 ATHENA_RESULTS_FOLDER = "athenaresults"
+
+USER_SETTINGS_FOLDER = "user_settings"

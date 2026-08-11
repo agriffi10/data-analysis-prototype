@@ -15,13 +15,13 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 
-from cpcommon.errors import TerminalError
-
 # Importing the messages table is what REGISTERS this plane's reason codes, and TerminalError
 # validates its reason at the raise site — so without this an authorization refusal raises
 # ValueError instead. Every verb gets the registration transitively through fscommon.notify;
 # this file exercises authz alone, so it imports it directly rather than relying on an import
 # it does not make.
+from cpcommon import config
+from cpcommon.errors import TerminalError
 from fscommon import authz, messages  # noqa: F401
 
 
@@ -193,3 +193,48 @@ def test_a_name_that_merely_starts_with_it_is_allowed():
 def test_the_rule_holds_identically_in_a_shared_space():
     with pytest.raises(TerminalError):
         authz.assert_not_results_folder("sales/", "sales/athenaresults/x.csv")
+
+
+# ── SPEC-165 FR-003 AC1: where a recipient's inbox lives ─────────────────────
+
+
+def test_a_user_recipient_resolves_to_the_user_space_bucket():
+    assert authz.recipient_location("user", "bob") == {
+        "bucket": config.USER_SPACE_BUCKET,
+        "root": "bob/",
+    }
+
+
+def test_a_space_recipient_resolves_to_the_shared_space_bucket():
+    assert authz.recipient_location("space", "sales") == {
+        "bucket": config.SHARED_SPACE_BUCKET,
+        "root": "sales/",
+    }
+
+
+def test_the_two_buckets_are_not_the_same_one():
+    """The whole content of AC1. A resolver that returned one bucket for both kinds would pass
+    every shape assertion above and write every `space` send into a username's prefix."""
+    user = authz.recipient_location("user", "x")
+    space = authz.recipient_location("space", "x")
+
+    assert user["bucket"] != space["bucket"]
+
+
+def test_resolving_is_NOT_authorizing():
+    """The asymmetry with `authorize_source`, asserted so it cannot be quietly closed: a
+    recipient is any space by name and any name at all here, because the execution role does the
+    write and whether the recipient exists is validate-authorize's per-recipient annotation."""
+    assert authz.recipient_location("space", "a-space-nobody-is-in")["root"] == "a-space-nobody-is-in/"
+
+
+@pytest.mark.parametrize(("kind", "name"), [("personal", "bob"), ("", "bob"), ("user", ""), ("user", "  "), ("user", None)])
+def test_an_unusable_recipient_refuses_rather_than_defaulting_to_a_bucket(kind, name):
+    """Neither can reach here through validate-authorize, which shape-checks both. It fails
+    rather than defaulting because guessing wrong writes one person's files into another's
+    space — and `personal` is in the list on purpose: it is a valid SOURCE kind and not a
+    recipient kind, which is exactly the confusion a shared vocabulary invites."""
+    with pytest.raises(TerminalError) as caught:
+        authz.recipient_location(kind, name)
+
+    assert caught.value.reason == "forbidden"

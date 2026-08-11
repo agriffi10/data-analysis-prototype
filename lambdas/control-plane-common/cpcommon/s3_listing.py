@@ -17,7 +17,7 @@ Attributes:
     reaching a space root must never treat them as source data.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from . import clients
 
@@ -74,7 +74,12 @@ def is_ignored(key: str, size: int, prefix: str) -> bool:
     return size == 0
 
 
-def list_data_objects(bucket: str, prefix: str, relative: bool = False) -> Iterator[tuple[str, int]]:
+def list_data_objects(
+    bucket: str,
+    prefix: str,
+    relative: bool = False,
+    ignore: Callable[[str, int, str], bool] = is_ignored,
+) -> Iterator[tuple[str, int]]:
     """Yields every non-ignored data object under a prefix, paginating past 1000 objects.
 
     Errors are never swallowed — but "raw" means a botocore ``ClientError``, which a Step
@@ -82,12 +87,24 @@ def list_data_objects(bucket: str, prefix: str, relative: bool = False) -> Itera
     rather than ``ClientError``. Mapping a throttle or 5xx is therefore the caller's job, and
     only helps under a state whose Retry actually names ``TransientError``.
 
+    **The pagination is the shared part; the ignore rule is not necessarily** (SPEC-165). Every
+    rule in ``is_ignored`` is anchored at the LISTING PREFIX, which is right for the three
+    analytics planes — they list a table's or a check's own folder — and wrong for file-send,
+    whose listing prefix is whichever item the user picked. There the same rule would drop a
+    user's own ``reports/athenaresults/`` and any underscore-prefixed folder from a copy,
+    silently. So the predicate is a parameter rather than a fork of the paginator: one place
+    still pages past 1000 keys, and a plane whose exclusions are anchored somewhere else says
+    so at the call site.
+
     Args:
       bucket: The bucket to list.
       prefix: The request prefix.
       relative: Yield keys relative to the prefix instead of absolute ones. Table-share
         passes True and re-roots them under each recipient's path; table-builder and
         data-quality need absolute keys for manifests and sample keys.
+      ignore: Predicate receiving ``(key, size, prefix)`` and reporting whether the object is
+        something other than source data. Defaults to the analytics rule above; file-send
+        passes its own, anchored at the space root.
 
     Yields:
       ``(key, size)`` for each data object.
@@ -99,6 +116,6 @@ def list_data_objects(bucket: str, prefix: str, relative: bool = False) -> Itera
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key, size = obj["Key"], obj["Size"]
-            if is_ignored(key, size, prefix):
+            if ignore(key, size, prefix):
                 continue
             yield (key[len(prefix):] if relative else key), size
