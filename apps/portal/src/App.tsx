@@ -5,6 +5,7 @@ import {RootLayout} from './components/RootLayout';
 import {ProtectedLayout} from './components/ProtectedLayout';
 import {LoadingState} from './components/LoadingState';
 import {ErrorBoundary} from './components/ErrorBoundary';
+import {FeatureRoute} from './routes/FeatureRoute';
 import LandingPage from './routes/LandingPage';
 import FilesPage from './routes/FilesPage';
 import NotificationsPage from './routes/NotificationsPage';
@@ -34,9 +35,20 @@ export default function App() {
           element={<LandingPage />}
         />
         <Route element={<ProtectedLayout />}>
+          {/* SPEC-163: every gated route keeps its path and swaps its ELEMENT. The route
+              must still match, or a disabled feature would fall through to the `*` 404 and
+              tell a user with a perfectly correct link that their URL is wrong.
+
+              `FeatureRoute` is OUTSIDE the Suspense boundaries below on purpose: it decides
+              whether the page mounts at all, and a lazy chunk that loads before the answer
+              arrives is a page that has already started fetching. */}
           <Route
             path="/files"
-            element={<FilesPage />}
+            element={
+              <FeatureRoute flag="files">
+                <FilesPage />
+              </FeatureRoute>
+            }
           />
           {/* Each lazy route's Suspense is wrapped: Suspense has NO error path, so
               a chunk-load rejection (deploy-app.yml:132-139's accepted race) would
@@ -45,21 +57,25 @@ export default function App() {
           <Route
             path="/query"
             element={
-              <ErrorBoundary>
-                <Suspense fallback={<LoadingState />}>
-                  <QueryPage />
-                </Suspense>
-              </ErrorBoundary>
+              <FeatureRoute flag="query">
+                <ErrorBoundary>
+                  <Suspense fallback={<LoadingState />}>
+                    <QueryPage />
+                  </Suspense>
+                </ErrorBoundary>
+              </FeatureRoute>
             }
           />
           <Route
             path="/connections"
             element={
-              <ErrorBoundary>
-                <Suspense fallback={<LoadingState />}>
-                  <ConnectionsPage />
-                </Suspense>
-              </ErrorBoundary>
+              <FeatureRoute flag="sharedWorkspaces">
+                <ErrorBoundary>
+                  <Suspense fallback={<LoadingState />}>
+                    <ConnectionsPage />
+                  </Suspense>
+                </ErrorBoundary>
+              </FeatureRoute>
             }
           />
           {/* Reached via the header bell link, not the primary tab bar. Eager —
@@ -81,15 +97,27 @@ export default function App() {
               keeping the list route first reads in the order a user meets them. */}
           <Route
             path="/data-quality"
-            element={<DataQualityPage />}
+            element={
+              <FeatureRoute flag="dataQuality">
+                <DataQualityPage />
+              </FeatureRoute>
+            }
           />
           {/* Reached from this list or from a notification's deep link (SPEC-114) —
               the space is in the path because a requestId alone doesn't say which
               space holds the report. Eager: it reuses the S3 client the Files route
               already pulls in, so lazy-loading would save nothing. */}
+          {/* The gate matters MORE here than on the list route: this page reads a report
+              from S3 on mount, so a page that mounted before the flag resolved would turn a
+              disabled feature into an existence oracle for someone else's report — the
+              exact disclosure SPEC-113 designed the route to avoid. */}
           <Route
             path="/data-quality/:space/:requestId"
-            element={<DataQualityReportPage />}
+            element={
+              <FeatureRoute flag="dataQuality">
+                <DataQualityReportPage />
+              </FeatureRoute>
+            }
           />
         </Route>
         <Route

@@ -28,6 +28,16 @@ export type UseFileSpaceParams = {
   isLoading: boolean;
   userSpaceBucket: string | undefined;
   sharedSpaceBucket: string | undefined;
+  /**
+   * Resolve to the personal space and ignore `?space=` entirely (SPEC-163 FR-005).
+   *
+   * Set while the `sharedWorkspaces` flag is off. Deliberately NOT the same thing as a
+   * space that cannot be resolved: this reports `fellBack: false`, so no banner claims the
+   * space is unavailable — it is available, this build just does not offer shared spaces.
+   * `useConnections` still resolves normally, because a flag may not touch a service
+   * (SPEC-162 FR-006).
+   */
+  ignoreSpaceParam?: boolean;
 };
 
 export type UseFileSpaceResult = {
@@ -101,10 +111,16 @@ export function useFileSpace({
   connections,
   isLoading,
   userSpaceBucket,
-  sharedSpaceBucket
+  sharedSpaceBucket,
+  ignoreSpaceParam = false
 }: UseFileSpaceParams): UseFileSpaceResult {
   const [searchParams, setSearchParams] = useSearchParams();
-  const spaceParam = searchParams.get('space');
+  // SPEC-163 FR-005: with shared workspaces off the parameter is not resolved-and-refused,
+  // it is NOT READ. That distinction is the whole requirement — routing it through the
+  // `fellBack` path below would raise "That shared space is no longer available", which is a
+  // false statement about a space that is perfectly fine and that the user will see again
+  // the moment the flag flips back.
+  const spaceParam = ignoreSpaceParam ? null : searchParams.get('space');
 
   const {space, fellBack} = useMemo(() => {
     if (!username) return {space: null, fellBack: false};

@@ -109,11 +109,53 @@ confirming the IAM condition, not the SPA lists.
 - SPEC-162 FR-003 AC2 (the document lands with `no-cache`).
 - SPEC-162 FR-003 AC1/AC6 (the publish runs on a `config/**` push and is watched to completion).
 
-**NOT discharged: FR-007's runtime half.** No step here proves `VITE_ENVIRONMENT` reached the
-production bundle, and none can. Every step passes identically with the variable unset, because an
-unset environment resolves the document's own `defaults` and still reports `ready` — and nothing
-reads the resolved set until SPEC-163, so no observable behaviour depends on it either way. The
-static half is met (`.env.example`, `deploy-app.yml`, the repo variable set to `prod`). **Settle the
-runtime half in SPEC-163's live check**, where a per-environment override that hides a surface is
-finally visible: publish `environments.prod = {"query": false}`, confirm the Query tab disappears
-without an app redeploy, and revert.
+**FR-007's runtime half is discharged by the SPEC-163 pass below**, not by anything above. No step
+in the 162 pass proves `VITE_ENVIRONMENT` reached the production bundle, and none can: every one of
+them passes identically with the variable unset, because an unset environment resolves the
+document's own `defaults` and still reports `ready`. Only an override that visibly HIDES something
+settles it.
+
+---
+
+## SPEC-163 — a flag actually hides things
+
+Browser: **Safari**. Do this in one sitting; step 4 restores the environment.
+
+### Step 1 — publish two features off
+
+Edit `config/feature-flags.json` → `environments.prod` to `{"query": false, "dataQuality": false}`.
+Merge, and wait for **Publish Config** to go green. **Do not redeploy the app** — that is the point.
+
+### Step 2 — desktop
+
+Hard-reload the portal, signed in. Confirm all of:
+
+| Where | Expect |
+|---|---|
+| Topbar | **Files** and **Connections** only. No Query tab, no Data quality tab — *absent*, not greyed out |
+| `/query` typed into the address bar | The **"Query isn't available"** page, with a working **Go to Files** link — **not** "Page not found" |
+| `/data-quality` | Same, naming Data quality |
+| Files, in a folder | **No "Create table" button** on the toolbar |
+| Files, with one item selected | **No "Check quality"** in the selection toolbar |
+| `/help` | Neither the **Query** nor the **Tables** section in the rail; open **Files** and confirm **"Check data quality"** and **"Find a past quality check"** are gone from its guides while **"Upload files"** remains |
+
+### Step 3 — 400px
+
+Narrow the window to 400px (or use the responsive design mode) and reload. Open the **hamburger**:
+
+- The drawer lists **Files**, **Connections**, **Notifications**, **Help** — and *not* Query or
+  Data quality. A tab hidden in the topbar and present here is the feature still being one tap
+  away, which is the whole reason both take the same predicate.
+- The reduced nav still lays out correctly — no gap where a tab was, no wrapped row.
+
+### Step 4 — flip them back on, and watch it happen without a deploy
+
+Set `environments.prod` back to `{}`, merge, wait for **Publish Config**, hard-reload.
+
+Everything in steps 2 and 3 returns. **Confirm no Deploy App run was involved** — `gh run list
+--limit 5` should show `Publish Config` and no `Deploy App`.
+
+**This step is what discharges SPEC-162 FR-007's runtime half**: an override took effect, so
+`VITE_ENVIRONMENT` demonstrably reached the bundle and resolved the `prod` block. If the tabs had
+stayed put in step 2, the variable is unset in the build — check the repo variable and
+`deploy-app.yml`.

@@ -13,3 +13,10 @@ Public surface only — the code is the source of truth; verify signatures befor
 | `HelpGuideCard` | `HelpGuideCard.tsx` | One accordion guide: header button (`aria-expanded`/`aria-controls`), numbered steps, at most one Tip/Careful callout; independent open state (SPEC-074). |
 | `HelpLink` | `HelpLink.tsx` | Header help control — `NavLink` to `/help` styled like `NotificationsBell`, active on `/help` (SPEC-074). |
 | `renderInline(text)` | `inlineMarkup.tsx` | Parses `<b>`/`<kbd>` markup in guide step + callout strings into `<strong>`/keyed elements (no `dangerouslySetInnerHTML`) (SPEC-074). |
+
+> **Guide visibility is flag-driven since SPEC-163.** The guides themselves are unchanged, but
+> `HelpPage` filters both SECTIONS and individual GUIDES through `hiddenHelpIds()` — sections
+> alone would leave the two data-quality guides listed with Data Quality off, because they live
+> inside the Files section. The guide→flag mapping lives ONLY in `features/feature-flags/
+> gatedSurfaces.ts`; `helpContent.ts` knows nothing about flags, so a guide cannot end up gated
+> in the list and reachable by its anchor.

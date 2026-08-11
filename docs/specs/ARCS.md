@@ -989,7 +989,7 @@ The engine lands on **`cpcommon`**, not `tscommon`, and that is the arc's other 
 the send-files arc below is its second caller, and SPEC-156 already settled that `cpcommon` owns
 the algorithm while a domain layer owns the wording.
 
-## Feature-flags arc (SPEC-162 → 163 — filed 2026-08-10; **162 shipped 2026-08-11**, 163 Draft)
+## Feature-flags arc (SPEC-162 → 163 — filed 2026-08-10; **COMPLETE 2026-08-11**)
 
 Everything ships to everyone the moment it merges. The arc adds a git-controlled JSON document in
 the user-space bucket (`_config/feature-flags.json`, beside `_directory/`), per environment,

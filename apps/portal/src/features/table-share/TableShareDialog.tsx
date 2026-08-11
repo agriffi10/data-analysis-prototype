@@ -8,6 +8,7 @@ import {useUsernameSuggestions} from '../user-directory/useUsernameSuggestions';
 import {Banner} from '../../components/Banner';
 import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 import {useSpaceSuggestions} from '../shared-spaces/useSpaceSuggestions';
+import {useFeature} from '../feature-flags';
 import type {ShareRecipient} from './tableShare.types';
 import type {ShareTarget} from './useTableShare';
 
@@ -54,6 +55,11 @@ function unlistedSpaceNote(names: string[]): string {
  * notifications.
  */
 export function TableShareDialog({source, busy = false, submitError, onSubmit, onCancel}: Props) {
+  // SPEC-163 FR-005: with shared workspaces off there is one recipient kind and no toggle.
+  // `kind` stays state rather than becoming a constant so the space branch is exercised by
+  // the same code path when the flag is on — and it can never LEAVE 'user' while off, because
+  // the only thing that sets it is the control that no longer renders.
+  const sharedSpacesEnabled = useFeature('sharedWorkspaces');
   const [kind, setKind] = useState<ShareRecipient['kind']>('user');
   const [entry, setEntry] = useState('');
   const [recipients, setRecipients] = useState<ShareRecipient[]>([]);
@@ -145,32 +151,39 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
         </p>
       </div>
 
-      <fieldset className="mb-3">
-        <legend className="mb-1.5 block text-sm font-medium text-text">Share with</legend>
-        <div className="flex gap-4">
-          {(
-            [
-              {value: 'user', label: 'Users'},
-              {value: 'space', label: 'Shared spaces'}
-            ] as const
-          ).map((option) => (
-            <label
-              key={option.value}
-              className="flex items-center gap-1.5 text-sm text-text">
-              <input
-                type="radio"
-                name="table-share-kind"
-                value={option.value}
-                checked={kind === option.value}
-                disabled={busy}
-                onChange={() => setKind(option.value)}
-                className="h-4 w-4 accent-accent"
-              />
-              {option.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      {/* SPEC-163 FR-005: with `sharedWorkspaces` off there is exactly ONE recipient kind, so
+          the toggle does not render at all. A single-option radio group is a control that
+          asks a question with one answer — worse than no control, because it implies the
+          other option exists somewhere. The field below then labels itself for usernames,
+          which `kind` already does, because `kind` is pinned to 'user' at that point. */}
+      {sharedSpacesEnabled && (
+        <fieldset className="mb-3">
+          <legend className="mb-1.5 block text-sm font-medium text-text">Share with</legend>
+          <div className="flex gap-4">
+            {(
+              [
+                {value: 'user', label: 'Users'},
+                {value: 'space', label: 'Shared spaces'}
+              ] as const
+            ).map((option) => (
+              <label
+                key={option.value}
+                className="flex items-center gap-1.5 text-sm text-text">
+                <input
+                  type="radio"
+                  name="table-share-kind"
+                  value={option.value}
+                  checked={kind === option.value}
+                  disabled={busy}
+                  onChange={() => setKind(option.value)}
+                  className="h-4 w-4 accent-accent"
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
 
       <div className="mb-1 flex items-end gap-2">
         <div className="min-w-0 flex-1">

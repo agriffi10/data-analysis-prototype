@@ -8,6 +8,7 @@ import {
   usableSpaceTargets,
   type FileSpaceTarget
 } from '../features/file-browser';
+import {useFeatureSet} from '../features/feature-flags';
 import {Sidebar} from '../features/connections/Sidebar';
 import {SpacesList} from '../features/connections/SpacesList';
 import {useProvideNavRail} from '../components/navRailContext';
@@ -44,12 +45,23 @@ export default function FilesPage() {
 
   // Hooks run unconditionally; the dev-unauth path below overrides the targets.
   const {connections, isLoading: connectionsLoading} = useConnections(user?.username ?? null);
+  // SPEC-163 FR-005: the spaces rail and the `?space=` parameter are shared-workspace
+  // surfaces. With the flag off the page shows no rail and resolves to the personal space
+  // with NO notice — the deep link is ignored, not refused.
+  const {isEnabled, status: flagsStatus} = useFeatureSet();
+  const sharedSpacesEnabled = isEnabled('sharedWorkspaces');
   const {space, activeSpaceId, selectSpace, fellBack, dismissFellBack} = useFileSpace({
     username: user?.username ?? null,
     connections,
     isLoading: connectionsLoading,
     userSpaceBucket,
-    sharedSpaceBucket
+    sharedSpaceBucket,
+    // Gated on the RESOLVED answer, not on `sharedSpacesEnabled` — which reads false while the
+    // flags are in flight. Ignoring the parameter during that window would resolve the
+    // personal space first and then swap, costing an extra ListObjectsV2 and flashing the
+    // wrong space on every cold load of a shared-space deep link, in the common case where
+    // the feature is ON.
+    ignoreSpaceParam: flagsStatus !== 'loading' && !sharedSpacesEnabled
   });
   // SPEC-073: a member resolving a shared space they belong to acks their membership
   // (once per session), flipping them Pending → Active in the owner's projection.
@@ -104,13 +116,22 @@ export default function FilesPage() {
       };
   // Spaces move/copy can target: personal + active shared spaces. Undefined in
   // dev-unauth (read-only — the dialogs never open).
+  // The move/copy DESTINATION list is a shared-workspace surface too, and hiding only the rail
+  // would leave the write path open: the picker renders a space selector whenever it has more
+  // than one option, so a user could still browse into `marketing_data` and paste a file there
+  // with the feature switched off. Filtered here, at the view — `useConnections` still resolves
+  // every space, and the IAM grants are untouched (SPEC-162 FR-006).
   const destinations: FileSpaceTarget[] | undefined = devUnauthenticated
     ? undefined
-    : usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket);
+    : usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket).filter(
+        (target) => sharedSpacesEnabled || target.kind === 'personal'
+      );
 
   // Below `tablet` the on-page Spaces rail is hidden; feed the same list into the
-  // mobile AppNavDrawer's contextual slot so it stays reachable (SPEC-099 FR-001).
-  const navRail = useMemo(
+  // mobile AppNavDrawer's contextual slot so it stays reachable (SPEC-099 FR-001) — and take
+  // the SAME gate there, because a rail hidden on desktop and present in the hamburger is
+  // the feature still being one tap away.
+  const spacesRail = useMemo(
     () => (
       <div className="p-3">
         <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
@@ -123,7 +144,9 @@ export default function FilesPage() {
     ),
     [sidebarConnections, sidebarActiveId, onSelectSpace]
   );
-  useProvideNavRail(navRail);
+  // The gate sits OUTSIDE the memo: a `useMemo` whose body is a conditional returning JSX is
+  // one the React Compiler declines to preserve, and `npm run lint` fails on it.
+  useProvideNavRail(sharedSpacesEnabled ? spacesRail : null);
 
   const markerKey = target.markerOwner ? prefixMarkerKey(target.markerOwner) : undefined;
   const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
@@ -131,11 +154,13 @@ export default function FilesPage() {
 
   return (
     <>
-      <Sidebar
-        connections={sidebarConnections}
-        activeSpaceId={sidebarActiveId}
-        onSelectSpace={onSelectSpace}
-      />
+      {sharedSpacesEnabled && (
+        <Sidebar
+          connections={sidebarConnections}
+          activeSpaceId={sidebarActiveId}
+          onSelectSpace={onSelectSpace}
+        />
+      )}
       <main
         id="main"
         className="min-w-0 flex-1 px-4 py-6">

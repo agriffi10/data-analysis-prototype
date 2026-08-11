@@ -25,6 +25,7 @@ import {useFileBrowserDialogs} from './useFileBrowserDialogs';
 import {useSharedSpaceAccessRecovery} from './useSharedSpaceAccessRecovery';
 import {SelectionProvider} from './SelectionProvider';
 import {CreateTableButton} from '../table-builder';
+import {useFeature} from '../feature-flags';
 import {useSelection, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {toUserText} from '../../lib/errorMessages';
@@ -112,6 +113,11 @@ function FileBrowserContent({
   // Mount-gate the table-vs-card list swap (SPEC-099); matchMedia reads correctly
   // on first paint in the browser, so no flash and only one markup ever mounts.
   const isMobile = useIsMobile();
+  // SPEC-163 FR-005: two CROSS-FEATURE entry points live on this page — "Create table" is a
+  // Query capability and "Check quality" is a Data Quality one. Neither belongs to the file
+  // browser, which is exactly why a per-component gating pass misses them.
+  const queryEnabled = useFeature('query');
+  const dataQualityEnabled = useFeature('dataQuality');
   // `rootPrefix` is the space root, not the browsed folder: it is what tells the
   // delete/move services that a folder is the space's own `athenaresults/` rather
   // than a user folder that happens to share the name (SPEC-150 FR-007).
@@ -210,7 +216,7 @@ function FileBrowserContent({
             {/* SPEC-071: turn the current folder into a Glue/Athena table. Needs the
                 space's database (= the marker owner: username | shared name), so it's
                 gated on `username` like the other space-scoped actions. */}
-            {username && (
+            {username && queryEnabled && (
               <CreateTableButton
                 spaceKind={spaceKind ?? 'personal'}
                 bucket={bucket}
@@ -355,7 +361,7 @@ function FileBrowserContent({
           onRequestDelete={dialogs.openConfirmDelete}
           onRequestMove={dialogs.openMove}
           onRequestCopy={dialogs.openCopy}
-          onRequestQualityCheck={username ? dialogs.openQualityCheck : undefined}
+          onRequestQualityCheck={username && dataQualityEnabled ? dialogs.openQualityCheck : undefined}
           isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}
         />
       )}

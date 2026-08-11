@@ -57,6 +57,15 @@ const TABS: Tab[] = [
   }
 ];
 
+export type PrimaryNavProps = {
+  /**
+   * Is this destination's feature on? Required, not defaulted — a default would make an
+   * unwired caller ship every tab while looking correct, which is the one failure this
+   * prop exists to prevent.
+   */
+  isPathEnabled: (to: string) => boolean;
+};
+
 /**
  * Primary tab navigation (Files | Query | Connections | Data quality) in the authenticated
  * topbar. Underline tabs — deliberately distinct from the sidebar's filled
@@ -64,15 +73,24 @@ const TABS: Tab[] = [
  * deep links and back/forward set the active tab. The Header gates rendering
  * on auth status.
  *
+ * **Gating arrives as a PREDICATE, not as a hook call** (SPEC-163 FR-001): this file lives in
+ * `components/`, which may not import from `features/` (SPEC-155), and the rule is worth more
+ * than the convenience — `Header` is the one place that knows both the auth state and the
+ * flags, so it is the one place that decides.
+ *
+ * A disabled tab is REMOVED, never rendered-and-disabled and never visually hidden: a
+ * `hidden` tab is still in the accessibility tree, so it would remain announced and focusable
+ * for a feature the environment says is not there.
+ *
  * @example
- * <PrimaryNav />
+ * <PrimaryNav isPathEnabled={(to) => !hidden.has(to)} />
  */
-export function PrimaryNav() {
+export function PrimaryNav({isPathEnabled}: PrimaryNavProps) {
   return (
     <nav
       aria-label="Primary"
       className="flex h-full items-center gap-1">
-      {TABS.map((tab) => (
+      {TABS.filter((tab) => isPathEnabled(tab.to)).map((tab) => (
         <NavLink
           key={tab.to}
           to={tab.to}

@@ -1,5 +1,6 @@
-import {useId, useState} from 'react';
+import {useCallback, useId, useState} from 'react';
 import {useAuth} from '../features/auth';
+import {NAV_PATH_FLAGS, useFeatureSet} from '../features/feature-flags';
 import {HelpLink} from '../features/help';
 import {NotificationsBell, useNotifications} from '../features/notifications';
 import {useIsMobile} from '../lib/useBreakpoint';
@@ -32,6 +33,24 @@ export function Header() {
 
   const authed = status === 'authenticated' && !!user;
 
+  // The header is the one place that knows both the auth state and the flags, so it is where
+  // the gating decision is made and handed down (SPEC-163 FR-001). `PrimaryNav` and
+  // `AppNavDrawer` live in `components/` and may not import a feature (SPEC-155), and both
+  // get the SAME predicate — a tab hidden in the topbar and present in the mobile drawer is a
+  // feature that is still one hamburger away.
+  //
+  // A destination with no entry in the registry (Notifications, Help) is ungated, and while
+  // the flags are still loading every gated tab is absent: a tab that appears and then
+  // vanishes under the pointer is worse than one that arrives a tick late.
+  const {isEnabled} = useFeatureSet();
+  const isPathEnabled = useCallback(
+    (to: string) => {
+      const flag = NAV_PATH_FLAGS.get(to);
+      return !flag || isEnabled(flag);
+    },
+    [isEnabled]
+  );
+
   return (
     <header className="h-14 bg-surface border-b border-border">
       <div className="flex h-full items-center gap-4 px-4">
@@ -62,7 +81,7 @@ export function Header() {
 
         {authed && (
           <div className="hidden h-full tablet:flex">
-            <PrimaryNav />
+            <PrimaryNav isPathEnabled={isPathEnabled} />
           </div>
         )}
 
@@ -115,6 +134,7 @@ export function Header() {
           open={navOpen}
           onClose={() => setNavOpen(false)}
           contextualRail={contextualRail}
+          isPathEnabled={isPathEnabled}
         />
       )}
 

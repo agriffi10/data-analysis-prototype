@@ -5,6 +5,7 @@ import {MemoryRouter} from 'react-router';
 import {HelpPage} from './HelpPage';
 import {HELP_SECTIONS} from './helpContent';
 import {COMPONENT_AXE_OPTIONS, ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
+import {TestProviders, renderWithProviders} from '../../test/renderWithProviders';
 import {HelpLink} from './HelpLink';
 import {HelpSectionChips} from './HelpSectionChips';
 import {HelpSidebar} from './HelpSidebar';
@@ -86,12 +87,11 @@ describe('HelpGuideCard', () => {
 
 // ─── from HelpPage.test.tsx ───
 describe('HelpPage', () => {
+  // Through the shared harness since SPEC-163: the page gates its own sections on the
+  // feature flags, so it now needs the auth context and the query client the flags hook
+  // reads. The harness seeds the flags all-on, which is the state these tests assume.
   function renderAt(path: string) {
-    return render(
-      <MemoryRouter initialEntries={[path]}>
-        <HelpPage />
-      </MemoryRouter>
-    );
+    return renderWithProviders(<HelpPage />, {route: path});
   }
 
   function setWidth(w: number) {
@@ -170,9 +170,9 @@ describe('HelpPage', () => {
 // ─── from HelpPage.a11y.test.tsx ───
 describe('HelpPage.a11y', () => {
   const page = (
-    <MemoryRouter initialEntries={['/help']}>
+    <TestProviders route="/help">
       <HelpPage />
-    </MemoryRouter>
+    </TestProviders>
   );
 
   describe('Help page accessibility (SPEC-074 FR-006 / SPEC-045)', () => {

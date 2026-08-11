@@ -13,6 +13,12 @@ export type AppNavDrawerProps = {
   id?: string;
   /** Page-supplied rail (Files → Spaces list, Query → schema rail). */
   contextualRail?: ReactNode;
+  /**
+   * Is this destination's feature on? Same predicate `PrimaryNav` takes, and required for the
+   * same reason — the drawer IS the navigation below `tablet`, so a tab hidden only in the
+   * topbar is a feature that is still one hamburger away on a phone.
+   */
+  isPathEnabled: (to: string) => boolean;
 };
 
 type NavDest = {to: string; label: string; icon: ReactNode};
@@ -103,7 +109,7 @@ const DESTS: NavDest[] = [
  * @example
  * <AppNavDrawer open={navOpen} onClose={() => setNavOpen(false)} contextualRail={rail} />
  */
-export function AppNavDrawer({open, onClose, id, contextualRail}: AppNavDrawerProps) {
+export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled}: AppNavDrawerProps) {
   useEscapeKey(onClose, open);
   const panelRef = useRef<HTMLElement>(null);
 
@@ -168,7 +174,7 @@ export function AppNavDrawer({open, onClose, id, contextualRail}: AppNavDrawerPr
           <nav
             aria-label="Primary"
             className="flex flex-col gap-0.5 p-3">
-            {DESTS.map((dest) => (
+            {DESTS.filter((dest) => isPathEnabled(dest.to)).map((dest) => (
               <NavLink
                 key={dest.to}
                 to={dest.to}

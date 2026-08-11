@@ -3,10 +3,10 @@ import {fireEvent, render, screen} from '@testing-library/react';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {LandingNavMenu} from './LandingNavMenu';
 import {COMPONENT_AXE_OPTIONS, ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../test/axe';
-import {MemoryRouter, Route, Routes} from 'react-router';
+import {Route, Routes} from 'react-router';
 import {authenticated, unauthenticated} from '../test/authFixtures';
 import {setReturnPath} from '../lib/returnPath';
-import {AuthContext} from '../features/auth/authContext';
+import {TestProviders} from '../test/renderWithProviders';
 import type {AuthContextValue} from '../features/auth/auth.types';
 import HelpPage from './HelpPage';
 import LandingPage from './LandingPage';
@@ -219,12 +219,13 @@ describe('LandingPage.a11y', () => {
   // state (authenticated visitors are redirected away). No AWS boundary to mock; auth
   // is injected via AuthContext. `expectNoA11yViolations` renders the node itself, so
   // the router + auth providers are composed inline here.
+  // Through the shared stack since SPEC-163: the page reads the flags to decide the
+  // signed-in CTA, so it needs a QueryClientProvider even in the signed-out state it is
+  // asserted in here (where the flags change nothing — FR-007 AC2).
   const signedOut = (
-    <AuthContext.Provider value={unauthenticated()}>
-      <MemoryRouter>
-        <LandingPage />
-      </MemoryRouter>
-    </AuthContext.Provider>
+    <TestProviders auth={unauthenticated()}>
+      <LandingPage />
+    </TestProviders>
   );
 
   beforeEach(() => {

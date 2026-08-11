@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {MemoryRouter} from 'react-router';
 import {NotificationRow} from './NotificationRow';
 import {NotificationsBell} from './NotificationsBell';
@@ -27,7 +28,7 @@ describe('NotificationRow', () => {
 
   describe('NotificationRow (SPEC-060 FR-003/005)', () => {
     it('renders message, a relative timestamp, and a Mark-read control on unread rows', () => {
-      render(
+      renderWithProviders(
         <ul>
           <NotificationRow
             notification={note()}
@@ -41,7 +42,7 @@ describe('NotificationRow', () => {
     });
 
     it('conveys unread state non-visually', () => {
-      render(
+      renderWithProviders(
         <ul>
           <NotificationRow
             notification={note()}
@@ -53,7 +54,7 @@ describe('NotificationRow', () => {
     });
 
     it('read rows are de-emphasized and have no Mark-read control', () => {
-      render(
+      renderWithProviders(
         <ul>
           <NotificationRow
             notification={note({read: true})}
@@ -67,7 +68,7 @@ describe('NotificationRow', () => {
 
     it('calls onMarkRead with the id when clicked', () => {
       const onMarkRead = vi.fn();
-      render(
+      renderWithProviders(
         <ul>
           <NotificationRow
             notification={note({id: 'abc'})}
@@ -83,7 +84,7 @@ describe('NotificationRow', () => {
 
     it('renders Mark-read as a compact trailing control at ≥ tablet', () => {
       setWidth(1024);
-      render(
+      renderWithProviders(
         <ul>
           <NotificationRow
             notification={note()}
@@ -98,7 +99,7 @@ describe('NotificationRow', () => {
 
     it('renders Mark-read as a full-width 34px button below the message on mobile', () => {
       setWidth(400);
-      render(
+      renderWithProviders(
         <ul>
           <NotificationRow
             notification={note()}
@@ -116,16 +117,17 @@ describe('NotificationRow', () => {
 
     // ── SPEC-113 FR-008: the optional deep link ────────────────────────────────
 
+    // Through the shared harness since SPEC-163: the row drops a link into a DISABLED
+    // feature, so it reads the flags and needs the auth context and query client. The harness
+    // seeds them all-on, which is the state every assertion below assumes.
     const renderRow = (notification: Notification) =>
-      render(
-        <MemoryRouter>
-          <ul>
-            <NotificationRow
-              notification={notification}
-              onMarkRead={vi.fn()}
-            />
-          </ul>
-        </MemoryRouter>
+      renderWithProviders(
+        <ul>
+          <NotificationRow
+            notification={notification}
+            onMarkRead={vi.fn()}
+          />
+        </ul>
       );
 
     it('renders the MESSAGE as the link when one is supplied', () => {

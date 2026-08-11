@@ -11,6 +11,7 @@ import {usePageTitle} from '../../hooks/usePageTitle';
 import {useClientPager} from '../../hooks/useClientPager';
 import {useAuth} from '../auth';
 import {useConnections} from '../connections/useConnections';
+import {useFeature} from '../feature-flags';
 import {usableSpaceTargets} from '../file-browser';
 import {useDataQualityRuns} from './useDataQualityRuns';
 import {useDataQualityCheck, type DataQualityTarget} from './useDataQualityCheck';
@@ -44,7 +45,12 @@ export function DataQualityPage() {
   const {user} = useAuth();
   const {connections} = useConnections(user?.username ?? null);
   const buckets = spaceBuckets();
-  const spaces = usableSpaceTargets(connections, user?.username ?? null, buckets.user, buckets.shared);
+  // Same shared-workspace surface as the move/copy picker (SPEC-163): with shared workspaces
+  // off, this dialog must not be the remaining way to reach a shared space by name.
+  const sharedSpacesEnabled = useFeature('sharedWorkspaces');
+  const spaces = usableSpaceTargets(connections, user?.username ?? null, buckets.user, buckets.shared).filter(
+    (space) => sharedSpacesEnabled || space.kind === 'personal'
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [started, setStarted] = useState<string | null>(null);
   const {start: startCheck, isPending} = useDataQualityCheck();

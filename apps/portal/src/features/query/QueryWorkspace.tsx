@@ -18,6 +18,7 @@ import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
 import type {SavedQueriesWrite} from './useSavedQueries';
 import {useConnections} from '../connections/useConnections';
+import {useFeature} from '../feature-flags';
 import {useAllSchemas, useSchema} from './useSchema';
 import {
   deriveViewTargetDatabase,
@@ -75,7 +76,20 @@ export function QueryWorkspace() {
   // still instantiate the editor (react.md §20).
   const isMobile = useIsMobile();
 
-  const {connections, isLoading: connectionsLoading} = useConnections(username || null);
+  const {connections: allConnections, isLoading: connectionsLoading} = useConnections(username || null);
+  // SPEC-163 (extending the spec's contract table — see the delivery doc): shared spaces are
+  // a shared-workspace surface here too. Leaving `teamspace` browsable in the rail while the
+  // spaces list and /connections are gone reads as a bug rather than as a policy.
+  //
+  // FILTERED AT THE VIEW, NEVER AT THE SERVICE: `useConnections` still fetches and resolves
+  // every space, because a flag may not touch a service (SPEC-162 FR-006). A saved query
+  // naming a hidden database still RUNS — the grants are untouched, and hiding a surface is
+  // not revoking access.
+  const sharedSpacesEnabled = useFeature('sharedWorkspaces');
+  const connections = useMemo(
+    () => (sharedSpacesEnabled ? allConnections : allConnections.filter((c) => c.kind === 'personal')),
+    [sharedSpacesEnabled, allConnections]
+  );
   // Every usable database, for the browse rail + multi-database autocomplete.
   const usableDatabases = useMemo(() => connections.filter(isConnectionUsable).map((c) => c.database), [connections]);
   // SPEC-077 FR-005: autocomplete offers fully-qualified names across every
