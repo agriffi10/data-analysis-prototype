@@ -1583,3 +1583,105 @@ that derives from the machine what Step Functions actually leaves on the state a
 (`ResultPath: "$.x"` ⇒ the task's input plus `x`; no `ResultPath` ⇒ nothing addressable). Verified
 by mutation — and the first version of that walk **passed vacuously** on the exact mutation it
 existed for, because it treated the catch target as a seed instead of as a reader.
+
+
+### An expected refusal is a return value, and a conflict is per item NAME (SPEC-166)
+
+**Decision.** `check-target-absent` returns `{status, recipient, reason, detail}` for the two
+refusals it expects — a recipient validate-authorize could not resolve, and a name conflict — and
+its Map item's `Catch` is left for faults nobody predicted. The conflict is decided by **item
+name**: one delimited listing of `{targetRoot}shared_files/{sender}/`, compared against the names
+the selection would create. A taken name refuses **that recipient**; nothing is merged and nothing
+is overwritten.
+
+**Why not raise, as table-share's guard does.** A conflict has to name the colliding item, and a
+`TerminalError` cannot carry one to a user: its `tokens` are deliberately kept out of the exception
+message (they would corrupt `failure_reason`'s colon split) and its `detail` is operator text that
+may quote raw service output, which SPEC-106 forbids rendering. Parsing a filename back out of a
+Step Functions `Cause` would be fragile *and* a rule break. The collector therefore reads two
+record shapes and decodes the raw `{Error, Cause}` only for the unpredicted one.
+
+**Why a delimited listing rather than a probe per item.** Two round trips per item is 20,000 serial
+calls for a full selection against a full recipient list — and a `MaxKeys=1` probe at
+`Prefix={inbox}{item}` **cannot answer the question at all**: S3 orders keys lexicographically and
+`/` (0x2F) is not the lowest byte a key may carry, so `notes.txt-old` sorts before
+`notes.txt/part-0` and the one key returned reads as "clear" over an occupied destination. The
+listing is bounded by what that sender previously sent to that recipient, not by the size of the
+send.
+
+**A name is a name whatever it holds.** A previous send of the file `notes.txt` conflicts with a
+new send of the folder `notes.txt/`, because `destination_key` gives both the same base.
+
+**Neither the guard nor the collector notifies.** Every per-recipient outcome is told to the sender
+once, from the terminal summary, by SPEC-167's producer. Table-share notifies from its own guard
+because it has no such producer; copying that here would send two messages about one conflict.
+
+**Two fail-open holes, both found in review and neither visible to the suites as written.** The
+guard cleared every recipient when the selection arrived empty (no names ⇒ no collisions ⇒ `ok`,
+over an inbox that already held the send) — three lines from a missing *actor* that already failed
+closed. And the collector reported universal success when the `transfer` block was absent, without
+making a single S3 call; it is closed by an invariant already on the event, that the manifest
+builder cannot report zero items while a recipient cleared the guard.
+
+**Not closed: the guard is TOCTOU.** Two sends of the same item name from the same sender to the
+same recipient, submitted close together, can both clear it. Inherent to check-then-copy with no
+lock, and table-share has the same shape.
+
+### The transfer caps are three, and each is measured against a different budget (SPEC-166)
+
+**Decision.** `SEND_MAX_OBJECT_BYTES` **10 GiB**, `SEND_MAX_TRANSFER_ITEMS` **50,000**,
+`SEND_MAX_TRANSFER_BYTES` **3 TiB**, all enforced in `inspect-source` before the plan is written,
+and the two product caps measured on the **requested** recipient count.
+
+**Each is a different budget, and using one model for all three is how table-share's own bound came
+to be wrong twice.** The per-object cap is bounded by `COPY_TIMEOUT_SECONDS`, the batch verb's own
+Lambda timeout — a batch is exactly one round of the worker pool and one object is one worker, so a
+batch costs its slowest object. The item cap is bounded by the **memory** the two verbs either side
+of the Map hold the manifest in, read back from `locals.tf`. The byte cap is bounded by the whole
+run's **makespan** against the machine's `TimeoutSeconds`, at
+`MAP_MAX_CONCURRENCY × CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s and **not** the ~4 GB/s the
+same constants suggest multiplied together.
+
+**The per-object cap is the one whose absence made every other model a half-truth.** SPEC-165
+recorded it as owed and kept the arithmetic: without it the worst legal case was a single 1 TiB
+object on one worker — 43,980 s, four times the ceiling — while `test_a_full_size_selection_copies
+_inside_the_engines_ceiling` read as satisfied. It is table-share's value exactly, deliberately:
+same engine, same batch size, same timeout.
+
+**`SEND_MAX_TRANSFER_ITEMS` deliberately diverges from table-share's 20,000.** That plane's
+transfer cap equals its own object cap, so at full size it permits one recipient — fine when a
+share is one table. A 2,000-file folder to a 30-person team is the ordinary case here. The computed
+memory ceiling is ~150,000 items; 50,000 takes a third of it.
+
+**Measured before the guard, on purpose.** Counting only the recipients who clear their conflict
+check would let the expensive half of the work happen first, and would make a refusal depend on
+what someone else's inbox happens to hold.
+
+### The machine's ceiling cannot notify on its own, and this plane's timeout door needs a fallback (SPEC-166)
+
+**Decision.** A top-level `TimeoutSeconds` of 10,800, shipped together with an EventBridge rule on
+`Step Functions Execution Status Change` / `TIMED_OUT`, a second door in `fs_notify_failure`, that
+verb's raise to 60s, and the deploy role's `events:` grant.
+
+**Why together.** AWS catchers cover Task, Parallel and Map states but **not top-level execution
+failures**: the timeout terminates the run outright, so no state runs, no `Catch` fires, and the
+machine's own `NotifyFailure` is unreachable on the one failure it most exists for. `TIMED_OUT`
+only, never `FAILED`, or every caught failure notifies twice.
+
+**The budget is computed, every term of it**: copying 6,597 s + per-child overhead 939 s + guard Map
+600 s + serial verbs 735 s = 8,871 s against 10,800 s. The only input without a measurement behind
+it is the per-**round** child overhead — charged per round because slots pipeline — and it is
+load-bearing: charged per child at even half a second the budget would blow. The test states its
+own break-even (~9 s per round).
+
+**The door needs a fallback table-share does not.** EventBridge caps an event at 256 KB and Step
+Functions drops the input rather than exceed it, while `SEND_MAX_ITEM_BYTES` deliberately allows a
+Pipe record approaching 200 KB — so the sends most likely to time out are exactly the ones the
+event alone cannot attribute. The door reads the input back with `states:DescribeExecution`, on the
+**Lambda execution role**, because EventBridge invokes the notifier outside any execution.
+
+**And the seed that reports all of this must not carry the request twice.** `RequestFailureSeed`
+supplies `$.raw` (the Pipe record, ~200 KB at the cap) and **not** `$.source`, which is the same
+selection again: together they breach the 256 KB state limit for a quote-heavy legal request, on a
+Pass with no `Catch`, killing the run before `NotifyFailure` at the end of a three-hour copy.
+Nothing on the failure path reads the source; an operator has it inside `raw`.

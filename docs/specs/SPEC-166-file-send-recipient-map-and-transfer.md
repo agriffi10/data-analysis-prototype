@@ -1,7 +1,7 @@
 # Spec: Send Files — Recipient Guard, Distributed-Map Transfer & Terminal States
 
 **ID:** SPEC-166
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-165 (copy plan + destination layout), SPEC-160 (`cpcommon.transfer` — manifest, batch copy, result attribution), SPEC-164 (validated recipients), SPEC-091 (the conflict-guard precedent)
 

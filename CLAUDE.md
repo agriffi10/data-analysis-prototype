@@ -104,24 +104,24 @@ to reconcile it. And `_config/` being unlistable in the file browser was **not**
 prefix-conditioned `ListBucket` is the mechanism and a test pins it, so the SPA lists are
 belt-and-braces.
 
-**The send-files arc is UNDER WAY: SPEC-164 and 165 are COMPLETE (2026-08-11), 166→167 remain
-Draft.** The fifth control plane, its front door and its source resolution exist — a request is
-proved legitimate, then expanded into a copy plan at `{admin}/file-send/{requestId}/`. **Nothing
-is copied, and no key is written to any recipient's space.** What 166 needs from them: the envelope
-is **flat** (`actor` is the raw token at the top level, because SPEC-126's drain reads and redacts
-that field flatly); the plan carries per object its **item name, key relative to that item**,
-source key and size, so **no second listing**; `fscommon.paths.destination_key` is the **only**
-destination builder and a sweep enforces it; and **two caps are owed to 166, not missing** — the
-per-object one and the `recipients × bytes` product, both measured against a `TimeoutSeconds` this
-machine does not have, with a test that **fails when the first arrives**. 166 must also add the
-timeout, the `TIMED_OUT` rule and the deploy-role `events:` grant together, and raise
-`notify-failure` from 15s. **Both owed live checks are one session** —
-`docs/testing/file-send-e2e.md`, *SPEC-164* checks 1–3 (a valid request, an unauthorized source
-refused **with a notification naming no key**, both spans in `logs/service=file-send/`) and
-*SPEC-165* checks 4–6 (a **>1,000-object folder** whose plan's `objectCount` equals the bucket's,
-an overlapping selection refused through the **new** seed, no plan left behind). They must be real
-invocations: a shared layer's import-time failure only shows at cold start (PR #196), and a
-truncated listing returns a plausible smaller number rather than an error. **168→172** archive/restore
+**The send-files arc: SPEC-164, 165 and 166 are COMPLETE (2026-08-11); 167 remains Draft.** The
+fifth control plane now **delivers** — a request is proved legitimate, expanded into a copy plan,
+guarded per recipient, copied by a top-level Distributed Map and attributed back. **It is still
+silent: nobody is told anything until 167**, which adds the "Send to…" entry point, the dialog and
+the notification producer. What 167 needs from 166: the terminal is `ShapeSummary`'s
+`{requestId, sender, itemNames, objectCount, recipients[]}`, where each recipient carries
+`{kind, name, status, reason, detail, failedItems}` — `detail` is the **colliding item name** on a
+conflict, which is why the guard returns its expected refusals as records rather than raising (a
+`TerminalError` cannot carry a name to a user). Its producer is the ONE notifier for every
+per-recipient outcome; neither the guard nor the collector emits, deliberately.
+**THREE live checks are owed and they are one session** — `docs/testing/file-send-e2e.md`,
+*SPEC-164* checks 1–3, *SPEC-165* checks 4–6, and *SPEC-166* checks 7–10 (two recipients receive
+every object at `shared_files/{sender}/…`, a repeat refuses **those** recipients naming the item
+while a third still receives, the spans, and the IAM simulation). They must be real invocations: a
+shared layer's import-time failure only shows at cold start (PR #196), a truncated listing returns
+a plausible smaller number rather than an error, and **nothing offline proves the cross-bucket
+`*/shared_files/*` write lands** — a simulation without `--resource-policy` returns `allowed` for a
+`PutObject` the real call denies. **168→172** archive/restore
 (a fifth bucket + a fifth plane; **`GLACIER`**, so restore is `RestoreObject` + a 3–5 h `Wait` loop +
 a copy, not a copy; retention is a **7-year lifecycle ceiling, not Object Lock** — versioning is
 deferred and compliance mode would block the restore's own cleanup; the archive bucket is
@@ -320,6 +320,9 @@ before working in that area; the line here is a reminder, not the spec.
 - **Everything unbounded on the state travels by pointer, and a cap is not a substitute (161, extending 090/160):** the cloned definition joins the object list and the manifest in the admin bucket (`definitionKey` → `table-share/{hash}/definition.json`, one module owning all three key layouts, **no IAM change**). Inline, `SHARE_MAX_DEFINITION_BYTES` had to choose between the 256 KB payload and a 100-column commented table — it survives at **64 KiB** bounding **Athena's 262,144-byte query-string quota** instead (the rendered DDL can be **2×** the JSON, and a quote-heavy *table property* expands far more than a *comment* — 128 KiB measured 99.98% of the quota). Plan and definition are **pure functions of the request**; only the manifest is execution-unique. An unreadable definition fails **that recipient** (`definition_unreadable`) and never renders — an empty column list makes a CREATE Athena *accepts*, over real data, that returns nothing.
 - **Caps name the limit that sized them, and each one is COMPUTED by a test (161):** `SHARE_MAX_OBJECTS` **20,000** (listing time), `SHARE_MAX_TOTAL_BYTES` **1 TiB** (one copy of the *source* — it says nothing about the Map Run), `SHARE_MAX_OBJECT_BYTES` **10 GiB**, and two product caps the per-source ones cannot express because every manifest item is a full copy: `SHARE_MAX_TRANSFER_ITEMS` **20,000** and `SHARE_MAX_TRANSFER_BYTES` **3 TiB**, both on the **requested** recipient count, before the guard. `MAX_ITEMS_PER_BATCH` **50 → 8 = `COPY_CONCURRENCY`**, because a batch costs `ceil(items/workers)` **rounds of its slowest object** — a makespan, not bytes over a rate. `SHARE_MAX_RECIPIENTS` (50) unchanged; the two manifest verbs 60s/512MB → **300s/2048MB**. **Four review rounds each found a bound measured against the wrong quantity** — read the `decisions.md` entry before touching any of these numbers.
 - **`TimeoutSeconds` 10,800 is TOP-LEVEL, and it cannot notify on its own (161):** without it a Standard workflow runs a **year**; with it, AWS catchers still **don't cover top-level execution failures**, so it ships with an **EventBridge `TIMED_OUT` rule** (never `FAILED`, or every caught failure double-notifies) invoking the same verb through a second door, which takes the actor from the **token in the execution input**, expiry unenforced. Sized against `SHARE_MAX_TRANSFER_BYTES` at a **makespan** rate (500 MB/s, not an aggregate 4 GB/s), minus the guard Map, finish Map and serial verbs. Retention (30 d) clears the ceiling **240×**, so FR-004 needed **no lifecycle rule**.
+- **An expected refusal is a RETURN VALUE, and a conflict is per item NAME (166):** the guard returns `{status, recipient, reason, detail}` for the two refusals it expects and keeps its `Catch` for unpredicted faults — because FR-001 needs the **colliding item named** and a `TerminalError` cannot carry one (tokens are kept out of the message, `detail` is operator text SPEC-106 forbids rendering). The inbox is read with **one delimited listing**, never a probe per item: `/` is not the lowest byte a key may carry, so a `MaxKeys=1` probe returns `notes.txt-old` and reads "clear" over an occupied destination. A name is a name whatever it holds. **Neither the guard nor the collector notifies** — every per-recipient outcome is told once, from the terminal summary, by 167's producer. Two **fail-open** holes were found in review and closed (an empty selection cleared everybody; an absent `transfer` block reported universal success with no S3 call at all); the guard's **TOCTOU is not closed**, as table-share's is not.
+- **The three transfer caps are each measured against a DIFFERENT budget (166):** `SEND_MAX_OBJECT_BYTES` **10 GiB** against `COPY_TIMEOUT_SECONDS` (a batch is one round of the pool and **one object is one worker** — its absence made every distributed model a half-truth, at 43,980s for one 1 TiB object), `SEND_MAX_TRANSFER_ITEMS` **50,000** against the memory the two verbs either side of the Map hold the manifest in (read back **from `locals.tf`**), `SEND_MAX_TRANSFER_BYTES` **3 TiB** against the machine's ceiling at the **makespan** rate. Both product caps are measured on the **requested** recipient count, before the guard. The items cap **deliberately diverges** from table-share's 20,000 — that plane's equals its object cap, so at full size it permits one recipient.
+- **The ceiling ships WITH its rule, and this plane's door needs a fallback (166):** `TimeoutSeconds` **10,800** top-level, plus an EventBridge `TIMED_OUT` rule (never `FAILED`), `fs_notify_failure`'s second door, its 15s→60s raise and the deploy-role `events:` grant — catchers do not cover top-level execution failures. **EventBridge drops an input this plane's own cap allows to approach 200 KB**, so the door reads it back with `states:DescribeExecution` on the **Lambda** role; table-share needs no such fallback and inheriting its shape would have left FR-005 half-delivered. **The seed that reports all this must not carry the request twice**: `RequestFailureSeed` supplies `$.raw` and **not** `$.source` — together ~300 KB, `States.DataLimitExceeded` on a Pass with no Catch, killing the run before `NotifyFailure`.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
 - **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. FR-005's alarms were **removed** → **SPEC-126**.

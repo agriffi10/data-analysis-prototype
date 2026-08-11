@@ -259,3 +259,165 @@ Passing 4–6 discharges SPEC-165's Phase 4. It does **not** touch:
 - **The destination layout.** `fscommon.paths.destination_key` ships here and nothing calls it
   until SPEC-166; no key is written to any recipient's space by this spec.
 - Anything about **copying**. Still nothing is copied until SPEC-166.
+
+---
+
+## SPEC-166 — the guard, the transfer and the terminals
+
+**Goal:** prove that a send actually **lands in someone else's space**, that a name already there
+refuses that recipient and nobody else, and that the run is recorded.
+
+**Why this one cannot be inferred.** Everything up to here is read-only, and every offline test of
+the copy runs against a fake. The `*/shared_files/*` scoping on the execution role, the
+cross-bucket write into the shared-space bucket, and the user-space bucket policy's allowlist are
+three separate gates that all render, apply and unit-test green while denying the first real copy.
+Only a real send exercises them.
+
+Runs on top of check 1's setup: same `$TOKEN`, same `$QUEUE`, same username substitution. You need
+**one other user** (`bob` below) and **one shared space** (`finance`) — the space need not have you
+as a member, which is itself part of what check 7 shows.
+
+### Before you start
+
+```bash
+# A folder of several hundred objects plus one loose file.
+mkdir -p /tmp/fs-send && for i in $(seq 1 300); do printf 'row\n' > "/tmp/fs-send/$(printf '%04d' $i).csv"; done
+aws s3 sync /tmp/fs-send "s3://dat-prod-user-space/alice/reports/"
+printf 'hello\n' | aws s3 cp - "s3://dat-prod-user-space/alice/notes.txt"
+
+# The truth to compare against.
+aws s3api list-objects-v2 --bucket dat-prod-user-space --prefix "alice/reports/" \
+  --query 'length(Contents)' --output text
+```
+
+Confirm `bob`'s inbox is empty first, so a pass cannot be a leftover:
+
+```bash
+aws s3 ls "s3://dat-prod-user-space/bob/shared_files/alice/" --recursive | head
+```
+
+### Check 7 — two recipients receive every object, at the right key
+
+```bash
+aws sqs send-message --queue-url "$QUEUE" \
+  --message-group-id "$(printf 'dat-prod-user-space/alice/' | shasum -a 256 | cut -d' ' -f1)" \
+  --message-deduplication-id "fs-live-7" \
+  --message-body "$(cat <<JSON
+{"requestId":"fs-live-7","actor":"$TOKEN",
+ "source":{"space":{"kind":"personal","name":"alice"},
+           "items":[{"kind":"folder","key":"alice/reports/"},{"kind":"file","key":"alice/notes.txt"}]},
+ "recipients":[{"kind":"user","name":"bob"},{"kind":"space","name":"finance"}]}
+JSON
+)"
+```
+
+Wait for the execution to leave `RUNNING`, then confirm **all four** of:
+
+```bash
+# 1. Every object arrived, in BOTH spaces. Both numbers must equal the folder's count.
+aws s3api list-objects-v2 --bucket dat-prod-user-space \
+  --prefix "bob/shared_files/alice/reports/" --query 'length(Contents)' --output text
+aws s3api list-objects-v2 --bucket dat-prod-shared-space \
+  --prefix "finance/shared_files/alice/reports/" --query 'length(Contents)' --output text
+
+# 2. The loose file is a FILE at the item name, not a folder under it.
+aws s3api head-object --bucket dat-prod-user-space --key "bob/shared_files/alice/notes.txt" \
+  --query 'ContentLength'
+
+# 3. The structure inside the folder survived: a nested key keeps its relative path.
+aws s3 ls "s3://dat-prod-user-space/bob/shared_files/alice/reports/" | head -3
+
+# 4. The terminal names both recipients exactly once, with status ok.
+aws stepfunctions describe-execution --execution-arn "$EXEC" --query output --output text | python3 -m json.tool
+```
+
+The execution output is `ShapeSummary`: `{requestId, sender, itemNames, objectCount, recipients}`.
+`recipients` must hold **two** entries, both `"status": "ok"`, and `objectCount` must equal the
+number you recorded before you started **plus one** for `notes.txt`.
+
+> **A `space` recipient you are not a member of is expected to work.** Recipients are a lookup, not
+> an authorization question — the execution role does the write. If this fails with `unknown_space`,
+> the space's registry status is not `active`, which is a different thing from membership.
+
+### Check 8 — a repeat is a per-recipient conflict that names the item
+
+Send **exactly the same request again** with a new `requestId`/dedup id (`fs-live-8`), but add a
+third recipient who has never received anything from you:
+
+```bash
+ "recipients":[{"kind":"user","name":"bob"},{"kind":"space","name":"finance"},{"kind":"user","name":"carol"}]
+```
+
+Expect, in the execution output:
+
+- `bob` and `finance` — `"status": "failed"`, `"reason": "conflict"`, and **`"detail": "reports"`**
+  (the first item name in selection order). The colliding name is the point: SPEC-167 tells the
+  sender *which* file was already there.
+- `carol` — `"status": "ok"`, having received everything.
+- **Nothing under `bob/shared_files/alice/` changed.** Compare an ETag before and after if you want
+  it airtight; the count alone would not catch an overwrite in place.
+
+That one run is the whole of FR-001: a conflict refuses **that recipient**, never the request, and
+never overwrites.
+
+### Check 9 — the run is in the log lake
+
+```bash
+aws s3 ls "s3://dat-prod-athena-admin/logs/service=file-send/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/"
+```
+
+The day object must carry, for check 7's `request_id`: `send validated`, `copy plan built`,
+`target absent` (one per recipient), `transfer manifest built`, **one `batch copied` per child
+execution**, and `transfer results attributed`. The `batch copied` count is the one worth reading —
+it is the only place the fan-out is visible, and a run that copied everything in one batch means
+the `ItemBatcher` is not batching.
+
+### Check 10 (IAM) — simulate against the DEPLOYED role, WITH the bucket policy
+
+```bash
+ROLE=arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role
+POLICY=$(aws s3api get-bucket-policy --bucket dat-prod-user-space --query Policy --output text)
+
+# Allowed: an inbox write.  Denied: anywhere else in the same user's prefix.
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
+  --action-names s3:PutObject \
+  --resource-arns arn:aws:s3:::dat-prod-user-space/bob/shared_files/alice/notes.txt \
+                  arn:aws:s3:::dat-prod-user-space/bob/reports/notes.txt \
+  --resource-policy "$POLICY" \
+  --query 'EvaluationResults[].{a:EvalResourceName,d:EvalDecision}' --output table
+```
+
+Expect `allowed` for the first and `implicitDeny` for the second.
+
+> **`--resource-policy` is not optional here, and omitting it is worse than skipping the check.**
+> `simulate-principal-policy` does not consult a bucket policy on its own, so without it the
+> simulation returns `allowed` for a `PutObject` the real call denies — a false green on the one
+> gate that is invisible from the identity policy. Pair every expected `implicitDeny` with an
+> expected `allowed` beside it, for SPEC-149/157's reason: an `implicitDeny` alone cannot tell an
+> ungranted action from a mistyped ARN.
+
+### Clean up
+
+```bash
+aws s3 rm --recursive "s3://dat-prod-user-space/bob/shared_files/alice/"
+aws s3 rm --recursive "s3://dat-prod-shared-space/finance/shared_files/alice/"
+aws s3 rm --recursive "s3://dat-prod-user-space/carol/shared_files/alice/"
+aws s3 rm --recursive "s3://dat-prod-user-space/alice/reports/"
+aws s3 rm "s3://dat-prod-user-space/alice/notes.txt"
+```
+
+The transfer manifest and the Map Run's export expire with the copy plan
+(`expire-file-send-copy-plans`), and the execution role cannot delete them — 30 days clears the
+3-hour ceiling 240 times over.
+
+### What this discharges, and what it does not
+
+Passing 7–10 discharges SPEC-166's Phase 4. It does **not** touch:
+
+- **The caps.** None of the three is reachable by hand; their models are computed in
+  `test_config_fscommon.py` against the verbs' configured memory, the batch verb's timeout and the
+  machine's own ceiling.
+- **The timeout and its rule.** A three-hour run is not something to stage. What can be checked
+  cheaply, and is worth doing once, is that the rule exists and points at the notifier:
+  `aws events list-targets-by-rule --rule dat-prod-file-send-orchestrator-timed-out`.
+- **Notifications.** Nothing tells the sender or the recipient anything yet — SPEC-167.
