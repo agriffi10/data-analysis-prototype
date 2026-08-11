@@ -26,6 +26,7 @@ import pytest
 _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "control-plane-common"))
 sys.path.insert(0, str(_HERE.parent / "file-send-validate-authorize"))
+sys.path.insert(0, str(_HERE.parent / "file-send-inspect-source"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
 os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
@@ -33,7 +34,9 @@ os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
+import file_send_inspect_source as i
 import file_send_validate_authorize as v
+from cpcommon import clients
 
 _ASL = _HERE.parent.parent / "infra" / "modules" / "file-send" / "state-machine.asl.json.tftpl"
 
@@ -106,8 +109,43 @@ def _read_paths(parameters: dict) -> set[str]:
     return reads
 
 
-def _validated_state_prefix(states: dict) -> str:
-    """The JSONPath prefix at which the verb's output sits when ``Validated`` runs.
+def _planned_output() -> dict:
+    """inspect-source's real return value, driven off validate-authorize's real output.
+
+    Chained rather than hand-fed for the same reason ``_validated_output`` drives the handler:
+    a fixture written by hand would agree with a hand-written ASL assertion and prove nothing
+    about the two states this file exists to hold together.
+
+    Args:
+      None.
+
+    Returns:
+      The planned request the machine's terminal state consumes.
+
+    Raises:
+      None.
+    """
+
+    class _FakeS3:
+        def get_paginator(self, name):
+            class _P:
+                def paginate(self, Bucket, Prefix):
+                    yield {"Contents": []}
+
+            return _P()
+
+        def head_object(self, Bucket, Key):
+            return {"ContentLength": 512}
+
+        def put_object(self, **kwargs):
+            return {}
+
+    clients._s3 = _FakeS3()
+    return i.handler(_validated_output(), None)
+
+
+def _task_output_prefix(states: dict, task_name: str) -> str:
+    """The JSONPath prefix at which a task's output sits when the state after it runs.
 
     DERIVED FROM THE MACHINE, never hard-coded, and that is the whole point of this helper. An
     earlier version of this file matched the literal ``"$.result.validated."`` — so deleting the
@@ -117,15 +155,16 @@ def _validated_state_prefix(states: dict) -> str:
 
     Args:
       states: The machine's states.
+      task_name: The task whose output plumbing to follow.
 
     Returns:
-      The prefix ``Validated``'s Parameters must read through, e.g. ``"$."``.
+      The prefix the next state's Parameters must read through, e.g. ``"$."``.
 
     Raises:
       AssertionError: If the task's output plumbing is a shape this cross-check cannot follow,
         which is itself a finding rather than something to route around.
     """
-    task = states["ValidateAuthorize"]
+    task = states[task_name]
     result_path = task.get("ResultPath")
     output_path = task.get("OutputPath")
 
@@ -146,11 +185,13 @@ def _validated_state_prefix(states: dict) -> str:
     return f"{result_path}.{key}."
 
 
-def _validated_reads(states: dict) -> set[str]:
-    """The verb-output keys the ``Validated`` state reads, at whatever prefix the machine uses.
+def _reads_through(states: dict, task_name: str, pass_name: str) -> set[str]:
+    """The verb-output keys a Pass state reads, at whatever prefix the machine uses.
 
     Args:
       states: The machine's states.
+      task_name: The task whose output the Pass consumes.
+      pass_name: The Pass state doing the reading.
 
     Returns:
       The leaf key names.
@@ -158,12 +199,22 @@ def _validated_reads(states: dict) -> set[str]:
     Raises:
       None.
     """
-    prefix = _validated_state_prefix(states)
+    prefix = _task_output_prefix(states, task_name)
     return {
         value[len(prefix) :]
-        for key, value in states["Validated"]["Parameters"].items()
+        for key, value in states[pass_name]["Parameters"].items()
         if key.endswith(".$") and str(value).startswith(prefix)
     }
+
+
+def _validated_reads(states: dict) -> set[str]:
+    """The keys ``Validated`` reads out of validate-authorize's output."""
+    return _reads_through(states, "ValidateAuthorize", "Validated")
+
+
+def _planned_reads(states: dict) -> set[str]:
+    """The keys ``Planned`` reads out of inspect-source's output."""
+    return _reads_through(states, "InspectSource", "Planned")
 
 
 def test_the_success_path_reads_only_keys_the_verb_emits():
@@ -188,10 +239,31 @@ def test_the_verb_emits_nothing_the_machine_silently_drops():
     assert set(_validated_output()) == _validated_reads(states)
 
 
-def test_the_task_output_plumbing_is_the_shape_the_cross_check_assumes():
+def test_the_planned_state_reads_only_keys_inspect_source_emits():
+    """The same cross-check one state further on (SPEC-165). A Task hands its output on whole,
+    so nothing between two Tasks would notice a renamed field — this Pass is where it fails."""
+    states = _machine()["States"]
+
+    reads = _planned_reads(states)
+
+    assert reads, "the Planned state reads nothing through the task's output path"
+    assert reads <= set(_planned_output()), (
+        f"the machine reads {sorted(reads - set(_planned_output()))} which inspect-source does "
+        f"not return — an absent key raises an uncatchable States.Runtime on the SUCCESS path"
+    )
+
+
+def test_inspect_source_emits_nothing_the_machine_silently_drops():
+    """The other direction: the plan key, the count and the byte total are what SPEC-166 reads,
+    and a field the verb computed that no state carries forward is either dead or a bug."""
+    assert set(_planned_output()) == _planned_reads(_machine()["States"])
+
+
+@pytest.mark.parametrize("task", ["ValidateAuthorize", "InspectSource"])
+def test_the_task_output_plumbing_is_the_shape_the_cross_check_assumes(task):
     """Stated on its own so a mutation to the plumbing fails HERE, with a message about the
     plumbing, rather than as a confusing key mismatch two tests away."""
-    assert _validated_state_prefix(_machine()["States"]) == "$."
+    assert _task_output_prefix(_machine()["States"], task) == "$."
 
 
 def test_the_failure_seed_recovers_the_request_from_the_context_object():
@@ -245,3 +317,120 @@ def test_the_failure_terminal_reads_only_seeded_keys(state):
     }
 
     assert _read_paths(states[state]["Parameters"]) <= seeded
+
+
+def _catches(states: dict):
+    """Every ``(failing task, catch, keys addressable when it fires)`` on this machine.
+
+    The third element is what makes the walk below able to check the catch TARGET rather than
+    trusting it, and it is derived from the machine rather than listed. Two rules, both of them
+    Step Functions' own:
+
+    * With a ``ResultPath`` of ``$.x``, the error is merged INTO the task's input, so the state
+      is that input plus ``x``. The input is whatever the preceding Pass emitted.
+    * Without one, the error REPLACES the state, so nothing is addressable at ``$.something`` —
+      which is why a pre-identity seed can only read the context object.
+    """
+    predecessor = {
+        state["Next"]: name
+        for name, state in states.items()
+        if state.get("Next")
+    }
+    for name, state in states.items():
+        for catch in state.get("Catch", []) or []:
+            if not catch.get("Next"):
+                continue
+            before = states.get(predecessor.get(name) or "", {})
+            available = (
+                {k.removesuffix(".$") for k in before.get("Parameters", {})}
+                if before.get("Type") == "Pass"
+                else set()
+            )
+            result_path = catch.get("ResultPath", "$")
+            if result_path == "$":
+                available = set()
+            elif result_path is not None:
+                available |= {str(result_path)[2:].split(".")[0]}
+            yield name, catch["Next"], available
+
+
+def test_every_catch_reaches_a_terminal_that_reads_only_supplied_keys():
+    """THE GUARD THE FLEET TEST CANNOT SEE ON THIS PLANE, and the reason is worth stating.
+
+    ``test_a_failure_seed_supplies_every_key_the_failure_terminal_reads`` identifies a seed
+    STRUCTURALLY, as a Pass whose ``error.$`` is ``"$"`` — the shape a pre-identity catch has,
+    where the error REPLACED the state. SPEC-165's ``InspectFailureSeed`` is the other shape: its
+    task's input is the request object, so its Catch carries a ``ResultPath`` and the error
+    arrives at ``$.error`` alongside. The fleet walk skips it entirely.
+
+    That is not academic here. ``RecordFailure`` on this plane reads ``$.raw``, which exists on
+    NO post-validate state — the request is deliberately not threaded through, because the Pipe
+    record carries the selection again as an escaped string. A catch routed straight to
+    ``RecordFailure``, as every other plane's catches are, would raise an uncatchable
+    ``States.Runtime`` and the sender would hear nothing on exactly the failures SPEC-152 exists
+    to report. So this walks every Catch target forward and requires what it supplies to cover
+    what the Passes downstream read.
+    """
+    states = _machine()["States"]
+
+    for failing, entry, available in sorted(_catches(states)):
+        supplied, frontier, seen = set(available), [entry], set()
+        while frontier:
+            name = frontier.pop()
+            if not name or name in seen or name not in states:
+                continue
+            seen.add(name)
+            state = states[name]
+            if state.get("Type") == "Pass":
+                missing = _read_paths(state["Parameters"]) - supplied
+                assert not missing, (
+                    f"a {failing} failure reaches {name}, which reads {sorted(missing)} that is "
+                    f"not on the state by then — an uncatchable States.Runtime, and the sender "
+                    f"is never notified"
+                )
+                supplied |= {k.removesuffix(".$") for k in state["Parameters"]}
+            # Catch edges as well as Next: SPEC-165's machine has no Pass behind a catch on a
+            # failure path, so following only Next passes today — and SPEC-166 adds states here.
+            # The fleet walk follows both; a local walk that did not would be the narrower guard
+            # of the two exactly where this plane needs the wider one.
+            frontier.append(state.get("Next"))
+            frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
+
+
+def test_the_catch_walk_actually_walked_something():
+    """Guards the guard: a machine whose catches stopped being found would pass vacuously."""
+    catches = list(_catches(_machine()["States"]))
+
+    assert {"ValidateFailureSeed", "InspectFailureSeed", "Failed"} == {t for _f, t, _a in catches}
+    assert any(available for _f, _t, available in catches), (
+        "no catch on this machine preserves anything — the availability model has gone trivial "
+        "and every assertion above passes against an empty set"
+    )
+
+
+def test_the_inspect_catch_makes_the_validated_request_available():
+    """The availability model at the one catch it matters for, stated so a mutation to the
+    derivation fails HERE rather than as a confusing missing key in the walk.
+
+    On a Task failure with a ``ResultPath``, Step Functions merges the error into the task's
+    INPUT — so what survives is whatever ``Validated`` emitted plus ``error``, and NOT the
+    fields inspect-source would have added. A seed reading the plan key would look perfectly
+    reasonable and die on every failure, because the verb that produces it is the one that just
+    failed.
+    """
+    states = _machine()["States"]
+    available = [a for failing, _t, a in _catches(states) if failing == "InspectSource"]
+    expected = {k.removesuffix(".$") for k in states["Validated"]["Parameters"]} | {"error"}
+
+    assert available == [expected]
+
+
+def test_the_post_validate_catch_keeps_the_verified_actor():
+    """Without ``ResultPath`` the error REPLACES the state, and the verified username goes with
+    it — the shared-space mistake SPEC-152 recorded, where the actor was silently discarded and
+    every failure notified nobody. Here the actor is on the state by then, so the fix is one
+    field rather than a token re-verification."""
+    catches = _machine()["States"]["InspectSource"]["Catch"]
+
+    assert [c["ResultPath"] for c in catches] == ["$.error"]
+    assert _machine()["States"]["InspectFailureSeed"]["Parameters"]["actor.$"] == "$.actor"

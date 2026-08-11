@@ -29,9 +29,12 @@ import pathlib
 import re
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
 from cpcommon import errors
+from cpcommon.transfer import config as transfer_config
 from fscommon import config
 
 _STATE_PAYLOAD_LIMIT = 256 * 1024
@@ -305,6 +308,202 @@ def test_nothing_here_reads_the_environment():
         text = handle.read()
 
     assert "os.environ" not in text and "getenv" not in text and "_require" not in text
+
+
+# ── SPEC-165: the expansion caps ─────────────────────────────────────────────
+
+#: S3's page size for ListObjectsV2. The pagination boundary, and the unit the listing's cost
+#: is counted in.
+_S3_PAGE_SIZE = 1000
+
+#: A pessimistic S3 round trip, chosen well above a warm same-region call (tens of ms). The
+#: point of the timeout model is to survive a bad day, not to describe a good one.
+_ROUND_TRIP_SECONDS = 0.2
+
+#: The state-machine ceiling the IDENTICAL copy engine already runs under on table-share
+#: (SPEC-161's top-level TimeoutSeconds). Named here as the target SPEC-166 must adopt when it
+#: adds this plane's timeout — this cap is measured against it in advance rather than after.
+_TRANSFER_CEILING_SECONDS = 10_800
+
+
+def _verb_sizing():
+    """inspect-source's configured timeout and memory, read from the Terraform locals.
+
+    Read as DATA rather than restated, for the reason the browser cap mirror is: two homes for
+    one number is how a bound quietly stops matching the thing it bounds. The cap below is
+    meaningless without the memory it is measured against, and the memory lives in Terraform.
+    """
+    locals_tf = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra"
+        / "modules"
+        / "file-send"
+        / "locals.tf"
+    ).read_text()
+    row = re.search(
+        r'"inspect-source"\s*=\s*\{[^}]*timeout\s*=\s*(\d+)[^}]*memory\s*=\s*(\d+)', locals_tf
+    )
+    assert row, "inspect-source is no longer in the file-send locals, or its row changed shape"
+    return int(row.group(1)), int(row.group(2))
+
+
+def _plan_entry_bytes() -> int:
+    """One copy-plan entry at S3's worst-case key length, serialised.
+
+    Deliberately pessimistic in a way real keys cannot be: ``relKey`` is a SUFFIX of ``srcKey``,
+    so the two can never both be 1024 bytes. Over-counting is the safe direction for a bound.
+    """
+    entry = {
+        "item": "i" * 255,
+        "relKey": "r" * _MAX_KEY_BYTES,
+        "srcKey": "s" * _MAX_KEY_BYTES,
+        "size": 10 * 1024**3,
+    }
+    return len(json.dumps(entry, separators=(",", ":")).encode())
+
+
+def test_the_worst_case_copy_plan_fits_in_the_verbs_memory():
+    """WHAT SIZES SEND_MAX_OBJECTS, computed rather than asserted.
+
+    The verb holds the whole plan as a list of dicts, serialises it to a string and encodes that
+    to bytes — three live copies at the moment of the write. Half the configured memory is left
+    for the interpreter, boto3 and its response buffers, which is not a rounding allowance: a
+    cold Lambda with botocore loaded is already tens of megabytes before the first object.
+    """
+    _timeout, memory_mb = _verb_sizing()
+    plan_bytes = _plan_entry_bytes() * config.SEND_MAX_OBJECTS
+    peak = 3 * plan_bytes
+
+    assert peak < (memory_mb * 1024**2) / 2, (
+        f"a worst-case plan of {config.SEND_MAX_OBJECTS} objects is {plan_bytes / 1024**2:.0f} MB "
+        f"and peaks near {peak / 1024**2:.0f} MB against {memory_mb} MB — raise the memory in "
+        f"infra/modules/file-send/locals.tf or lower the cap"
+    )
+
+
+def test_the_worst_case_listing_fits_in_the_verbs_timeout():
+    """The other half of the sizing, and it is NOT the pagination.
+
+    The tempting model counts ListObjectsV2 pages — 20 at the cap, a couple of seconds. The term
+    it misses is that a ``file`` item costs its own HeadObject and they run SERIALLY, so a
+    selection of 200 files is 200 round trips before a single folder is walked. The bound is
+    therefore per-ITEM plus per-PAGE, and the item half dominates.
+    """
+    timeout, _memory = _verb_sizing()
+    pages = -(-config.SEND_MAX_OBJECTS // _S3_PAGE_SIZE)
+    round_trips = config.SEND_MAX_ITEMS + pages
+    seconds = round_trips * _ROUND_TRIP_SECONDS
+
+    assert seconds < timeout / 2, (
+        f"{round_trips} worst-case round trips is {seconds:.0f}s against a {timeout}s timeout"
+    )
+
+
+def test_the_item_half_of_the_timeout_model_is_the_dominant_one():
+    """The term a page-counting model drops, asserted where it can actually fail.
+
+    ``pages < SEND_MAX_ITEMS`` was the first version and it is arithmetic on two constants —
+    trivially true, and true at any caps at all. The claim worth holding is that dropping the
+    HEAD term changes the ANSWER: a page-only model must come out materially cheaper than the
+    real one, or a future reader is entitled to simplify the model back and lose nothing.
+    """
+    pages = -(-config.SEND_MAX_OBJECTS // _S3_PAGE_SIZE)
+    page_only = pages * _ROUND_TRIP_SECONDS
+    real = (config.SEND_MAX_ITEMS + pages) * _ROUND_TRIP_SECONDS
+
+    assert real > 5 * page_only, (
+        f"a page-only model gives {page_only:.0f}s and the real one {real:.0f}s — close enough "
+        f"that the HeadObject term is no longer what sizes the timeout, so re-derive it"
+    )
+
+
+def test_a_full_size_selection_copies_inside_the_engines_ceiling():
+    """The makespan model for SEND_MAX_TOTAL_BYTES — **conditional on a per-object cap**, which
+    this plane does not have yet, so read the tripwire below with it.
+
+    ``cpcommon.transfer`` schedules a whole object per worker and part-copies serially inside
+    one, so the denominator is a MAKESPAN — ``MAP_MAX_CONCURRENCY x
+    CONSERVATIVE_STREAM_BYTES_PER_SECOND``, 500 MB/s — not the ~4 GB/s an aggregate-bandwidth
+    reading of the same constants suggests. Table-share found that mistake twice, in review
+    rounds, after it read as satisfied both times.
+
+    **What this figure assumes, and what it therefore does NOT certify.** 500 MB/s is only
+    reachable when the bytes are spread over the whole worker pool. One object is copied by ONE
+    worker at ``CONSERVATIVE_STREAM_BYTES_PER_SECOND``, so the true floor on the makespan is
+    ``largest_object / 25 MB/s`` — and with no per-object cap the worst legal case at these caps
+    is a single 1 TiB object at **43,980 s**, four times over the ceiling. That is not a defect
+    in this cap; it is the per-object cap's absence, which SPEC-166 closes along with the
+    ``TimeoutSeconds`` this compares against. Until then this test certifies the DISTRIBUTED
+    case only.
+    """
+    rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    seconds = config.SEND_MAX_TOTAL_BYTES / rate
+
+    assert seconds < _TRANSFER_CEILING_SECONDS / 2, (
+        f"one distributed copy of a cap-size selection is {seconds:.0f}s at "
+        f"{rate / 1000**2:.0f} MB/s, against the {_TRANSFER_CEILING_SECONDS}s ceiling the same "
+        f"engine runs under"
+    )
+
+
+def test_the_single_object_worst_case_is_the_reason_a_per_object_cap_is_owed():
+    """The arithmetic the test above deliberately does not cover, kept as a number rather than a
+    sentence so SPEC-166 inherits the size of the problem instead of re-deriving it.
+
+    Table-share recorded this exact shape: while its total cap was 20 GiB the per-object bound
+    was implicit, and raising the total to 1 TiB removed it with nothing replacing it. This
+    plane starts at 1 TiB.
+    """
+    serial = config.SEND_MAX_TOTAL_BYTES / transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+
+    assert serial > _TRANSFER_CEILING_SECONDS, (
+        "a single cap-size object now copies inside the ceiling — the per-object cap SPEC-166 "
+        "owes may no longer be load-bearing, so re-check before dropping it"
+    )
+    assert serial > 4 * _TRANSFER_CEILING_SECONDS
+
+
+@pytest.mark.parametrize("cap", ["SEND_MAX_TRANSFER_BYTES", "SEND_MAX_OBJECT_BYTES"])
+def test_the_caps_SPEC_166_owes_are_still_absent_and_that_is_deliberate(cap):
+    """The honest statement of what SPEC-165 does not do, for BOTH deferred caps.
+
+    ``SEND_MAX_TRANSFER_BYTES``: every recipient gets a full copy, so the transfer is
+    ``recipients x total_bytes`` — 50 TiB at these caps. ``SEND_MAX_OBJECT_BYTES``: one object is
+    one worker, so a single large object blows the makespan model above regardless of the total.
+    Both are measured against a ``TimeoutSeconds`` this machine does not have.
+
+    Written as a test so each gap is a recorded expectation rather than an oversight: when
+    SPEC-166 adds one, this FAILS, and its replacement is the real bound. An earlier version
+    covered only the first, which left the per-object gap living in prose — the weaker half of
+    the pair, and the one whose absence undermines a test that reads as satisfied.
+    """
+    assert not hasattr(config, cap), (
+        f"SPEC-166 added {cap} — replace this case with one computing it against the machine's "
+        f"TimeoutSeconds, and update the SEND_MAX_TOTAL_BYTES docstring"
+    )
+
+
+def test_the_object_cap_is_a_bound_the_item_cap_could_not_express():
+    """The two-quantities argument again, one level down, and asserted where it can fail.
+
+    ``SEND_MAX_OBJECTS > SEND_MAX_ITEMS`` was the first version — arithmetic on two constants.
+    The real claim is that the item cap does not IMPLY the object cap: one selected folder can
+    hold any number of objects, so even a single item can breach it.
+    """
+    assert config.SEND_MAX_OBJECTS > 1, (
+        "the object cap is reachable by a single selected folder, which is the whole reason the "
+        "item cap cannot stand in for it"
+    )
+    assert _plan_entry_bytes() * config.SEND_MAX_OBJECTS > config.SEND_MAX_ITEM_BYTES
+
+
+def test_the_plan_could_never_have_ridden_on_the_state():
+    """Why it is a pointer, computed. Not "it was close to the limit" — at these caps the object
+    list is two orders of magnitude over it, so inline was never a design that could have been
+    tuned into working."""
+    plan_bytes = _plan_entry_bytes() * config.SEND_MAX_OBJECTS
+
+    assert plan_bytes > 100 * _STATE_PAYLOAD_LIMIT
 
 
 def test_the_browser_mirrors_the_same_caps():

@@ -633,9 +633,10 @@ jobs:
           - { name: table-share-collect-transfer-results, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          # File-send verbs (SPEC-164). Both attach cpcommon + fscommon; the plane's front
-          # door only, with the source resolution and the transfer arriving in SPEC-165/166.
+          # File-send verbs (SPEC-164, SPEC-165). All three attach cpcommon + fscommon; the
+          # plane's front door plus its source resolution, with the transfer in SPEC-166.
           - { name: file-send-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          - { name: file-send-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read

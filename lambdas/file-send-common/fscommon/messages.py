@@ -13,9 +13,12 @@ exception is for the logs and the Step Functions record, and the sentence the us
 composed here.
 
 Attributes:
-  _BODIES: Reason code to the clause following the "Couldn't send ..." prefix. The two cap
+  _BODIES: Reason code to the clause following the "Couldn't send ..." prefix. The three cap
     bodies carry a marker rather than the number, so the sentence is filled from ``config`` by
-    ``failure_message`` and cannot drift from the constant that enforces it.
+    ``failure_message`` and cannot drift from the constant that enforces it. ``{itemName}`` is
+    the one marker filled from the RAISE SITE instead — it is the sender's own folder name, not
+    a number this module can know, and it is deliberately spelled ``itemName`` rather than
+    ``name`` because ``name`` already means the recipient's name in ``failure_message``.
   resolver: The domain-scoped resolver, carrying this plane's prefix, access-denied clause and
     fallback.
 """
@@ -43,6 +46,20 @@ _BODIES = {
     ),
     "unknown_user": "there is no user with that name.",
     "unknown_space": "there is no shared space with that name.",
+    "source_missing": "one of the files you selected is no longer there.",
+    "nothing_to_send": "there was nothing to send in what you selected.",
+    "overlapping_items": (
+        "one of the folders you selected already contains another thing you selected. "
+        "Please send one or the other."
+    ),
+    "colliding_item_names": (
+        'two of the things you selected are both called "{itemName}". '
+        "Please send them separately."
+    ),
+    "too_many_objects": (
+        "that selection holds more than {maxObjects} files. Please send fewer folders."
+    ),
+    "source_too_large": "that selection is too large to send. Please send fewer files or folders.",
 }
 
 
@@ -105,5 +122,6 @@ def failure_message(
             "toRecipient": f" to {_recipient_phrase(kind, name)}" if kind and name else "",
             "maxItems": str(config.SEND_MAX_ITEMS),
             "maxRecipients": str(config.SEND_MAX_RECIPIENTS),
+            "maxObjects": f"{config.SEND_MAX_OBJECTS:,}",
         },
     )

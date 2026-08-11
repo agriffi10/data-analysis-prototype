@@ -20,7 +20,7 @@ from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 
 from . import messages as _messages  # noqa: F401
-from .config import ATHENA_RESULTS_FOLDER, SPACE_KINDS
+from .config import ATHENA_RESULTS_FOLDER, RECIPIENT_KINDS, SPACE_KINDS
 from .paths import normalize_root
 
 
@@ -68,6 +68,38 @@ def authorize_source(username: str, space) -> dict:
     if not reg.is_active_member(reg.load(name), username):
         raise TerminalError("forbidden", f"{username!r} is not a member of {name!r}")
     return {"bucket": config.SHARED_SPACE_BUCKET, "root": normalize_root(name)}
+
+
+def recipient_location(kind: str, name: str) -> dict:
+    """Resolves a recipient to the bucket and root prefix their inbox sits under.
+
+    **This is a lookup, not an authorization**, and the asymmetry with ``authorize_source`` above
+    is the whole design: a recipient is any space by name and any existing user, because the
+    execution role does the write and the sender's own access question was about the SOURCE.
+    Whether the recipient RESOLVES is answered in validate-authorize, per recipient, as an
+    annotation that never fails the request.
+
+    It is the twin of ``authorize_source``'s return value, and deliberately the same shape, so
+    the destination builder takes a root from one place whichever end it came from.
+
+    Args:
+      kind: ``user`` or ``space``.
+      name: The recipient's name — a username, or a shared space's name.
+
+    Returns:
+      The recipient's location: the bucket their space lives in and its root prefix.
+
+    Raises:
+      TerminalError: ``forbidden`` for an unknown kind or a missing name. Neither can reach here
+        through validate-authorize, which shape-checks both; it fails rather than defaulting to a
+        bucket, because guessing wrong writes one person's files into another's space.
+    """
+    if kind not in RECIPIENT_KINDS:
+        raise TerminalError("forbidden", f"unknown recipient kind {kind!r}")
+    if not isinstance(name, str) or not name.strip():
+        raise TerminalError("forbidden", "recipient name missing")
+    bucket = config.USER_SPACE_BUCKET if kind == "user" else config.SHARED_SPACE_BUCKET
+    return {"bucket": bucket, "root": normalize_root(name.strip())}
 
 
 def assert_not_results_folder(root: str, key: str) -> str:

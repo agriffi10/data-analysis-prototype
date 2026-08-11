@@ -69,6 +69,62 @@ def test_list_yields_relative_keys_when_opted_in():
     assert got == [("data/part-0.csv", 10), ("data/part-1.csv", 40)]
 
 
+# ── SPEC-165: the ignore rule is a parameter, the pagination is not ──────────
+
+
+def test_a_caller_can_supply_its_own_ignore_rule():
+    """WHY THIS SEAM EXISTS. Every rule in `is_ignored` is anchored at the LISTING PREFIX, which
+    is right for a plane listing a table's own folder and wrong for file-send, whose prefix is
+    whichever item the user picked. Forking the paginator to get a different rule would have
+    duplicated the one part that genuinely is shared."""
+    _install([
+        ("alice/data/part-0.csv", 10),
+        ("alice/data/DO_NOT_DELETE.txt", 20),
+        ("alice/data/_drafts/notes.md", 30),
+    ])
+
+    got = list(
+        s3_listing.list_data_objects(
+            "bkt", "alice/", ignore=lambda key, size, prefix: key.endswith(".txt")
+        )
+    )
+
+    assert got == [("alice/data/part-0.csv", 10), ("alice/data/_drafts/notes.md", 30)]
+
+
+def test_the_default_rule_is_unchanged_for_every_existing_caller():
+    """The other direction, and the one that would be a silent regression across three planes:
+    table-builder, table-share and data-quality all call this with no predicate and must keep
+    getting exactly the rule they had."""
+    _install([("alice/data/part-0.csv", 10), ("alice/data/_hidden/x.csv", 20)])
+
+    assert list(s3_listing.list_data_objects("bkt", "alice/")) == [("alice/data/part-0.csv", 10)]
+
+
+def test_a_custom_rule_still_gets_the_shared_pagination():
+    """The pagination IS the shared part. A caller passing its own predicate must not quietly
+    opt out of paging past 1,000 keys — which is the boundary a fixture proves least."""
+    pages = [
+        [{"Key": f"alice/{i:05d}.csv", "Size": 1} for i in range(1000)],
+        [{"Key": f"alice/{i:05d}.csv", "Size": 1} for i in range(1000, 1500)],
+    ]
+
+    class _P:
+        def paginate(self, Bucket, Prefix):
+            for page in pages:
+                yield {"Contents": page}
+
+    class _S3:
+        def get_paginator(self, name):
+            return _P()
+
+    clients._s3 = _S3()
+
+    got = list(s3_listing.list_data_objects("bkt", "alice/", ignore=lambda k, s, p: False))
+
+    assert len(got) == 1500
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

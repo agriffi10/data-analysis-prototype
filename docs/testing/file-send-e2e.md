@@ -1,15 +1,17 @@
 # Send Files — control-plane e2e / smoke test
 
 Manual verification for the file-send control plane (`infra/modules/file-send/`). Grows with the
-arc; **SPEC-164** covers the plane and its front door — a request is validated or refused, and
-nothing is listed or copied. SPEC-165/166 add source resolution, the transfer and the terminals.
+arc; **SPEC-164** covers the plane and its front door and **SPEC-165** the source resolution — a
+request is validated or refused, and what would be copied is worked out and written down. Nothing
+is copied. SPEC-166 adds the transfer and the terminals.
 
 The pipeline as it stands:
 
 ```
 Browser → SQS (FIFO requests.fifo) → EventBridge Pipe (batch 1) → Step Function (Standard)
-   ValidateAuthorize → Validated → Succeeded
-        (failure → ValidateFailureSeed → RecordFailure → NotifyFailure → Failed)
+   ValidateAuthorize → Validated → InspectSource → Planned → Succeeded
+        (validate failure → ValidateFailureSeed ─┐)
+        (inspect  failure → InspectFailureSeed  ─┴→ RecordFailure → NotifyFailure → Failed)
 ```
 
 Resource names (defaults; `dat`/`prod`):
@@ -20,9 +22,10 @@ Resource names (defaults; `dat`/`prod`):
 | DLQ | `dat-prod-file-send-requests-dlq.fifo` (swept by the SPEC-126 drain) |
 | Pipe | `dat-prod-file-send-pipe` |
 | State machine | `dat-prod-file-send-orchestrator` |
-| Verb Lambdas | `dat-prod-file-send-{validate-authorize,notify-failure}` |
-| fscommon layer | `dat-prod-file-send-common` (attached to both, beside `cpcommon`) |
+| Verb Lambdas | `dat-prod-file-send-{validate-authorize,inspect-source,notify-failure}` |
+| fscommon layer | `dat-prod-file-send-common` (attached to all three, beside `cpcommon`) |
 | Execution role | `dat-prod-file-send-execution-role` (ONE shared role) |
+| Copy plans | `s3://dat-prod-athena-admin/file-send/{requestId}/copy-plan.json` |
 
 ---
 
@@ -49,8 +52,9 @@ QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-file-send-requests.fifo --qu
 
 ### Check 1 — a valid request reaches the placeholder terminal
 
-The key must name an object that really exists in your own space (validate-authorize does not
-check existence, but SPEC-165 will, and using a real key makes this fixture reusable).
+The key must name an object that **really exists** in your own space. validate-authorize still
+does not check, but since SPEC-165 inspect-source HEADs every `file` item, so a made-up key now
+fails the run with `source_missing` — a correct outcome, just not the one this check is about.
 
 ```bash
 aws sqs send-message --queue-url "$QUEUE" \
@@ -67,7 +71,8 @@ JSON
 
 **Expect, in the execution history:**
 
-- Status **Succeeded**, ending at `Validated` → `Succeeded`.
+- Status **Succeeded**, ending at `Planned` → `Succeeded` (SPEC-164 ended at `Validated`; that
+  state is still there and still the thing to read for everything below).
 - `Validated`'s output carries `actor: {"username": "alice"}` — **from the token, never the body**
   (the body has no username field at all).
 - `recipients` carries `bob` unannotated and `nosuchspace` with `"invalid": "unknown_space"` —
@@ -117,7 +122,7 @@ aws s3 cp "s3://dat-prod-athena-admin/logs/service=file-send/year=$(date -u +%Y)
 
 ### What this discharges, and what it does not
 
-Passing all three discharges SPEC-164's Phase 4. It does **not** touch:
+Passing checks 1–3 discharges SPEC-164's Phase 4. They do **not** touch:
 
 - The **DLQ drain path** — nothing here dead-letters. A malformed body fails *inside* the machine
   and notifies from `NotifyFailure`; reaching the DLQ needs the target to fail repeatedly.
@@ -127,3 +132,130 @@ Passing all three discharges SPEC-164's Phase 4. It does **not** touch:
   break a layer attachment deliberately; not worth doing on a live plane, and the import-safety
   probe covers the packaging.
 - Anything about **copying**. Nothing is copied until SPEC-166.
+
+---
+
+## SPEC-165 — source resolution and the copy plan
+
+**Goal:** prove that a folder is expanded **past the 1,000-key pagination boundary**, that the
+plan's `objectCount` matches the bucket exactly, and that the plan reaches the admin bucket
+carrying what SPEC-166's manifest builder will read.
+
+**Why the pagination is the thing.** Everything else here has a fixture that proves it, and the
+fixture is only ever as honest as the fake that pages for it. A verb that read `Contents` once and
+stopped does not error — it reports 1,000 and copies a silently truncated folder. Against real S3
+the number is either right or it is not.
+
+Runs on top of check 1's setup: same `$TOKEN`, same `$QUEUE`, same username substitution.
+
+### Before you start — build a folder over the boundary
+
+Any prefix in your own space with **more than 1,000 objects**. Cheapest way, ~2 minutes:
+
+```bash
+mkdir -p /tmp/fs-big && for i in $(seq 1 1200); do printf 'row\n' > "/tmp/fs-big/$(printf '%05d' $i).csv"; done
+aws s3 sync /tmp/fs-big "s3://dat-prod-user-space/alice/fs-big/"
+```
+
+Record the truth to compare against — this is the number the whole check turns on:
+
+```bash
+aws s3api list-objects-v2 --bucket dat-prod-user-space --prefix "alice/fs-big/" \
+  --query 'length(Contents)' --output text
+```
+
+### Check 4 — a folder past the pagination boundary is planned whole
+
+```bash
+aws sqs send-message --queue-url "$QUEUE" \
+  --message-group-id "$(printf 'dat-prod-user-space/alice/' | shasum -a 256 | cut -d' ' -f1)" \
+  --message-deduplication-id "fs-live-4" \
+  --message-body "$(cat <<JSON
+{"requestId":"fs-live-4","actor":"$TOKEN",
+ "source":{"space":{"kind":"personal","name":"alice"},
+           "items":[{"kind":"folder","key":"alice/fs-big/"}]},
+ "recipients":[{"kind":"user","name":"bob"}]}
+JSON
+)"
+```
+
+**Expect, in the execution history:**
+
+- Status **Succeeded**, ending at `Planned` → `Succeeded`.
+- `Planned`'s output carries `objectCount` **exactly equal to the `list-objects-v2` count above**
+  — not 1,000, and not one more than the count (the `DO_NOT_DELETE.txt` marker is excluded, but
+  it lives at the space root, not in this folder).
+- `copyPlanKey` is `file-send/fs-live-4/copy-plan.json`, and `totalBytes` is non-zero.
+- **No object key anywhere on the state.** Search the execution's `Planned` output for
+  `00001.csv`: it must not be there. That is the pointer working — at the caps the object list is
+  two orders of magnitude over the 256 KB payload limit.
+
+Then read the plan itself:
+
+```bash
+aws s3 cp s3://dat-prod-athena-admin/file-send/fs-live-4/copy-plan.json - | python3 -m json.tool | head -20
+```
+
+**Expect:** `sender: "alice"`, `source: {bucket, root}`, `objectCount` matching again, and every
+entry carrying `item: "fs-big"`, a `relKey` like `00001.csv` (**relative to the selected folder,
+not the space**), an absolute `srcKey`, and a `size`.
+
+### Check 5 — an overlapping selection is refused, and the sentence is actionable
+
+```bash
+aws sqs send-message --queue-url "$QUEUE" \
+  --message-group-id "$(printf 'dat-prod-user-space/alice/' | shasum -a 256 | cut -d' ' -f1)" \
+  --message-deduplication-id "fs-live-5" \
+  --message-body "$(cat <<JSON
+{"requestId":"fs-live-5","actor":"$TOKEN",
+ "source":{"space":{"kind":"personal","name":"alice"},
+           "items":[{"kind":"folder","key":"alice/fs-big/"},
+                    {"kind":"file","key":"alice/fs-big/00001.csv"}]},
+ "recipients":[{"kind":"user","name":"bob"}]}
+JSON
+)"
+```
+
+**Expect:**
+
+- Status **Failed**, through `InspectFailureSeed → RecordFailure → NotifyFailure → Failed` — the
+  **new** seed, not `ValidateFailureSeed`. If the execution dies with `States.Runtime` before
+  `RecordFailure`, the seed is not supplying `$.raw` and nobody was notified.
+- **A notification in alice's inbox**: *"Couldn't send: one of the folders you selected already
+  contains another thing you selected. Please send one or the other."*
+- **No copy plan written** for `fs-live-5`. `aws s3 ls s3://dat-prod-athena-admin/file-send/fs-live-5/`
+  returns nothing — every layout rule fires before the write.
+- `InspectFailureSeed`'s output carries `actor: {"username": "alice"}`, taken from the state
+  rather than re-derived from the token. That is the difference from the SPEC-164 seed.
+
+### Check 6 — the spans are in the log lake
+
+```bash
+aws s3 cp "s3://dat-prod-athena-admin/logs/service=file-send/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/data.jsonl" - | tail -20
+```
+
+**Expect:** a `copy plan built` event for run 4 carrying `objects`, `bytes` and `items`, with
+`verb: inspect-source`; and for run 5 a failed span. **No object key, no token, no file contents
+in any field** — `objects` is a count, and the keys live in the plan the event points at.
+
+### Clean up
+
+```bash
+aws s3 rm --recursive "s3://dat-prod-user-space/alice/fs-big/"
+```
+
+The copy plans expire on their own (`expire-file-send-copy-plans`, `modules/analytics/s3.tf`) and
+the execution role holds an explicit `Deny s3:DeleteObject` on the admin bucket, so there is
+nothing to tidy there and nothing that could tidy it.
+
+### What this discharges, and what it does not
+
+Passing 4–6 discharges SPEC-165's Phase 4. It does **not** touch:
+
+- **The caps.** 20,000 objects and 1 TiB are not reachable by hand, and their models are computed
+  in `test_config_fscommon.py` against the verb's configured memory and the transfer engine's
+  makespan rate. What check 4 does prove is the term those models rest on — that the listing is
+  complete.
+- **The destination layout.** `fscommon.paths.destination_key` ships here and nothing calls it
+  until SPEC-166; no key is written to any recipient's space by this spec.
+- Anything about **copying**. Still nothing is copied until SPEC-166.
